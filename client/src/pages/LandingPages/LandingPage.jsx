@@ -9,8 +9,8 @@ const LandingPage = () => {
   return (
     <>
         <Home />
-        <Services />
         <About />
+        <Services />
         <Doctors />
         <Contact />
     </>
