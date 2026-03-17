@@ -8,7 +8,7 @@ const About = () => {
         {/* IMAGE */}
         <div className="relative">
           <img
-            src="/aboutClinic.png"
+            src="/about/aboutClinic.png"
             alt="Carait Medical and Dermatology Clinic"
             className="rounded-2xl shadow-lg w-full object-cover"
           />

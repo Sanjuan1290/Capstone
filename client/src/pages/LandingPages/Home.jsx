@@ -1,3 +1,5 @@
+import { NavLink } from "react-router-dom"
+
 const Home = () => {
   return (
     <section
@@ -36,12 +38,12 @@ const Home = () => {
         {/* BUTTONS */}
         <div className="flex flex-col sm:flex-row gap-4 mt-4">
 
-          <a
-            href="#book"
-            className="bg-blue-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-blue-700 transition duration-300 shadow-md"
+          <NavLink
+            to="/register"
+            className="bg-blue-600 text-white text-sm font-semibold px-5 py-3 rounded-lg hover:bg-blue-700 transition duration-300"
           >
-            Book an Appointment
-          </a>
+            Book Appointment
+          </NavLink>
 
           <a
             href="#about"
