@@ -42,14 +42,14 @@ const Layout = () => {
         {/* ACTION BUTTONS */}
         <div className="flex items-center gap-4">
           <NavLink
-            href="/login"
+            to="/patient/login"
             className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors duration-300"
           >
             Log in
           </NavLink>
 
           <NavLink
-            to="/register"
+            to="/patient/register"
             className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300"
           >
             Book Appointment
