@@ -5,13 +5,12 @@ import {
   Route } from 'react-router-dom'
 
 import Layout from './components/layouts/Layout'
-
-import Home from './pages/LandingPages/Home'
+import LandingPage from './pages/LandingPages/LandingPage'
 
 const App = () => {
   const router = createBrowserRouter(createRoutesFromElements(
     <Route path='/' element={<Layout />}>
-      <Route index element={<Home />} />
+      <Route index element={<LandingPage />} />
     </Route>
   ))
   return (
