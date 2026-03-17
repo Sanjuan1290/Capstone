@@ -1,5 +1,7 @@
 import { Outlet, NavLink } from "react-router-dom"
 import logo from "../../assets/logo.png"
+import { FaFacebook } from "react-icons/fa";
+
 
 const Layout = () => {
 
@@ -63,6 +65,13 @@ const Layout = () => {
       </header>
 
       <Outlet />
+
+      <footer className="text-gray-50 flex items-center justify-around bg-[rgb(43,125,111)]">
+        <p>©2023 by Carait Medical and Dermatology Clinic</p>
+        <NavLink target="_blank" to={"https://www.facebook.com/carait.mdc?mibextid=LQQJ4d"}>
+          <FaFacebook />
+        </NavLink>
+      </footer>
     </>
   )
 }
