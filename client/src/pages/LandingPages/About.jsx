@@ -2,6 +2,7 @@ const About = () => {
   return (
     <section id="about" className="py-24 px-10 bg-white scroll-mt-24">
 
+      {/* CLINIC INFO */}
       <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-14 items-center">
 
         {/* IMAGE */}
@@ -74,8 +75,39 @@ const About = () => {
 
       </div>
 
+      {/* TESTIMONIAL SECTION */}
+      <div className="mt-24 max-w-7xl mx-auto">
+
+        <div className="grid md:grid-cols-2 items-center gap-10 bg-[#E6F4F1] rounded-2xl shadow-lg p-12">
+
+          {/* TEXT */}
+          <div className="flex flex-col gap-4">
+            <h2 className="text-4xl font-semibold text-teal-800">
+              WHAT OUR PATIENTS <br /> SAY ABOUT US
+            </h2>
+            <p className="text-teal-600 font-medium text-lg">Only the Best</p>
+            <p className="text-teal-700 leading-relaxed text-lg max-w-md">
+              “Thank you dra for making us beautiful and gwapod as can be. Our monthly IPL and microneedling all paid off. Thank you for removing my 10 step Korean skincare regimen and working your magic on us.”
+            </p>
+          </div>
+
+          {/* IMAGE */}
+          <div className="relative">
+            <img
+              src="/about/feedback.png"
+              alt="Patient Feedback"
+              className="rounded-2xl shadow-lg w-full object-cover"
+            />
+            {/* Optional accent bar */}
+            <div className="absolute -bottom-4 left-0 w-24 h-1 bg-teal-800 rounded"></div>
+          </div>
+
+        </div>
+
+      </div>
+
     </section>
   )
 }
 
-export default About
+export default About;
