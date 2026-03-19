@@ -5,12 +5,18 @@ const express = require('express')
 const cors = require('cors')
 const app = express()
 const db = require('./db/connect')
+const cookieParser = require('cookie-parser')
+
 
 const patientRouter = require('./routers/patient.router')
 const PORT = process.env.PORT || 3000
 
-app.use(cors())
 app.use(express.json())
+app.use(cors({
+    origin: "http://localhost:5173", // your frontend
+    credentials: true // required for cookiemuschie
+}))
+app.use(cookieParser())
 
 
 app.use('/api/v1/patient', patientRouter)
