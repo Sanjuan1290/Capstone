@@ -4,6 +4,7 @@ require('express-async-errors')
 const express = require('express')
 const cors = require('cors')
 const app = express()
+const db = require('./db/connect')
 
 const patientRouter = require('./routers/patient.router')
 const PORT = process.env.PORT || 3000
@@ -21,6 +22,9 @@ app.use((err, req, res, next) => {
 
 const start = async () => {
     try {
+        const [rows] = await db.query('SELECT 1 AS result')
+        console.log(`✅ MySQL connected! Test query result: ${rows[0].result}`);
+
         app.listen(PORT, () => {
             console.log(`Server running on PORT: ${PORT}`)
         })

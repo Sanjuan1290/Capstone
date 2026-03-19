@@ -33,7 +33,7 @@ const PatientLogin = () => {
       <div className='flex flex-col gap-2 my-6 px-12'>
         <label className='flex flex-col gap-1'>
           <p className='text-gray-500 font-semibold'>EMAIL ADDRESS</p>
-          <input type="text" placeholder='you@example.com' className='border-[1px] border-gray-400 w-full py-3 px-4 rounded-md'
+          <input required type="text" placeholder='you@example.com' className='border-[1px] border-gray-400 w-full py-3 px-4 rounded-md'
           name='email'
           onChange={handleFormChange}
           value={form.email}/>
@@ -44,7 +44,7 @@ const PatientLogin = () => {
             <p className='text-gray-500 font-semibold'>PASSWORD</p>
             <NavLink to="/forgot-password" className='text-[rgb(43,124,110)] font-semibold'>Forgot password?</NavLink>
           </div>
-          <input type={showPassword ? 'text' : 'password'} placeholder='********' className='border-[1px] border-gray-400 w-full py-3 px-4 rounded-md'
+          <input required type={showPassword ? 'text' : 'password'} placeholder='********' className='border-[1px] border-gray-400 w-full py-3 px-4 rounded-md'
           name='password'
           onChange={handleFormChange}
           value={form.password}/>

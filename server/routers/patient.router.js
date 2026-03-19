@@ -5,3 +5,5 @@ const { register, login } = require('../controllers/patient.controller')
 
 router.post('/register', register)
 router.post('/login', login)
+
+module.exports = router
