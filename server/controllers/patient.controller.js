@@ -1,6 +1,6 @@
 const db = require('../db/connect')           // your mysql2 pool
 const bcrypt = require('bcrypt')
-const jwt = require('json-web-token')
+const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
 
 // Secret for JWT
@@ -8,6 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey"
 
 // ================= REGISTER =================
 const register = async (req, res) => {
+  console.log('registering patient');
   try {
     const { fullName, birthdate, sex, civilStatus, phone, address, email, password, confirmPassword } = req.body
 
@@ -38,7 +39,7 @@ const register = async (req, res) => {
     )
 // ✅ Generate JWT
     const token = jwt.sign({ id: result.insertId, email }, JWT_SECRET, { expiresIn: '7d' })
-    generateCookie(token)
+    generateCookie(res, token)
 
     res.status(201).json({
       message: "Patient registered successfully",
@@ -54,6 +55,7 @@ const register = async (req, res) => {
 
 // ================= LOGIN =================
 const login = async (req, res) => {
+  console.log('patient loggin in...');
   try {
     const { email, password } = req.body
 
@@ -77,8 +79,8 @@ const login = async (req, res) => {
     }
 
     // ✅ Generate JWT
-    const token = jwt.sign({ id: result.insertId, email }, JWT_SECRET, { expiresIn: '7d' })
-    generateCookie(token)
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' })
+    generateCookie(res, token)
 
     res.json({
       message: "Login successful",
@@ -91,4 +93,31 @@ const login = async (req, res) => {
   }
 }
 
-module.exports = { register, login }
+const checkAuth = (req, res) => {
+  try {
+    // Read the token from the cookie
+    const token = req.cookies.token;
+
+    // If no token, user is not authenticated
+    if (!token) {
+      return res.json({ authenticated: false });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // Send back user info (or just authenticated: true)
+    return res.json({
+      authenticated: true,
+      user: {
+        id: decoded.id,
+        email: decoded.email,
+      },
+    });
+  } catch (err) {
+    // Invalid token or expired
+    return res.json({ authenticated: false });
+  }
+};
+
+module.exports = { register, login, checkAuth }

@@ -1,5 +1,5 @@
 
-function generateCookie(token) {
+function generateCookie(res, token) {
     
     // ✅ Set HTTP-only cookie
     res.cookie("token", token, {

@@ -17,6 +17,8 @@ const App = () => {
 
       <Route path='/patient/register' element={<PatientRegister />}/>
       <Route path='/patient/login' element={<PatientLogin />}/>
+
+      
     </Route>
   ))
   return (
