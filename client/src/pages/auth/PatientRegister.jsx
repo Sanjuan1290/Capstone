@@ -1,6 +1,6 @@
 // src/PatientRegister.jsx
 import { useState } from "react";
-import logo from '../../assets/logo.png';
+import logo from '../../assets/logo-removebg.png';
 import { FaEye as EyeIcon } from "react-icons/fa";
 import { FaEyeSlash as EyeOffIcon } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
@@ -67,13 +67,13 @@ const PatientRegister = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[rgb(240,250,247)] to-[rgb(225,242,238)] p-6">
-      <div className="w-full max-w-2xl bg-white shadow-xl shadow-green-900/10 rounded-3xl overflow-hidden">
+      <div className="w-full max-w-2xl bg-white shadow-xl shadow-green-900/10 rounded-3xl overflow-hidden mb-20">
 
         {/* Header Banner */}
         <div className="bg-[rgb(43,124,110)] px-10 py-8 text-center">
           <div className="flex justify-center mb-4">
-            <div className="bg-white/20 rounded-2xl p-3">
-              <img src={logo} alt="Clinic Logo" className="w-16 h-16 object-contain" />
+            <div className=" rounded-2xl p-3">
+              <img src={logo} alt="Clinic Logo" className="border border-white rounded-full w-16 h-16 object-contain" />
             </div>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-wide">Patient Registration</h1>

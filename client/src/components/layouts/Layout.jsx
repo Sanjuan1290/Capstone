@@ -60,7 +60,7 @@ const Layout = () => {
 
       <Outlet />
 
-      <footer className="text-gray-50 flex items-center justify-around bg-[rgb(43,125,111)] py-4">
+      <footer className="fixed bottom-0 left-0 right-0 text-gray-50 flex items-center justify-around bg-[rgb(43,125,111)] py-4">
         <p>©2023 by Carait Medical and Dermatology Clinic</p>
 
         <a
