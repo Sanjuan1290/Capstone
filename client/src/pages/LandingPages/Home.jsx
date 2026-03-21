@@ -39,7 +39,7 @@ const Home = () => {
         <div className="flex flex-col sm:flex-row gap-4 mt-4">
 
           <NavLink
-            to="/register"
+            to="/patient/register"
             className="bg-blue-600 text-white text-sm font-semibold px-5 py-3 rounded-lg hover:bg-blue-700 transition duration-300"
           >
             Book Appointment

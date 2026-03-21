@@ -2,7 +2,8 @@ import {
   RouterProvider, 
   createBrowserRouter, 
   createRoutesFromElements, 
-  Route } from 'react-router-dom'
+  Route, 
+  Navigate} from 'react-router-dom'
 
 import Layout from './components/layouts/Layout'
 import LandingPage from './pages/landingPages/LandingPage'
@@ -10,16 +11,29 @@ import LandingPage from './pages/landingPages/LandingPage'
 import PatientRegister from './pages/auth/PatientRegister'
 import PatientLogin from './pages/auth/PatientLogin'
 
+//patient pages
+import Dashboard from './pages/patientPage/Dashboard'
+import PatientRoute from './components/PatientRoute'
+import PatientAuthRoute from './components/PatientAuthRoute'
+
 const App = () => {
   const router = createBrowserRouter(createRoutesFromElements(
-    <Route path='/' element={<Layout />}>
-      <Route index element={<LandingPage />} />
+    <>
+      <Route path='/' element={<Layout />}>
+        <Route index element={<LandingPage />} />
 
-      <Route path='/patient/register' element={<PatientRegister />}/>
-      <Route path='/patient/login' element={<PatientLogin />}/>
+        <Route path='/patient/register' element={<PatientAuthRoute><PatientRegister /></PatientAuthRoute>}/>
+        <Route path='/patient/login' element={<PatientAuthRoute><PatientLogin /></PatientAuthRoute>}/>
+          
+        <Route path='/patient' element={<Navigate to={'/patient/dashboard'}/>}/>
+        <Route path='/patient/dashboard' element={
+          <PatientRoute>
+            <Dashboard />
+          </PatientRoute>
+        }/>
+      </Route>
 
-      
-    </Route>
+    </>
   ))
   return (
     <RouterProvider router={router}/>

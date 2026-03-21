@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import logo from '../../assets/logo-removebg.png'
 import { FaRegEye } from "react-icons/fa";
 import { FaRegEyeSlash } from "react-icons/fa";
@@ -12,6 +12,7 @@ const PatientLogin = () => {
     password: '',
   })  
   const [showPassword, setShowPassword] = useState(false)
+  const navigate = useNavigate()
 
   function handleFormChange(e) {
     const { name, value } = e.target
@@ -22,8 +23,38 @@ const PatientLogin = () => {
       }
     ))
   }
+
+  async function handleLogin(e) {
+    e.preventDefault()
+
+    try{
+      const res = await fetch('http://localhost:3000/api/v1/patient/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify(form)
+      })
+
+      const data = await res.json()
+
+      if(!res.ok){
+        alert(data.message)
+      }
+
+      console.log(('Login Success:', data));
+      navigate('/patient/dashboard')
+      
+
+    }catch(err){
+      console.error(err);
+      alert('Something went wrong!')
+    }
+  }
+
   return (
-    <form className='absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 flex flex-col rounded-xl w-[500px] bg-gray-100 '>
+    <form onSubmit={handleLogin} className='absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 flex flex-col rounded-xl w-[500px] bg-gray-100 '>
       <div className='text-gray-50 flex flex-col gap-2 items-center py-8 bg-[rgb(43,124,110)] rounded-t-xl'>
         <img src={logo} alt="Carait Clinic Logo" className='border rounded-full'/>
         <h3 className=' font-semibold text-2xl'>Welcome Back</h3>
@@ -58,7 +89,7 @@ const PatientLogin = () => {
         </label>
 
           <button className='bg-[rgb(43,124,110)] text-gray-50 mt-8 font-semibold py-3 rounded-md'>SIGN IN</button>
-          <p className='text-center'>Don't have an account? <NavLink to={'/register'} className={'text-[rgb(43,124,110)]  cursor-pointer hover:text-[rgb(39,109,98)] duration-300'}>Register here</NavLink></p>
+          <p className='text-center'>Don't have an account? <NavLink to={'/patient/register'} className={'text-[rgb(43,124,110)]  cursor-pointer hover:text-[rgb(39,109,98)] duration-300'}>Register here</NavLink></p>
       </div>
     </form>
   )

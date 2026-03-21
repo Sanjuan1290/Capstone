@@ -1,8 +1,9 @@
-import { NavLink, Outlet } from "react-router-dom"
+import { NavLink, Outlet, useLocation } from "react-router-dom"
 import logo from "../../assets/logo.png"
 import { FaFacebook } from "react-icons/fa"
 
 const Layout = () => {
+  const location = useLocation()
 
   const navLinks = [
     { name: "Home", path: "#home" },
@@ -12,9 +13,8 @@ const Layout = () => {
     { name: "Contact", path: "#contact" }
   ]
 
-  return (
-    <div className="scroll-smooth">
-
+  if(location.pathname === '/' || location.pathname === '/patient/register' || location.pathname === '/patient/login' ) {
+    return <div className="scroll-smooth">
       <header className="flex items-center justify-between px-10 py-4 bg-white shadow-sm sticky top-0 z-50">
 
         {/* LOGO */}
@@ -30,7 +30,7 @@ const Layout = () => {
           {navLinks.map((nl) => (
             <li key={nl.path}>
               <a
-                href={nl.path}
+                href={location.pathname === '/' ? nl.path : '/'}
                 className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors duration-300"
               >
                 {nl.name}
@@ -73,7 +73,12 @@ const Layout = () => {
       </footer>
 
     </div>
-  )
+  }
+  return <>
+    <Outlet />
+  </>
+
+  
 }
 
 export default Layout

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-const PatientRoute = ({ children }) => {
+
+const PatientAuthRoute = ({ children }) => {
   const [isAuth, setIsAuth] = useState(null);
   const navigate = useNavigate()
 
@@ -14,9 +15,9 @@ const PatientRoute = ({ children }) => {
   }, []);
 
   if (isAuth === null) return <h1>Loading...</h1>;
-  if (!isAuth) return navigate('/patient/login'); // or redirect
+  if (isAuth) return navigate('/patient/dashboard'); // or redirect
 
   return <>{children}</>;
 };
 
-export default PatientRoute;
+export default PatientAuthRoute;
