@@ -44,7 +44,7 @@ const PatientLogin = () => {
       }
 
       console.log(('Login Success:', data));
-      navigate('/patient/dashboard')
+      navigate('/patient')
       
 
     }catch(err){

@@ -15,7 +15,7 @@ const PatientAuthRoute = ({ children }) => {
   }, []);
 
   if (isAuth === null) return <h1>Loading...</h1>;
-  if (isAuth) return navigate('/patient/dashboard'); // or redirect
+  if (isAuth) return navigate('/patient'); // or redirect
 
   return <>{children}</>;
 };
