@@ -17,6 +17,10 @@ import PatientRoute from './components/PatientRoute'
 import PatientAuthRoute from './components/PatientAuthRoute'
 
 import PatientLayout from './components/layouts/PatientLayout'
+import BookAppointment from './pages/patientPage/BookAppointment'
+import MyAppointments from './pages/patientPage/MyAppointments'
+import History from './pages/patientPage/History'
+import RescheduleAppointment from './pages/patientPage/ResheduleAppointment'
 
 const App = () => {
   const router = createBrowserRouter(createRoutesFromElements(
@@ -31,6 +35,26 @@ const App = () => {
           <Route index element={
             <PatientRoute>
               <Dashboard />
+            </PatientRoute>
+          }/>
+          <Route path='book' element={
+            <PatientRoute>
+              <BookAppointment />
+            </PatientRoute>
+          }/>
+          <Route path='appointments' element={
+            <PatientRoute>
+              <MyAppointments />
+            </PatientRoute>
+          }/>
+          <Route path='reschedule-appointment' element={
+            <PatientRoute>
+              <RescheduleAppointment />
+            </PatientRoute>
+          }/>
+          <Route path='history' element={
+            <PatientRoute>
+              <History />
             </PatientRoute>
           }/>
 
