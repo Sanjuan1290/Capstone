@@ -69,10 +69,10 @@ const App = () => {
 
         </Route>
           
+        <Route path='/staff/login' element={<StaffLogin />}/>
+          
         <Route path='/staff' element={<StaffLayout />}>
           <Route index element={<Staff_Dashboard />}/>
-
-          <Route path='login' element={<StaffLogin />}/>
 
           <Route path='appointments' element={<Staff_Appointments />}/>
           <Route path='walkin' element={<Staff_WalkInQueue />}/>
