@@ -28,6 +28,7 @@ import Staff_Appointments from './pages/staffPage/Staff_Appointments'
 import Staff_WalkInQueue from './pages/staffPage/Staff_WalkInQueue'
 import Staff_PatientRecord from './pages/staffPage/Staff_PatientRecord'
 import StaffLogin from './pages/auth/Staff/StaffLogin'
+import Staff_Inventory from './pages/staffPage/Staff_Inventory'
 
 const App = () => {
   const router = createBrowserRouter(createRoutesFromElements(
@@ -75,6 +76,7 @@ const App = () => {
 
           <Route path='appointments' element={<Staff_Appointments />}/>
           <Route path='walkin' element={<Staff_WalkInQueue />}/>
+          <Route path='inventory' element={<Staff_Inventory />}/>
           <Route path='patient-records' element={<Staff_PatientRecord />}/>
         </Route>
       

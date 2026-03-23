@@ -1,6 +1,6 @@
 // src/PatientRegister.jsx
 import { useState } from "react";
-import logo from '../../assets/logo-removebg.png';
+import logo from '../../../assets/logo-removebg.png';
 import { FaEye as EyeIcon } from "react-icons/fa";
 import { FaEyeSlash as EyeOffIcon } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
