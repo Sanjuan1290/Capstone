@@ -43,8 +43,8 @@ const quickActions = [
   { label: "Appointment History", icon: MdHistory        },
 ]
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
-const Dashboard = () => {
+// ── PatientDashboard ─────────────────────────────────────────────────────────────────
+const PatientDashboard = () => {
   const [appointment] = useState(nextAppointment)
 
   return (
@@ -252,4 +252,4 @@ const Dashboard = () => {
   )
 }
 
-export default Dashboard
+export default PatientDashboard
