@@ -123,4 +123,18 @@ const logout = async (req, res) => {
   }
 }
 
+
+const bookAppointment = async(req, res) => {
+
+}
+
+const getAppointmentList = async(req, res) => {
+  const { name, reason, Id, filter } = req.params //filter = Confirmed, Pending, Completed, Cancelled else All
+}
+
+const getAppointmentHistory = async(req, res) => {
+
+}
+
+
 module.exports = { register, login, checkAuth, logout }
