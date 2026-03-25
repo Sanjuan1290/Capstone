@@ -11,7 +11,7 @@ const sideNav = [
   { name: "Dashboard",       path: "/staff",                 icon: MdDashboard      },
   { name: "Appointments",    path: "/staff/appointments",    icon: MdEventAvailable },
   { name: "Walk-in Queue",   path: "/staff/walkin",          icon: MdQueuePlayNext  },
-  { name: "Patient Records", path: "/staff/patient-records", icon: MdPeople         },
+  { name: "Patient Appointment History", path: "/staff/patient-records", icon: MdPeople         },
   { name: "Inventory",       path: "/staff/inventory",       icon: MdInventory2     },
 ]
 

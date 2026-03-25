@@ -10,7 +10,6 @@ import {
 const sideNav = [
   { name: "Dashboard",           path: "/doctor",                      icon: MdDashboard       },
   { name: "Daily Appointments",  path: "/doctor/daily-appointments",   icon: MdCalendarToday   },
-  { name: "Consultation",        path: "/doctor/consultation",         icon: MdMedicalServices },
   { name: "Supply Requests",     path: "/doctor/request",              icon: MdInventory2      },
 ]
 
