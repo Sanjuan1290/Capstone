@@ -29,6 +29,12 @@ import Staff_WalkInQueue from './pages/staffPage/Staff_WalkInQueue'
 import Staff_PatientRecord from './pages/staffPage/Staff_PatientRecord'
 import StaffLogin from './pages/auth/Staff/StaffLogin'
 import Staff_Inventory from './pages/staffPage/Staff_Inventory'
+import DoctorLogin from './pages/auth/Doctor/DoctorLogin'
+import DoctorLayout from './components/layouts/DoctorLayout'
+import Doctor_Dashboard from './pages/doctorPage/Doctor_Dashboard'
+import Doctor_DailyAppointments from './pages/doctorPage/Doctor_DailyAppointments'
+import Doctor_Consultation from './pages/doctorPage/Doctor_Consultation'
+import Doctor_Request from './pages/doctorPage/Doctor_Request'
 
 const App = () => {
   const router = createBrowserRouter(createRoutesFromElements(
@@ -78,6 +84,15 @@ const App = () => {
           <Route path='walkin' element={<Staff_WalkInQueue />}/>
           <Route path='inventory' element={<Staff_Inventory />}/>
           <Route path='patient-records' element={<Staff_PatientRecord />}/>
+        </Route>
+
+        <Route path='/doctor/login' element={<DoctorLogin />}/>
+
+        <Route path='/doctor' element={<DoctorLayout />}>
+          <Route index element={<Doctor_Dashboard />}/>
+          <Route path='daily-appointments' element={<Doctor_DailyAppointments />}/>
+          <Route path='consultation' element={<Doctor_Consultation />} />
+          <Route path='request' element={<Doctor_Request />} />
         </Route>
       
       </Route>
