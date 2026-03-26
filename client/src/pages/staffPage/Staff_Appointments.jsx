@@ -1,77 +1,11 @@
-import { useState } from "react"
+import { useEffect, useState } from 'react'
+import { getAppointments, confirmAppointment, cancelAppointment } from '../../services/staff.service'
 import {
   MdSearch, MdClose, MdCheck, MdCancel, MdRefresh,
   MdChevronRight, MdCalendarToday, MdAccessTime,
   MdFace, MdMedicalServices, MdPerson, MdNotes,
-  MdLocalHospital, MdAdd, MdArrowBack, MdFilterList
+  MdLocalHospital, MdAdd, MdArrowBack, MdEventAvailable
 } from "react-icons/md"
-
-// ── Mock Data ─────────────────────────────────────────────────────────────────
-const appointments = [
-  {
-    id: "APT-001", patient: "Maria Cruz",       patientId: "PAT-001",
-    type: "derma",   clinic: "Dermatology",
-    doctor: "Dr. Maria Santos", specialty: "Dermatologist",
-    date: "March 23, 2026", time: "9:00 AM",   duration: "30 minutes",
-    reason: "Acne Treatment Follow-up", status: "confirmed",
-    notes: "Bring previous prescriptions. No skincare 2hrs before.",
-    address: "Carait Medical Clinic, 2F Dela Rosa Bldg., Quezon City",
-  },
-  {
-    id: "APT-002", patient: "Jose Dela Cruz",   patientId: "PAT-002",
-    type: "medical", clinic: "General Medicine",
-    doctor: "Dr. Jose Reyes",   specialty: "General Practitioner",
-    date: "March 23, 2026", time: "9:30 AM",   duration: "45 minutes",
-    reason: "Annual Check-up", status: "confirmed",
-    notes: "Fasting required 8 hours prior.",
-    address: "Carait Medical Clinic, 2F Dela Rosa Bldg., Quezon City",
-  },
-  {
-    id: "APT-003", patient: "Ana Villanueva",   patientId: "PAT-003",
-    type: "derma",   clinic: "Dermatology",
-    doctor: "Dr. Carlo Lim",    specialty: "Cosmetic Dermatology",
-    date: "March 23, 2026", time: "10:00 AM",  duration: "30 minutes",
-    reason: "Skin Brightening Consultation", status: "pending",
-    notes: "",
-    address: "Carait Dermatologic Clinic, GF Dela Rosa Bldg., Quezon City",
-  },
-  {
-    id: "APT-004", patient: "Carlo Santos",     patientId: "PAT-004",
-    type: "medical", clinic: "General Medicine",
-    doctor: "Dr. Jose Reyes",   specialty: "General Practitioner",
-    date: "March 23, 2026", time: "10:30 AM",  duration: "20 minutes",
-    reason: "Fever and Cough", status: "confirmed",
-    notes: "Patient reports 3-day fever.",
-    address: "Carait Medical Clinic, 2F Dela Rosa Bldg., Quezon City",
-  },
-  {
-    id: "APT-005", patient: "Rosa Reyes",       patientId: "PAT-005",
-    type: "derma",   clinic: "Dermatology",
-    doctor: "Dr. Maria Santos", specialty: "Dermatologist",
-    date: "March 24, 2026", time: "11:00 AM",  duration: "30 minutes",
-    reason: "Initial Skin Assessment", status: "pending",
-    notes: "",
-    address: "Carait Medical Clinic, 2F Dela Rosa Bldg., Quezon City",
-  },
-  {
-    id: "APT-006", patient: "Lito Manalo",      patientId: "PAT-006",
-    type: "medical", clinic: "General Medicine",
-    doctor: "Dr. Ana Villanueva", specialty: "Internal Medicine",
-    date: "March 24, 2026", time: "2:00 PM",   duration: "30 minutes",
-    reason: "Blood Pressure Follow-up", status: "confirmed",
-    notes: "Bring maintenance medication list.",
-    address: "Carait Medical Clinic, 2F Dela Rosa Bldg., Quezon City",
-  },
-  {
-    id: "APT-007", patient: "Grace Tan",        patientId: "PAT-007",
-    type: "derma",   clinic: "Dermatology",
-    doctor: "Dr. Carlo Lim",    specialty: "Cosmetic Dermatology",
-    date: "March 25, 2026", time: "3:00 PM",   duration: "45 minutes",
-    reason: "Cosmetic Consultation", status: "cancelled",
-    notes: "Patient-requested cancellation.",
-    address: "Carait Dermatologic Clinic, GF Dela Rosa Bldg., Quezon City",
-  },
-]
 
 const STATUS_CONFIG = {
   confirmed: { label: "Confirmed", badge: "bg-emerald-50 text-emerald-700 border-emerald-200", row: "border-l-emerald-400" },
@@ -90,7 +24,7 @@ const TABS = [
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 const DetailPanel = ({ appt, onClose, onConfirm, onCancel }) => {
   if (!appt) return null
-  const cfg  = STATUS_CONFIG[appt.status]
+  const cfg  = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
   const Icon = appt.type === "derma" ? MdFace : MdMedicalServices
   const isActive = appt.status === "confirmed" || appt.status === "pending"
 
@@ -120,11 +54,11 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel }) => {
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Patient</p>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-[#0b1a2c] flex items-center justify-center text-sky-400 font-bold text-xs shrink-0">
-              {appt.patient.split(" ").map(n => n[0]).join("").slice(0,2)}
+              {appt.patient?.split(" ").map(n => n[0]).join("").slice(0,2) || 'PT'}
             </div>
             <div>
               <p className="text-sm font-bold text-slate-800">{appt.patient}</p>
-              <p className="text-xs text-slate-500 font-mono">{appt.patientId}</p>
+              <p className="text-xs text-slate-500 font-mono">{appt.patientId || 'N/A'}</p>
             </div>
           </div>
         </div>
@@ -145,12 +79,6 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel }) => {
               </p>
               <p className="text-sm font-semibold text-slate-800">{appt.time}</p>
             </div>
-            <div>
-              <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
-                <MdAccessTime className="text-[11px]" /> Duration
-              </p>
-              <p className="text-sm font-semibold text-slate-800">{appt.duration}</p>
-            </div>
           </div>
         </div>
 
@@ -159,11 +87,11 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel }) => {
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Doctor</p>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-[#0b1a2c] flex items-center justify-center text-emerald-400 font-bold text-xs shrink-0">
-              {appt.doctor.split(" ").slice(1).map(n => n[0]).join("")}
+               {appt.doctor?.split(" ").slice(-1)[0][0] || 'DR'}
             </div>
             <div>
               <p className="text-sm font-bold text-slate-800">{appt.doctor}</p>
-              <p className="text-xs text-slate-500">{appt.specialty}</p>
+              <p className="text-xs text-slate-500">{appt.specialty || 'Medical Specialist'}</p>
             </div>
           </div>
         </div>
@@ -174,10 +102,6 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel }) => {
           <div>
             <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5"><MdPerson className="text-[11px]" /> Reason</p>
             <p className="text-sm font-semibold text-slate-800">{appt.reason}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5"><MdLocalHospital className="text-[11px]" /> Clinic</p>
-            <p className="text-sm font-semibold text-slate-800">{appt.address}</p>
           </div>
           {appt.notes && (
             <div>
@@ -216,7 +140,7 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel }) => {
 
 // ── Row ───────────────────────────────────────────────────────────────────────
 const AppointmentRow = ({ appt, isSelected, onSelect }) => {
-  const cfg  = STATUS_CONFIG[appt.status]
+  const cfg  = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
   const Icon = appt.type === "derma" ? MdFace : MdMedicalServices
   return (
     <button
@@ -251,10 +175,44 @@ const AppointmentRow = ({ appt, isSelected, onSelect }) => {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const Staff_Appointments = () => {
-  const [data,      setData]      = useState(appointments)
-  const [activeTab, setActiveTab] = useState("all")
-  const [search,    setSearch]    = useState("")
-  const [selected,  setSelected]  = useState(appointments[0])
+  const [data,       setData]       = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [activeTab,  setActiveTab]  = useState("all")
+  const [search,     setSearch]     = useState("")
+  const [selected,   setSelected]   = useState(null)
+
+  useEffect(() => {
+    getAppointments()
+      .then(rows => {
+        setData(rows)
+        if (rows.length > 0) setSelected(rows[0])
+      })
+      .catch((err) => console.error("Fetch error:", err))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleConfirm = async (id) => {
+    try {
+      await confirmAppointment(id)
+      const update = (prev) => prev.map(a => a.id === id ? { ...a, status: 'confirmed' } : a)
+      setData(update)
+      setSelected(s => s?.id === id ? { ...s, status: 'confirmed' } : s)
+    } catch (err) {
+      alert("Failed to confirm appointment.")
+    }
+  }
+
+  const handleCancel = async (id) => {
+    if (!confirm('Cancel this appointment?')) return
+    try {
+      await cancelAppointment(id)
+      const update = (prev) => prev.map(a => a.id === id ? { ...a, status: 'cancelled' } : a)
+      setData(update)
+      setSelected(s => s?.id === id ? { ...s, status: 'cancelled' } : s)
+    } catch (err) {
+      alert("Failed to cancel appointment.")
+    }
+  }
 
   const counts = TABS.reduce((acc, t) => {
     acc[t.key] = t.key === "all" ? data.length : data.filter(a => a.status === t.key).length
@@ -270,13 +228,12 @@ const Staff_Appointments = () => {
     return matchTab && matchSearch
   })
 
-  const handleConfirm = id => {
-    setData(d => d.map(a => a.id === id ? { ...a, status: "confirmed" } : a))
-    setSelected(s => s?.id === id ? { ...s, status: "confirmed" } : s)
-  }
-  const handleCancel = id => {
-    setData(d => d.map(a => a.id === id ? { ...a, status: "cancelled" } : a))
-    setSelected(s => s?.id === id ? { ...s, status: "cancelled" } : s)
+  if (loading) {
+    return (
+      <div className="h-96 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0b1a2c]"></div>
+      </div>
+    )
   }
 
   return (
@@ -292,7 +249,7 @@ const Staff_Appointments = () => {
         </button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex" style={{ minHeight: "600px" }}>
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex shadow-sm" style={{ minHeight: "600px" }}>
         {/* List */}
         <div className="flex flex-col border-r border-slate-100 w-full lg:w-[440px] shrink-0">
           <div className="px-4 pt-4 pb-3 border-b border-slate-100 space-y-3">
@@ -307,7 +264,7 @@ const Staff_Appointments = () => {
                 </button>
               )}
             </div>
-            <div className="flex gap-0.5 overflow-x-auto pb-0.5">
+            <div className="flex gap-0.5 overflow-x-auto pb-0.5 scrollbar-hide">
               {TABS.map(({ key, label }) => (
                 <button key={key} onClick={() => setActiveTab(key)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all duration-150
@@ -333,11 +290,6 @@ const Staff_Appointments = () => {
               <AppointmentRow key={appt.id} appt={appt}
                 isSelected={selected?.id === appt.id} onSelect={setSelected} />
             ))}
-          </div>
-          <div className="px-5 py-3 border-t border-slate-100 shrink-0">
-            <p className="text-[11px] text-slate-400 font-medium">
-              Showing {filtered.length} of {data.length} appointments
-            </p>
           </div>
         </div>
 

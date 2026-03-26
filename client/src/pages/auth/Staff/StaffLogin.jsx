@@ -2,13 +2,15 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import logo from '../../../assets/logo-removebg.png'
 import { MdEmail, MdLock, MdVisibility, MdVisibilityOff } from "react-icons/md"
+import { useAuth } from '../../../context/AuthContext' // 1. Imported useAuth
 
 const StaffLogin = () => {
   const navigate = useNavigate()
-  const [form,     setForm]     = useState({ email: "", password: "" })
+  const { login } = useAuth() // 2. Destructured login function
+  const [form, setForm] = useState({ email: "", password: "" })
   const [showPass, setShowPass] = useState(false)
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
   const handleChange = e =>
     setForm(f => ({ ...f, [e.target.name]: e.target.value }))
@@ -24,10 +26,19 @@ const StaffLogin = () => {
         credentials: "include",
         body: JSON.stringify(form),
       })
+      
       const data = await res.json()
-      if (!res.ok) { setError(data.message || "Login failed"); return }
+      
+      if (!res.ok) { 
+        setError(data.message || "Login failed")
+        return 
+      }
+
+      // 3. Update global auth state before navigating
+      login(data.user, 'staff') 
       navigate("/staff")
-    } catch {
+      
+    } catch (err) {
       setError("Cannot connect to server. Please try again.")
     } finally {
       setLoading(false)

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import logo from '../../assets/logo-removebg.png'
+import { useAuth } from '../../context/AuthContext' // 1. Added import
 import {
   MdDashboard, MdEventAvailable, MdQueuePlayNext,
   MdPeople, MdInventory2, MdChevronLeft, MdNotifications,
@@ -11,11 +12,12 @@ const sideNav = [
   { name: "Dashboard",       path: "/staff",                 icon: MdDashboard      },
   { name: "Appointments",    path: "/staff/appointments",    icon: MdEventAvailable },
   { name: "Walk-in Queue",   path: "/staff/walkin",          icon: MdQueuePlayNext  },
-  { name: "Patient Appointment History", path: "/staff/patient-records", icon: MdPeople         },
+  { name: "Patient Records", path: "/staff/patient-records", icon: MdPeople         },
   { name: "Inventory",       path: "/staff/inventory",       icon: MdInventory2     },
 ]
 
 const StaffLayout = () => {
+  const { user, logout: clearAuth } = useAuth() // 2. Destructured user and logout
   const [collapsed,   setCollapsed]   = useState(false)
   const [loggingOut,  setLoggingOut]  = useState(false)
   const [logoutError, setLogoutError] = useState("")
@@ -30,8 +32,11 @@ const StaffLayout = () => {
         credentials: "include",
       })
       if (!res.ok) throw new Error("Logout failed")
+      
+      // 3. Navigate first, then clear local auth state
       navigate("/staff/login")
-    } catch {
+      clearAuth()
+    } catch (err) {
       setLogoutError("Could not log out. Try again.")
       setLoggingOut(false)
     }
@@ -160,7 +165,10 @@ const StaffLayout = () => {
                 <MdPerson className="text-[15px] text-sky-600" />
               </div>
               <div className="leading-tight">
-                <p className="text-xs font-semibold text-slate-700">Staff Name</p>
+                {/* 4. Displayed actual user name */}
+                <p className="text-xs font-semibold text-slate-700">
+                  {user?.full_name || 'Staff Member'}
+                </p>
                 <p className="text-[10px] text-slate-400">Staff</p>
               </div>
             </div>

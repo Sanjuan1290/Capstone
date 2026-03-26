@@ -47,6 +47,7 @@ import Admin_DoctorSchedules from './pages/adminPage/Admin_DoctorSchedules'
 import Admin_Appointments   from './pages/adminPage/Admin_Appointments'
 import Admin_Inventory      from './pages/adminPage/Admin_Inventory'
 import QueueDisplay         from './pages/displayPage/QueueDisplay'
+import StaffRoute from './components/StaffRoute'
 
 const router = createBrowserRouter(createRoutesFromElements(
   <>
@@ -66,11 +67,11 @@ const router = createBrowserRouter(createRoutesFromElements(
 
       <Route path='/staff/login' element={<StaffLogin />} />
       <Route path='/staff' element={<StaffLayout />}>
-        <Route index element={<Staff_Dashboard />} />
-        <Route path='appointments'    element={<Staff_Appointments />} />
-        <Route path='walkin'          element={<Staff_WalkInQueue />} />
-        <Route path='inventory'       element={<Staff_Inventory />} />
-        <Route path='patient-records' element={<Staff_PatientRecord />} />
+        <Route index element={<StaffRoute><Staff_Dashboard /></StaffRoute>} />
+        <Route path='appointments'    element={<StaffRoute><Staff_Appointments /></StaffRoute>} />
+        <Route path='walkin'          element={<StaffRoute><Staff_WalkInQueue /></StaffRoute>} />
+        <Route path='inventory'       element={<StaffRoute><Staff_Inventory /></StaffRoute>} />
+        <Route path='patient-records' element={<StaffRoute><Staff_PatientRecord /></StaffRoute>} />
       </Route>
 
       <Route path='/doctor/login' element={<DoctorLogin />} />

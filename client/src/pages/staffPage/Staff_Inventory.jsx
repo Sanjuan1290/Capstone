@@ -2,44 +2,18 @@ import { useState, useRef, useEffect } from "react"
 import {
   MdSearch, MdClose, MdAdd, MdQrCodeScanner, MdInventory2,
   MdArrowUpward, MdArrowDownward, MdHistory, MdWarning,
-  MdCheck, MdCategory, MdTrendingDown, MdTrendingUp,
-  MdInfoOutline, MdFilterList, MdCalendarToday, MdPerson,
-  MdLocalPharmacy, MdScience, MdCleaningServices
+  MdCheck, MdCategory, MdTrendingDown,
+  MdInfoOutline, MdLocalPharmacy, MdScience, MdCleaningServices
 } from "react-icons/md"
-
-// ── Mock Data ─────────────────────────────────────────────────────────────────
-const initialItems = [
-  { id: "ITM-001", barcode: "8850001001234", name: "Tretinoin 0.025% Cream",   category: "Derma",    unit: "tube",   stock: 3,  threshold: 5,  price: 450,  supplier: "Dermacare PH"    },
-  { id: "ITM-002", barcode: "8850001002345", name: "Clindamycin Gel 1%",       category: "Derma",    unit: "tube",   stock: 12, threshold: 8,  price: 280,  supplier: "Dermacare PH"    },
-  { id: "ITM-003", barcode: "8850001003456", name: "Hydroquinone 2% Cream",    category: "Derma",    unit: "tube",   stock: 2,  threshold: 5,  price: 320,  supplier: "Dermacare PH"    },
-  { id: "ITM-004", barcode: "8850001004567", name: "Sunscreen SPF 50",         category: "Derma",    unit: "bottle", stock: 7,  threshold: 5,  price: 560,  supplier: "Dermacare PH"    },
-  { id: "ITM-005", barcode: "8850002001234", name: "Amoxicillin 500mg",        category: "Medicine", unit: "box",    stock: 8,  threshold: 10, price: 95,   supplier: "MedPhil Supply"  },
-  { id: "ITM-006", barcode: "8850002002345", name: "Amlodipine 5mg",           category: "Medicine", unit: "box",    stock: 15, threshold: 10, price: 85,   supplier: "MedPhil Supply"  },
-  { id: "ITM-007", barcode: "8850002003456", name: "Paracetamol 500mg",        category: "Medicine", unit: "box",    stock: 24, threshold: 15, price: 45,   supplier: "MedPhil Supply"  },
-  { id: "ITM-008", barcode: "8850002004567", name: "Amoxicillin-Clav 625mg",   category: "Medicine", unit: "box",    stock: 6,  threshold: 8,  price: 185,  supplier: "MedPhil Supply"  },
-  { id: "ITM-009", barcode: "8850003001234", name: "Alcohol 70% 500mL",        category: "Supplies", unit: "bottle", stock: 18, threshold: 10, price: 75,   supplier: "MedSupplies Co." },
-  { id: "ITM-010", barcode: "8850003002345", name: "Disposable Gloves (M)",    category: "Supplies", unit: "box",    stock: 4,  threshold: 5,  price: 220,  supplier: "MedSupplies Co." },
-  { id: "ITM-011", barcode: "8850003003456", name: "Surgical Mask (50pcs)",    category: "Supplies", unit: "box",    stock: 9,  threshold: 5,  price: 165,  supplier: "MedSupplies Co." },
-  { id: "ITM-012", barcode: "8850003004567", name: "Cotton Balls (100pcs)",    category: "Supplies", unit: "pack",   stock: 11, threshold: 8,  price: 55,   supplier: "MedSupplies Co." },
-]
-
-const initialLogs = [
-  { id: 1,  itemId: "ITM-001", itemName: "Tretinoin 0.025% Cream", type: "out", qty: 2, note: "Dispensed to patient — Maria Cruz",      by: "Staff",  date: "Mar 23, 2026", time: "9:10 AM"  },
-  { id: 2,  itemId: "ITM-005", itemName: "Amoxicillin 500mg",      type: "out", qty: 1, note: "Dispensed to patient — Carlo Santos",    by: "Staff",  date: "Mar 23, 2026", time: "9:45 AM"  },
-  { id: 3,  itemId: "ITM-007", itemName: "Paracetamol 500mg",      type: "in",  qty: 10, note: "Restocked from MedPhil Supply",         by: "Staff",  date: "Mar 22, 2026", time: "2:00 PM"  },
-  { id: 4,  itemId: "ITM-003", itemName: "Hydroquinone 2% Cream",  type: "out", qty: 1, note: "Dispensed to patient — Grace Tan",       by: "Staff",  date: "Mar 21, 2026", time: "3:15 PM"  },
-  { id: 5,  itemId: "ITM-009", itemName: "Alcohol 70% 500mL",      type: "in",  qty: 6, note: "Restocked from MedSupplies Co.",         by: "Staff",  date: "Mar 20, 2026", time: "10:00 AM" },
-  { id: 6,  itemId: "ITM-010", itemName: "Disposable Gloves (M)",  type: "out", qty: 2, note: "Used during consultation",               by: "Staff",  date: "Mar 20, 2026", time: "8:30 AM"  },
-  { id: 7,  itemId: "ITM-002", itemName: "Clindamycin Gel 1%",     type: "in",  qty: 5, note: "Restocked from Dermacare PH",            by: "Staff",  date: "Mar 18, 2026", time: "11:00 AM" },
-]
+import { getInventory, updateStock } from "../../services/staff.service"
 
 const CATEGORIES = ["All", "Derma", "Medicine", "Supplies"]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const getStockStatus = (stock, threshold) => {
-  if (stock === 0)                    return { label: "Out of Stock", color: "text-red-600",    bg: "bg-red-100",    border: "border-red-200",    bar: "bg-red-500",    pct: 0   }
-  if (stock <= threshold)             return { label: "Low Stock",    color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-200",  bar: "bg-amber-400",  pct: Math.round((stock / threshold) * 40) }
-  return                                     { label: "In Stock",     color: "text-emerald-700",bg: "bg-emerald-50", border: "border-emerald-200",bar: "bg-emerald-500",pct: Math.min(100, Math.round((stock / (threshold * 3)) * 100)) }
+  if (stock === 0)          return { label: "Out of Stock", color: "text-red-600",    bg: "bg-red-100",    border: "border-red-200",    bar: "bg-red-500",    pct: 0 }
+  if (stock <= threshold)   return { label: "Low Stock",    color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-200",  bar: "bg-amber-400",  pct: Math.round((stock / threshold) * 40) }
+  return                           { label: "In Stock",     color: "text-emerald-700",bg: "bg-emerald-50", border: "border-emerald-200",bar: "bg-emerald-500",pct: Math.min(100, Math.round((stock / (threshold * 3)) * 100)) }
 }
 
 const getCategoryStyle = (cat) => ({
@@ -57,6 +31,7 @@ const ScannerModal = ({ items, onClose, onDone }) => {
   const [qty,     setQty]     = useState(1)
   const [note,    setNote]    = useState("")
   const [success, setSuccess] = useState(false)
+  const [saving,  setSaving]  = useState(false)
   const inputRef = useRef(null)
 
   useEffect(() => { inputRef.current?.focus() }, [])
@@ -72,14 +47,21 @@ const ScannerModal = ({ items, onClose, onDone }) => {
     else if (val.length >= 8) setError("No item found for this barcode.")
   }
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!found || qty < 1) return
-    onDone({ item: found, type, qty: parseInt(qty), note })
-    setSuccess(true)
-    setTimeout(() => {
-      setBarcode(""); setFound(null); setNote(""); setQty(1); setSuccess(false)
-      inputRef.current?.focus()
-    }, 1200)
+    setSaving(true)
+    try {
+      await onDone({ item: found, type, qty: parseInt(qty), note })
+      setSuccess(true)
+      setTimeout(() => {
+        setBarcode(""); setFound(null); setNote(""); setQty(1); setSuccess(false)
+        inputRef.current?.focus()
+      }, 1200)
+    } catch (err) {
+      setError(err.message || "Transaction failed.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const status = found ? getStockStatus(found.stock, found.threshold) : null
@@ -142,7 +124,6 @@ const ScannerModal = ({ items, onClose, onDone }) => {
                     {status.label}
                   </span>
                 </div>
-                {/* Stock bar */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-500">Current stock</span>
@@ -160,8 +141,8 @@ const ScannerModal = ({ items, onClose, onDone }) => {
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Transaction Type</label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { v: "out", l: "Stock Out", sub: "Dispensed to patient", icon: MdArrowDownward, active: "border-red-400 bg-red-50 text-red-700", inactive: "border-slate-200 text-slate-500" },
-                    { v: "in",  l: "Stock In",  sub: "Received from supplier", icon: MdArrowUpward, active: "border-emerald-400 bg-emerald-50 text-emerald-700", inactive: "border-slate-200 text-slate-500" },
+                    { v: "out", l: "Stock Out", sub: "Dispensed to patient",    icon: MdArrowDownward, active: "border-red-400 bg-red-50 text-red-700",         inactive: "border-slate-200 text-slate-500" },
+                    { v: "in",  l: "Stock In",  sub: "Received from supplier",  icon: MdArrowUpward,   active: "border-emerald-400 bg-emerald-50 text-emerald-700", inactive: "border-slate-200 text-slate-500" },
                   ].map(({ v, l, sub, icon: Icon, active, inactive }) => (
                     <button key={v} onClick={() => setType(v)}
                       className={`flex flex-col items-center gap-1 py-3 rounded-xl border-2 transition-all ${type === v ? active : inactive + " hover:border-slate-300"}`}>
@@ -217,11 +198,11 @@ const ScannerModal = ({ items, onClose, onDone }) => {
             Close
           </button>
           <button onClick={handleConfirm}
-            disabled={!found || qty < 1 || (type === "out" && qty > found.stock)}
+            disabled={!found || qty < 1 || (type === "out" && qty > found.stock) || saving}
             className={`flex-1 py-2.5 text-sm font-bold text-white rounded-xl transition-colors
               disabled:opacity-40 disabled:cursor-not-allowed
               ${type === "in" ? "bg-emerald-500 hover:bg-emerald-600" : "bg-[#0b1a2c] hover:bg-[#122236]"}`}>
-            {success ? "✓ Done!" : `Confirm ${type === "in" ? "Stock In" : "Stock Out"}`}
+            {saving ? "Saving…" : success ? "✓ Done!" : `Confirm ${type === "in" ? "Stock In" : "Stock Out"}`}
           </button>
         </div>
       </div>
@@ -231,9 +212,29 @@ const ScannerModal = ({ items, onClose, onDone }) => {
 
 // ── Add Item Modal ────────────────────────────────────────────────────────────
 const AddItemModal = ({ onClose, onAdd }) => {
-  const [form, setForm] = useState({ barcode: "", name: "", category: "Medicine", unit: "box", stock: "", threshold: "5", price: "", supplier: "" })
+  const [form,    setForm]    = useState({ barcode: "", name: "", category: "Medicine", unit: "box", stock: "", threshold: "5", price: "", supplier: "" })
+  const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState("")
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
   const valid = form.barcode.trim() && form.name.trim() && form.supplier.trim()
+
+  const handleAdd = async () => {
+    setSaving(true)
+    setError("")
+    try {
+      await onAdd({
+        ...form,
+        stock:     parseInt(form.stock)     || 0,
+        threshold: parseInt(form.threshold) || 5,
+        price:     parseFloat(form.price)   || 0,
+      })
+      onClose()
+    } catch (err) {
+      setError(err.message || "Failed to add item.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
@@ -249,13 +250,16 @@ const AddItemModal = ({ onClose, onAdd }) => {
           </button>
         </div>
         <div className="px-6 py-5 space-y-3 max-h-[65vh] overflow-y-auto">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl px-4 py-3">{error}</div>
+          )}
           {[
-            { k: "barcode",   l: "Barcode",              t: "text",   p: "e.g. 8850001001234",              required: true  },
-            { k: "name",      l: "Product Name",         t: "text",   p: "e.g. Tretinoin 0.025% Cream",     required: true  },
-            { k: "supplier",  l: "Supplier",             t: "text",   p: "e.g. Dermacare PH",               required: true  },
-            { k: "stock",     l: "Initial Stock",        t: "number", p: "0",                               required: false },
-            { k: "threshold", l: "Low Stock Alert At",   t: "number", p: "5",                               required: false },
-            { k: "price",     l: "Unit Price (₱)",       t: "number", p: "0.00",                            required: false },
+            { k: "barcode",   l: "Barcode",            t: "text",   p: "e.g. 8850001001234",          required: true  },
+            { k: "name",      l: "Product Name",        t: "text",   p: "e.g. Tretinoin 0.025% Cream", required: true  },
+            { k: "supplier",  l: "Supplier",            t: "text",   p: "e.g. Dermacare PH",           required: true  },
+            { k: "stock",     l: "Initial Stock",       t: "number", p: "0",                           required: false },
+            { k: "threshold", l: "Low Stock Alert At",  t: "number", p: "5",                           required: false },
+            { k: "price",     l: "Unit Price (₱)",      t: "number", p: "0.00",                        required: false },
           ].map(({ k, l, t, p, required }) => (
             <div key={k}>
               <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
@@ -286,10 +290,9 @@ const AddItemModal = ({ onClose, onAdd }) => {
             className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
             Cancel
           </button>
-          <button disabled={!valid}
-            onClick={() => { onAdd({ ...form, id: `ITM-${String(Date.now()).slice(-3)}`, stock: parseInt(form.stock)||0, threshold: parseInt(form.threshold)||5, price: parseFloat(form.price)||0 }); onClose() }}
+          <button disabled={!valid || saving} onClick={handleAdd}
             className="flex-1 py-2.5 text-sm font-bold text-white bg-[#0b1a2c] hover:bg-[#122236] disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition-colors">
-            Add Item
+            {saving ? "Adding…" : "Add Item"}
           </button>
         </div>
       </div>
@@ -299,7 +302,7 @@ const AddItemModal = ({ onClose, onAdd }) => {
 
 // ── Inventory Row ─────────────────────────────────────────────────────────────
 const InventoryRow = ({ item, onScan }) => {
-  const status  = getStockStatus(item.stock, item.threshold)
+  const status   = getStockStatus(item.stock, item.threshold)
   const catStyle = getCategoryStyle(item.category)
   const CatIcon  = catStyle.icon
 
@@ -339,7 +342,6 @@ const InventoryRow = ({ item, onScan }) => {
             {status.label}
           </span>
         </div>
-        {/* Stock bar */}
         <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
           <div className={`h-full ${status.bar} rounded-full transition-all duration-500`}
             style={{ width: `${Math.max(3, status.pct)}%` }} />
@@ -359,8 +361,9 @@ const InventoryRow = ({ item, onScan }) => {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const Staff_Inventory = () => {
-  const [items,       setItems]       = useState(initialItems)
-  const [logs,        setLogs]        = useState(initialLogs)
+  const [items,       setItems]       = useState([])
+  const [logs,        setLogs]        = useState([])
+  const [loading,     setLoading]     = useState(true)
   const [search,      setSearch]      = useState("")
   const [category,    setCategory]    = useState("All")
   const [activeTab,   setActiveTab]   = useState("inventory")
@@ -369,6 +372,18 @@ const Staff_Inventory = () => {
   const [logFilter,   setLogFilter]   = useState("all")
   const [preselect,   setPreselect]   = useState(null)
 
+  // ── Fetch on mount ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    getInventory()
+      .then(data => {
+        setItems(data.items || [])
+        setLogs(data.logs   || [])
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
   const lowStock   = items.filter(i => i.stock <= i.threshold && i.stock > 0)
   const outOfStock = items.filter(i => i.stock === 0)
   const totalValue = items.reduce((sum, i) => sum + i.stock * i.price, 0)
@@ -378,25 +393,35 @@ const Staff_Inventory = () => {
     const matchSearch = !search ||
       i.name.toLowerCase().includes(search.toLowerCase()) ||
       i.barcode.includes(search) ||
-      i.id.toLowerCase().includes(search.toLowerCase()) ||
       i.supplier.toLowerCase().includes(search.toLowerCase())
     return matchCat && matchSearch
   })
 
   const filteredLogs = logs.filter(l => logFilter === "all" || l.type === logFilter)
 
-  const handleScanResult = ({ item, type, qty, note }) => {
-    setItems(prev => prev.map(i => {
-      if (i.id !== item.id) return i
-      return { ...i, stock: type === "in" ? i.stock + qty : Math.max(0, i.stock - qty) }
-    }))
-    setLogs(prev => [{
-      id: Date.now(), itemId: item.id, itemName: item.name,
-      type, qty, note: note || (type === "in" ? "Restocked" : "Dispensed"),
-      by: "Staff",
-      date: new Date().toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }),
-      time: new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }),
-    }, ...prev])
+  // ── Handlers ────────────────────────────────────────────────────────────────
+  const handleScanResult = async ({ item, type, qty, note }) => {
+    const res = await updateStock(item.id, { type, qty, note })
+    // Update item stock in place
+    setItems(prev => prev.map(i =>
+      i.id === item.id ? { ...i, stock: res.new_stock } : i
+    ))
+    // Prepend new log
+    if (res.log) {
+      setLogs(prev => [res.log, ...prev])
+    }
+  }
+
+  const handleAddItem = async (formData) => {
+    const res = await fetch("/api/staff/inventory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(formData),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.message || "Failed to add item.")
+    setItems(prev => [...prev, data])
   }
 
   const openScannerFor = (item) => {
@@ -404,6 +429,20 @@ const Staff_Inventory = () => {
     setShowScanner(true)
   }
 
+  // ── Loading skeleton ─────────────────────────────────────────────────────────
+  if (loading) return (
+    <div className="max-w-6xl space-y-5">
+      <div className="h-8 w-48 bg-slate-100 rounded-xl animate-pulse" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="bg-slate-100 rounded-2xl h-24 animate-pulse" />
+        ))}
+      </div>
+      <div className="bg-slate-100 rounded-2xl h-64 animate-pulse" />
+    </div>
+  )
+
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-6xl space-y-5">
 
@@ -432,7 +471,11 @@ const Staff_Inventory = () => {
         <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4">
           <p className="text-xs text-slate-500 font-medium">Total Items</p>
           <p className="text-3xl font-black text-slate-800 mt-1">{items.length}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">{items.filter(i=>i.category==="Medicine").length} medicine · {items.filter(i=>i.category==="Derma").length} derma · {items.filter(i=>i.category==="Supplies").length} supplies</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            {items.filter(i => i.category === "Medicine").length} medicine ·{" "}
+            {items.filter(i => i.category === "Derma").length} derma ·{" "}
+            {items.filter(i => i.category === "Supplies").length} supplies
+          </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4">
           <p className="text-xs text-slate-500 font-medium">Inventory Value</p>
@@ -478,8 +521,8 @@ const Staff_Inventory = () => {
       {/* Tabs */}
       <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 w-fit">
         {[
-          { key: "inventory", label: "Stock List",       icon: MdInventory2 },
-          { key: "logs",      label: "Transaction Log",  icon: MdHistory    },
+          { key: "inventory", label: "Stock List",      icon: MdInventory2 },
+          { key: "logs",      label: "Transaction Log", icon: MdHistory    },
         ].map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setActiveTab(key)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all
@@ -542,7 +585,7 @@ const Staff_Inventory = () => {
               {filtered.length} of {items.length} items
             </p>
             <p className="text-[11px] text-slate-400 font-medium">
-              Filtered value: ₱{filtered.reduce((s,i) => s + i.stock * i.price, 0).toLocaleString()}
+              Filtered value: ₱{filtered.reduce((s, i) => s + i.stock * i.price, 0).toLocaleString()}
             </p>
           </div>
         </div>
@@ -584,12 +627,16 @@ const Staff_Inventory = () => {
               <div key={log.id}
                 className="grid grid-cols-[90px_2fr_80px_60px_1.5fr_90px] gap-4 px-5 py-3.5 items-center hover:bg-slate-50 transition-colors">
                 <div>
-                  <p className="text-[11px] font-semibold text-slate-700">{log.date}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{log.time}</p>
+                  <p className="text-[11px] font-semibold text-slate-700">
+                    {log.date || new Date(log.logged_at).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {log.time || new Date(log.logged_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-slate-800 truncate">{log.itemName}</p>
-                  <p className="text-[10px] font-mono text-slate-400 mt-0.5">{log.itemId}</p>
+                  <p className="text-sm font-semibold text-slate-800 truncate">{log.item_name || log.itemName}</p>
+                  <p className="text-[10px] font-mono text-slate-400 mt-0.5">{log.inventory_id || log.itemId}</p>
                 </div>
                 <span className={`flex items-center gap-1 text-[11px] font-bold border px-2 py-0.5 rounded-full w-fit
                   ${log.type === "in" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-500 border-red-200"}`}>
@@ -598,7 +645,7 @@ const Staff_Inventory = () => {
                 </span>
                 <p className="text-sm font-bold text-slate-700">{log.qty}</p>
                 <p className="text-xs text-slate-500 truncate">{log.note || "—"}</p>
-                <p className="text-[11px] text-slate-400 font-medium">{log.by}</p>
+                <p className="text-[11px] text-slate-400 font-medium">{log.staff_name || log.by || "Staff"}</p>
               </div>
             ))}
           </div>
@@ -611,9 +658,15 @@ const Staff_Inventory = () => {
           items={items}
           onClose={() => { setShowScanner(false); setPreselect(null) }}
           onDone={handleScanResult}
+          preselect={preselect}
         />
       )}
-      {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onAdd={item => setItems(p => [...p, item])} />}
+      {showAdd && (
+        <AddItemModal
+          onClose={() => setShowAdd(false)}
+          onAdd={handleAddItem}
+        />
+      )}
     </div>
   )
 }
