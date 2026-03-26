@@ -1,10 +1,11 @@
 import { useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
+import { useAuth } from '../../context/AuthContext' // 1. Added import
 import logo from '../../assets/logo-removebg.png'
 import {
   MdDashboard, MdBarChart, MdPeople, MdMedicalServices,
   MdSchedule, MdEventAvailable, MdInventory2,
-  MdChevronLeft, MdNotifications, MdSearch, MdLogout, MdPerson,
+  MdChevronLeft, MdNotifications, MdSearch, MdLogout,
   MdAdminPanelSettings
 } from "react-icons/md"
 
@@ -19,6 +20,7 @@ const sideNav = [
 ]
 
 const AdminLayout = () => {
+  const { user, logout: clearAuth } = useAuth() // 2. Added context hook
   const [collapsed,   setCollapsed]   = useState(false)
   const [loggingOut,  setLoggingOut]  = useState(false)
   const [logoutError, setLogoutError] = useState("")
@@ -30,7 +32,9 @@ const AdminLayout = () => {
     try {
       const res = await fetch("/api/admin/logout", { method: "POST", credentials: "include" })
       if (!res.ok) throw new Error()
+      
       navigate("/admin/login")
+      clearAuth() // 3. Clear global auth state after navigation
     } catch {
       setLogoutError("Could not log out. Try again.")
       setLoggingOut(false)
@@ -122,7 +126,8 @@ const AdminLayout = () => {
                 <MdAdminPanelSettings className="text-[15px] text-amber-600" />
               </div>
               <div className="leading-tight">
-                <p className="text-xs font-semibold text-slate-700">Admin</p>
+                {/* 4. Replaced hardcoded text with user dynamic name */}
+                <p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Admin'}</p>
                 <p className="text-[10px] text-slate-400">Administrator</p>
               </div>
             </div>

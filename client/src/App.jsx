@@ -49,6 +49,7 @@ import Admin_Inventory      from './pages/adminPage/Admin_Inventory'
 import QueueDisplay         from './pages/displayPage/QueueDisplay'
 import StaffRoute from './components/StaffRoute'
 import DoctorRoute from './components/DoctorRoute'
+import AdminRoute from './components/AdminRoute'
 
 const router = createBrowserRouter(createRoutesFromElements(
   <>
@@ -85,13 +86,13 @@ const router = createBrowserRouter(createRoutesFromElements(
 
       <Route path='/admin/login' element={<AdminLogin />} />
       <Route path='/admin' element={<AdminLayout />}>
-        <Route index element={<Admin_Dashboard />} />
-        <Route path='reports'          element={<Admin_Reports />} />
-        <Route path='staff-accounts'   element={<Admin_StaffAccount />} />
-        <Route path='doctor-accounts'  element={<Admin_DoctorAccount />} />
-        <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
-        <Route path='appointments'     element={<Admin_Appointments />} />
-        <Route path='inventory'        element={<Admin_Inventory />} />
+        <Route index element={<AdminRoute><Admin_Dashboard /></AdminRoute>} />
+        <Route path='reports'          element={<AdminRoute><Admin_Reports /></AdminRoute>} />
+        <Route path='staff-accounts'   element={<AdminRoute><Admin_StaffAccount /></AdminRoute>} />
+        <Route path='doctor-accounts'  element={<AdminRoute><Admin_DoctorAccount /></AdminRoute>} />
+        <Route path='doctor-schedules' element={<AdminRoute><Admin_DoctorSchedules /></AdminRoute>} />
+        <Route path='appointments'     element={<AdminRoute><Admin_Appointments /></AdminRoute>} />
+        <Route path='inventory'        element={<AdminRoute><Admin_Inventory /></AdminRoute>} />
       </Route>
 
       <Route path='/display/queue' element={<QueueDisplay />} />
