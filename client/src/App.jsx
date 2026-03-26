@@ -44,6 +44,7 @@ import Admin_DoctorAccount from './pages/adminPage/Admin_DoctorAccount'
 import Admin_DoctorSchedules from './pages/adminPage/Admin_DoctorSchedules'
 import Admin_Appointments from './pages/adminPage/Admin_Appointments'
 import Admin_Inventory from './pages/adminPage/Admin_Inventory'
+import QueueDisplay from './pages/displayPage/QueueDisplay'
 
 const App = () => {
   const router = createBrowserRouter(createRoutesFromElements(
@@ -115,8 +116,12 @@ const App = () => {
           <Route path='inventory' element={<Admin_Inventory />}/>
 
         </Route>
+
+
+        <Route path="/display/queue" element={<QueueDisplay />} />
       
       </Route>
+
 
     </>
   ))
