@@ -48,6 +48,7 @@ import Admin_Appointments   from './pages/adminPage/Admin_Appointments'
 import Admin_Inventory      from './pages/adminPage/Admin_Inventory'
 import QueueDisplay         from './pages/displayPage/QueueDisplay'
 import StaffRoute from './components/StaffRoute'
+import DoctorRoute from './components/DoctorRoute'
 
 const router = createBrowserRouter(createRoutesFromElements(
   <>
@@ -76,10 +77,10 @@ const router = createBrowserRouter(createRoutesFromElements(
 
       <Route path='/doctor/login' element={<DoctorLogin />} />
       <Route path='/doctor' element={<DoctorLayout />}>
-        <Route index element={<Doctor_Dashboard />} />
-        <Route path='daily-appointments' element={<Doctor_DailyAppointments />} />
-        <Route path='consultation'       element={<Doctor_Consultation />} />
-        <Route path='request'            element={<Doctor_Request />} />
+        <Route index element={<DoctorRoute><Doctor_Dashboard /></DoctorRoute>} />
+        <Route path='daily-appointments' element={<DoctorRoute><Doctor_DailyAppointments /></DoctorRoute>} />
+        <Route path='consultation'       element={<DoctorRoute><Doctor_Consultation /></DoctorRoute>} />
+        <Route path='request'            element={<DoctorRoute><Doctor_Request /></DoctorRoute>} />
       </Route>
 
       <Route path='/admin/login' element={<AdminLogin />} />

@@ -2,13 +2,18 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import logo from '../../../assets/logo-removebg.png'
 import { MdEmail, MdLock, MdVisibility, MdVisibilityOff } from "react-icons/md"
+// 1. Add AuthContext import
+import { useAuth } from '../../../context/AuthContext'
 
 const DoctorLogin = () => {
   const navigate = useNavigate()
-  const [form,     setForm]     = useState({ email: "", password: "" })
+  // 2. Initialize login from useAuth
+  const { login } = useAuth()
+  
+  const [form, setForm] = useState({ email: "", password: "" })
   const [showPass, setShowPass] = useState(false)
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
   const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }))
 
@@ -23,9 +28,19 @@ const DoctorLogin = () => {
         credentials: "include",
         body: JSON.stringify(form),
       })
+      
       const data = await res.json()
-      if (!res.ok) { setError(data.message || "Login failed"); return }
+      
+      if (!res.ok) { 
+        setError(data.message || "Login failed")
+        setLoading(false) // Reset loading if error
+        return 
+      }
+
+      // 3. Establish auth session before navigating
+      login(data.user, 'doctor')
       navigate("/doctor")
+      
     } catch {
       setError("Cannot connect to server. Please try again.")
     } finally {

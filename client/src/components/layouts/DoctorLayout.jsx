@@ -6,14 +6,19 @@ import {
   MdInventory2, MdChevronLeft, MdNotifications,
   MdSearch, MdLogout, MdPerson
 } from "react-icons/md"
+// 1. Add AuthContext import
+import { useAuth } from '../../context/AuthContext'
 
 const sideNav = [
-  { name: "Dashboard",           path: "/doctor",                      icon: MdDashboard       },
-  { name: "Daily Appointments",  path: "/doctor/daily-appointments",   icon: MdCalendarToday   },
+  { name: "Dashboard",          path: "/doctor",                   icon: MdDashboard       },
+  { name: "Daily Appointments",  path: "/doctor/daily-appointments", icon: MdCalendarToday   },
   { name: "Supply Requests",     path: "/doctor/request",              icon: MdInventory2      },
 ]
 
 const DoctorLayout = () => {
+  // 2. Access user and logout from AuthContext
+  const { user, logout: clearAuth } = useAuth()
+  
   const [collapsed,   setCollapsed]   = useState(false)
   const [loggingOut,  setLoggingOut]  = useState(false)
   const [logoutError, setLogoutError] = useState("")
@@ -28,8 +33,12 @@ const DoctorLayout = () => {
         credentials: "include",
       })
       if (!res.ok) throw new Error("Logout failed")
+      
+      // 3. Navigate first, then clear auth state
       navigate("/doctor/login")
-    } catch {
+      clearAuth()
+      
+    } catch (err) {
       setLogoutError("Could not log out. Try again.")
       setLoggingOut(false)
     }
@@ -148,8 +157,9 @@ const DoctorLayout = () => {
                 <MdPerson className="text-[15px] text-violet-600" />
               </div>
               <div className="leading-tight">
-                <p className="text-xs font-semibold text-slate-700">Dr. Maria Santos</p>
-                <p className="text-[10px] text-slate-400">Dermatologist</p>
+                {/* 4. Dynamic Header Info */}
+                <p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Doctor'}</p>
+                <p className="text-[10px] text-slate-400">{user?.specialty || 'Physician'}</p>
               </div>
             </div>
           </div>

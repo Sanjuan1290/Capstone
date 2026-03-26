@@ -1,43 +1,52 @@
+import { useEffect, useState } from 'react'
 import { NavLink } from "react-router-dom"
+import { useAuth } from '../../context/AuthContext'
+import { getDashboard, getDailyAppointments } from '../../services/doctor.service'
 import {
   MdCalendarToday, MdAccessTime, MdPerson, MdFace,
   MdMedicalServices, MdChevronRight, MdCheck,
   MdPending, MdQueuePlayNext, MdInventory2
 } from "react-icons/md"
 
-// ── Mock Data ─────────────────────────────────────────────────────────────────
-const todayAppointments = [
-  { id: "APT-001", patient: "Maria Cruz",     type: "derma",   time: "9:00 AM",  status: "completed", reason: "Acne Treatment Follow-up"    },
-  { id: "APT-002", patient: "Ana Villanueva", type: "derma",   time: "9:30 AM",  status: "completed", reason: "Skin Brightening Consultation"},
-  { id: "APT-003", patient: "Rosa Reyes",     type: "derma",   time: "10:00 AM", status: "in-progress", reason: "Initial Skin Assessment"   },
-  { id: "APT-004", patient: "Grace Tan",      type: "derma",   time: "10:30 AM", status: "pending",   reason: "Follow-up Visit"             },
-  { id: "APT-005", patient: "Linda Torres",   type: "derma",   time: "11:00 AM", status: "pending",   reason: "Cosmetic Consultation"       },
-]
-
-const walkInQueue = [
-  { queueNo: 2, patient: "Linda Torres",  arrivedAt: "9:00 AM" },
-  { queueNo: 4, patient: "Nena Cruz",     arrivedAt: "9:15 AM" },
-]
-
-const pendingRequests = [
-  { id: "REQ-003", item: "Disposable Gloves (M)", qty: 2, unit: "box",  status: "pending",  date: "Today"          },
-  { id: "REQ-002", item: "Clindamycin Gel 1%",    qty: 3, unit: "tube", status: "approved", date: "Mar 22, 2026"   },
-]
-
+// ── Config ────────────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
-  "completed":    { label: "Done",        badge: "bg-slate-100  text-slate-500   border-slate-200",   dot: "bg-slate-400"   },
-  "in-progress":  { label: "In Progress", badge: "bg-violet-50  text-violet-700  border-violet-200",  dot: "bg-violet-500"  },
-  "pending":      { label: "Waiting",     badge: "bg-amber-50   text-amber-700   border-amber-200",   dot: "bg-amber-400"   },
+  "completed":   { label: "Done",         badge: "bg-slate-100  text-slate-500   border-slate-200",   dot: "bg-slate-400"   },
+  "in-progress": { label: "In Progress", badge: "bg-violet-50  text-violet-700  border-violet-200",  dot: "bg-violet-500"  },
+  "pending":     { label: "Waiting",      badge: "bg-amber-50   text-amber-700   border-amber-200",   dot: "bg-amber-400"   },
+  "confirmed":   { label: "Confirmed",    badge: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
 }
 
 const Doctor_Dashboard = () => {
-  const today = new Date().toLocaleDateString("en-PH", {
+  const { user } = useAuth()
+  const [todayAppts,  setTodayAppts]  = useState([])
+  const [walkInQueue, setWalkInQueue] = useState([]) // Mock or from dash
+  const [requests,    setRequests]    = useState([])    // From dash
+  const [loading,     setLoading]     = useState(true)
+
+  const dateDisplay = new Date().toLocaleDateString("en-PH", {
     weekday: "long", year: "numeric", month: "long", day: "numeric"
   })
+  
+  const todayISO = new Date().toISOString().split('T')[0]
 
-  const done       = todayAppointments.filter(a => a.status === "completed").length
-  const inProgress = todayAppointments.filter(a => a.status === "in-progress").length
-  const waiting    = todayAppointments.filter(a => a.status === "pending").length
+  useEffect(() => {
+    Promise.all([getDashboard(), getDailyAppointments(todayISO)])
+      .then(([dash, appts]) => {
+        setTodayAppts(appts)
+        setRequests(dash.requests || [])
+        // If your dash service returns a specific walk-in queue, set it here
+        setWalkInQueue(dash.walkInQueue || []) 
+      })
+      .catch((err) => console.error("Dashboard error:", err))
+      .finally(() => setLoading(false))
+  }, [todayISO])
+
+  // Dynamic Stats
+  const done       = todayAppts.filter(a => a.status === "completed").length
+  const inProgress = todayAppts.filter(a => a.status === "in-progress").length
+  const waiting    = todayAppts.filter(a => a.status === "pending" || a.status === "confirmed").length
+
+  if (loading) return <div className="p-10 text-center text-slate-500">Loading Dashboard...</div>
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -48,12 +57,12 @@ const Doctor_Dashboard = () => {
         <div className="absolute -bottom-10 right-28 w-28 h-28 rounded-full bg-sky-500/10" />
         <div className="relative flex items-center justify-between">
           <div>
-            <p className="text-slate-400 text-sm font-medium mb-0.5">{today}</p>
+            <p className="text-slate-400 text-sm font-medium mb-0.5">{dateDisplay}</p>
             <h1 className="text-white text-2xl font-black tracking-tight">
-              Good morning, <span className="text-violet-400">Dr. Santos!</span> 👋
+              Good morning, <span className="text-violet-400">Dr. {user?.full_name?.split(' ').pop() || 'Doctor'}!</span> 👋
             </h1>
             <p className="text-slate-400 text-sm mt-1.5">
-              <span className="text-white font-semibold">{todayAppointments.length} appointments</span> today —{" "}
+              <span className="text-white font-semibold">{todayAppts.length} appointments</span> today —{" "}
               <span className="text-emerald-400 font-semibold">{done} done</span>,{" "}
               <span className="text-violet-400 font-semibold">{inProgress} in progress</span>,{" "}
               <span className="text-amber-400 font-semibold">{waiting} waiting</span>
@@ -70,10 +79,10 @@ const Doctor_Dashboard = () => {
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Total Today",  value: todayAppointments.length, sub: "scheduled",    color: "text-slate-800",   bg: "bg-white",       border: "border-slate-200"   },
-          { label: "Completed",    value: done,                     sub: "consultations", color: "text-emerald-600", bg: "bg-emerald-50",  border: "border-emerald-200" },
-          { label: "In Progress",  value: inProgress,               sub: "now",           color: "text-violet-600",  bg: "bg-violet-50",   border: "border-violet-200"  },
-          { label: "Walk-in Queue",value: walkInQueue.length,       sub: "assigned to me",color: "text-amber-600",   bg: "bg-amber-50",    border: "border-amber-200"   },
+          { label: "Total Today",  value: todayAppts.length, sub: "scheduled",     color: "text-slate-800",   bg: "bg-white",     border: "border-slate-200"   },
+          { label: "Completed",    value: done,              sub: "consultations", color: "text-emerald-600", bg: "bg-emerald-50",  border: "border-emerald-200" },
+          { label: "In Progress",  value: inProgress,        sub: "now",           color: "text-violet-600",  bg: "bg-violet-50",   border: "border-violet-200"  },
+          { label: "Walk-in Queue",value: walkInQueue.length, sub: "assigned to me",color: "text-amber-600",   bg: "bg-amber-50",    border: "border-amber-200"   },
         ].map(({ label, value, sub, color, bg, border }) => (
           <div key={label} className={`${bg} border ${border} rounded-2xl px-5 py-4`}>
             <p className="text-xs text-slate-500 font-medium">{label}</p>
@@ -96,8 +105,10 @@ const Doctor_Dashboard = () => {
             </NavLink>
           </div>
           <div className="divide-y divide-slate-100">
-            {todayAppointments.map(appt => {
-              const cfg  = STATUS_CONFIG[appt.status]
+            {todayAppts.length === 0 ? (
+               <p className="p-10 text-center text-xs text-slate-400">No appointments for today.</p>
+            ) : todayAppts.map(appt => {
+              const cfg  = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
               const Icon = appt.type === "derma" ? MdFace : MdMedicalServices
               return (
                 <div key={appt.id} className={`flex items-center gap-4 px-5 py-3.5 transition-colors
@@ -107,7 +118,7 @@ const Doctor_Dashboard = () => {
                     <Icon className={`text-[15px] ${appt.type === "derma" ? "text-emerald-600" : "text-slate-500"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">{appt.patient}</p>
+                    <p className="text-sm font-semibold text-slate-800 truncate">{appt.patient_name || appt.patient}</p>
                     <p className="text-xs text-slate-500 truncate">{appt.reason}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -119,7 +130,7 @@ const Doctor_Dashboard = () => {
                     </span>
                   </div>
                   {appt.status === "in-progress" && (
-                    <NavLink to="/doctor/consultation"
+                    <NavLink to={`/doctor/consultation/${appt.id}`}
                       className="text-[11px] font-bold text-violet-600 bg-violet-50 border border-violet-200
                         px-2.5 py-1 rounded-lg hover:bg-violet-100 transition-colors shrink-0">
                       Consult
@@ -171,18 +182,20 @@ const Doctor_Dashboard = () => {
               </NavLink>
             </div>
             <div className="p-4 space-y-2">
-              {pendingRequests.map(req => (
+              {requests.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">No recent requests.</p>
+              ) : requests.slice(0, 3).map(req => (
                 <div key={req.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50 transition-colors">
                   <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
                     <MdInventory2 className="text-slate-400 text-[15px]" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-slate-800 truncate">{req.item}</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{req.qty} {req.unit}s · {req.date}</p>
+                    <p className="text-xs font-semibold text-slate-800 truncate">{req.item_name || req.item}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{req.quantity} {req.unit}s</p>
                   </div>
                   <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0
                     ${req.status === "approved" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
-                    {req.status === "approved" ? "Approved" : "Pending"}
+                    {req.status}
                   </span>
                 </div>
               ))}
