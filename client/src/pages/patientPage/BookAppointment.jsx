@@ -1,10 +1,11 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   MdChevronRight, MdChevronLeft, MdCalendarToday,
   MdAccessTime, MdPerson, MdMedicalServices, MdFace,
   MdCheck, MdInfoOutline, MdEventAvailable
 } from "react-icons/md"
-import { NavLink } from "react-router-dom"
+import { NavLink, useNavigate } from "react-router-dom"
+import { getDoctors, getDoctorSchedule, bookAppointment } from '../../services/patient.service'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 const clinicTypes = [
@@ -23,25 +24,6 @@ const clinicTypes = [
     color: "emerald",
   },
 ]
-
-const doctors = {
-  medical: [
-    { id: "d1", name: "Dr. Jose Reyes",    specialty: "General Practitioner", slots: 8 },
-    { id: "d2", name: "Dr. Ana Villanueva", specialty: "Internal Medicine",    slots: 5 },
-  ],
-  derma: [
-    { id: "d3", name: "Dr. Maria Santos",  specialty: "Dermatologist",         slots: 6 },
-    { id: "d4", name: "Dr. Carlo Lim",     specialty: "Cosmetic Dermatology",  slots: 3 },
-  ],
-}
-
-const timeSlots = [
-  "8:00 AM","8:30 AM","9:00 AM","9:30 AM",
-  "10:00 AM","10:30 AM","11:00 AM","11:30 AM",
-  "1:00 PM","1:30 PM","2:00 PM","2:30 PM",
-  "3:00 PM","3:30 PM","4:00 PM","4:30 PM",
-]
-const takenSlots = ["9:00 AM","10:30 AM","2:00 PM","3:00 PM"]
 
 const reasons = [
   "General Consultation","Follow-up Visit","Skin Assessment",
@@ -138,14 +120,17 @@ const StepClinicType = ({ value, onChange }) => (
 )
 
 // ── Step 2 — Doctor ───────────────────────────────────────────────────────────
-const StepDoctor = ({ clinicType, value, onChange }) => {
-  const list = doctors[clinicType] || []
+const StepDoctor = ({ clinicType, value, onChange, doctorList }) => {
+  const list = doctorList[clinicType] || []
   return (
     <div className="space-y-3">
       <div className="mb-5">
         <h2 className="text-lg font-bold text-slate-800">Select a Doctor</h2>
         <p className="text-sm text-slate-500 mt-0.5">Available doctors for your chosen clinic.</p>
       </div>
+      {list.length === 0 && (
+        <p className="text-sm text-slate-400 text-center py-6">Loading doctors…</p>
+      )}
       {list.map(doc => (
         <button
           key={doc.id}
@@ -163,7 +148,9 @@ const StepDoctor = ({ clinicType, value, onChange }) => {
           <div className="flex-1">
             <p className="font-bold text-sm text-slate-800">{doc.name}</p>
             <p className="text-xs text-slate-500 mt-0.5">{doc.specialty}</p>
-            <p className="text-[11px] text-emerald-600 font-semibold mt-1">{doc.slots} slots available today</p>
+            {doc.slots != null && (
+              <p className="text-[11px] text-emerald-600 font-semibold mt-1">{doc.slots} slots available today</p>
+            )}
           </div>
           {value?.id === doc.id && (
             <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
@@ -177,7 +164,7 @@ const StepDoctor = ({ clinicType, value, onChange }) => {
 }
 
 // ── Step 3 — Schedule ─────────────────────────────────────────────────────────
-const StepSchedule = ({ date, time, onDateChange, onTimeChange }) => {
+const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, takenSlots }) => {
   const today = new Date()
   const [viewYear,  setViewYear]  = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
@@ -196,10 +183,6 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange }) => {
     const t    = new Date(today.getFullYear(), today.getMonth(), today.getDate())
     return cell < t
   }
-
-  const selectedStr = date
-    ? `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(date).padStart(2,"0")}`
-    : null
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) }
@@ -269,31 +252,37 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange }) => {
           <p className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
             <MdAccessTime className="text-emerald-500" /> Available Time Slots
           </p>
-          <div className="grid grid-cols-4 gap-2">
-            {timeSlots.map(slot => {
-              const taken  = takenSlots.includes(slot)
-              const active = time === slot
-              return (
-                <button
-                  key={slot}
-                  disabled={taken}
-                  onClick={() => onTimeChange(slot)}
-                  className={`px-2 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150
-                    ${taken  ? "bg-slate-50 text-slate-300 cursor-not-allowed line-through"   : ""}
-                    ${active ? "bg-[#0b1a2c] text-emerald-400 border border-emerald-500/30"   : ""}
-                    ${!taken && !active ? "bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200" : ""}
-                  `}
-                >
-                  {slot}
-                </button>
-              )
-            })}
-          </div>
-          <p className="text-[10px] text-slate-400 mt-3 flex items-center gap-1">
-            <span className="inline-block w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm" /> Available
-            <span className="inline-block w-3 h-3 bg-[#0b1a2c] rounded-sm ml-2" /> Selected
-            <span className="inline-block w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm ml-2 line-through text-slate-300" /> Taken
-          </p>
+          {timeSlots.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-4">No slots available for this day.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-2">
+                {timeSlots.map(slot => {
+                  const taken  = takenSlots.includes(slot)
+                  const active = time === slot
+                  return (
+                    <button
+                      key={slot}
+                      disabled={taken}
+                      onClick={() => onTimeChange(slot)}
+                      className={`px-2 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150
+                        ${taken  ? "bg-slate-50 text-slate-300 cursor-not-allowed line-through"   : ""}
+                        ${active ? "bg-[#0b1a2c] text-emerald-400 border border-emerald-500/30"   : ""}
+                        ${!taken && !active ? "bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200" : ""}
+                      `}
+                    >
+                      {slot}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-3 flex items-center gap-1">
+                <span className="inline-block w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm" /> Available
+                <span className="inline-block w-3 h-3 bg-[#0b1a2c] rounded-sm ml-2" /> Selected
+                <span className="inline-block w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm ml-2 line-through text-slate-300" /> Taken
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -433,9 +422,10 @@ const SuccessScreen = ({ onReset }) => (
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const BookAppointment = () => {
-  const [step, setStep]     = useState(0)
-  const [done, setDone]     = useState(false)
-  const [form, setForm]     = useState({
+  const navigate = useNavigate()
+  const [step, setStep] = useState(0)
+  const [done, setDone] = useState(false)
+  const [form, setForm] = useState({
     clinicType: "",
     doctor:     null,
     date:       null,
@@ -443,6 +433,48 @@ const BookAppointment = () => {
     reason:     "",
     notes:      "",
   })
+
+  // ── API-backed state ────────────────────────────────────────────────────────
+  const [doctorList,  setDoctorList]  = useState({ medical: [], derma: [] })
+  const [timeSlots,   setTimeSlots]   = useState([])
+  const [takenSlots,  setTakenSlots]  = useState([])
+
+  // Fetch doctors on mount
+  useEffect(() => {
+    getDoctors()
+      .then(data => {
+        const medical = data.filter(d => d.specialty !== 'Dermatologist')
+        const derma   = data.filter(d => d.specialty === 'Dermatologist')
+        setDoctorList({ medical, derma })
+      })
+      .catch(() => {})
+  }, [])
+
+  // Fetch time slots whenever doctor or date changes
+  useEffect(() => {
+    if (!form.doctor || !form.date) return
+    setTimeSlots([])
+    setTakenSlots([])
+    getDoctorSchedule(form.doctor.id)
+      .then(schedules => {
+        const dayName = new Date(form.date).toLocaleDateString('en-US', { weekday: 'long' })
+        const sched   = schedules.find(s => s.day_of_week === dayName && s.is_active)
+        if (!sched) { setTimeSlots([]); return }
+        const slots = []
+        let [h, m]       = sched.start_time.split(':').map(Number)
+        const [eh, em]   = sched.end_time.split(':').map(Number)
+        while (h * 60 + m < eh * 60 + em) {
+          const period   = h >= 12 ? 'PM' : 'AM'
+          const displayH = h > 12 ? h - 12 : h === 0 ? 12 : h
+          slots.push(`${displayH}:${String(m).padStart(2, '0')} ${period}`)
+          m += sched.slot_duration_mins
+          if (m >= 60) { h += Math.floor(m / 60); m = m % 60 }
+        }
+        setTimeSlots(slots)
+        setTakenSlots([]) // optionally fetch booked slots for this date
+      })
+      .catch(() => {})
+  }, [form.doctor, form.date])
 
   const set = (key) => (val) => setForm(f => ({ ...f, [key]: val }))
 
@@ -456,14 +488,32 @@ const BookAppointment = () => {
 
   const handleNext = () => {
     if (step < 4) setStep(s => s + 1)
-    else setDone(true)
+    else handleConfirm()
   }
 
   const handleBack = () => setStep(s => s - 1)
 
+  const handleConfirm = async () => {
+    try {
+      await bookAppointment({
+        doctor_id:        form.doctor.id,
+        clinic_type:      form.clinicType,
+        reason:           form.reason,
+        appointment_date: form.date,
+        appointment_time: form.time,
+        notes:            form.notes || '',
+      })
+      setDone(true)
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
   const handleReset = () => {
     setStep(0)
     setDone(false)
+    setTimeSlots([])
+    setTakenSlots([])
     setForm({ clinicType: "", doctor: null, date: null, time: "", reason: "", notes: "" })
   }
 
@@ -486,11 +536,19 @@ const BookAppointment = () => {
           ) : (
             <>
               {step === 0 && <StepClinicType value={form.clinicType} onChange={set("clinicType")} />}
-              {step === 1 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={set("doctor")} />}
+              {step === 1 && (
+                <StepDoctor
+                  clinicType={form.clinicType}
+                  value={form.doctor}
+                  onChange={set("doctor")}
+                  doctorList={doctorList}
+                />
+              )}
               {step === 2 && (
                 <StepSchedule
                   date={form.date} time={form.time}
                   onDateChange={set("date")} onTimeChange={set("time")}
+                  timeSlots={timeSlots} takenSlots={takenSlots}
                 />
               )}
               {step === 3 && (

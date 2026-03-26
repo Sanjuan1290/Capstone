@@ -3,7 +3,8 @@ import { useState } from "react";
 import logo from '../../../assets/logo-removebg.png';
 import { FaEye as EyeIcon } from "react-icons/fa";
 import { FaEyeSlash as EyeOffIcon } from "react-icons/fa";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from '../../../context/AuthContext'  // add this import
 
 
 const PasswordInput = ({ name, value, onChange, placeholder }) => {
@@ -50,15 +51,36 @@ const PatientRegister = () => {
     setError("");
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+// Replace only the handleSubmit function inside PatientRegister:
+
+
+  // Inside PatientRegister component, add:
+  const navigate = useNavigate()
+  const { login } = useAuth()
+
+  // Replace the existing handleSubmit with:
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
     if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match!");
-      return;
+      setError('Passwords do not match!')
+      return
     }
-    console.log("Patient Registered:", form);
-    alert("Registration successful!");
-  };
+    try {
+      const res = await fetch('/api/patient/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(form),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.message || 'Registration failed'); return }
+      login(data.user, 'patient')
+      navigate('/patient')
+    } catch {
+      setError('Cannot connect to server.')
+    }
+  }
 
   const inputClass =
     "w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[rgb(43,124,110)] focus:bg-white focus:border-transparent transition-all placeholder-gray-400";

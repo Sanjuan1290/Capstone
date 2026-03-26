@@ -1,36 +1,46 @@
 import { useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
-import logo from '../../assets/logo-removebg.png'
+import { useAuth } from "../../context/AuthContext" // ← Added
+import logo from "../../assets/logo-removebg.png"
 import {
   MdDashboard, MdCalendarToday, MdEventAvailable, MdHistory,
   MdChevronLeft, MdNotifications, MdSearch, MdLogout, MdPerson
 } from "react-icons/md"
 
+
 const sideNav = [
-  { name: "Dashboard",        path: "/patient",              icon: MdDashboard      },
-  { name: "Book Appointment", path: "/patient/book",         icon: MdCalendarToday  },
-  { name: "My Appointments",  path: "/patient/appointments", icon: MdEventAvailable },
-  { name: "History",          path: "/patient/history",      icon: MdHistory        },
+  { name: "Dashboard",        path: "/patient",                icon: MdDashboard      },
+  { name: "Book Appointment", path: "/patient/book",           icon: MdCalendarToday  },
+  { name: "My Appointments",  path: "/patient/appointments",   icon: MdEventAvailable },
+  { name: "History",          path: "/patient/history",        icon: MdHistory        },
 ]
 
+
 const PatientLayout = () => {
-  const [collapsed,       setCollapsed]       = useState(false)
-  const [loggingOut,      setLoggingOut]      = useState(false)
-  const [logoutError,     setLogoutError]     = useState("")
+  const [collapsed,     setCollapsed]     = useState(false)
+  const [loggingOut,    setLoggingOut]    = useState(false)
+  const [logoutError,   setLogoutError]   = useState("")
   const navigate = useNavigate()
+
+  // ← useAuth + clearAuth
+  const { user, logout: clearAuth } = useAuth()
+
 
   const handleLogout = async () => {
     setLoggingOut(true)
     setLogoutError("")
     try {
-      const res = await fetch("http://localhost:3000/api/v1/patient/logout", {
+      const res = await fetch("/api/patient/logout", { // 👈 changed URL
         method: "POST",
-        credentials: "include",   // sends the cookie
+        credentials: "include",
       })
 
       if (!res.ok) throw new Error("Logout failed")
 
-      // Redirect to login after successful logout
+      // Clear auth state on client
+      clearAuth() // ✅ Call clearAuth after successful logout
+
+      // Redirect to login
       navigate("/")
     } catch (err) {
       console.error(err)
@@ -39,8 +49,10 @@ const PatientLayout = () => {
     }
   }
 
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
+
 
       {/* ── Sidebar ─────────────────────────────────────────────────────────── */}
       <aside
@@ -66,6 +78,7 @@ const PatientLayout = () => {
           </div>
         </div>
 
+
         {/* Section label */}
         <div className="px-3 pt-5 pb-2">
           <p className={`text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3
@@ -73,6 +86,7 @@ const PatientLayout = () => {
             My Account
           </p>
         </div>
+
 
         {/* Nav links */}
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
@@ -113,6 +127,7 @@ const PatientLayout = () => {
           ))}
         </nav>
 
+
         {/* Logout */}
         <div className="px-3 py-4 border-t border-white/5 space-y-1">
           {/* Error message */}
@@ -134,6 +149,7 @@ const PatientLayout = () => {
           </button>
         </div>
 
+
         {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -146,8 +162,10 @@ const PatientLayout = () => {
         </button>
       </aside>
 
+
       {/* ── Main column ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0">
+
 
         {/* Header */}
         <header className="h-16 bg-white border-b border-slate-100 flex items-center justify-between px-6 shrink-0">
@@ -157,6 +175,7 @@ const PatientLayout = () => {
             <span>Search…</span>
           </div>
 
+
           <div className="flex items-center gap-3">
             <button className="relative w-9 h-9 flex items-center justify-center rounded-xl bg-slate-50
               border border-slate-200 text-slate-500 hover:bg-slate-100 transition-colors">
@@ -164,17 +183,20 @@ const PatientLayout = () => {
               <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
             </button>
 
+
             <div className="flex items-center gap-2.5 pl-3 border-l border-slate-100">
               <div className="w-8 h-8 rounded-xl bg-emerald-500/15 flex items-center justify-center">
                 <MdPerson className="text-[15px] text-emerald-600" />
               </div>
               <div className="leading-tight">
-                <p className="text-xs font-semibold text-slate-700">Juan Dela Cruz</p>
+                {/* 👇 Updated name section */}
+                <p className="text-xs font-semibold text-slate-700">{user?.full_name || "Patient"}</p>
                 <p className="text-[10px] text-slate-400">Patient</p>
               </div>
             </div>
           </div>
         </header>
+
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-6">
@@ -184,5 +206,6 @@ const PatientLayout = () => {
     </div>
   )
 }
+
 
 export default PatientLayout

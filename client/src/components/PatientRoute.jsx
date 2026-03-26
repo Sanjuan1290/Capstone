@@ -1,22 +1,18 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useAuth } from '../context/AuthContext'
+import { Navigate } from 'react-router-dom'
+
 const PatientRoute = ({ children }) => {
-  const [isAuth, setIsAuth] = useState(null);
-  const navigate = useNavigate()
+  const { user, role, loading } = useAuth()
 
-  useEffect(() => {
-    fetch("http://localhost:3000/api/v1/patient/auth/check", {
-      credentials: "include", // 🔥 important for cookies
-    })
-      .then(res => res.json())
-      .then(data => setIsAuth(data.authenticated))
-      .catch(() => setIsAuth(false));
-  }, []);
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
 
-  if (isAuth === null) return <h1>Loading...</h1>;
-  if (!isAuth) return navigate('/patient/login'); // or redirect
+  if (!user || role !== 'patient') return <Navigate to="/patient/login" replace />
 
-  return <>{children}</>;
-};
+  return <>{children}</>
+}
 
-export default PatientRoute;
+export default PatientRoute
