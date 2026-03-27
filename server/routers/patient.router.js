@@ -1,22 +1,26 @@
-const express    = require('express')
-const router     = express.Router()
+// server/routers/patient.router.js
+// FIX #3 — Added POST /register/verify route
+
+const express     = require('express')
+const router      = express.Router()
 const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
 const {
-  register, login, checkAuth, logout,
+  register, verifyRegistration, login, checkAuth, logout,
   getAppointments, getHistory,
   createAppointment, cancelAppointment, rescheduleAppointment,
-  getDoctors, getDoctorSchedule
+  getDoctors, getDoctorSchedule,
 } = require('../controllers/patient.controller')
 
-router.post('/register', register)
-router.post('/login',    login)
-router.get('/auth/check', checkAuth)
-router.post('/logout',   logout)
+// Public
+router.post('/register',        register)
+router.post('/register/verify', verifyRegistration)  // FIX #3 — new verification step
+router.post('/login',           login)
+router.get('/auth/check',       checkAuth)
+router.post('/logout',          logout)
 
-// Protected patient routes
+// Protected
 router.use(verifyToken, requireRole('patient'))
-
 router.get('/appointments',                        getAppointments)
 router.post('/appointments',                       createAppointment)
 router.get('/appointments/history',                getHistory)

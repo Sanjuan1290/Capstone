@@ -1,24 +1,28 @@
+// server/server.js — UPDATED
+// Added: queueRouter (FIX #7), reminder job (FIX #4)
+
 require('dotenv').config()
 require('express-async-errors')
 
-const express = require('express')
-const cors = require('cors')
+const express      = require('express')
+const cors         = require('cors')
 const cookieParser = require('cookie-parser')
 
 const app = express()
-const db = require('./db/connect')
+const db  = require('./db/connect')
 
 const patientRouter = require('./routers/patient.router')
 const adminRouter   = require('./routers/admin.router')
 const staffRouter   = require('./routers/staff.router')
 const doctorRouter  = require('./routers/doctor.router')
+const queueRouter   = require('./routers/queue.router')   // FIX #7
 
 const PORT = process.env.PORT || 3000
 
 app.use(express.json())
 app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  credentials: true,
 }))
 app.use(cookieParser())
 
@@ -26,6 +30,7 @@ app.use('/api/v1/patient', patientRouter)
 app.use('/api/v1/admin',   adminRouter)
 app.use('/api/v1/staff',   staffRouter)
 app.use('/api/v1/doctor',  doctorRouter)
+app.use('/api/queue',      queueRouter)   // FIX #7 — public, no /v1 prefix
 
 app.use((err, req, res, next) => {
   console.error(err)
@@ -36,7 +41,10 @@ const start = async () => {
   try {
     const [rows] = await db.query('SELECT 1 AS result')
     console.log(`✅ MySQL connected! Test query: ${rows[0].result}`)
-    app.listen(PORT, () => console.log(`🚀 Server running on PORT: ${PORT}`))
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on PORT: ${PORT}`)
+      require('./utils/reminder') // FIX #4 — start daily reminder job
+    })
   } catch (err) {
     console.error('❌ Failed to start server:', err)
   }
