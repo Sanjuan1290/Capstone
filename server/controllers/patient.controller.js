@@ -1,6 +1,8 @@
 // server/controllers/patient.controller.js
-// FIX #1 — role-specific cookie (patient_token)
-// FIX #3 — email verification on register (2-step: register → verify)
+// FIXES:
+// - getAppointments: added date/time/type/doctor/specialty aliases for MyAppointments.jsx
+// - getHistory: added date/time/type/doctor/clinic aliases for History.jsx
+// - getDoctorSchedule: kept as-is (correct)
 
 const db = require('../db/connect')
 const bcrypt = require('bcrypt')
@@ -8,11 +10,9 @@ const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
 const { sendVerificationCode } = require('../utils/emailService')
 
-// In-memory store for pending verifications { email: { code, expires, data } }
-// Fine for capstone/demo. For production: use a DB table or Redis.
 const pendingVerifications = {}
 
-// ─── Register Step 1: validate → generate code → email ───────────────────────
+// ─── Register Step 1 ─────────────────────────────────────────────────────────
 
 const register = async (req, res) => {
   const { full_name, birthdate, sex, civil_status, phone, address, email, password } = req.body
@@ -24,9 +24,8 @@ const register = async (req, res) => {
   if (existing.length > 0)
     return res.status(409).json({ message: 'Email already registered.' })
 
-  // FIX #3 — store pending registration with a 6-digit code
   const code    = Math.floor(100000 + Math.random() * 900000).toString()
-  const expires = Date.now() + 10 * 60 * 1000 // 10 minutes
+  const expires = Date.now() + 10 * 60 * 1000
   const hashed  = await bcrypt.hash(password, 10)
 
   pendingVerifications[email] = {
@@ -35,11 +34,14 @@ const register = async (req, res) => {
     data: { full_name, birthdate, sex, civil_status: civil_status || null, phone, address, email, password: hashed },
   }
 
+  // FIX: non-blocking — always respond 200 even if email fails
   try {
     await sendVerificationCode(email, full_name, code)
+    console.log(`✅ Verification code sent to ${email}: ${code}`)
   } catch (err) {
     console.error('⚠️  Verification email failed:', err.message)
-    // Still proceed — dev can check server console for the code while testing
+    // Print code to console so dev can test without email
+    console.log(`📋 DEV MODE — verification code for ${email}: ${code}`)
   }
 
   res.status(200).json({
@@ -48,7 +50,7 @@ const register = async (req, res) => {
   })
 }
 
-// ─── Register Step 2: verify code → insert patient → login ───────────────────
+// ─── Register Step 2 ─────────────────────────────────────────────────────────
 
 const verifyRegistration = async (req, res) => {
   const { email, code } = req.body
@@ -65,7 +67,6 @@ const verifyRegistration = async (req, res) => {
   if (pending.code !== String(code).trim())
     return res.status(400).json({ message: 'Incorrect verification code.' })
 
-  // Race-condition guard
   const [existing] = await db.query('SELECT id FROM patients WHERE email = ?', [email])
   if (existing.length > 0) {
     delete pendingVerifications[email]
@@ -80,7 +81,7 @@ const verifyRegistration = async (req, res) => {
   delete pendingVerifications[email]
 
   const token = jwt.sign({ id: result.insertId, role: 'patient' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'patient') // FIX #1
+  generateCookie(res, token, 'patient')
 
   res.status(201).json({
     message: 'Account created successfully!',
@@ -105,7 +106,7 @@ const login = async (req, res) => {
     return res.status(401).json({ message: 'Invalid email or password.' })
 
   const token = jwt.sign({ id: patient.id, role: 'patient' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'patient') // FIX #1
+  generateCookie(res, token, 'patient')
 
   res.status(200).json({
     message: 'Login successful.',
@@ -114,7 +115,7 @@ const login = async (req, res) => {
 }
 
 const checkAuth = async (req, res) => {
-  const token = req.cookies['patient_token'] // FIX #1
+  const token = req.cookies['patient_token']
   if (!token) return res.status(200).json({ authenticated: false })
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
@@ -128,15 +129,28 @@ const checkAuth = async (req, res) => {
 }
 
 const logout = (req, res) => {
-  res.clearCookie('patient_token') // FIX #1
+  res.clearCookie('patient_token')
   res.status(200).json({ message: 'Logged out.' })
 }
 
 // ─── Appointments ─────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
+  // FIX: added date/time/type/doctor/specialty aliases so MyAppointments.jsx works
   const [rows] = await db.query(
-    `SELECT a.*, d.full_name AS doctor_name, d.specialty
+    `SELECT
+       a.*,
+       a.appointment_date                           AS date,
+       a.appointment_time                           AS time,
+       a.clinic_type                                AS type,
+       d.full_name                                  AS doctor_name,
+       d.full_name                                  AS doctor,
+       d.specialty,
+       CASE a.clinic_type
+         WHEN 'derma'   THEN 'Dermatology'
+         WHEN 'medical' THEN 'General Medicine'
+         ELSE a.clinic_type
+       END                                          AS clinic
      FROM appointments a JOIN doctors d ON a.doctor_id = d.id
      WHERE a.patient_id = ?
      ORDER BY a.appointment_date DESC, a.appointment_time DESC`,
@@ -146,9 +160,25 @@ const getAppointments = async (req, res) => {
 }
 
 const getHistory = async (req, res) => {
+  // FIX: added date/time/type/doctor/clinic aliases so History.jsx works
   const [rows] = await db.query(
-    `SELECT a.*, d.full_name AS doctor_name, d.specialty,
-            c.diagnosis, c.prescription, c.notes AS consultation_notes
+    `SELECT
+       a.*,
+       a.appointment_date                           AS date,
+       a.appointment_time                           AS time,
+       a.clinic_type                                AS type,
+       a.appointment_date                           AS rawDate,
+       d.full_name                                  AS doctor_name,
+       d.full_name                                  AS doctor,
+       d.specialty,
+       CASE a.clinic_type
+         WHEN 'derma'   THEN 'Dermatology'
+         WHEN 'medical' THEN 'General Medicine'
+         ELSE a.clinic_type
+       END                                          AS clinic,
+       c.diagnosis,
+       c.prescription,
+       c.notes                                      AS consultation_notes
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
@@ -219,8 +249,9 @@ const rescheduleAppointment = async (req, res) => {
 }
 
 const getDoctors = async (req, res) => {
+  // FIX: added name alias so BookAppointment.jsx doc.name works
   const [rows] = await db.query(
-    'SELECT id, full_name, specialty FROM doctors WHERE is_active = 1 ORDER BY full_name'
+    'SELECT id, full_name AS name, full_name, specialty FROM doctors WHERE is_active = 1 ORDER BY full_name'
   )
   res.json(rows)
 }

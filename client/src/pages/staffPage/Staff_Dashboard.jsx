@@ -10,11 +10,11 @@ import {
 import { NavLink } from "react-router-dom"
 
 const STATUS_CONFIG = {
-  confirmed:   { label: "Confirmed",   badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  pending:     { label: "Pending",     badge: "bg-amber-50   text-amber-700   border-amber-200"   },
-  cancelled:   { label: "Cancelled",   badge: "bg-red-50     text-red-500     border-red-200"     },
+  confirmed:    { label: "Confirmed",   badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  pending:      { label: "Pending",     badge: "bg-amber-50   text-amber-700   border-amber-200"   },
+  cancelled:    { label: "Cancelled",   badge: "bg-red-50     text-red-500     border-red-200"     },
   "in-progress":{ label: "In Progress", badge: "bg-sky-50    text-sky-700     border-sky-200"     },
-  waiting:     { label: "Waiting",     badge: "bg-slate-100  text-slate-500   border-slate-200"   },
+  waiting:      { label: "Waiting",     badge: "bg-slate-100  text-slate-500   border-slate-200"   },
 }
 
 const Staff_Dashboard = () => {
@@ -22,21 +22,19 @@ const Staff_Dashboard = () => {
   const [stats,        setStats]        = useState(null)
   const [appointments, setAppointments] = useState([])
   const [loading,      setLoading]      = useState(true)
-  
-  // Format current date for the header
+
   const displayDate = new Date().toLocaleDateString("en-PH", {
     weekday: "long", year: "numeric", month: "long", day: "numeric"
   })
 
-  // Format YYYY-MM-DD for API calls
   const today = new Date().toISOString().split('T')[0]
 
   useEffect(() => {
     setLoading(true)
     Promise.all([getDashboardStats(), getAppointments(today)])
-      .then(([s, a]) => { 
+      .then(([s, a]) => {
         setStats(s)
-        setAppointments(a) 
+        setAppointments(Array.isArray(a) ? a : [])
       })
       .catch((err) => console.error("Dashboard Load Error:", err))
       .finally(() => setLoading(false))
@@ -50,7 +48,6 @@ const Staff_Dashboard = () => {
     )
   }
 
-  // Derived counts for the greeting subtext
   const confirmedCount = appointments.filter(a => a.status === "confirmed").length
   const pendingCount   = appointments.filter(a => a.status === "pending").length
 
@@ -83,13 +80,40 @@ const Staff_Dashboard = () => {
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards — FIX: use correct field names from updated getDashboard */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Today's Appointments", value: appointments.length, sub: `${confirmedCount} confirmed`, icon: MdEventAvailable, color: "text-sky-600", bg: "bg-sky-50", border: "border-sky-200" },
-          { label: "Walk-in Queue", value: stats?.activeQueue || 0, sub: "current active", icon: MdQueuePlayNext, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200" },
-          { label: "Pending Approval", value: stats?.pendingApprovals || 0, sub: "need confirmation", icon: MdPending, color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200" },
-          { label: "Low Stock Alerts", value: stats?.lowStockCount || 0, sub: "items need restocking", icon: MdWarning, color: "text-red-500", bg: "bg-red-50", border: "border-red-200" },
+          {
+            label: "Today's Appointments",
+            value: appointments.length,
+            sub: `${confirmedCount} confirmed`,
+            icon: MdEventAvailable,
+            color: "text-sky-600", bg: "bg-sky-50", border: "border-sky-200"
+          },
+          {
+            label: "Walk-in Queue",
+            // FIX: was stats?.activeQueue (renamed from inQueue in controller)
+            value: stats?.activeQueue ?? 0,
+            sub: "current active",
+            icon: MdQueuePlayNext,
+            color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200"
+          },
+          {
+            label: "Pending Approval",
+            // FIX: was stats?.pendingApprovals (renamed from pendingAppts in controller)
+            value: stats?.pendingApprovals ?? 0,
+            sub: "need confirmation",
+            icon: MdPending,
+            color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200"
+          },
+          {
+            label: "Low Stock Alerts",
+            // FIX: was stats?.lowStockCount (renamed from lowStock in controller)
+            value: stats?.lowStockCount ?? 0,
+            sub: "items need restocking",
+            icon: MdWarning,
+            color: "text-red-500", bg: "bg-red-50", border: "border-red-200"
+          },
         ].map(({ label, value, sub, icon: Icon, color, bg, border }) => (
           <div key={label} className="bg-white rounded-2xl border border-slate-200 px-5 py-4 flex items-start gap-3 shadow-sm hover:shadow-md transition-shadow">
             <div className={`w-10 h-10 rounded-xl ${bg} border ${border} flex items-center justify-center shrink-0`}>
@@ -117,7 +141,8 @@ const Staff_Dashboard = () => {
           </div>
           <div className="divide-y divide-slate-100">
             {appointments.length > 0 ? appointments.map(appt => {
-              const cfg = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
+              const cfg  = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
+              // FIX: appt.type comes from clinic_type AS type alias in controller
               const Icon = appt.type === "derma" ? MdFace : MdMedicalServices
               return (
                 <div key={appt.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors">
@@ -125,12 +150,14 @@ const Staff_Dashboard = () => {
                     <Icon className={`text-[15px] ${appt.type === "derma" ? "text-emerald-600" : "text-slate-500"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
+                    {/* FIX: use patient_name (returned by getAppointments) */}
                     <p className="text-sm font-semibold text-slate-800 truncate">{appt.patient_name || appt.patient}</p>
                     <p className="text-xs text-slate-500 truncate">{appt.doctor_name || appt.doctor}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
-                      <MdAccessTime className="text-[12px]" /> {appt.time}
+                      {/* FIX: appt.time comes from appointment_time AS time alias */}
+                      <MdAccessTime className="text-[12px]" /> {appt.time || appt.appointment_time}
                     </span>
                     <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full ${cfg.badge}`}>
                       {cfg.label}
@@ -144,18 +171,16 @@ const Staff_Dashboard = () => {
           </div>
         </div>
 
-        {/* Right column - Stock & Queue Summary */}
+        {/* Right column */}
         <div className="space-y-5">
-           {/* Note: In a real app, you'd likely fetch separate lists for walk-in and low stock 
-               but for now I've kept your UI structure using the fetched stats object */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm p-5">
-             <h2 className="text-sm font-bold text-slate-800 mb-4">Quick Actions</h2>
-             <NavLink to="/staff/walkin" className="w-full flex items-center justify-center gap-1.5 py-3 text-sm font-bold text-white bg-sky-500 rounded-xl hover:bg-sky-600 transition-all mb-3">
-                <MdAdd className="text-[18px]" /> New Walk-in
-             </NavLink>
-             <NavLink to="/staff/inventory" className="w-full flex items-center justify-center gap-1.5 py-3 text-sm font-bold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-all">
-                <MdInventory className="text-[18px]" /> Check Inventory
-             </NavLink>
+            <h2 className="text-sm font-bold text-slate-800 mb-4">Quick Actions</h2>
+            <NavLink to="/staff/walkin" className="w-full flex items-center justify-center gap-1.5 py-3 text-sm font-bold text-white bg-sky-500 rounded-xl hover:bg-sky-600 transition-all mb-3">
+              <MdAdd className="text-[18px]" /> New Walk-in
+            </NavLink>
+            <NavLink to="/staff/inventory" className="w-full flex items-center justify-center gap-1.5 py-3 text-sm font-bold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-all">
+              <MdInventory className="text-[18px]" /> Check Inventory
+            </NavLink>
           </div>
         </div>
       </div>

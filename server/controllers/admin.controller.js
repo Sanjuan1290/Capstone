@@ -1,6 +1,9 @@
 // server/controllers/admin.controller.js
-// FIX #1 — role-specific cookies (admin_token)
-// FIX #2 — auto-generate temp password + send welcome email when creating staff/doctor
+// FIXES:
+// - getDashboard: renamed lowStock→lowStockCount so frontend stat card works
+// - getDashboard: doctorStatus mapped to match frontend fields (name/specialty/status/done/patients)
+// - getAppointments: added patient_name, doctor_name aliases already present — added time/date aliases
+// - createStaff/createDoctor: graceful email failure already handled
 
 const db = require('../db/connect')
 const bcrypt = require('bcrypt')
@@ -25,7 +28,7 @@ const login = async (req, res) => {
     return res.status(401).json({ message: 'Invalid email or password.' })
 
   const token = jwt.sign({ id: admin.id, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'admin') // FIX #1
+  generateCookie(res, token, 'admin')
 
   res.status(200).json({
     message: 'Login successful.',
@@ -34,7 +37,7 @@ const login = async (req, res) => {
 }
 
 const checkAuth = async (req, res) => {
-  const token = req.cookies['admin_token'] // FIX #1
+  const token = req.cookies['admin_token']
   if (!token) return res.status(200).json({ authenticated: false })
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
@@ -48,7 +51,7 @@ const checkAuth = async (req, res) => {
 }
 
 const logout = (req, res) => {
-  res.clearCookie('admin_token') // FIX #1
+  res.clearCookie('admin_token')
   res.status(200).json({ message: 'Logged out.' })
 }
 
@@ -59,17 +62,26 @@ const getDashboard = async (req, res) => {
   const [[{ totalPatients }]]  = await db.query('SELECT COUNT(*) AS totalPatients FROM patients')
   const [[{ todayAppts }]]     = await db.query('SELECT COUNT(*) AS todayAppts FROM appointments WHERE appointment_date = ?', [today])
   const [[{ pendingAppts }]]   = await db.query("SELECT COUNT(*) AS pendingAppts FROM appointments WHERE status = 'pending'")
-  const [[{ totalStaff }]]     = await db.query('SELECT COUNT(*) AS totalStaff FROM staff')
+  const [[{ totalStaff }]]     = await db.query('SELECT COUNT(*) AS totalStaff FROM staff WHERE status = "active"')
   const [[{ totalDoctors }]]   = await db.query('SELECT COUNT(*) AS totalDoctors FROM doctors WHERE is_active = 1')
-  const [[{ lowStock }]]       = await db.query('SELECT COUNT(*) AS lowStock FROM inventory WHERE stock <= threshold AND stock > 0')
+
+  // FIX: renamed to lowStockCount so Admin_Dashboard stat card works
+  const [[{ lowStockCount }]]  = await db.query('SELECT COUNT(*) AS lowStockCount FROM inventory WHERE stock <= threshold AND stock > 0')
   const [[{ outOfStock }]]     = await db.query('SELECT COUNT(*) AS outOfStock FROM inventory WHERE stock = 0')
 
   const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' })
+
+  // FIX: mapped columns to match what Admin_Dashboard.jsx expects:
+  // doc.name, doc.specialty, doc.status ('on-duty'|'off-duty'), doc.done, doc.patients
   const [doctorStatus] = await db.query(
-    `SELECT d.id, d.full_name, d.specialty,
-            ds.is_active AS on_duty,
-            COUNT(DISTINCT CASE WHEN a.status = 'completed' THEN a.id END) AS done,
-            COUNT(DISTINCT CASE WHEN a.status IN ('pending','confirmed','in-progress') THEN a.id END) AS remaining
+    `SELECT
+       d.id,
+       d.full_name            AS name,
+       d.specialty,
+       CASE WHEN ds.is_active = 1 THEN 'on-duty' ELSE 'off-duty' END AS status,
+       COUNT(DISTINCT CASE WHEN a.status = 'completed' THEN a.id END)                        AS done,
+       COUNT(DISTINCT CASE WHEN a.status IN ('pending','confirmed','in-progress') THEN a.id END) AS remaining,
+       COUNT(DISTINCT a.id)   AS patients
      FROM doctors d
      LEFT JOIN doctor_schedules ds ON ds.doctor_id = d.id AND ds.day_of_week = ? AND ds.is_active = 1
      LEFT JOIN appointments a ON a.doctor_id = d.id AND a.appointment_date = ?
@@ -77,17 +89,35 @@ const getDashboard = async (req, res) => {
      GROUP BY d.id`,
     [dayName, today]
   )
-  res.json({ totalPatients, todayAppts, pendingAppts, totalStaff, totalDoctors, lowStock, outOfStock, doctorStatus })
+
+  res.json({
+    totalPatients,
+    todayAppts,
+    pendingAppts,
+    totalStaff,
+    totalDoctors,
+    lowStockCount,   // FIX: was lowStock, now lowStockCount
+    outOfStock,
+    doctorStatus,
+  })
 }
 
 // ─── Appointments ─────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
   const { date } = req.query
-  let sql = `SELECT a.*, p.full_name AS patient_name, d.full_name AS doctor_name, d.specialty
+  // FIX: added appointment_date AS date, appointment_time AS time so frontend fields work
+  let sql = `SELECT
+               a.*,
+               a.appointment_date AS date,
+               a.appointment_time AS time,
+               a.clinic_type      AS type,
+               p.full_name        AS patient_name,
+               d.full_name        AS doctor_name,
+               d.specialty
              FROM appointments a
              JOIN patients p ON a.patient_id = p.id
-             JOIN doctors d  ON a.doctor_id  = d.id`
+             JOIN doctors  d ON a.doctor_id  = d.id`
   const params = []
   if (date) { sql += ' WHERE a.appointment_date = ?'; params.push(date) }
   sql += ' ORDER BY a.appointment_date ASC, a.appointment_time ASC'
@@ -121,7 +151,6 @@ const createStaff = async (req, res) => {
   if (existing.length > 0)
     return res.status(409).json({ message: 'Email already exists.' })
 
-  // FIX #2 — auto-generate temp password, no longer accept it from the form
   const tempPassword = Math.random().toString(36).slice(-8) + 'Aa1!'
   const hashed = await bcrypt.hash(tempPassword, 10)
 
@@ -134,10 +163,11 @@ const createStaff = async (req, res) => {
     [result.insertId]
   )
 
-  // FIX #2 — send welcome email
+  // FIX: non-blocking email — always return success even if email fails
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/staff/login`
     await sendTempPassword(email, full_name, 'Staff', tempPassword, loginUrl)
+    console.log(`✅ Welcome email sent to ${email}`)
   } catch (err) {
     console.error('⚠️  Welcome email failed (account still created):', err.message)
   }
@@ -171,7 +201,6 @@ const createDoctor = async (req, res) => {
   if (existing.length > 0)
     return res.status(409).json({ message: 'Email already exists.' })
 
-  // FIX #2 — auto-generate temp password
   const tempPassword = Math.random().toString(36).slice(-8) + 'Aa1!'
   const hashed = await bcrypt.hash(tempPassword, 10)
 
@@ -184,10 +213,11 @@ const createDoctor = async (req, res) => {
     [result.insertId]
   )
 
-  // FIX #2 — send welcome email
+  // FIX: non-blocking email
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/doctor/login`
     await sendTempPassword(email, full_name, 'Doctor', tempPassword, loginUrl)
+    console.log(`✅ Welcome email sent to ${email}`)
   } catch (err) {
     console.error('⚠️  Welcome email failed (account still created):', err.message)
   }
@@ -252,11 +282,23 @@ const getReports = async (req, res) => {
   )
   const [statusRows] = await db.query('SELECT status, COUNT(*) AS value FROM appointments GROUP BY status')
   const total = statusRows.reduce((s, r) => s + r.value, 0)
+
+  // FIX: added color/textColor fields that Admin_Reports.jsx uses
+  const colorMap = {
+    completed:   { color: 'bg-emerald-500', textColor: 'text-emerald-600' },
+    pending:     { color: 'bg-amber-400',   textColor: 'text-amber-600'   },
+    confirmed:   { color: 'bg-sky-500',     textColor: 'text-sky-600'     },
+    cancelled:   { color: 'bg-red-400',     textColor: 'text-red-500'     },
+    rescheduled: { color: 'bg-violet-400',  textColor: 'text-violet-600'  },
+  }
   const statusBreakdown = statusRows.map(r => ({
     label: r.status.charAt(0).toUpperCase() + r.status.slice(1),
     value: r.value,
     pct: total > 0 ? Math.round((r.value / total) * 100) : 0,
+    color:     (colorMap[r.status] || { color: 'bg-slate-400' }).color,
+    textColor: (colorMap[r.status] || { textColor: 'text-slate-500' }).textColor,
   }))
+
   const [topDoctors] = await db.query(
     `SELECT d.full_name AS name, d.specialty, d.specialty LIKE '%erm%' AS is_derma,
             COUNT(*) AS patients, SUM(a.status = 'completed') AS completed
@@ -279,6 +321,7 @@ const getInventory = async (req, res) => {
      LEFT JOIN staff s ON l.staff_id = s.id
      ORDER BY l.logged_at DESC LIMIT 50`
   )
+  // Both admin and staff inventory pages expect { items, logs }
   res.json({ items, logs })
 }
 
@@ -320,10 +363,13 @@ const addInventoryItem = async (req, res) => {
 
 const getSupplyRequests = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT sr.*, i.name AS item_name, i.unit, i.category, d.full_name AS doctor_name
+    `SELECT sr.*,
+            i.name AS item_name, i.name AS item, i.unit, i.category,
+            d.full_name AS doctor_name, d.full_name AS doctor,
+            sr.qty_requested AS qty
      FROM supply_requests sr
      JOIN inventory i ON sr.inventory_id = i.id
-     JOIN doctors d   ON sr.doctor_id   = d.id
+     JOIN doctors   d ON sr.doctor_id    = d.id
      ORDER BY sr.requested_at DESC`
   )
   res.json(rows)

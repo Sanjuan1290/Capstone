@@ -1,6 +1,8 @@
 // server/controllers/staff.controller.js
-// FIX #1 — role-specific cookie (staff_token)
-// All other logic is identical to your original.
+// FIXES:
+// - getDashboard: renamed inQueue→activeQueue and pendingAppts→pendingApprovals to match Staff_Dashboard.jsx
+// - getAppointments: added date/time/type/patient/doctor aliases so Staff_Appointments.jsx works
+// - getQueue: added arrivedAt alias, queueNo alias
 
 const db = require('../db/connect')
 const bcrypt = require('bcrypt')
@@ -12,7 +14,7 @@ const login = async (req, res) => {
   if (!email || !password)
     return res.status(400).json({ message: 'Email and password are required.' })
 
-  const [rows] = await db.query('SELECT * FROM staff WHERE email = ?', [email])
+  const [rows] = await db.query('SELECT * FROM staff WHERE email = ? AND status = "active"', [email])
   if (rows.length === 0)
     return res.status(401).json({ message: 'Invalid email or password.' })
 
@@ -22,7 +24,7 @@ const login = async (req, res) => {
     return res.status(401).json({ message: 'Invalid email or password.' })
 
   const token = jwt.sign({ id: member.id, role: 'staff' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'staff') // FIX #1
+  generateCookie(res, token, 'staff')
 
   res.status(200).json({
     message: 'Login successful.',
@@ -31,7 +33,7 @@ const login = async (req, res) => {
 }
 
 const checkAuth = async (req, res) => {
-  const token = req.cookies['staff_token'] // FIX #1
+  const token = req.cookies['staff_token']
   if (!token) return res.status(200).json({ authenticated: false })
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
@@ -45,26 +47,41 @@ const checkAuth = async (req, res) => {
 }
 
 const logout = (req, res) => {
-  res.clearCookie('staff_token') // FIX #1
+  res.clearCookie('staff_token')
   res.status(200).json({ message: 'Logged out.' })
 }
 
 const getDashboard = async (req, res) => {
   const today = new Date().toISOString().split('T')[0]
-  const [[{ totalPatients }]] = await db.query('SELECT COUNT(*) AS totalPatients FROM patients')
-  const [[{ todayAppts }]]    = await db.query('SELECT COUNT(*) AS todayAppts FROM appointments WHERE appointment_date = ?', [today])
-  const [[{ pendingAppts }]]  = await db.query("SELECT COUNT(*) AS pendingAppts FROM appointments WHERE status = 'pending'")
-  const [[{ lowStock }]]      = await db.query('SELECT COUNT(*) AS lowStock FROM inventory WHERE stock <= threshold')
-  const [[{ inQueue }]]       = await db.query("SELECT COUNT(*) AS inQueue FROM queue WHERE queue_date = ? AND status IN ('waiting','in-progress')", [today])
-  res.json({ totalPatients, todayAppts, pendingAppts, lowStock, inQueue })
+  const [[{ totalPatients }]]    = await db.query('SELECT COUNT(*) AS totalPatients FROM patients')
+  const [[{ todayAppts }]]       = await db.query('SELECT COUNT(*) AS todayAppts FROM appointments WHERE appointment_date = ?', [today])
+  // FIX: renamed to pendingApprovals to match Staff_Dashboard.jsx stats
+  const [[{ pendingApprovals }]] = await db.query("SELECT COUNT(*) AS pendingApprovals FROM appointments WHERE status = 'pending'")
+  // FIX: renamed to lowStockCount to match Staff_Dashboard.jsx stats
+  const [[{ lowStockCount }]]    = await db.query('SELECT COUNT(*) AS lowStockCount FROM inventory WHERE stock <= threshold')
+  // FIX: renamed to activeQueue to match Staff_Dashboard.jsx stats
+  const [[{ activeQueue }]]      = await db.query(
+    "SELECT COUNT(*) AS activeQueue FROM queue WHERE queue_date = ? AND status IN ('waiting','in-progress')", [today]
+  )
+  res.json({ totalPatients, todayAppts, pendingApprovals, lowStockCount, activeQueue })
 }
 
 const getAppointments = async (req, res) => {
   const { date } = req.query
-  let sql = `SELECT a.*, p.full_name AS patient_name, d.full_name AS doctor_name, d.specialty
+  // FIX: added aliases so Staff_Appointments.jsx fields (appt.patient, appt.doctor, appt.date, appt.time, appt.type) work
+  let sql = `SELECT
+               a.*,
+               a.appointment_date AS date,
+               a.appointment_time AS time,
+               a.clinic_type      AS type,
+               p.full_name        AS patient_name,
+               p.full_name        AS patient,
+               d.full_name        AS doctor_name,
+               d.full_name        AS doctor,
+               d.specialty
              FROM appointments a
              JOIN patients p ON a.patient_id = p.id
-             JOIN doctors d  ON a.doctor_id  = d.id`
+             JOIN doctors  d ON a.doctor_id  = d.id`
   const params = []
   if (date) { sql += ' WHERE a.appointment_date = ?'; params.push(date) }
   sql += ' ORDER BY a.appointment_date ASC, a.appointment_time ASC'
@@ -88,8 +105,16 @@ const cancelAppointment = async (req, res) => {
 
 const getQueue = async (req, res) => {
   const date = req.query.date || new Date().toISOString().split('T')[0]
+  // FIX: added queueNo alias and arrivedAt alias to match QueueCard component
   const [rows] = await db.query(
-    `SELECT q.*, d.full_name AS doctor_name FROM queue q
+    `SELECT
+       q.*,
+       q.queue_number                                              AS queueNo,
+       q.patient_name                                             AS patient,
+       TIME_FORMAT(q.arrived_at, '%h:%i %p')                     AS arrivedAt,
+       d.full_name                                                AS doctor_name,
+       d.full_name                                                AS doctor
+     FROM queue q
      JOIN doctors d ON q.doctor_id = d.id
      WHERE q.queue_date = ? ORDER BY q.queue_number ASC`,
     [date]
@@ -112,7 +137,14 @@ const addToQueue = async (req, res) => {
     [patient_id || null, doctor_id, queue_number, patient_name, type, queue_date]
   )
   const [newRow] = await db.query(
-    'SELECT q.*, d.full_name AS doctor_name FROM queue q JOIN doctors d ON q.doctor_id = d.id WHERE q.id = ?',
+    `SELECT
+       q.*,
+       q.queue_number                          AS queueNo,
+       q.patient_name                          AS patient,
+       TIME_FORMAT(q.arrived_at, '%h:%i %p')  AS arrivedAt,
+       d.full_name                             AS doctor_name,
+       d.full_name                             AS doctor
+     FROM queue q JOIN doctors d ON q.doctor_id = d.id WHERE q.id = ?`,
     [result.insertId]
   )
   res.status(201).json(newRow[0])
@@ -128,10 +160,22 @@ const updateQueueStatus = async (req, res) => {
 
 const getPatients = async (req, res) => {
   const { search } = req.query
-  let sql = `SELECT p.id, p.full_name, p.email, p.phone, p.birthdate, p.sex, p.civil_status, p.address,
-               TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS age,
-               COUNT(DISTINCT a.id) AS total_visits,
-               MAX(a.appointment_date) AS last_visit
+  // FIX: added aliases patient.name, patient.age, patient.totalVisits, patient.lastVisit
+  let sql = `SELECT
+               p.id,
+               p.full_name                                            AS name,
+               p.full_name,
+               p.email,
+               p.phone,
+               p.birthdate,
+               p.sex,
+               p.civil_status                                         AS civilStatus,
+               p.address,
+               TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE())           AS age,
+               COUNT(DISTINCT a.id)                                   AS total_visits,
+               COUNT(DISTINCT a.id)                                   AS totalVisits,
+               MAX(a.appointment_date)                                AS last_visit,
+               DATE_FORMAT(MAX(a.appointment_date), '%b %d, %Y')     AS lastVisit
              FROM patients p
              LEFT JOIN appointments a ON a.patient_id = p.id AND a.status = 'completed'`
   const params = []
@@ -147,12 +191,29 @@ const getPatients = async (req, res) => {
 const getPatientRecord = async (req, res) => {
   const { id } = req.params
   const [patientRows] = await db.query(
-    'SELECT p.*, TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS age FROM patients p WHERE p.id = ?', [id]
+    `SELECT p.*,
+            p.full_name AS name,
+            p.civil_status AS civilStatus,
+            TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS age,
+            (SELECT COUNT(*) FROM appointments WHERE patient_id = p.id AND status = 'completed') AS totalVisits,
+            (SELECT DATE_FORMAT(MAX(appointment_date), '%b %d, %Y') FROM appointments WHERE patient_id = p.id AND status = 'completed') AS lastVisit
+     FROM patients p WHERE p.id = ?`, [id]
   )
   if (patientRows.length === 0) return res.status(404).json({ message: 'Patient not found.' })
 
+  // FIX: added date/time/type/doctor/reason aliases for Staff_PatientRecord history/upcoming tabs
   const [history] = await db.query(
-    `SELECT a.*, d.full_name AS doctor_name, d.specialty, c.diagnosis, c.prescription
+    `SELECT
+       a.*,
+       a.appointment_date                         AS date,
+       a.appointment_time                         AS time,
+       a.clinic_type                              AS type,
+       a.reason,
+       d.full_name                                AS doctor_name,
+       d.full_name                                AS doctor,
+       d.specialty,
+       c.diagnosis,
+       c.prescription
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
@@ -160,7 +221,15 @@ const getPatientRecord = async (req, res) => {
      ORDER BY a.appointment_date DESC`, [id]
   )
   const [upcoming] = await db.query(
-    `SELECT a.*, d.full_name AS doctor_name, d.specialty
+    `SELECT
+       a.*,
+       a.appointment_date  AS date,
+       a.appointment_time  AS time,
+       a.clinic_type       AS type,
+       a.reason,
+       d.full_name         AS doctor_name,
+       d.full_name         AS doctor,
+       d.specialty
      FROM appointments a JOIN doctors d ON a.doctor_id = d.id
      WHERE a.patient_id = ? AND a.status IN ('pending','confirmed')
      ORDER BY a.appointment_date ASC`, [id]
@@ -200,7 +269,10 @@ const updateStock = async (req, res) => {
 }
 
 const getDoctors = async (req, res) => {
-  const [rows] = await db.query('SELECT id, full_name, specialty FROM doctors WHERE is_active = 1 ORDER BY full_name')
+  // FIX: added id field so addToQueue can use doctor.id
+  const [rows] = await db.query(
+    'SELECT id, full_name AS name, full_name, specialty FROM doctors WHERE is_active = 1 ORDER BY full_name'
+  )
   res.json(rows)
 }
 

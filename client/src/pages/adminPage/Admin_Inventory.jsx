@@ -8,20 +8,13 @@ import {
   MdLocalPharmacy, MdScience, MdCleaningServices
 } from "react-icons/md"
 
-// ── Initial Data (Logs fallback) ──────────────────────────────────────────────
-const initialLogs = [
-  { id: 1,  itemId: "ITM-001", itemName: "Tretinoin 0.025% Cream", type: "out", qty: 2, note: "Dispensed to patient — Maria Cruz",      by: "Admin",  date: "Mar 23, 2026", time: "9:10 AM"  },
-  { id: 2,  itemId: "ITM-005", itemName: "Amoxicillin 500mg",      type: "out", qty: 1, note: "Dispensed to patient — Carlo Santos",    by: "Admin",  date: "Mar 23, 2026", time: "9:45 AM"  },
-  { id: 3,  itemId: "ITM-007", itemName: "Paracetamol 500mg",      type: "in",  qty: 10, note: "Restocked from MedPhil Supply",         by: "Admin",  date: "Mar 22, 2026", time: "2:00 PM"  },
-]
-
 const CATEGORIES = ["All", "Derma", "Medicine", "Supplies"]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const getStockStatus = (stock, threshold) => {
-  if (stock === 0)                    return { label: "Out of Stock", color: "text-red-600",    bg: "bg-red-100",    border: "border-red-200",    bar: "bg-red-500",    pct: 0   }
-  if (stock <= threshold)             return { label: "Low Stock",    color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-200",  bar: "bg-amber-400",  pct: Math.round((stock / threshold) * 40) }
-  return                                     { label: "In Stock",     color: "text-emerald-700",bg: "bg-emerald-50", border: "border-emerald-200",bar: "bg-emerald-500",pct: Math.min(100, Math.round((stock / (threshold * 3)) * 100)) }
+  if (stock === 0)              return { label: "Out of Stock", color: "text-red-600",    bg: "bg-red-100",    border: "border-red-200",    bar: "bg-red-500",    pct: 0   }
+  if (stock <= threshold)       return { label: "Low Stock",    color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-200",  bar: "bg-amber-400",  pct: Math.round((stock / threshold) * 40) }
+  return                               { label: "In Stock",     color: "text-emerald-700",bg: "bg-emerald-50", border: "border-emerald-200",bar: "bg-emerald-500",pct: Math.min(100, Math.round((stock / (threshold * 3)) * 100)) }
 }
 
 const getCategoryStyle = (cat) => ({
@@ -72,7 +65,6 @@ const ScannerModal = ({ items, onClose, onDone, prefillItem = null }) => {
       onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
 
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-[#0b1a2c] flex items-center justify-center">
@@ -89,7 +81,6 @@ const ScannerModal = ({ items, onClose, onDone, prefillItem = null }) => {
         </div>
 
         <div className="px-6 py-5 space-y-4">
-          {/* Barcode field */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Barcode</label>
             <div className={`flex items-center gap-2.5 border-2 rounded-xl px-3 py-3 transition-all
@@ -111,21 +102,18 @@ const ScannerModal = ({ items, onClose, onDone, prefillItem = null }) => {
             )}
           </div>
 
-          {/* Found item */}
           {found && (
             <div className="space-y-3">
-              {/* Item card */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div>
                     <p className="text-sm font-bold text-slate-800">{found.name}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{found.id} · {found.supplier}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{found.supplier}</p>
                   </div>
                   <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0 ${status.bg} ${status.color} ${status.border}`}>
                     {status.label}
                   </span>
                 </div>
-                {/* Stock bar */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-500">Current stock</span>
@@ -138,7 +126,6 @@ const ScannerModal = ({ items, onClose, onDone, prefillItem = null }) => {
                 </div>
               </div>
 
-              {/* Stock In / Out */}
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Transaction Type</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -156,7 +143,6 @@ const ScannerModal = ({ items, onClose, onDone, prefillItem = null }) => {
                 </div>
               </div>
 
-              {/* Quantity */}
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Quantity</label>
                 <div className="flex items-center gap-2">
@@ -180,7 +166,6 @@ const ScannerModal = ({ items, onClose, onDone, prefillItem = null }) => {
                 )}
               </div>
 
-              {/* Note */}
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
                   Note <span className="font-normal text-slate-400 normal-case">(optional)</span>
@@ -218,7 +203,7 @@ const AddItemModal = ({ onClose, onAdd }) => {
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
   const valid = form.barcode.trim() && form.name.trim() && form.supplier.trim()
 
-  const handleSumbit = () => {
+  const handleSubmit = () => {
     onAdd({
       ...form,
       stock: parseInt(form.stock) || 0,
@@ -280,7 +265,7 @@ const AddItemModal = ({ onClose, onAdd }) => {
             Cancel
           </button>
           <button disabled={!valid}
-            onClick={handleSumbit}
+            onClick={handleSubmit}
             className="flex-1 py-2.5 text-sm font-bold text-white bg-[#0b1a2c] hover:bg-[#122236] disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition-colors">
             Add Item
           </button>
@@ -292,37 +277,27 @@ const AddItemModal = ({ onClose, onAdd }) => {
 
 // ── Inventory Row ─────────────────────────────────────────────────────────────
 const InventoryRow = ({ item, onScan }) => {
-  const status  = getStockStatus(item.stock, item.threshold)
+  const status   = getStockStatus(item.stock, item.threshold)
   const catStyle = getCategoryStyle(item.category)
   const CatIcon  = catStyle.icon
 
   return (
     <div className="grid grid-cols-[28px_2.5fr_1fr_1fr_1.2fr_80px] gap-4 px-5 py-4 items-center hover:bg-slate-50/80 transition-colors border-b border-slate-100 last:border-0">
-
-      {/* Category icon */}
       <div className={`w-7 h-7 rounded-lg ${catStyle.bg} flex items-center justify-center shrink-0`}>
         <CatIcon className={`text-[13px] ${catStyle.text}`} />
       </div>
-
-      {/* Name + ID */}
       <div className="min-w-0">
         <p className="text-sm font-semibold text-slate-800 truncate">{item.name}</p>
         <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
-          <span className="font-mono">{item.id}</span>
+          <span className="font-mono">{item.barcode}</span>
           <span className="text-slate-300">·</span>
           <span className="truncate">{item.supplier}</span>
         </p>
       </div>
-
-      {/* Category badge */}
       <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full w-fit ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}>
         {item.category}
       </span>
-
-      {/* Barcode */}
       <p className="text-xs font-mono text-slate-400 truncate">{item.barcode}</p>
-
-      {/* Stock level */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <span className={`text-sm font-bold ${item.stock === 0 ? "text-red-600" : item.stock <= item.threshold ? "text-amber-600" : "text-slate-800"}`}>
@@ -332,15 +307,12 @@ const InventoryRow = ({ item, onScan }) => {
             {status.label}
           </span>
         </div>
-        {/* Stock bar */}
         <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
           <div className={`h-full ${status.bar} rounded-full transition-all duration-500`}
             style={{ width: `${Math.max(3, status.pct)}%` }} />
         </div>
         <p className="text-[10px] text-slate-400">Threshold: {item.threshold}</p>
       </div>
-
-      {/* Scan button */}
       <button onClick={() => onScan(item)}
         className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg border border-slate-200
           text-slate-500 text-[11px] font-semibold hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50 transition-all">
@@ -352,8 +324,9 @@ const InventoryRow = ({ item, onScan }) => {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const Admin_Inventory = () => {
+  // FIX: admin getInventory also returns {items, logs} — same as staff
   const [items,       setItems]       = useState([])
-  const [logs,        setLogs]        = useState(initialLogs)
+  const [logs,        setLogs]        = useState([])
   const [loading,     setLoading]     = useState(true)
   const [search,      setSearch]      = useState("")
   const [category,    setCategory]    = useState("All")
@@ -363,32 +336,32 @@ const Admin_Inventory = () => {
   const [logFilter,   setLogFilter]   = useState("all")
   const [preselect,   setPreselect]   = useState(null)
 
-  // Fetch data on mount
   useEffect(() => {
-    const fetchInventoryData = async () => {
-      try {
-        const data = await getInventory()
-        setItems(data || [])
-      } catch (err) {
-        console.error("Failed to load inventory:", err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchInventoryData()
+    getInventory()
+      .then(data => {
+        // FIX: admin getInventory returns { items, logs } — destructure properly
+        if (data && data.items) {
+          setItems(data.items)
+          setLogs(data.logs || [])
+        } else if (Array.isArray(data)) {
+          // fallback if API ever returns plain array
+          setItems(data)
+        }
+      })
+      .catch(err => console.error("Failed to load inventory:", err))
+      .finally(() => setLoading(false))
   }, [])
 
   const lowStock   = items.filter(i => i.stock <= i.threshold && i.stock > 0)
   const outOfStock = items.filter(i => i.stock === 0)
-  const totalValue = items.reduce((sum, i) => sum + i.stock * (i.price || 0), 0)
+  const totalValue = items.reduce((sum, i) => sum + i.stock * (parseFloat(i.price) || 0), 0)
 
   const filtered = items.filter(i => {
     const matchCat    = category === "All" || i.category === category
     const matchSearch = !search ||
       i.name.toLowerCase().includes(search.toLowerCase()) ||
-      i.barcode.includes(search) ||
-      i.id.toLowerCase().includes(search.toLowerCase()) ||
-      i.supplier.toLowerCase().includes(search.toLowerCase())
+      (i.barcode || '').includes(search) ||
+      (i.supplier || '').toLowerCase().includes(search.toLowerCase())
     return matchCat && matchSearch
   })
 
@@ -396,39 +369,32 @@ const Admin_Inventory = () => {
 
   const handleScanResult = async ({ item, type, qty, note }) => {
     try {
-      // API call to update stock
-      const updatedItem = await updateStock(item.id, { type, qty, note })
-      
-      // Update local state with response
-      setItems(prev => prev.map(i => i.id === item.id ? updatedItem : i))
-      
-      // Update local logs
-      setLogs(prev => [{
-        id: Date.now(), itemId: item.id, itemName: item.name,
-        type, qty, note: note || (type === "in" ? "Restocked" : "Dispensed"),
-        by: "Admin",
-        date: new Date().toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }),
-        time: new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }),
-      }, ...prev])
+      const res = await updateStock(item.id, { type, qty, note })
+      if (res && res.new_stock !== undefined) {
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, stock: res.new_stock } : i))
+        if (res.log) setLogs(prev => [res.log, ...prev])
+      } else {
+        // fallback optimistic update
+        setItems(prev => prev.map(i => {
+          if (i.id !== item.id) return i
+          return { ...i, stock: type === "in" ? i.stock + qty : Math.max(0, i.stock - qty) }
+        }))
+      }
     } catch (err) {
       console.error("Failed to update stock:", err)
-      // Fallback for demo purposes if backend isn't returning updated item structure yet:
-      setItems(prev => prev.map(i => {
-        if (i.id !== item.id) return i
-        return { ...i, stock: type === "in" ? i.stock + qty : Math.max(0, i.stock - qty) }
-      }))
+      alert("Failed to update stock: " + (err.message || "Unknown error"))
     }
   }
 
   const handleAddItem = async (newItem) => {
     try {
-      // API call to create new item
-      const createdItem = await addInventoryItem(newItem)
-      setItems(prev => [createdItem, ...prev])
+      const created = await addInventoryItem(newItem)
+      if (created && created.id) {
+        setItems(prev => [created, ...prev])
+      }
     } catch (err) {
       console.error("Failed to add inventory item:", err)
-      // Fallback for demo:
-      setItems(prev => [{...newItem, id: `ITM-${String(Date.now()).slice(-3)}`}, ...prev])
+      alert("Failed to add item: " + (err.message || "Unknown error"))
     }
   }
 
@@ -446,7 +412,7 @@ const Admin_Inventory = () => {
     return (
       <div className="flex flex-col items-center justify-center p-20 space-y-4">
         <div className="w-10 h-10 border-4 border-slate-200 border-t-sky-500 rounded-full animate-spin" />
-        <p className="text-slate-400 font-medium animate-pulse text-sm">Syncing admin inventory database...</p>
+        <p className="text-slate-400 font-medium animate-pulse text-sm">Loading inventory...</p>
       </div>
     )
   }
@@ -458,9 +424,7 @@ const Admin_Inventory = () => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventory Management</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Track stock levels, add new products, and monitor transactions.
-          </p>
+          <p className="text-sm text-slate-500 mt-0.5">Track stock levels, add new products, and monitor transactions.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowScanner(true)}
@@ -479,7 +443,11 @@ const Admin_Inventory = () => {
         <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4">
           <p className="text-xs text-slate-500 font-medium">Total Items</p>
           <p className="text-3xl font-black text-slate-800 mt-1">{items.length}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">{items.filter(i=>i.category==="Medicine").length} medicine · {items.filter(i=>i.category==="Derma").length} derma</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            {items.filter(i=>i.category==="Medicine").length} medicine ·{" "}
+            {items.filter(i=>i.category==="Derma").length} derma ·{" "}
+            {items.filter(i=>i.category==="Supplies").length} supplies
+          </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4">
           <p className="text-xs text-slate-500 font-medium">Inventory Value</p>
@@ -525,8 +493,8 @@ const Admin_Inventory = () => {
       {/* Tabs */}
       <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 w-fit">
         {[
-          { key: "inventory", label: "Stock List",       icon: MdInventory2 },
-          { key: "logs",      label: "Transaction Log",  icon: MdHistory    },
+          { key: "inventory", label: "Stock List",      icon: MdInventory2 },
+          { key: "logs",      label: "Transaction Log", icon: MdHistory    },
         ].map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setActiveTab(key)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all
@@ -539,7 +507,6 @@ const Admin_Inventory = () => {
       {/* ── Inventory tab ── */}
       {activeTab === "inventory" && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-          {/* Toolbar */}
           <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-wrap">
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2
               flex-1 min-w-52 focus-within:border-slate-300 transition-colors">
@@ -564,14 +531,12 @@ const Admin_Inventory = () => {
             </div>
           </div>
 
-          {/* Table head */}
           <div className="grid grid-cols-[28px_2.5fr_1fr_1fr_1.2fr_80px] gap-4 px-5 py-2.5 bg-slate-50 border-b border-slate-100">
             {["", "Product", "Category", "Barcode", "Stock Level", ""].map((h, i) => (
               <p key={i} className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{h}</p>
             ))}
           </div>
 
-          {/* Rows */}
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-center">
               <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">
@@ -597,7 +562,7 @@ const Admin_Inventory = () => {
             <h3 className="text-sm font-bold text-slate-800">Recent Transactions</h3>
             <div className="flex gap-2">
               {["all", "in", "out"].map(f => (
-                <button key={f} onClick={() => setLogFilter(f)} 
+                <button key={f} onClick={() => setLogFilter(f)}
                   className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${logFilter === f ? "bg-[#0b1a2c] text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
                   {f}
                 </button>
@@ -605,20 +570,25 @@ const Admin_Inventory = () => {
             </div>
           </div>
           <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-            {filteredLogs.map(log => (
+            {filteredLogs.length === 0 ? (
+              <div className="py-14 text-center">
+                <p className="text-sm font-bold text-slate-700">No transactions yet</p>
+                <p className="text-xs text-slate-500 mt-1">Stock movements will be recorded here.</p>
+              </div>
+            ) : filteredLogs.map(log => (
               <div key={log.id} className="px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${log.type === "in" ? "bg-emerald-50 border border-emerald-100" : "bg-amber-50 border border-amber-100"}`}>
                     {log.type === "in" ? <MdArrowUpward className="text-emerald-600 text-[18px]" /> : <MdArrowDownward className="text-amber-600 text-[18px]" />}
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-800">{log.itemName}</p>
+                    <p className="text-sm font-bold text-slate-800">{log.item_name || log.itemName}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className={`text-[10px] font-bold uppercase tracking-wider ${log.type === "in" ? "text-emerald-600" : "text-amber-600"}`}>
                         Stock {log.type}
                       </span>
                       <span className="text-slate-300">·</span>
-                      <span className="text-[11px] text-slate-500">{log.note}</span>
+                      <span className="text-[11px] text-slate-500">{log.note || "—"}</span>
                     </div>
                   </div>
                 </div>
@@ -627,20 +597,11 @@ const Admin_Inventory = () => {
                     {log.type === "in" ? "+" : "-"}{log.qty}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    {log.date} · {log.time} · {log.by}
+                    {log.logged_at ? new Date(log.logged_at).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                   </p>
                 </div>
               </div>
             ))}
-            {filteredLogs.length === 0 && (
-              <div className="py-14 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
-                  <MdHistory className="text-slate-400 text-2xl" />
-                </div>
-                <p className="text-sm font-bold text-slate-700">No transactions yet</p>
-                <p className="text-xs text-slate-500 mt-1">Stock movements will be recorded here.</p>
-              </div>
-            )}
           </div>
         </div>
       )}
