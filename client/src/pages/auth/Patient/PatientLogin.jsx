@@ -5,10 +5,10 @@ import { FaRegEye, FaRegEyeSlash } from 'react-icons/fa'
 import { useAuth } from '../../../context/AuthContext'
 
 const PatientLogin = () => {
-  const [form, setForm]               = useState({ email: '', password: '' })
+  const [form, setForm]                 = useState({ email: '', password: '' })
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError]             = useState('')
-  const [loading, setLoading]         = useState(false)
+  const [error, setError]               = useState('')
+  const [loading, setLoading]           = useState(false)
   const navigate = useNavigate()
   const { login } = useAuth()
 
@@ -63,15 +63,21 @@ const PatientLogin = () => {
         </label>
 
         <label className='flex flex-col gap-1 relative'>
-          <div className='flex justify-between'>
+          <div className='flex justify-between items-center'>
             <p className='text-gray-500 font-semibold'>PASSWORD</p>
+            {/* ✅ NEW: Forgot password link */}
+            <NavLink
+              to='/patient/forgot-password'
+              className='text-xs text-[rgb(43,124,110)] hover:underline font-medium'>
+              Forgot password?
+            </NavLink>
           </div>
           <input required type={showPassword ? 'text' : 'password'} placeholder='********'
             className='border-[1px] border-gray-400 w-full py-3 px-4 rounded-md'
             name='password' onChange={handleFormChange} value={form.password} />
           {!showPassword
-            ? <FaRegEye    onClick={() => setShowPassword(true)}  className='h-5 w-5 cursor-pointer absolute right-16 top-[52px] -translate-y-1/2' />
-            : <FaRegEyeSlash onClick={() => setShowPassword(false)} className='h-5 w-5 cursor-pointer absolute right-16 top-[52px] -translate-y-1/2' />
+            ? <FaRegEye    onClick={() => setShowPassword(true)}  className='h-5 w-5 cursor-pointer absolute right-4 top-[56px] -translate-y-1/2' />
+            : <FaRegEyeSlash onClick={() => setShowPassword(false)} className='h-5 w-5 cursor-pointer absolute right-4 top-[56px] -translate-y-1/2' />
           }
         </label>
 

@@ -104,26 +104,41 @@ const getDashboard = async (req, res) => {
 
 // ─── Appointments ─────────────────────────────────────────────────────────────
 
+ 
 const getAppointments = async (req, res) => {
   const { date } = req.query
-  // FIX: added appointment_date AS date, appointment_time AS time so frontend fields work
-  let sql = `SELECT
-               a.*,
-               a.appointment_date AS date,
-               a.appointment_time AS time,
-               a.clinic_type      AS type,
-               p.full_name        AS patient_name,
-               d.full_name        AS doctor_name,
-               d.specialty
-             FROM appointments a
-             JOIN patients p ON a.patient_id = p.id
-             JOIN doctors  d ON a.doctor_id  = d.id`
+  let sql = `
+    SELECT
+      a.*,
+      DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+      DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
+      a.appointment_time                           AS time,
+      a.clinic_type                                AS type,
+      p.full_name                                  AS patient_name,
+      p.email                                      AS patient_email,
+      p.phone                                      AS patient_phone,
+      DATE_FORMAT(p.birthdate, '%Y-%m-%d')         AS patient_birthdate,
+      p.sex                                        AS patient_sex,
+      p.address                                    AS patient_address,
+      p.civil_status                               AS patient_civil_status,
+      d.full_name                                  AS doctor_name,
+      d.specialty,
+      CASE a.clinic_type
+        WHEN 'derma'   THEN 'Dermatology'
+        WHEN 'medical' THEN 'General Medicine'
+        ELSE a.clinic_type
+      END                                          AS clinic
+    FROM appointments a
+    JOIN patients p ON a.patient_id = p.id
+    JOIN doctors  d ON a.doctor_id  = d.id
+  `
   const params = []
   if (date) { sql += ' WHERE a.appointment_date = ?'; params.push(date) }
-  sql += ' ORDER BY a.appointment_date ASC, a.appointment_time ASC'
+  sql += ' ORDER BY a.appointment_date DESC, a.appointment_time ASC'
   const [rows] = await db.query(sql, params)
   res.json(rows)
 }
+ 
 
 const confirmAppointment = async (req, res) => {
   await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ?", [req.params.id])

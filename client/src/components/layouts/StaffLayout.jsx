@@ -1,23 +1,25 @@
 import { useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import logo from '../../assets/logo-removebg.png'
-import { useAuth } from '../../context/AuthContext' // 1. Added import
+import { useAuth } from '../../context/AuthContext'
 import {
   MdDashboard, MdEventAvailable, MdQueuePlayNext,
   MdPeople, MdInventory2, MdChevronLeft, MdNotifications,
-  MdSearch, MdLogout, MdPerson
+  MdSearch, MdLogout, MdPerson, MdLocalShipping
 } from "react-icons/md"
 
 const sideNav = [
-  { name: "Dashboard",       path: "/staff",                 icon: MdDashboard      },
-  { name: "Appointments",    path: "/staff/appointments",    icon: MdEventAvailable },
-  { name: "Walk-in Queue",   path: "/staff/walkin",          icon: MdQueuePlayNext  },
-  { name: "Patient Records", path: "/staff/patient-records", icon: MdPeople         },
-  { name: "Inventory",       path: "/staff/inventory",       icon: MdInventory2     },
+  { name: "Dashboard",        path: "/staff",                   icon: MdDashboard     },
+  { name: "Appointments",     path: "/staff/appointments",      icon: MdEventAvailable },
+  { name: "Walk-in Queue",    path: "/staff/walkin",            icon: MdQueuePlayNext  },
+  { name: "Patient Records",  path: "/staff/patient-records",   icon: MdPeople         },
+  { name: "Inventory",        path: "/staff/inventory",         icon: MdInventory2     },
+  // ✅ NEW: Supply Requests page
+  { name: "Supply Requests",  path: "/staff/supply-requests",   icon: MdLocalShipping  },
 ]
 
 const StaffLayout = () => {
-  const { user, logout: clearAuth } = useAuth() // 2. Destructured user and logout
+  const { user, logout: clearAuth } = useAuth()
   const [collapsed,   setCollapsed]   = useState(false)
   const [loggingOut,  setLoggingOut]  = useState(false)
   const [logoutError, setLogoutError] = useState("")
@@ -27,16 +29,11 @@ const StaffLayout = () => {
     setLoggingOut(true)
     setLogoutError("")
     try {
-      const res = await fetch("/api/staff/logout", {
-        method: "POST",
-        credentials: "include",
-      })
+      const res = await fetch("/api/staff/logout", { method: "POST", credentials: "include" })
       if (!res.ok) throw new Error("Logout failed")
-      
-      // 3. Navigate first, then clear local auth state
       navigate("/staff/login")
       clearAuth()
-    } catch (err) {
+    } catch {
       setLogoutError("Could not log out. Try again.")
       setLoggingOut(false)
     }
@@ -58,9 +55,7 @@ const StaffLayout = () => {
             transition-[opacity,max-width] duration-300
             ${collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-xs"}`}>
             <p className="text-white font-bold text-[15px] tracking-tight">Carait Clinic</p>
-            <span className="text-sky-400 text-[10px] font-semibold uppercase tracking-widest font-mono">
-              Staff
-            </span>
+            <span className="text-sky-400 text-[10px] font-semibold uppercase tracking-widest font-mono">Staff</span>
           </div>
         </div>
 
@@ -75,18 +70,14 @@ const StaffLayout = () => {
         {/* Nav links */}
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
           {sideNav.map(({ name, path, icon: Icon }) => (
-            <NavLink
-              key={path}
-              to={path}
-              end={path === "/staff"}
+            <NavLink key={path} to={path} end={path === "/staff"}
               className={({ isActive }) =>
                 `relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
                  transition-colors duration-150 group
                  ${isActive
                    ? "bg-sky-500/15 text-sky-400"
                    : "text-slate-400 hover:bg-white/5 hover:text-white"
-                 }`}
-            >
+                 }`}>
               {({ isActive }) => (
                 <>
                   {isActive && (
@@ -115,13 +106,10 @@ const StaffLayout = () => {
           {logoutError && !collapsed && (
             <p className="text-[10px] text-red-400 px-3 pb-1">{logoutError}</p>
           )}
-          <button
-            onClick={handleLogout}
-            disabled={loggingOut}
+          <button onClick={handleLogout} disabled={loggingOut}
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full
               text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors duration-150
-              disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+              disabled:opacity-50 disabled:cursor-not-allowed">
             <MdLogout className={`shrink-0 text-[18px] ${loggingOut ? "animate-spin" : ""}`} />
             <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
               ${collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-xs"}`}>
@@ -131,13 +119,10 @@ const StaffLayout = () => {
         </div>
 
         {/* Collapse toggle */}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          aria-label="Toggle sidebar"
+        <button onClick={() => setCollapsed(!collapsed)} aria-label="Toggle sidebar"
           className="absolute -right-3 top-[72px] z-10 w-6 h-6 rounded-full bg-[#0b1a2c]
             border border-white/10 flex items-center justify-center text-slate-400
-            hover:text-white shadow-md transition-all duration-150 hover:scale-110"
-        >
+            hover:text-white shadow-md transition-all duration-150 hover:scale-110">
           <MdChevronLeft className={`text-[13px] transition-transform duration-300 ${collapsed ? "rotate-180" : ""}`} />
         </button>
       </aside>
@@ -165,10 +150,7 @@ const StaffLayout = () => {
                 <MdPerson className="text-[15px] text-sky-600" />
               </div>
               <div className="leading-tight">
-                {/* 4. Displayed actual user name */}
-                <p className="text-xs font-semibold text-slate-700">
-                  {user?.full_name || 'Staff Member'}
-                </p>
+                <p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Staff Member'}</p>
                 <p className="text-[10px] text-slate-400">Staff</p>
               </div>
             </div>

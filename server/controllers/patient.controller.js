@@ -1,95 +1,82 @@
 // server/controllers/patient.controller.js
-// FIXES:
-// - getAppointments: added date/time/type/doctor/specialty aliases for MyAppointments.jsx
-// - getHistory: added date/time/type/doctor/clinic aliases for History.jsx
-// - getDoctorSchedule: kept as-is (correct)
 
-const db = require('../db/connect')
-const bcrypt = require('bcrypt')
-const jwt = require('jsonwebtoken')
+const db           = require('../db/connect')
+const bcrypt       = require('bcrypt')
+const jwt          = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
 const { sendVerificationCode } = require('../utils/emailService')
 
-const pendingVerifications = {}
+// In-memory pending registrations (keyed by email)
+const pendingRegistrations = {}
 
-// ─── Register Step 1 ─────────────────────────────────────────────────────────
+// ─── Registration ─────────────────────────────────────────────────────────────
 
 const register = async (req, res) => {
-  const { full_name, birthdate, sex, civil_status, phone, address, email, password } = req.body
+  const { full_name, birthdate, sex, civil_status, phone, address, email, password, confirmPassword } = req.body
 
   if (!full_name || !birthdate || !sex || !phone || !address || !email || !password)
-    return res.status(400).json({ message: 'All fields are required.' })
+    return res.status(400).json({ message: 'All required fields must be filled.' })
+
+  if (password !== confirmPassword)
+    return res.status(400).json({ message: 'Passwords do not match.' })
+
+  if (password.length < 6)
+    return res.status(400).json({ message: 'Password must be at least 6 characters.' })
 
   const [existing] = await db.query('SELECT id FROM patients WHERE email = ?', [email])
   if (existing.length > 0)
-    return res.status(409).json({ message: 'Email already registered.' })
+    return res.status(409).json({ message: 'An account with that email already exists.' })
 
-  const code    = Math.floor(100000 + Math.random() * 900000).toString()
-  const expires = Date.now() + 10 * 60 * 1000
-  const hashed  = await bcrypt.hash(password, 10)
+  const hashed = await bcrypt.hash(password, 10)
+  const code   = String(Math.floor(100000 + Math.random() * 900000))
 
-  pendingVerifications[email] = {
-    code,
-    expires,
-    data: { full_name, birthdate, sex, civil_status: civil_status || null, phone, address, email, password: hashed },
+  pendingRegistrations[email] = {
+    full_name, birthdate, sex, civil_status: civil_status || null,
+    phone, address, email, password: hashed,
+    code, expiresAt: Date.now() + 10 * 60 * 1000,
   }
 
-  // FIX: non-blocking — always respond 200 even if email fails
   try {
     await sendVerificationCode(email, full_name, code)
-    console.log(`✅ Verification code sent to ${email}: ${code}`)
   } catch (err) {
     console.error('⚠️  Verification email failed:', err.message)
-    // Print code to console so dev can test without email
-    console.log(`📋 DEV MODE — verification code for ${email}: ${code}`)
   }
 
-  res.status(200).json({
-    message: 'Verification code sent to your email. Please check your inbox.',
-    email,
-  })
+  res.status(200).json({ message: 'Verification code sent. Please check your email.' })
 }
-
-// ─── Register Step 2 ─────────────────────────────────────────────────────────
 
 const verifyRegistration = async (req, res) => {
   const { email, code } = req.body
-  if (!email || !code)
-    return res.status(400).json({ message: 'Email and code are required.' })
 
-  const pending = pendingVerifications[email]
+  const pending = pendingRegistrations[email]
   if (!pending)
-    return res.status(400).json({ message: 'No pending registration found. Please register again.' })
-  if (Date.now() > pending.expires) {
-    delete pendingVerifications[email]
-    return res.status(400).json({ message: 'Code expired. Please register again.' })
-  }
-  if (pending.code !== String(code).trim())
-    return res.status(400).json({ message: 'Incorrect verification code.' })
+    return res.status(400).json({ message: 'No pending registration found for this email.' })
 
-  const [existing] = await db.query('SELECT id FROM patients WHERE email = ?', [email])
-  if (existing.length > 0) {
-    delete pendingVerifications[email]
-    return res.status(409).json({ message: 'Email already registered.' })
+  if (Date.now() > pending.expiresAt) {
+    delete pendingRegistrations[email]
+    return res.status(400).json({ message: 'Verification code has expired. Please register again.' })
   }
 
-  const { full_name, birthdate, sex, civil_status, phone, address, password } = pending.data
+  if (String(pending.code) !== String(code))
+    return res.status(400).json({ message: 'Invalid verification code.' })
+
   const [result] = await db.query(
     'INSERT INTO patients (full_name, birthdate, sex, civil_status, phone, address, email, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [full_name, birthdate, sex, civil_status, phone, address, email, password]
+    [pending.full_name, pending.birthdate, pending.sex, pending.civil_status, pending.phone, pending.address, pending.email, pending.password]
   )
-  delete pendingVerifications[email]
+
+  delete pendingRegistrations[email]
 
   const token = jwt.sign({ id: result.insertId, role: 'patient' }, process.env.JWT_SECRET, { expiresIn: '7d' })
   generateCookie(res, token, 'patient')
 
   res.status(201).json({
-    message: 'Account created successfully!',
-    user: { id: result.insertId, full_name, email, role: 'patient' },
+    message: 'Registration successful.',
+    user: { id: result.insertId, full_name: pending.full_name, email: pending.email, role: 'patient' },
   })
 }
 
-// ─── Login ────────────────────────────────────────────────────────────────────
+// ─── Auth ─────────────────────────────────────────────────────────────────────
 
 const login = async (req, res) => {
   const { email, password } = req.body
@@ -101,7 +88,7 @@ const login = async (req, res) => {
     return res.status(401).json({ message: 'Invalid email or password.' })
 
   const patient = rows[0]
-  const match = await bcrypt.compare(password, patient.password)
+  const match   = await bcrypt.compare(password, patient.password)
   if (!match)
     return res.status(401).json({ message: 'Invalid email or password.' })
 
@@ -136,11 +123,12 @@ const logout = (req, res) => {
 // ─── Appointments ─────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
-  // FIX: added date/time/type/doctor/specialty aliases so MyAppointments.jsx works
   const [rows] = await db.query(
+    // ✅ FIX: include full patient details + properly formatted date
     `SELECT
        a.*,
-       a.appointment_date                           AS date,
+       DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+       DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
        a.appointment_time                           AS time,
        a.clinic_type                                AS type,
        d.full_name                                  AS doctor_name,
@@ -150,8 +138,17 @@ const getAppointments = async (req, res) => {
          WHEN 'derma'   THEN 'Dermatology'
          WHEN 'medical' THEN 'General Medicine'
          ELSE a.clinic_type
-       END                                          AS clinic
-     FROM appointments a JOIN doctors d ON a.doctor_id = d.id
+       END                                          AS clinic,
+       p.full_name                                  AS patient_full_name,
+       p.email                                      AS patient_email,
+       p.phone                                      AS patient_phone,
+       DATE_FORMAT(p.birthdate, '%Y-%m-%d')         AS patient_birthdate,
+       p.sex                                        AS patient_sex,
+       p.address                                    AS patient_address,
+       p.civil_status                               AS patient_civil_status
+     FROM appointments a
+     JOIN doctors  d ON a.doctor_id  = d.id
+     JOIN patients p ON a.patient_id = p.id
      WHERE a.patient_id = ?
      ORDER BY a.appointment_date DESC, a.appointment_time DESC`,
     [req.user.id]
@@ -160,14 +157,14 @@ const getAppointments = async (req, res) => {
 }
 
 const getHistory = async (req, res) => {
-  // FIX: added date/time/type/doctor/clinic aliases so History.jsx works
   const [rows] = await db.query(
     `SELECT
        a.*,
-       a.appointment_date                           AS date,
+       DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+       DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
+       DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS rawDate,
        a.appointment_time                           AS time,
        a.clinic_type                                AS type,
-       a.appointment_date                           AS rawDate,
        d.full_name                                  AS doctor_name,
        d.full_name                                  AS doctor,
        d.specialty,
@@ -242,14 +239,13 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(409).json({ message: 'That time slot is already taken.' })
 
   await db.query(
-    "UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'pending' WHERE id = ?",
+    "UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'rescheduled' WHERE id = ?",
     [appointment_date, appointment_time, req.params.id]
   )
   res.json({ message: 'Appointment rescheduled.' })
 }
 
 const getDoctors = async (req, res) => {
-  // FIX: added name alias so BookAppointment.jsx doc.name works
   const [rows] = await db.query(
     'SELECT id, full_name AS name, full_name, specialty FROM doctors WHERE is_active = 1 ORDER BY full_name'
   )
