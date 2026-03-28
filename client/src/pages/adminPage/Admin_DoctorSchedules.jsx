@@ -4,7 +4,7 @@ import { getDoctors, getDoctorSchedules, saveDaySchedule } from '../../services/
 import {
   MdCalendarToday, MdAccessTime, MdCheck, MdEdit,
   MdPerson, MdFace, MdMedicalServices, MdSave,
-  MdChevronDown, MdToggleOn, MdToggleOff
+  MdExpandMore, MdToggleOn, MdToggleOff,
 } from 'react-icons/md'
 
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
@@ -235,7 +235,7 @@ const Admin_DoctorSchedules = () => {
                 {selected.full_name || selected.name}
               </span>
             ) : 'Choose a doctor…'}
-            <MdChevronDown className={`text-slate-400 text-[18px] transition-transform ${showPicker ? 'rotate-180' : ''}`} />
+            <MdExpandMore className={`text-slate-400 text-[18px] transition-transform ${showPicker ? 'rotate-180' : ''}`} />
           </button>
           {showPicker && (
             <div className="absolute top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
