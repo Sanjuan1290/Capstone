@@ -1,3 +1,4 @@
+// client/src/services/admin.service.js
 const BASE = '/api/admin'
 
 export const getDashboard = () =>
@@ -11,6 +12,20 @@ export const confirmAppointment = (id) =>
 
 export const cancelAppointment = (id) =>
   fetch(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+
+export const rescheduleAppointment = (id, payload) =>
+  fetch(`${BASE}/appointments/${id}/reschedule`, {
+    method: 'PATCH', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(r => r.json())
+
+export const createAppointment = (payload) =>
+  fetch(`${BASE}/appointments`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(r => r.json())
 
 export const getStaff = () =>
   fetch(`${BASE}/staff`, { credentials: 'include' }).then(r => r.json())
@@ -77,3 +92,6 @@ export const resolveSupplyRequest = (id, status) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   }).then(r => r.json())
+
+export const getPatients = (search = '') =>
+  fetch(`${BASE}/patients?search=${encodeURIComponent(search)}`, { credentials: 'include' }).then(r => r.json())

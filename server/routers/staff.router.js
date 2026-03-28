@@ -1,42 +1,46 @@
-const express     = require('express')
-const router      = express.Router()
-const verifyToken = require('../middlewares/auth.middleware')
-const requireRole = require('../middlewares/role.middleware')
-const {
-  login, checkAuth, logout,
-  getDashboard, getAppointments, confirmAppointment, cancelAppointment,
-  getQueue, addToQueue, updateQueueStatus,
-  getPatients, getPatientRecord,
-  getInventory, updateStock,
-  getDoctors, addInventoryItem,
-  // ✅ NEW: supply request handlers
-  getSupplyRequests, resolveSupplyRequest,
-} = require('../controllers/staff.controller')
+// server/routers/staff.router.js
+const express    = require('express')
+const router     = express.Router()
+const staffCtrl  = require('../controllers/staff.controller')
+const authenticate = require('../middlewares/auth.middleware')
+const requireRole  = require('../middlewares/role.middleware')
 
-// Public
-router.post('/login',     login)
-router.get('/auth/check', checkAuth)
-router.post('/logout',    logout)
+const auth = [authenticate('staff_token'), requireRole('staff')]
 
-// Protected — all routes below require staff token
-router.use(verifyToken, requireRole('staff'))
+// ── Auth ──────────────────────────────────────────────────────────────────────
+router.post('/login',     staffCtrl.login)
+router.get('/check-auth', staffCtrl.checkAuth)
+router.post('/logout',    staffCtrl.logout)
 
-router.get('/dashboard',                     getDashboard)
-router.get('/appointments',                  getAppointments)
-router.patch('/appointments/:id/confirm',    confirmAppointment)
-router.patch('/appointments/:id/cancel',     cancelAppointment)
-router.get('/queue',                         getQueue)
-router.post('/queue',                        addToQueue)
-router.patch('/queue/:id/status',            updateQueueStatus)
-router.get('/patients',                      getPatients)
-router.get('/patients/:id',                  getPatientRecord)
-router.get('/inventory',                     getInventory)
-router.patch('/inventory/:id/stock',         updateStock)
-router.get('/doctors',                       getDoctors)
-router.post('/inventory',                    addInventoryItem)
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+router.get('/dashboard',  ...auth, staffCtrl.getDashboard)
 
-// ✅ NEW: Supply requests routes
-router.get('/supply-requests',               getSupplyRequests)
-router.patch('/supply-requests/:id',         resolveSupplyRequest)
+// ── Appointments ──────────────────────────────────────────────────────────────
+router.get('/appointments',                  ...auth, staffCtrl.getAppointments)
+router.post('/appointments',                 ...auth, staffCtrl.createAppointment)
+router.patch('/appointments/:id/confirm',    ...auth, staffCtrl.confirmAppointment)
+router.patch('/appointments/:id/cancel',     ...auth, staffCtrl.cancelAppointment)
+router.patch('/appointments/:id/reschedule', ...auth, staffCtrl.rescheduleAppointment)
+
+// ── Queue ─────────────────────────────────────────────────────────────────────
+router.get('/queue',              ...auth, staffCtrl.getQueue)
+router.post('/queue',             ...auth, staffCtrl.addToQueue)
+router.patch('/queue/:id/status', ...auth, staffCtrl.updateQueueStatus)
+
+// ── Patients ──────────────────────────────────────────────────────────────────
+router.get('/patients',     ...auth, staffCtrl.getPatients)
+router.get('/patients/:id', ...auth, staffCtrl.getPatientRecord)
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+router.get('/inventory',             ...auth, staffCtrl.getInventory)
+router.post('/inventory',            ...auth, staffCtrl.addInventoryItem)
+router.patch('/inventory/:id/stock', ...auth, staffCtrl.updateStock)
+
+// ── Doctors list ──────────────────────────────────────────────────────────────
+router.get('/doctors', ...auth, staffCtrl.getDoctors)
+
+// ── Supply Requests ───────────────────────────────────────────────────────────
+router.get('/supply-requests',       ...auth, staffCtrl.getSupplyRequests)
+router.patch('/supply-requests/:id', ...auth, staffCtrl.resolveSupplyRequest)
 
 module.exports = router

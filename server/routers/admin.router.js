@@ -1,41 +1,58 @@
-const express     = require('express')
-const router      = express.Router()
-const verifyToken = require('../middlewares/auth.middleware')
-const requireRole = require('../middlewares/role.middleware')
-const {
-  login, checkAuth, logout,
-  getDashboard, getAppointments, confirmAppointment, cancelAppointment,
-  getStaff, createStaff, toggleStaff,
-  getDoctors, createDoctor, toggleDoctor,
-  getDoctorSchedules, saveDaySchedule,
-  getReports,
-  getInventory, updateStock, addInventoryItem,
-  getSupplyRequests, resolveSupplyRequest,
-} = require('../controllers/admin.controller')
+// server/routers/admin.router.js
+const express    = require('express')
+const router     = express.Router()
+const adminCtrl  = require('../controllers/admin.controller')
+const authenticate = require('../middlewares/auth.middleware')
+const requireRole  = require('../middlewares/role.middleware')
 
-router.post('/login',     login)
-router.get('/auth/check', checkAuth)
-router.post('/logout',    logout)
+const auth = [authenticate('admin_token'), requireRole('admin')]
 
-router.use(verifyToken, requireRole('admin'))
+// ── Auth ──────────────────────────────────────────────────────────────────────
+router.post('/login',      adminCtrl.login)
+router.get('/check-auth',  adminCtrl.checkAuth)
+router.post('/logout',     adminCtrl.logout)
 
-router.get('/dashboard',                       getDashboard)
-router.get('/appointments',                    getAppointments)
-router.patch('/appointments/:id/confirm',      confirmAppointment)
-router.patch('/appointments/:id/cancel',       cancelAppointment)
-router.get('/staff',                           getStaff)
-router.post('/staff',                          createStaff)
-router.patch('/staff/:id/toggle',              toggleStaff)
-router.get('/doctors',                         getDoctors)
-router.post('/doctors',                        createDoctor)
-router.patch('/doctors/:id/toggle',            toggleDoctor)
-router.get('/doctors/:id/schedules',           getDoctorSchedules)
-router.put('/doctors/:id/schedules',           saveDaySchedule)
-router.get('/reports',                         getReports)
-router.get('/inventory',                       getInventory)
-router.post('/inventory',                      addInventoryItem)
-router.patch('/inventory/:id/stock',           updateStock)
-router.get('/supply-requests',                 getSupplyRequests)
-router.patch('/supply-requests/:id',           resolveSupplyRequest)
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+router.get('/dashboard',   ...auth, adminCtrl.getDashboard)
+
+// ── Appointments ──────────────────────────────────────────────────────────────
+router.get('/appointments',                    ...auth, adminCtrl.getAppointments)
+router.post('/appointments',                   ...auth, adminCtrl.createAppointment)
+router.patch('/appointments/:id/confirm',      ...auth, adminCtrl.confirmAppointment)
+router.patch('/appointments/:id/cancel',       ...auth, adminCtrl.cancelAppointment)
+router.patch('/appointments/:id/reschedule',   ...auth, adminCtrl.rescheduleAppointment)
+
+// ── Queue ─────────────────────────────────────────────────────────────────────
+router.get('/queue',              ...auth, adminCtrl.getQueue)
+router.post('/queue',             ...auth, adminCtrl.addToQueue)
+router.patch('/queue/:id/status', ...auth, adminCtrl.updateQueueStatus)
+
+// ── Patients ──────────────────────────────────────────────────────────────────
+router.get('/patients',     ...auth, adminCtrl.getPatients)
+router.get('/patients/:id', ...auth, adminCtrl.getPatientRecord)
+
+// ── Staff ─────────────────────────────────────────────────────────────────────
+router.get('/staff',              ...auth, adminCtrl.getStaff)
+router.post('/staff',             ...auth, adminCtrl.createStaff)
+router.patch('/staff/:id/toggle', ...auth, adminCtrl.toggleStaff)
+
+// ── Doctors ───────────────────────────────────────────────────────────────────
+router.get('/doctors',                    ...auth, adminCtrl.getDoctors)
+router.post('/doctors',                   ...auth, adminCtrl.createDoctor)
+router.patch('/doctors/:id/toggle',       ...auth, adminCtrl.toggleDoctor)
+router.get('/doctors/:id/schedules',      ...auth, adminCtrl.getDoctorSchedules)
+router.put('/doctors/:id/schedules',      ...auth, adminCtrl.saveDaySchedule)
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+router.get('/reports', ...auth, adminCtrl.getReports)
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+router.get('/inventory',              ...auth, adminCtrl.getInventory)
+router.post('/inventory',             ...auth, adminCtrl.addInventoryItem)
+router.patch('/inventory/:id/stock',  ...auth, adminCtrl.updateStock)
+
+// ── Supply Requests ───────────────────────────────────────────────────────────
+router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
+router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router

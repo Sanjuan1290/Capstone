@@ -1,34 +1,39 @@
 // client/src/context/AuthContext.jsx
-// FIX #1 — Updated checkAuth calls to match new role-specific cookie structure.
-// Each role's checkAuth endpoint reads its own cookie, so checking all four
-// roles no longer causes cross-role session interference.
-
 import { createContext, useContext, useState, useEffect } from 'react'
 
 const AuthContext = createContext(null)
 
 export const AuthProvider = ({ children }) => {
-  const [user,    setUser]    = useState(null)
-  const [role,    setRole]    = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser]       = useState(null)
+  const [role, setRole]       = useState(null)
+  const [ready, setReady]     = useState(false)   // <-- NEW: true once initial check is done
 
+  // On mount, verify the cookie with the server for each possible role
   useEffect(() => {
-    const checkSession = async () => {
-      const roles = ['patient', 'admin', 'staff', 'doctor']
-      for (const r of roles) {
+    const checkAll = async () => {
+      const roles = [
+        { role: 'admin',   url: '/api/admin/check-auth'   },
+        { role: 'staff',   url: '/api/staff/check-auth'   },
+        { role: 'doctor',  url: '/api/doctor/check-auth'  },
+        { role: 'patient', url: '/api/patient/check-auth' },
+      ]
+      for (const { role, url } of roles) {
         try {
-          const res  = await fetch(`/api/${r}/auth/check`, { credentials: 'include' })
+          const res  = await fetch(url, { credentials: 'include' })
           const data = await res.json()
-          if (data.authenticated) {
+          if (data.authenticated && data.user) {
             setUser(data.user)
-            setRole(r)
-            break
+            setRole(role)
+            setReady(true)
+            return
           }
-        } catch { /* skip */ }
+        } catch {
+          // ignore network errors for individual role checks
+        }
       }
-      setLoading(false)
+      setReady(true)
     }
-    checkSession()
+    checkAll()
   }, [])
 
   const login = (userData, userRole) => {
@@ -42,7 +47,7 @@ export const AuthProvider = ({ children }) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, role, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, role, ready, login, logout }}>
       {children}
     </AuthContext.Provider>
   )
