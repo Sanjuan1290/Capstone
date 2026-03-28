@@ -1,3 +1,4 @@
+// client/src/pages/patientPage/History.jsx
 import { useEffect, useState } from 'react'
 import { getMyHistory } from '../../services/patient.service'
 import {
@@ -97,7 +98,7 @@ const History = () => {
 
   useEffect(() => {
     getMyHistory()
-      .then(data => setHistory(data))
+      .then(data => setHistory(Array.isArray(data) ? data : [])) // FIXED
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -133,7 +134,7 @@ const History = () => {
           <p className="text-sm text-slate-500 mt-0.5">A complete record of your past clinic visits.</p>
         </div>
         <div className="shrink-0 bg-slate-100 border border-slate-200 rounded-xl px-4 py-2 text-center">
-          <p className="text-2xl font-black text-slate-700">{history.length}</p>
+         <p className="text-2xl font-black text-slate-700">{history.length}</p>
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Total Visits</p>
         </div>
       </div>

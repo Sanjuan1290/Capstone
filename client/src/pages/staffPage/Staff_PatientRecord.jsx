@@ -1,3 +1,4 @@
+// client/src/pages/staffPage/Staff_PatientRecord.jsx
 import { useEffect, useState } from 'react'
 import { getPatients, getPatientRecord } from '../../services/staff.service'
 import {
@@ -64,7 +65,7 @@ const DetailPanel = ({ patient, onClose }) => {
                 { icon: MdHome,           label: "Address",      value: patient.address      },
               ].map(({ icon: Icon, label, value }) => (
                 <div key={label} className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 mt-0.5">
+                   <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 mt-0.5">
                     <Icon className="text-[13px] text-slate-400" />
                   </div>
                   <div>
@@ -122,7 +123,7 @@ const DetailPanel = ({ patient, onClose }) => {
                     <div className="border-t border-slate-200 pt-2 mt-2">
                       <p className="text-[10px] text-slate-400 font-medium mb-0.5">Diagnosis</p>
                       <p className="text-xs font-semibold text-slate-700">{h.diagnosis}</p>
-                    </div>
+                     </div>
                   )}
                 </div>
               )
@@ -206,7 +207,7 @@ const Staff_PatientRecord = () => {
     const t = setTimeout(() => {
       setLoading(true)
       getPatients(search)
-        .then(data => setPatients(data))
+        .then(data => setPatients(Array.isArray(data) ? data : [])) // FIXED
         .catch(err => console.error("Search error:", err))
         .finally(() => setLoading(false))
     }, 300)
@@ -295,7 +296,7 @@ const Staff_PatientRecord = () => {
               <p className="text-sm font-semibold text-slate-500">Select a patient</p>
               <p className="text-xs text-slate-400 mt-1">Click any patient on the left to view their clinical record.</p>
             </div>
-          )}
+           )}
         </div>
       </div>
     </div>

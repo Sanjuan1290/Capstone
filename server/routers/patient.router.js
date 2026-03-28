@@ -16,11 +16,11 @@ const {
 router.post('/register',        register)
 router.post('/register/verify', verifyRegistration)  // FIX #3 — new verification step
 router.post('/login',           login)
-router.get('/auth/check',       checkAuth)
+router.get('/check-auth',       checkAuth)           // FIXED ROUTE
 router.post('/logout',          logout)
 
 // Protected
-router.use(verifyToken, requireRole('patient'))
+router.use(verifyToken('patient_token'), requireRole('patient')) // FIXED MIDDLEWARE
 router.get('/appointments',                        getAppointments)
 router.post('/appointments',                       createAppointment)
 router.get('/appointments/history',                getHistory)

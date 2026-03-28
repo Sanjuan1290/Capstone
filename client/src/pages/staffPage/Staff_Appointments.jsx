@@ -274,7 +274,7 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel, onReschedule }) => {
           </div>
           <div>
             <p className="text-[11px] text-slate-400 mb-0.5">Clinic</p>
-            <p className="text-sm font-semibold text-slate-800">
+            <p className="text-sm font-semibold text-slate-800 capitalize">
               {appt.type === 'derma' ? 'Dermatology' : 'General Medicine'}
             </p>
           </div>
@@ -287,6 +287,7 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel, onReschedule }) => {
         </div>
       </div>
 
+      {/* Actions */}
       {isActive && (
         <div className="px-6 pb-6 pt-4 border-t border-slate-100 shrink-0 space-y-2">
           {appt.status === 'pending' && (
@@ -348,7 +349,12 @@ const Staff_Appointments = () => {
 
   useEffect(() => {
     getAppointments()
-      .then(rows => { setData(rows); if (rows.length > 0) setSelected(rows[0]) })
+      .then(rows => { 
+        // FIXED: Array Check
+        const arr = Array.isArray(rows) ? rows : [];
+        setData(arr); 
+        if (arr.length > 0) setSelected(arr[0]) 
+      })
       .catch(err  => console.error('Fetch error:', err))
       .finally(()  => setLoading(false))
   }, [])
@@ -426,7 +432,7 @@ const Staff_Appointments = () => {
                 className="text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none w-full" />
               {search && <button onClick={() => setSearch('')} className="text-slate-300 hover:text-slate-500"><MdClose className="text-[13px]" /></button>}
             </div>
-            <div className="flex gap-0.5 overflow-x-auto pb-0.5">
+            <div className="flex gap-0.5 overflow-x-auto pb-0.5 scrollbar-hide">
               {TABS.map(({ key, label }) => (
                 <button key={key} onClick={() => setActiveTab(key)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all duration-150
@@ -442,7 +448,7 @@ const Staff_Appointments = () => {
           </div>
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
             {filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+               <div className="flex flex-col items-center justify-center py-16 text-center px-6">
                 <MdEventAvailable className="text-[22px] text-slate-300 mb-3" />
                 <p className="text-sm font-semibold text-slate-500">No appointments found</p>
               </div>
@@ -460,7 +466,7 @@ const Staff_Appointments = () => {
             <DetailPanel appt={selected} onClose={() => setSelected(null)}
               onConfirm={handleConfirm} onCancel={handleCancel} onReschedule={setReschedAppt} />
           ) : (
-            <div className="flex flex-col items-center justify-center flex-1 text-center px-8">
+             <div className="flex flex-col items-center justify-center flex-1 text-center px-8">
               <MdEventAvailable className="text-[24px] text-slate-300 mb-3" />
               <p className="text-sm font-semibold text-slate-500">Select an appointment</p>
             </div>

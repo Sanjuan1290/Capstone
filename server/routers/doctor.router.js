@@ -11,10 +11,10 @@ const {
 } = require('../controllers/doctor.controller')
 
 router.post('/login',     login)
-router.get('/auth/check', checkAuth)
+router.get('/check-auth', checkAuth) // FIXED ROUTE
 router.post('/logout',    logout)
 
-router.use(verifyToken, requireRole('doctor'))
+router.use(verifyToken('doctor_token'), requireRole('doctor')) // FIXED MIDDLEWARE
 
 router.get('/dashboard',                          getDashboard)
 router.get('/appointments/daily',                 getDailyAppointments)

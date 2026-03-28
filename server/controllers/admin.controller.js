@@ -93,12 +93,25 @@ const getAppointments = async (req, res) => {
   res.json(rows)
 }
 
+// server/controllers/admin.controller.js
 const confirmAppointment = async (req, res) => {
-  const [rows] = await db.query('SELECT id, status FROM appointments WHERE id = ?', [req.params.id])
-  if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
-  await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ?", [req.params.id])
-  res.json({ message: 'Appointment confirmed.' })
-}
+  const { id } = req.params;
+  const { doctor_id } = req.body; // Ensure frontend sends the selected doctor's ID
+
+  // Update appointment status AND assign the doctor
+  await db.query(
+    'UPDATE appointments SET status = "confirmed", doctor_id = ? WHERE id = ?',
+    [doctor_id, id]
+  );
+
+  // Optional: Add to Queue if your system uses a queue table for the dashboard
+  await db.query(
+    'INSERT INTO queue (appointment_id, doctor_id, status) VALUES (?, ?, "waiting")',
+    [id, doctor_id]
+  );
+
+  res.json({ message: 'Appointment confirmed and assigned to doctor.' });
+};
 
 const cancelAppointment = async (req, res) => {
   const [rows] = await db.query('SELECT id, status FROM appointments WHERE id = ?', [req.params.id])

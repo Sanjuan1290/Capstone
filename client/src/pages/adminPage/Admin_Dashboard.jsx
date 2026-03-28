@@ -1,3 +1,4 @@
+// client/src/pages/adminPage/Admin_Dashboard.jsx
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { getDashboard, getAppointments, getSupplyRequests, resolveSupplyRequest } from '../../services/admin.service'
@@ -35,9 +36,10 @@ const Admin_Dashboard = () => {
     ])
       .then(([dash, appts, reqs]) => {
         setDashStats(dash)
-        setTodayAppts(appts)
+        // FIXED: Added Array.isArray checks
+        setTodayAppts(Array.isArray(appts) ? appts : [])
         setDoctorStatus(dash.doctorStatus || [])
-        setPendingRequests(reqs.filter(r => r.status === 'pending').slice(0, 3))
+        setPendingRequests(Array.isArray(reqs) ? reqs.filter(r => r.status === 'pending').slice(0, 3) : [])
       })
       .catch((err) => console.error("Dashboard Load Error:", err))
       .finally(() => setLoading(false))
@@ -77,7 +79,7 @@ const Admin_Dashboard = () => {
             Welcome back, <span className="text-amber-400">{user?.full_name || 'Admin'}</span>
           </h1>
           <p className="text-slate-400 text-sm mt-1.5">
-            <span className="text-white font-semibold">{todayAppts.length} appointments</span> today ·{" "}
+             <span className="text-white font-semibold">{todayAppts.length} appointments</span> today ·{" "}
             <span className="text-emerald-400 font-semibold">{doctorStatus.filter(d => d.status === 'on-duty').length} doctors on duty</span> ·{" "}
             <span className="text-red-400 font-semibold">{dashStats?.lowStockCount || 0} low-stock items</span>
           </p>
@@ -120,11 +122,11 @@ const Admin_Dashboard = () => {
                 <div key={appt.id} className={`flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors
                   ${appt.status === "in-progress" ? "bg-violet-50/40" : ""}`}>
                   <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0
-                    ${appt.type === "derma" ? "bg-emerald-50" : "bg-slate-100"}`}>
+                      ${appt.type === "derma" ? "bg-emerald-50" : "bg-slate-100"}`}>
                     <Icon className={`text-[15px] ${appt.type === "derma" ? "text-emerald-600" : "text-slate-500"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">{appt.patient}</p>
+                     <p className="text-sm font-semibold text-slate-800 truncate">{appt.patient}</p>
                     <p className="text-xs text-slate-400 truncate">{appt.doctor}</p>
                   </div>
                   <span className="text-xs text-slate-400 font-medium flex items-center gap-1 shrink-0">
@@ -137,7 +139,7 @@ const Admin_Dashboard = () => {
               )
             }) : (
               <p className="p-10 text-center text-xs text-slate-400">No appointments scheduled for today.</p>
-            )}
+             )}
           </div>
         </div>
 
@@ -155,7 +157,7 @@ const Admin_Dashboard = () => {
             <div className="p-4 space-y-2">
               {doctorStatus.map(doc => (
                 <div key={doc.name} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50 transition-colors">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${doc.status === "on-duty" ? "bg-emerald-500" : "bg-slate-300"}`} />
+                   <div className={`w-2 h-2 rounded-full shrink-0 ${doc.status === "on-duty" ? "bg-emerald-500" : "bg-slate-300"}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-slate-800 truncate">{doc.name}</p>
                     <p className="text-[10px] text-slate-400">{doc.specialty}</p>

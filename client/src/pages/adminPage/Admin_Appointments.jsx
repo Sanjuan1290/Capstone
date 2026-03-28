@@ -375,7 +375,12 @@ const Admin_Appointments = () => {
 
   useEffect(() => {
     getAppointments()
-      .then(rows => { setData(rows); if (rows.length > 0) setSelected(rows[0]) })
+      .then(rows => { 
+        // FIXED: Array Check
+        const arr = Array.isArray(rows) ? rows : [];
+        setData(arr); 
+        if (arr.length > 0) setSelected(arr[0]) 
+      })
       .catch(err  => console.error('Appointments error:', err))
       .finally(()  => setLoading(false))
   }, [])

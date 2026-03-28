@@ -64,12 +64,12 @@ const AddModal = ({ onClose, onAdd }) => {
             { k: 'phone',     l: 'Phone (optional)', t: 'tel', p: 'e.g. 09171234567' },
           ].map(({ k, l, t, p }) => (
             <div key={k}>
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+               <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
                 {l} {k !== 'phone' && <span className="text-red-400">*</span>}
               </label>
               <input type={t} value={form[k]} onChange={set(k)} placeholder={p}
                 className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200
-                  rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400 transition-colors" />
+                   rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400 transition-colors" />
             </div>
           ))}
 
@@ -170,7 +170,12 @@ const Admin_StaffAccount = () => {
 
   useEffect(() => {
     getStaff()
-      .then(data => { setStaff(data); if (data.length > 0) setSelected(data[0]) })
+      .then(data => { 
+        // FIXED: Array Check
+        const arr = Array.isArray(data) ? data : [];
+        setStaff(arr); 
+        if (arr.length > 0) setSelected(arr[0]) 
+      })
       .catch(err => console.error('Fetch Staff Error:', err))
       .finally(() => setLoading(false))
   }, [])
@@ -208,7 +213,7 @@ const Admin_StaffAccount = () => {
         </div>
         <button onClick={() => setShowAdd(true)}
           className="flex items-center gap-1.5 bg-[#0b1a2c] hover:bg-[#122236] text-white text-xs font-semibold
-            px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 shrink-0">
+             px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 shrink-0">
           <MdAdd className="text-[15px]" /> Add Staff
         </button>
       </div>

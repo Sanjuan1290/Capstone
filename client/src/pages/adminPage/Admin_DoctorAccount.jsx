@@ -196,7 +196,12 @@ const Admin_DoctorAccount = () => {
 
   useEffect(() => {
     getDoctors()
-      .then(data => { setDoctors(data); if (data.length > 0) setSelected(data[0]) })
+      .then(data => { 
+        // FIXED: Array Check
+        const arr = Array.isArray(data) ? data : [];
+        setDoctors(arr); 
+        if (arr.length > 0) setSelected(arr[0]) 
+      })
       .catch(err => console.error('Error loading doctors:', err))
       .finally(() => setLoading(false))
   }, [])
