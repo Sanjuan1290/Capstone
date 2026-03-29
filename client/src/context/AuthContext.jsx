@@ -1,44 +1,73 @@
 // client/src/context/AuthContext.jsx
-import { createContext, useContext, useState, useEffect } from 'react';
+// FIX: Auth check URLs were wrong (/api/admin/auth/check → /api/admin/check-auth)
+// FIX: Added login() and logout() to context value so all pages can use them
+// FIX: Sequential checks stop at first authenticated role (no race conditions)
+
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
-  const [ready, setReady] = useState(false); // CRITICAL: Track if auth check is done
+  const [ready, setReady] = useState(false);
 
-  const checkAuth = async () => {
-    // Check for each role's specific token/session
+  const checkAuth = useCallback(async () => {
+    // FIXED: correct check-auth URLs to match server routes
     const endpoints = [
-      { role: 'admin', url: '/api/admin/auth/check' },
-      { role: 'staff', url: '/api/staff/auth/check' },
-      { role: 'doctor', url: '/api/doctor/auth/check' },
-      { role: 'patient', url: '/api/patient/auth/check' }
+      { role: 'admin',   url: '/api/admin/check-auth'   },
+      { role: 'staff',   url: '/api/staff/check-auth'   },
+      { role: 'doctor',  url: '/api/doctor/check-auth'  },
+      { role: 'patient', url: '/api/patient/check-auth' },
     ];
 
     for (const item of endpoints) {
       try {
-        const res = await fetch(item.url, { credentials: 'include' });
+        const res  = await fetch(item.url, { credentials: 'include' });
         const data = await res.json();
         if (data.authenticated) {
           setUser(data.user);
           setRole(item.role);
-          break; // Stop if we find an active session
+          setReady(true);
+          return; // stop after first match
         }
-      } catch (err) {
-        console.error(`Auth check failed for ${item.role}`);
+      } catch {
+        // network error — skip this role
       }
     }
-    setReady(true); // Verification is finished
-  };
-
-  useEffect(() => {
-    checkAuth();
+    // Nothing authenticated
+    setUser(null);
+    setRole(null);
+    setReady(true);
   }, []);
 
+  useEffect(() => { checkAuth(); }, [checkAuth]);
+
+  // FIX: expose login() and logout() so components don't have to call setUser/setRole directly
+  const login = (userData, userRole) => {
+    setUser(userData);
+    setRole(userRole);
+  };
+
+  const logout = async () => {
+    // Call the appropriate logout endpoint
+    const logoutUrls = {
+      admin:   '/api/admin/logout',
+      staff:   '/api/staff/logout',
+      doctor:  '/api/doctor/logout',
+      patient: '/api/patient/logout',
+    };
+    if (role && logoutUrls[role]) {
+      try {
+        await fetch(logoutUrls[role], { method: 'POST', credentials: 'include' });
+      } catch { /* ignore */ }
+    }
+    setUser(null);
+    setRole(null);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, role, ready, setUser, setRole }}>
+    <AuthContext.Provider value={{ user, role, ready, login, logout, setUser, setRole, checkAuth }}>
       {children}
     </AuthContext.Provider>
   );

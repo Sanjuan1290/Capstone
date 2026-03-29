@@ -174,43 +174,6 @@ const Admin_Dashboard = () => {
             </div>
           </div>
 
-          {/* Pending doctor requests */}
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-              <h2 className="text-sm font-bold text-slate-800">Doctor Requests</h2>
-              <span className="text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full">
-                {pendingRequests.length} pending
-              </span>
-            </div>
-            <div className="p-4 space-y-2">
-              {pendingRequests.length > 0 ? pendingRequests.map(req => (
-                <div key={req.id} className="p-3 rounded-xl bg-amber-50/50 border border-amber-100">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-800 truncate">{req.item}</p>
-                      <p className="text-[10px] text-slate-500 mt-0.5">{req.doctor} · {req.qty} {req.unit}s</p>
-                    </div>
-                    <div className="flex gap-1 shrink-0">
-                      <button 
-                        onClick={() => handleResolve(req.id, 'approved')}
-                        className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center hover:bg-emerald-100 transition-colors"
-                      >
-                        <MdCheck className="text-emerald-600 text-[13px]" />
-                      </button>
-                      <button 
-                        onClick={() => handleResolve(req.id, 'rejected')}
-                        className="w-7 h-7 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center hover:bg-red-100 transition-colors"
-                      >
-                        <MdWarning className="text-red-500 text-[13px]" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )) : (
-                <p className="text-[10px] text-center text-slate-400 py-2">No pending requests.</p>
-              )}
-            </div>
-          </div>
 
         </div>
       </div>

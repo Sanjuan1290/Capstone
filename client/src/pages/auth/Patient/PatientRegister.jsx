@@ -67,6 +67,7 @@ const RegistrationForm = ({ onSuccess }) => {
           address:      form.address,
           email:        form.email,
           password:     form.password,
+          confirmPassword: form.confirmPassword,
         }),
       })
       const data = await res.json()

@@ -1,3 +1,7 @@
+// client/src/pages/LandingPages/Contact.jsx
+// FIX: "Book Appointment" CTA button was linking to "/register" (404).
+// Fixed to "/patient/register".
+
 import { NavLink } from "react-router-dom"
 
 const Contact = () => {
@@ -86,8 +90,9 @@ const Contact = () => {
             <h3 className="text-2xl font-semibold text-teal-800 mb-1">Ready to Book an Appointment?</h3>
             <p className="text-teal-700 text-sm">Same-day appointments available whenever possible.</p>
           </div>
+          {/* FIX: was /register (404), fixed to /patient/register */}
           <NavLink
-            to="/register"
+            to="/patient/register"
             className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300"
           >
             Book Appointment
