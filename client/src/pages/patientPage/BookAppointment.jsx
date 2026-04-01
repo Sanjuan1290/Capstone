@@ -1,3 +1,7 @@
+// client/src/pages/patientPage/BookAppointment.jsx
+// FIX: When the patient selects today's date, time slots that have already
+//      passed are disabled so they can't book an 8 AM slot at 11 AM.
+
 import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
@@ -51,6 +55,17 @@ function buildSlots(sched) {
     if (m >= 60) { h += Math.floor(m / 60); m = m % 60 }
   }
   return slots
+}
+
+/** FIX: Returns true if a slot string like "8:00 AM" is at or before the current time */
+function isPastSlot(slot) {
+  const [timePart, period] = slot.split(' ')
+  let [h, m] = timePart.split(':').map(Number)
+  if (period === 'PM' && h !== 12) h += 12
+  if (period === 'AM' && h === 12) h = 0
+  const now = new Date()
+  // Add a small buffer (5 min) — don't show slots within 5 min of now
+  return h * 60 + m <= now.getHours() * 60 + now.getMinutes() + 5
 }
 
 // ── Step Bar ──────────────────────────────────────────────────────────────────
@@ -179,7 +194,6 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
     return cell < t
   }
 
-  // ✅ FIX: disable calendar days where the doctor has no active schedule
   const isUnavailable = (d) => {
     if (!doctorSchedules || doctorSchedules.length === 0) return false
     const localDate = new Date(viewYear, viewMonth, d)
@@ -197,6 +211,9 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
     if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) }
     else setViewMonth(m => m + 1)
   }
+
+  // FIX: Determine the today string for comparison
+  const todayStr = toISODate(today.getFullYear(), today.getMonth(), today.getDate())
 
   return (
     <div className="space-y-5">
@@ -259,7 +276,7 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
             <span className="w-3 h-3 rounded-sm bg-[#0b1a2c] inline-block" /> Selected
           </span>
           <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
-            <span className="w-3 h-3 rounded-sm bg-slate-50 border border-slate-200 inline-block text-slate-300 line-through" /> Unavailable
+            <span className="w-3 h-3 rounded-sm bg-slate-50 border border-slate-200 inline-block" /> Unavailable
           </span>
         </div>
       </div>
@@ -267,11 +284,21 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
       {/* Time slots */}
       {date && (
         <div className="bg-white border border-slate-200 rounded-2xl p-5">
-          <p className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+          <p className="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
             <MdAccessTime className="text-emerald-500" /> Available Time Slots
           </p>
+          {/* FIX: Hint that past slots are hidden when today is selected */}
+          {date === todayStr && (
+            <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-3">
+              Showing only remaining slots for today.
+            </p>
+          )}
           {timeSlots.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-4">No slots available for this day.</p>
+            <p className="text-sm text-slate-400 text-center py-4">
+              {date === todayStr
+                ? "No more available slots for today. Please pick another date."
+                : "No slots available for this day."}
+            </p>
           ) : (
             <>
               <div className="grid grid-cols-4 gap-2">
@@ -297,7 +324,7 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
               <p className="text-[10px] text-slate-400 mt-3 flex items-center gap-2">
                 <span className="inline-block w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm" /> Available
                 <span className="inline-block w-3 h-3 bg-[#0b1a2c] rounded-sm ml-2" /> Selected
-                <span className="inline-block w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm ml-2" /> Taken
+                <span className="inline-block w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm ml-2 opacity-40" /> Taken
               </p>
             </>
           )}
@@ -309,86 +336,87 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
 
 // ── Step 4 — Details ──────────────────────────────────────────────────────────
 const StepDetails = ({ reason, notes, onReasonChange, onNotesChange }) => (
-  <div className="space-y-5">
-    <div>
-      <h2 className="text-lg font-bold text-slate-800">Appointment Details</h2>
-      <p className="text-sm text-slate-500 mt-0.5">Tell us a bit about your visit.</p>
+  <div className="space-y-4">
+    <div className="mb-5">
+      <h2 className="text-lg font-bold text-slate-800">Visit Details</h2>
+      <p className="text-sm text-slate-500 mt-0.5">Tell us why you're visiting.</p>
     </div>
+
     <div>
-      <label className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2 block">
-        Reason for Visit
-      </label>
+      <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">Reason for Visit <span className="text-red-400">*</span></p>
       <div className="grid grid-cols-2 gap-2">
         {reasons.map(r => (
           <button key={r} onClick={() => onReasonChange(r)}
-            className={`px-4 py-2.5 rounded-xl text-xs font-semibold text-left border-2 transition-all duration-150
+            className={`p-3 rounded-xl text-xs font-semibold text-left border-2 transition-all duration-150
               ${reason === r
-                ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                ? "border-emerald-400 bg-emerald-50 text-emerald-800"
+                : "border-slate-200 bg-white hover:border-slate-300 text-slate-700"
               }`}>
             {r}
           </button>
         ))}
       </div>
     </div>
+
     <div>
-      <label className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2 block">
-        Additional Notes <span className="text-slate-400 font-normal normal-case">(optional)</span>
-      </label>
-      <textarea value={notes} onChange={e => onNotesChange(e.target.value)} rows={4}
-        placeholder="Describe your symptoms or concerns…"
-        className="w-full text-sm text-slate-700 placeholder-slate-300 bg-white border-2 border-slate-200 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-400 transition-colors resize-none" />
-    </div>
-    <div className="flex items-start gap-2.5 bg-sky-50 border border-sky-200 rounded-xl px-4 py-3">
-      <MdInfoOutline className="text-sky-500 text-[16px] shrink-0 mt-0.5" />
-      <p className="text-xs text-sky-700 leading-relaxed">
-        Please arrive <strong>10–15 minutes</strong> before your scheduled time. Bring any relevant medical records or previous prescriptions.
-      </p>
+      <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">Additional Notes <span className="text-slate-400 font-normal">(optional)</span></p>
+      <textarea
+        value={notes}
+        onChange={e => onNotesChange(e.target.value)}
+        rows={3}
+        placeholder="Any symptoms, concerns, or information the doctor should know…"
+        className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-400 transition-colors resize-none"
+      />
     </div>
   </div>
 )
 
 // ── Step 5 — Confirm ──────────────────────────────────────────────────────────
 const StepConfirm = ({ form }) => {
-  const clinicLabel = clinicTypes.find(c => c.id === form.clinicType)?.label
-  // ✅ FIX: form.date is now a full ISO string, format it properly
-  const dateStr = form.date
-    ? parseLocalDate(form.date).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-    : "—"
-
-  const rows = [
-    { label: "Clinic",   value: clinicLabel,       icon: MdMedicalServices },
-    { label: "Doctor",   value: form.doctor?.name, icon: MdPerson          },
-    { label: "Date",     value: dateStr,            icon: MdCalendarToday   },
-    { label: "Time",     value: form.time,          icon: MdAccessTime      },
-    { label: "Reason",   value: form.reason,        icon: MdEventAvailable  },
-  ]
+  const clinicLabel = form.clinicType === 'derma' ? 'Dermatology' : 'General Medicine'
+  const [y, m, d]   = (form.date || '').split('-').map(Number)
+  const dateLabel   = y && m && d
+    ? new Date(y, m - 1, d).toLocaleDateString('en-PH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    : '—'
 
   return (
-    <div className="space-y-5">
-      <div>
+    <div className="space-y-4">
+      <div className="mb-5">
         <h2 className="text-lg font-bold text-slate-800">Confirm Appointment</h2>
         <p className="text-sm text-slate-500 mt-0.5">Review your details before submitting.</p>
       </div>
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100">
-        {rows.map(({ label, value, icon: Icon }) => (
-          <div key={label} className="flex items-center gap-4 px-5 py-4">
-            <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0">
-              <Icon className="text-[15px] text-slate-400" />
+
+      <div className="bg-slate-50 rounded-2xl p-5 space-y-3">
+        {[
+          { icon: MdMedicalServices, label: "Clinic",   value: clinicLabel         },
+          { icon: MdPerson,          label: "Doctor",   value: form.doctor?.name   },
+          { icon: MdCalendarToday,   label: "Date",     value: dateLabel            },
+          { icon: MdAccessTime,      label: "Time",     value: form.time            },
+          { icon: MdEventAvailable,  label: "Reason",   value: form.reason          },
+        ].filter(r => r.value).map(({ icon: Icon, label, value }) => (
+          <div key={label} className="flex items-start gap-3">
+            <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
+              <Icon className="text-[13px] text-slate-400" />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-slate-400 font-medium">{label}</p>
-              <p className="text-sm font-semibold text-slate-800 mt-0.5">{value || "—"}</p>
+            <div>
+              <p className="text-[10px] text-slate-400 font-medium">{label}</p>
+              <p className="text-sm font-semibold text-slate-800">{value}</p>
             </div>
           </div>
         ))}
+        {form.notes && (
+          <div className="flex items-start gap-3">
+            <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
+              <MdInfoOutline className="text-[13px] text-slate-400" />
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-400 font-medium">Notes</p>
+              <p className="text-sm text-slate-700 leading-relaxed">{form.notes}</p>
+            </div>
+          </div>
+        )}
       </div>
-      {form.notes && (
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4">
-          <p className="text-[11px] text-slate-400 font-medium mb-1">Notes</p>
-          <p className="text-sm text-slate-700">{form.notes}</p>
-        </div>
-      )}
+
       <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
         <MdInfoOutline className="text-emerald-500 text-[16px] shrink-0 mt-0.5" />
         <p className="text-xs text-emerald-700 leading-relaxed">
@@ -429,16 +457,16 @@ const BookAppointment = () => {
   const [form, setForm] = useState({
     clinicType: "",
     doctor:     null,
-    date:       null,   // ✅ FIX: now stores full YYYY-MM-DD string
+    date:       null,
     time:       "",
     reason:     "",
     notes:      "",
   })
 
-  const [doctorList,     setDoctorList]     = useState({ medical: [], derma: [] })
-  const [timeSlots,      setTimeSlots]      = useState([])
-  const [takenSlots,     setTakenSlots]     = useState([])
-  const [doctorSchedules, setDoctorSchedules] = useState([]) // ✅ NEW: store full schedule for day disabling
+  const [doctorList,      setDoctorList]      = useState({ medical: [], derma: [] })
+  const [timeSlots,       setTimeSlots]       = useState([])
+  const [takenSlots,      setTakenSlots]      = useState([])
+  const [doctorSchedules, setDoctorSchedules] = useState([])
 
   // Fetch doctors on mount
   useEffect(() => {
@@ -451,7 +479,7 @@ const BookAppointment = () => {
       .catch(() => {})
   }, [])
 
-  // ✅ FIX: Fetch schedules when doctor changes (for calendar day disabling)
+  // Fetch schedules when doctor changes (for calendar day disabling)
   useEffect(() => {
     if (!form.doctor) { setDoctorSchedules([]); setTimeSlots([]); setTakenSlots([]); return }
     getDoctorSchedule(form.doctor.id)
@@ -459,15 +487,29 @@ const BookAppointment = () => {
       .catch(() => setDoctorSchedules([]))
   }, [form.doctor])
 
-  // ✅ FIX: Fetch time slots when date changes, using local date parsing
+  // Fetch / build time slots when date changes
   useEffect(() => {
     if (!form.doctor || !form.date || doctorSchedules.length === 0) { setTimeSlots([]); return }
+
     const localDate = parseLocalDate(form.date)
     const dayName   = localDate.toLocaleDateString('en-US', { weekday: 'long' })
     const sched     = doctorSchedules.find(s => s.day_of_week === dayName && s.is_active)
     if (!sched) { setTimeSlots([]); return }
-    setTimeSlots(buildSlots(sched))
-    setTakenSlots([]) // optionally fetch booked slots from backend
+
+    let slots = buildSlots(sched)
+
+    // FIX: If today is selected, filter out time slots that have already passed
+    const todayStr = (() => {
+      const t = new Date()
+      return toISODate(t.getFullYear(), t.getMonth(), t.getDate())
+    })()
+
+    if (form.date === todayStr) {
+      slots = slots.filter(slot => !isPastSlot(slot))
+    }
+
+    setTimeSlots(slots)
+    setTakenSlots([]) // TODO: optionally fetch booked slots from backend
   }, [form.date, doctorSchedules])
 
   const set = (key) => (val) => setForm(f => ({ ...f, [key]: val }))
@@ -492,7 +534,7 @@ const BookAppointment = () => {
         doctor_id:        form.doctor.id,
         clinic_type:      form.clinicType,
         reason:           form.reason,
-        appointment_date: form.date,     // ✅ FIX: already a full YYYY-MM-DD string
+        appointment_date: form.date,
         appointment_time: form.time,
         notes:            form.notes || '',
       })

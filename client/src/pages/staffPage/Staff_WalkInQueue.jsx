@@ -1,3 +1,9 @@
+// client/src/pages/staffPage/Staff_WalkInQueue.jsx
+// FIX 1: AddWalkInModal was filtering doctors by d.type, but the old API didn't
+//         return 'type'. Now the API returns it (staff.controller fix), AND the
+//         UI uses doctor.id for the queue payload instead of doctor.name string.
+// FIX 3: handleAdd now correctly sends doctor_id (number) not doctor name (string).
+
 import { useEffect, useState } from 'react'
 import { getQueue, addToQueue, updateQueueStatus, getDoctors } from '../../services/staff.service'
 import {
@@ -8,20 +14,36 @@ import {
 const STATUS_CONFIG = {
   "in-progress": { label: "In Progress", badge: "bg-sky-50    text-sky-700    border-sky-200",    bar: "bg-sky-500"     },
   "waiting":     { label: "Waiting",     badge: "bg-slate-100 text-slate-500  border-slate-200",  bar: "bg-amber-400"   },
-  "done":         { label: "Done",        badge: "bg-emerald-50 text-emerald-700 border-emerald-200", bar: "bg-emerald-500" },
+  "done":        { label: "Done",        badge: "bg-emerald-50 text-emerald-700 border-emerald-200", bar: "bg-emerald-500" },
   "removed":     { label: "Removed",     badge: "bg-red-50    text-red-500    border-red-200",    bar: "bg-red-400"     },
 }
 
 // ── Add Walk-in Modal ─────────────────────────────────────────────────────────
 const AddWalkInModal = ({ onClose, onAdd, nextNo, doctorsList }) => {
-  const [form, setForm] = useState({ patient: "", type: "medical", doctor: "" })
+  const [form, setForm] = useState({ patient: "", type: "medical", doctorId: "" })
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
 
-  const filteredDoctors = doctorsList.filter(d => d.type === form.type)
+  // FIX 1: Filter by the 'type' field now returned by the API.
+  // Also fall back to specialty matching in case type field is somehow missing.
+  const filteredDoctors = doctorsList.filter(d => {
+    if (d.type) return d.type === form.type
+    // fallback: match by specialty keyword
+    return form.type === 'derma'
+      ? (d.specialty || '').toLowerCase().includes('derm')
+      : !(d.specialty || '').toLowerCase().includes('derm')
+  })
 
   const handleSubmit = () => {
-    if (!form.patient.trim() || !form.doctor) return
-    onAdd({ ...form, queueNo: nextNo })
+    if (!form.patient.trim() || !form.doctorId) return
+    const selectedDoctor = doctorsList.find(d => String(d.id) === String(form.doctorId))
+    // FIX 3: pass doctor_id (number) so backend can insert correctly
+    onAdd({
+      patient_name: form.patient,
+      type:         form.type,
+      doctor_id:    Number(form.doctorId),
+      doctor:       selectedDoctor?.name || selectedDoctor?.full_name || '',
+      queueNo:      nextNo,
+    })
   }
 
   return (
@@ -37,19 +59,23 @@ const AddWalkInModal = ({ onClose, onAdd, nextNo, doctorsList }) => {
             <MdClose className="text-[18px]" />
           </button>
         </div>
+
         <div className="px-6 py-5 space-y-4">
           <div>
             <label className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5 block">Patient Name</label>
-            <input type="text" value={form.patient} onChange={set("patient")}
+            <input type="text" value={form.patient}
+              onChange={e => setForm(f => ({ ...f, patient: e.target.value }))}
               placeholder="Full name"
               className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200
                 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400 transition-colors" />
           </div>
+
           <div>
             <label className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5 block">Clinic Type</label>
             <div className="grid grid-cols-2 gap-2">
               {[{ v: "medical", l: "General Medicine" }, { v: "derma", l: "Dermatology" }].map(({ v, l }) => (
-                <button key={v} onClick={() => { setForm(f => ({ ...f, type: v, doctor: "" })) }}
+                <button key={v}
+                  onClick={() => setForm(f => ({ ...f, type: v, doctorId: "" }))}
                   className={`py-2.5 rounded-xl text-xs font-semibold border-2 transition-all
                     ${form.type === v ? "border-sky-400 bg-sky-50 text-sky-700" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
                   {l}
@@ -57,22 +83,35 @@ const AddWalkInModal = ({ onClose, onAdd, nextNo, doctorsList }) => {
               ))}
             </div>
           </div>
+
           <div>
-            <label className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5 block">Assign Doctor</label>
-            <select value={form.doctor} onChange={set("doctor")}
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5 block">
+              Assign Doctor
+              {filteredDoctors.length === 0 && (
+                <span className="ml-1 text-red-400 font-normal normal-case">(No doctors for this clinic type)</span>
+              )}
+            </label>
+            {/* FIX 1 & 3: select by id, not name */}
+            <select value={form.doctorId}
+              onChange={e => setForm(f => ({ ...f, doctorId: e.target.value }))}
               className="w-full text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5
                 focus:outline-none focus:border-sky-400 transition-colors">
               <option value="">Select doctor…</option>
-              {filteredDoctors.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+              {filteredDoctors.map(d => (
+                <option key={d.id} value={d.id}>
+                  {d.name || d.full_name}
+                </option>
+              ))}
             </select>
           </div>
         </div>
+
         <div className="px-6 pb-6 flex gap-3">
           <button onClick={onClose}
             className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
             Cancel
           </button>
-          <button onClick={handleSubmit} disabled={!form.patient.trim() || !form.doctor}
+          <button onClick={handleSubmit} disabled={!form.patient.trim() || !form.doctorId}
             className="flex-1 py-2.5 text-sm font-bold text-white bg-[#0b1a2c] hover:bg-[#122236]
               disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition-colors">
             Add to Queue
@@ -85,8 +124,8 @@ const AddWalkInModal = ({ onClose, onAdd, nextNo, doctorsList }) => {
 
 // ── Queue Card ────────────────────────────────────────────────────────────────
 const QueueCard = ({ entry, onDone, onRemove, onNext }) => {
-  const cfg  = STATUS_CONFIG[entry.status] || STATUS_CONFIG.waiting
-  const Icon = entry.type === "derma" ? MdFace : MdMedicalServices
+  const cfg    = STATUS_CONFIG[entry.status] || STATUS_CONFIG.waiting
+  const Icon   = entry.type === "derma" ? MdFace : MdMedicalServices
   const isActive = entry.status === "in-progress" || entry.status === "waiting"
 
   return (
@@ -97,23 +136,27 @@ const QueueCard = ({ entry, onDone, onRemove, onNext }) => {
         <div className="flex items-start gap-3">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0
             ${entry.status === "in-progress" ? "bg-sky-500 text-white" : "bg-slate-100 text-slate-500"}`}>
-            {entry.queueNo}
+            {entry.queueNo || entry.queue_number}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-bold text-slate-800 truncate">{entry.patient}</p>
+              <p className="text-sm font-bold text-slate-800 truncate">
+                {entry.patient || entry.patient_name}
+              </p>
               <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full ${cfg.badge}`}>
                 {cfg.label}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5 truncate">{entry.doctor}</p>
+            <p className="text-xs text-slate-500 mt-0.5 truncate">
+              {entry.doctor || entry.doctor_name}
+            </p>
             <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400 font-medium">
               <span className="flex items-center gap-1">
                 <Icon className={`text-[11px] ${entry.type === "derma" ? "text-emerald-500" : "text-slate-400"}`} />
                 {entry.type === "derma" ? "Dermatology" : "General Medicine"}
               </span>
               <span className="flex items-center gap-1">
-                <MdAccessTime className="text-[11px]" /> {entry.arrivedAt}
+                <MdAccessTime className="text-[11px]" /> {entry.arrivedAt || entry.arrived_at || '—'}
               </span>
             </div>
           </div>
@@ -155,18 +198,40 @@ const Staff_WalkInQueue = () => {
 
   useEffect(() => {
     Promise.all([getQueue(today), getDoctors()])
-      .then(([q, d]) => { 
-        setQueue(q)
-        setDoctors(d) 
+      .then(([q, d]) => {
+        // Normalise queue entries to use consistent field names
+        setQueue(Array.isArray(q) ? q.map(entry => ({
+          ...entry,
+          queueNo:   entry.queue_number || entry.queueNo,
+          patient:   entry.patient_name || entry.patient,
+          doctor:    entry.doctor_name  || entry.doctor,
+          arrivedAt: entry.arrived_at   || entry.arrivedAt,
+        })) : [])
+        setDoctors(Array.isArray(d) ? d : [])
       })
-      .catch((err) => console.error("Error loading queue:", err))
+      .catch(err => console.error("Error loading queue:", err))
       .finally(() => setLoading(false))
   }, [today])
 
+  // FIX 3: handleAdd now receives { patient_name, type, doctor_id, doctor, queueNo }
   const handleAdd = async (entry) => {
     try {
-      const res = await addToQueue({ ...entry, queue_date: today })
-      setQueue(prev => [...prev, res])
+      const res = await addToQueue({
+        patient_name: entry.patient_name,
+        type:         entry.type,
+        doctor_id:    entry.doctor_id,
+        queue_date:   today,
+      })
+      // Merge the response with display-friendly fields
+      setQueue(prev => [...prev, {
+        ...res,
+        queueNo:   res.queue_number || entry.queueNo,
+        patient:   entry.patient_name,
+        doctor:    entry.doctor,
+        type:      entry.type,
+        status:    'waiting',
+        arrivedAt: new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }),
+      }])
       setShowAdd(false)
     } catch (err) {
       alert("Error adding to queue.")
@@ -177,7 +242,7 @@ const Staff_WalkInQueue = () => {
     try {
       await updateQueueStatus(id, 'done')
       setQueue(prev => prev.map(e => e.id === id ? { ...e, status: 'done' } : e))
-    } catch (err) {
+    } catch {
       alert("Error updating status.")
     }
   }
@@ -187,7 +252,7 @@ const Staff_WalkInQueue = () => {
     try {
       await updateQueueStatus(id, 'removed')
       setQueue(prev => prev.map(e => e.id === id ? { ...e, status: 'removed' } : e))
-    } catch (err) {
+    } catch {
       alert("Error removing patient.")
     }
   }
@@ -195,24 +260,21 @@ const Staff_WalkInQueue = () => {
   const handleNext = async (id) => {
     try {
       const currentInProgress = queue.find(e => e.status === 'in-progress')
-      if (currentInProgress) {
-        await updateQueueStatus(currentInProgress.id, 'done')
-      }
+      if (currentInProgress) await updateQueueStatus(currentInProgress.id, 'done')
       await updateQueueStatus(id, 'in-progress')
-      
       setQueue(prev => prev.map(e => {
         if (e.status === 'in-progress') return { ...e, status: 'done' }
         if (e.id === id) return { ...e, status: 'in-progress' }
         return e
       }))
-    } catch (err) {
+    } catch {
       alert("Error calling next patient.")
     }
   }
 
   const active = queue.filter(q => q.status === "in-progress" || q.status === "waiting")
   const done   = queue.filter(q => q.status === "done" || q.status === "removed")
-  const nextNo = queue.length > 0 ? Math.max(...queue.map(q => q.queueNo || 0)) + 1 : 1
+  const nextNo = queue.length > 0 ? Math.max(...queue.map(q => q.queueNo || q.queue_number || 0)) + 1 : 1
 
   if (loading) {
     return (
@@ -238,9 +300,9 @@ const Staff_WalkInQueue = () => {
 
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "In Queue",     value: active.length,                                         color: "text-slate-800",   bg: "bg-white"        },
-          { label: "In Progress", value: queue.filter(q => q.status === "in-progress").length,  color: "text-sky-600",     bg: "bg-sky-50"       },
-          { label: "Served Today",value: queue.filter(q => q.status === "done").length,          color: "text-emerald-600", bg: "bg-emerald-50"   },
+          { label: "In Queue",     value: active.length,                                       color: "text-slate-800",   bg: "bg-white"      },
+          { label: "In Progress",  value: queue.filter(q => q.status === "in-progress").length, color: "text-sky-600",    bg: "bg-sky-50"     },
+          { label: "Served Today", value: queue.filter(q => q.status === "done").length,         color: "text-emerald-600", bg: "bg-emerald-50" },
         ].map(({ label, value, color, bg }) => (
           <div key={label} className={`${bg} border border-slate-200 rounded-2xl px-5 py-4 text-center shadow-sm`}>
             <p className={`text-3xl font-black ${color}`}>{value}</p>
@@ -282,11 +344,11 @@ const Staff_WalkInQueue = () => {
       )}
 
       {showAdd && (
-        <AddWalkInModal 
-          onClose={() => setShowAdd(false)} 
-          onAdd={handleAdd} 
-          nextNo={nextNo} 
-          doctorsList={doctors} 
+        <AddWalkInModal
+          onClose={() => setShowAdd(false)}
+          onAdd={handleAdd}
+          nextNo={nextNo}
+          doctorsList={doctors}
         />
       )}
     </div>

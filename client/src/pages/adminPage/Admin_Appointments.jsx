@@ -1,5 +1,8 @@
 // client/src/pages/adminPage/Admin_Appointments.jsx
-import { useEffect, useState } from 'react'
+// FIX 4: Added "Today" filter toggle. When active it fetches only today's
+//         appointments server-side (fast even with thousands of records).
+
+import { useEffect, useState, useCallback } from 'react'
 import {
   getAppointments, confirmAppointment, cancelAppointment,
   rescheduleAppointment, createAppointment, getPatients, getDoctors
@@ -8,7 +11,7 @@ import {
   MdSearch, MdClose, MdAdd, MdCheck, MdCancel, MdRefresh,
   MdFace, MdMedicalServices, MdCalendarToday, MdAccessTime,
   MdChevronRight, MdEventAvailable, MdPerson, MdNotes,
-  MdPhone, MdEmail, MdHome, MdCake, MdWc
+  MdPhone, MdEmail, MdHome, MdCake, MdWc, MdFilterList
 } from 'react-icons/md'
 
 function formatDate(raw) {
@@ -17,6 +20,8 @@ function formatDate(raw) {
   if (!y || !m || !d) return String(raw)
   return new Date(y, m - 1, d).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
 }
+
+const todayISO = new Date().toISOString().split('T')[0]
 
 const STATUS_CONFIG = {
   confirmed:   { label: 'Confirmed',   badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', row: 'border-l-emerald-400' },
@@ -57,15 +62,13 @@ const RescheduleModal = ({ appt, onClose, onSave }) => {
             <p className="text-sm font-bold text-slate-800">Reschedule Appointment</p>
             <p className="text-xs text-slate-500 mt-0.5">For {appt.patient_name || appt.patient}</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
-            <MdClose />
-          </button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400"><MdClose /></button>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">New Date</label>
             <input type="date" value={date} onChange={e => setDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
+              min={todayISO}
               className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
           </div>
           <div>
@@ -142,12 +145,9 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
             <p className="text-sm font-bold text-slate-800">New Appointment</p>
             <p className="text-xs text-slate-500 mt-0.5">Book an appointment for a patient</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
-            <MdClose />
-          </button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400"><MdClose /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {/* Patient search */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Patient</label>
             <input type="text" value={patSearch} onChange={e => setPatSearch(e.target.value)}
@@ -157,20 +157,17 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
               <div className="mt-1 bg-white border border-slate-200 rounded-xl max-h-36 overflow-y-auto shadow-lg z-10 relative">
                 {patients.map(p => (
                   <button key={p.id}
-                    onClick={() => { setForm(f => ({ ...f, patient_id: p.id })); setPatSearch(p.name); setPatients([]) }}
+                    onClick={() => { setForm(f => ({ ...f, patient_id: p.id })); setPatSearch(p.full_name || p.name); setPatients([]) }}
                     className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0">
-                    <span className="font-semibold text-slate-800">{p.name}</span>
+                    <span className="font-semibold text-slate-800">{p.full_name || p.name}</span>
                     <span className="text-slate-400 ml-2 text-xs">{p.email}</span>
                   </button>
                 ))}
               </div>
             )}
-            {form.patient_id && (
-              <p className="text-xs text-emerald-600 font-semibold mt-1">✓ Patient selected</p>
-            )}
+            {form.patient_id && <p className="text-xs text-emerald-600 font-semibold mt-1">✓ Patient selected</p>}
           </div>
 
-          {/* Clinic Type */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinic Type</label>
             <div className="grid grid-cols-2 gap-2">
@@ -184,40 +181,36 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
             </div>
           </div>
 
-          {/* Doctor */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Doctor</label>
             <select value={form.doctor_id} onChange={e => setForm(f => ({ ...f, doctor_id: e.target.value }))}
               className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400">
               <option value="">Select doctor…</option>
-              {filteredDoctors.map(d => (
-                <option key={d.id} value={d.id}>{d.full_name || d.name}</option>
-              ))}
+              {filteredDoctors.map(d => <option key={d.id} value={d.id}>{d.full_name || d.name}</option>)}
             </select>
           </div>
 
-          {/* Date & Time */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Date</label>
-              <input type="date" value={form.appointment_date}
-                min={new Date().toISOString().split('T')[0]}
-                onChange={e => setForm(f => ({ ...f, appointment_date: e.target.value }))}
-                className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Time</label>
-              <input type="text" value={form.appointment_time} placeholder="e.g. 9:00 AM"
-                onChange={e => setForm(f => ({ ...f, appointment_time: e.target.value }))}
-                className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
-            </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Date</label>
+            <input type="date" value={form.appointment_date}
+              onChange={e => setForm(f => ({ ...f, appointment_date: e.target.value }))}
+              min={todayISO}
+              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
           </div>
 
-          {/* Reason */}
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Time</label>
+            <input type="text" value={form.appointment_time}
+              onChange={e => setForm(f => ({ ...f, appointment_time: e.target.value }))}
+              placeholder="e.g. 9:00 AM"
+              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
+          </div>
+
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Reason (optional)</label>
-            <input type="text" value={form.reason} placeholder="e.g. General Consultation"
+            <input type="text" value={form.reason}
               onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+              placeholder="e.g. General Consultation"
               className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
           </div>
         </div>
@@ -233,56 +226,65 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
   )
 }
 
+// ── Appointment Row ───────────────────────────────────────────────────────────
+const AppointmentRow = ({ appt, isSelected, onSelect }) => {
+  const cfg = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
+  const Icon = appt.type === 'derma' ? MdFace : MdMedicalServices
+  return (
+    <button onClick={() => onSelect(appt)}
+      className={`w-full flex items-center gap-4 px-5 py-4 border-l-[3px] text-left transition-all duration-150
+        ${isSelected ? `${cfg.row} bg-slate-50` : "border-l-transparent hover:bg-slate-50/70"}`}>
+      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0
+        ${appt.type === 'derma' ? 'bg-emerald-50' : 'bg-slate-100'}`}>
+        <Icon className={`text-[16px] ${appt.type === 'derma' ? 'text-emerald-600' : 'text-slate-500'}`} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <p className="text-sm font-bold text-slate-800 truncate">{appt.patient_name || appt.patient}</p>
+          <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full whitespace-nowrap ${cfg.badge}`}>
+            {cfg.label}
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 truncate">{appt.doctor}</p>
+        <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1 mt-0.5">
+          <MdCalendarToday className="text-[11px]" /> {formatDate(appt.date || appt.appointment_date)}
+          <span className="ml-1 flex items-center gap-0.5"><MdAccessTime className="text-[11px]" /> {appt.time || appt.appointment_time}</span>
+        </span>
+      </div>
+      <MdChevronRight className={`text-[16px] transition-colors shrink-0 ${isSelected ? 'text-slate-500' : 'text-slate-300'}`} />
+    </button>
+  )
+}
+
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 const DetailPanel = ({ appt, onClose, onConfirm, onCancel, onReschedule }) => {
+  if (!appt) return null
   const cfg      = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
   const Icon     = appt.type === 'derma' ? MdFace : MdMedicalServices
   const isActive = appt.status === 'pending' || appt.status === 'confirmed'
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-100 shrink-0">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${appt.type === 'derma' ? 'bg-emerald-50' : 'bg-slate-100'}`}>
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0
+          ${appt.type === 'derma' ? 'bg-emerald-50' : 'bg-slate-100'}`}>
           <Icon className={`text-[18px] ${appt.type === 'derma' ? 'text-emerald-600' : 'text-slate-500'}`} />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-slate-800 truncate">{appt.patient_name || appt.patient}</p>
-          <p className="text-xs text-slate-500 font-mono">#{appt.id}</p>
+          <p className="text-xs text-slate-500">{appt.doctor} · {appt.specialty}</p>
         </div>
-        <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0 ${cfg.badge}`}>{cfg.label}</span>
+        <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0 ${cfg.badge}`}>
+          {cfg.label}
+        </span>
         <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
-          <MdClose />
+          <MdClose className="text-[18px]" />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {/* Patient Info */}
+      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
         <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Patient Information</p>
-          {[
-            { icon: MdPerson, label: 'Full Name',  value: appt.patient_name || appt.patient },
-            { icon: MdEmail,  label: 'Email',      value: appt.patient_email },
-            { icon: MdPhone,  label: 'Phone',      value: appt.patient_phone },
-            { icon: MdCake,   label: 'Birthdate',  value: formatDate(appt.patient_birthdate) },
-            { icon: MdWc,     label: 'Sex',        value: appt.patient_sex },
-            { icon: MdHome,   label: 'Address',    value: appt.patient_address },
-          ].filter(r => r.value && r.value !== '—').map(({ icon: I, label, value }) => (
-            <div key={label} className="flex items-start gap-3">
-              <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 mt-0.5">
-                <I className="text-[13px] text-slate-400" />
-              </div>
-              <div>
-                <p className="text-[10px] text-slate-400 font-medium">{label}</p>
-                <p className="text-sm font-semibold text-slate-800">{value}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Appointment Details */}
-        <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Appointment Details</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Schedule</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5"><MdCalendarToday className="text-[11px]" /> Date</p>
@@ -290,80 +292,62 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel, onReschedule }) => {
             </div>
             <div>
               <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5"><MdAccessTime className="text-[11px]" /> Time</p>
-              <p className="text-sm font-semibold text-slate-800">{appt.appointment_time || appt.time}</p>
+              <p className="text-sm font-semibold text-slate-800">{appt.appointment_time || appt.time || '—'}</p>
             </div>
           </div>
-          <div>
-            <p className="text-[11px] text-slate-400 mb-0.5">Doctor</p>
-            <p className="text-sm font-semibold text-slate-800">{appt.doctor}</p>
-            {appt.specialty && <p className="text-xs text-slate-400">{appt.specialty}</p>}
-          </div>
-          <div>
-            <p className="text-[11px] text-slate-400 mb-0.5">Clinic</p>
-            <p className="text-sm font-semibold text-slate-800 capitalize">
-              {appt.type === 'derma' ? 'Dermatology' : 'General Medicine'}
-            </p>
-          </div>
-          {appt.reason && (
-            <div>
-              <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5"><MdNotes className="text-[11px]" /> Reason</p>
-              <p className="text-sm font-semibold text-slate-800">{appt.reason}</p>
+        </div>
+
+        <div className="bg-slate-50 rounded-2xl p-4 space-y-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Visit Info</p>
+          <div><p className="text-[11px] text-slate-400 mb-0.5">Reason</p><p className="text-sm font-semibold text-slate-800">{appt.reason || '—'}</p></div>
+          <div><p className="text-[11px] text-slate-400 mb-0.5">Clinic</p><p className="text-sm font-semibold text-slate-800 capitalize">{appt.clinic_type === 'derma' ? 'Dermatology' : 'General Medicine'}</p></div>
+          {appt.notes && <div><p className="text-[11px] text-slate-400 mb-0.5">Notes</p><p className="text-sm text-slate-700">{appt.notes}</p></div>}
+        </div>
+
+        <div className="bg-slate-50 rounded-2xl p-4 space-y-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Patient Info</p>
+          {[
+            { icon: MdPerson, label: 'Name',      value: appt.patient_name || appt.patient },
+            { icon: MdEmail,  label: 'Email',      value: appt.patient_email },
+            { icon: MdPhone,  label: 'Phone',      value: appt.patient_phone },
+            { icon: MdWc,     label: 'Sex',        value: appt.patient_sex   },
+            { icon: MdHome,   label: 'Address',    value: appt.patient_address },
+          ].filter(r => r.value).map(({ icon: I, label, value }) => (
+            <div key={label} className="flex items-start gap-2.5">
+              <div className="w-6 h-6 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 mt-0.5">
+                <I className="text-[11px] text-slate-400" />
+              </div>
+              <div><p className="text-[10px] text-slate-400">{label}</p><p className="text-sm font-medium text-slate-700">{value}</p></div>
             </div>
-          )}
+          ))}
         </div>
       </div>
 
-      {/* Actions */}
-      {isActive && (
-        <div className="px-6 pb-6 pt-4 border-t border-slate-100 shrink-0 space-y-2">
-          {appt.status === 'pending' && (
-            <button onClick={() => onConfirm(appt.id)}
-              className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-colors">
-              <MdCheck className="text-[14px]" /> Confirm Appointment
+      <div className="px-6 pb-5 pt-3 border-t border-slate-100 space-y-2 shrink-0">
+        {isActive && appt.status === 'pending' && (
+          <button onClick={() => onConfirm(appt.id)}
+            className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-colors">
+            <MdCheck className="text-[14px]" /> Confirm Appointment
+          </button>
+        )}
+        {isActive && (
+          <div className="flex gap-2">
+            <button onClick={() => onReschedule(appt)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100 rounded-xl transition-colors">
+              <MdRefresh className="text-[14px]" /> Reschedule
             </button>
-          )}
-          <button onClick={() => onReschedule(appt)}
-            className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors">
-            <MdRefresh className="text-[14px]" /> Reschedule
-          </button>
-          <button onClick={() => onCancel(appt.id)}
-            className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold text-red-500 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors">
-            <MdCancel className="text-[14px]" /> Cancel Appointment
-          </button>
-        </div>
-      )}
+            <button onClick={() => onCancel(appt.id)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-xl transition-colors">
+              <MdCancel className="text-[14px]" /> Cancel
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
-// ── Row ───────────────────────────────────────────────────────────────────────
-const AppointmentRow = ({ appt, isSelected, onSelect }) => {
-  const cfg  = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
-  const Icon = appt.type === 'derma' ? MdFace : MdMedicalServices
-  return (
-    <button onClick={() => onSelect(appt)}
-      className={`w-full flex items-center gap-4 px-5 py-4 border-l-[3px] text-left transition-all duration-150
-        ${isSelected ? `${cfg.row} bg-slate-50` : 'border-l-transparent hover:bg-slate-50/70'}`}>
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${appt.type === 'derma' ? 'bg-emerald-50' : 'bg-slate-100'}`}>
-        <Icon className={`text-[16px] ${appt.type === 'derma' ? 'text-emerald-600' : 'text-slate-500'}`} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          <p className="text-sm font-bold text-slate-800 truncate">{appt.patient_name || appt.patient}</p>
-          <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full whitespace-nowrap ${cfg.badge}`}>{cfg.label}</span>
-        </div>
-        <p className="text-xs text-slate-500 truncate">{appt.doctor} · {appt.reason || 'No reason'}</p>
-        <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400 font-medium">
-          <span className="flex items-center gap-1"><MdCalendarToday className="text-[11px]" /> {formatDate(appt.appointment_date || appt.date)}</span>
-          <span className="flex items-center gap-1"><MdAccessTime className="text-[11px]" /> {appt.appointment_time || appt.time}</span>
-        </div>
-      </div>
-      <MdChevronRight className={`text-[16px] shrink-0 ${isSelected ? 'text-slate-500' : 'text-slate-300'}`} />
-    </button>
-  )
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Main Component ────────────────────────────────────────────────────────────
 const Admin_Appointments = () => {
   const [data,        setData]        = useState([])
   const [loading,     setLoading]     = useState(true)
@@ -372,18 +356,23 @@ const Admin_Appointments = () => {
   const [selected,    setSelected]    = useState(null)
   const [reschedAppt, setReschedAppt] = useState(null)
   const [showAdd,     setShowAdd]     = useState(false)
+  // FIX 4: Today filter
+  const [todayOnly,   setTodayOnly]   = useState(false)
 
-  useEffect(() => {
-    getAppointments()
-      .then(rows => { 
-        // FIXED: Array Check
-        const arr = Array.isArray(rows) ? rows : [];
-        setData(arr); 
-        if (arr.length > 0) setSelected(arr[0]) 
+  const load = useCallback((today) => {
+    setLoading(true)
+    const params = today ? `?date=${todayISO}` : ''
+    getAppointments(params)
+      .then(rows => {
+        const arr = Array.isArray(rows) ? rows : []
+        setData(arr)
+        if (arr.length > 0) setSelected(arr[0])
       })
-      .catch(err  => console.error('Appointments error:', err))
-      .finally(()  => setLoading(false))
+      .catch(err => console.error('Fetch error:', err))
+      .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { load(todayOnly) }, [todayOnly, load])
 
   const handleConfirm = async (id) => {
     try {
@@ -413,10 +402,7 @@ const Admin_Appointments = () => {
     )
   }
 
-  const handleAdd = (appt) => {
-    setData(prev => [appt, ...prev])
-    setSelected(appt)
-  }
+  const handleAdd = (appt) => { setData(prev => [appt, ...prev]); setSelected(appt) }
 
   const counts = TABS.reduce((acc, t) => {
     acc[t.key] = t.key === 'all' ? data.length : data.filter(a => a.status === t.key).length
@@ -445,14 +431,35 @@ const Admin_Appointments = () => {
           <h1 className="text-2xl font-bold text-slate-800">Appointments</h1>
           <p className="text-sm text-slate-500 mt-0.5">Confirm, reschedule, or cancel patient appointments.</p>
         </div>
-        <button onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 bg-[#0b1a2c] hover:bg-[#122236] text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors shrink-0">
-          <MdAdd className="text-[15px]" /> New Appointment
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* FIX 4: Today filter toggle */}
+          <button
+            onClick={() => setTodayOnly(prev => !prev)}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-2.5 rounded-xl border transition-colors
+              ${todayOnly
+                ? 'bg-sky-600 text-white border-sky-600'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+            <MdCalendarToday className="text-[14px]" />
+            {todayOnly ? 'Today ✓' : 'Today'}
+          </button>
+          <button onClick={() => setShowAdd(true)}
+            className="flex items-center gap-1.5 bg-[#0b1a2c] hover:bg-[#122236] text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors">
+            <MdAdd className="text-[15px]" /> New Appointment
+          </button>
+        </div>
       </div>
 
+      {todayOnly && (
+        <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
+          <MdCalendarToday className="text-sky-500 text-[14px] shrink-0" />
+          <p className="text-xs text-sky-700 font-medium">
+            Showing today's appointments only ({new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric' })}).
+            <button onClick={() => setTodayOnly(false)} className="ml-2 underline font-semibold">Show all</button>
+          </p>
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex shadow-sm" style={{ minHeight: '600px' }}>
-        {/* List */}
         <div className="flex flex-col border-r border-slate-100 w-full lg:w-[440px] shrink-0">
           <div className="px-4 pt-4 pb-3 border-b border-slate-100 space-y-3">
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus-within:border-slate-300 transition-colors">
@@ -460,13 +467,9 @@ const Admin_Appointments = () => {
               <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="Search patient, doctor, ID…"
                 className="text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none w-full" />
-              {search && (
-                <button onClick={() => setSearch('')} className="text-slate-300 hover:text-slate-500">
-                  <MdClose className="text-[13px]" />
-                </button>
-              )}
+              {search && <button onClick={() => setSearch('')} className="text-slate-300 hover:text-slate-500"><MdClose className="text-[13px]" /></button>}
             </div>
-            <div className="flex gap-0.5 overflow-x-auto pb-0.5 scrollbar-hide">
+            <div className="flex gap-0.5 overflow-x-auto pb-0.5">
               {TABS.map(({ key, label }) => (
                 <button key={key} onClick={() => setActiveTab(key)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all duration-150
@@ -487,8 +490,7 @@ const Admin_Appointments = () => {
                 <p className="text-sm font-semibold text-slate-500">No appointments found</p>
               </div>
             ) : filtered.map(appt => (
-              <AppointmentRow key={appt.id} appt={appt}
-                isSelected={selected?.id === appt.id} onSelect={setSelected} />
+              <AppointmentRow key={appt.id} appt={appt} isSelected={selected?.id === appt.id} onSelect={setSelected} />
             ))}
           </div>
           <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50">
@@ -496,7 +498,6 @@ const Admin_Appointments = () => {
           </div>
         </div>
 
-        {/* Detail */}
         <div className="hidden lg:flex flex-col flex-1 min-w-0">
           {selected ? (
             <DetailPanel appt={selected} onClose={() => setSelected(null)}
@@ -505,18 +506,13 @@ const Admin_Appointments = () => {
             <div className="flex flex-col items-center justify-center flex-1 text-center px-8">
               <MdEventAvailable className="text-[24px] text-slate-300 mb-3" />
               <p className="text-sm font-semibold text-slate-500">Select an appointment</p>
-              <p className="text-xs text-slate-400 mt-1">Click any row to see details and actions.</p>
             </div>
           )}
         </div>
       </div>
 
-      {reschedAppt && (
-        <RescheduleModal appt={reschedAppt} onClose={() => setReschedAppt(null)} onSave={handleRescheduleSave} />
-      )}
-      {showAdd && (
-        <AddAppointmentModal onClose={() => setShowAdd(false)} onAdd={handleAdd} />
-      )}
+      {reschedAppt && <RescheduleModal appt={reschedAppt} onClose={() => setReschedAppt(null)} onSave={handleRescheduleSave} />}
+      {showAdd && <AddAppointmentModal onClose={() => setShowAdd(false)} onAdd={handleAdd} />}
     </div>
   )
 }

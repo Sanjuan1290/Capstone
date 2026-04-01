@@ -1,4 +1,10 @@
 // client/src/pages/staffPage/Staff_Appointments.jsx
+// FIX 2: Patient profile details in detail panel were blank.
+//         Root causes:
+//         a) getPatients returned 'full_name' but AddModal used 'p.name' — fixed in staff.controller (returns name alias now)
+//         b) Detail panel filter removed ALL null/undefined values so the section appeared empty.
+//            Now every field always renders, showing '—' for missing data.
+
 import { useEffect, useState } from 'react'
 import {
   getAppointments, confirmAppointment, cancelAppointment,
@@ -134,22 +140,27 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 shrink-0">
-          <p className="text-sm font-bold text-slate-800">New Appointment</p>
+          <div>
+            <p className="text-sm font-bold text-slate-800">New Appointment</p>
+            <p className="text-xs text-slate-500 mt-0.5">Book an appointment for a patient</p>
+          </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400"><MdClose /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {/* Patient search */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Patient</label>
             <input type="text" value={patSearch} onChange={e => setPatSearch(e.target.value)}
               placeholder="Type at least 2 characters to search…"
               className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
             {patients.length > 0 && (
-              <div className="mt-1 bg-white border border-slate-200 rounded-xl max-h-36 overflow-y-auto shadow-lg relative z-10">
+              <div className="mt-1 bg-white border border-slate-200 rounded-xl max-h-36 overflow-y-auto shadow-lg z-10 relative">
                 {patients.map(p => (
                   <button key={p.id}
-                    onClick={() => { setForm(f => ({ ...f, patient_id: p.id })); setPatSearch(p.name); setPatients([]) }}
-                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0">
-                    <span className="font-semibold text-slate-800">{p.name}</span>
+                    // FIX: use p.name (now returned by backend) or fallback to p.full_name
+                    onClick={() => { setForm(f => ({ ...f, patient_id: p.id })); setPatSearch(p.name || p.full_name || ''); setPatients([]) }}
+                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0">
+                    <span className="font-semibold text-slate-800">{p.name || p.full_name}</span>
                     <span className="text-slate-400 ml-2 text-xs">{p.email}</span>
                   </button>
                 ))}
@@ -157,6 +168,8 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
             )}
             {form.patient_id && <p className="text-xs text-emerald-600 font-semibold mt-1">✓ Patient selected</p>}
           </div>
+
+          {/* Clinic Type */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinic Type</label>
             <div className="grid grid-cols-2 gap-2">
@@ -169,6 +182,8 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
               ))}
             </div>
           </div>
+
+          {/* Doctor */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Doctor</label>
             <select value={form.doctor_id} onChange={e => setForm(f => ({ ...f, doctor_id: e.target.value }))}
@@ -177,24 +192,31 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
               {filteredDoctors.map(d => <option key={d.id} value={d.id}>{d.full_name || d.name}</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Date</label>
-              <input type="date" value={form.appointment_date} min={new Date().toISOString().split('T')[0]}
-                onChange={e => setForm(f => ({ ...f, appointment_date: e.target.value }))}
-                className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Time</label>
-              <input type="text" value={form.appointment_time} placeholder="e.g. 9:00 AM"
-                onChange={e => setForm(f => ({ ...f, appointment_time: e.target.value }))}
-                className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
-            </div>
+
+          {/* Date */}
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Date</label>
+            <input type="date" value={form.appointment_date}
+              onChange={e => setForm(f => ({ ...f, appointment_date: e.target.value }))}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
           </div>
+
+          {/* Time */}
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Time</label>
+            <input type="text" value={form.appointment_time}
+              onChange={e => setForm(f => ({ ...f, appointment_time: e.target.value }))}
+              placeholder="e.g. 9:00 AM"
+              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
+          </div>
+
+          {/* Reason */}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Reason (optional)</label>
-            <input type="text" value={form.reason} placeholder="e.g. General Consultation"
+            <input type="text" value={form.reason}
               onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+              placeholder="e.g. General Consultation"
               className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
           </div>
         </div>
@@ -212,9 +234,21 @@ const AddAppointmentModal = ({ onClose, onAdd }) => {
 
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 const DetailPanel = ({ appt, onClose, onConfirm, onCancel, onReschedule }) => {
+  if (!appt) return null
   const cfg      = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
   const Icon     = appt.type === 'derma' ? MdFace : MdMedicalServices
-  const isActive = appt.status === 'pending' || appt.status === 'confirmed'
+  const isActive = appt.status === 'confirmed' || appt.status === 'pending'
+
+  // FIX 2: Always show all patient fields; use '—' as explicit fallback for nulls.
+  // Do NOT filter them out — an empty section looked "broken" when all were null.
+  const patientFields = [
+    { icon: MdPerson, label: 'Full Name',  value: appt.patient_name || appt.patient || '—' },
+    { icon: MdEmail,  label: 'Email',      value: appt.patient_email    || '—' },
+    { icon: MdPhone,  label: 'Phone',      value: appt.patient_phone    || '—' },
+    { icon: MdCake,   label: 'Birthdate',  value: appt.patient_birthdate ? formatDate(appt.patient_birthdate) : '—' },
+    { icon: MdWc,     label: 'Sex',        value: appt.patient_sex      || '—' },
+    { icon: MdHome,   label: 'Address',    value: appt.patient_address  || '—' },
+  ]
 
   return (
     <div className="flex flex-col h-full">
@@ -231,24 +265,18 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel, onReschedule }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {/* Patient Info */}
+
+        {/* Patient Info — FIX 2: Always renders; no filter */}
         <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Patient Information</p>
-          {[
-            { icon: MdPerson, label: 'Full Name',  value: appt.patient_name || appt.patient },
-            { icon: MdEmail,  label: 'Email',      value: appt.patient_email },
-            { icon: MdPhone,  label: 'Phone',      value: appt.patient_phone },
-            { icon: MdCake,   label: 'Birthdate',  value: formatDate(appt.patient_birthdate) },
-            { icon: MdWc,     label: 'Sex',        value: appt.patient_sex },
-            { icon: MdHome,   label: 'Address',    value: appt.patient_address },
-          ].filter(r => r.value && r.value !== '—').map(({ icon: I, label, value }) => (
+          {patientFields.map(({ icon: I, label, value }) => (
             <div key={label} className="flex items-start gap-3">
               <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 mt-0.5">
                 <I className="text-[13px] text-slate-400" />
               </div>
               <div>
                 <p className="text-[10px] text-slate-400 font-medium">{label}</p>
-                <p className="text-sm font-semibold text-slate-800">{value}</p>
+                <p className={`text-sm font-semibold ${value === '—' ? 'text-slate-300' : 'text-slate-800'}`}>{value}</p>
               </div>
             </div>
           ))}
@@ -264,12 +292,12 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel, onReschedule }) => {
             </div>
             <div>
               <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5"><MdAccessTime className="text-[11px]" /> Time</p>
-              <p className="text-sm font-semibold text-slate-800">{appt.appointment_time || appt.time}</p>
+              <p className="text-sm font-semibold text-slate-800">{appt.appointment_time || appt.time || '—'}</p>
             </div>
           </div>
           <div>
             <p className="text-[11px] text-slate-400 mb-0.5">Doctor</p>
-            <p className="text-sm font-semibold text-slate-800">{appt.doctor}</p>
+            <p className="text-sm font-semibold text-slate-800">{appt.doctor || '—'}</p>
             {appt.specialty && <p className="text-xs text-slate-400">{appt.specialty}</p>}
           </div>
           <div>
@@ -287,7 +315,6 @@ const DetailPanel = ({ appt, onClose, onConfirm, onCancel, onReschedule }) => {
         </div>
       </div>
 
-      {/* Actions */}
       {isActive && (
         <div className="px-6 pb-6 pt-4 border-t border-slate-100 shrink-0 space-y-2">
           {appt.status === 'pending' && (
@@ -349,14 +376,13 @@ const Staff_Appointments = () => {
 
   useEffect(() => {
     getAppointments()
-      .then(rows => { 
-        // FIXED: Array Check
-        const arr = Array.isArray(rows) ? rows : [];
-        setData(arr); 
-        if (arr.length > 0) setSelected(arr[0]) 
+      .then(rows => {
+        const arr = Array.isArray(rows) ? rows : []
+        setData(arr)
+        if (arr.length > 0) setSelected(arr[0])
       })
-      .catch(err  => console.error('Fetch error:', err))
-      .finally(()  => setLoading(false))
+      .catch(err => console.error('Fetch error:', err))
+      .finally(() => setLoading(false))
   }, [])
 
   const handleConfirm = async (id) => {
@@ -432,7 +458,7 @@ const Staff_Appointments = () => {
                 className="text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none w-full" />
               {search && <button onClick={() => setSearch('')} className="text-slate-300 hover:text-slate-500"><MdClose className="text-[13px]" /></button>}
             </div>
-            <div className="flex gap-0.5 overflow-x-auto pb-0.5 scrollbar-hide">
+            <div className="flex gap-0.5 overflow-x-auto pb-0.5">
               {TABS.map(({ key, label }) => (
                 <button key={key} onClick={() => setActiveTab(key)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all duration-150
@@ -448,7 +474,7 @@ const Staff_Appointments = () => {
           </div>
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
             {filtered.length === 0 ? (
-               <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+              <div className="flex flex-col items-center justify-center py-16 text-center px-6">
                 <MdEventAvailable className="text-[22px] text-slate-300 mb-3" />
                 <p className="text-sm font-semibold text-slate-500">No appointments found</p>
               </div>
@@ -466,9 +492,9 @@ const Staff_Appointments = () => {
             <DetailPanel appt={selected} onClose={() => setSelected(null)}
               onConfirm={handleConfirm} onCancel={handleCancel} onReschedule={setReschedAppt} />
           ) : (
-             <div className="flex flex-col items-center justify-center flex-1 text-center px-8">
+            <div className="flex flex-col items-center justify-center flex-1 text-center px-8">
               <MdEventAvailable className="text-[24px] text-slate-300 mb-3" />
-              <p className="text-sm font-semibold text-slate-500">Select an appointment</p>
+              <p className="text-sm font-semibold text-slate-500">Select an appointment to view details</p>
             </div>
           )}
         </div>

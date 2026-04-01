@@ -1,6 +1,7 @@
 // client/src/pages/adminPage/Admin_DoctorAccount.jsx
-// FIX #2 — Removed password field from the Add Doctor form.
-// Password is auto-generated and emailed to the doctor.
+// FIX 3: DetailPanel now shows doctor.prc_license instead of doctor.prc.
+//         The AddModal also sends prc_license in the payload.
+//         Requires: run migration_add_prc_license.sql first.
 
 import { useEffect, useState } from 'react'
 import { getDoctors, createDoctor, toggleDoctor } from '../../services/admin.service'
@@ -16,12 +17,13 @@ const SPECIALTIES = ['Dermatologist', 'General Practitioner', 'Cosmetic Dermatol
 // ─── Add Modal ────────────────────────────────────────────────────────────────
 
 const AddModal = ({ onClose, onAdd }) => {
-  const [form,         setForm]         = useState({ full_name: '', specialty: 'Dermatologist', type: 'derma', email: '', phone: '', prc: '' })
+  const [form,         setForm]         = useState({ full_name: '', specialty: 'Dermatologist', type: 'derma', email: '', phone: '', prc_license: '' })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error,        setError]        = useState('')
 
   const set   = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
-  const valid = form.full_name.trim() && form.email.trim() && form.prc.trim()
+  // FIX 3: validate prc_license, not prc
+  const valid = form.full_name.trim() && form.email.trim() && form.prc_license.trim()
 
   const handleSubmit = async () => {
     setIsSubmitting(true)
@@ -54,19 +56,19 @@ const AddModal = ({ onClose, onAdd }) => {
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3">
-          {/* Email notice */}
           <div className="flex items-start gap-2.5 bg-sky-50 border border-sky-200 rounded-xl px-4 py-3">
             <MdMailOutline className="text-sky-500 text-[16px] shrink-0 mt-0.5" />
             <p className="text-xs text-sky-700">
-              A secure temporary password will be automatically generated and sent to the doctor's email. They must change it upon first login.
+              A secure temporary password will be automatically generated and sent to the doctor's email.
             </p>
           </div>
 
           {[
-            { k: 'full_name', l: 'Full Name (with title)', t: 'text',  p: 'e.g. Dr. Juan Santos' },
-            { k: 'email',     l: 'Email',                  t: 'email', p: 'e.g. juan@carait.com' },
-            { k: 'phone',     l: 'Phone (optional)',        t: 'tel',   p: '09171234567' },
-            { k: 'prc',       l: 'PRC License No.',         t: 'text',  p: 'e.g. PRC-001234' },
+            { k: 'full_name',    l: 'Full Name (with title)', t: 'text',  p: 'e.g. Dr. Juan Santos' },
+            { k: 'email',        l: 'Email',                  t: 'email', p: 'e.g. juan@carait.com' },
+            { k: 'phone',        l: 'Phone (optional)',        t: 'tel',   p: '09171234567'          },
+            // FIX 3: key is prc_license
+            { k: 'prc_license',  l: 'PRC License No.',        t: 'text',  p: 'e.g. PRC-001234'      },
           ].map(({ k, l, t, p }) => (
             <div key={k}>
               <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
@@ -139,7 +141,7 @@ const DetailPanel = ({ doctor, onClose, onToggle }) => {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-slate-800 truncate">{doctor.full_name}</p>
-          <p className="text-xs text-slate-500">{doctor.specialty} · <span className="font-mono">{doctor.id}</span></p>
+          <p className="text-xs text-slate-500">{doctor.specialty} · <span className="font-mono">#{doctor.id}</span></p>
         </div>
         <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0
           ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
@@ -151,10 +153,14 @@ const DetailPanel = ({ doctor, onClose, onToggle }) => {
         <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Account Info</p>
           {[
-            { icon: MdEmail,  label: 'Email',       value: doctor.email },
-            { icon: MdPhone,  label: 'Phone',        value: doctor.phone || 'N/A' },
-            { icon: MdScience, label: 'PRC License', value: doctor.prc || 'N/A' },
-            { icon: MdPerson, label: 'Joined',       value: doctor.created_at ? new Date(doctor.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A' },
+            { icon: MdEmail,   label: 'Email',       value: doctor.email },
+            { icon: MdPhone,   label: 'Phone',        value: doctor.phone || 'N/A' },
+            // FIX 3: use prc_license from API
+            { icon: MdScience, label: 'PRC License',  value: doctor.prc_license || 'N/A' },
+            { icon: MdPerson,  label: 'Joined',       value: doctor.created_at
+                ? new Date(doctor.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+                : 'N/A'
+            },
           ].map(({ icon: I, label, value }) => (
             <div key={label} className="flex items-center gap-3">
               <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
@@ -170,9 +176,6 @@ const DetailPanel = ({ doctor, onClose, onToggle }) => {
       </div>
 
       <div className="px-6 pb-6 pt-4 border-t border-slate-100 space-y-2 shrink-0">
-        <button className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors">
-          <MdEdit className="text-[14px]" /> Edit Account
-        </button>
         <button onClick={() => onToggle(doctor.id)}
           className={`w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold rounded-xl transition-colors
             ${isActive
@@ -196,11 +199,10 @@ const Admin_DoctorAccount = () => {
 
   useEffect(() => {
     getDoctors()
-      .then(data => { 
-        // FIXED: Array Check
-        const arr = Array.isArray(data) ? data : [];
-        setDoctors(arr); 
-        if (arr.length > 0) setSelected(arr[0]) 
+      .then(data => {
+        const arr = Array.isArray(data) ? data : []
+        setDoctors(arr)
+        if (arr.length > 0) setSelected(arr[0])
       })
       .catch(err => console.error('Error loading doctors:', err))
       .finally(() => setLoading(false))
@@ -310,7 +312,7 @@ const Admin_DoctorAccount = () => {
                 <MdMedicalServices className="text-[24px] text-slate-300" />
               </div>
               <p className="text-sm font-bold text-slate-600">Select a doctor account</p>
-              <p className="text-xs text-slate-400 mt-1 max-w-[200px]">Choose a profile from the list to view full credentials or manage status.</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-[200px]">Choose a profile from the list to view credentials or manage status.</p>
             </div>
           )}
         </div>

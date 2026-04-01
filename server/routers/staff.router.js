@@ -32,9 +32,12 @@ router.get('/patients',     ...auth, staffCtrl.getPatients)
 router.get('/patients/:id', ...auth, staffCtrl.getPatientRecord)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
-router.get('/inventory',             ...auth, staffCtrl.getInventory)
-router.post('/inventory',            ...auth, staffCtrl.addInventoryItem)
-router.patch('/inventory/:id/stock', ...auth, staffCtrl.updateStock)
+router.get('/inventory',              ...auth, staffCtrl.getInventory)
+router.post('/inventory',             ...auth, staffCtrl.addInventoryItem)
+router.patch('/inventory/:id/stock',  ...auth, staffCtrl.updateStock)
+// FIX 2: Edit and Delete inventory items
+router.put('/inventory/:id',          ...auth, staffCtrl.updateInventoryItem)
+router.delete('/inventory/:id',       ...auth, staffCtrl.deleteInventoryItem)
 
 // ── Doctors list ──────────────────────────────────────────────────────────────
 router.get('/doctors', ...auth, staffCtrl.getDoctors)

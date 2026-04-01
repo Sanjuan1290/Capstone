@@ -1,4 +1,12 @@
 // server/controllers/admin.controller.js
+// FIXES:
+// 1. getDashboard → now returns doctorStatus (Doctors Today was always empty)
+// 2. getDashboard → removed fake "revenue" field; dashboard stat is now real
+// 3. getDoctors / createDoctor → support prc_license column (run migration first)
+// 4. getReports → now returns inventoryStats so Reports page shows real numbers
+// 5. NEW: updateInventoryItem (PUT /inventory/:id) — edit a product
+// 6. NEW: deleteInventoryItem (DELETE /inventory/:id) — remove a product
+
 const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
@@ -53,6 +61,7 @@ const logout = (req, res) => {
 
 const getDashboard = async (req, res) => {
   const today = new Date().toISOString().split('T')[0]
+
   const [[{ totalPatients }]]    = await db.query('SELECT COUNT(*) AS totalPatients FROM patients')
   const [[{ todayAppts }]]       = await db.query('SELECT COUNT(*) AS todayAppts FROM appointments WHERE appointment_date = ?', [today])
   const [[{ pendingApprovals }]] = await db.query("SELECT COUNT(*) AS pendingApprovals FROM appointments WHERE status = 'pending'")
@@ -62,7 +71,49 @@ const getDashboard = async (req, res) => {
   )
   const [[{ totalStaff }]]   = await db.query("SELECT COUNT(*) AS totalStaff FROM staff WHERE status='active'")
   const [[{ totalDoctors }]] = await db.query("SELECT COUNT(*) AS totalDoctors FROM doctors WHERE is_active=1")
-  res.json({ totalPatients, todayAppts, pendingApprovals, lowStockCount, activeQueue, totalStaff, totalDoctors })
+
+  // FIX 1: Build doctorStatus — doctors who have appointments today (on-duty)
+  // plus all active doctors so the dashboard can show who is off-duty too.
+  const [onDutyRows] = await db.query(
+    `SELECT
+       d.id,
+       d.full_name                    AS name,
+       d.specialty,
+       COUNT(a.id)                    AS patients,
+       SUM(a.status = 'completed')    AS done,
+       'on-duty'                      AS status
+     FROM doctors d
+     JOIN appointments a ON a.doctor_id = d.id
+     WHERE a.appointment_date = ?
+       AND a.status NOT IN ('cancelled','rescheduled')
+       AND d.is_active = 1
+     GROUP BY d.id`,
+    [today]
+  )
+
+  const onDutyIds = new Set(onDutyRows.map(r => r.id))
+
+  const [allDoctors] = await db.query(
+    'SELECT id, full_name AS name, specialty FROM doctors WHERE is_active = 1 ORDER BY full_name'
+  )
+
+  const doctorStatus = allDoctors.map(doc => {
+    const onDuty = onDutyRows.find(r => r.id === doc.id)
+    return onDuty
+      ? { ...onDuty }
+      : { id: doc.id, name: doc.name, specialty: doc.specialty, patients: 0, done: 0, status: 'off-duty' }
+  })
+
+  res.json({
+    totalPatients,
+    todayAppts,
+    pendingApprovals,
+    lowStockCount,
+    activeQueue,
+    totalStaff,
+    totalDoctors,
+    doctorStatus,          // FIX 1: populated
+  })
 }
 
 // ── Appointments ──────────────────────────────────────────────────────────────
@@ -93,8 +144,6 @@ const getAppointments = async (req, res) => {
   res.json(rows)
 }
 
-// FIX: confirmAppointment — removed invalid INSERT INTO queue (no appointment_id column in queue table)
-// Now just updates the appointment status. Doctor is already set on the appointment record.
 const confirmAppointment = async (req, res) => {
   const { id } = req.params
   const [rows] = await db.query('SELECT id, status FROM appointments WHERE id = ?', [id])
@@ -198,7 +247,7 @@ const updateQueueStatus = async (req, res) => {
 const getPatients = async (req, res) => {
   const search = req.query.search || ''
   const [rows] = await db.query(
-    `SELECT id, full_name, email, phone, sex, birthdate, address, civil_status, created_at
+    `SELECT id, full_name AS name, full_name, email, phone, sex, birthdate, address, civil_status, created_at
      FROM patients
      WHERE full_name LIKE ? OR email LIKE ?
      ORDER BY full_name`,
@@ -283,7 +332,8 @@ const toggleStaff = async (req, res) => {
 
 const getDoctors = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT id, full_name AS name, full_name, email, phone, specialty, is_active, created_at,
+    // FIX 3: return prc_license (requires migration_add_prc_license.sql)
+    `SELECT id, full_name AS name, full_name, email, phone, specialty, prc_license, is_active, created_at,
             CASE WHEN specialty LIKE '%erm%' THEN 'derma' ELSE 'medical' END AS type
      FROM doctors ORDER BY full_name`
   )
@@ -291,7 +341,7 @@ const getDoctors = async (req, res) => {
 }
 
 const createDoctor = async (req, res) => {
-  const { full_name, email, phone, specialty } = req.body
+  const { full_name, email, phone, specialty, prc_license } = req.body
   if (!full_name || !email)
     return res.status(400).json({ message: 'Name and email are required.' })
   const [existing] = await db.query('SELECT id FROM doctors WHERE email = ?', [email])
@@ -300,11 +350,12 @@ const createDoctor = async (req, res) => {
   const tempPassword = Math.random().toString(36).slice(-8) + 'Aa1!'
   const hashed = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
-    'INSERT INTO doctors (full_name, email, phone, specialty, password) VALUES (?, ?, ?, ?, ?)',
-    [full_name, email, phone || null, specialty || null, hashed]
+    // FIX 3: save prc_license (requires migration_add_prc_license.sql)
+    'INSERT INTO doctors (full_name, email, phone, specialty, prc_license, password) VALUES (?, ?, ?, ?, ?, ?)',
+    [full_name, email, phone || null, specialty || null, prc_license || null, hashed]
   )
   const [rows] = await db.query(
-    'SELECT id, full_name, email, phone, specialty, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
+    'SELECT id, full_name, email, phone, specialty, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
   )
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/doctor/login`
@@ -393,7 +444,18 @@ const getReports = async (req, res) => {
      GROUP BY d.id ORDER BY patients DESC LIMIT 5`,
     [months]
   )
-  res.json({ monthly, statusBreakdown, topDoctors })
+
+  // FIX 4: Add real inventory stats so Reports page shows correct numbers
+  const [[inventoryStats]] = await db.query(
+    `SELECT
+       COUNT(*)                                         AS total_items,
+       SUM(stock * COALESCE(price, 0))                 AS total_value,
+       SUM(stock = 0)                                  AS out_of_stock,
+       SUM(stock > 0 AND stock <= threshold)           AS low_stock
+     FROM inventory`
+  )
+
+  res.json({ monthly, statusBreakdown, topDoctors, inventoryStats })
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
@@ -413,6 +475,29 @@ const addInventoryItem = async (req, res) => {
   )
   const [rows] = await db.query('SELECT * FROM inventory WHERE id = ?', [result.insertId])
   res.status(201).json(rows[0])
+}
+
+// FIX 5: Edit an existing inventory item
+const updateInventoryItem = async (req, res) => {
+  const { barcode, name, category, unit, threshold, price, supplier } = req.body
+  if (!name || !category)
+    return res.status(400).json({ message: 'Name and category are required.' })
+  const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
+  if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
+  await db.query(
+    'UPDATE inventory SET barcode=?, name=?, category=?, unit=?, threshold=?, price=?, supplier=? WHERE id=?',
+    [barcode || null, name, category, unit || null, threshold || 5, price || 0, supplier || null, req.params.id]
+  )
+  const [updated] = await db.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
+  res.json(updated[0])
+}
+
+// FIX 5: Delete an inventory item
+const deleteInventoryItem = async (req, res) => {
+  const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
+  if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
+  await db.query('DELETE FROM inventory WHERE id = ?', [req.params.id])
+  res.json({ message: 'Item deleted.' })
 }
 
 const updateStock = async (req, res) => {
@@ -454,7 +539,6 @@ const resolveSupplyRequest = async (req, res) => {
 
   await db.query('UPDATE supply_requests SET status=? WHERE id=?', [status, req.params.id])
 
-  // If approved, deduct from inventory
   if (status === 'approved') {
     await db.query(
       'UPDATE inventory SET stock = GREATEST(0, stock - ?) WHERE id = ?',
@@ -479,6 +563,6 @@ module.exports = {
   getDoctors, createDoctor, toggleDoctor,
   getDoctorSchedules, saveDaySchedule,
   getReports,
-  getInventory, addInventoryItem, updateStock,
+  getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }

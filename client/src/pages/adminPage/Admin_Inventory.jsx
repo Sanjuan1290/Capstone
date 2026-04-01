@@ -1,11 +1,20 @@
 // client/src/pages/adminPage/Admin_Inventory.jsx
+// FIX 5 (Admin): Added Edit Item modal and Delete button.
+//   - Edit: PUT /admin/inventory/:id  (updateInventoryItem in admin.service)
+//   - Delete: DELETE /admin/inventory/:id (deleteInventoryItem in admin.service)
+// FIX 6 (Admin): Reports now shows correct inventory numbers — fixed server-side
+//   in admin.controller.js (getReports now returns inventoryStats).
+
 import { useEffect, useState } from 'react'
-import { getInventory, updateStock, addInventoryItem } from '../../services/admin.service'
+import {
+  getInventory, updateStock, addInventoryItem,
+  updateInventoryItem, deleteInventoryItem
+} from '../../services/admin.service'
 import {
   MdSearch, MdClose, MdQrCodeScanner, MdAdd, MdInventory2,
   MdHistory, MdWarning, MdTrendingDown, MdMedication,
   MdScience, MdBuild, MdArrowUpward, MdArrowDownward,
-  MdFilterList, MdCalendarToday
+  MdFilterList, MdCalendarToday, MdEdit, MdDelete
 } from 'react-icons/md'
 
 const CATEGORIES = ['All', 'Medicine', 'Derma', 'Supplies']
@@ -13,28 +22,30 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 
 const getStockStatus = (stock, threshold) => {
   const pct = threshold > 0 ? Math.round((stock / (threshold * 3)) * 100) : 100
-  if (stock === 0)         return { label: 'Out', bg: 'bg-red-50',    color: 'text-red-600',    border: 'border-red-200',    bar: 'bg-red-400',    pct: 0 }
-  if (stock <= threshold)  return { label: 'Low', bg: 'bg-amber-50',  color: 'text-amber-600',  border: 'border-amber-200',  bar: 'bg-amber-400',  pct: Math.min(pct, 30) }
-  return                          { label: 'OK',  bg: 'bg-emerald-50',color: 'text-emerald-600',border: 'border-emerald-200',bar: 'bg-emerald-400',pct: Math.min(pct, 100) }
+  if (stock === 0)        return { label: 'Out', bg: 'bg-red-50',    color: 'text-red-600',    border: 'border-red-200',    bar: 'bg-red-400',    pct: 0 }
+  if (stock <= threshold) return { label: 'Low', bg: 'bg-amber-50',  color: 'text-amber-600',  border: 'border-amber-200',  bar: 'bg-amber-400',  pct: Math.min(pct, 30) }
+  return                         { label: 'OK',  bg: 'bg-emerald-50',color: 'text-emerald-600',border: 'border-emerald-200',bar: 'bg-emerald-400',pct: Math.min(pct, 100) }
 }
 
 const getCategoryStyle = (cat) => {
-  switch(cat) {
+  switch (cat) {
     case 'Medicine': return { bg: 'bg-sky-50',    text: 'text-sky-600',    border: 'border-sky-200',    icon: MdMedication }
     case 'Derma':    return { bg: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-200', icon: MdScience    }
     default:         return { bg: 'bg-slate-100', text: 'text-slate-500',  border: 'border-slate-200',  icon: MdBuild      }
   }
 }
 
-// ── Barcode Scanner / Stock Modal ─────────────────────────────────────────────
+// ── Scanner / Stock Update Modal ──────────────────────────────────────────────
 const ScannerModal = ({ onClose, onConfirm, items, preselect }) => {
-  const [barcode, setBarcode]   = useState(preselect?.barcode || '')
-  const [type,    setType]      = useState('in')
-  const [qty,     setQty]       = useState(1)
-  const [note,    setNote]      = useState('')
-  const [success, setSuccess]   = useState(false)
+  const [barcode, setBarcode] = useState(preselect?.barcode || '')
+  const [type,    setType]    = useState('in')
+  const [qty,     setQty]     = useState(1)
+  const [note,    setNote]    = useState('')
+  const [success, setSuccess] = useState(false)
 
-  const found = preselect || items.find(i => i.barcode === barcode || i.name.toLowerCase() === barcode.toLowerCase())
+  const found = preselect || items.find(i =>
+    i.barcode === barcode || i.name.toLowerCase() === barcode.toLowerCase()
+  )
 
   const handleConfirm = async () => {
     if (!found) return
@@ -59,8 +70,8 @@ const ScannerModal = ({ onClose, onConfirm, items, preselect }) => {
           {!preselect && (
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Barcode / Item Name</label>
-              <input type="text" value={barcode} onChange={e => setBarcode(e.target.value)} placeholder="Scan or type here…"
-                autoFocus
+              <input type="text" value={barcode} onChange={e => setBarcode(e.target.value)}
+                placeholder="Scan or type here…" autoFocus
                 className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400 transition-colors" />
             </div>
           )}
@@ -73,7 +84,10 @@ const ScannerModal = ({ onClose, onConfirm, items, preselect }) => {
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Transaction Type</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {[{ v: 'in', l: 'Stock In', icon: MdArrowUpward, color: 'emerald' }, { v: 'out', l: 'Stock Out', icon: MdArrowDownward, color: 'red' }].map(({ v, l, icon: Icon, color }) => (
+                  {[
+                    { v: 'in',  l: 'Stock In',  icon: MdArrowUpward,   color: 'emerald' },
+                    { v: 'out', l: 'Stock Out', icon: MdArrowDownward, color: 'red'     },
+                  ].map(({ v, l, icon: Icon, color }) => (
                     <button key={v} onClick={() => setType(v)}
                       className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold border-2 transition-all
                         ${type === v
@@ -87,10 +101,13 @@ const ScannerModal = ({ onClose, onConfirm, items, preselect }) => {
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Quantity</label>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setQty(q => Math.max(1, q - 1))} className="w-10 h-10 rounded-xl border-2 border-slate-200 text-slate-600 text-lg font-bold hover:border-slate-300 hover:bg-slate-50 transition-all">−</button>
-                  <input type="number" min={1} value={qty} onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="flex-1 text-center text-sm font-bold text-slate-800 bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 focus:outline-none focus:border-sky-400 transition-colors" />
-                  <button onClick={() => setQty(q => q + 1)} className="w-10 h-10 rounded-xl border-2 border-slate-200 text-slate-600 text-lg font-bold hover:border-slate-300 hover:bg-slate-50 transition-all">+</button>
+                  <button onClick={() => setQty(q => Math.max(1, q - 1))}
+                    className="w-10 h-10 rounded-xl border-2 border-slate-200 text-slate-600 text-lg font-bold hover:border-slate-300 hover:bg-slate-50 transition-all">−</button>
+                  <input type="number" min={1} value={qty}
+                    onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="flex-1 text-center text-sm font-bold text-slate-800 bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 focus:outline-none focus:border-sky-400" />
+                  <button onClick={() => setQty(q => q + 1)}
+                    className="w-10 h-10 rounded-xl border-2 border-slate-200 text-slate-600 text-lg font-bold hover:border-slate-300 hover:bg-slate-50 transition-all">+</button>
                 </div>
                 {type === 'out' && qty > found.stock && (
                   <p className="text-xs text-red-500 font-medium mt-1.5 flex items-center gap-1">
@@ -99,16 +116,19 @@ const ScannerModal = ({ onClose, onConfirm, items, preselect }) => {
                 )}
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Note <span className="font-normal text-slate-400 normal-case">(optional)</span></label>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                  Note <span className="font-normal text-slate-400 normal-case">(optional)</span>
+                </label>
                 <input type="text" value={note} onChange={e => setNote(e.target.value)}
                   placeholder={type === 'out' ? 'e.g. Dispensed to patient' : 'e.g. Restocked from supplier'}
-                  className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400 transition-colors" />
+                  className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400" />
               </div>
             </>
           )}
         </div>
         <div className="px-6 pb-6 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">Close</button>
+          <button onClick={onClose}
+            className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Close</button>
           <button onClick={handleConfirm}
             disabled={!found || qty < 1 || (type === 'out' && qty > found.stock)}
             className={`flex-1 py-2.5 text-sm font-bold text-white rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed
@@ -121,14 +141,17 @@ const ScannerModal = ({ onClose, onConfirm, items, preselect }) => {
   )
 }
 
-// ── Add Item Modal ────────────────────────────────────────────────────────────
+// ── Add Item Modal ─────────────────────────────────────────────────────────────
 const AddItemModal = ({ onClose, onAdd }) => {
-  const [form, setForm] = useState({ barcode: '', name: '', category: 'Medicine', unit: 'box', stock: '', threshold: '5', price: '', supplier: '' })
+  const [form, setForm] = useState({
+    barcode: '', name: '', category: 'Medicine', unit: 'box',
+    stock: '', threshold: '5', price: '', supplier: ''
+  })
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
   const valid = form.barcode.trim() && form.name.trim() && form.supplier.trim()
 
   const handleSubmit = () => {
-    onAdd({ ...form, stock: parseInt(form.stock) || 0, threshold: parseInt(form.threshold) || 5, price: parseFloat(form.price) || 0 })
+    onAdd({ ...form, stock: parseInt(form.stock)||0, threshold: parseInt(form.threshold)||5, price: parseFloat(form.price)||0 })
     onClose()
   }
 
@@ -140,16 +163,18 @@ const AddItemModal = ({ onClose, onAdd }) => {
             <p className="text-sm font-bold text-slate-800">Add New Item</p>
             <p className="text-xs text-slate-500 mt-0.5">Register a new product in the inventory</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400"><MdClose className="text-[18px]" /></button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
+            <MdClose className="text-[18px]" />
+          </button>
         </div>
         <div className="px-6 py-5 space-y-3 max-h-[65vh] overflow-y-auto">
           {[
-            { k: 'barcode',  l: 'Barcode',         t: 'text',   p: 'e.g. 8850001001234', required: true  },
-            { k: 'name',     l: 'Product Name',     t: 'text',   p: 'e.g. Paracetamol',   required: true  },
-            { k: 'supplier', l: 'Supplier',         t: 'text',   p: 'e.g. Dermacare PH',  required: true  },
-            { k: 'stock',    l: 'Initial Stock',    t: 'number', p: '0',                  required: false },
-            { k: 'threshold',l: 'Low Stock Alert',  t: 'number', p: '5',                  required: false },
-            { k: 'price',    l: 'Unit Price (₱)',   t: 'number', p: '0.00',               required: false },
+            { k: 'barcode',   l: 'Barcode',        t: 'text',   p: 'e.g. 8850001001234', required: true  },
+            { k: 'name',      l: 'Product Name',    t: 'text',   p: 'e.g. Paracetamol',   required: true  },
+            { k: 'supplier',  l: 'Supplier',        t: 'text',   p: 'e.g. Dermacare PH',  required: true  },
+            { k: 'stock',     l: 'Initial Stock',   t: 'number', p: '0',                  required: false },
+            { k: 'threshold', l: 'Low Stock Alert', t: 'number', p: '5',                  required: false },
+            { k: 'price',     l: 'Unit Price (₱)',  t: 'number', p: '0.00',               required: false },
           ].map(({ k, l, t, p, required }) => (
             <div key={k}>
               <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
@@ -161,19 +186,22 @@ const AddItemModal = ({ onClose, onAdd }) => {
           ))}
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Category <span className="text-red-400">*</span></label>
-            <select value={form.category} onChange={set('category')} className="w-full text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400">
+            <select value={form.category} onChange={set('category')}
+              className="w-full text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400">
               {['Medicine','Derma','Supplies'].map(c => <option key={c}>{c}</option>)}
             </select>
           </div>
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Unit <span className="text-red-400">*</span></label>
-            <select value={form.unit} onChange={set('unit')} className="w-full text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400">
+            <select value={form.unit} onChange={set('unit')}
+              className="w-full text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400">
               {['box','tube','bottle','pack','piece','sachet'].map(u => <option key={u}>{u}</option>)}
             </select>
           </div>
         </div>
         <div className="px-6 pb-6 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancel</button>
+          <button onClick={onClose}
+            className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancel</button>
           <button disabled={!valid} onClick={handleSubmit}
             className="flex-1 py-2.5 text-sm font-bold text-white bg-[#0b1a2c] hover:bg-[#122236] disabled:opacity-40 disabled:cursor-not-allowed rounded-xl">
             Add Item
@@ -184,42 +212,145 @@ const AddItemModal = ({ onClose, onAdd }) => {
   )
 }
 
+// ── Edit Item Modal ───────────────────────────────────────────────────────────
+const EditItemModal = ({ item, onClose, onSave }) => {
+  const [form, setForm] = useState({
+    barcode:   item.barcode   || '',
+    name:      item.name      || '',
+    category:  item.category  || 'Medicine',
+    unit:      item.unit      || 'box',
+    threshold: String(item.threshold ?? 5),
+    price:     String(item.price     ?? 0),
+    supplier:  item.supplier  || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+  const valid = form.name.trim() && form.category.trim()
+
+  const handleSave = async () => {
+    if (!valid) return
+    setSaving(true)
+    try {
+      await onSave(item.id, {
+        ...form,
+        threshold: parseInt(form.threshold) || 5,
+        price:     parseFloat(form.price)   || 0,
+      })
+      onClose()
+    } catch (err) {
+      alert('Failed to update: ' + (err.message || 'Unknown error'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+          <div>
+            <p className="text-sm font-bold text-slate-800">Edit Item</p>
+            <p className="text-xs text-slate-500 mt-0.5">{item.name}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
+            <MdClose className="text-[18px]" />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-3 max-h-[65vh] overflow-y-auto">
+          {[
+            { k: 'barcode',   l: 'Barcode',        t: 'text',   p: 'e.g. 8850001001234' },
+            { k: 'name',      l: 'Product Name',    t: 'text',   p: 'e.g. Paracetamol'   },
+            { k: 'supplier',  l: 'Supplier',        t: 'text',   p: 'e.g. Dermacare PH'  },
+            { k: 'threshold', l: 'Low Stock Alert', t: 'number', p: '5'                  },
+            { k: 'price',     l: 'Unit Price (₱)',  t: 'number', p: '0.00'               },
+          ].map(({ k, l, t, p }) => (
+            <div key={k}>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">{l}</label>
+              <input type={t} value={form[k]} onChange={set(k)} placeholder={p}
+                className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400 transition-colors" />
+            </div>
+          ))}
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Category</label>
+            <select value={form.category} onChange={set('category')}
+              className="w-full text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400">
+              {['Medicine','Derma','Supplies'].map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Unit</label>
+            <select value={form.unit} onChange={set('unit')}
+              className="w-full text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400">
+              {['box','tube','bottle','pack','piece','sachet'].map(u => <option key={u}>{u}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="px-6 pb-6 flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancel</button>
+          <button disabled={!valid || saving} onClick={handleSave}
+            className="flex-1 py-2.5 text-sm font-bold text-white bg-[#0b1a2c] hover:bg-[#122236] disabled:opacity-40 rounded-xl">
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Inventory Row ─────────────────────────────────────────────────────────────
-const InventoryRow = ({ item, onScan }) => {
+const InventoryRow = ({ item, onScan, onEdit, onDelete }) => {
   const status   = getStockStatus(item.stock, item.threshold)
   const catStyle = getCategoryStyle(item.category)
   const CatIcon  = catStyle.icon
   return (
-    <div className="grid grid-cols-[28px_2.5fr_1fr_1fr_1.2fr_80px] gap-4 px-5 py-4 items-center hover:bg-slate-50/80 transition-colors border-b border-slate-100 last:border-0">
+    <div className="grid grid-cols-[28px_2.5fr_1fr_1fr_1.2fr_120px] gap-4 px-5 py-4 items-center hover:bg-slate-50/80 transition-colors border-b border-slate-100 last:border-0">
       <div className={`w-7 h-7 rounded-lg ${catStyle.bg} flex items-center justify-center shrink-0`}>
         <CatIcon className={`text-[13px] ${catStyle.text}`} />
       </div>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-slate-800 truncate">{item.name}</p>
         <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
-          <span className="font-mono">{item.barcode}</span>
+          <span className="font-mono">{item.barcode || '—'}</span>
           <span className="text-slate-300">·</span>
-          <span className="truncate">{item.supplier}</span>
+          <span className="truncate">{item.supplier || '—'}</span>
         </p>
       </div>
-      <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full w-fit ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}>{item.category}</span>
-      <p className="text-xs font-mono text-slate-400 truncate">{item.barcode}</p>
+      <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full w-fit ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}>
+        {item.category}
+      </span>
+      <p className="text-xs font-mono text-slate-400 truncate">{item.barcode || '—'}</p>
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <span className={`text-sm font-bold ${item.stock === 0 ? 'text-red-600' : item.stock <= item.threshold ? 'text-amber-600' : 'text-slate-800'}`}>
             {item.stock} <span className="text-xs font-normal text-slate-400">{item.unit}s</span>
           </span>
-          <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-full ${status.bg} ${status.color} ${status.border}`}>{status.label}</span>
+          <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-full ${status.bg} ${status.color} ${status.border}`}>
+            {status.label}
+          </span>
         </div>
         <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
           <div className={`h-full ${status.bar} rounded-full transition-all duration-500`} style={{ width: `${Math.max(3, status.pct)}%` }} />
         </div>
         <p className="text-[10px] text-slate-400">Threshold: {item.threshold}</p>
       </div>
-      <button onClick={() => onScan(item)}
-        className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg border border-slate-200 text-slate-500 text-[11px] font-semibold hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50 transition-all">
-        <MdQrCodeScanner className="text-[13px]" /> Scan
-      </button>
+      {/* FIX 5: Edit and Delete buttons alongside Scan */}
+      <div className="flex items-center gap-1">
+        <button onClick={() => onScan(item)}
+          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg border border-slate-200 text-slate-500 text-[11px] font-semibold hover:border-sky-300 hover:text-sky-600 hover:bg-sky-50 transition-all">
+          <MdQrCodeScanner className="text-[13px]" /> Scan
+        </button>
+        <button onClick={() => onEdit(item)}
+          className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 transition-all"
+          title="Edit item details">
+          <MdEdit className="text-[13px]" />
+        </button>
+        <button onClick={() => onDelete(item)}
+          className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-all"
+          title="Delete item">
+          <MdDelete className="text-[13px]" />
+        </button>
+      </div>
     </div>
   )
 }
@@ -235,10 +366,10 @@ const Admin_Inventory = () => {
   const [showScanner, setShowScanner] = useState(false)
   const [showAdd,     setShowAdd]     = useState(false)
   const [preselect,   setPreselect]   = useState(null)
-  // Transaction log filters
-  const [logFilter,   setLogFilter]   = useState('all')   // all / in / out
-  const [logMonth,    setLogMonth]    = useState('')       // '01' – '12'
-  const [logDate,     setLogDate]     = useState('')       // YYYY-MM-DD
+  const [editItem,    setEditItem]    = useState(null)
+  const [logFilter,   setLogFilter]   = useState('all')
+  const [logMonth,    setLogMonth]    = useState('')
+  const [logDate,     setLogDate]     = useState('')
 
   useEffect(() => {
     getInventory()
@@ -284,7 +415,6 @@ const Admin_Inventory = () => {
         }))
       }
     } catch (err) {
-      console.error('Failed to update stock:', err)
       alert('Failed to update stock: ' + (err.message || 'Unknown error'))
     }
   }
@@ -298,10 +428,26 @@ const Admin_Inventory = () => {
     }
   }
 
-  const openScannerFor = (item) => { setPreselect(item); setShowScanner(true) }
-  const closeScanner   = ()     => { setPreselect(null); setShowScanner(false) }
+  // FIX 5: Edit handler
+  const handleEditItem = async (id, payload) => {
+    const updated = await updateInventoryItem(id, payload)
+    setItems(prev => prev.map(i => i.id === id ? { ...i, ...updated } : i))
+  }
 
-  const clearLogFilters = () => { setLogFilter('all'); setLogDate(''); setLogMonth('') }
+  // FIX 5: Delete handler
+  const handleDeleteItem = async (item) => {
+    if (!confirm(`Delete "${item.name}" from inventory? This cannot be undone.`)) return
+    try {
+      await deleteInventoryItem(item.id)
+      setItems(prev => prev.filter(i => i.id !== item.id))
+    } catch (err) {
+      alert('Failed to delete: ' + (err.message || 'Unknown error'))
+    }
+  }
+
+  const openScannerFor  = (item) => { setPreselect(item); setShowScanner(true) }
+  const closeScanner    = ()     => { setPreselect(null); setShowScanner(false) }
+  const clearLogFilters = ()     => { setLogFilter('all'); setLogDate(''); setLogMonth('') }
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center p-20 space-y-4">
@@ -336,7 +482,9 @@ const Admin_Inventory = () => {
           <p className="text-xs text-slate-500 font-medium">Total Items</p>
           <p className="text-3xl font-black text-slate-800 mt-1">{items.length}</p>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            {items.filter(i=>i.category==='Medicine').length} medicine · {items.filter(i=>i.category==='Derma').length} derma · {items.filter(i=>i.category==='Supplies').length} supplies
+            {items.filter(i=>i.category==='Medicine').length} medicine ·{' '}
+            {items.filter(i=>i.category==='Derma').length} derma ·{' '}
+            {items.filter(i=>i.category==='Supplies').length} supplies
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4">
@@ -394,7 +542,7 @@ const Admin_Inventory = () => {
         ))}
       </div>
 
-      {/* ── Stock List Tab ── */}
+      {/* Stock List Tab */}
       {activeTab === 'inventory' && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-wrap">
@@ -404,7 +552,9 @@ const Admin_Inventory = () => {
                 placeholder="Search name, barcode, supplier…"
                 className="text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none w-full" />
               {search && (
-                <button onClick={() => setSearch('')} className="text-slate-300 hover:text-slate-500"><MdClose className="text-[13px]" /></button>
+                <button onClick={() => setSearch('')} className="text-slate-300 hover:text-slate-500">
+                  <MdClose className="text-[13px]" />
+                </button>
               )}
             </div>
             <div className="flex gap-1 flex-wrap">
@@ -417,8 +567,9 @@ const Admin_Inventory = () => {
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-[28px_2.5fr_1fr_1fr_1.2fr_80px] gap-4 px-5 py-2.5 bg-slate-50 border-b border-slate-100">
-            {['', 'Product', 'Category', 'Barcode', 'Stock Level', ''].map((h, i) => (
+          {/* FIX 5: Updated header col count to match row */}
+          <div className="grid grid-cols-[28px_2.5fr_1fr_1fr_1.2fr_120px] gap-4 px-5 py-2.5 bg-slate-50 border-b border-slate-100">
+            {['', 'Product', 'Category', 'Barcode', 'Stock Level', 'Actions'].map((h, i) => (
               <p key={i} className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{h}</p>
             ))}
           </div>
@@ -429,28 +580,35 @@ const Admin_Inventory = () => {
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {filtered.map(item => <InventoryRow key={item.id} item={item} onScan={openScannerFor} />)}
+              {filtered.map(item => (
+                <InventoryRow
+                  key={item.id}
+                  item={item}
+                  onScan={openScannerFor}
+                  onEdit={setEditItem}
+                  onDelete={handleDeleteItem}
+                />
+              ))}
             </div>
           )}
+          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50">
+            <p className="text-[11px] text-slate-400 font-medium">
+              Showing {filtered.length} of {items.length} items
+            </p>
+          </div>
         </div>
       )}
 
-      {/* ── Transaction Log Tab ── */}
+      {/* Transaction Log Tab */}
       {activeTab === 'logs' && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-          {/* Log filters */}
           <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3">
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <MdHistory className="text-[16px] text-slate-400" /> Transaction History
             </h3>
             <div className="flex flex-wrap gap-2 items-center">
-              {/* Type filter */}
               <div className="flex gap-1">
-                {[
-                  { v: 'all', l: 'All' },
-                  { v: 'in',  l: '↑ In'  },
-                  { v: 'out', l: '↓ Out' },
-                ].map(({ v, l }) => (
+                {[{ v:'all',l:'All' },{ v:'in',l:'↑ In' },{ v:'out',l:'↓ Out' }].map(({ v, l }) => (
                   <button key={v} onClick={() => setLogFilter(v)}
                     className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all
                       ${logFilter === v ? 'bg-[#0b1a2c] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
@@ -458,8 +616,6 @@ const Admin_Inventory = () => {
                   </button>
                 ))}
               </div>
-
-              {/* Month filter */}
               <select value={logMonth} onChange={e => { setLogMonth(e.target.value); setLogDate('') }}
                 className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-sky-400 text-slate-700">
                 <option value="">All Months</option>
@@ -467,15 +623,11 @@ const Admin_Inventory = () => {
                   <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>
                 ))}
               </select>
-
-              {/* Single date picker */}
               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
                 <MdCalendarToday className="text-slate-400 text-[12px] shrink-0" />
                 <input type="date" value={logDate} onChange={e => { setLogDate(e.target.value); setLogMonth('') }}
                   className="text-xs bg-transparent focus:outline-none text-slate-700 w-28" />
               </div>
-
-              {/* Clear filters */}
               {(logDate || logMonth || logFilter !== 'all') && (
                 <button onClick={clearLogFilters} className="text-xs text-red-500 font-semibold hover:text-red-700 flex items-center gap-1">
                   <MdClose className="text-[12px]" /> Clear
@@ -484,12 +636,13 @@ const Admin_Inventory = () => {
             </div>
           </div>
 
-          {/* Active filter badge */}
           {(logDate || logMonth) && (
             <div className="px-5 py-2 bg-sky-50 border-b border-sky-100 flex items-center gap-2">
               <MdFilterList className="text-sky-500 text-[14px]" />
               <p className="text-xs text-sky-700 font-medium">
-                {logDate ? `Showing transactions for ${logDate}` : `Showing transactions for ${MONTHS[parseInt(logMonth) - 1]}`}
+                {logDate
+                  ? `Showing transactions for ${logDate}`
+                  : `Showing transactions for ${MONTHS[parseInt(logMonth) - 1]}`}
                 <span className="ml-2 text-slate-400">· {filteredLogs.length} record{filteredLogs.length !== 1 ? 's' : ''}</span>
               </p>
             </div>
@@ -550,6 +703,9 @@ const Admin_Inventory = () => {
       )}
       {showAdd && (
         <AddItemModal onClose={() => setShowAdd(false)} onAdd={handleAddItem} />
+      )}
+      {editItem && (
+        <EditItemModal item={editItem} onClose={() => setEditItem(null)} onSave={handleEditItem} />
       )}
     </div>
   )

@@ -8,7 +8,6 @@ export const getDashboard = () =>
 export const getDashboardStats = getDashboard
 
 export const getAppointments = (dateOrParams = '') => {
-  // Accept a plain date "YYYY-MM-DD" OR a full query string "?date=..."
   const query = dateOrParams
     ? (String(dateOrParams).startsWith('?') ? dateOrParams : `?date=${dateOrParams}`)
     : ''
@@ -73,6 +72,20 @@ export const addInventoryItem = (payload) =>
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  }).then(r => r.json())
+
+// FIX 2: Edit inventory item
+export const updateInventoryItem = (id, payload) =>
+  fetch(`${BASE}/inventory/${id}`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(r => r.json())
+
+// FIX 2: Delete inventory item
+export const deleteInventoryItem = (id) =>
+  fetch(`${BASE}/inventory/${id}`, {
+    method: 'DELETE', credentials: 'include',
   }).then(r => r.json())
 
 export const getDoctors = () =>

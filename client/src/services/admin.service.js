@@ -1,7 +1,4 @@
 // client/src/services/admin.service.js
-// FIX: getInventory — admin controller returns { items, logs }.
-// Updated all callers to destructure accordingly.
-// All other endpoints are correct.
 
 const BASE = '/api/admin'
 
@@ -70,7 +67,6 @@ export const saveDaySchedule = (doctorId, payload) =>
 export const getReports = (period) =>
   fetch(`${BASE}/reports?period=${period}`, { credentials: 'include' }).then(r => r.json())
 
-// FIX: admin controller returns { items, logs } — extract items in the page component
 export const getInventory = () =>
   fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
 
@@ -86,6 +82,20 @@ export const addInventoryItem = (payload) =>
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  }).then(r => r.json())
+
+// FIX 5: Edit inventory item (name, category, unit, threshold, price, supplier)
+export const updateInventoryItem = (id, payload) =>
+  fetch(`${BASE}/inventory/${id}`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(r => r.json())
+
+// FIX 5: Delete inventory item
+export const deleteInventoryItem = (id) =>
+  fetch(`${BASE}/inventory/${id}`, {
+    method: 'DELETE', credentials: 'include',
   }).then(r => r.json())
 
 export const getSupplyRequests = () =>

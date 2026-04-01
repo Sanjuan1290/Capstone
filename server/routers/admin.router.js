@@ -50,6 +50,9 @@ router.get('/reports', ...auth, adminCtrl.getReports)
 router.get('/inventory',              ...auth, adminCtrl.getInventory)
 router.post('/inventory',             ...auth, adminCtrl.addInventoryItem)
 router.patch('/inventory/:id/stock',  ...auth, adminCtrl.updateStock)
+// FIX 5: Edit and Delete inventory items
+router.put('/inventory/:id',          ...auth, adminCtrl.updateInventoryItem)
+router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
 
 // ── Supply Requests ───────────────────────────────────────────────────────────
 router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)

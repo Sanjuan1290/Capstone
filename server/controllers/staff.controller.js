@@ -1,10 +1,7 @@
 // server/controllers/staff.controller.js
-// FIXES:
-// 1. getInventory — returns flat items array (staff service expects array, not {items,logs})
-//    Logs endpoint is separate if needed.
-// 2. getDashboard — returns consistent shape that Staff_Dashboard.jsx expects.
-// 3. resolveSupplyRequest — deducts inventory on approval (was missing).
-// 4. All empty-state safe: all queries return arrays, never undefined.
+// FIX 1: getDoctors now returns the 'type' field so Walk-in Queue doctor filter works
+// FIX 2: Added updateInventoryItem and deleteInventoryItem
+// FIX 3: getPatients returns 'name' alias so AddModal dropdown shows patient names
 
 const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
@@ -61,16 +58,16 @@ const logout = (req, res) => {
 
 const getDashboard = async (req, res) => {
   const today = new Date().toISOString().split('T')[0]
-  const [[{ totalToday }]]   = await db.query(
+  const [[{ totalToday }]]    = await db.query(
     'SELECT COUNT(*) AS totalToday FROM appointments WHERE appointment_date = ?', [today]
   )
-  const [[{ pendingCount }]] = await db.query(
+  const [[{ pendingCount }]]  = await db.query(
     "SELECT COUNT(*) AS pendingCount FROM appointments WHERE status = 'pending'"
   )
-  const [[{ queueCount }]]   = await db.query(
+  const [[{ queueCount }]]    = await db.query(
     "SELECT COUNT(*) AS queueCount FROM queue WHERE queue_date = ? AND status IN ('waiting','in-progress')", [today]
   )
-  const [[{ lowStock }]]     = await db.query(
+  const [[{ lowStock }]]      = await db.query(
     'SELECT COUNT(*) AS lowStock FROM inventory WHERE stock <= threshold'
   )
   const [[{ totalPatients }]] = await db.query('SELECT COUNT(*) AS totalPatients FROM patients')
@@ -207,7 +204,8 @@ const updateQueueStatus = async (req, res) => {
 const getPatients = async (req, res) => {
   const search = req.query.search || ''
   const [rows] = await db.query(
-    `SELECT id, full_name, email, phone, sex, birthdate, address, civil_status, created_at
+    // FIX 3: return both 'name' and 'full_name' so modal dropdown uses p.name correctly
+    `SELECT id, full_name AS name, full_name, email, phone, sex, birthdate, address, civil_status, created_at
      FROM patients
      WHERE full_name LIKE ? OR email LIKE ?
      ORDER BY full_name`,
@@ -218,7 +216,9 @@ const getPatients = async (req, res) => {
 
 const getPatientRecord = async (req, res) => {
   const [pRows] = await db.query(
-    `SELECT id, full_name, email, phone, sex, birthdate, address, civil_status, created_at
+    `SELECT id, full_name, email, phone, sex,
+            DATE_FORMAT(birthdate, '%Y-%m-%d') AS birthdate,
+            address, civil_status, created_at
      FROM patients WHERE id = ?`,
     [req.params.id]
   )
@@ -226,7 +226,10 @@ const getPatientRecord = async (req, res) => {
   const patient = pRows[0]
 
   const [history] = await db.query(
-    `SELECT a.*, DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS date,
+    `SELECT a.*,
+            DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS date,
+            a.appointment_time                          AS time,
+            a.clinic_type                               AS type,
             d.full_name AS doctor_name, d.specialty,
             c.diagnosis, c.prescription, c.notes AS consultation_notes
      FROM appointments a
@@ -242,7 +245,6 @@ const getPatientRecord = async (req, res) => {
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
-// FIX: returns flat array (staff.service maps it directly as array)
 const getInventory = async (req, res) => {
   const [items] = await db.query('SELECT * FROM inventory ORDER BY category, name')
   res.json(items)
@@ -267,6 +269,29 @@ const addInventoryItem = async (req, res) => {
   res.status(201).json(rows[0])
 }
 
+// FIX 2: Edit inventory item (name, barcode, category, unit, threshold, price, supplier)
+const updateInventoryItem = async (req, res) => {
+  const { barcode, name, category, unit, threshold, price, supplier } = req.body
+  if (!name || !category)
+    return res.status(400).json({ message: 'Name and category are required.' })
+  const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
+  if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
+  await db.query(
+    'UPDATE inventory SET barcode=?, name=?, category=?, unit=?, threshold=?, price=?, supplier=? WHERE id=?',
+    [barcode || null, name, category, unit || null, threshold || 5, price || 0, supplier || null, req.params.id]
+  )
+  const [updated] = await db.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
+  res.json(updated[0])
+}
+
+// FIX 2: Delete inventory item
+const deleteInventoryItem = async (req, res) => {
+  const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
+  if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
+  await db.query('DELETE FROM inventory WHERE id = ?', [req.params.id])
+  res.json({ message: 'Item deleted.' })
+}
+
 const updateStock = async (req, res) => {
   const { type, qty, note } = req.body
   if (!type || !qty)
@@ -285,9 +310,19 @@ const updateStock = async (req, res) => {
 
 // ── Doctors list ──────────────────────────────────────────────────────────────
 
+// FIX 1: Added 'type' computed column so AddWalkInModal filter works
 const getDoctors = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT id, full_name AS name, full_name, specialty, is_active FROM doctors WHERE is_active = 1 ORDER BY full_name'
+    `SELECT
+       id,
+       full_name AS name,
+       full_name,
+       specialty,
+       is_active,
+       CASE WHEN specialty LIKE '%erm%' THEN 'derma' ELSE 'medical' END AS type
+     FROM doctors
+     WHERE is_active = 1
+     ORDER BY full_name`
   )
   res.json(rows)
 }
@@ -306,7 +341,6 @@ const getSupplyRequests = async (req, res) => {
   res.json(rows)
 }
 
-// FIX: deduct inventory on approval (was missing in original)
 const resolveSupplyRequest = async (req, res) => {
   const { status } = req.body
   if (!['approved', 'rejected'].includes(status))
@@ -340,7 +374,7 @@ module.exports = {
   getAppointments, createAppointment, confirmAppointment, cancelAppointment, rescheduleAppointment,
   getQueue, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord,
-  getInventory, addInventoryItem, updateStock,
+  getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getDoctors,
   getSupplyRequests, resolveSupplyRequest,
 }

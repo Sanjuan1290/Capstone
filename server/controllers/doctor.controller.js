@@ -1,8 +1,4 @@
 // server/controllers/doctor.controller.js
-// FIXES:
-// - getDailyAppointments: added time/type/patient alias so Doctor_DailyAppointments.jsx works
-// - getDashboard: added walkInQueue for Doctor_Dashboard.jsx
-// - getPatientHistory: added date/time/type/doctor aliases for Doctor_Consultation.jsx
 
 const db = require('../db/connect')
 const bcrypt = require('bcrypt')
@@ -72,7 +68,6 @@ const getDashboard = async (req, res) => {
     [req.user.id]
   )
 
-  // FIX: added walkInQueue so Doctor_Dashboard.jsx "My Walk-in Queue" card works
   const [walkInQueue] = await db.query(
     `SELECT
        q.queue_number                         AS queueNo,
@@ -95,7 +90,6 @@ const getDashboard = async (req, res) => {
 
 const getDailyAppointments = async (req, res) => {
   const date = req.query.date || new Date().toISOString().split('T')[0]
-  // FIX: added time/type/patient aliases so Doctor_DailyAppointments.jsx and Doctor_Dashboard.jsx work
   const [rows] = await db.query(
     `SELECT
        a.*,
@@ -149,20 +143,30 @@ const saveConsultation = async (req, res) => {
   res.json({ message: 'Consultation saved.' })
 }
 
+// FIX: Use DATE_FORMAT so the date is always returned as 'YYYY-MM-DD' string,
+// never as a JavaScript Date object that serializes to an ISO timestamp like
+// "2026-03-28T16:00:00.000Z".
 const getPatientHistory = async (req, res) => {
-  // FIX: added date/time/type/notes aliases for Doctor_Consultation.jsx history tab
   const [rows] = await db.query(
     `SELECT
-       a.*,
-       a.appointment_date  AS date,
-       a.appointment_time  AS time,
-       a.clinic_type       AS type,
+       a.id,
+       a.reason,
+       a.status,
+       a.appointment_time                           AS time,
+       a.clinic_type                                AS type,
+       DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
+       DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+       CASE a.clinic_type
+         WHEN 'derma'   THEN 'Dermatology'
+         WHEN 'medical' THEN 'General Medicine'
+         ELSE a.clinic_type
+       END                                          AS clinic_label,
        c.diagnosis,
        c.prescription,
-       c.notes,
-       c.notes             AS consultation_notes,
+       c.notes                                      AS consultation_notes,
        c.consulted_at
-     FROM appointments a LEFT JOIN consultations c ON c.appointment_id = a.id
+     FROM appointments a
+     LEFT JOIN consultations c ON c.appointment_id = a.id
      WHERE a.patient_id = ? AND a.status IN ('completed','cancelled')
      ORDER BY a.appointment_date DESC`,
     [req.params.id]
