@@ -1,45 +1,39 @@
+// client/src/components/layouts/DoctorLayout.jsx
+// ADDED: "My Schedule" nav item pointing to /doctor/schedule
+
 import { useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import logo from '../../assets/logo-removebg.png'
 import {
   MdDashboard, MdCalendarToday, MdMedicalServices,
   MdInventory2, MdChevronLeft, MdNotifications,
-  MdSearch, MdLogout, MdPerson
+  MdSearch, MdLogout, MdPerson, MdSchedule,
 } from "react-icons/md"
-// 1. Add AuthContext import
 import { useAuth } from '../../context/AuthContext'
 
 const sideNav = [
-  { name: "Dashboard",          path: "/doctor",                   icon: MdDashboard       },
-  { name: "Daily Appointments",  path: "/doctor/daily-appointments", icon: MdCalendarToday   },
-  { name: "Supply Requests",     path: "/doctor/request",              icon: MdInventory2      },
+  { name: 'Dashboard',          path: '/doctor',                   icon: MdDashboard       },
+  { name: 'Daily Appointments',  path: '/doctor/daily-appointments', icon: MdCalendarToday   },
+  { name: 'My Schedule',         path: '/doctor/schedule',           icon: MdSchedule        },
+  { name: 'Supply Requests',     path: '/doctor/request',            icon: MdInventory2      },
 ]
 
 const DoctorLayout = () => {
-  // 2. Access user and logout from AuthContext
   const { user, logout: clearAuth } = useAuth()
-  
   const [collapsed,   setCollapsed]   = useState(false)
   const [loggingOut,  setLoggingOut]  = useState(false)
-  const [logoutError, setLogoutError] = useState("")
+  const [logoutError, setLogoutError] = useState('')
   const navigate = useNavigate()
 
   const handleLogout = async () => {
     setLoggingOut(true)
-    setLogoutError("")
+    setLogoutError('')
     try {
-      const res = await fetch("/api/doctor/logout", {
-        method: "POST",
-        credentials: "include",
-      })
-      if (!res.ok) throw new Error("Logout failed")
-      
-      // 3. Navigate first, then clear auth state
-      navigate("/doctor/login")
+      await fetch('/api/doctor/logout', { method: 'POST', credentials: 'include' })
+      navigate('/doctor/login')
       clearAuth()
-      
-    } catch (err) {
-      setLogoutError("Could not log out. Try again.")
+    } catch {
+      setLogoutError('Could not log out. Try again.')
       setLoggingOut(false)
     }
   }
@@ -50,7 +44,7 @@ const DoctorLayout = () => {
       {/* ── Sidebar ─────────────────────────────────────────────────────── */}
       <aside className={`relative flex flex-col bg-[#0b1a2c] shrink-0
         transition-[width] duration-300 ease-in-out
-        ${collapsed ? "w-[72px]" : "w-60"}`}>
+        ${collapsed ? 'w-[72px]' : 'w-60'}`}>
 
         {/* Brand */}
         <div className="flex items-center gap-3 px-4 h-16 border-b border-white/5 overflow-hidden">
@@ -58,7 +52,7 @@ const DoctorLayout = () => {
             className="w-9 h-9 rounded-xl object-contain bg-white/10 p-1 shrink-0" />
           <div className={`leading-tight overflow-hidden whitespace-nowrap
             transition-[opacity,max-width] duration-300
-            ${collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-xs"}`}>
+            ${collapsed ? 'opacity-0 max-w-0' : 'opacity-100 max-w-xs'}`}>
             <p className="text-white font-bold text-[15px] tracking-tight">Carait Clinic</p>
             <span className="text-violet-400 text-[10px] font-semibold uppercase tracking-widest font-mono">
               Doctor
@@ -69,7 +63,7 @@ const DoctorLayout = () => {
         {/* Section label */}
         <div className="px-3 pt-5 pb-2">
           <p className={`text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3
-            transition-[opacity] duration-200 ${collapsed ? "opacity-0" : "opacity-100"}`}>
+            transition-[opacity] duration-200 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
             Clinical
           </p>
         </div>
@@ -80,14 +74,13 @@ const DoctorLayout = () => {
             <NavLink
               key={path}
               to={path}
-              end={path === "/doctor"}
+              end={path === '/doctor'}
               className={({ isActive }) =>
                 `relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
                  transition-colors duration-150 group
                  ${isActive
-                   ? "bg-violet-500/15 text-violet-400"
-                   : "text-slate-400 hover:bg-white/5 hover:text-white"
-                 }`}
+                   ? 'bg-violet-500/15 text-violet-400'
+                   : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
             >
               {({ isActive }) => (
                 <>
@@ -96,9 +89,10 @@ const DoctorLayout = () => {
                   )}
                   <Icon className="shrink-0 text-[18px]" />
                   <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
-                    ${collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-xs"}`}>
+                    ${collapsed ? 'opacity-0 max-w-0' : 'opacity-100 max-w-xs'}`}>
                     {name}
                   </span>
+                  {/* Tooltip when collapsed */}
                   {collapsed && (
                     <span className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white
                       text-xs rounded-lg whitespace-nowrap shadow-lg border border-white/10
@@ -121,10 +115,10 @@ const DoctorLayout = () => {
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full
               text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors duration-150
               disabled:opacity-50 disabled:cursor-not-allowed">
-            <MdLogout className={`shrink-0 text-[18px] ${loggingOut ? "animate-spin" : ""}`} />
+            <MdLogout className={`shrink-0 text-[18px] ${loggingOut ? 'animate-spin' : ''}`} />
             <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
-              ${collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-xs"}`}>
-              {loggingOut ? "Logging out…" : "Logout"}
+              ${collapsed ? 'opacity-0 max-w-0' : 'opacity-100 max-w-xs'}`}>
+              {loggingOut ? 'Logging out…' : 'Logout'}
             </span>
           </button>
         </div>
@@ -134,7 +128,7 @@ const DoctorLayout = () => {
           className="absolute -right-3 top-[72px] z-10 w-6 h-6 rounded-full bg-[#0b1a2c]
             border border-white/10 flex items-center justify-center text-slate-400
             hover:text-white shadow-md transition-all duration-150 hover:scale-110">
-          <MdChevronLeft className={`text-[13px] transition-transform duration-300 ${collapsed ? "rotate-180" : ""}`} />
+          <MdChevronLeft className={`text-[13px] transition-transform duration-300 ${collapsed ? 'rotate-180' : ''}`} />
         </button>
       </aside>
 
@@ -157,7 +151,6 @@ const DoctorLayout = () => {
                 <MdPerson className="text-[15px] text-violet-600" />
               </div>
               <div className="leading-tight">
-                {/* 4. Dynamic Header Info */}
                 <p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Doctor'}</p>
                 <p className="text-[10px] text-slate-400">{user?.specialty || 'Physician'}</p>
               </div>

@@ -1,3 +1,4 @@
+// client/src/services/doctor.service.js
 const BASE = '/api/doctor'
 
 export const getDashboard = () =>
@@ -34,5 +35,18 @@ export const submitRequest = (payload) =>
     body: JSON.stringify(payload),
   }).then(r => r.json())
 
+// Active days only — used by dashboard
 export const getMySchedule = () =>
   fetch(`${BASE}/schedule`, { credentials: 'include' }).then(r => r.json())
+
+// ALL days including inactive — used by Doctor_Schedule page
+export const getMyScheduleAll = () =>
+  fetch(`${BASE}/schedule/all`, { credentials: 'include' }).then(r => r.json())
+
+// Save one day of the doctor's own schedule
+export const saveMyScheduleDay = (payload) =>
+  fetch(`${BASE}/schedule`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(r => r.json())
