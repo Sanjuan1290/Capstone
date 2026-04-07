@@ -1,9 +1,10 @@
 // client/src/pages/displayPage/QueueDisplay.jsx
-// FIX #7 — Connected to the real /api/queue/live endpoint.
-// Polls every 10 seconds. No auth required (public display screen).
+// FIXED: Connected to /api/queue/live (no proxy rewrite — see vite.config.js fix)
+// NEW: Sound notification when a new patient number is called
+// NEW: Reconnecting state properly handled with retry
 
-import { useState, useEffect } from 'react'
-import { MdFace, MdMedicalServices, MdAccessTime, MdPerson, MdWifi, MdWifiOff } from 'react-icons/md'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { MdFace, MdMedicalServices, MdAccessTime, MdPerson, MdWifi, MdWifiOff, MdVolumeUp } from 'react-icons/md'
 import logo from '../../assets/logo.png'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -33,38 +34,88 @@ function estimateWait(position) {
   return m > 0 ? `~${h}h ${m}m` : `~${h}h`
 }
 
+// Play a pleasant two-tone chime using Web Audio API
+function playCallSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+
+    const playTone = (freq, startTime, duration) => {
+      const osc  = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0, startTime)
+      gain.gain.linearRampToValueAtTime(0.45, startTime + 0.05)
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration)
+      osc.start(startTime)
+      osc.stop(startTime + duration)
+    }
+
+    // Two-tone chime: higher note then lower
+    playTone(880, ctx.currentTime,        0.5)
+    playTone(660, ctx.currentTime + 0.35, 0.6)
+  } catch {
+    // Silently ignore if audio is not available
+  }
+}
+
 // ── Queue Display ─────────────────────────────────────────────────────────────
 
 const QueueDisplay = () => {
   const [queue,       setQueue]       = useState({ serving: null, waiting: [], clinicOpen: true })
   const [connected,   setConnected]   = useState(true)
+  const [soundEnabled,setSoundEnabled]= useState(true)
+  const prevQueueNoRef                = useRef(null)
+  const hasInteractedRef              = useRef(false) // browsers need user gesture for audio
   const now = useCurrentTime()
 
-  const fetchQueue = async () => {
+  const fetchQueue = useCallback(async () => {
     try {
       const res  = await fetch('/api/queue/live')
       if (!res.ok) throw new Error('Bad response')
       const data = await res.json()
       setQueue(data)
       setConnected(true)
+
+      // Play sound if a new patient number is being called
+      const newQueueNo = data.serving?.queueNo ?? null
+      if (
+        soundEnabled &&
+        hasInteractedRef.current &&
+        newQueueNo !== null &&
+        newQueueNo !== prevQueueNoRef.current
+      ) {
+        playCallSound()
+      }
+      prevQueueNoRef.current = newQueueNo
     } catch {
       setConnected(false)
     }
-  }
+  }, [soundEnabled])
 
   // Fetch immediately on mount, then every 10 seconds
   useEffect(() => {
     fetchQueue()
-    const interval = setInterval(fetchQueue, 10000)
+    const interval = setInterval(fetchQueue, 10_000)
     return () => clearInterval(interval)
-  }, [])
+  }, [fetchQueue])
+
+  // Mark that user has interacted (required by browsers for autoplay)
+  const handleInteraction = () => {
+    hasInteractedRef.current = true
+  }
 
   const { serving, waiting, clinicOpen } = queue
 
   return (
-    <div className="min-h-screen bg-[#0b1a2c] text-white flex flex-col select-none overflow-hidden">
+    <div
+      className="min-h-screen bg-[#0b1a2c] text-white flex flex-col select-none overflow-hidden"
+      onClick={handleInteraction}
+    >
 
-      {/* ── Header ──────────────────────────────────────────────────────── */}
+      {/* ── Header ────────────────────────────────────────────────────── */}
       <header className="flex items-center justify-between px-10 py-5 border-b border-white/5">
         <div className="flex items-center gap-4">
           <img src={logo} alt="Carait Clinic"
@@ -76,29 +127,42 @@ const QueueDisplay = () => {
             <p className="text-slate-400 text-sm">Patient Queue Display</p>
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-white text-3xl font-black tabular-nums tracking-tight">
-            {formatTime(now)}
-          </p>
-          <p className="text-slate-400 text-sm mt-0.5">{formatDate(now)}</p>
+        <div className="flex items-center gap-6">
+          {/* Sound toggle */}
+          <button
+            onClick={(e) => { e.stopPropagation(); hasInteractedRef.current = true; setSoundEnabled(s => !s) }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors
+              ${soundEnabled
+                ? 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                : 'bg-white/5 border-white/10 text-slate-500'}`}
+            title="Toggle notification sound">
+            <MdVolumeUp className="text-[14px]" />
+            {soundEnabled ? 'Sound On' : 'Sound Off'}
+          </button>
+          <div className="text-right">
+            <p className="text-white text-3xl font-black tabular-nums tracking-tight">
+              {formatTime(now)}
+            </p>
+            <p className="text-slate-400 text-sm mt-0.5">{formatDate(now)}</p>
+          </div>
         </div>
       </header>
 
-      {/* ── Main ────────────────────────────────────────────────────────── */}
+      {/* ── Main ──────────────────────────────────────────────────────── */}
       <main className="flex-1 flex gap-6 p-8">
 
         {/* LEFT — Now Serving */}
         <div className="flex-1 flex flex-col">
 
           {/* Now Serving panel */}
-          <div className={`rounded-3xl border-2 p-8 flex flex-col items-center text-center mb-6 flex-shrink-0
+          <div className={`rounded-3xl border-2 p-8 flex flex-col items-center text-center mb-6 flex-shrink-0 transition-all duration-500
             ${serving ? 'bg-sky-500/10 border-sky-400/40' : 'bg-white/5 border-white/10'}`}>
             <p className="text-sky-400 text-sm font-bold uppercase tracking-[0.2em] mb-4">Now Serving</p>
 
             {serving ? (
               <>
                 <div className="w-28 h-28 rounded-3xl bg-sky-400/20 border-2 border-sky-400/40
-                  flex items-center justify-center mb-5">
+                  flex items-center justify-center mb-5 animate-pulse">
                   <p className="text-sky-300 text-5xl font-black">{serving.queueNo}</p>
                 </div>
                 <p className="text-white text-3xl font-black mb-1">{serving.patient}</p>
@@ -131,8 +195,8 @@ const QueueDisplay = () => {
           {/* Stats bar */}
           <div className="grid grid-cols-2 gap-4">
             {[
-              { label: 'In Queue',  value: waiting.length, color: 'text-amber-400' },
-              { label: 'Est. Wait', value: waiting.length > 0 ? estimateWait(1) : '—', color: 'text-sky-400' },
+              { label: 'In Queue',  value: waiting.length,                                              color: 'text-amber-400' },
+              { label: 'Est. Wait', value: waiting.length > 0 ? estimateWait(1) : '—',                 color: 'text-sky-400'   },
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-center">
                 <p className={`text-3xl font-black ${color}`}>{value}</p>
@@ -140,6 +204,13 @@ const QueueDisplay = () => {
               </div>
             ))}
           </div>
+
+          {/* Sound hint — shown on first load */}
+          {!hasInteractedRef.current && (
+            <p className="mt-4 text-center text-slate-600 text-xs">
+              Click anywhere on this screen to enable sound notifications
+            </p>
+          )}
         </div>
 
         {/* RIGHT — Waiting list */}
@@ -197,7 +268,7 @@ const QueueDisplay = () => {
         </div>
       </main>
 
-      {/* ── Footer ──────────────────────────────────────────────────────── */}
+      {/* ── Footer ────────────────────────────────────────────────────── */}
       <footer className="px-10 py-4 border-t border-white/5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${clinicOpen ? 'bg-emerald-400' : 'bg-red-400'}`} />
@@ -210,10 +281,10 @@ const QueueDisplay = () => {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             {connected
-              ? <MdWifi className="text-emerald-400 text-[13px]" />
-              : <MdWifiOff className="text-red-400 text-[13px]" />}
+              ? <MdWifi    className="text-emerald-400 text-[13px]" />
+              : <MdWifiOff className="text-red-400    text-[13px]" />}
             <p className={`text-xs ${connected ? 'text-slate-600' : 'text-red-400'}`}>
-              {connected ? 'Live' : 'Reconnecting...'}
+              {connected ? 'Live' : 'Reconnecting…'}
             </p>
           </div>
           <p className="text-slate-600 text-xs">Updates every 10 seconds · Carait Medical and Dermatology Clinic</p>

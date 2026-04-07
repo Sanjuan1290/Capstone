@@ -1,12 +1,11 @@
 // server/controllers/doctor.controller.js
-// ADDED: getMyScheduleAll — returns ALL days for the doctor's own schedule page
-// ADDED: saveMyScheduleDay — saves one day for the doctor's own schedule
-//        Both use req.user.id so a doctor can NEVER touch another doctor's schedule.
 
 const db = require('../db/connect')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
 
 const login = async (req, res) => {
   const { email, password } = req.body
@@ -48,6 +47,8 @@ const logout = (req, res) => {
   res.status(200).json({ message: 'Logged out.' })
 }
 
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
 const getDashboard = async (req, res) => {
   const today = new Date().toISOString().split('T')[0]
   const [[{ totalToday }]]      = await db.query(
@@ -67,8 +68,8 @@ const getDashboard = async (req, res) => {
     [req.user.id]
   )
   const [walkInQueue] = await db.query(
-    `SELECT q.queue_number AS queueNo, q.patient_name AS patient,
-            TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt, q.type
+    `SELECT q.id, q.queue_number AS queueNo, q.patient_name AS patient,
+            TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt, q.type, q.status
      FROM queue q
      WHERE q.doctor_id = ? AND q.queue_date = ? AND q.status IN ('waiting','in-progress')
      ORDER BY q.queue_number ASC`,
@@ -81,12 +82,14 @@ const getDashboard = async (req, res) => {
   res.json({ totalToday, completed, pending, pendingRequests, schedule, walkInQueue })
 }
 
+// ── Appointments ──────────────────────────────────────────────────────────────
+
 const getDailyAppointments = async (req, res) => {
   const date = req.query.date || new Date().toISOString().split('T')[0]
   const [rows] = await db.query(
     `SELECT a.*, a.appointment_time AS time, a.clinic_type AS type,
             p.full_name AS patient_name, p.full_name AS patient,
-            p.birthdate, p.sex AS patient_sex,
+            p.birthdate, p.sex AS patient_sex, p.phone AS patient_phone,
             TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age
      FROM appointments a JOIN patients p ON a.patient_id = p.id
      WHERE a.doctor_id = ? AND a.appointment_date = ?
@@ -131,6 +134,42 @@ const saveConsultation = async (req, res) => {
   res.json({ message: 'Consultation saved.' })
 }
 
+// ── NEW: Get a single consultation (for viewing/editing after completion) ─────
+const getConsultation = async (req, res) => {
+  const { appointmentId } = req.params
+  const [rows] = await db.query(
+    `SELECT c.*, a.clinic_type AS type, a.reason, a.appointment_time AS time,
+            p.full_name AS patient_name,
+            TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age,
+            p.sex AS patient_sex, p.phone AS patient_phone
+     FROM consultations c
+     JOIN appointments a ON c.appointment_id = a.id
+     JOIN patients p ON c.patient_id = p.id
+     WHERE c.appointment_id = ? AND c.doctor_id = ?`,
+    [appointmentId, req.user.id]
+  )
+  if (rows.length === 0) return res.status(404).json({ message: 'Consultation not found.' })
+  res.json(rows[0])
+}
+
+// ── NEW: Update (edit) a completed consultation ───────────────────────────────
+const updateConsultation = async (req, res) => {
+  const { appointmentId } = req.params
+  const { diagnosis, prescription, notes } = req.body
+  const [rows] = await db.query(
+    'SELECT id FROM consultations WHERE appointment_id = ? AND doctor_id = ?',
+    [appointmentId, req.user.id]
+  )
+  if (rows.length === 0) return res.status(404).json({ message: 'Consultation not found.' })
+  await db.query(
+    'UPDATE consultations SET diagnosis=?, prescription=?, notes=? WHERE appointment_id=? AND doctor_id=?',
+    [diagnosis||null, prescription||null, notes||null, appointmentId, req.user.id]
+  )
+  res.json({ message: 'Consultation updated.' })
+}
+
+// ── Patient History ───────────────────────────────────────────────────────────
+
 const getPatientHistory = async (req, res) => {
   const [rows] = await db.query(
     `SELECT a.*, a.appointment_date AS date, a.appointment_time AS time,
@@ -144,12 +183,16 @@ const getPatientHistory = async (req, res) => {
   res.json(rows)
 }
 
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
 const getInventoryItems = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT id, name, category, unit, stock FROM inventory WHERE stock > 0 ORDER BY category, name'
+    'SELECT id, name, category, unit, stock, threshold FROM inventory WHERE stock > 0 ORDER BY category, name'
   )
   res.json(rows)
 }
+
+// ── Supply Requests ───────────────────────────────────────────────────────────
 
 const getMyRequests = async (req, res) => {
   const [rows] = await db.query(
@@ -176,7 +219,64 @@ const submitRequest = async (req, res) => {
   res.status(201).json(rows[0])
 }
 
-// ── Doctor's own schedule (read-only active days) — used by dashboard ─────────
+// ── Doctor's Queue Control ────────────────────────────────────────────────────
+
+// GET /queue — fetch today's queue for this doctor
+const getMyQueue = async (req, res) => {
+  const today = new Date().toISOString().split('T')[0]
+  const [rows] = await db.query(
+    `SELECT q.id, q.queue_number, q.patient_name, q.type, q.status,
+            TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt
+     FROM queue q
+     WHERE q.doctor_id = ? AND q.queue_date = ?
+       AND q.status IN ('waiting','in-progress')
+     ORDER BY q.queue_number ASC`,
+    [req.user.id, today]
+  )
+  res.json(rows)
+}
+
+// PATCH /queue/call-next — mark current in-progress as done, set next waiting as in-progress
+const callNext = async (req, res) => {
+  const today = new Date().toISOString().split('T')[0]
+  const doctorId = req.user.id
+
+  // Mark current in-progress patient as done
+  await db.query(
+    `UPDATE queue SET status='done' WHERE doctor_id=? AND queue_date=? AND status='in-progress'`,
+    [doctorId, today]
+  )
+
+  // Get the next waiting patient
+  const [nextRows] = await db.query(
+    `SELECT id, queue_number, patient_name, type FROM queue
+     WHERE doctor_id=? AND queue_date=? AND status='waiting'
+     ORDER BY queue_number ASC LIMIT 1`,
+    [doctorId, today]
+  )
+
+  if (nextRows.length === 0) {
+    return res.json({ message: 'No more patients in queue.', nextPatient: null })
+  }
+
+  const next = nextRows[0]
+  await db.query(`UPDATE queue SET status='in-progress' WHERE id=?`, [next.id])
+  res.json({ message: 'Next patient called.', nextPatient: next })
+}
+
+// PATCH /queue/:id/done — mark a specific queue entry as done
+const markQueueDone = async (req, res) => {
+  const [rows] = await db.query(
+    'SELECT id FROM queue WHERE id=? AND doctor_id=?',
+    [req.params.id, req.user.id]
+  )
+  if (rows.length === 0) return res.status(404).json({ message: 'Queue entry not found.' })
+  await db.query(`UPDATE queue SET status='done' WHERE id=?`, [req.params.id])
+  res.json({ message: 'Marked as done.' })
+}
+
+// ── Doctor's Own Schedule ─────────────────────────────────────────────────────
+
 const getMySchedule = async (req, res) => {
   const [rows] = await db.query(
     'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND is_active = 1 ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
@@ -185,7 +285,6 @@ const getMySchedule = async (req, res) => {
   res.json(rows)
 }
 
-// ── Doctor's own schedule — ALL days — used by Doctor_Schedule page ───────────
 const getMyScheduleAll = async (req, res) => {
   const [rows] = await db.query(
     'SELECT * FROM doctor_schedules WHERE doctor_id = ? ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
@@ -194,14 +293,12 @@ const getMyScheduleAll = async (req, res) => {
   res.json(rows)
 }
 
-// ── Save one day of the doctor's own schedule ─────────────────────────────────
-// Doctors can ONLY call this for themselves (req.user.id is enforced).
 const saveMyScheduleDay = async (req, res) => {
   const { day_of_week, start_time, end_time, slot_duration_mins, is_active } = req.body
   if (!day_of_week || !start_time || !end_time)
     return res.status(400).json({ message: 'day_of_week, start_time, and end_time are required.' })
 
-  const doctorId = req.user.id // ENFORCED — never from req.body/params
+  const doctorId = req.user.id
   const [existing] = await db.query(
     'SELECT id FROM doctor_schedules WHERE doctor_id = ? AND day_of_week = ?', [doctorId, day_of_week]
   )
@@ -222,9 +319,9 @@ const saveMyScheduleDay = async (req, res) => {
 module.exports = {
   login, checkAuth, logout,
   getDashboard, getDailyAppointments, startConsultation,
-  saveConsultation, getPatientHistory,
+  saveConsultation, getConsultation, updateConsultation,
+  getPatientHistory,
   getInventoryItems, getMyRequests, submitRequest,
-  getMySchedule,
-  getMyScheduleAll,
-  saveMyScheduleDay,
+  getMyQueue, callNext, markQueueDone,
+  getMySchedule, getMyScheduleAll, saveMyScheduleDay,
 }

@@ -6,8 +6,10 @@ const requireRole = require('../middlewares/role.middleware')
 const {
   login, checkAuth, logout,
   getDashboard, getDailyAppointments, startConsultation,
-  saveConsultation, getPatientHistory,
+  saveConsultation, getConsultation, updateConsultation,
+  getPatientHistory,
   getInventoryItems, getMyRequests, submitRequest,
+  getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
 } = require('../controllers/doctor.controller')
 
@@ -22,16 +24,25 @@ router.use(verifyToken('doctor_token'), requireRole('doctor'))
 router.get('/dashboard',                     getDashboard)
 router.get('/appointments/daily',            getDailyAppointments)
 router.patch('/appointments/:id/start',      startConsultation)
-router.post('/consultations/:appointmentId', saveConsultation)
+
+// Consultation — save (new) or get/update (existing/completed)
+router.post('/consultations/:appointmentId',   saveConsultation)
+router.get('/consultations/:appointmentId',    getConsultation)
+router.patch('/consultations/:appointmentId',  updateConsultation)
+
 router.get('/patients/:id/history',          getPatientHistory)
 router.get('/inventory',                     getInventoryItems)
 router.get('/requests',                      getMyRequests)
 router.post('/requests',                     submitRequest)
 
-// ── Doctor's own schedule ─────────────────────────────────────────────────────
-// GET /schedule      → active days only (used by dashboard / booking)
-// GET /schedule/all  → all days including inactive (used by Doctor_Schedule page)
-// PUT /schedule      → save one day (doctor can only edit their own, req.user.id enforced)
+// ── Doctor Queue Control ───────────────────────────────────────────────────────
+// NOTE: /queue/call-next MUST be before /queue/:id/done so Express doesn't
+// treat "call-next" as an :id param.
+router.get('/queue',              getMyQueue)
+router.patch('/queue/call-next',  callNext)
+router.patch('/queue/:id/done',   markQueueDone)
+
+// ── Doctor's Own Schedule ─────────────────────────────────────────────────────
 router.get('/schedule',     getMySchedule)
 router.get('/schedule/all', getMyScheduleAll)
 router.put('/schedule',     saveMyScheduleDay)
