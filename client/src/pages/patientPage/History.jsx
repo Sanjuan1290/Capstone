@@ -1,148 +1,172 @@
 // client/src/pages/patientPage/History.jsx
-// FIX 1: Detail modal now shows consultation notes (was missing).
-// FIX 2: Status badge shows actual status (Completed vs Cancelled).
-// FIX 3: Cancelled appointments also show in history (already returned by backend).
-// FIX 4: a.id.toLowerCase() crash — id is a number; use String(a.id).
-// FIX 5: Null-safety on a.reason in search filter.
+// REDESIGNED: Timeline-style visit history, prescription expand, mobile-first
 
-import { useEffect, useState } from 'react'
-import { getMyHistory } from '../../services/patient.service'
+import { useEffect, useState } from "react"
+import { getMyHistory } from "../../services/patient.service"
 import {
-  MdCalendarToday, MdAccessTime, MdFace, MdSearch,
-  MdMedicalServices, MdClose, MdPerson, MdNotes,
-  MdLocalHospital, MdHistory, MdCancel
+  MdCalendarToday, MdAccessTime, MdFace, MdMedicalServices,
+  MdLocalPharmacy, MdExpandMore, MdExpandLess, MdHistory,
+  MdNotes, MdSearch, MdClose,
 } from "react-icons/md"
 
-const CLINIC_FILTERS = [
-  { key: "all",     label: "All Clinics"      },
-  { key: "medical", label: "General Medicine" },
-  { key: "derma",   label: "Dermatology"      },
-]
-
-const STATUS_CFG = {
-  completed: { label: "Completed", badge: "bg-slate-100  text-slate-500   border-slate-200" },
-  cancelled: { label: "Cancelled", badge: "bg-red-50     text-red-500     border-red-200"   },
+function formatDate(raw) {
+  if (!raw) return "—"
+  const [y, m, d] = String(raw).slice(0, 10).split("-").map(Number)
+  if (!y || !m || !d) return String(raw)
+  return new Date(y, m - 1, d).toLocaleDateString("en-PH", {
+    month: "long", day: "numeric", year: "numeric",
+  })
 }
 
-// Group by year (handles both Date objects and string dates)
-function groupByYear(list) {
-  return list.reduce((acc, appt) => {
-    const dateObj = appt.rawDate ? new Date(appt.rawDate) : new Date(appt.date)
-    const year = dateObj.getFullYear()
-    if (!acc[year]) acc[year] = []
-    acc[year].push(appt)
+function groupByMonth(items) {
+  return items.reduce((acc, item) => {
+    const raw = item.appointment_date || item.date || ""
+    const [y, m] = raw.slice(0, 7).split("-")
+    if (!y || !m) { acc["Other"] = [...(acc["Other"] || []), item]; return acc }
+    const key = new Date(Number(y), Number(m) - 1).toLocaleDateString("en-PH", { month: "long", year: "numeric" })
+    acc[key] = [...(acc[key] || []), item]
     return acc
   }, {})
 }
 
-// ── Detail Modal ──────────────────────────────────────────────────────────────
-const DetailModal = ({ appt, onClose }) => {
-  if (!appt) return null
-  const Icon    = appt.type === "derma" ? MdFace : MdMedicalServices
-  const stsCfg  = STATUS_CFG[appt.status] || STATUS_CFG.completed
+// ── Visit Card ────────────────────────────────────────────────────────────────
+const VisitCard = ({ visit }) => {
+  const [expanded, setExpanded] = useState(false)
+  const Icon = visit.type === "derma" ? MdFace : MdMedicalServices
+
+  let prescriptions = []
+  try {
+    if (visit.prescription) {
+      prescriptions = typeof visit.prescription === "string"
+        ? JSON.parse(visit.prescription)
+        : visit.prescription
+      if (!Array.isArray(prescriptions)) prescriptions = []
+    }
+  } catch { prescriptions = [] }
+
+  const isCancelled = visit.status === "cancelled"
+  const hasDetails  = visit.diagnosis || visit.consultation_notes || prescriptions.length > 0
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-100 shrink-0">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0
-            ${appt.type === "derma" ? "bg-emerald-50" : "bg-slate-100"}`}>
-            <Icon className={`text-[18px] ${appt.type === "derma" ? "text-emerald-600" : "text-slate-500"}`} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-slate-800 truncate">{appt.doctor}</p>
-            <p className="text-xs text-slate-500">{appt.clinic}</p>
-          </div>
-          {/* FIX 2: Show actual status, not hardcoded "Completed" */}
-          <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0 ${stsCfg.badge}`}>
-            {stsCfg.label}
-          </span>
-          <button onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400 transition-colors shrink-0">
-            <MdClose className="text-[18px]" />
-          </button>
+    <div className={`bg-white rounded-2xl border overflow-hidden transition-all
+      ${isCancelled ? "border-red-100 opacity-70" : "border-slate-200 shadow-sm"}`}>
+
+      {/* Main row */}
+      <div className="flex items-start gap-3 p-4">
+        {/* Icon */}
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5
+          ${visit.type === "derma" ? "bg-emerald-50" : "bg-slate-100"}`}>
+          <Icon className={`text-[18px] ${visit.type === "derma" ? "text-emerald-600" : "text-slate-500"}`} />
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          <span className="text-[11px] font-mono font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md inline-block">
-            #{appt.id}
-          </span>
-
-          {/* Schedule */}
-          <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Schedule</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
-                  <MdCalendarToday className="text-[11px]" /> Date
-                </p>
-                <p className="text-sm font-semibold text-slate-800">{appt.date}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
-                  <MdAccessTime className="text-[11px]" /> Time
-                </p>
-                <p className="text-sm font-semibold text-slate-800">{appt.time}</p>
-              </div>
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-800 truncate">
+                {visit.doctor || visit.doctor_name}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5 truncate">
+                {visit.specialty || (visit.type === "derma" ? "Dermatology" : "General Medicine")}
+              </p>
             </div>
+            <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0
+              ${isCancelled
+                ? "bg-red-50 text-red-500 border-red-200"
+                : "bg-slate-100 text-slate-500 border-slate-200"}`}>
+              {isCancelled ? "Cancelled" : "Completed"}
+            </span>
+          </div>
+
+          {/* Date/time row */}
+          <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-400 font-medium flex-wrap">
+            <span className="flex items-center gap-1">
+              <MdCalendarToday className="text-[11px]" />
+              {formatDate(visit.appointment_date || visit.date)}
+            </span>
+            <span className="flex items-center gap-1">
+              <MdAccessTime className="text-[11px]" />
+              {visit.appointment_time || visit.time || "—"}
+            </span>
           </div>
 
           {/* Reason */}
-          {appt.reason && (
-            <div className="bg-slate-50 rounded-2xl p-4 space-y-2">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Reason for Visit</p>
-              <p className="text-sm font-semibold text-slate-800">{appt.reason}</p>
+          {visit.reason && (
+            <p className="text-xs text-slate-500 mt-1.5 bg-slate-50 rounded-lg px-2.5 py-1.5 inline-block">
+              {visit.reason}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Diagnosis summary (collapsed preview) */}
+      {!isCancelled && visit.diagnosis && !expanded && (
+        <div className="px-4 pb-3">
+          <p className="text-xs font-semibold text-slate-700 truncate">
+            Dx: <span className="font-normal text-slate-600">{visit.diagnosis}</span>
+          </p>
+        </div>
+      )}
+
+      {/* Expanded details */}
+      {expanded && !isCancelled && hasDetails && (
+        <div className="px-4 pb-4 space-y-3 border-t border-slate-100 pt-3">
+          {/* Diagnosis */}
+          {visit.diagnosis && (
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Diagnosis</p>
+              <p className="text-sm text-slate-800 bg-slate-50 rounded-xl px-3 py-2 leading-relaxed">
+                {visit.diagnosis}
+              </p>
             </div>
           )}
 
-          {/* Outcome — only shown for completed appointments */}
-          {appt.status === 'completed' && (
-            <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Outcome</p>
-
-              {/* Diagnosis */}
-              <div>
-                <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
-                  <MdLocalHospital className="text-[11px]" /> Diagnosis
-                </p>
-                <p className="text-sm font-semibold text-slate-800">
-                  {appt.diagnosis || "No diagnosis recorded."}
-                </p>
-              </div>
-
-              {/* FIX 1: Show consultation notes */}
-              <div>
-                <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
-                  <MdNotes className="text-[11px]" /> Doctor's Notes
-                </p>
-                <p className="text-sm text-slate-700 leading-relaxed">
-                  {appt.consultation_notes || appt.notes || "No notes recorded."}
-                </p>
-              </div>
+          {/* Notes */}
+          {visit.consultation_notes && (
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                <MdNotes className="text-[11px]" /> Clinical Notes
+              </p>
+              <p className="text-sm text-slate-600 bg-slate-50 rounded-xl px-3 py-2 leading-relaxed">
+                {visit.consultation_notes}
+              </p>
             </div>
           )}
 
-          {/* Cancelled notice */}
-          {appt.status === 'cancelled' && (
-            <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-start gap-3">
-              <MdCancel className="text-red-400 text-[18px] shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-red-700">This appointment was cancelled.</p>
-                {appt.notes && (
-                  <p className="text-xs text-red-500 mt-1">{appt.notes}</p>
-                )}
+          {/* Prescriptions */}
+          {prescriptions.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                <MdLocalPharmacy className="text-[11px]" /> Prescriptions
+              </p>
+              <div className="space-y-2">
+                {prescriptions.map((rx, i) => (
+                  <div key={i} className="bg-violet-50 border border-violet-100 rounded-xl px-3 py-2.5">
+                    <p className="text-sm font-bold text-violet-800">{rx.medicine}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-xs text-violet-600">
+                      {rx.dosage    && <span>Dosage: {rx.dosage}</span>}
+                      {rx.frequency && <span>Sig: {rx.frequency}</span>}
+                      {rx.duration  && <span>For: {rx.duration}</span>}
+                    </div>
+                    {rx.notes && <p className="text-[11px] text-violet-500 mt-0.5 italic">{rx.notes}</p>}
+                  </div>
+                ))}
               </div>
             </div>
           )}
         </div>
-      </div>
+      )}
+
+      {/* Expand toggle */}
+      {!isCancelled && hasDetails && (
+        <button onClick={() => setExpanded(!expanded)}
+          className="w-full flex items-center justify-center gap-1 py-2.5 text-[11px] font-bold text-slate-400
+            hover:text-slate-600 hover:bg-slate-50 border-t border-slate-100 transition-colors">
+          {expanded
+            ? <><MdExpandLess className="text-[14px]" /> Show less</>
+            : <><MdExpandMore className="text-[14px]" /> View details</>}
+        </button>
+      )}
     </div>
   )
 }
@@ -152,8 +176,6 @@ const History = () => {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [search,  setSearch]  = useState("")
-  const [clinic,  setClinic]  = useState("all")
-  const [modal,   setModal]   = useState(null)
 
   useEffect(() => {
     getMyHistory()
@@ -162,156 +184,110 @@ const History = () => {
       .finally(() => setLoading(false))
   }, [])
 
-  const filtered = history.filter(a => {
-    const matchClinic = clinic === "all" || a.type === clinic
-    // FIX 4 & 5: String() on id (number), null-safe reason
-    const matchSearch = !search ||
-      (a.doctor  || '').toLowerCase().includes(search.toLowerCase()) ||
-      (a.reason  || '').toLowerCase().includes(search.toLowerCase()) ||
-      String(a.id).includes(search) ||
-      (a.diagnosis || '').toLowerCase().includes(search.toLowerCase())
-    return matchClinic && matchSearch
+  const filtered = history.filter(h => {
+    const q = search.toLowerCase()
+    return (
+      (h.doctor || h.doctor_name || "").toLowerCase().includes(q) ||
+      (h.reason || "").toLowerCase().includes(q) ||
+      (h.diagnosis || "").toLowerCase().includes(q)
+    )
   })
 
-  const grouped = groupByYear(filtered)
-  const years   = Object.keys(grouped).sort((a, b) => b - a)
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-300 mb-4"></div>
-        <p className="text-sm font-medium">Loading visit history...</p>
-      </div>
-    )
-  }
+  const grouped  = groupByMonth(filtered)
+  const months   = Object.keys(grouped)
+  const completed = history.filter(h => h.status !== "cancelled").length
+  const cancelled = history.filter(h => h.status === "cancelled").length
 
   return (
-    <div className="max-w-5xl space-y-5">
-      {/* Page header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Visit History</h1>
-          <p className="text-sm text-slate-500 mt-0.5">A complete record of your past clinic visits.</p>
-        </div>
-        <div className="shrink-0 bg-slate-100 border border-slate-200 rounded-xl px-4 py-2 text-center">
-          <p className="text-2xl font-black text-slate-700">{history.length}</p>
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Total Visits</p>
-        </div>
+    <div className="max-w-3xl mx-auto space-y-5">
+
+      {/* Header */}
+      <div>
+        <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <MdHistory className="text-slate-400 text-[22px]" /> Appointment History
+        </h1>
+        <p className="text-xs lg:text-sm text-slate-400 mt-0.5">
+          {history.length} total visits
+        </p>
       </div>
 
-      {/* Search + filter toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2
-          flex-1 min-w-52 max-w-72 focus-within:border-slate-300 transition-colors">
-          <MdSearch className="text-slate-400 text-[15px] shrink-0" />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search doctor, reason, diagnosis…"
-            className="text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none w-full" />
+      {/* Stats */}
+      {!loading && history.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
+            <p className="text-3xl font-black text-emerald-600">{completed}</p>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">Completed</p>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
+            <p className="text-3xl font-black text-red-400">{cancelled}</p>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">Cancelled</p>
+          </div>
+        </div>
+      )}
+
+      {/* Search */}
+      {history.length > 0 && (
+        <div className="relative">
+          <MdSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by doctor, reason, or diagnosis…"
+            className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-2xl text-sm
+              focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 transition-all"
+          />
           {search && (
-            <button onClick={() => setSearch("")} className="text-slate-300 hover:text-slate-500 transition-colors">
-              <MdClose className="text-[13px]" />
+            <button onClick={() => setSearch("")}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <MdClose className="text-[16px]" />
             </button>
           )}
         </div>
+      )}
 
-        <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1">
-          {CLINIC_FILTERS.map(({ key, label }) => (
-            <button key={key} onClick={() => setClinic(key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all
-                ${clinic === key
-                  ? "bg-[#0b1a2c] text-emerald-400"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                }`}>
-              {key === "derma"   && <MdFace            className="text-[12px]" />}
-              {key === "medical" && <MdMedicalServices  className="text-[12px]" />}
-              {label}
-            </button>
-          ))}
+      {/* Content */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="w-8 h-8 border-2 border-slate-200 border-t-emerald-500 rounded-full animate-spin" />
         </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_100px] gap-4 px-5 py-3 bg-slate-50 border-b border-slate-100">
-          {["Visit", "Date & Time", "Clinic", "Diagnosis", ""].map((h, i) => (
-            <p key={i} className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{h}</p>
-          ))}
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center px-6">
-            <MdHistory className="text-[22px] text-slate-300 mb-3" />
-            <p className="text-sm font-semibold text-slate-500">No records found</p>
+      ) : history.length === 0 ? (
+        <div className="flex flex-col items-center py-20 text-center bg-white rounded-2xl border border-slate-200">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mb-4">
+            <MdHistory className="text-[28px] text-slate-300" />
           </div>
-        ) : (
-          years.map(year => (
-            <div key={year}>
-              <div className="px-5 py-2 bg-slate-50 border-y border-slate-100 sticky top-0 z-10">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">{year}</p>
+          <p className="text-sm font-bold text-slate-600 mb-1">No history yet</p>
+          <p className="text-xs text-slate-400">Your completed appointments will appear here.</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center py-16 text-center bg-white rounded-2xl border border-slate-200">
+          <MdSearch className="text-[28px] text-slate-300 mb-2" />
+          <p className="text-sm font-bold text-slate-600">No results for "{search}"</p>
+        </div>
+      ) : (
+        /* Timeline grouped by month */
+        <div className="space-y-6">
+          {months.map(month => (
+            <div key={month}>
+              {/* Month divider */}
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">
+                  {month}
+                </span>
+                <div className="h-px flex-1 bg-slate-200" />
               </div>
 
-              <div className="divide-y divide-slate-100">
-                {grouped[year].map(appt => {
-                  const Icon    = appt.type === "derma" ? MdFace : MdMedicalServices
-                  const stsCfg  = STATUS_CFG[appt.status] || STATUS_CFG.completed
-                  return (
-                    <div key={appt.id}
-                      className="grid grid-cols-[2fr_1fr_1fr_1fr_100px] gap-4 px-5 py-4 items-center hover:bg-slate-50/70 transition-colors">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0
-                          ${appt.type === "derma" ? "bg-emerald-50" : "bg-slate-100"}`}>
-                          <Icon className={`text-[16px] ${appt.type === "derma" ? "text-emerald-600" : "text-slate-500"}`} />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-800 truncate">{appt.doctor}</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <p className="text-xs text-slate-500 truncate">{appt.reason || "—"}</p>
-                            {/* Status badge on the row */}
-                            <span className={`text-[9px] font-bold border px-1.5 py-0.5 rounded-full shrink-0 ${stsCfg.badge}`}>
-                              {stsCfg.label}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                          <MdCalendarToday className="text-[11px] text-slate-400" /> {appt.date}
-                        </p>
-                        <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
-                          <MdAccessTime className="text-[11px]" /> {appt.time}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-slate-700">{appt.clinic}</p>
-                      </div>
-                      <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
-                        {appt.status === 'cancelled'
-                          ? <span className="text-red-400 italic">Cancelled</span>
-                          : appt.diagnosis || <span className="text-slate-300 italic">—</span>
-                        }
-                      </p>
-                      <button
-                        onClick={() => setModal(appt)}
-                        className="flex items-center justify-center text-[11px] font-bold text-slate-600 border border-slate-200 hover:bg-slate-50 px-3 py-1.5 rounded-lg transition-all w-full"
-                      >
-                        Details
-                      </button>
-                    </div>
-                  )
-                })}
+              {/* Visit cards */}
+              <div className="space-y-3">
+                {grouped[month].map((visit, i) => (
+                  <VisitCard key={visit.id || i} visit={visit} />
+                ))}
               </div>
             </div>
-          ))
-        )}
-
-        <div className="px-5 py-3 border-t border-slate-100">
-          <p className="text-[11px] text-slate-400 font-medium">
-            Showing {filtered.length} of {history.length} records
-          </p>
+          ))}
         </div>
-      </div>
-
-      {modal && <DetailModal appt={modal} onClose={() => setModal(null)} />}
+      )}
     </div>
   )
 }

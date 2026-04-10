@@ -1,26 +1,30 @@
+// client/src/pages/auth/Doctor/DoctorLogin.jsx
+// REDESIGNED: Dark gradient, violet accent, mobile-first
+
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import logo from '../../../assets/logo-removebg.png'
-import { MdEmail, MdLock, MdVisibility, MdVisibilityOff } from 'react-icons/md'
+import { MdEmail, MdLock, MdVisibility, MdVisibilityOff, MdArrowForward, MdMedicalServices } from 'react-icons/md'
 import { useAuth } from '../../../context/AuthContext'
 
 const DoctorLogin = () => {
-  const [form,    setForm]    = useState({ email: '', password: '' })
-  const [showPass, setShowP]  = useState(false)
-  const [error,   setError]   = useState('')
-  const [loading, setLoading] = useState(false)
-  const navigate = useNavigate()
+  const [form,         setForm]         = useState({ email: '', password: '' })
+  const [showPassword, setShowPassword] = useState(false)
+  const [error,        setError]        = useState('')
+  const [loading,      setLoading]      = useState(false)
+  const navigate  = useNavigate()
   const { login } = useAuth()
 
-  const handleChange = (e) => {
+  const handleChange = e => {
     const { name, value } = e.target
     setForm(p => ({ ...p, [name]: value }))
     setError('')
   }
 
-  const handleSubmit = async (e) => {
+  const handleLogin = async e => {
     e.preventDefault()
-    setError(''); setLoading(true)
+    setError('')
+    setLoading(true)
     try {
       const res  = await fetch('/api/doctor/login', {
         method: 'POST',
@@ -40,72 +44,99 @@ const DoctorLogin = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-slate-100 p-6">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-[#0b1a2c] via-[#120a2e] to-[#0b1a2c]
+      flex items-center justify-center p-4">
 
-        {/* Header */}
-        <div className="flex flex-col items-center py-8 px-8 bg-[#0b1a2c]">
-          <img src={logo} alt="Carait Clinic"
-            className="border border-white/20 rounded-full w-14 h-14 object-contain bg-white/10 p-1 mb-3" />
-          <h2 className="text-white font-bold text-xl tracking-wide">Doctor Portal</h2>
-          <span className="text-violet-400 text-xs font-semibold uppercase tracking-widest mt-1">Sign in to your account</span>
+      {/* Decorative glows */}
+      <div className="fixed top-0 right-0 w-96 h-96 bg-violet-600/8 rounded-full blur-3xl pointer-events-none" />
+      <div className="fixed bottom-0 left-0 w-72 h-72 bg-violet-500/5 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-sm relative">
+
+        {/* Brand */}
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-16 h-16 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center mb-4
+            shadow-[0_8px_32px_rgba(124,58,237,0.2)]">
+            <img src={logo} alt="Carait Clinic" className="w-12 h-12 object-contain" />
+          </div>
+          <h1 className="text-white text-2xl font-black tracking-tight">Carait Clinic</h1>
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <MdMedicalServices className="text-violet-400 text-[13px]" />
+            <p className="text-violet-400 text-xs font-semibold uppercase tracking-widest">Doctor Portal</p>
+          </div>
         </div>
 
-        {/* Form */}
-        <div className="px-8 py-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Card */}
+        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
+
+          {/* Card header */}
+          <div className="bg-gradient-to-r from-violet-600 to-violet-700 px-6 py-5">
+            <h2 className="text-white font-bold text-lg">Doctor Sign In</h2>
+            <p className="text-violet-200 text-sm mt-0.5">Access your clinical dashboard</p>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleLogin} className="px-6 py-6 space-y-4">
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+              <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3">
                 {error}
               </div>
             )}
 
             {/* Email */}
-            <div>
-              <label className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5 block">Email</label>
-              <div className="flex items-center gap-2.5 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus-within:border-violet-400 transition-colors">
-                <MdEmail className="text-slate-400 text-[16px] shrink-0" />
-                <input type="email" name="email" value={form.email} onChange={handleChange}
-                  placeholder="doctor@carait.com" required autoComplete="email"
-                  className="flex-1 text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none" />
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Email</label>
+              <div className="relative">
+                <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]" />
+                <input required type="email" name="email" value={form.email} onChange={handleChange}
+                  placeholder="doctor@carait.com"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm
+                    focus:outline-none focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-400/10
+                    transition-all placeholder-slate-300" />
               </div>
             </div>
 
             {/* Password */}
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Password</label>
-                {/* ✅ NEW: Forgot password link */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Password</label>
+              <div className="relative">
+                <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]" />
+                <input required type={showPassword ? 'text' : 'password'}
+                  name="password" value={form.password} onChange={handleChange}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-12 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm
+                    focus:outline-none focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-400/10
+                    transition-all placeholder-slate-300" />
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {showPassword ? <MdVisibilityOff className="text-[18px]" /> : <MdVisibility className="text-[18px]" />}
+                </button>
+              </div>
+              <div className="flex justify-end">
                 <NavLink to="/doctor/forgot-password"
-                  className="text-xs text-violet-600 font-semibold hover:underline">
+                  className="text-xs text-violet-600 hover:text-violet-700 font-semibold">
                   Forgot password?
                 </NavLink>
               </div>
-              <div className="flex items-center gap-2.5 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus-within:border-violet-400 transition-colors">
-                <MdLock className="text-slate-400 text-[16px] shrink-0" />
-                <input type={showPass ? "text" : "password"} name="password"
-                  value={form.password} onChange={handleChange}
-                  placeholder="••••••••" required autoComplete="current-password"
-                  className="flex-1 text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none" />
-                <button type="button" onClick={() => setShowP(s => !s)}
-                  className="text-slate-400 hover:text-slate-600 transition-colors shrink-0">
-                  {showPass ? <MdVisibilityOff className="text-[16px]" /> : <MdVisibility className="text-[16px]" />}
-                </button>
-              </div>
             </div>
 
+            {/* Submit */}
             <button type="submit" disabled={loading}
-              className="w-full mt-2 bg-[#0b1a2c] hover:bg-[#122236] disabled:opacity-50
-                disabled:cursor-not-allowed text-white text-sm font-bold py-3 rounded-xl transition-colors">
-              {loading ? "Signing in…" : "Sign In"}
+              className="w-full flex items-center justify-center gap-2 py-3.5 bg-violet-600 hover:bg-violet-700
+                text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-60
+                shadow-lg shadow-violet-600/25">
+              {loading
+                ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <>Sign In <MdArrowForward className="text-[16px]" /></>}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-xs text-slate-400 pb-6">
-          Not a doctor?{" "}
-          <a href="/patient/login" className="text-violet-600 font-semibold hover:underline">Patient login</a>
+        <p className="text-center mt-5">
+          <NavLink to="/" className="text-slate-400 hover:text-white text-xs transition-colors">
+            ← Back to home
+          </NavLink>
         </p>
       </div>
     </div>
