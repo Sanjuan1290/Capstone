@@ -27,7 +27,10 @@ const markOverdueAppointments = async () => {
     `UPDATE appointments
      SET status = 'no_show'
      WHERE status IN ('pending', 'confirmed')
-       AND TIMESTAMP(appointment_date, appointment_time) < NOW()`
+       AND TIMESTAMP(
+         appointment_date,
+         DATE_FORMAT(STR_TO_DATE(appointment_time, '%h:%i %p'), '%H:%i:%s')
+       ) < NOW()`
   )
 }
 

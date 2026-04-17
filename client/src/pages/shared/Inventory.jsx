@@ -1,3 +1,4 @@
+import { BrowserMultiFormatReader } from '@zxing/browser'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   MdAdd, MdCameraAlt, MdClose, MdDelete, MdEdit, MdInventory2,
@@ -21,111 +22,211 @@ const getStockBadge = (item) => {
   return 'bg-emerald-50 text-emerald-700 border-emerald-200'
 }
 
-const loadZxingLibrary = () => new Promise((resolve, reject) => {
-  if (window.ZXingBrowser?.BrowserMultiFormatReader) return resolve(window.ZXingBrowser)
-
-  const existing = document.querySelector('script[data-zxing-browser]')
-  if (existing) {
-    existing.addEventListener('load', () => resolve(window.ZXingBrowser), { once: true })
-    existing.addEventListener('error', () => reject(new Error('ZXing failed to load')), { once: true })
-    return
-  }
-
-  const script = document.createElement('script')
-  script.src = 'https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js'
-  script.async = true
-  script.dataset.zxingBrowser = 'true'
-  script.onload = () => resolve(window.ZXingBrowser)
-  script.onerror = () => reject(new Error('ZXing failed to load'))
-  document.body.appendChild(script)
-})
-
 const CameraScanner = ({ onDetected, onClose }) => {
   const videoRef = useRef(null)
-  const streamRef = useRef(null)
-  const detectorRef = useRef(null)
   const readerRef = useRef(null)
-  const rafRef = useRef(null)
-  const [error, setError] = useState('')
+  const controlsRef = useRef(null)
+  const mountedRef = useRef(true)
+  const [status, setStatus] = useState('starting')
+  const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
+    mountedRef.current = true
+
     const stop = () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      if (readerRef.current?.reset) readerRef.current.reset()
-      if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop())
-    }
-
-    const startBarcodeDetector = async () => {
-      const formats = await window.BarcodeDetector.getSupportedFormats()
-      detectorRef.current = new window.BarcodeDetector({ formats })
-
-      const scan = async () => {
-        if (!videoRef.current || !detectorRef.current) return
-        try {
-          const results = await detectorRef.current.detect(videoRef.current)
-          if (results?.[0]?.rawValue) {
-            stop()
-            onDetected(results[0].rawValue)
-            return
-          }
-        } catch {}
-        rafRef.current = requestAnimationFrame(scan)
+      controlsRef.current?.stop?.()
+      controlsRef.current = null
+      readerRef.current?.reset?.()
+      if (videoRef.current) {
+        videoRef.current.srcObject = null
       }
-
-      rafRef.current = requestAnimationFrame(scan)
-    }
-
-    const startZxing = async () => {
-      const ZXingBrowser = await loadZxingLibrary()
-      readerRef.current = new ZXingBrowser.BrowserMultiFormatReader()
-      readerRef.current.decodeFromVideoElement(videoRef.current, (result) => {
-        if (!result) return
-        stop()
-        onDetected(result.getText())
-      })
     }
 
     const init = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        })
-        streamRef.current = stream
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setStatus('error')
+        setErrorMsg('Camera access is not supported in this browser.')
+        return
+      }
 
-        if ('BarcodeDetector' in window) {
-          await startBarcodeDetector()
-        } else {
-          await startZxing()
+      try {
+        readerRef.current = new BrowserMultiFormatReader()
+        controlsRef.current = await readerRef.current.decodeFromConstraints(
+          {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          },
+          videoRef.current,
+          (result) => {
+            if (!mountedRef.current || !result) return
+
+            const code = result.getText()?.trim()
+            if (!code) return
+
+            setStatus('detected')
+            stop()
+            window.setTimeout(() => onDetected(code), 250)
+          }
+        )
+
+        if (mountedRef.current) {
+          setStatus('scanning')
         }
       } catch (err) {
-        setError(err.message || 'Camera could not be started.')
+        if (!mountedRef.current) return
+
+        setStatus('error')
+        const message = err?.name === 'NotAllowedError'
+          ? 'Camera permission was denied.'
+          : err?.name === 'NotFoundError'
+            ? 'No camera device was found.'
+            : err?.message || 'Scanner failed to start.'
+        setErrorMsg(message)
       }
     }
 
     init()
-    return stop
+    return () => {
+      mountedRef.current = false
+      stop()
+    }
   }, [onDetected])
 
+  const statusConfig = {
+    starting: { color: '#64748b', text: 'Starting camera...', pulse: false },
+    scanning: { color: '#0ea5e9', text: 'Scanning - hold barcode steady', pulse: true },
+    detected: { color: '#22c55e', text: 'Barcode detected!', pulse: false },
+    error: { color: '#ef4444', text: errorMsg, pulse: false },
+  }
+  const cfg = statusConfig[status]
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-3xl bg-white overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-3xl bg-white overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div>
-            <p className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdCameraAlt className="text-sky-500" /> Camera Barcode Scanner</p>
-            <p className="text-xs text-slate-400">Works with BarcodeDetector or ZXing fallback.</p>
+            <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <MdCameraAlt className="text-sky-500" /> Camera Barcode Scanner
+            </p>
+            <p className="text-xs text-slate-400">Point camera at barcode</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-400 flex items-center justify-center"><MdClose /></button>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-400 flex items-center justify-center"
+          >
+            <MdClose />
+          </button>
         </div>
-        <div className="bg-black aspect-[4/3]">
-          {error ? (
-            <div className="h-full flex items-center justify-center text-center text-sm text-slate-200 px-6">{error}</div>
+
+        <div className="bg-black aspect-[4/3] relative overflow-hidden">
+          {status === 'error' ? (
+            <div className="h-full flex items-center justify-center text-center text-sm text-slate-300 px-6">
+              {errorMsg}
+            </div>
           ) : (
-            <video ref={videoRef} className="w-full h-full object-cover" muted playsInline autoPlay />
+            <>
+              <video
+                ref={videoRef}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+                autoPlay
+              />
+
+              {['top-6 left-6', 'top-6 right-6', 'bottom-6 left-6', 'bottom-6 right-6'].map((pos, i) => (
+                <div
+                  key={i}
+                  className={`absolute ${pos} w-8 h-8`}
+                  style={{
+                    borderColor: cfg.color,
+                    borderStyle: 'solid',
+                    borderWidth: 0,
+                    ...(i === 0 && { borderTopWidth: 3, borderLeftWidth: 3, borderRadius: '4px 0 0 0' }),
+                    ...(i === 1 && { borderTopWidth: 3, borderRightWidth: 3, borderRadius: '0 4px 0 0' }),
+                    ...(i === 2 && { borderBottomWidth: 3, borderLeftWidth: 3, borderRadius: '0 0 0 4px' }),
+                    ...(i === 3 && { borderBottomWidth: 3, borderRightWidth: 3, borderRadius: '0 0 4px 0' }),
+                    transition: 'border-color 0.3s',
+                  }}
+                />
+              ))}
+
+              {status === 'scanning' && (
+                <div
+                  className="absolute left-8 right-8"
+                  style={{
+                    height: 2,
+                    background: cfg.color,
+                    boxShadow: `0 0 6px ${cfg.color}`,
+                    animation: 'scanline 2s ease-in-out infinite',
+                    top: '50%',
+                  }}
+                />
+              )}
+
+              {status === 'detected' && (
+                <div
+                  className="absolute inset-0 flex items-center justify-center"
+                  style={{ background: 'rgba(34,197,94,0.25)' }}
+                >
+                  <div className="bg-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                      <path d="M5 13l4 4L19 7" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                </div>
+              )}
+
+              {status === 'starting' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <div
+                    className="w-8 h-8 rounded-full border-2 border-white/20"
+                    style={{ borderTopColor: '#fff', animation: 'spin 0.8s linear infinite' }}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
-        <div className="px-5 py-3 text-center text-xs text-slate-500">If scanning does not detect right away, move closer and steady the barcode.</div>
+
+        <div className="px-5 py-3 flex items-center gap-2">
+          <div className="relative flex items-center justify-center w-3 h-3 flex-shrink-0">
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ background: cfg.color }}
+            />
+            {cfg.pulse && (
+              <div
+                className="absolute w-3 h-3 rounded-full"
+                style={{ background: cfg.color, opacity: 0.4, animation: 'ping 1.2s ease-out infinite' }}
+              />
+            )}
+          </div>
+          <span className="text-xs text-slate-500">{cfg.text}</span>
+        </div>
+
+        <style>{`
+          @keyframes scanline {
+            0%   { top: 25%; }
+            50%  { top: 75%; }
+            100% { top: 25%; }
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+          @keyframes ping {
+            0%   { transform: scale(1); opacity: 0.4; }
+            100% { transform: scale(2.5); opacity: 0; }
+          }
+        `}</style>
       </div>
     </div>
   )
@@ -203,7 +304,7 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
             <p className="text-sm font-bold text-slate-800">{item.name}</p>
-            <p className="text-xs text-slate-400">Available: {available} {item.unit}s · {item.unit_size || 1} {item.base_unit || item.unit} per {item.unit}</p>
+            <p className="text-xs text-slate-400">Available: {available} {item.unit}s - {item.unit_size || 1} {item.base_unit || item.unit} per {item.unit}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-400 flex items-center justify-center"><MdClose /></button>
         </div>
@@ -311,11 +412,12 @@ const Inventory = ({ services }) => {
 
   const handleScannerDetected = (code) => {
     setScannerOpen(false)
-    const found = items.find(item => item.barcode === code)
+    const normalizedCode = String(code || '').trim()
+    const found = items.find(item => String(item.barcode || '').trim() === normalizedCode)
     if (found) {
       setStockItem(found)
     } else {
-      alert(`Barcode ${code} was read, but no inventory item matches it yet.`)
+      alert(`Barcode ${normalizedCode} was read, but no inventory item matches it yet.`)
     }
   }
 
@@ -360,11 +462,11 @@ const Inventory = ({ services }) => {
                   <p className="text-lg font-bold text-slate-800">{item.name}</p>
                   <span className={`text-xs font-bold border px-2 py-1 rounded-full ${getStockBadge(item)}`}>{getPackageCount(item) === 0 ? 'Out' : getPackageCount(item) <= Number(item.threshold || 0) ? 'Low' : 'OK'}</span>
                 </div>
-                <p className="text-sm text-slate-500">{item.category} · {item.barcode || 'No barcode'} · {item.supplier || 'No supplier'}</p>
+                <p className="text-sm text-slate-500">{item.category} - {item.barcode || 'No barcode'} - {item.supplier || 'No supplier'}</p>
                 <p className="text-sm text-slate-600">
-                  <strong>{getPackageCount(item)}</strong> {item.unit}s in stock · {Number(item.unit_size || 1)} {item.base_unit || item.unit} per {item.unit}
+                  <strong>{getPackageCount(item)}</strong> {item.unit}s in stock - {Number(item.unit_size || 1)} {item.base_unit || item.unit} per {item.unit}
                 </p>
-                <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.unit}s · ₱{Number(item.price || 0).toFixed(2)} per {item.unit}</p>
+                <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.unit}s - PHP {Number(item.price || 0).toFixed(2)} per {item.unit}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setStockItem(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdInventory2 /> Update Stock</button>
