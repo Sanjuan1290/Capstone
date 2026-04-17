@@ -1,5 +1,6 @@
 const { getNotifications, markNotificationRead } = require('../utils/notifications')
 const { getSettings, updateSettings } = require('../utils/accountSettings')
+const { getLandingPageContent, updateLandingPageContent } = require('../utils/landingPageContent')
 
 const listNotifications = async (req, res) => {
   const rows = await getNotifications(req.user.role, req.user.id, req.query.limit || 20)
@@ -23,9 +24,27 @@ const saveMySettings = async (req, res) => {
   res.json(settings)
 }
 
+const getPublicLandingPage = async (req, res) => {
+  const landingPage = await getLandingPageContent()
+  res.json(landingPage)
+}
+
+const getAdminLandingPage = async (req, res) => {
+  const landingPage = await getLandingPageContent()
+  res.json(landingPage)
+}
+
+const saveAdminLandingPage = async (req, res) => {
+  const saved = await updateLandingPageContent(req.body || {})
+  res.json(saved)
+}
+
 module.exports = {
   listNotifications,
   readNotification,
   getMySettings,
   saveMySettings,
+  getPublicLandingPage,
+  getAdminLandingPage,
+  saveAdminLandingPage,
 }

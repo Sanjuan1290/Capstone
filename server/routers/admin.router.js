@@ -16,6 +16,8 @@ router.get('/notifications', ...auth, commonCtrl.listNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
 router.get('/settings', ...auth, commonCtrl.getMySettings)
 router.put('/settings', ...auth, commonCtrl.saveMySettings)
+router.get('/landing-page', ...auth, commonCtrl.getAdminLandingPage)
+router.put('/landing-page', ...auth, commonCtrl.saveAdminLandingPage)
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 router.get('/dashboard',   ...auth, adminCtrl.getDashboard)

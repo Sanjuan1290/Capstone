@@ -54,6 +54,14 @@ const ensureAppSchema = async () => {
       INDEX idx_notifications_target (target_role, target_user_id, is_read, created_at)
     )
   `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS landing_page_content (
+      id INT NOT NULL PRIMARY KEY,
+      content JSON NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `)
 }
 
 module.exports = {
