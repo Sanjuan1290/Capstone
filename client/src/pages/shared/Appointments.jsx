@@ -25,6 +25,7 @@ const STATUS_CONFIG = {
   completed:   { label:'Completed',   badge:'bg-slate-100  text-slate-500   border-slate-200',   row:'border-l-slate-300'   },
   cancelled:   { label:'Cancelled',   badge:'bg-red-50     text-red-500     border-red-200',     row:'border-l-red-400'     },
   rescheduled: { label:'Rescheduled', badge:'bg-sky-50     text-sky-700     border-sky-200',     row:'border-l-sky-400'     },
+  no_show:     { label:'No Show',     badge:'bg-rose-50    text-rose-700    border-rose-200',    row:'border-l-rose-400'    },
 }
 
 const TABS = [
@@ -34,6 +35,7 @@ const TABS = [
   { key:'completed',   label:'Completed'   },
   { key:'cancelled',   label:'Cancelled'   },
   { key:'rescheduled', label:'Rescheduled' },
+  { key:'no_show',     label:'No Show'     },
 ]
 
 // ─── Reschedule Modal ─────────────────────────────────────────────────────────

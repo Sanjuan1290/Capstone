@@ -4,10 +4,14 @@
 import { useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import { useAuth } from "../../context/AuthContext"
+import { useTheme } from "../../context/ThemeContext"
 import logo from "../../assets/logo-removebg.png"
+import NotificationBell from "../NotificationBell"
+import ProfileAvatar from "../ProfileAvatar"
 import {
   MdDashboard, MdCalendarToday, MdEventAvailable, MdHistory,
   MdChevronLeft, MdLogout, MdPerson, MdMenu, MdClose,
+  MdSettings, MdDarkMode, MdLightMode,
 } from "react-icons/md"
 
 const sideNav = [
@@ -24,6 +28,7 @@ const PatientLayout = () => {
   const [logoutError, setLogoutError] = useState("")
   const navigate  = useNavigate()
   const { user, logout: clearAuth } = useAuth()
+  const { theme, toggleTheme } = useTheme()
 
   const handleLogout = async () => {
     setLoggingOut(true)
@@ -184,10 +189,15 @@ const PatientLayout = () => {
 
           {/* Right side */}
           <div className="flex items-center gap-2 lg:gap-3">
+            <NotificationBell role="patient" />
+            <button onClick={toggleTheme} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
+              {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
+            </button>
+            <NavLink to="/patient/settings" className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
+              <MdSettings className="text-[18px]" />
+            </NavLink>
             <div className="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-100">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/15 flex items-center justify-center">
-                <MdPerson className="text-[15px] text-emerald-600" />
-              </div>
+              <ProfileAvatar user={user} size="sm" />
               <div className="leading-tight">
                 <p className="text-xs font-semibold text-slate-700">{user?.full_name || "Patient"}</p>
                 <p className="text-[10px] text-slate-400">Patient</p>

@@ -4,7 +4,9 @@ const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
-const { sendVerificationCode } = require('../utils/emailService')
+const { sendVerificationCode, sendAppointmentStatusEmail } = require('../utils/emailService')
+const { notifyRoles, createNotification } = require('../utils/notifications')
+const { markOverdueAppointments } = require('../utils/appointments')
 
 // In-memory pending registrations (keyed by email)
 const pendingRegistrations = {}
@@ -97,7 +99,7 @@ const login = async (req, res) => {
 
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: patient.id, full_name: patient.full_name, email: patient.email, role: 'patient' },
+    user: { id: patient.id, full_name: patient.full_name, email: patient.email, role: 'patient', theme_preference: patient.theme_preference, profile_image_url: patient.profile_image_url },
   })
 }
 
@@ -107,7 +109,7 @@ const checkAuth = async (req, res) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     if (decoded.role !== 'patient') return res.status(200).json({ authenticated: false })
-    const [rows] = await db.query('SELECT id, full_name, email FROM patients WHERE id = ?', [decoded.id])
+    const [rows] = await db.query('SELECT id, full_name, email, theme_preference, profile_image_url FROM patients WHERE id = ?', [decoded.id])
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'patient' } })
   } catch {
@@ -123,6 +125,7 @@ const logout = (req, res) => {
 // ─── Appointments ─────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
+  await markOverdueAppointments()
   const [rows] = await db.query(
     // ✅ FIX: include full patient details + properly formatted date
     `SELECT
@@ -157,6 +160,7 @@ const getAppointments = async (req, res) => {
 }
 
 const getHistory = async (req, res) => {
+  await markOverdueAppointments()
   const [rows] = await db.query(
     `SELECT
        a.*,
@@ -179,7 +183,7 @@ const getHistory = async (req, res) => {
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled')
+     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled','no_show')
      ORDER BY a.appointment_date DESC`,
     [req.user.id]
   )
@@ -204,6 +208,35 @@ const createAppointment = async (req, res) => {
     'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [req.user.id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes || null]
   )
+
+  const [details] = await db.query(
+    `SELECT a.id, p.full_name AS patient_name, d.full_name AS doctor_name
+     FROM appointments a
+     JOIN patients p ON a.patient_id = p.id
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.id = ?`,
+    [result.insertId]
+  )
+
+  const appt = details[0]
+  await notifyRoles(['admin', 'staff'], {
+    type: 'appointment_booked',
+    title: 'New patient booking',
+    message: `${appt.patient_name} booked an appointment with ${appt.doctor_name} on ${appointment_date} at ${appointment_time}.`,
+    reference_type: 'appointment',
+    reference_id: result.insertId,
+  })
+
+  await createNotification({
+    target_role: 'patient',
+    target_user_id: req.user.id,
+    type: 'appointment_booked',
+    title: 'Appointment received',
+    message: `Your appointment request for ${appointment_date} at ${appointment_time} is pending confirmation.`,
+    reference_type: 'appointment',
+    reference_id: result.insertId,
+  })
+
   res.status(201).json({ message: 'Appointment booked.', id: result.insertId })
 }
 
@@ -216,6 +249,15 @@ const cancelAppointment = async (req, res) => {
   if (!['pending', 'confirmed'].includes(rows[0].status))
     return res.status(400).json({ message: 'Only pending or confirmed appointments can be cancelled.' })
   await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [req.params.id])
+  await createNotification({
+    target_role: 'patient',
+    target_user_id: req.user.id,
+    type: 'appointment_cancelled',
+    title: 'Appointment cancelled',
+    message: 'Your appointment has been cancelled.',
+    reference_type: 'appointment',
+    reference_id: req.params.id,
+  })
   res.json({ message: 'Appointment cancelled.' })
 }
 
@@ -242,6 +284,25 @@ const rescheduleAppointment = async (req, res) => {
     "UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'rescheduled' WHERE id = ?",
     [appointment_date, appointment_time, req.params.id]
   )
+  const [details] = await db.query(
+    `SELECT a.id, p.email AS patient_email, p.full_name AS patient_name, d.full_name AS doctor_name, a.clinic_type
+     FROM appointments a
+     JOIN patients p ON a.patient_id = p.id
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.id = ?`,
+    [req.params.id]
+  )
+  if (details[0]?.patient_email) {
+    await sendAppointmentStatusEmail({
+      to: details[0].patient_email,
+      patient_name: details[0].patient_name,
+      doctor_name: details[0].doctor_name,
+      appointment_date,
+      appointment_time,
+      clinic_type: details[0].clinic_type,
+      status: 'rescheduled',
+    }).catch(() => {})
+  }
   res.json({ message: 'Appointment rescheduled.' })
 }
 

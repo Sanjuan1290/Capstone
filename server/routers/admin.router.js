@@ -2,6 +2,7 @@
 const express    = require('express')
 const router     = express.Router()
 const adminCtrl  = require('../controllers/admin.controller')
+const commonCtrl = require('../controllers/common.controller')
 const authenticate = require('../middlewares/auth.middleware')
 const requireRole  = require('../middlewares/role.middleware')
 
@@ -11,6 +12,10 @@ const auth = [authenticate('admin_token'), requireRole('admin')]
 router.post('/login',      adminCtrl.login)
 router.get('/check-auth',  adminCtrl.checkAuth)
 router.post('/logout',     adminCtrl.logout)
+router.get('/notifications', ...auth, commonCtrl.listNotifications)
+router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
+router.get('/settings', ...auth, commonCtrl.getMySettings)
+router.put('/settings', ...auth, commonCtrl.saveMySettings)
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 router.get('/dashboard',   ...auth, adminCtrl.getDashboard)

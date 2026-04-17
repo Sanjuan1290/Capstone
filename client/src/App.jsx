@@ -54,6 +54,7 @@ import DoctorRoute from './components/DoctorRoute'
 import AdminRoute  from './components/AdminRoute'
 
 import ForgotPassword from './pages/auth/ForgotPassword'
+import SettingsPage from './pages/shared/SettingsPage'
 
 const router = createBrowserRouter(createRoutesFromElements(
   <>
@@ -73,6 +74,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='appointments'           element={<MyAppointments />} />
         <Route path='reschedule-appointment' element={<RescheduleAppointment />} />
         <Route path='history'                element={<History />} />
+        <Route path='settings'               element={<SettingsPage />} />
       </Route>
 
       {/* ── Staff auth ──────────────────────────────── */}
@@ -88,6 +90,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='inventory'       element={<Staff_Inventory />} />
         <Route path='patient-records' element={<Staff_PatientRecord />} />
         <Route path='supply-requests' element={<Staff_SupplyRequests />} />
+        <Route path='settings'        element={<SettingsPage />} />
       </Route>
 
       {/* ── Doctor auth ─────────────────────────────── */}
@@ -102,6 +105,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='consultation'       element={<Doctor_Consultation />} />
         <Route path='request'            element={<Doctor_Request />} />
         <Route path='schedule'           element={<Doctor_Schedule />} />
+        <Route path='settings'           element={<SettingsPage />} />
       </Route>
 
       {/* ── Admin auth ──────────────────────────────── */}
@@ -116,6 +120,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='appointments'     element={<Admin_Appointments />} />
         <Route path='inventory'        element={<Admin_Inventory />} />
+        <Route path='settings'         element={<SettingsPage />} />
       </Route>
 
       {/* ── Public TV queue display ─────────────────── */}

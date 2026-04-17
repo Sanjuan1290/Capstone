@@ -11,7 +11,9 @@ const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
-const { sendTempPassword } = require('../utils/emailService')
+const { sendTempPassword, sendAppointmentStatusEmail } = require('../utils/emailService')
+const { createNotification, notifyRoles } = require('../utils/notifications')
+const { markOverdueAppointments, syncInventoryBaseStock } = require('../utils/appointments')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -34,7 +36,7 @@ const login = async (req, res) => {
 
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin' },
+    user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
   })
 }
 
@@ -44,7 +46,7 @@ const checkAuth = async (req, res) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     if (decoded.role !== 'admin') return res.status(200).json({ authenticated: false })
-    const [rows] = await db.query('SELECT id, full_name, email FROM admins WHERE id = ?', [decoded.id])
+    const [rows] = await db.query('SELECT id, full_name, email, theme_preference, profile_image_url FROM admins WHERE id = ?', [decoded.id])
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'admin' } })
   } catch {
@@ -119,6 +121,7 @@ const getDashboard = async (req, res) => {
 // ── Appointments ──────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
+  await markOverdueAppointments()
   const { date } = req.query
   let sql = `SELECT
                a.*,
@@ -146,16 +149,70 @@ const getAppointments = async (req, res) => {
 
 const confirmAppointment = async (req, res) => {
   const { id } = req.params
-  const [rows] = await db.query('SELECT id, status FROM appointments WHERE id = ?', [id])
+  const [rows] = await db.query(
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
+            p.id AS patient_id, p.email AS patient_email, p.full_name AS patient_name,
+            d.full_name AS doctor_name
+     FROM appointments a
+     JOIN patients p ON a.patient_id = p.id
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.id = ?`,
+    [id]
+  )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
   await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ?", [id])
+  await createNotification({
+    target_role: 'patient',
+    target_user_id: rows[0].patient_id,
+    type: 'appointment_confirmed',
+    title: 'Appointment confirmed',
+    message: `Your appointment with ${rows[0].doctor_name} has been confirmed.`,
+    reference_type: 'appointment',
+    reference_id: id,
+  })
+  await sendAppointmentStatusEmail({
+    to: rows[0].patient_email,
+    patient_name: rows[0].patient_name,
+    doctor_name: rows[0].doctor_name,
+    appointment_date: rows[0].appointment_date,
+    appointment_time: rows[0].appointment_time,
+    clinic_type: rows[0].clinic_type,
+    status: 'confirmed',
+  }).catch(() => {})
   res.json({ message: 'Appointment confirmed.' })
 }
 
 const cancelAppointment = async (req, res) => {
-  const [rows] = await db.query('SELECT id, status FROM appointments WHERE id = ?', [req.params.id])
+  const [rows] = await db.query(
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
+            p.id AS patient_id, p.email AS patient_email, p.full_name AS patient_name,
+            d.full_name AS doctor_name
+     FROM appointments a
+     JOIN patients p ON a.patient_id = p.id
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.id = ?`,
+    [req.params.id]
+  )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
   await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [req.params.id])
+  await createNotification({
+    target_role: 'patient',
+    target_user_id: rows[0].patient_id,
+    type: 'appointment_cancelled',
+    title: 'Appointment cancelled',
+    message: `Your appointment with ${rows[0].doctor_name} has been cancelled.`,
+    reference_type: 'appointment',
+    reference_id: req.params.id,
+  })
+  await sendAppointmentStatusEmail({
+    to: rows[0].patient_email,
+    patient_name: rows[0].patient_name,
+    doctor_name: rows[0].doctor_name,
+    appointment_date: rows[0].appointment_date,
+    appointment_time: rows[0].appointment_time,
+    clinic_type: rows[0].clinic_type,
+    status: 'cancelled',
+  }).catch(() => {})
   res.json({ message: 'Appointment cancelled.' })
 }
 
@@ -163,7 +220,16 @@ const rescheduleAppointment = async (req, res) => {
   const { appointment_date, appointment_time } = req.body
   if (!appointment_date || !appointment_time)
     return res.status(400).json({ message: 'Date and time required.' })
-  const [rows] = await db.query('SELECT id, doctor_id FROM appointments WHERE id = ?', [req.params.id])
+  const [rows] = await db.query(
+    `SELECT a.id, a.doctor_id, a.clinic_type,
+            p.id AS patient_id, p.email AS patient_email, p.full_name AS patient_name,
+            d.full_name AS doctor_name
+     FROM appointments a
+     JOIN patients p ON a.patient_id = p.id
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.id = ?`,
+    [req.params.id]
+  )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
 
   const [conflict] = await db.query(
@@ -179,6 +245,24 @@ const rescheduleAppointment = async (req, res) => {
     "UPDATE appointments SET appointment_date=?, appointment_time=?, status='rescheduled' WHERE id=?",
     [appointment_date, appointment_time, req.params.id]
   )
+  await createNotification({
+    target_role: 'patient',
+    target_user_id: rows[0].patient_id,
+    type: 'appointment_rescheduled',
+    title: 'Appointment rescheduled',
+    message: `Your appointment with ${rows[0].doctor_name} was moved to ${appointment_date} at ${appointment_time}.`,
+    reference_type: 'appointment',
+    reference_id: req.params.id,
+  })
+  await sendAppointmentStatusEmail({
+    to: rows[0].patient_email,
+    patient_name: rows[0].patient_name,
+    doctor_name: rows[0].doctor_name,
+    appointment_date,
+    appointment_time,
+    clinic_type: rows[0].clinic_type,
+    status: 'rescheduled',
+  }).catch(() => {})
   res.json({ message: 'Appointment rescheduled.' })
 }
 
@@ -200,6 +284,21 @@ const createAppointment = async (req, res) => {
     'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes) VALUES (?,?,?,?,?,?,?)',
     [patient_id, doctor_id, clinic_type, reason || null, appointment_date, appointment_time, notes || null]
   )
+  const [rows] = await db.query(
+    `SELECT p.full_name AS patient_name, d.full_name AS doctor_name
+     FROM appointments a
+     JOIN patients p ON a.patient_id = p.id
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.id = ?`,
+    [result.insertId]
+  )
+  await notifyRoles(['admin', 'staff'], {
+    type: 'appointment_booked',
+    title: 'New patient booking',
+    message: `${rows[0].patient_name} booked an appointment with ${rows[0].doctor_name} on ${appointment_date} at ${appointment_time}.`,
+    reference_type: 'appointment',
+    reference_id: result.insertId,
+  })
   res.status(201).json({ message: 'Appointment created.', id: result.insertId })
 }
 
@@ -272,7 +371,7 @@ const getPatientRecord = async (req, res) => {
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled')
+     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled','no_show')
      ORDER BY a.appointment_date DESC`,
     [req.params.id]
   )
@@ -466,28 +565,30 @@ const getInventory = async (req, res) => {
 }
 
 const addInventoryItem = async (req, res) => {
-  const { barcode, name, category, unit, stock, threshold, price, supplier } = req.body
+  const { barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier } = req.body
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
   const [result] = await db.query(
-    'INSERT INTO inventory (barcode, name, category, unit, stock, threshold, price, supplier) VALUES (?,?,?,?,?,?,?,?)',
-    [barcode || null, name, category, unit || null, stock || 0, threshold || 5, price || 0, supplier || null]
+    'INSERT INTO inventory (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    [barcode || null, name, category, unit || null, base_unit || unit || null, unit_size || 1, stock || 0, threshold || 5, price || 0, supplier || null]
   )
+  await syncInventoryBaseStock(result.insertId)
   const [rows] = await db.query('SELECT * FROM inventory WHERE id = ?', [result.insertId])
   res.status(201).json(rows[0])
 }
 
 // FIX 5: Edit an existing inventory item
 const updateInventoryItem = async (req, res) => {
-  const { barcode, name, category, unit, threshold, price, supplier } = req.body
+  const { barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier } = req.body
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
   const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
   await db.query(
-    'UPDATE inventory SET barcode=?, name=?, category=?, unit=?, threshold=?, price=?, supplier=? WHERE id=?',
-    [barcode || null, name, category, unit || null, threshold || 5, price || 0, supplier || null, req.params.id]
+    'UPDATE inventory SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, supplier=? WHERE id=?',
+    [barcode || null, name, category, unit || null, base_unit || unit || null, unit_size || 1, threshold || 5, price || 0, supplier || null, req.params.id]
   )
+  await syncInventoryBaseStock(req.params.id)
   const [updated] = await db.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
   res.json(updated[0])
 }
@@ -504,11 +605,15 @@ const updateStock = async (req, res) => {
   const { type, qty, note } = req.body
   if (!type || !qty)
     return res.status(400).json({ message: 'type and qty required.' })
-  const [rows] = await db.query('SELECT id, stock FROM inventory WHERE id = ?', [req.params.id])
+  const [rows] = await db.query('SELECT id, stock, stock_base, unit_size FROM inventory WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
 
-  const newStock = type === 'in' ? rows[0].stock + qty : Math.max(0, rows[0].stock - qty)
-  await db.query('UPDATE inventory SET stock=? WHERE id=?', [newStock, req.params.id])
+  const unitSize = Number(rows[0].unit_size) > 0 ? Number(rows[0].unit_size) : 1
+  const currentBase = Number(rows[0].stock_base ?? rows[0].stock * unitSize)
+  const deltaBase = Number(qty) * unitSize
+  const newBase = type === 'in' ? currentBase + deltaBase : Math.max(0, currentBase - deltaBase)
+  const newStock = newBase / unitSize
+  await db.query('UPDATE inventory SET stock=?, stock_base=? WHERE id=?', [newStock, newBase, req.params.id])
   await db.query(
     'INSERT INTO inventory_logs (inventory_id, type, qty, note) VALUES (?,?,?,?)',
     [req.params.id, type, qty, note || null]

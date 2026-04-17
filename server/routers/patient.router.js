@@ -11,6 +11,7 @@ const {
   createAppointment, cancelAppointment, rescheduleAppointment,
   getDoctors, getDoctorSchedule,
 } = require('../controllers/patient.controller')
+const commonCtrl = require('../controllers/common.controller')
 
 // Public
 router.post('/register',        register)
@@ -21,6 +22,10 @@ router.post('/logout',          logout)
 
 // Protected
 router.use(verifyToken('patient_token'), requireRole('patient')) // FIXED MIDDLEWARE
+router.get('/notifications',                        commonCtrl.listNotifications)
+router.patch('/notifications/:id/read',             commonCtrl.readNotification)
+router.get('/settings',                             commonCtrl.getMySettings)
+router.put('/settings',                             commonCtrl.saveMySettings)
 router.get('/appointments',                        getAppointments)
 router.post('/appointments',                       createAppointment)
 router.get('/appointments/history',                getHistory)

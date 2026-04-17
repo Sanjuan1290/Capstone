@@ -12,6 +12,7 @@ const {
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
 } = require('../controllers/doctor.controller')
+const commonCtrl = require('../controllers/common.controller')
 
 // ── Public ────────────────────────────────────────────────────────────────────
 router.post('/login',     login)
@@ -21,6 +22,10 @@ router.post('/logout',    logout)
 // ── Protected ─────────────────────────────────────────────────────────────────
 router.use(verifyToken('doctor_token'), requireRole('doctor'))
 
+router.get('/notifications',                commonCtrl.listNotifications)
+router.patch('/notifications/:id/read',    commonCtrl.readNotification)
+router.get('/settings',                     commonCtrl.getMySettings)
+router.put('/settings',                     commonCtrl.saveMySettings)
 router.get('/dashboard',                     getDashboard)
 router.get('/appointments/daily',            getDailyAppointments)
 router.patch('/appointments/:id/start',      startConsultation)

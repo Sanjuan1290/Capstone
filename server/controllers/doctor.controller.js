@@ -4,6 +4,8 @@ const db = require('../db/connect')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
+const { createNotification } = require('../utils/notifications')
+const { markOverdueAppointments } = require('../utils/appointments')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -22,7 +24,7 @@ const login = async (req, res) => {
   generateCookie(res, token, 'doctor')
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, role: 'doctor' },
+    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url },
   })
 }
 
@@ -33,7 +35,7 @@ const checkAuth = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     if (decoded.role !== 'doctor') return res.status(200).json({ authenticated: false })
     const [rows] = await db.query(
-      'SELECT id, full_name, email, specialty FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
+      'SELECT id, full_name, email, specialty, theme_preference, profile_image_url FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'doctor' } })
@@ -50,6 +52,7 @@ const logout = (req, res) => {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 const getDashboard = async (req, res) => {
+  await markOverdueAppointments()
   const today = new Date().toISOString().split('T')[0]
   const [[{ totalToday }]]      = await db.query(
     'SELECT COUNT(*) AS totalToday FROM appointments WHERE doctor_id = ? AND appointment_date = ?',
@@ -85,6 +88,7 @@ const getDashboard = async (req, res) => {
 // ── Appointments ──────────────────────────────────────────────────────────────
 
 const getDailyAppointments = async (req, res) => {
+  await markOverdueAppointments()
   const date = req.query.date || new Date().toISOString().split('T')[0]
   const [rows] = await db.query(
     `SELECT a.*, a.appointment_time AS time, a.clinic_type AS type,
@@ -176,7 +180,7 @@ const getPatientHistory = async (req, res) => {
             a.clinic_type AS type, c.diagnosis, c.prescription,
             c.notes, c.notes AS consultation_notes, c.consulted_at
      FROM appointments a LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled')
+     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled','no_show')
      ORDER BY a.appointment_date DESC`,
     [req.params.id]
   )
@@ -216,6 +220,14 @@ const submitRequest = async (req, res) => {
     'SELECT sr.*, i.name AS item_name, i.unit FROM supply_requests sr JOIN inventory i ON sr.inventory_id = i.id WHERE sr.id = ?',
     [result.insertId]
   )
+  await createNotification({
+    target_role: 'staff',
+    type: 'supply_request',
+    title: 'Doctor supply request',
+    message: `A doctor requested ${qty_requested} ${rows[0].unit}(s) of ${rows[0].item_name}.`,
+    reference_type: 'supply_request',
+    reference_id: result.insertId,
+  })
   res.status(201).json(rows[0])
 }
 

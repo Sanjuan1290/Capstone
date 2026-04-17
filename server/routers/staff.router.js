@@ -2,6 +2,7 @@
 const express    = require('express')
 const router     = express.Router()
 const staffCtrl  = require('../controllers/staff.controller')
+const commonCtrl = require('../controllers/common.controller')
 const authenticate = require('../middlewares/auth.middleware')
 const requireRole  = require('../middlewares/role.middleware')
 
@@ -11,6 +12,10 @@ const auth = [authenticate('staff_token'), requireRole('staff')]
 router.post('/login',     staffCtrl.login)
 router.get('/check-auth', staffCtrl.checkAuth)
 router.post('/logout',    staffCtrl.logout)
+router.get('/notifications', ...auth, commonCtrl.listNotifications)
+router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
+router.get('/settings', ...auth, commonCtrl.getMySettings)
+router.put('/settings', ...auth, commonCtrl.saveMySettings)
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 router.get('/dashboard',  ...auth, staffCtrl.getDashboard)
