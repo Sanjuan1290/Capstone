@@ -1,9 +1,36 @@
+// client/src/pages/LandingPages/LandingPage.jsx
+// FIX: Contact info cards now render actual icons (MdLocationOn, MdPhone, MdAccessTime)
+//      instead of the empty colored box that was rendering before.
+
 import { NavLink } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { getPublicLandingPage } from '../../services/landing.service'
 import { isExternalPath, normalizeAppPath } from '../../utils/navigation'
+import { MdLocationOn, MdPhone, MdAccessTime } from 'react-icons/md'
 
 const cardBg = ['bg-blue-50', 'bg-green-50', 'bg-purple-50', 'bg-yellow-50', 'bg-red-50', 'bg-slate-50']
+
+// ── Contact Info Card with real icon ─────────────────────────────────────────
+const InfoCard = ({ title, children, tone }) => {
+  const toneMap = {
+    blue:  { wrap: 'bg-blue-50',    iconBg: 'bg-blue-600',  titleColor: 'text-blue-700',  Icon: MdLocationOn  },
+    green: { wrap: 'bg-green-50',   iconBg: 'bg-green-600', titleColor: 'text-green-700', Icon: MdPhone       },
+    teal:  { wrap: 'bg-[#E6F4F1]',  iconBg: 'bg-teal-700',  titleColor: 'text-teal-800',  Icon: MdAccessTime  },
+  }
+  const { wrap, iconBg, titleColor, Icon } = toneMap[tone] || toneMap.blue
+
+  return (
+    <div className={`${wrap} p-6 rounded-2xl hover:shadow-md transition flex gap-4 items-start`}>
+      <div className={`${iconBg} text-white p-3 rounded-xl mt-1 shrink-0`}>
+        <Icon className="w-5 h-5 text-white" />
+      </div>
+      <div>
+        <h3 className={`font-semibold text-lg mb-1 ${titleColor}`}>{title}</h3>
+        {children}
+      </div>
+    </div>
+  )
+}
 
 const LandingPage = () => {
   const [content, setContent] = useState(null)
@@ -19,12 +46,23 @@ const LandingPage = () => {
   }
 
   const { hero, about, testimonial, services, doctors, contact } = content
-  const primaryButtonPath = normalizeAppPath(hero.primary_button_path, '/patient/register')
+  const primaryButtonPath   = normalizeAppPath(hero.primary_button_path,   '/patient/register')
   const secondaryButtonPath = normalizeAppPath(hero.secondary_button_path, '#about')
-  const contactCtaPath = normalizeAppPath(contact.cta_path, '/patient/register')
+  const contactCtaPath      = normalizeAppPath(contact.cta_path,           '/patient/register')
+
+  // address_lines can be an array from DB
+  const addressLines = Array.isArray(contact.address_lines)
+    ? contact.address_lines.filter(Boolean)
+    : typeof contact.address_lines === 'string'
+      ? contact.address_lines.split('\n')
+      : []
+
+  // hours can be multiline
+  const hoursText = typeof contact.hours === 'string' ? contact.hours : ''
 
   return (
     <>
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section
         id={hero.section_id || 'home'}
         className="relative min-h-screen flex items-center justify-center px-10 overflow-hidden"
@@ -75,6 +113,7 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* ── About ────────────────────────────────────────────────────────── */}
       <section id={about.section_id || 'about'} className="py-24 px-10 bg-white scroll-mt-24">
         <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-14 items-center">
           <div className="relative">
@@ -129,6 +168,7 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* ── Services ─────────────────────────────────────────────────────── */}
       <section id={services.section_id || 'services'} className="py-24 px-10 bg-gradient-to-b from-gray-50 to-white">
         <div className="text-center mb-16">
           <h1 className="text-4xl font-bold text-gray-800">{services.heading}</h1>
@@ -156,6 +196,7 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* ── Doctors ──────────────────────────────────────────────────────── */}
       <section id={doctors.section_id || 'doctors'} className="py-24 px-10 bg-gray-50 scroll-mt-24">
         <div className="text-center mb-16">
           <h1 className="text-4xl font-bold text-gray-800">{doctors.heading}</h1>
@@ -184,6 +225,7 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* ── Contact ──────────────────────────────────────────────────────── */}
       <section id={contact.section_id || 'contact'} className="py-24 px-10 bg-white scroll-mt-24">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
@@ -192,84 +234,81 @@ const LandingPage = () => {
           </div>
 
           <div className="grid md:grid-cols-2 gap-14 items-stretch">
-            <div className="flex flex-col gap-6 justify-center">
-              <InfoCard title={contact.location_title} tone="blue">
+            {/* LEFT — Contact Info with icons */}
+            <div className="flex flex-col gap-5 justify-center">
+              {/* Our Location */}
+              <InfoCard title={contact.location_title || 'Our Location'} tone="blue">
                 <p className="text-gray-600 text-sm leading-relaxed">
-                  {(contact.address_lines || []).map((line, index) => (
-                    <span key={`${line}-${index}`}>
+                  {addressLines.map((line, index) => (
+                    <span key={`addr-${index}`}>
                       {line}
-                      {index < contact.address_lines.length - 1 && <br />}
+                      {index < addressLines.length - 1 && <br />}
                     </span>
                   ))}
                 </p>
               </InfoCard>
 
-              <InfoCard title={contact.phone_title} tone="green">
+              {/* Phone Number */}
+              <InfoCard title={contact.phone_title || 'Phone Number'} tone="green">
                 <p className="text-gray-600 text-sm">{contact.phone}</p>
               </InfoCard>
 
-              <InfoCard title={contact.hours_title} tone="teal">
-                <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{contact.hours}</p>
+              {/* Clinic Hours */}
+              <InfoCard title={contact.hours_title || 'Clinic Hours'} tone="teal">
+                <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{hoursText}</p>
               </InfoCard>
             </div>
 
-            <div className="rounded-2xl overflow-hidden shadow-lg w-full min-h-[400px]">
-              <iframe
-                src={contact.map_embed_url}
-                width="100%"
-                height="100%"
-                style={{ border: 0, minHeight: '400px' }}
-                allowFullScreen=""
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                title={`${contact.location_title} Map`}
-              />
-            </div>
-          </div>
-
-          <div className="mt-16 bg-[#E6F4F1] rounded-2xl shadow-lg p-10 flex flex-col md:flex-row items-center justify-between gap-6">
-            <div>
-              <h3 className="text-2xl font-semibold text-teal-800 mb-1">{contact.cta_heading}</h3>
-              <p className="text-teal-700 text-sm">{contact.cta_description}</p>
-            </div>
-            {isExternalPath(contactCtaPath) ? (
-              <a
-                href={contactCtaPath}
-                className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300"
-              >
-                {contact.cta_label}
-              </a>
+            {/* RIGHT — Google Map */}
+            {contact.map_embed_url ? (
+              <div className="rounded-2xl overflow-hidden shadow-lg w-full min-h-[400px]">
+                <iframe
+                  src={contact.map_embed_url}
+                  width="100%"
+                  height="100%"
+                  style={{ border: 0, minHeight: '400px' }}
+                  allowFullScreen=""
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title={`${contact.location_title || 'Clinic'} Map`}
+                />
+              </div>
             ) : (
-              <NavLink
-                to={contactCtaPath}
-                className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300"
-              >
-                {contact.cta_label}
-              </NavLink>
+              <div className="rounded-2xl bg-slate-100 w-full min-h-[400px] flex items-center justify-center">
+                <p className="text-slate-400 text-sm">Map not configured</p>
+              </div>
             )}
           </div>
+
+          {/* CTA Banner */}
+          {contact.cta_heading && (
+            <div className="mt-16 bg-[#E6F4F1] rounded-2xl shadow-lg p-10 flex flex-col md:flex-row items-center justify-between gap-6">
+              <div>
+                <h3 className="text-2xl font-semibold text-teal-800 mb-1">{contact.cta_heading}</h3>
+                {contact.cta_description && (
+                  <p className="text-teal-700 text-sm">{contact.cta_description}</p>
+                )}
+              </div>
+              {isExternalPath(contactCtaPath) ? (
+                <a
+                  href={contactCtaPath}
+                  className="bg-blue-600 text-white text-sm font-semibold px-6 py-3 rounded-lg hover:bg-blue-700 transition duration-300 whitespace-nowrap"
+                >
+                  {contact.cta_label}
+                </a>
+              ) : (
+                <NavLink
+                  to={contactCtaPath}
+                  className="bg-blue-600 text-white text-sm font-semibold px-6 py-3 rounded-lg hover:bg-blue-700 transition duration-300 whitespace-nowrap"
+                >
+                  {contact.cta_label}
+                </NavLink>
+              )}
+            </div>
+          )}
         </div>
       </section>
     </>
-  )
-}
-
-const InfoCard = ({ title, children, tone }) => {
-  const toneMap = {
-    blue: { wrap: 'bg-blue-50', icon: 'bg-blue-600', title: 'text-blue-700' },
-    green: { wrap: 'bg-green-50', icon: 'bg-green-600', title: 'text-green-700' },
-    teal: { wrap: 'bg-[#E6F4F1]', icon: 'bg-teal-700', title: 'text-teal-800' },
-  }
-  const current = toneMap[tone] || toneMap.blue
-
-  return (
-    <div className={`${current.wrap} p-6 rounded-xl hover:shadow-md transition flex gap-4 items-start`}>
-      <div className={`${current.icon} text-white p-3 rounded-lg mt-1 shrink-0 w-11 h-11`} />
-      <div>
-        <h3 className={`font-semibold text-lg mb-1 ${current.title}`}>{title}</h3>
-        {children}
-      </div>
-    </div>
   )
 }
 

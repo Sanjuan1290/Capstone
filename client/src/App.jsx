@@ -1,5 +1,5 @@
 // client/src/App.jsx
-// ADDED: /doctor/schedule route → Doctor_Schedule
+// ADDED: /terms route → TermsOfService page
 
 import {
   RouterProvider, createBrowserRouter, createRoutesFromElements,
@@ -55,22 +55,26 @@ import DoctorRoute from './components/DoctorRoute'
 import AdminRoute  from './components/AdminRoute'
 
 import ForgotPassword from './pages/auth/ForgotPassword'
-import SettingsPage from './pages/shared/SettingsPage'
+import SettingsPage   from './pages/shared/SettingsPage'
 import PrivacyPolicys from './pages/shared/PrivacyPolicys'
+import TermsOfService from './pages/shared/TermsOfService'   // NEW
 
 const router = createBrowserRouter(createRoutesFromElements(
   <>
     <Route path='/' element={<Layout />}>
       <Route index element={<LandingPage />} />
-      <Route path='/privacy-policy' element={<PrivacyPolicys />} />
 
-      {/* ── Patient auth ────────────────────────────── */}
+      {/* ── Legal pages ──────────────────────────────────── */}
+      <Route path='/privacy-policy' element={<PrivacyPolicys />} />
+      <Route path='/terms'          element={<TermsOfService />} />   {/* NEW */}
+
+      {/* ── Patient auth ────────────────────────────────── */}
       <Route path='/patient/register'        element={<PatientAuthRoute><PatientRegister /></PatientAuthRoute>} />
       <Route path='/patient/login'           element={<PatientAuthRoute><PatientLogin /></PatientAuthRoute>} />
       <Route path='/patient/forgot-password' element={<ForgotPassword role="patient" />} />
       <Route path='/patient/reset-password'  element={<ForgotPassword role="patient" />} />
 
-      {/* ── Patient protected ───────────────────────── */}
+      {/* ── Patient protected ───────────────────────────── */}
       <Route path='/patient' element={<PatientRoute><PatientLayout /></PatientRoute>}>
         <Route index                         element={<PatientDashboard />} />
         <Route path='book'                   element={<BookAppointment />} />
@@ -80,12 +84,12 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='settings'               element={<SettingsPage />} />
       </Route>
 
-      {/* ── Staff auth ──────────────────────────────── */}
+      {/* ── Staff auth ──────────────────────────────────── */}
       <Route path='/staff/login'           element={<StaffLogin />} />
       <Route path='/staff/forgot-password' element={<ForgotPassword role="staff" />} />
       <Route path='/staff/reset-password'  element={<ForgotPassword role="staff" />} />
 
-      {/* ── Staff protected ─────────────────────────── */}
+      {/* ── Staff protected ─────────────────────────────── */}
       <Route path='/staff' element={<StaffRoute><StaffLayout /></StaffRoute>}>
         <Route index                  element={<Staff_Dashboard />} />
         <Route path='appointments'    element={<Staff_Appointments />} />
@@ -96,12 +100,12 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='settings'        element={<SettingsPage />} />
       </Route>
 
-      {/* ── Doctor auth ─────────────────────────────── */}
+      {/* ── Doctor auth ─────────────────────────────────── */}
       <Route path='/doctor/login'           element={<DoctorLogin />} />
       <Route path='/doctor/forgot-password' element={<ForgotPassword role="doctor" />} />
       <Route path='/doctor/reset-password'  element={<ForgotPassword role="doctor" />} />
 
-      {/* ── Doctor protected ────────────────────────── */}
+      {/* ── Doctor protected ────────────────────────────── */}
       <Route path='/doctor' element={<DoctorRoute><DoctorLayout /></DoctorRoute>}>
         <Route index                     element={<Doctor_Dashboard />} />
         <Route path='daily-appointments' element={<Doctor_DailyAppointments />} />
@@ -111,10 +115,10 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='settings'           element={<SettingsPage />} />
       </Route>
 
-      {/* ── Admin auth ──────────────────────────────── */}
+      {/* ── Admin auth ──────────────────────────────────── */}
       <Route path='/admin/login' element={<AdminLogin />} />
 
-      {/* ── Admin protected ─────────────────────────── */}
+      {/* ── Admin protected ─────────────────────────────── */}
       <Route path='/admin' element={<AdminRoute><AdminLayout /></AdminRoute>}>
         <Route index                   element={<Admin_Dashboard />} />
         <Route path='reports'          element={<Admin_Reports />} />
@@ -127,10 +131,10 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='settings'         element={<SettingsPage />} />
       </Route>
 
-      {/* ── Public TV queue display ─────────────────── */}
+      {/* ── Public TV queue display ─────────────────────── */}
       <Route path='/display/queue' element={<QueueDisplay />} />
 
-      {/* ── Catch-all 404 ───────────────────────────── */}
+      {/* ── Catch-all 404 ───────────────────────────────── */}
       <Route path='*' element={<Navigate to='/' replace />} />
     </Route>
   </>
