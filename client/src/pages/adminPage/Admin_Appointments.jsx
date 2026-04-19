@@ -7,8 +7,10 @@ import {
   getAppointments,
   confirmAppointment,
   cancelAppointment,
+  markAppointmentNoShow,
   rescheduleAppointment,
   createAppointment,
+  createWalkInPatient,
   getPatients,
   getDoctors,
 } from '../../services/admin.service'
@@ -17,8 +19,10 @@ const adminServices = {
   getAppointments,
   confirmAppointment,
   cancelAppointment,
+  markAppointmentNoShow,
   rescheduleAppointment,
   createAppointment,
+  createWalkInPatient,
   getPatients,
   getDoctors,
 }

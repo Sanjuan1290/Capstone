@@ -13,6 +13,7 @@ router.post('/login',      adminCtrl.login)
 router.get('/check-auth',  adminCtrl.checkAuth)
 router.post('/logout',     adminCtrl.logout)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
+router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
 router.get('/settings', ...auth, commonCtrl.getMySettings)
 router.put('/settings', ...auth, commonCtrl.saveMySettings)
@@ -27,6 +28,7 @@ router.get('/appointments',                    ...auth, adminCtrl.getAppointment
 router.post('/appointments',                   ...auth, adminCtrl.createAppointment)
 router.patch('/appointments/:id/confirm',      ...auth, adminCtrl.confirmAppointment)
 router.patch('/appointments/:id/cancel',       ...auth, adminCtrl.cancelAppointment)
+router.patch('/appointments/:id/no-show',      ...auth, adminCtrl.markAppointmentNoShow)
 router.patch('/appointments/:id/reschedule',   ...auth, adminCtrl.rescheduleAppointment)
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -36,17 +38,20 @@ router.patch('/queue/:id/status', ...auth, adminCtrl.updateQueueStatus)
 
 // ── Patients ──────────────────────────────────────────────────────────────────
 router.get('/patients',     ...auth, adminCtrl.getPatients)
+router.post('/patients/walk-in', ...auth, adminCtrl.createWalkInPatient)
 router.get('/patients/:id', ...auth, adminCtrl.getPatientRecord)
 
 // ── Staff ─────────────────────────────────────────────────────────────────────
 router.get('/staff',              ...auth, adminCtrl.getStaff)
 router.post('/staff',             ...auth, adminCtrl.createStaff)
 router.patch('/staff/:id/toggle', ...auth, adminCtrl.toggleStaff)
+router.put('/staff/:id',          ...auth, adminCtrl.updateStaff)
 
 // ── Doctors ───────────────────────────────────────────────────────────────────
 router.get('/doctors',                    ...auth, adminCtrl.getDoctors)
 router.post('/doctors',                   ...auth, adminCtrl.createDoctor)
 router.patch('/doctors/:id/toggle',       ...auth, adminCtrl.toggleDoctor)
+router.put('/doctors/:id',                ...auth, adminCtrl.updateDoctor)
 router.get('/doctors/:id/schedules',      ...auth, adminCtrl.getDoctorSchedules)
 router.put('/doctors/:id/schedules',      ...auth, adminCtrl.saveDaySchedule)
 
@@ -55,6 +60,7 @@ router.get('/reports', ...auth, adminCtrl.getReports)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 router.get('/inventory',              ...auth, adminCtrl.getInventory)
+router.get('/inventory/logs',         ...auth, adminCtrl.getInventoryLogs)
 router.post('/inventory',             ...auth, adminCtrl.addInventoryItem)
 router.patch('/inventory/:id/stock',  ...auth, adminCtrl.updateStock)
 // FIX 5: Edit and Delete inventory items

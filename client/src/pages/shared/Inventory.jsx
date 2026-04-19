@@ -1,8 +1,9 @@
 import { BrowserMultiFormatReader } from '@zxing/browser'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MdAdd, MdCameraAlt, MdClose, MdDelete, MdEdit, MdInventory2,
-  MdQrCodeScanner, MdRefresh, MdSave, MdSearch,
+  MdQrCodeScanner, MdRefresh, MdSave, MdSearch, MdWarningAmber,
+  MdCheckCircle, MdLocationOn, MdCalendarToday,
 } from 'react-icons/md'
 
 const CATEGORIES = ['Medicine', 'Derma', 'Supplies']
@@ -20,6 +21,23 @@ const getStockBadge = (item) => {
   if (count === 0) return 'bg-red-50 text-red-600 border-red-200'
   if (count <= Number(item.threshold || 0)) return 'bg-amber-50 text-amber-700 border-amber-200'
   return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+}
+
+const formatDate = (value) => {
+  if (!value) return 'No expiry recorded'
+  return new Date(value).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const getExpiryMeta = (item) => {
+  if (!item.expiration_date) return { label: 'No expiry recorded', tone: 'text-slate-400' }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const expiry = new Date(item.expiration_date)
+  expiry.setHours(0, 0, 0, 0)
+  const diffDays = Math.round((expiry - today) / 86400000)
+  if (diffDays < 0) return { label: `Expired ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} ago`, tone: 'text-red-600' }
+  if (diffDays <= 30) return { label: `Expires in ${diffDays} day${diffDays === 1 ? '' : 's'}`, tone: 'text-amber-600' }
+  return { label: `Expires ${formatDate(item.expiration_date)}`, tone: 'text-slate-500' }
 }
 
 const CameraScanner = ({ onDetected, onClose }) => {
@@ -244,6 +262,8 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
     threshold: String(initialItem?.threshold ?? 5),
     price: String(initialItem?.price ?? 0),
     supplier: initialItem?.supplier || '',
+    expiration_date: initialItem?.expiration_date ? String(initialItem.expiration_date).slice(0, 10) : '',
+    storage_location: initialItem?.storage_location || '',
   })
 
   const update = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
@@ -281,6 +301,8 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
           <Field label="Low Stock Threshold"><input type="number" min="0" value={form.threshold} onChange={update('threshold')} className={inputClass} /></Field>
           <Field label="Unit Price"><input type="number" min="0" value={form.price} onChange={update('price')} className={inputClass} /></Field>
           <Field label="Supplier"><input value={form.supplier} onChange={update('supplier')} className={inputClass} /></Field>
+          <Field label="Expiration Date"><input type="date" value={form.expiration_date} onChange={update('expiration_date')} className={inputClass} /></Field>
+          <Field label="Storage Location"><input value={form.storage_location} onChange={update('storage_location')} className={inputClass} placeholder="e.g. Shelf A2 / Cold storage" /></Field>
         </div>
         <div className="px-6 pb-6 flex gap-3">
           <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
@@ -359,8 +381,9 @@ const Inventory = ({ services }) => {
   const [editItem, setEditItem] = useState(null)
   const [stockItem, setStockItem] = useState(null)
   const [scannerOpen, setScannerOpen] = useState(false)
+  const [feedback, setFeedback] = useState(null)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const data = await getInventory()
@@ -368,9 +391,15 @@ const Inventory = ({ services }) => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [getInventory])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!feedback) return undefined
+    const timer = window.setTimeout(() => setFeedback(null), 3500)
+    return () => window.clearTimeout(timer)
+  }, [feedback])
 
   const filtered = useMemo(() => items.filter(item => {
     const matchesCategory = category === 'All' || item.category === category
@@ -383,31 +412,49 @@ const Inventory = ({ services }) => {
   }), [items, category, search])
 
   const handleAdd = async (payload) => {
-    const created = await addInventoryItem(payload)
-    setItems(prev => [...prev, created])
+    try {
+      const created = await addInventoryItem(payload)
+      setItems(prev => [...prev, created])
+      setFeedback({ type: 'success', message: `${created.name} was added to inventory.` })
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to add inventory item.' })
+      throw err
+    }
   }
 
   const handleEdit = async (payload) => {
-    const updated = await updateInventoryItem(editItem.id, payload)
-    setItems(prev => prev.map(item => item.id === editItem.id ? { ...item, ...updated } : item))
+    try {
+      const updated = await updateInventoryItem(editItem.id, payload)
+      setItems(prev => prev.map(item => item.id === editItem.id ? { ...item, ...updated } : item))
+      setFeedback({ type: 'success', message: `${updated.name} was updated.` })
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to update inventory item.' })
+      throw err
+    }
   }
 
   const handleDelete = async (item) => {
     if (!window.confirm(`Delete ${item.name}?`)) return
     await deleteInventoryItem(item.id)
     setItems(prev => prev.filter(entry => entry.id !== item.id))
+    setFeedback({ type: 'success', message: `${item.name} was removed from inventory.` })
   }
 
   const handleStockUpdate = async ({ type, qty, note }) => {
-    const result = await updateStock(stockItem.id, { type, qty, note })
-    const nextStock = result?.stock ?? result?.new_stock
-    const unitSize = Number(stockItem.unit_size || 1)
-    setItems(prev => prev.map(item => item.id === stockItem.id ? {
-      ...item,
-      stock: nextStock,
-      stock_base: Number(nextStock) * unitSize,
-    } : item))
-    setStockItem(null)
+    try {
+      const result = await updateStock(stockItem.id, { type, qty, note })
+      const nextStock = result?.stock ?? result?.new_stock
+      const unitSize = Number(stockItem.unit_size || 1)
+      setItems(prev => prev.map(item => item.id === stockItem.id ? {
+        ...item,
+        stock: nextStock,
+        stock_base: Number(nextStock) * unitSize,
+      } : item))
+      setFeedback({ type: 'success', message: `${stockItem.name} stock was updated successfully.` })
+      setStockItem(null)
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to update stock.' })
+    }
   }
 
   const handleScannerDetected = (code) => {
@@ -425,6 +472,23 @@ const Inventory = ({ services }) => {
     return <div className="p-12 text-center text-sm text-slate-400">Loading inventory...</div>
   }
 
+  const summary = {
+    total: items.length,
+    low: items.filter(item => {
+      const count = getPackageCount(item)
+      return count > 0 && count <= Number(item.threshold || 0)
+    }).length,
+    out: items.filter(item => getPackageCount(item) === 0).length,
+    expiring: items.filter(item => {
+      if (!item.expiration_date) return false
+      const expiry = new Date(item.expiration_date)
+      const today = new Date()
+      expiry.setHours(0, 0, 0, 0)
+      today.setHours(0, 0, 0, 0)
+      return expiry >= today && expiry <= new Date(today.getTime() + 30 * 86400000)
+    }).length,
+  }
+
   return (
     <div className="max-w-6xl space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -437,6 +501,31 @@ const Inventory = ({ services }) => {
           <button onClick={() => setScannerOpen(true)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 flex items-center gap-2"><MdQrCodeScanner /> Scan Barcode</button>
           <button onClick={() => setShowAdd(true)} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2"><MdAdd /> Add Item</button>
         </div>
+      </div>
+
+      {feedback && (
+        <div className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${
+          feedback.type === 'error'
+            ? 'border-red-200 bg-red-50 text-red-700'
+            : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        }`}>
+          {feedback.type === 'error' ? <MdWarningAmber className="mt-0.5 text-[18px]" /> : <MdCheckCircle className="mt-0.5 text-[18px]" />}
+          <p>{feedback.message}</p>
+        </div>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: 'Tracked Items', value: summary.total, tone: 'text-slate-800' },
+          { label: 'Low Stock', value: summary.low, tone: 'text-amber-600' },
+          { label: 'Out of Stock', value: summary.out, tone: 'text-red-600' },
+          { label: 'Expiring in 30 Days', value: summary.expiring, tone: 'text-violet-600' },
+        ].map((card) => (
+          <div key={card.label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{card.label}</p>
+            <p className={`mt-3 text-3xl font-black ${card.tone}`}>{card.value}</p>
+          </div>
+        ))}
       </div>
 
       <div className="grid md:grid-cols-[1fr_auto] gap-3">
@@ -455,7 +544,7 @@ const Inventory = ({ services }) => {
 
       <div className="grid gap-4">
         {filtered.map(item => (
-          <div key={item.id} className="bg-white border border-slate-200 rounded-3xl p-5">
+          <div key={item.id} className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -467,6 +556,14 @@ const Inventory = ({ services }) => {
                   <strong>{getPackageCount(item)}</strong> {item.unit}s in stock - {Number(item.unit_size || 1)} {item.base_unit || item.unit} per {item.unit}
                 </p>
                 <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.unit}s - PHP {Number(item.price || 0).toFixed(2)} per {item.unit}</p>
+                <div className="flex flex-wrap gap-3 pt-1 text-xs">
+                  <span className="inline-flex items-center gap-1 text-slate-500">
+                    <MdLocationOn className="text-[14px]" /> {item.storage_location || 'No location assigned'}
+                  </span>
+                  <span className={`inline-flex items-center gap-1 ${getExpiryMeta(item).tone}`}>
+                    <MdCalendarToday className="text-[14px]" /> {getExpiryMeta(item).label}
+                  </span>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setStockItem(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdInventory2 /> Update Stock</button>

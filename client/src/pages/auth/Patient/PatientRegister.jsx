@@ -83,6 +83,7 @@ const RegistrationForm = ({ onSuccess }) => {
     full_name: '', birthdate: '', sex: '', civil_status: '',
     phone: '', address: '', email: '', password: '', confirmPassword: '',
   })
+  const [consentGiven, setConsentGiven] = useState(false)
   const [error,   setError]   = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -97,7 +98,7 @@ const RegistrationForm = ({ onSuccess }) => {
       const res  = await fetch('/api/patient/register', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, civil_status: form.civil_status || null }),
+        body: JSON.stringify({ ...form, civil_status: form.civil_status || null, consent_given: true }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.message || 'Registration failed.'); return }
@@ -253,7 +254,23 @@ const RegistrationForm = ({ onSuccess }) => {
               </div>
             </div>
 
-            <button type="submit" disabled={loading}
+            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={consentGiven}
+                onChange={(e) => setConsentGiven(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600"
+              />
+              <span>
+                I have read and agree to the{' '}
+                <NavLink to="/privacy-policy" className="font-bold text-emerald-600 hover:text-emerald-700">
+                  Privacy Policy
+                </NavLink>
+                . I consent to the collection and processing of my personal data in accordance with Republic Act 10173 (Data Privacy Act of 2012).
+              </span>
+            </label>
+
+            <button type="submit" disabled={loading || !consentGiven}
               className="w-full flex items-center justify-center gap-2 py-3.5 bg-emerald-500 hover:bg-emerald-600
                 text-white font-bold text-sm rounded-xl transition-colors shadow-lg shadow-emerald-500/20
                 disabled:opacity-60 mt-2">
@@ -286,7 +303,6 @@ const VerificationForm = ({ email, onBack }) => {
   const [code,    setCode]    = useState('')
   const [error,   setError]   = useState('')
   const [loading, setLoading] = useState(false)
-  const [resending,setResend] = useState(false)
   const { login } = useAuth()
   const navigate  = useNavigate()
 

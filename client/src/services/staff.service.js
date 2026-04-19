@@ -1,6 +1,13 @@
 // client/src/services/staff.service.js
 const BASE = '/api/staff'
 
+const requestJson = async (url, options = {}) => {
+  const res = await fetch(url, { credentials: 'include', ...options })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.message || 'Request failed.')
+  return data
+}
+
 export const getDashboard = () =>
   fetch(`${BASE}/dashboard`, { credentials: 'include' }).then(r => r.json())
 
@@ -20,6 +27,9 @@ export const confirmAppointment = (id) =>
 export const cancelAppointment = (id) =>
   fetch(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
 
+export const markAppointmentNoShow = (id) =>
+  fetch(`${BASE}/appointments/${id}/no-show`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+
 export const rescheduleAppointment = (id, payload) =>
   fetch(`${BASE}/appointments/${id}/reschedule`, {
     method: 'PATCH', credentials: 'include',
@@ -28,11 +38,11 @@ export const rescheduleAppointment = (id, payload) =>
   }).then(r => r.json())
 
 export const createAppointment = (payload) =>
-  fetch(`${BASE}/appointments`, {
+  requestJson(`${BASE}/appointments`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 export const getQueue = (date) =>
   fetch(`${BASE}/queue${date ? `?date=${date}` : ''}`, { credentials: 'include' }).then(r => r.json())
@@ -54,6 +64,14 @@ export const updateQueueStatus = (id, status) =>
 export const getPatients = (search = '') =>
   fetch(`${BASE}/patients?search=${encodeURIComponent(search)}`, { credentials: 'include' }).then(r => r.json())
 
+export const createWalkInPatient = (payload) =>
+  requestJson(`${BASE}/patients/walk-in`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
 export const getPatientRecord = (id) =>
   fetch(`${BASE}/patients/${id}`, { credentials: 'include' }).then(r => r.json())
 
@@ -68,19 +86,19 @@ export const updateStock = (id, payload) =>
   }).then(r => r.json())
 
 export const addInventoryItem = (payload) =>
-  fetch(`${BASE}/inventory`, {
+  requestJson(`${BASE}/inventory`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 // FIX 2: Edit inventory item
 export const updateInventoryItem = (id, payload) =>
-  fetch(`${BASE}/inventory/${id}`, {
+  requestJson(`${BASE}/inventory/${id}`, {
     method: 'PUT', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 // FIX 2: Delete inventory item
 export const deleteInventoryItem = (id) =>

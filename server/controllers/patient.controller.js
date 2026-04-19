@@ -7,6 +7,7 @@ const generateCookie = require('../utils/generateCookie')
 const { sendVerificationCode, sendAppointmentStatusEmail } = require('../utils/emailService')
 const { notifyRoles, createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
+const { broadcast } = require('../utils/sse')
 
 // In-memory pending registrations (keyed by email)
 const pendingRegistrations = {}
@@ -14,7 +15,7 @@ const pendingRegistrations = {}
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 const register = async (req, res) => {
-  const { full_name, birthdate, sex, civil_status, phone, address, email, password, confirmPassword } = req.body
+  const { full_name, birthdate, sex, civil_status, phone, address, email, password, confirmPassword, consent_given } = req.body
 
   if (!full_name || !birthdate || !sex || !phone || !address || !email || !password)
     return res.status(400).json({ message: 'All required fields must be filled.' })
@@ -24,6 +25,8 @@ const register = async (req, res) => {
 
   if (password.length < 6)
     return res.status(400).json({ message: 'Password must be at least 6 characters.' })
+  if (!consent_given)
+    return res.status(400).json({ message: 'Data privacy consent is required.' })
 
   const [existing] = await db.query('SELECT id FROM patients WHERE email = ?', [email])
   if (existing.length > 0)
@@ -35,6 +38,7 @@ const register = async (req, res) => {
   pendingRegistrations[email] = {
     full_name, birthdate, sex, civil_status: civil_status || null,
     phone, address, email, password: hashed,
+    consent_given: true,
     code, expiresAt: Date.now() + 10 * 60 * 1000,
   }
 
@@ -63,9 +67,18 @@ const verifyRegistration = async (req, res) => {
     return res.status(400).json({ message: 'Invalid verification code.' })
 
   const [result] = await db.query(
-    'INSERT INTO patients (full_name, birthdate, sex, civil_status, phone, address, email, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [pending.full_name, pending.birthdate, pending.sex, pending.civil_status, pending.phone, pending.address, pending.email, pending.password]
+    `INSERT INTO patients
+      (full_name, birthdate, sex, civil_status, phone, address, email, password, consent_given, consent_given_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [pending.full_name, pending.birthdate, pending.sex, pending.civil_status, pending.phone, pending.address, pending.email, pending.password, pending.consent_given ? 1 : 0, pending.consent_given ? new Date() : null]
   )
+
+  if (pending.consent_given) {
+    await db.query(
+      'INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)',
+      [result.insertId, 'data_processing', req.ip || null]
+    )
+  }
 
   delete pendingRegistrations[email]
 
@@ -236,6 +249,7 @@ const createAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
 
   res.status(201).json({ message: 'Appointment booked.', id: result.insertId })
 }
@@ -258,6 +272,7 @@ const cancelAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'cancelled' })
   res.json({ message: 'Appointment cancelled.' })
 }
 
@@ -303,6 +318,7 @@ const rescheduleAppointment = async (req, res) => {
       status: 'rescheduled',
     }).catch(() => {})
   }
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'rescheduled' })
   res.json({ message: 'Appointment rescheduled.' })
 }
 

@@ -26,9 +26,14 @@ const ensureAppSchema = async () => {
   await ensureColumn('inventory', 'base_unit', "VARCHAR(50) NULL")
   await ensureColumn('inventory', 'unit_size', "DECIMAL(10,2) NOT NULL DEFAULT 1")
   await ensureColumn('inventory', 'stock_base', "DECIMAL(12,2) NOT NULL DEFAULT 0")
+  await ensureColumn('inventory', 'expiration_date', 'DATE NULL')
+  await ensureColumn('inventory', 'storage_location', "VARCHAR(120) NULL")
 
   await ensureColumn('patients', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('patients', 'profile_image_url', "TEXT NULL")
+  await ensureColumn('patients', 'is_walk_in', "TINYINT(1) NOT NULL DEFAULT 0")
+  await ensureColumn('patients', 'consent_given', "TINYINT(1) NOT NULL DEFAULT 0")
+  await ensureColumn('patients', 'consent_given_at', "TIMESTAMP NULL")
 
   await ensureColumn('staff', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('staff', 'profile_image_url', "TEXT NULL")
@@ -38,6 +43,9 @@ const ensureAppSchema = async () => {
 
   await ensureColumn('admins', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('admins', 'profile_image_url', "TEXT NULL")
+
+  await ensureColumn('inventory_logs', 'staff_id', 'INT NULL').catch(() => {})
+  await ensureColumn('inventory_logs', 'admin_id', 'INT NULL').catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS notifications (
@@ -60,6 +68,17 @@ const ensureAppSchema = async () => {
       id INT NOT NULL PRIMARY KEY,
       content JSON NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS patient_consents (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      patient_id INT NOT NULL,
+      consent_type ENUM('treatment','privacy','data_processing') NOT NULL,
+      signed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      ip_address VARCHAR(45) NULL,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
     )
   `)
 }

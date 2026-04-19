@@ -8,6 +8,7 @@ const cookieParser = require('cookie-parser')
 const app = express()
 const db = require('./db/connect')
 const { ensureAppSchema } = require('./utils/schema')
+const { registerClient, writeEvent, broadcast } = require('./utils/sse')
 
 const patientRouter = require('./routers/patient.router')
 const adminRouter = require('./routers/admin.router')
@@ -24,6 +25,32 @@ app.use(cors({
   credentials: true,
 }))
 app.use(cookieParser())
+
+app.get('/api/events', (req, res) => {
+  const { role, userId } = req.query
+  if (!role) return res.status(400).json({ message: 'role is required' })
+
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('Access-Control-Allow-Origin', process.env.CLIENT_URL || 'http://localhost:5173')
+  res.setHeader('Access-Control-Allow-Credentials', 'true')
+  res.flushHeaders?.()
+
+  const unregister = registerClient(role, userId, res)
+  writeEvent(res, 'connected', { role, userId: userId || null, connectedAt: new Date().toISOString() })
+
+  const ping = setInterval(() => {
+    if (res.writableEnded) return
+    res.write(': ping\n\n')
+  }, 30000)
+
+  req.on('close', () => {
+    clearInterval(ping)
+    unregister()
+    res.end()
+  })
+})
 
 app.use('/api/patient', patientRouter)
 app.use('/api/admin', adminRouter)
@@ -52,3 +79,8 @@ const start = async () => {
 }
 
 start()
+
+module.exports = {
+  app,
+  broadcast,
+}

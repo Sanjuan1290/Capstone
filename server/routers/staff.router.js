@@ -13,6 +13,7 @@ router.post('/login',     staffCtrl.login)
 router.get('/check-auth', staffCtrl.checkAuth)
 router.post('/logout',    staffCtrl.logout)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
+router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
 router.get('/settings', ...auth, commonCtrl.getMySettings)
 router.put('/settings', ...auth, commonCtrl.saveMySettings)
@@ -25,6 +26,7 @@ router.get('/appointments',                  ...auth, staffCtrl.getAppointments)
 router.post('/appointments',                 ...auth, staffCtrl.createAppointment)
 router.patch('/appointments/:id/confirm',    ...auth, staffCtrl.confirmAppointment)
 router.patch('/appointments/:id/cancel',     ...auth, staffCtrl.cancelAppointment)
+router.patch('/appointments/:id/no-show',    ...auth, staffCtrl.markAppointmentNoShow)
 router.patch('/appointments/:id/reschedule', ...auth, staffCtrl.rescheduleAppointment)
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -34,6 +36,7 @@ router.patch('/queue/:id/status', ...auth, staffCtrl.updateQueueStatus)
 
 // ── Patients ──────────────────────────────────────────────────────────────────
 router.get('/patients',     ...auth, staffCtrl.getPatients)
+router.post('/patients/walk-in', ...auth, staffCtrl.createWalkInPatient)
 router.get('/patients/:id', ...auth, staffCtrl.getPatientRecord)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────

@@ -7,8 +7,10 @@ import {
   getAppointments,
   confirmAppointment,
   cancelAppointment,
+  markAppointmentNoShow,
   rescheduleAppointment,
   createAppointment,
+  createWalkInPatient,
   getPatients,
   getDoctors,
 } from '../../services/staff.service'
@@ -17,8 +19,10 @@ const staffServices = {
   getAppointments,
   confirmAppointment,
   cancelAppointment,
+  markAppointmentNoShow,
   rescheduleAppointment,
   createAppointment,
+  createWalkInPatient,
   getPatients,
   getDoctors,
 }

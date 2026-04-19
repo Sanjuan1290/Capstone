@@ -56,11 +56,13 @@ import AdminRoute  from './components/AdminRoute'
 
 import ForgotPassword from './pages/auth/ForgotPassword'
 import SettingsPage from './pages/shared/SettingsPage'
+import PrivacyPolicys from './pages/shared/PrivacyPolicys'
 
 const router = createBrowserRouter(createRoutesFromElements(
   <>
     <Route path='/' element={<Layout />}>
       <Route index element={<LandingPage />} />
+      <Route path='/privacy-policy' element={<PrivacyPolicys />} />
 
       {/* ── Patient auth ────────────────────────────── */}
       <Route path='/patient/register'        element={<PatientAuthRoute><PatientRegister /></PatientAuthRoute>} />

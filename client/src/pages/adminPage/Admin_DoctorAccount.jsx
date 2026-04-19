@@ -2,11 +2,11 @@
 // REDESIGNED: Split list+detail, amber theme, doctor add modal with specialty
 
 import { useEffect, useState } from 'react'
-import { getDoctors, createDoctor, toggleDoctor } from '../../services/admin.service'
+import { getDoctors, createDoctor, toggleDoctor, updateDoctor } from '../../services/admin.service'
 import {
-  MdSearch, MdClose, MdAdd, MdPerson, MdEmail, MdPhone,
+  MdSearch, MdClose, MdAdd, MdEmail, MdPhone,
   MdChevronRight, MdBlock, MdCheck, MdArrowBack,
-  MdMedicalServices, MdFace, MdScience, MdMailOutline, MdCalendarToday,
+  MdMedicalServices, MdFace, MdScience, MdMailOutline, MdCalendarToday, MdEdit,
 } from 'react-icons/md'
 
 const SPECIALTIES = ['Dermatologist','General Practitioner','Cosmetic Dermatology','Internal Medicine','Pediatrician','OB-GYN']
@@ -101,8 +101,82 @@ const AddModal = ({ onClose, onAdd }) => {
   )
 }
 
+const EditModal = ({ doctor, onClose, onSave }) => {
+  const [form, setForm] = useState({
+    full_name: doctor?.full_name || '',
+    email: doctor?.email || '',
+    phone: doctor?.phone || '',
+    specialty: doctor?.specialty || 'Dermatologist',
+    prc_license: doctor?.prc_license || '',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async () => {
+    setSubmitting(true)
+    setError('')
+    try {
+      await onSave(form)
+      onClose()
+    } catch (err) {
+      setError(err.message || 'Failed to update account.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-x-4 top-1/2 z-50 mx-auto w-auto max-w-md -translate-y-1/2 rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <p className="text-sm font-bold text-slate-800">Update Doctor Account</p>
+            <p className="text-xs text-slate-500 mt-0.5">Use after verifying the doctor's request with admin records.</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
+            <MdClose />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          {[
+            { k: 'full_name', l: 'Full Name', t: 'text' },
+            { k: 'email', l: 'Email', t: 'email' },
+            { k: 'phone', l: 'Phone', t: 'tel' },
+            { k: 'prc_license', l: 'PRC License', t: 'text' },
+          ].map(({ k, l, t }) => (
+            <div key={k}>
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">{l}</label>
+              <input
+                type={t}
+                value={form[k]}
+                onChange={e => setForm(prev => ({ ...prev, [k]: e.target.value }))}
+                className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400 transition-colors"
+              />
+            </div>
+          ))}
+          <div>
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Specialty</label>
+            <select value={form.specialty} onChange={e => setForm(prev => ({ ...prev, specialty: e.target.value }))}
+              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400">
+              {SPECIALTIES.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>}
+        </div>
+        <div className="px-6 pb-6 flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 text-sm font-semibold text-slate-600 border border-slate-200 rounded-2xl hover:bg-slate-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={submitting} className="flex-1 py-3 text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-40 rounded-2xl transition-colors">
+            {submitting ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── Detail Panel ──────────────────────────────────────────────────────────────
-const DetailPanel = ({ doctor, onClose, onToggle }) => {
+const DetailPanel = ({ doctor, onClose, onToggle, onEdit }) => {
   if (!doctor) return null
   const isDerma  = (doctor.type === 'derma') || (doctor.specialty || '').toLowerCase().includes('derm')
   const Icon     = isDerma ? MdFace : MdMedicalServices
@@ -133,17 +207,17 @@ const DetailPanel = ({ doctor, onClose, onToggle }) => {
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Account Info</p>
           {[
             { icon: MdEmail,        label: 'Email',       value: doctor.email                 },
-            { icon: MdPhone,        label: 'Phone',        value: doctor.phone || 'N/A'        },
-            { icon: MdScience,      label: 'PRC License',  value: doctor.prc_license || 'N/A' },
-            { icon: MdCalendarToday,label: 'Joined',       value: joined                       },
-          ].map(({ icon: I, label, value }) => (
-            <div key={label} className="flex items-center gap-3">
+            { icon: MdPhone,        label: 'Phone',       value: doctor.phone || 'N/A'        },
+            { icon: MdScience,      label: 'PRC License', value: doctor.prc_license || 'N/A' },
+            { icon: MdCalendarToday,label: 'Joined',      value: joined                       },
+          ].map((meta) => (
+            <div key={meta.label} className="flex items-center gap-3">
               <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
-                <I className="text-[13px] text-slate-400" />
+                <meta.icon className="text-[13px] text-slate-400" />
               </div>
               <div>
-                <p className="text-[10px] text-slate-400 font-medium">{label}</p>
-                <p className="text-sm font-semibold text-slate-800">{value}</p>
+                <p className="text-[10px] text-slate-400 font-medium">{meta.label}</p>
+                <p className="text-sm font-semibold text-slate-800">{meta.value}</p>
               </div>
             </div>
           ))}
@@ -151,6 +225,10 @@ const DetailPanel = ({ doctor, onClose, onToggle }) => {
       </div>
 
       <div className="px-6 pb-6 pt-4 border-t border-slate-100 shrink-0">
+        <button onClick={() => onEdit(doctor)}
+          className="mb-2 w-full flex items-center justify-center gap-2 py-3 text-xs font-bold rounded-xl border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors">
+          <MdEdit className="text-[14px]" /> Update Contact Details
+        </button>
         <button onClick={() => onToggle(doctor.id)}
           className={`w-full flex items-center justify-center gap-2 py-3 text-xs font-bold rounded-xl transition-colors
             ${isActive
@@ -170,6 +248,7 @@ const Admin_DoctorAccount = () => {
   const [search,   setSearch]   = useState('')
   const [selected, setSelected] = useState(null)
   const [showAdd,  setShowAdd]  = useState(false)
+  const [editing,  setEditing]  = useState(null)
 
   useEffect(() => {
     getDoctors()
@@ -190,6 +269,12 @@ const Admin_DoctorAccount = () => {
     const newDoc = await createDoctor(formData)
     setDoctors(prev => [...prev, newDoc])
     if (!selected) setSelected(newDoc)
+  }
+
+  const handleEdit = async formData => {
+    const updated = await updateDoctor(editing.id, formData)
+    setDoctors(prev => prev.map(d => d.id === updated.id ? { ...d, ...updated } : d))
+    setSelected(prev => prev?.id === updated.id ? { ...prev, ...updated } : prev)
   }
 
   const filtered = doctors.filter(d =>
@@ -278,6 +363,7 @@ const Admin_DoctorAccount = () => {
               doctor={doctors.find(d => d.id === selected.id) || selected}
               onClose={() => setSelected(null)}
               onToggle={handleToggle}
+              onEdit={setEditing}
             />
           ) : (
             <div className="flex flex-col items-center justify-center flex-1 text-center px-8">
@@ -292,6 +378,7 @@ const Admin_DoctorAccount = () => {
       </div>
 
       {showAdd && <AddModal onClose={() => setShowAdd(false)} onAdd={handleAdd} />}
+      {editing && <EditModal doctor={editing} onClose={() => setEditing(null)} onSave={handleEdit} />}
     </div>
   )
 }

@@ -15,6 +15,7 @@ const request = async (role, path = '', options = {}) => {
 
 export const getNotifications = (role) => request(role, '/notifications')
 export const markNotificationRead = (role, id) => request(role, `/notifications/${id}/read`, { method: 'PATCH' })
+export const readAllNotifications = (role) => request(role, '/notifications/read-all', { method: 'PATCH' })
 export const getSettings = (role) => request(role, '/settings', { headers: {} })
 export const updateSettings = (role, payload) => request(role, '/settings', { method: 'PUT', body: JSON.stringify(payload) })
 

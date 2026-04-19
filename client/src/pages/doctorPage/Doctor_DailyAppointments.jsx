@@ -5,7 +5,7 @@
 // 3. "View / Edit Prescription" for completed appointments (opens modal)
 // 4. Status indicators and quick actions on every row
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getDailyAppointments, startConsultation,
@@ -16,9 +16,9 @@ import usePolling from '../../hooks/usePolling'
 import {
   MdCalendarToday, MdAccessTime, MdFace, MdMedicalServices,
   MdChevronRight, MdPerson, MdNotes, MdArrowBack,
-  MdCheck, MdRefresh, MdAdd, MdClose, MdSave,
+  MdCheck, MdAdd, MdClose, MdSave,
   MdQueuePlayNext, MdSkipNext, MdWc, MdCake,
-  MdLocalPharmacy, MdEdit, MdPhone,
+  MdLocalPharmacy, MdEdit, MdPhone, MdPrint,
 } from 'react-icons/md'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ const FREQUENCIES = ['Once daily', 'Twice daily', 'Three times daily', 'Every 8 
 const DURATIONS   = ['3 days', '5 days', '7 days', '2 weeks', '1 month', '3 months', 'Ongoing']
 
 // ── Prescription View/Edit Modal ──────────────────────────────────────────────
-const PrescriptionModal = ({ appointmentId, patientName, onClose }) => {
+const PrescriptionModal = ({ appointmentId, patientName, onClose, onOpenFullRecord }) => {
   const [loading,       setLoading]       = useState(true)
   const [saving,        setSaving]        = useState(false)
   const [diagnosis,     setDiagnosis]     = useState('')
@@ -68,7 +68,9 @@ const PrescriptionModal = ({ appointmentId, patientName, onClose }) => {
             ? JSON.parse(consult.prescription)
             : consult.prescription
           if (Array.isArray(rx) && rx.length > 0) setPrescriptions(rx)
-        } catch {}
+        } catch {
+          // Ignore invalid stored prescription payloads and keep the editable defaults.
+        }
         setInventoryItems(Array.isArray(inv) ? inv : [])
       })
       .catch(() => setError('Failed to load consultation.'))
@@ -238,6 +240,14 @@ const PrescriptionModal = ({ appointmentId, patientName, onClose }) => {
         {/* Footer */}
         {!loading && !error && (
           <div className="px-6 pb-5 pt-3 border-t border-slate-100 flex gap-3 shrink-0">
+            <button onClick={() => window.print()}
+              className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 flex items-center justify-center gap-2">
+              <MdPrint className="text-[14px]" /> Print
+            </button>
+            <button onClick={() => onOpenFullRecord(appointmentId)}
+              className="flex-1 py-2.5 text-sm font-semibold text-violet-700 border border-violet-200 bg-violet-50 rounded-xl hover:bg-violet-100">
+              Open Full Record
+            </button>
             <button onClick={onClose}
               className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">
               Close
@@ -560,6 +570,11 @@ const Doctor_DailyAppointments = () => {
     setPrescModal({ id: appt.id, patientName: appt.patient_name || appt.patient })
   }
 
+  const openConsultationRecord = (appointmentId) => {
+    setPrescModal(null)
+    navigate(`/doctor/consultation?id=${appointmentId}`)
+  }
+
   // ── Stats ──────────────────────────────────────────────────────────────────
   const done           = appointments.filter(a => a.status === 'completed').length
   const inProgressCount= appointments.filter(a => a.status === 'in-progress').length
@@ -664,6 +679,7 @@ const Doctor_DailyAppointments = () => {
           appointmentId={prescModal.id}
           patientName={prescModal.patientName}
           onClose={() => setPrescModal(null)}
+          onOpenFullRecord={openConsultationRecord}
         />
       )}
     </>

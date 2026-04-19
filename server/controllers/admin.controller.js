@@ -14,6 +14,35 @@ const generateCookie = require('../utils/generateCookie')
 const { sendTempPassword, sendAppointmentStatusEmail } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments, syncInventoryBaseStock } = require('../utils/appointments')
+const { broadcast } = require('../utils/sse')
+
+const normalizeInventoryPayload = (body = {}) => ({
+  barcode: body.barcode?.trim() || null,
+  name: body.name?.trim() || '',
+  category: body.category?.trim() || '',
+  unit: body.unit?.trim() || 'box',
+  base_unit: body.base_unit?.trim() || body.unit?.trim() || 'box',
+  unit_size: Math.max(1, Number(body.unit_size) || 1),
+  stock: Math.max(0, Number(body.stock) || 0),
+  threshold: Math.max(0, Number(body.threshold) || 0),
+  price: Math.max(0, Number(body.price) || 0),
+  supplier: body.supplier?.trim() || null,
+  expiration_date: body.expiration_date || null,
+  storage_location: body.storage_location?.trim() || null,
+})
+
+const makeTempPassword = () => Math.random().toString(36).slice(-8)
+
+const normalizePatientPayload = (body = {}) => ({
+  full_name: body.full_name?.trim() || '',
+  birthdate: body.birthdate || '',
+  sex: body.sex?.trim() || '',
+  civil_status: body.civil_status?.trim() || null,
+  phone: body.phone?.trim() || '',
+  address: body.address?.trim() || '',
+  email: body.email?.trim() || null,
+  consent_given: Boolean(body.consent_given),
+})
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -179,6 +208,7 @@ const confirmAppointment = async (req, res) => {
     clinic_type: rows[0].clinic_type,
     status: 'confirmed',
   }).catch(() => {})
+  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(id), status: 'confirmed' })
   res.json({ message: 'Appointment confirmed.' })
 }
 
@@ -213,7 +243,34 @@ const cancelAppointment = async (req, res) => {
     clinic_type: rows[0].clinic_type,
     status: 'cancelled',
   }).catch(() => {})
+  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'cancelled' })
   res.json({ message: 'Appointment cancelled.' })
+}
+
+const markAppointmentNoShow = async (req, res) => {
+  const [rows] = await db.query(
+    `SELECT a.id, a.status, p.id AS patient_id
+     FROM appointments a
+     JOIN patients p ON a.patient_id = p.id
+     WHERE a.id = ?`,
+    [req.params.id]
+  )
+  if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  if (!['confirmed', 'rescheduled'].includes(rows[0].status)) {
+    return res.status(400).json({ message: 'Only confirmed or rescheduled appointments can be marked as no show.' })
+  }
+  await db.query("UPDATE appointments SET status = 'no_show' WHERE id = ?", [req.params.id])
+  await createNotification({
+    target_role: 'patient',
+    target_user_id: rows[0].patient_id,
+    type: 'appointment_no_show',
+    title: 'Appointment marked as no show',
+    message: 'Your appointment was marked as no show.',
+    reference_type: 'appointment',
+    reference_id: req.params.id,
+  })
+  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'no_show' })
+  res.json({ message: 'Appointment marked as no show.' })
 }
 
 const rescheduleAppointment = async (req, res) => {
@@ -221,7 +278,7 @@ const rescheduleAppointment = async (req, res) => {
   if (!appointment_date || !appointment_time)
     return res.status(400).json({ message: 'Date and time required.' })
   const [rows] = await db.query(
-    `SELECT a.id, a.doctor_id, a.clinic_type,
+    `SELECT a.id, a.doctor_id, a.status, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.full_name AS patient_name,
             d.full_name AS doctor_name
      FROM appointments a
@@ -231,6 +288,9 @@ const rescheduleAppointment = async (req, res) => {
     [req.params.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  if (!['pending', 'confirmed', 'rescheduled'].includes(rows[0].status)) {
+    return res.status(400).json({ message: 'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
+  }
 
   const [conflict] = await db.query(
     `SELECT id FROM appointments
@@ -250,7 +310,7 @@ const rescheduleAppointment = async (req, res) => {
     target_user_id: rows[0].patient_id,
     type: 'appointment_rescheduled',
     title: 'Appointment rescheduled',
-    message: `Your appointment with ${rows[0].doctor_name} was moved to ${appointment_date} at ${appointment_time}.`,
+    message: `Your appointment with ${rows[0].doctor_name} was ${rows[0].status === 'rescheduled' ? 'rescheduled again' : 'moved'} to ${appointment_date} at ${appointment_time}.`,
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
@@ -263,6 +323,7 @@ const rescheduleAppointment = async (req, res) => {
     clinic_type: rows[0].clinic_type,
     status: 'rescheduled',
   }).catch(() => {})
+  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'rescheduled' })
   res.json({ message: 'Appointment rescheduled.' })
 }
 
@@ -299,6 +360,7 @@ const createAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
+  broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
   res.status(201).json({ message: 'Appointment created.', id: result.insertId })
 }
 
@@ -330,6 +392,7 @@ const addToQueue = async (req, res) => {
     'INSERT INTO queue (patient_id, doctor_id, queue_number, patient_name, type, status, queue_date) VALUES (?,?,?,?,?,?,?)',
     [patient_id || null, doctor_id, maxQ + 1, patient_name || 'Walk-in', type, 'waiting', today]
   )
+  broadcast(['admin', 'staff', `doctor_${doctor_id}`], 'queue_updated', { queueId: result.insertId, status: 'added', doctorId: Number(doctor_id) })
   res.status(201).json({ id: result.insertId, queue_number: maxQ + 1 })
 }
 
@@ -337,7 +400,10 @@ const updateQueueStatus = async (req, res) => {
   const { status } = req.body
   if (!['waiting','in-progress','done','removed'].includes(status))
     return res.status(400).json({ message: 'Invalid status.' })
+  const [rows] = await db.query('SELECT id, doctor_id FROM queue WHERE id = ?', [req.params.id])
+  if (rows.length === 0) return res.status(404).json({ message: 'Queue entry not found.' })
   await db.query('UPDATE queue SET status=? WHERE id=?', [status, req.params.id])
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'queue_updated', { queueId: Number(req.params.id), status, doctorId: rows[0].doctor_id })
   res.json({ message: 'Queue updated.' })
 }
 
@@ -389,6 +455,47 @@ const getPatientRecord = async (req, res) => {
   res.json({ patient, history, upcoming })
 }
 
+const createWalkInPatient = async (req, res) => {
+  const { full_name, birthdate, sex, civil_status, phone, address, email, consent_given } = normalizePatientPayload(req.body)
+
+  if (!full_name || !birthdate || !sex || !phone || !address)
+    return res.status(400).json({ message: 'Missing required patient fields.' })
+  if (!consent_given)
+    return res.status(400).json({ message: 'Data privacy consent is required.' })
+
+  if (email) {
+    const [existing] = await db.query('SELECT id FROM patients WHERE email = ?', [email])
+    if (existing.length > 0) return res.status(409).json({ message: 'A patient with that email already exists.' })
+  }
+
+  const tempPassword = makeTempPassword()
+  const hashedPassword = await bcrypt.hash(tempPassword, 10)
+  const [result] = await db.query(
+    `INSERT INTO patients
+      (full_name, birthdate, sex, civil_status, phone, address, email, password, is_walk_in, consent_given, consent_given_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    [
+      full_name,
+      birthdate,
+      sex,
+      civil_status,
+      phone,
+      address,
+      email,
+      hashedPassword,
+      1,
+      new Date(),
+    ]
+  )
+
+  await db.query(
+    'INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)',
+    [result.insertId, 'data_processing', req.ip || null]
+  )
+
+  res.status(201).json({ id: result.insertId, full_name, email, phone })
+}
+
 // ── Staff ─────────────────────────────────────────────────────────────────────
 
 const getStaff = async (req, res) => {
@@ -425,6 +532,26 @@ const toggleStaff = async (req, res) => {
   const newStatus = rows[0].status === 'active' ? 'inactive' : 'active'
   await db.query('UPDATE staff SET status = ? WHERE id = ?', [newStatus, req.params.id])
   res.json({ status: newStatus })
+}
+
+const updateStaff = async (req, res) => {
+  const { full_name, email, phone } = req.body
+  if (!full_name || !email)
+    return res.status(400).json({ message: 'Name and email are required.' })
+
+  const [rows] = await db.query('SELECT id, email FROM staff WHERE id = ?', [req.params.id])
+  if (rows.length === 0) return res.status(404).json({ message: 'Staff account not found.' })
+
+  const [existing] = await db.query('SELECT id FROM staff WHERE email = ? AND id <> ?', [email, req.params.id])
+  if (existing.length > 0)
+    return res.status(409).json({ message: 'That email is already in use by another staff account.' })
+
+  await db.query(
+    'UPDATE staff SET full_name = ?, email = ?, phone = ? WHERE id = ?',
+    [full_name.trim(), email.trim(), phone?.trim() || null, req.params.id]
+  )
+  const [updated] = await db.query('SELECT id, full_name, email, phone, role, status, created_at FROM staff WHERE id = ?', [req.params.id])
+  res.json(updated[0])
 }
 
 // ── Doctors ───────────────────────────────────────────────────────────────────
@@ -473,6 +600,29 @@ const toggleDoctor = async (req, res) => {
   res.json({ is_active: newVal })
 }
 
+const updateDoctor = async (req, res) => {
+  const { full_name, email, phone, specialty, prc_license } = req.body
+  if (!full_name || !email)
+    return res.status(400).json({ message: 'Name and email are required.' })
+
+  const [rows] = await db.query('SELECT id FROM doctors WHERE id = ?', [req.params.id])
+  if (rows.length === 0) return res.status(404).json({ message: 'Doctor account not found.' })
+
+  const [existing] = await db.query('SELECT id FROM doctors WHERE email = ? AND id <> ?', [email, req.params.id])
+  if (existing.length > 0)
+    return res.status(409).json({ message: 'That email is already in use by another doctor account.' })
+
+  await db.query(
+    'UPDATE doctors SET full_name = ?, email = ?, phone = ?, specialty = ?, prc_license = ? WHERE id = ?',
+    [full_name.trim(), email.trim(), phone?.trim() || null, specialty?.trim() || null, prc_license?.trim() || null, req.params.id]
+  )
+  const [updated] = await db.query(
+    'SELECT id, full_name, email, phone, specialty, prc_license, is_active, created_at FROM doctors WHERE id = ?',
+    [req.params.id]
+  )
+  res.json(updated[0])
+}
+
 // ── Doctor Schedules ──────────────────────────────────────────────────────────
 
 const getDoctorSchedules = async (req, res) => {
@@ -519,7 +669,13 @@ const getReports = async (req, res) => {
      GROUP BY ym, month ORDER BY ym ASC`,
     [months]
   )
-  const [statusRows] = await db.query('SELECT status, COUNT(*) AS value FROM appointments GROUP BY status')
+  const [statusRows] = await db.query(
+    `SELECT status, COUNT(*) AS value
+     FROM appointments
+     WHERE appointment_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+     GROUP BY status`,
+    [months]
+  )
   const total = statusRows.reduce((s, r) => s + r.value, 0)
   const colorMap = {
     completed:   { color: 'bg-emerald-500', textColor: 'text-emerald-600' },
@@ -550,53 +706,177 @@ const getReports = async (req, res) => {
        COUNT(*)                                         AS total_items,
        SUM(stock * COALESCE(price, 0))                 AS total_value,
        SUM(stock = 0)                                  AS out_of_stock,
-       SUM(stock > 0 AND stock <= threshold)           AS low_stock
+       SUM(stock > 0 AND stock <= threshold)           AS low_stock,
+       SUM(expiration_date IS NOT NULL AND expiration_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)) AS expiring_soon
      FROM inventory`
   )
 
-  res.json({ monthly, statusBreakdown, topDoctors, inventoryStats })
+  const [stockActivity] = await db.query(
+    `SELECT DATE_FORMAT(logged_at, '%b') AS month,
+            DATE_FORMAT(logged_at, '%Y-%m') AS ym,
+            SUM(type = 'in') AS stock_in_actions,
+            SUM(type = 'out') AS stock_out_actions,
+            SUM(CASE WHEN type = 'in' THEN qty ELSE 0 END) AS stock_in,
+            SUM(CASE WHEN type = 'out' THEN qty ELSE 0 END) AS stock_out
+     FROM inventory_logs
+     WHERE logged_at >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+     GROUP BY ym, month
+     ORDER BY ym ASC`,
+    [months]
+  )
+
+  const [inventoryByCategory] = await db.query(
+    `SELECT category,
+            COUNT(*) AS items,
+            SUM(stock) AS total_stock,
+            SUM(stock * COALESCE(price, 0)) AS total_value
+     FROM inventory
+     GROUP BY category
+     ORDER BY total_value DESC, category ASC`
+  )
+
+  const [[upcomingAppointments]] = await db.query(
+    `SELECT COUNT(*) AS value
+     FROM appointments
+     WHERE appointment_date >= CURDATE()
+       AND status IN ('pending', 'confirmed', 'rescheduled')`
+  )
+
+  const [[supplyRequests]] = await db.query(
+    `SELECT
+       SUM(status = 'pending')  AS pending,
+       SUM(status = 'approved') AS approved,
+       SUM(status = 'rejected') AS rejected
+     FROM supply_requests
+     WHERE requested_at >= DATE_SUB(NOW(), INTERVAL ? MONTH)`,
+    [months]
+  )
+
+  res.json({
+    monthly,
+    statusBreakdown,
+    topDoctors,
+    inventoryStats,
+    stockActivity,
+    inventoryByCategory,
+    upcomingAppointments: Number(upcomingAppointments?.value || 0),
+    supplyRequests: {
+      pending: Number(supplyRequests?.pending || 0),
+      approved: Number(supplyRequests?.approved || 0),
+      rejected: Number(supplyRequests?.rejected || 0),
+    },
+  })
+}
+
+const getInventoryLogs = async (req, res) => {
+  const [rows] = await db.query(
+    `SELECT il.*, i.name AS item_name,
+            COALESCE(s.full_name, a.full_name, 'System') AS performed_by,
+            CASE
+              WHEN il.admin_id IS NOT NULL THEN 'Admin'
+              WHEN il.staff_id IS NOT NULL THEN 'Staff'
+              ELSE 'System'
+            END AS performed_by_role
+     FROM inventory_logs il
+     LEFT JOIN inventory i ON il.inventory_id = i.id
+     LEFT JOIN staff s ON il.staff_id = s.id
+     LEFT JOIN admins a ON il.admin_id = a.id
+     ORDER BY il.logged_at DESC
+     LIMIT 100`
+  )
+  res.json(rows)
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 const getInventory = async (req, res) => {
-  const [rows] = await db.query('SELECT * FROM inventory ORDER BY name')
+  const [rows] = await db.query(
+    `SELECT * FROM inventory
+     ORDER BY
+       CASE WHEN expiration_date IS NULL THEN 1 ELSE 0 END,
+       expiration_date ASC,
+       name ASC`
+  )
   res.json(rows)
 }
 
 const addInventoryItem = async (req, res) => {
-  const { barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier } = req.body
+  const {
+    barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier,
+    expiration_date, storage_location,
+  } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
-  const [result] = await db.query(
-    'INSERT INTO inventory (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier) VALUES (?,?,?,?,?,?,?,?,?,?)',
-    [barcode || null, name, category, unit || null, base_unit || unit || null, unit_size || 1, stock || 0, threshold || 5, price || 0, supplier || null]
-  )
-  await syncInventoryBaseStock(result.insertId)
-  const [rows] = await db.query('SELECT * FROM inventory WHERE id = ?', [result.insertId])
-  res.status(201).json(rows[0])
+  try {
+    const [result] = await db.query(
+      `INSERT INTO inventory
+       (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location]
+    )
+    await syncInventoryBaseStock(result.insertId)
+    await db.query(
+      'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
+      [result.insertId, req.user.id, 'create', stock, `Created inventory item${barcode ? ` with barcode ${barcode}` : ''}`]
+    )
+    const [rows] = await db.query('SELECT * FROM inventory WHERE id = ?', [result.insertId])
+    res.status(201).json(rows[0])
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'That barcode is already assigned to another inventory item.' })
+    }
+    throw err
+  }
 }
 
 // FIX 5: Edit an existing inventory item
 const updateInventoryItem = async (req, res) => {
-  const { barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier } = req.body
+  const {
+    barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier,
+    expiration_date, storage_location,
+  } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
   const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
-  await db.query(
-    'UPDATE inventory SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, supplier=? WHERE id=?',
-    [barcode || null, name, category, unit || null, base_unit || unit || null, unit_size || 1, threshold || 5, price || 0, supplier || null, req.params.id]
-  )
-  await syncInventoryBaseStock(req.params.id)
-  const [updated] = await db.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
-  res.json(updated[0])
+  try {
+    const [currentRows] = await db.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
+    await db.query(
+      `UPDATE inventory
+       SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, supplier=?, expiration_date=?, storage_location=?
+       WHERE id=?`,
+      [barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier, expiration_date, storage_location, req.params.id]
+    )
+    await syncInventoryBaseStock(req.params.id)
+    const previous = currentRows[0]
+    const changeNotes = [
+      previous?.barcode !== barcode ? `barcode: ${previous?.barcode || 'none'} -> ${barcode || 'none'}` : null,
+      previous?.name !== name ? `name: ${previous?.name || 'none'} -> ${name}` : null,
+      previous?.storage_location !== storage_location ? `location: ${previous?.storage_location || 'none'} -> ${storage_location || 'none'}` : null,
+      String(previous?.expiration_date || '') !== String(expiration_date || '') ? `expiry: ${previous?.expiration_date || 'none'} -> ${expiration_date || 'none'}` : null,
+    ].filter(Boolean).join('; ')
+    await db.query(
+      'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
+      [req.params.id, req.user.id, 'update', 0, changeNotes || 'Updated inventory item details']
+    )
+    const [updated] = await db.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
+    res.json(updated[0])
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'That barcode is already assigned to another inventory item.' })
+    }
+    throw err
+  }
 }
 
 // FIX 5: Delete an inventory item
 const deleteInventoryItem = async (req, res) => {
-  const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
+  const [rows] = await db.query('SELECT id, name, stock FROM inventory WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
+  await db.query(
+    'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
+    [req.params.id, req.user.id, 'delete', rows[0].stock || 0, `Deleted inventory item ${rows[0].name}`]
+  )
   await db.query('DELETE FROM inventory WHERE id = ?', [req.params.id])
   res.json({ message: 'Item deleted.' })
 }
@@ -615,8 +895,8 @@ const updateStock = async (req, res) => {
   const newStock = newBase / unitSize
   await db.query('UPDATE inventory SET stock=?, stock_base=? WHERE id=?', [newStock, newBase, req.params.id])
   await db.query(
-    'INSERT INTO inventory_logs (inventory_id, type, qty, note) VALUES (?,?,?,?)',
-    [req.params.id, type, qty, note || null]
+    'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
+    [req.params.id, req.user.id, type, qty, note || null]
   )
   res.json({ stock: newStock })
 }
@@ -650,24 +930,30 @@ const resolveSupplyRequest = async (req, res) => {
       [rows[0].qty_requested, rows[0].inventory_id]
     )
     await db.query(
-      'INSERT INTO inventory_logs (inventory_id, type, qty, note) VALUES (?,?,?,?)',
-      [rows[0].inventory_id, 'out', rows[0].qty_requested, 'Supply request approved']
+      'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
+      [rows[0].inventory_id, req.user.id, 'out', rows[0].qty_requested, 'Supply request approved']
     )
   }
 
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'supply_request_resolved', {
+    requestId: Number(req.params.id),
+    status,
+    doctorId: rows[0].doctor_id,
+  })
   res.json({ message: `Request ${status}.` })
 }
 
 module.exports = {
   login, checkAuth, logout,
   getDashboard,
-  getAppointments, confirmAppointment, cancelAppointment, rescheduleAppointment, createAppointment,
+  getAppointments, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, createAppointment,
   getQueue, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord,
-  getStaff, createStaff, toggleStaff,
-  getDoctors, createDoctor, toggleDoctor,
+  createWalkInPatient,
+  getStaff, createStaff, toggleStaff, updateStaff,
+  getDoctors, createDoctor, toggleDoctor, updateDoctor,
   getDoctorSchedules, saveDaySchedule,
-  getReports,
+  getReports, getInventoryLogs,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }

@@ -1,7 +1,7 @@
 // client/src/components/layouts/DoctorLayout.jsx
 // REDESIGNED: Mobile bottom nav, slide-in drawer, violet theme, responsive
 
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import logo from '../../assets/logo-removebg.png'
 import {
@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
+import { useSSE } from '../../hooks/useSSE'
 
 const sideNav = [
   { name: 'Dashboard',          path: '/doctor',                    icon: MdDashboard,     short: 'Home'     },
@@ -30,6 +31,14 @@ const DoctorLayout = () => {
   const [loggingOut,  setLoggingOut]  = useState(false)
   const [logoutError, setLogoutError] = useState('')
   const navigate = useNavigate()
+  const handleSSEMessage = useCallback((eventName) => {
+    if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
+      window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
+      window.dispatchEvent(new CustomEvent('clinic:refresh', { detail: { eventName } }))
+    }
+  }, [])
+
+  useSSE('doctor', user?.id, handleSSEMessage)
 
   const handleLogout = async () => {
     setLoggingOut(true)
@@ -44,10 +53,12 @@ const DoctorLayout = () => {
     }
   }
 
-  const NavItem = ({ name, path, icon: Icon, short }) => (
+  const NavItem = (item) => {
+    const IconComponent = item.icon
+    return (
     <NavLink
-      to={path}
-      end={path === '/doctor'}
+      to={item.path}
+      end={item.path === '/doctor'}
       onClick={() => setMobileOpen(false)}
       className={({ isActive }) =>
         `relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
@@ -61,22 +72,23 @@ const DoctorLayout = () => {
           {isActive && (
             <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-violet-400 rounded-r-full" />
           )}
-          <Icon className="shrink-0 text-[18px]" />
+          <IconComponent className="shrink-0 text-[18px]" />
           <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
             ${collapsed ? 'opacity-0 max-w-0' : 'opacity-100 max-w-xs'}`}>
-            {name}
+            {item.name}
           </span>
           {collapsed && (
             <span className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white
               text-xs rounded-lg whitespace-nowrap shadow-lg border border-white/10
               opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-              {name}
+              {item.name}
             </span>
           )}
         </>
       )}
     </NavLink>
-  )
+    )
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -214,8 +226,10 @@ const DoctorLayout = () => {
         {/* Mobile bottom nav */}
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100
           flex items-center justify-around px-1 h-16 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-          {sideNav.map(({ name, path, icon: Icon, short }) => (
-            <NavLink key={path} to={path} end={path === '/doctor'}
+          {sideNav.map((item) => {
+            const IconComponent = item.icon
+            return (
+            <NavLink key={item.path} to={item.path} end={item.path === '/doctor'}
               className={({ isActive }) =>
                 `flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-xl
                  transition-all min-w-[52px]
@@ -224,15 +238,15 @@ const DoctorLayout = () => {
                 <>
                   <div className={`w-8 h-8 rounded-xl flex items-center justify-center
                     ${isActive ? 'bg-violet-50' : ''}`}>
-                    <Icon className={`text-[20px] ${isActive ? 'text-violet-600' : ''}`} />
+                    <IconComponent className={`text-[20px] ${isActive ? 'text-violet-600' : ''}`} />
                   </div>
                   <span className={`text-[9px] font-bold ${isActive ? 'text-violet-600' : 'text-slate-400'}`}>
-                    {short}
+                    {item.short}
                   </span>
                 </>
               )}
             </NavLink>
-          ))}
+          )})}
         </nav>
       </div>
     </div>

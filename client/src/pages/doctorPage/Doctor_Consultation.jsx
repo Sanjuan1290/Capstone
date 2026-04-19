@@ -99,7 +99,6 @@ const Doctor_Consultation = () => {
   const [saving,         setSaving]         = useState(false)
   const [tab,            setTab]            = useState('consultation')
   const [inventoryItems, setInventoryItems] = useState([])
-  const [inventoryLoading, setInventoryLoading] = useState(true)
 
   const date = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
 
@@ -130,7 +129,9 @@ const Doctor_Consultation = () => {
             ? JSON.parse(consult.prescription)
             : consult.prescription
           if (Array.isArray(rx) && rx.length > 0) setPrescriptions(rx)
-        } catch {}
+        } catch {
+          // Ignore invalid stored prescription payloads and keep the default editor state.
+        }
         setIsEditMode(true)
       })
       .catch(() => {})
@@ -151,7 +152,9 @@ const Doctor_Consultation = () => {
               ? JSON.parse(consult.prescription)
               : consult.prescription
             if (Array.isArray(rx) && rx.length > 0) setPrescriptions(rx)
-          } catch {}
+          } catch {
+            // Ignore invalid stored prescription payloads and keep the default editor state.
+          }
         })
         .catch(() => {})
     }
@@ -171,7 +174,6 @@ const Doctor_Consultation = () => {
     getInventoryItems()
       .then(data => setInventoryItems(Array.isArray(data) ? data : []))
       .catch(() => setInventoryItems([]))
-      .finally(() => setInventoryLoading(false))
   }, [])
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -205,9 +207,9 @@ const Doctor_Consultation = () => {
       }
       setSaved(true)
       if (!isEditMode) {
-        // mark local state as completed after first save
         setIsEditMode(true)
-        setTimeout(() => navigate('/doctor/daily-appointments'), 1500)
+        setAppt(prev => prev ? { ...prev, status: 'completed' } : prev)
+        setTimeout(() => setSaved(false), 2000)
       } else {
         setTimeout(() => setSaved(false), 2000)
       }
@@ -311,11 +313,11 @@ const Doctor_Consultation = () => {
           {[
             { key: 'consultation', label: 'Consultation', icon: MdLocalPharmacy },
             { key: 'history',      label: 'Patient History', icon: MdHistory },
-          ].map(({ key, label, icon: Icon }) => (
-            <button key={key} onClick={() => setTab(key)}
+          ].map((tabItem) => (
+            <button key={tabItem.key} onClick={() => setTab(tabItem.key)}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all
-                ${tab === key ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
-              <Icon className="text-[13px]" /> {label}
+                ${tab === tabItem.key ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
+              <tabItem.icon className="text-[13px]" /> {tabItem.label}
             </button>
           ))}
         </div>

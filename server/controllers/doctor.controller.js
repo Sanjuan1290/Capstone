@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
 const { createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
+const { broadcast } = require('../utils/sse')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,7 @@ const startConsultation = async (req, res) => {
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
   await db.query("UPDATE appointments SET status = 'in-progress' WHERE id = ?", [req.params.id])
+  broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'in-progress' })
   res.json({ message: 'Consultation started.' })
 }
 
@@ -135,6 +137,8 @@ const saveConsultation = async (req, res) => {
     )
   }
   await db.query("UPDATE appointments SET status='completed' WHERE id=?", [appointmentId])
+  broadcast(['admin', 'staff', `patient_${appt.patient_id}`], 'appointment_updated', { appointmentId: Number(appointmentId), status: 'completed' })
+  broadcast(['admin', 'staff', `patient_${appt.patient_id}`, `doctor_${req.user.id}`], 'consultation_saved', { appointmentId: Number(appointmentId), patientId: appt.patient_id, doctorId: req.user.id })
   res.json({ message: 'Consultation saved.' })
 }
 
@@ -169,6 +173,7 @@ const updateConsultation = async (req, res) => {
     'UPDATE consultations SET diagnosis=?, prescription=?, notes=? WHERE appointment_id=? AND doctor_id=?',
     [diagnosis||null, prescription||null, notes||null, appointmentId, req.user.id]
   )
+  broadcast(['admin', 'staff', `doctor_${req.user.id}`], 'consultation_saved', { appointmentId: Number(appointmentId), doctorId: req.user.id, updated: true })
   res.json({ message: 'Consultation updated.' })
 }
 
@@ -228,6 +233,15 @@ const submitRequest = async (req, res) => {
     reference_type: 'supply_request',
     reference_id: result.insertId,
   })
+  await createNotification({
+    target_role: 'admin',
+    type: 'supply_request',
+    title: 'Doctor supply request',
+    message: `A doctor requested ${qty_requested} ${rows[0].unit}(s) of ${rows[0].item_name}.`,
+    reference_type: 'supply_request',
+    reference_id: result.insertId,
+  })
+  broadcast(['staff', 'admin', `doctor_${req.user.id}`], 'supply_request_resolved', { requestId: result.insertId, status: 'pending', doctorId: req.user.id })
   res.status(201).json(rows[0])
 }
 
@@ -254,10 +268,17 @@ const callNext = async (req, res) => {
   const doctorId = req.user.id
 
   // Mark current in-progress patient as done
+  const [currentRows] = await db.query(
+    `SELECT id FROM queue WHERE doctor_id=? AND queue_date=? AND status='in-progress'`,
+    [doctorId, today]
+  )
   await db.query(
     `UPDATE queue SET status='done' WHERE doctor_id=? AND queue_date=? AND status='in-progress'`,
     [doctorId, today]
   )
+  if (currentRows[0]?.id) {
+    broadcast(['admin', 'staff', `doctor_${doctorId}`], 'queue_updated', { queueId: currentRows[0].id, status: 'done', doctorId })
+  }
 
   // Get the next waiting patient
   const [nextRows] = await db.query(
@@ -273,6 +294,7 @@ const callNext = async (req, res) => {
 
   const next = nextRows[0]
   await db.query(`UPDATE queue SET status='in-progress' WHERE id=?`, [next.id])
+  broadcast(['admin', 'staff', `doctor_${doctorId}`], 'queue_updated', { queueId: next.id, status: 'call-next', doctorId })
   res.json({ message: 'Next patient called.', nextPatient: next })
 }
 
@@ -284,6 +306,7 @@ const markQueueDone = async (req, res) => {
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Queue entry not found.' })
   await db.query(`UPDATE queue SET status='done' WHERE id=?`, [req.params.id])
+  broadcast(['admin', 'staff', `doctor_${req.user.id}`], 'queue_updated', { queueId: Number(req.params.id), status: 'done', doctorId: req.user.id })
   res.json({ message: 'Marked as done.' })
 }
 

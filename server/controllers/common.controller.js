@@ -1,6 +1,7 @@
 const { getNotifications, markNotificationRead } = require('../utils/notifications')
 const { getSettings, updateSettings } = require('../utils/accountSettings')
 const { getLandingPageContent, updateLandingPageContent } = require('../utils/landingPageContent')
+const db = require('../db/connect')
 
 const listNotifications = async (req, res) => {
   const rows = await getNotifications(req.user.role, req.user.id, req.query.limit || 20)
@@ -11,6 +12,17 @@ const listNotifications = async (req, res) => {
 const readNotification = async (req, res) => {
   await markNotificationRead(req.params.id, req.user.role, req.user.id)
   res.json({ message: 'Notification marked as read.' })
+}
+
+const readAllNotifications = async (req, res) => {
+  await db.query(
+    `UPDATE notifications
+     SET is_read = 1
+     WHERE target_role = ?
+       AND (target_user_id = ? OR target_user_id IS NULL)`,
+    [req.user.role, req.user.id]
+  )
+  res.json({ success: true })
 }
 
 const getMySettings = async (req, res) => {
@@ -42,6 +54,7 @@ const saveAdminLandingPage = async (req, res) => {
 module.exports = {
   listNotifications,
   readNotification,
+  readAllNotifications,
   getMySettings,
   saveMySettings,
   getPublicLandingPage,

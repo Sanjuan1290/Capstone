@@ -23,6 +23,7 @@ router.post('/logout',    logout)
 router.use(verifyToken('doctor_token'), requireRole('doctor'))
 
 router.get('/notifications',                commonCtrl.listNotifications)
+router.patch('/notifications/read-all',     commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read',    commonCtrl.readNotification)
 router.get('/settings',                     commonCtrl.getMySettings)
 router.put('/settings',                     commonCtrl.saveMySettings)

@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { getPublicLandingPage } from '../../services/landing.service'
+import { isExternalPath, normalizeAppPath } from '../../utils/navigation'
 
 const cardBg = ['bg-blue-50', 'bg-green-50', 'bg-purple-50', 'bg-yellow-50', 'bg-red-50', 'bg-slate-50']
 
@@ -18,6 +19,9 @@ const LandingPage = () => {
   }
 
   const { hero, about, testimonial, services, doctors, contact } = content
+  const primaryButtonPath = normalizeAppPath(hero.primary_button_path, '/patient/register')
+  const secondaryButtonPath = normalizeAppPath(hero.secondary_button_path, '#about')
+  const contactCtaPath = normalizeAppPath(contact.cta_path, '/patient/register')
 
   return (
     <>
@@ -45,15 +49,24 @@ const LandingPage = () => {
           <h3 className="text-xl font-semibold text-gray-800">{hero.subheading}</h3>
 
           <div className="flex flex-col sm:flex-row gap-4 mt-4">
-            <NavLink
-              to={hero.primary_button_path || '/patient/register'}
-              className="bg-blue-600 text-white text-sm font-semibold px-5 py-3 rounded-lg hover:bg-blue-700 transition duration-300"
-            >
-              {hero.primary_button_label}
-            </NavLink>
+            {isExternalPath(primaryButtonPath) ? (
+              <a
+                href={primaryButtonPath}
+                className="bg-blue-600 text-white text-sm font-semibold px-5 py-3 rounded-lg hover:bg-blue-700 transition duration-300"
+              >
+                {hero.primary_button_label}
+              </a>
+            ) : (
+              <NavLink
+                to={primaryButtonPath}
+                className="bg-blue-600 text-white text-sm font-semibold px-5 py-3 rounded-lg hover:bg-blue-700 transition duration-300"
+              >
+                {hero.primary_button_label}
+              </NavLink>
+            )}
 
             <a
-              href={hero.secondary_button_path || '#about'}
+              href={secondaryButtonPath}
               className="border border-blue-600 text-blue-600 font-semibold px-6 py-3 rounded-lg hover:bg-blue-50 transition duration-300"
             >
               {hero.secondary_button_label}
@@ -219,12 +232,21 @@ const LandingPage = () => {
               <h3 className="text-2xl font-semibold text-teal-800 mb-1">{contact.cta_heading}</h3>
               <p className="text-teal-700 text-sm">{contact.cta_description}</p>
             </div>
-            <NavLink
-              to={contact.cta_path || '/patient/register'}
-              className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300"
-            >
-              {contact.cta_label}
-            </NavLink>
+            {isExternalPath(contactCtaPath) ? (
+              <a
+                href={contactCtaPath}
+                className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300"
+              >
+                {contact.cta_label}
+              </a>
+            ) : (
+              <NavLink
+                to={contactCtaPath}
+                className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300"
+              >
+                {contact.cta_label}
+              </NavLink>
+            )}
           </div>
         </div>
       </section>

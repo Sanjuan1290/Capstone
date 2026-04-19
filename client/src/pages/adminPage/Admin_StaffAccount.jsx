@@ -2,11 +2,11 @@
 // REDESIGNED: Split list+detail, amber theme, mobile bottom-sheet add modal
 
 import { useEffect, useState } from 'react'
-import { getStaff, createStaff, toggleStaff } from '../../services/admin.service'
+import { getStaff, createStaff, toggleStaff, updateStaff } from '../../services/admin.service'
 import {
   MdSearch, MdClose, MdAdd, MdPerson, MdEmail, MdPhone,
   MdChevronRight, MdBlock, MdCheck, MdArrowBack, MdMailOutline,
-  MdPeople, MdCalendarToday,
+  MdPeople, MdCalendarToday, MdEdit,
 } from 'react-icons/md'
 
 // ── Add Modal ──────────────────────────────────────────────────────────────────
@@ -72,8 +72,72 @@ const AddModal = ({ onClose, onAdd }) => {
   )
 }
 
+const EditModal = ({ account, onClose, onSave }) => {
+  const [form, setForm] = useState({
+    full_name: account?.full_name || '',
+    email: account?.email || '',
+    phone: account?.phone || '',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async () => {
+    setSubmitting(true)
+    setError('')
+    try {
+      await onSave(form)
+      onClose()
+    } catch (err) {
+      setError(err.message || 'Failed to update account.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-x-4 top-1/2 z-50 mx-auto w-auto max-w-md -translate-y-1/2 rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <p className="text-sm font-bold text-slate-800">Update Staff Account</p>
+            <p className="text-xs text-slate-500 mt-0.5">Use this when the staff member formally requests a contact change.</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
+            <MdClose />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          {[
+            { k: 'full_name', l: 'Full Name', t: 'text' },
+            { k: 'email', l: 'Email', t: 'email' },
+            { k: 'phone', l: 'Phone', t: 'tel' },
+          ].map(({ k, l, t }) => (
+            <div key={k}>
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">{l}</label>
+              <input
+                type={t}
+                value={form[k]}
+                onChange={e => setForm(prev => ({ ...prev, [k]: e.target.value }))}
+                className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400 transition-colors"
+              />
+            </div>
+          ))}
+          {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>}
+        </div>
+        <div className="px-6 pb-6 flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 text-sm font-semibold text-slate-600 border border-slate-200 rounded-2xl hover:bg-slate-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={submitting} className="flex-1 py-3 text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-40 rounded-2xl transition-colors">
+            {submitting ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── Detail Panel ──────────────────────────────────────────────────────────────
-const DetailPanel = ({ staff, onClose, onToggle }) => {
+const DetailPanel = ({ staff, onClose, onToggle, onEdit }) => {
   if (!staff) return null
   const name     = staff.full_name || 'Staff Member'
   const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -106,14 +170,14 @@ const DetailPanel = ({ staff, onClose, onToggle }) => {
             { icon: MdEmail,        label: 'Email',  value: staff.email                    },
             { icon: MdPhone,        label: 'Phone',  value: staff.phone || 'Not added'     },
             { icon: MdCalendarToday,label: 'Joined', value: joined                         },
-          ].map(({ icon: Icon, label, value }) => (
-            <div key={label} className="flex items-center gap-3">
+          ].map((meta) => (
+            <div key={meta.label} className="flex items-center gap-3">
               <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
-                <Icon className="text-[13px] text-slate-400" />
+                <meta.icon className="text-[13px] text-slate-400" />
               </div>
               <div>
-                <p className="text-[10px] text-slate-400 font-medium">{label}</p>
-                <p className="text-sm font-semibold text-slate-800">{value}</p>
+                <p className="text-[10px] text-slate-400 font-medium">{meta.label}</p>
+                <p className="text-sm font-semibold text-slate-800">{meta.value}</p>
               </div>
             </div>
           ))}
@@ -121,6 +185,10 @@ const DetailPanel = ({ staff, onClose, onToggle }) => {
       </div>
 
       <div className="px-6 pb-6 pt-4 border-t border-slate-100 shrink-0">
+        <button onClick={() => onEdit(staff)}
+          className="mb-2 w-full flex items-center justify-center gap-2 py-3 text-xs font-bold rounded-xl border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors">
+          <MdEdit className="text-[14px]" /> Update Contact Details
+        </button>
         <button onClick={() => onToggle(staff.id)}
           className={`w-full flex items-center justify-center gap-2 py-3 text-xs font-bold rounded-xl transition-colors
             ${isActive
@@ -141,6 +209,7 @@ const Admin_StaffAccount = () => {
   const [selected, setSelected] = useState(null)
   const [showAdd,  setShowAdd]  = useState(false)
   const [filter,   setFilter]   = useState('all')
+  const [editing,  setEditing]  = useState(null)
 
   useEffect(() => {
     getStaff()
@@ -161,6 +230,12 @@ const Admin_StaffAccount = () => {
     const newStaff = await createStaff(formData)
     setStaff(prev => [...prev, newStaff])
     if (!selected) setSelected(newStaff)
+  }
+
+  const handleEdit = async (formData) => {
+    const updated = await updateStaff(editing.id, formData)
+    setStaff(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s))
+    setSelected(prev => prev?.id === updated.id ? { ...prev, ...updated } : prev)
   }
 
   const filtered = staff.filter(s => {
@@ -255,6 +330,7 @@ const Admin_StaffAccount = () => {
               staff={staff.find(s => s.id === selected.id) || selected}
               onClose={() => setSelected(null)}
               onToggle={handleToggle}
+              onEdit={setEditing}
             />
           ) : (
             <div className="flex flex-col items-center justify-center flex-1 text-center px-8">
@@ -269,6 +345,7 @@ const Admin_StaffAccount = () => {
       </div>
 
       {showAdd && <AddModal onClose={() => setShowAdd(false)} onAdd={handleAdd} />}
+      {editing && <EditModal account={editing} onClose={() => setEditing(null)} onSave={handleEdit} />}
     </div>
   )
 }
