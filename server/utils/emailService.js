@@ -10,6 +10,25 @@ const transporter = nodemailer.createTransport({
 
 const FROM = `"Carait Clinic" <${process.env.EMAIL_USER}>`
 
+const formatAppointmentDate = (appointmentDate) => {
+  const raw = typeof appointmentDate === 'string'
+    ? appointmentDate.slice(0, 10)
+    : String(appointmentDate).slice(0, 10)
+  const [year, month, day] = raw.split('-').map(Number)
+  const safeDate = year && month && day
+    ? new Date(year, month - 1, day)
+    : new Date(appointmentDate)
+
+  if (Number.isNaN(safeDate.getTime())) return String(appointmentDate)
+
+  return safeDate.toLocaleDateString('en-PH', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
 const sendTempPassword = async (email, full_name, role, tempPassword, loginUrl) => {
   await transporter.sendMail({
     from: FROM,
@@ -52,9 +71,7 @@ const sendVerificationCode = async (email, full_name, code) => {
 }
 
 const sendAppointmentReminder = async ({ to, patient_name, doctor_name, appointment_date, appointment_time, clinic_type }) => {
-  const formattedDate = new Date(appointment_date).toLocaleDateString('en-PH', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  })
+  const formattedDate = formatAppointmentDate(appointment_date)
 
   await transporter.sendMail({
     from: FROM,
@@ -85,9 +102,7 @@ const sendAppointmentStatusEmail = async ({
   status,
   notes,
 }) => {
-  const formattedDate = new Date(appointment_date).toLocaleDateString('en-PH', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  })
+  const formattedDate = formatAppointmentDate(appointment_date)
 
   const statusMap = {
     confirmed: ['Your Appointment Has Been Confirmed', 'Appointment Confirmed', '#059669', 'Your clinic appointment has been successfully confirmed.'],

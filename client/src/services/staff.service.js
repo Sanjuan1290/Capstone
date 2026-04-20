@@ -109,6 +109,9 @@ export const deleteInventoryItem = (id) =>
 export const getDoctors = () =>
   fetch(`${BASE}/doctors`, { credentials: 'include' }).then(r => r.json())
 
+export const getDoctorSchedules = (doctorId) =>
+  fetch(`${BASE}/doctors/${doctorId}/schedules`, { credentials: 'include' }).then(r => r.json())
+
 export const getSupplyRequests = () =>
   fetch(`${BASE}/supply-requests`, { credentials: 'include' }).then(r => r.json())
 

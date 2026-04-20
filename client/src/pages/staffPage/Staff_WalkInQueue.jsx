@@ -12,6 +12,7 @@ import {
 import {
   addToQueue,
   createWalkInPatient,
+  getPatients,
   getDoctors,
   getQueue,
   updateQueueStatus,
@@ -55,6 +56,10 @@ const QueueCard = ({ entry, onCall, onDone, onRemove }) => {
 }
 
 const WalkInModal = ({ doctors, onClose, onSubmit }) => {
+  const [mode, setMode] = useState('existing')
+  const [patientSearch, setPatientSearch] = useState('')
+  const [patientResults, setPatientResults] = useState([])
+  const [selectedPatient, setSelectedPatient] = useState(null)
   const [form, setForm] = useState({
     full_name: '',
     birthdate: '',
@@ -70,6 +75,19 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
   })
   const [saving, setSaving] = useState(false)
 
+  useEffect(() => {
+    if (mode !== 'existing' || patientSearch.trim().length < 2) {
+      setPatientResults([])
+      return
+    }
+    const timeout = window.setTimeout(() => {
+      getPatients(patientSearch)
+        .then((rows) => setPatientResults(Array.isArray(rows) ? rows : []))
+        .catch(() => setPatientResults([]))
+    }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [mode, patientSearch])
+
   const filteredDoctors = useMemo(() => {
     return doctors.filter((doctor) => {
       const specialty = (doctor.specialty || '').toLowerCase()
@@ -80,13 +98,21 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
   const updateField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
 
   const handleSubmit = async () => {
-    if (!form.consent_given) {
+    if (mode === 'new' && !form.consent_given) {
       alert('Consent is required before continuing.')
+      return
+    }
+    if (mode === 'existing' && !selectedPatient?.id) {
+      alert('Select an existing patient first.')
+      return
+    }
+    if (!form.doctor_id) {
+      alert('Select a doctor before adding to queue.')
       return
     }
     setSaving(true)
     try {
-      await onSubmit(form)
+      await onSubmit({ ...form, mode, selectedPatient })
       onClose()
     } finally {
       setSaving(false)
@@ -105,6 +131,84 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
           <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><MdClose /></button>
         </div>
 
+        <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+          <button
+            onClick={() => setMode('existing')}
+            className={`rounded-xl px-3 py-2 text-sm font-semibold ${mode === 'existing' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+          >
+            Existing Patient
+          </button>
+          <button
+            onClick={() => setMode('new')}
+            className={`rounded-xl px-3 py-2 text-sm font-semibold ${mode === 'new' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+          >
+            Register New
+          </button>
+        </div>
+
+        {mode === 'existing' ? (
+          <div className="space-y-4">
+            <label className="block">
+              <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Search Patient</span>
+              <input
+                type="text"
+                value={patientSearch}
+                onChange={(e) => {
+                  setPatientSearch(e.target.value)
+                  setSelectedPatient(null)
+                }}
+                placeholder="Type name or email"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"
+              />
+            </label>
+            {patientResults.length > 0 && (
+              <div className="max-h-44 overflow-auto rounded-2xl border border-slate-200">
+                {patientResults.map((patient) => (
+                  <button
+                    key={patient.id}
+                    onClick={() => {
+                      setSelectedPatient(patient)
+                      setPatientSearch(patient.full_name || patient.name)
+                      setPatientResults([])
+                    }}
+                    className="block w-full border-b border-slate-100 px-4 py-2.5 text-left text-sm text-slate-700 last:border-b-0 hover:bg-slate-50"
+                  >
+                    {patient.full_name || patient.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {selectedPatient && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <p className="font-semibold">{selectedPatient.full_name || selectedPatient.name}</p>
+                <p className="text-xs text-slate-500 mt-1">{selectedPatient.phone || 'No phone'} • {selectedPatient.email || 'No email'}</p>
+              </div>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic Type</span>
+                <select value={form.clinic_type} onChange={(e) => updateField('clinic_type', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
+                  <option value="medical">Medical</option>
+                  <option value="derma">Derma</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</span>
+                <select value={form.doctor_id} onChange={(e) => updateField('doctor_id', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
+                  <option value="">Select doctor</option>
+                  {filteredDoctors.map((doctor) => (
+                    <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Reason for Visit</span>
+                <input type="text" value={form.reason} onChange={(e) => updateField('reason', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+              </label>
+            </div>
+          </div>
+        ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {[
             ['Full Name', 'full_name', 'text', true],
@@ -163,11 +267,12 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
             <span>I consent to the collection and processing of my personal data in accordance with Republic Act 10173 (Data Privacy Act of 2012).</span>
           </label>
         </div>
+        )}
 
         <div className="mt-5 flex gap-3">
           <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
           <button onClick={handleSubmit} disabled={saving} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-60">
-            {saving ? 'Saving...' : 'Register & Add to Queue'}
+            {saving ? 'Saving...' : mode === 'existing' ? 'Add to Queue' : 'Register & Add to Queue'}
           </button>
         </div>
       </div>
@@ -203,28 +308,30 @@ const StaffWalkInQueue = () => {
     return () => window.removeEventListener('clinic:refresh', refresh)
   }, [loadData])
 
-  const handleRegisterWalkIn = async (form) => {
-    const patient = await createWalkInPatient({
-      full_name: form.full_name,
-      birthdate: form.birthdate,
-      sex: form.sex,
-      civil_status: form.civil_status,
-      phone: form.phone,
-      address: form.address,
-      email: form.email || null,
-      consent_given: form.consent_given,
-    })
-
-    if (!patient?.id) {
-      alert(patient?.message || 'Failed to register walk-in patient.')
-      return
+  const handleRegisterWalkIn = async (payload) => {
+    let patient = payload.selectedPatient
+    if (payload.mode === 'new') {
+      patient = await createWalkInPatient({
+        full_name: payload.full_name,
+        birthdate: payload.birthdate,
+        sex: payload.sex,
+        civil_status: payload.civil_status,
+        phone: payload.phone,
+        address: payload.address,
+        email: payload.email || null,
+        consent_given: payload.consent_given,
+      })
+      if (!patient?.id) {
+        alert(patient?.message || 'Failed to register walk-in patient.')
+        return
+      }
     }
 
     const queueEntry = await addToQueue({
       patient_id: patient.id,
-      patient_name: patient.full_name,
-      doctor_id: Number(form.doctor_id),
-      type: form.clinic_type,
+      patient_name: patient.full_name || patient.name,
+      doctor_id: Number(payload.doctor_id),
+      type: payload.clinic_type,
     })
 
     if (!queueEntry?.id) {

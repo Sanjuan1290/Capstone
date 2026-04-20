@@ -98,6 +98,7 @@ const getDailyAppointments = async (req, res) => {
             TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age
      FROM appointments a JOIN patients p ON a.patient_id = p.id
      WHERE a.doctor_id = ? AND a.appointment_date = ?
+       AND a.status IN ('confirmed','in-progress','completed','rescheduled')
      ORDER BY a.appointment_time ASC`,
     [req.user.id, date]
   )

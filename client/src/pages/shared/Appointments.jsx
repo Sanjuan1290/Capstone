@@ -19,6 +19,7 @@ import {
 } from 'react-icons/md'
 
 const PAGE_SIZE = 10
+const DAYS_MAP = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 }
 
 const STATUS_TABS = [
   { key: 'all', label: 'All' },
@@ -43,12 +44,64 @@ const buttonBase = 'rounded-xl px-3 py-2 text-xs font-semibold transition'
 
 const formatDate = (value) => {
   if (!value) return '—'
-  const date = new Date(value)
+  const normalized = typeof value === 'string' ? value.slice(0, 10) : String(value).slice(0, 10)
+  const parts = normalized.split('-').map(Number)
+  const date = parts.length === 3 && parts.every(Boolean)
+    ? new Date(parts[0], parts[1] - 1, parts[2])
+    : new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 const formatStatus = (value) => value?.replace('_', ' ').replace(/\b\w/g, (m) => m.toUpperCase()) || 'Unknown'
+const pad = (value) => String(value).padStart(2, '0')
+const getTodayDateOnly = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+const buildSlotsForDate = (date, schedules = []) => {
+  if (!date || !Array.isArray(schedules) || schedules.length === 0) return []
+
+  const selected = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(selected.getTime())) return []
+
+  const daySchedule = schedules.find((schedule) => (
+    schedule?.is_active !== 0
+    && DAYS_MAP[schedule.day_of_week] === selected.getDay()
+  ))
+
+  if (!daySchedule?.start_time || !daySchedule?.end_time) return []
+
+  const [startHour, startMinute] = daySchedule.start_time.split(':').map(Number)
+  const [endHour, endMinute] = daySchedule.end_time.split(':').map(Number)
+  const slotDuration = Number(daySchedule.slot_duration_mins) || 60
+  let currentMinutes = startHour * 60 + startMinute
+  const endMinutes = endHour * 60 + endMinute
+  const slots = []
+
+  while (currentMinutes + slotDuration <= endMinutes) {
+    const hour = Math.floor(currentMinutes / 60)
+    const minute = currentMinutes % 60
+    const ampm = hour >= 12 ? 'PM' : 'AM'
+    const hour12 = hour % 12 || 12
+    slots.push(`${hour12}:${pad(minute)} ${ampm}`)
+    currentMinutes += slotDuration
+  }
+
+  const today = new Date()
+  const todayIso = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
+  if (date !== todayIso) return slots
+
+  const cutoffMinutes = today.getHours() * 60 + today.getMinutes() + 5
+  return slots.filter((slot) => {
+    const [timePart, period] = slot.split(' ')
+    let [hour, minute] = timePart.split(':').map(Number)
+    if (period === 'PM' && hour !== 12) hour += 12
+    if (period === 'AM' && hour === 12) hour = 0
+    return hour * 60 + minute > cutoffMinutes
+  })
+}
 
 const getActionsForStatus = (status) => {
   if (status === 'pending') return ['confirm', 'cancel', 'reschedule']
@@ -98,13 +151,90 @@ const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onR
   )
 }
 
-const RescheduleDrawer = ({ appointment, onClose, onSave }) => {
+const TimeSlotPicker = ({ date, value, onChange, schedules, takenSlots = [], emptyMessage = 'No slots available for this day.' }) => {
+  if (!date) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+        Select a date first to view available time slots.
+      </div>
+    )
+  }
+
+  const slots = buildSlotsForDate(date, schedules)
+
+  if (slots.length === 0) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
+        {emptyMessage}
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {slots.map((slot) => {
+        const taken = takenSlots.includes(slot)
+        return (
+          <button
+            key={slot}
+            type="button"
+            disabled={taken}
+            onClick={() => onChange(slot)}
+            className={`rounded-xl border-2 px-3 py-3 text-xs font-semibold transition ${
+              taken
+                ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300 line-through'
+                : value === slot
+                  ? 'border-transparent bg-[#0b1a2c] text-emerald-400 shadow-md'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50'
+            }`}
+          >
+            {slot}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const RescheduleDrawer = ({ appointment, appointments, services, onClose, onSave }) => {
   const [date, setDate] = useState(appointment?.appointment_date?.slice(0, 10) || '')
   const [time, setTime] = useState(appointment?.appointment_time || appointment?.time || '')
+  const [schedules, setSchedules] = useState([])
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setDate(appointment?.appointment_date?.slice(0, 10) || '')
+    setTime(appointment?.appointment_time || appointment?.time || '')
+  }, [appointment])
+
+  useEffect(() => {
+    if (!appointment?.doctor_id || !services.getDoctorSchedules) {
+      setSchedules([])
+      return
+    }
+
+    services.getDoctorSchedules(appointment.doctor_id)
+      .then((rows) => setSchedules(Array.isArray(rows) ? rows : []))
+      .catch(() => setSchedules([]))
+  }, [appointment?.doctor_id, services])
+
+  const takenSlots = useMemo(() => {
+    if (!appointment?.doctor_id || !date) return []
+
+    return appointments
+      .filter((item) => (
+        item.id !== appointment.id
+        && String(item.doctor_id) === String(appointment.doctor_id)
+        && (item.appointment_date || item.date || '').slice(0, 10) === date
+        && !['cancelled', 'rescheduled'].includes(item.status)
+      ))
+      .map((item) => item.appointment_time || item.time)
+      .filter(Boolean)
+  }, [appointment, appointments, date])
 
   const handleSubmit = async () => {
     if (!date || !time) return
+    if (date < getTodayDateOnly()) return
     setSaving(true)
     try {
       await onSave(date, time)
@@ -131,12 +261,27 @@ const RescheduleDrawer = ({ appointment, onClose, onSave }) => {
         <div className="space-y-4">
           <label className="block">
             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date</span>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => {
+                setDate(e.target.value)
+                setTime('')
+              }}
+              min={getTodayDateOnly()}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"
+            />
           </label>
-          <label className="block">
+          <div>
             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Time</span>
-            <input type="text" value={time} onChange={(e) => setTime(e.target.value)} placeholder="e.g. 8:00 AM" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
-          </label>
+            <TimeSlotPicker
+              date={date}
+              value={time}
+              onChange={setTime}
+              schedules={schedules}
+              takenSlots={takenSlots}
+            />
+          </div>
         </div>
 
         <div className="mt-5 flex gap-3">
@@ -170,6 +315,7 @@ const AppointmentViewModal = ({ appointment, onClose }) => {
           <div><span className="block text-xs text-slate-400">Date</span>{formatDate(appointment.appointment_date || appointment.date)}</div>
           <div><span className="block text-xs text-slate-400">Time</span>{appointment.appointment_time || appointment.time || '—'}</div>
           <div><span className="block text-xs text-slate-400">Reason</span>{appointment.reason || '—'}</div>
+          <div><span className="block text-xs text-slate-400">Notes</span>{appointment.notes || '—'}</div>
           <div><span className="block text-xs text-slate-400">Status</span>{formatStatus(appointment.status)}</div>
           <div><span className="block text-xs text-slate-400">Phone</span>{appointment.patient_phone || '—'}</div>
           <div><span className="block text-xs text-slate-400">Email</span>{appointment.patient_email || '—'}</div>
@@ -179,9 +325,10 @@ const AppointmentViewModal = ({ appointment, onClose }) => {
   )
 }
 
-const AddAppointmentModal = ({ services, onClose, onCreated }) => {
+const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => {
   const [patients, setPatients] = useState([])
   const [doctors, setDoctors] = useState([])
+  const [doctorSchedules, setDoctorSchedules] = useState([])
   const [search, setSearch] = useState('')
   const [mode, setMode] = useState('existing')
   const [selectedPatient, setSelectedPatient] = useState(null)
@@ -228,6 +375,30 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
     const specialty = (doctor.specialty || '').toLowerCase()
     return form.clinic_type === 'derma' ? specialty.includes('derm') : !specialty.includes('derm')
   })
+
+  useEffect(() => {
+    if (!form.doctor_id || !services.getDoctorSchedules) {
+      setDoctorSchedules([])
+      return
+    }
+
+    services.getDoctorSchedules(form.doctor_id)
+      .then((rows) => setDoctorSchedules(Array.isArray(rows) ? rows : []))
+      .catch(() => setDoctorSchedules([]))
+  }, [form.doctor_id, services])
+
+  const takenSlots = useMemo(() => {
+    if (!form.doctor_id || !form.appointment_date) return []
+
+    return appointments
+      .filter((appointment) => (
+        String(appointment.doctor_id) === String(form.doctor_id)
+        && (appointment.appointment_date || appointment.date || '').slice(0, 10) === form.appointment_date
+        && !['cancelled', 'rescheduled'].includes(appointment.status)
+      ))
+      .map((appointment) => appointment.appointment_time || appointment.time)
+      .filter(Boolean)
+  }, [appointments, form.appointment_date, form.doctor_id])
 
   const handleCreate = async () => {
     setSaving(true)
@@ -367,7 +538,7 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
 
           <label className="block">
             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic Type</span>
-            <select value={form.clinic_type} onChange={(e) => setForm((prev) => ({ ...prev, clinic_type: e.target.value, doctor_id: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
+            <select value={form.clinic_type} onChange={(e) => setForm((prev) => ({ ...prev, clinic_type: e.target.value, doctor_id: '', appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
               <option value="medical">Medical</option>
               <option value="derma">Derma</option>
             </select>
@@ -375,7 +546,7 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
 
           <label className="block">
             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</span>
-            <select value={form.doctor_id} onChange={(e) => setForm((prev) => ({ ...prev, doctor_id: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
+            <select value={form.doctor_id} onChange={(e) => setForm((prev) => ({ ...prev, doctor_id: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
               <option value="">Select doctor</option>
               {filteredDoctors.map((doctor) => (
                 <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>
@@ -385,13 +556,20 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
 
           <label className="block">
             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date</span>
-            <input type="date" value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+            <input type="date" min={getTodayDateOnly()} value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
           </label>
 
-          <label className="block">
+          <div className="block">
             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Time</span>
-            <input value={form.appointment_time} onChange={(e) => setForm((prev) => ({ ...prev, appointment_time: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="8:00 AM" />
-          </label>
+            <TimeSlotPicker
+              date={form.appointment_date}
+              value={form.appointment_time}
+              onChange={(slot) => setForm((prev) => ({ ...prev, appointment_time: slot }))}
+              schedules={doctorSchedules}
+              takenSlots={takenSlots}
+              emptyMessage={form.doctor_id ? 'No slots available for this doctor on the selected date.' : 'Select a doctor first to view available time slots.'}
+            />
+          </div>
 
           <label className="block sm:col-span-2">
             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Reason</span>
@@ -651,12 +829,14 @@ const Appointments = ({ services }) => {
       {rescheduleAppointment && (
         <RescheduleDrawer
           appointment={rescheduleAppointment}
+          appointments={appointments}
+          services={services}
           onClose={() => setRescheduleAppointment(null)}
           onSave={(date, time) => runAction(rescheduleAppointment, () => services.rescheduleAppointment(rescheduleAppointment.id, { appointment_date: date, appointment_time: time }))}
         />
       )}
       {viewAppointment && <AppointmentViewModal appointment={viewAppointment} onClose={() => setViewAppointment(null)} />}
-      {showAdd && <AddAppointmentModal services={services} onClose={() => setShowAdd(false)} onCreated={loadAppointments} />}
+      {showAdd && <AddAppointmentModal services={services} appointments={appointments} onClose={() => setShowAdd(false)} onCreated={loadAppointments} />}
     </div>
   )
 }

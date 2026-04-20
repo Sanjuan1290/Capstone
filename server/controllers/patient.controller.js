@@ -12,6 +12,22 @@ const { broadcast } = require('../utils/sse')
 // In-memory pending registrations (keyed by email)
 const pendingRegistrations = {}
 
+const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
+const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+const getTodayDateOnly = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+const getAgeFromBirthdate = (birthdate) => {
+  const birth = new Date(`${birthdate}T00:00:00`)
+  if (Number.isNaN(birth.getTime())) return null
+  const today = new Date()
+  let age = today.getFullYear() - birth.getFullYear()
+  const monthDiff = today.getMonth() - birth.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age -= 1
+  return age
+}
+
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 const register = async (req, res) => {
@@ -19,6 +35,12 @@ const register = async (req, res) => {
 
   if (!full_name || !birthdate || !sex || !phone || !address || !email || !password)
     return res.status(400).json({ message: 'All required fields must be filled.' })
+  const cleanBirthdate = toDateOnly(birthdate)
+  if (!isValidDateOnly(cleanBirthdate))
+    return res.status(400).json({ message: 'Birthdate is invalid.' })
+  const age = getAgeFromBirthdate(cleanBirthdate)
+  if (age === null || age < 21)
+    return res.status(400).json({ message: 'You must be at least 21 years old to register an account.' })
 
   if (password !== confirmPassword)
     return res.status(400).json({ message: 'Passwords do not match.' })
@@ -36,7 +58,7 @@ const register = async (req, res) => {
   const code   = String(Math.floor(100000 + Math.random() * 900000))
 
   pendingRegistrations[email] = {
-    full_name, birthdate, sex, civil_status: civil_status || null,
+    full_name, birthdate: cleanBirthdate, sex, civil_status: civil_status || null,
     phone, address, email, password: hashed,
     consent_given: true,
     code, expiresAt: Date.now() + 10 * 60 * 1000,
@@ -207,19 +229,39 @@ const createAppointment = async (req, res) => {
   const { doctor_id, clinic_type, reason, appointment_date, appointment_time, notes } = req.body
   if (!doctor_id || !clinic_type || !appointment_date || !appointment_time)
     return res.status(400).json({ message: 'Missing required fields.' })
+  const normalizedDate = toDateOnly(appointment_date)
+  if (!isValidDateOnly(normalizedDate))
+    return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly())
+    return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
+  await markOverdueAppointments()
+
+  const [activeWithDoctor] = await db.query(
+    `SELECT id
+     FROM appointments
+     WHERE patient_id = ? AND doctor_id = ?
+       AND status IN ('pending','confirmed','rescheduled','in-progress')
+     LIMIT 1`,
+    [req.user.id, doctor_id]
+  )
+  if (activeWithDoctor.length > 0) {
+    return res.status(409).json({
+      message: 'You already have an active appointment with this doctor. Please wait for completion or cancel it first.',
+    })
+  }
 
   const [existing] = await db.query(
     `SELECT id FROM appointments
      WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ?
-     AND status NOT IN ('cancelled','rescheduled')`,
-    [doctor_id, appointment_date, appointment_time]
+     AND status IN ('pending','confirmed','rescheduled','in-progress')`,
+    [doctor_id, normalizedDate, appointment_time]
   )
   if (existing.length > 0)
     return res.status(409).json({ message: 'That time slot is already taken.' })
 
   const [result] = await db.query(
     'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [req.user.id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes || null]
+    [req.user.id, doctor_id, clinic_type, reason, normalizedDate, appointment_time, notes || null]
   )
 
   const [details] = await db.query(
@@ -235,7 +277,7 @@ const createAppointment = async (req, res) => {
   await notifyRoles(['admin', 'staff'], {
     type: 'appointment_booked',
     title: 'New patient booking',
-    message: `${appt.patient_name} booked an appointment with ${appt.doctor_name} on ${appointment_date} at ${appointment_time}.`,
+    message: `${appt.patient_name} booked an appointment with ${appt.doctor_name} on ${normalizedDate} at ${appointment_time}.`,
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
@@ -245,7 +287,7 @@ const createAppointment = async (req, res) => {
     target_user_id: req.user.id,
     type: 'appointment_booked',
     title: 'Appointment received',
-    message: `Your appointment request for ${appointment_date} at ${appointment_time} is pending confirmation.`,
+    message: `Your appointment request for ${normalizedDate} at ${appointment_time} is pending confirmation.`,
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
@@ -277,7 +319,15 @@ const cancelAppointment = async (req, res) => {
 }
 
 const rescheduleAppointment = async (req, res) => {
-  const { appointment_date, appointment_time } = req.body
+  const { appointment_date, appointment_time, notes } = req.body
+  if (!appointment_date || !appointment_time)
+    return res.status(400).json({ message: 'Date and time required.' })
+  const normalizedDate = toDateOnly(appointment_date)
+  if (!isValidDateOnly(normalizedDate))
+    return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly())
+    return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
+  await markOverdueAppointments()
   const [rows] = await db.query(
     'SELECT id, doctor_id, status FROM appointments WHERE id = ? AND patient_id = ?',
     [req.params.id, req.user.id]
@@ -289,37 +339,56 @@ const rescheduleAppointment = async (req, res) => {
   const [conflict] = await db.query(
     `SELECT id FROM appointments
      WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ?
-     AND status NOT IN ('cancelled','rescheduled') AND id != ?`,
-    [rows[0].doctor_id, appointment_date, appointment_time, req.params.id]
+     AND status IN ('pending','confirmed','rescheduled','in-progress') AND id != ?`,
+    [rows[0].doctor_id, normalizedDate, appointment_time, req.params.id]
   )
   if (conflict.length > 0)
     return res.status(409).json({ message: 'That time slot is already taken.' })
 
   await db.query(
-    "UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'rescheduled' WHERE id = ?",
-    [appointment_date, appointment_time, req.params.id]
+    "UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes) WHERE id = ?",
+    [normalizedDate, appointment_time, notes?.trim() || null, req.params.id]
   )
   const [details] = await db.query(
     `SELECT a.id, p.email AS patient_email, p.full_name AS patient_name, d.full_name AS doctor_name, a.clinic_type
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
      JOIN doctors d ON a.doctor_id = d.id
-     WHERE a.id = ?`,
+    WHERE a.id = ?`,
     [req.params.id]
   )
+  if (details.length === 0) {
+    return res.status(404).json({ message: 'Appointment not found.' })
+  }
   if (details[0]?.patient_email) {
     await sendAppointmentStatusEmail({
       to: details[0].patient_email,
       patient_name: details[0].patient_name,
       doctor_name: details[0].doctor_name,
-      appointment_date,
+      appointment_date: normalizedDate,
       appointment_time,
       clinic_type: details[0].clinic_type,
       status: 'rescheduled',
     }).catch(() => {})
   }
-  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'rescheduled' })
-  res.json({ message: 'Appointment rescheduled.' })
+  await notifyRoles(['admin', 'staff'], {
+    type: 'appointment_reschedule_request',
+    title: 'Appointment needs reconfirmation',
+    message: `${details[0].patient_name} moved an appointment with ${details[0].doctor_name} to ${normalizedDate} at ${appointment_time}.`,
+    reference_type: 'appointment',
+    reference_id: req.params.id,
+  })
+  await createNotification({
+    target_role: 'patient',
+    target_user_id: req.user.id,
+    type: 'appointment_rescheduled',
+    title: 'Reschedule submitted',
+    message: `Your new schedule (${normalizedDate} at ${appointment_time}) is pending confirmation.`,
+    reference_type: 'appointment',
+    reference_id: req.params.id,
+  })
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'pending' })
+  res.json({ message: 'Appointment rescheduled and returned to pending confirmation.' })
 }
 
 const getDoctors = async (req, res) => {

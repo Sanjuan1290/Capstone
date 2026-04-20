@@ -30,6 +30,33 @@ function formatDate(raw) {
 
 const FREQUENCIES = ['Once daily', 'Twice daily', 'Three times daily', 'Every 8 hours', 'Every 12 hours', 'As needed (PRN)']
 const DURATIONS   = ['3 days', '5 days', '7 days', '2 weeks', '1 month', '3 months', 'Ongoing']
+const getDosageOptions = (medicineName, inventoryItems = []) => {
+  const item = inventoryItems.find(
+    (entry) => entry.name?.trim().toLowerCase() === String(medicineName || '').trim().toLowerCase()
+  )
+  const unit = String(item?.unit || '').toLowerCase()
+
+  if (unit.includes('tablet') || unit.includes('capsule') || unit.includes('caplet')) {
+    return ['1 tablet', '2 tablets', '1 capsule', '2 capsules']
+  }
+  if (unit.includes('ml') || unit.includes('syrup') || unit.includes('solution')) {
+    return ['2.5 mL', '5 mL', '10 mL', '15 mL']
+  }
+  if (unit.includes('drop')) {
+    return ['1 drop', '2 drops', '3 drops']
+  }
+  if (unit.includes('puff') || unit.includes('spray')) {
+    return ['1 puff', '2 puffs', '1 spray', '2 sprays']
+  }
+  if (unit.includes('tube') || unit.includes('cream') || unit.includes('ointment') || unit.includes('gel')) {
+    return ['Thin layer', 'Small amount', 'Pea-sized amount']
+  }
+  if (unit.includes('vial') || unit.includes('ampoule')) {
+    return ['1 vial', '1/2 vial', 'As prescribed']
+  }
+  if (unit) return [`1 ${item.unit}`, `2 ${item.unit}`, `As prescribed`]
+  return ['1 unit', '2 units', 'As prescribed']
+}
 
 // ── Printable Prescription ────────────────────────────────────────────────────
 const PrintPrescription = ({ patient, diagnosis, prescriptions, doctorName, specialty, date }) => (
@@ -421,11 +448,19 @@ const Doctor_Consultation = () => {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Dosage</label>
-                        <input type="text" value={rx.dosage}
+                        <select
+                          value={rx.dosage}
                           onChange={e => updateRx(i, 'dosage', e.target.value)}
-                          placeholder="e.g. 1 tablet"
                           className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
-                        />
+                        >
+                          <option value="">Select dosage…</option>
+                          {getDosageOptions(rx.medicine, inventoryItems).map((dose) => (
+                            <option key={dose} value={dose}>{dose}</option>
+                          ))}
+                          {rx.dosage && !getDosageOptions(rx.medicine, inventoryItems).includes(rx.dosage) && (
+                            <option value={rx.dosage}>{rx.dosage}</option>
+                          )}
+                        </select>
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Frequency</label>

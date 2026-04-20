@@ -1,13 +1,14 @@
 // client/src/components/layouts/PatientLayout.jsx
 // REDESIGNED: Mobile-first with bottom navigation bar, improved header, smooth transitions
 
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import { useAuth } from "../../context/AuthContext"
 import { useTheme } from "../../context/ThemeContext"
 import logo from "../../assets/logo-removebg.png"
 import NotificationBell from "../NotificationBell"
 import ProfileAvatar from "../ProfileAvatar"
+import { useSSE } from "../../hooks/useSSE"
 import {
   MdDashboard, MdCalendarToday, MdEventAvailable, MdHistory,
   MdChevronLeft, MdLogout, MdPerson, MdMenu, MdClose,
@@ -29,6 +30,14 @@ const PatientLayout = () => {
   const navigate  = useNavigate()
   const { user, logout: clearAuth } = useAuth()
   const { theme, toggleTheme } = useTheme()
+  const handleSSEMessage = useCallback((eventName) => {
+    if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
+      window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
+      window.dispatchEvent(new CustomEvent('clinic:refresh', { detail: { eventName } }))
+    }
+  }, [])
+
+  useSSE('patient', user?.id, handleSSEMessage)
 
   const handleLogout = async () => {
     setLoggingOut(true)

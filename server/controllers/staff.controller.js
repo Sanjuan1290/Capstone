@@ -13,6 +13,12 @@ const { markOverdueAppointments, syncInventoryBaseStock } = require('../utils/ap
 const { broadcast } = require('../utils/sse')
 
 const makeTempPassword = () => Math.random().toString(36).slice(-8)
+const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
+const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+const getTodayDateOnly = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
 
 const normalizeInventoryPayload = (body = {}) => ({
   barcode: body.barcode?.trim() || null,
@@ -128,19 +134,39 @@ const createAppointment = async (req, res) => {
   const { patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes } = req.body
   if (!patient_id || !doctor_id || !clinic_type || !appointment_date || !appointment_time)
     return res.status(400).json({ message: 'Missing required fields.' })
+  const normalizedDate = toDateOnly(appointment_date)
+  if (!isValidDateOnly(normalizedDate))
+    return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly())
+    return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
+  await markOverdueAppointments()
+
+  const [activeWithDoctor] = await db.query(
+    `SELECT id
+     FROM appointments
+     WHERE patient_id = ? AND doctor_id = ?
+       AND status IN ('pending','confirmed','rescheduled','in-progress')
+     LIMIT 1`,
+    [patient_id, doctor_id]
+  )
+  if (activeWithDoctor.length > 0) {
+    return res.status(409).json({
+      message: 'This patient already has an active appointment with this doctor.',
+    })
+  }
 
   const [existing] = await db.query(
     `SELECT id FROM appointments
      WHERE doctor_id=? AND appointment_date=? AND appointment_time=?
-     AND status NOT IN ('cancelled','rescheduled')`,
-    [doctor_id, appointment_date, appointment_time]
+     AND status IN ('pending','confirmed','rescheduled','in-progress')`,
+    [doctor_id, normalizedDate, appointment_time]
   )
   if (existing.length > 0)
     return res.status(409).json({ message: 'That time slot is already taken.' })
 
   const [result] = await db.query(
     'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes) VALUES (?,?,?,?,?,?,?)',
-    [patient_id, doctor_id, clinic_type, reason || null, appointment_date, appointment_time, notes || null]
+    [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null]
   )
   const [rows] = await db.query(
     `SELECT p.full_name AS patient_name, d.full_name AS doctor_name
@@ -153,7 +179,7 @@ const createAppointment = async (req, res) => {
   await notifyRoles(['admin', 'staff'], {
     type: 'appointment_booked',
     title: 'New patient booking',
-    message: `${rows[0].patient_name} booked an appointment with ${rows[0].doctor_name} on ${appointment_date} at ${appointment_time}.`,
+    message: `${rows[0].patient_name} booked an appointment with ${rows[0].doctor_name} on ${normalizedDate} at ${appointment_time}.`,
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
@@ -261,6 +287,12 @@ const rescheduleAppointment = async (req, res) => {
   const { appointment_date, appointment_time } = req.body
   if (!appointment_date || !appointment_time)
     return res.status(400).json({ message: 'Date and time required.' })
+  const normalizedDate = toDateOnly(appointment_date)
+  if (!isValidDateOnly(normalizedDate))
+    return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly())
+    return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
+  await markOverdueAppointments()
   const [rows] = await db.query(
     `SELECT a.id, a.doctor_id, a.status, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.full_name AS patient_name,
@@ -279,22 +311,22 @@ const rescheduleAppointment = async (req, res) => {
   const [conflict] = await db.query(
     `SELECT id FROM appointments
      WHERE doctor_id=? AND appointment_date=? AND appointment_time=?
-     AND status NOT IN ('cancelled','rescheduled') AND id != ?`,
-    [rows[0].doctor_id, appointment_date, appointment_time, req.params.id]
+     AND status IN ('pending','confirmed','rescheduled','in-progress') AND id != ?`,
+    [rows[0].doctor_id, normalizedDate, appointment_time, req.params.id]
   )
   if (conflict.length > 0)
     return res.status(409).json({ message: 'That time slot is already taken.' })
 
   await db.query(
-    "UPDATE appointments SET appointment_date=?, appointment_time=?, status='rescheduled' WHERE id=?",
-    [appointment_date, appointment_time, req.params.id]
+    "UPDATE appointments SET appointment_date=?, appointment_time=?, status='pending' WHERE id=?",
+    [normalizedDate, appointment_time, req.params.id]
   )
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
     type: 'appointment_rescheduled',
     title: 'Appointment rescheduled',
-    message: `Your appointment with ${rows[0].doctor_name} was ${rows[0].status === 'rescheduled' ? 'rescheduled again' : 'moved'} to ${appointment_date} at ${appointment_time}.`,
+    message: `Your appointment with ${rows[0].doctor_name} was moved to ${normalizedDate} at ${appointment_time} and is pending confirmation.`,
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
@@ -302,13 +334,13 @@ const rescheduleAppointment = async (req, res) => {
     to: rows[0].patient_email,
     patient_name: rows[0].patient_name,
     doctor_name: rows[0].doctor_name,
-    appointment_date,
+    appointment_date: normalizedDate,
     appointment_time,
     clinic_type: rows[0].clinic_type,
     status: 'rescheduled',
   }).catch(() => {})
-  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'rescheduled' })
-  res.json({ message: 'Appointment rescheduled.' })
+  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'pending' })
+  res.json({ message: 'Appointment rescheduled and set to pending confirmation.' })
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -563,6 +595,14 @@ const getDoctors = async (req, res) => {
   res.json(rows)
 }
 
+const getDoctorSchedules = async (req, res) => {
+  const [rows] = await db.query(
+    'SELECT * FROM doctor_schedules WHERE doctor_id = ? ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
+    [req.params.id]
+  )
+  res.json(rows)
+}
+
 // ── Supply Requests ───────────────────────────────────────────────────────────
 
 const getSupplyRequests = async (req, res) => {
@@ -591,9 +631,18 @@ const resolveSupplyRequest = async (req, res) => {
   await db.query('UPDATE supply_requests SET status = ? WHERE id = ?', [status, req.params.id])
 
   if (status === 'approved') {
+    const [[item]] = await db.query(
+      'SELECT stock, stock_base, unit_size FROM inventory WHERE id = ?',
+      [rows[0].inventory_id]
+    )
+    const unitSize = Number(item?.unit_size) > 0 ? Number(item.unit_size) : 1
+    const currentBase = Number(item?.stock_base ?? Number(item?.stock || 0) * unitSize)
+    const deltaBase = Number(rows[0].qty_requested) * unitSize
+    const newBase = Math.max(0, currentBase - deltaBase)
+    const newStock = newBase / unitSize
     await db.query(
-      'UPDATE inventory SET stock = GREATEST(0, stock - ?) WHERE id = ?',
-      [rows[0].qty_requested, rows[0].inventory_id]
+      'UPDATE inventory SET stock = ?, stock_base = ? WHERE id = ?',
+      [newStock, newBase, rows[0].inventory_id]
     )
     await db.query(
       'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
@@ -616,6 +665,6 @@ module.exports = {
   getQueue, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
-  getDoctors,
+  getDoctors, getDoctorSchedules,
   getSupplyRequests, resolveSupplyRequest,
 }

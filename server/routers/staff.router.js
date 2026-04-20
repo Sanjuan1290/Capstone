@@ -49,6 +49,7 @@ router.delete('/inventory/:id',       ...auth, staffCtrl.deleteInventoryItem)
 
 // ── Doctors list ──────────────────────────────────────────────────────────────
 router.get('/doctors', ...auth, staffCtrl.getDoctors)
+router.get('/doctors/:id/schedules', ...auth, staffCtrl.getDoctorSchedules)
 
 // ── Supply Requests ───────────────────────────────────────────────────────────
 router.get('/supply-requests',       ...auth, staffCtrl.getSupplyRequests)

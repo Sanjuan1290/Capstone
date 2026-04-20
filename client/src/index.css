@@ -15,12 +15,13 @@ body {
 }
 
 .dark body {
-  background: #020617;
-  color: #e2e8f0;
+  background: radial-gradient(circle at top, #1a2538 0%, #0d1524 42%, #070d18 100%);
+  color: #dbe6f5;
+  color-scheme: dark;
 }
 
 .dark .bg-white {
-  background-color: #0f172a !important;
+  background-color: #111b2e !important;
 }
 
 .dark .bg-slate-50,
@@ -29,32 +30,32 @@ body {
 .dark .bg-sky-50,
 .dark .bg-emerald-50,
 .dark .bg-violet-50 {
-  background-color: rgba(15, 23, 42, 0.92) !important;
+  background-color: rgba(20, 31, 50, 0.96) !important;
 }
 
 .dark .text-slate-800,
 .dark .text-slate-700,
 .dark .text-slate-600 {
-  color: #e2e8f0 !important;
+  color: #e4ecf8 !important;
 }
 
 .dark .text-slate-500,
 .dark .text-slate-400 {
-  color: #94a3b8 !important;
+  color: #a7b8d1 !important;
 }
 
 .dark .border-slate-200,
 .dark .border-slate-100 {
-  border-color: #1e293b !important;
+  border-color: #2a3a54 !important;
 }
 
 .dark input,
 .dark select,
 .dark textarea {
-  background-color: #0f172a !important;
-  color: #e2e8f0 !important;
+  background-color: #0f1728 !important;
+  color: #dbe6f5 !important;
 }
 
 .dark ::placeholder {
-  color: #64748b;
+  color: #7f93b1;
 }

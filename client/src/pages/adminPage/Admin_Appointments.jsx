@@ -13,6 +13,7 @@ import {
   createWalkInPatient,
   getPatients,
   getDoctors,
+  getDoctorSchedules,
 } from '../../services/admin.service'
 
 const adminServices = {
@@ -25,6 +26,7 @@ const adminServices = {
   createWalkInPatient,
   getPatients,
   getDoctors,
+  getDoctorSchedules,
 }
 
 const Admin_Appointments = () => <Appointments services={adminServices} />
