@@ -11,6 +11,7 @@ import {
   MdChevronRight, MdQueuePlayNext, MdInventory2, MdRefresh,
   MdCheck, MdPerson, MdArrowForward, MdSchedule,
 } from 'react-icons/md'
+import { getLocalDateOnly } from '../../utils/date'
 
 const POLL_MS = 30_000
 
@@ -42,7 +43,7 @@ const Doctor_Dashboard = () => {
   const [loading,     setLoading]     = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
 
-  const todayISO    = new Date().toISOString().split('T')[0]
+  const todayISO    = getLocalDateOnly()
   const dateDisplay = new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 
   const load = useCallback(() => {

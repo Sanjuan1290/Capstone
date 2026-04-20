@@ -10,6 +10,7 @@ import {
   MdFace, MdMedicalServices, MdCheckCircle,
 } from "react-icons/md"
 import { NavLink } from "react-router-dom"
+import { parseDateOnly } from "../../utils/date"
 
 function formatDate(raw) {
   if (!raw) return "—"
@@ -40,8 +41,15 @@ const PatientDashboard = () => {
       .then(data => {
         const all = Array.isArray(data) ? data : []
         const active = all
-          .filter(a => a.status === "confirmed" || a.status === "pending")
-          .sort((a, b) => new Date(a.appointment_date) - new Date(b.appointment_date))
+          .filter(a => a.status === "confirmed" || a.status === "pending" || a.status === "rescheduled")
+          .sort((a, b) => {
+            const da = parseDateOnly(a.appointment_date || a.date || '')
+            const db = parseDateOnly(b.appointment_date || b.date || '')
+            if (!da && !db) return 0
+            if (!da) return 1
+            if (!db) return -1
+            return da - db
+          })
         const completed = all.filter(a => a.status === "completed")
         setUpcoming(active[0] || null)
         setRecentVisits(completed.slice(0, 3))

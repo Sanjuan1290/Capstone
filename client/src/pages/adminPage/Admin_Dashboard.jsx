@@ -6,6 +6,7 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getDashboard, getAppointments } from '../../services/admin.service'
 import usePolling from '../../hooks/usePolling'
+import { getLocalDateOnly } from '../../utils/date'
 import {
   MdEventAvailable, MdPeople, MdMedicalServices, MdInventory2,
   MdBarChart, MdCalendarToday, MdChevronRight, MdRefresh,
@@ -43,7 +44,7 @@ const Admin_Dashboard = () => {
   const [loading,      setLoading]      = useState(true)
   const [lastUpdated,  setLastUpdated]  = useState(null)
 
-  const todayISO    = new Date().toISOString().split('T')[0]
+  const todayISO    = getLocalDateOnly()
   const displayDate = new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const firstName   = user?.full_name?.split(' ').pop() || 'Admin'
 

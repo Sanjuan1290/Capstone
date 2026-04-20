@@ -332,6 +332,7 @@ const StaffWalkInQueue = () => {
       patient_name: patient.full_name || patient.name,
       doctor_id: Number(payload.doctor_id),
       type: payload.clinic_type,
+      reason: payload.reason || 'Walk-in consultation',
     })
 
     if (!queueEntry?.id) {

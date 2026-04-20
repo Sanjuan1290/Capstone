@@ -17,6 +17,7 @@ import {
   MdEmail,
   MdHome,
 } from 'react-icons/md'
+import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 
 const PAGE_SIZE = 10
 const DAYS_MAP = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 }
@@ -42,23 +43,10 @@ const STATUS_STYLES = {
 
 const buttonBase = 'rounded-xl px-3 py-2 text-xs font-semibold transition'
 
-const formatDate = (value) => {
-  if (!value) return '—'
-  const normalized = typeof value === 'string' ? value.slice(0, 10) : String(value).slice(0, 10)
-  const parts = normalized.split('-').map(Number)
-  const date = parts.length === 3 && parts.every(Boolean)
-    ? new Date(parts[0], parts[1] - 1, parts[2])
-    : new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-}
+const formatDate = (value) => formatDateOnly(value)
 
 const formatStatus = (value) => value?.replace('_', ' ').replace(/\b\w/g, (m) => m.toUpperCase()) || 'Unknown'
 const pad = (value) => String(value).padStart(2, '0')
-const getTodayDateOnly = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-}
 
 const buildSlotsForDate = (date, schedules = []) => {
   if (!date || !Array.isArray(schedules) || schedules.length === 0) return []
@@ -234,7 +222,7 @@ const RescheduleDrawer = ({ appointment, appointments, services, onClose, onSave
 
   const handleSubmit = async () => {
     if (!date || !time) return
-    if (date < getTodayDateOnly()) return
+    if (date < getLocalDateOnly()) return
     setSaving(true)
     try {
       await onSave(date, time)
@@ -268,7 +256,7 @@ const RescheduleDrawer = ({ appointment, appointments, services, onClose, onSave
                 setDate(e.target.value)
                 setTime('')
               }}
-              min={getTodayDateOnly()}
+              min={getLocalDateOnly()}
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"
             />
           </label>
@@ -556,7 +544,7 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
 
           <label className="block">
             <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date</span>
-            <input type="date" min={getTodayDateOnly()} value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+            <input type="date" min={getLocalDateOnly()} value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
           </label>
 
           <div className="block">

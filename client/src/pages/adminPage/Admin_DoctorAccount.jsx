@@ -9,7 +9,7 @@ import {
   MdMedicalServices, MdFace, MdScience, MdMailOutline, MdCalendarToday, MdEdit,
 } from 'react-icons/md'
 
-const SPECIALTIES = ['Dermatologist','General Practitioner','Cosmetic Dermatology','Internal Medicine','Pediatrician','OB-GYN']
+const SPECIALTIES = ['Dermatologist', 'General Medicine']
 
 // ── Add Modal ──────────────────────────────────────────────────────────────────
 const AddModal = ({ onClose, onAdd }) => {
@@ -17,7 +17,14 @@ const AddModal = ({ onClose, onAdd }) => {
   const [sub,     setSub]     = useState(false)
   const [error,   setError]   = useState('')
   const valid = form.full_name.trim() && form.email.trim() && form.prc_license.trim()
-  const set   = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+  const set   = k => e => {
+    const nextValue = e.target.value
+    setForm(f => ({
+      ...f,
+      [k]: nextValue,
+      ...(k === 'specialty' ? { type: nextValue === 'Dermatologist' ? 'derma' : 'medical' } : {}),
+    }))
+  }
 
   const handleSubmit = async () => {
     setSub(true); setError('')
@@ -77,7 +84,7 @@ const AddModal = ({ onClose, onAdd }) => {
             <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinic Type</label>
             <div className="grid grid-cols-2 gap-2">
               {[{ v: 'derma', l: 'Dermatology' }, { v: 'medical', l: 'General Medicine' }].map(({ v, l }) => (
-                <button key={v} onClick={() => setForm(f => ({ ...f, type: v }))}
+                <button key={v} onClick={() => setForm(f => ({ ...f, type: v, specialty: v === 'derma' ? 'Dermatologist' : 'General Medicine' }))}
                   className={`py-2.5 rounded-xl text-xs font-bold border-2 transition-all
                     ${form.type === v ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
                   {l}

@@ -34,6 +34,7 @@ const ensureAppSchema = async () => {
   await ensureColumn('patients', 'is_walk_in', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('patients', 'consent_given', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('patients', 'consent_given_at', "TIMESTAMP NULL")
+  await ensureColumn('queue', 'appointment_id', 'INT NULL').catch(() => {})
 
   await ensureColumn('staff', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('staff', 'profile_image_url', "TEXT NULL")

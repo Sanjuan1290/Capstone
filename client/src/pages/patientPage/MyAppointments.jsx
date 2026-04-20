@@ -13,6 +13,7 @@ import {
   MdHome, MdCake, MdWc, MdHistory
 } from "react-icons/md"
 import { NavLink } from "react-router-dom"
+import { parseDateOnly } from '../../utils/date'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDate(raw) {
@@ -300,10 +301,13 @@ const MyAppointments = () => {
   })
 
   const nextAppt = appointments
-    .filter(a => a.status === 'confirmed' || a.status === 'pending')
+    .filter(a => a.status === 'confirmed' || a.status === 'pending' || a.status === 'rescheduled')
     .sort((a, b) => {
-      const da = new Date((a.appointment_date || a.date || '').slice(0, 10))
-      const db = new Date((b.appointment_date || b.date || '').slice(0, 10))
+      const da = parseDateOnly(a.appointment_date || a.date || '')
+      const db = parseDateOnly(b.appointment_date || b.date || '')
+      if (!da && !db) return 0
+      if (!da) return 1
+      if (!db) return -1
       return da - db
     })[0]
 

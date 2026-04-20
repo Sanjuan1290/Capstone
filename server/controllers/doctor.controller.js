@@ -7,6 +7,7 @@ const generateCookie = require('../utils/generateCookie')
 const { createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
+const { getTodayDateOnly } = require('../utils/date')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ const logout = (req, res) => {
 
 const getDashboard = async (req, res) => {
   await markOverdueAppointments()
-  const today = new Date().toISOString().split('T')[0]
+  const today = getTodayDateOnly()
   const [[{ totalToday }]]      = await db.query(
     'SELECT COUNT(*) AS totalToday FROM appointments WHERE doctor_id = ? AND appointment_date = ?',
     [req.user.id, today]
@@ -90,7 +91,7 @@ const getDashboard = async (req, res) => {
 
 const getDailyAppointments = async (req, res) => {
   await markOverdueAppointments()
-  const date = req.query.date || new Date().toISOString().split('T')[0]
+  const date = req.query.date || getTodayDateOnly()
   const [rows] = await db.query(
     `SELECT a.*, a.appointment_time AS time, a.clinic_type AS type,
             p.full_name AS patient_name, p.full_name AS patient,
@@ -250,7 +251,7 @@ const submitRequest = async (req, res) => {
 
 // GET /queue — fetch today's queue for this doctor
 const getMyQueue = async (req, res) => {
-  const today = new Date().toISOString().split('T')[0]
+  const today = getTodayDateOnly()
   const [rows] = await db.query(
     `SELECT q.id, q.queue_number, q.patient_name, q.type, q.status,
             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt
@@ -265,7 +266,7 @@ const getMyQueue = async (req, res) => {
 
 // PATCH /queue/call-next — mark current in-progress as done, set next waiting as in-progress
 const callNext = async (req, res) => {
-  const today = new Date().toISOString().split('T')[0]
+  const today = getTodayDateOnly()
   const doctorId = req.user.id
 
   // Mark current in-progress patient as done

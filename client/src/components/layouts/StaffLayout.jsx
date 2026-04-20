@@ -12,7 +12,7 @@ import { useSSE } from '../../hooks/useSSE'
 import {
   MdDashboard, MdEventAvailable, MdQueuePlayNext,
   MdPeople, MdInventory2, MdChevronLeft, MdLogout,
-  MdPerson, MdLocalShipping, MdMenu, MdClose,
+  MdPerson, MdMenu, MdClose,
   MdSettings, MdDarkMode, MdLightMode,
 } from "react-icons/md"
 
@@ -22,7 +22,6 @@ const sideNav = [
   { name: "Walk-in Queue",   path: "/staff/walkin",           icon: MdQueuePlayNext, short: "Queue"    },
   { name: "Patient Records", path: "/staff/patient-records",  icon: MdPeople,        short: "Patients" },
   { name: "Inventory",       path: "/staff/inventory",        icon: MdInventory2,    short: "Stock"    },
-  { name: "Supply Requests", path: "/staff/supply-requests",  icon: MdLocalShipping, short: "Supplies" },
 ]
 
 const StaffLayout = () => {

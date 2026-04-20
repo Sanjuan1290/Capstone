@@ -1,6 +1,7 @@
 const db = require('../db/connect')
 const { sendAppointmentReminder } = require('./emailService')
 const { markOverdueAppointments } = require('./appointments')
+const { getTodayDateOnly } = require('./date')
 
 async function sendTomorrowReminders() {
   console.log('[Reminder] Running appointment reminder job...')
@@ -9,7 +10,7 @@ async function sendTomorrowReminders() {
 
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
-    const tomorrowStr = tomorrow.toISOString().split('T')[0]
+    const tomorrowStr = getTodayDateOnly(tomorrow)
 
     const [appointments] = await db.query(
       `SELECT a.id, a.appointment_date, a.appointment_time, a.clinic_type,

@@ -8,16 +8,13 @@ const { sendVerificationCode, sendAppointmentStatusEmail } = require('../utils/e
 const { notifyRoles, createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
+const { getTodayDateOnly } = require('../utils/date')
 
 // In-memory pending registrations (keyed by email)
 const pendingRegistrations = {}
 
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
-const getTodayDateOnly = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
 const getAgeFromBirthdate = (birthdate) => {
   const birth = new Date(`${birthdate}T00:00:00`)
   if (Number.isNaN(birth.getTime())) return null

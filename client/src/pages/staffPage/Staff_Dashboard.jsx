@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { getDashboardStats, getAppointments } from '../../services/staff.service'
+import { getLocalDateOnly } from '../../utils/date'
 import {
   MdEventAvailable, MdQueuePlayNext, MdPeople, MdInventory2,
   MdWarning, MdChevronRight, MdFace, MdMedicalServices,
@@ -25,7 +26,7 @@ const Staff_Dashboard = () => {
   const [appointments, setAppointments] = useState([])
   const [loading,      setLoading]      = useState(true)
 
-  const today       = new Date().toISOString().split('T')[0]
+  const today       = getLocalDateOnly()
   const displayDate = new Date().toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
   const firstName   = user?.full_name?.split(' ')[0] || 'Staff'
 

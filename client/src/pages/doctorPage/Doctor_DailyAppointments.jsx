@@ -20,6 +20,7 @@ import {
   MdQueuePlayNext, MdSkipNext, MdWc, MdCake,
   MdLocalPharmacy, MdEdit, MdPhone, MdPrint,
 } from 'react-icons/md'
+import { getLocalDateOnly } from '../../utils/date'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -541,7 +542,7 @@ const Doctor_DailyAppointments = () => {
   const [walkInQueue,   setWalkInQueue]   = useState([])
   const [calling,       setCalling]       = useState(false)
   const [prescModal,    setPrescModal]    = useState(null) // { id, patientName }
-  const today = new Date().toISOString().split('T')[0]
+  const today = getLocalDateOnly()
 
   // ── Load appointments ──────────────────────────────────────────────────────
   const loadAppointments = useCallback(() => {

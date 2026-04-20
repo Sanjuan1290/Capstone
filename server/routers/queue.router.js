@@ -9,9 +9,10 @@
 const express = require('express')
 const router  = express.Router()
 const db      = require('../db/connect')
+const { getTodayDateOnly } = require('../utils/date')
 
 router.get('/live', async (req, res) => {
-  const today = new Date().toISOString().split('T')[0]
+  const today = getTodayDateOnly()
 
   // Patient currently being served
   const [servingRows] = await db.query(

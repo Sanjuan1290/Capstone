@@ -15,12 +15,10 @@ const { sendTempPassword, sendAppointmentStatusEmail } = require('../utils/email
 const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments, syncInventoryBaseStock } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
+const { getTodayDateOnly, getCurrentTimeLabel } = require('../utils/date')
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
-const getTodayDateOnly = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
+const DOCTOR_SPECIALTIES = new Set(['Dermatologist', 'General Medicine'])
 
 const normalizeInventoryPayload = (body = {}) => ({
   barcode: body.barcode?.trim() || null,
@@ -97,7 +95,7 @@ const logout = (req, res) => {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 const getDashboard = async (req, res) => {
-  const today = new Date().toISOString().split('T')[0]
+  const today = getTodayDateOnly()
 
   const [[{ totalPatients }]]    = await db.query('SELECT COUNT(*) AS totalPatients FROM patients')
   const [[{ todayAppts }]]       = await db.query('SELECT COUNT(*) AS todayAppts FROM appointments WHERE appointment_date = ?', [today])
@@ -314,7 +312,7 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(409).json({ message: 'That time slot is already taken.' })
 
   await db.query(
-    "UPDATE appointments SET appointment_date=?, appointment_time=?, status='pending' WHERE id=?",
+    "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=?",
     [normalizedDate, appointment_time, req.params.id]
   )
   await createNotification({
@@ -322,7 +320,7 @@ const rescheduleAppointment = async (req, res) => {
     target_user_id: rows[0].patient_id,
     type: 'appointment_rescheduled',
     title: 'Appointment rescheduled',
-    message: `Your appointment with ${rows[0].doctor_name} was moved to ${normalizedDate} at ${appointment_time} and is pending confirmation.`,
+    message: `Your appointment with ${rows[0].doctor_name} was moved to ${normalizedDate} at ${appointment_time}.`,
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
@@ -335,8 +333,8 @@ const rescheduleAppointment = async (req, res) => {
     clinic_type: rows[0].clinic_type,
     status: 'rescheduled',
   }).catch(() => {})
-  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'pending' })
-  res.json({ message: 'Appointment rescheduled and set to pending confirmation.' })
+  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
+  res.json({ message: 'Appointment rescheduled.' })
 }
 
 const createAppointment = async (req, res) => {
@@ -399,7 +397,7 @@ const createAppointment = async (req, res) => {
 // ── Queue ─────────────────────────────────────────────────────────────────────
 
 const getQueue = async (req, res) => {
-  const today = req.query.date || new Date().toISOString().split('T')[0]
+  const today = req.query.date || getTodayDateOnly()
   const [rows] = await db.query(
     `SELECT q.*, d.full_name AS doctor_name
      FROM queue q
@@ -412,20 +410,36 @@ const getQueue = async (req, res) => {
 }
 
 const addToQueue = async (req, res) => {
-  const { patient_id, doctor_id, patient_name, type } = req.body
+  const { patient_id, doctor_id, patient_name, type, reason } = req.body
   if (!doctor_id || !type)
     return res.status(400).json({ message: 'doctor_id and type are required.' })
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = getTodayDateOnly()
   const [[{ maxQ }]] = await db.query(
     'SELECT COALESCE(MAX(queue_number), 0) AS maxQ FROM queue WHERE queue_date = ?', [today]
   )
+  let appointmentId = null
+
+  if (patient_id) {
+    const appointmentTime = getCurrentTimeLabel()
+    const [appointmentResult] = await db.query(
+      `INSERT INTO appointments
+       (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, status)
+       VALUES (?,?,?,?,?,?, 'confirmed')`,
+      [patient_id, doctor_id, type, reason || 'Walk-in consultation', today, appointmentTime]
+    )
+    appointmentId = appointmentResult.insertId
+  }
+
   const [result] = await db.query(
-    'INSERT INTO queue (patient_id, doctor_id, queue_number, patient_name, type, status, queue_date) VALUES (?,?,?,?,?,?,?)',
-    [patient_id || null, doctor_id, maxQ + 1, patient_name || 'Walk-in', type, 'waiting', today]
+    'INSERT INTO queue (patient_id, doctor_id, queue_number, patient_name, type, status, queue_date, appointment_id) VALUES (?,?,?,?,?,?,?,?)',
+    [patient_id || null, doctor_id, maxQ + 1, patient_name || 'Walk-in', type, 'waiting', today, appointmentId]
   )
   broadcast(['admin', 'staff', `doctor_${doctor_id}`], 'queue_updated', { queueId: result.insertId, status: 'added', doctorId: Number(doctor_id) })
-  res.status(201).json({ id: result.insertId, queue_number: maxQ + 1 })
+  if (appointmentId) {
+    broadcast(['admin', 'staff', `doctor_${doctor_id}`], 'appointment_updated', { appointmentId, status: 'confirmed' })
+  }
+  res.status(201).json({ id: result.insertId, queue_number: maxQ + 1, appointment_id: appointmentId })
 }
 
 const updateQueueStatus = async (req, res) => {
@@ -602,6 +616,8 @@ const createDoctor = async (req, res) => {
   const { full_name, email, phone, specialty, prc_license } = req.body
   if (!full_name || !email)
     return res.status(400).json({ message: 'Name and email are required.' })
+  if (!DOCTOR_SPECIALTIES.has(specialty))
+    return res.status(400).json({ message: 'Specialty must be Dermatologist or General Medicine.' })
   const [existing] = await db.query('SELECT id FROM doctors WHERE email = ?', [email])
   if (existing.length > 0)
     return res.status(409).json({ message: 'Email already exists.' })
@@ -636,6 +652,8 @@ const updateDoctor = async (req, res) => {
   const { full_name, email, phone, specialty, prc_license } = req.body
   if (!full_name || !email)
     return res.status(400).json({ message: 'Name and email are required.' })
+  if (!DOCTOR_SPECIALTIES.has(specialty))
+    return res.status(400).json({ message: 'Specialty must be Dermatologist or General Medicine.' })
 
   const [rows] = await db.query('SELECT id FROM doctors WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Doctor account not found.' })

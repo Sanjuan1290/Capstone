@@ -98,10 +98,12 @@ const SettingsPage = () => {
               <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Full name</span>
               <input value={form.full_name || ''} onChange={onChange('full_name')} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400" />
             </label>
-            <label className="space-y-1.5">
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Phone</span>
-              <input value={form.phone || ''} onChange={onChange('phone')} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400" />
-            </label>
+            {'phone' in form && (
+              <label className="space-y-1.5">
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Phone</span>
+                <input value={form.phone || ''} onChange={onChange('phone')} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+              </label>
+            )}
             {role === 'doctor' && (
               <label className="space-y-1.5 md:col-span-2">
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Specialty</span>

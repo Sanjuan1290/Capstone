@@ -11,6 +11,7 @@ import {
   MdCalendarToday, MdAccessTime, MdPerson, MdAdd,
   MdArrowForward,
 } from 'react-icons/md'
+import { getLocalDateOnly } from '../../utils/date'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CLINIC_TYPES = [
@@ -160,7 +161,7 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
   const prevM = () => { if(viewMonth===0){setViewMonth(11);setViewYear(y=>y-1)}else setViewMonth(m=>m-1) }
   const nextM = () => { if(viewMonth===11){setViewMonth(0);setViewYear(y=>y+1)}else setViewMonth(m=>m+1) }
 
-  const todayStr = toISO(today.getFullYear(),today.getMonth(),today.getDate())
+  const todayStr = getLocalDateOnly(today)
 
   return (
     <div className="space-y-4">
@@ -384,8 +385,8 @@ const BookAppointment = () => {
   useEffect(() => {
     getDoctors()
       .then(data => {
-        const medical = data.filter(d => d.specialty !== 'Dermatologist')
-        const derma   = data.filter(d => d.specialty === 'Dermatologist')
+        const derma = data.filter(d => String(d.specialty || '').toLowerCase().includes('derm'))
+        const medical = data.filter(d => !String(d.specialty || '').toLowerCase().includes('derm'))
         setDoctorList({ medical, derma })
       })
       .catch(() => {})
@@ -405,7 +406,7 @@ const BookAppointment = () => {
     const sched     = doctorSchedules.find(s => s.day_of_week === dayName && s.is_active)
     if (!sched) { setTimeSlots([]); return }
     let slots = buildSlots(sched)
-    const todayStr = toISO(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())
+    const todayStr = getLocalDateOnly()
     if (form.date === todayStr) slots = slots.filter(s => !isPastSlot(s))
     setTimeSlots(slots)
     setTakenSlots([])

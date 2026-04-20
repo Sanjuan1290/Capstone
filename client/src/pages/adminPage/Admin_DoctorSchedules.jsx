@@ -248,7 +248,7 @@ const Admin_DoctorSchedules = () => {
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-slate-800 truncate">{selected.full_name || selected.name}</p>
-            <p className="text-xs text-slate-500">{selected.specialty || 'General Practitioner'}</p>
+            <p className="text-xs text-slate-500">{selected.specialty || 'General Medicine'}</p>
           </div>
           <div className="flex items-center gap-6 shrink-0 text-right">
             <div>

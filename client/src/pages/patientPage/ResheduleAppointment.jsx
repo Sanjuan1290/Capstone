@@ -97,7 +97,7 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
   const DAYS_MAP = { Sunday:0,Monday:1,Tuesday:2,Wednesday:3,Thursday:4,Friday:5,Saturday:6 }
   const activeDays = new Set(schedule.map(s => DAYS_MAP[s.day_of_week]))
 
-  const isPast   = d => { const c = new Date(viewYear,viewMonth,d); c.setHours(0,0,0,0); const t=new Date(); t.setHours(0,0,0,0); return c<=t }
+  const isPast   = d => { const c = new Date(viewYear,viewMonth,d); c.setHours(0,0,0,0); const t=new Date(); t.setHours(0,0,0,0); return c<t }
   const isDayOff = d => schedule.length > 0 && !activeDays.has(new Date(viewYear,viewMonth,d).getDay())
   const isSel    = d => date?.day===d && date?.month===viewMonth && date?.year===viewYear
 
