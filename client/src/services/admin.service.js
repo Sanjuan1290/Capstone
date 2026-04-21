@@ -94,8 +94,16 @@ export const getReports = (period) =>
 export const getInventory = () =>
   fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
 
-export const getInventoryLogs = () =>
-  fetch(`${BASE}/inventory/logs`, { credentials: 'include' }).then(r => r.json())
+export const getInventoryLogs = (params = {}) => {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      search.set(key, value)
+    }
+  })
+  const query = search.toString()
+  return requestJson(`${BASE}/inventory/logs${query ? `?${query}` : ''}`)
+}
 
 export const updateStock = (id, payload) =>
   fetch(`${BASE}/inventory/${id}/stock`, {

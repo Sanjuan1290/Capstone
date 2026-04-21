@@ -23,6 +23,7 @@ const sideNav = [
   { name: "Doctor Accounts",  path: "/admin/doctor-accounts",   icon: MdMedicalServices,   short: "Doctors" },
   { name: "Doctor Schedules", path: "/admin/doctor-schedules",  icon: MdCalendarToday,     short: "Schedule"},
   { name: "Inventory",        path: "/admin/inventory",         icon: MdInventory2,        short: "Stock"   },
+  { name: "Supply Requests",  path: "/admin/supply-requests",   icon: MdInventory2,        short: "Supply"  },
   { name: "Landing Page",     path: "/admin/landingpage",       icon: MdLanguage,          short: "Site"    },
   { name: "Reports",          path: "/admin/reports",           icon: MdBarChart,          short: "Reports" },
 ]

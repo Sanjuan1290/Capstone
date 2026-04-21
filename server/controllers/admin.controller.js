@@ -819,6 +819,34 @@ const getReports = async (req, res) => {
 }
 
 const getInventoryLogs = async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10))
+  const offset = (page - 1) * limit
+  const startDate = String(req.query.start_date || '').trim()
+  const endDate = String(req.query.end_date || '').trim()
+
+  const filters = []
+  const params = []
+
+  if (startDate) {
+    filters.push('DATE(il.logged_at) >= ?')
+    params.push(startDate)
+  }
+
+  if (endDate) {
+    filters.push('DATE(il.logged_at) <= ?')
+    params.push(endDate)
+  }
+
+  const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : ''
+
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM inventory_logs il
+     ${whereClause}`,
+    params
+  )
+
   const [rows] = await db.query(
     `SELECT il.*, i.name AS item_name,
             COALESCE(s.full_name, a.full_name, 'System') AS performed_by,
@@ -831,10 +859,29 @@ const getInventoryLogs = async (req, res) => {
      LEFT JOIN inventory i ON il.inventory_id = i.id
      LEFT JOIN staff s ON il.staff_id = s.id
      LEFT JOIN admins a ON il.admin_id = a.id
+     ${whereClause}
      ORDER BY il.logged_at DESC
-     LIMIT 100`
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
   )
-  res.json(rows)
+
+  const totalPages = total > 0 ? Math.ceil(total / limit) : 1
+
+  res.json({
+    items: rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasPrev: page > 1,
+      hasNext: page < totalPages,
+    },
+    filters: {
+      start_date: startDate || '',
+      end_date: endDate || '',
+    },
+  })
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────

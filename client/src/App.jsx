@@ -48,6 +48,7 @@ import Admin_DoctorSchedules from './pages/adminPage/Admin_DoctorSchedules'
 import Admin_Appointments    from './pages/adminPage/Admin_Appointments'
 import Admin_Inventory       from './pages/adminPage/Admin_Inventory'
 import Admin_LandingPage     from './pages/adminPage/Admin_LandingPage'
+import Admin_SupplyRequests  from './pages/adminPage/Admin_SupplyRequests'
 import QueueDisplay          from './pages/displayPage/QueueDisplay'
 
 import StaffRoute  from './components/StaffRoute'
@@ -127,6 +128,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='appointments'     element={<Admin_Appointments />} />
         <Route path='inventory'        element={<Admin_Inventory />} />
+        <Route path='supply-requests'  element={<Admin_SupplyRequests />} />
         <Route path='landingpage'      element={<Admin_LandingPage />} />
         <Route path='settings'         element={<SettingsPage />} />
       </Route>

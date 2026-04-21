@@ -113,6 +113,22 @@ const startConsultation = async (req, res) => {
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
   await db.query("UPDATE appointments SET status = 'in-progress' WHERE id = ?", [req.params.id])
+  const [queueRows] = await db.query(
+    `SELECT id
+     FROM queue
+     WHERE appointment_id = ? AND doctor_id = ? AND status IN ('waiting','in-progress')
+     ORDER BY id DESC
+     LIMIT 1`,
+    [req.params.id, req.user.id]
+  )
+  if (queueRows.length > 0) {
+    await db.query("UPDATE queue SET status = 'in-progress' WHERE id = ?", [queueRows[0].id])
+    broadcast(['admin', 'staff', `doctor_${req.user.id}`], 'queue_updated', {
+      queueId: queueRows[0].id,
+      status: 'in-progress',
+      doctorId: req.user.id,
+    })
+  }
   broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'in-progress' })
   res.json({ message: 'Consultation started.' })
 }
@@ -139,6 +155,22 @@ const saveConsultation = async (req, res) => {
     )
   }
   await db.query("UPDATE appointments SET status='completed' WHERE id=?", [appointmentId])
+  const [queueRows] = await db.query(
+    `SELECT id
+     FROM queue
+     WHERE appointment_id = ? AND doctor_id = ? AND status IN ('waiting','in-progress')
+     ORDER BY id DESC
+     LIMIT 1`,
+    [appointmentId, req.user.id]
+  )
+  if (queueRows.length > 0) {
+    await db.query("UPDATE queue SET status='done' WHERE id = ?", [queueRows[0].id])
+    broadcast(['admin', 'staff', `doctor_${req.user.id}`], 'queue_updated', {
+      queueId: queueRows[0].id,
+      status: 'done',
+      doctorId: req.user.id,
+    })
+  }
   broadcast(['admin', 'staff', `patient_${appt.patient_id}`], 'appointment_updated', { appointmentId: Number(appointmentId), status: 'completed' })
   broadcast(['admin', 'staff', `patient_${appt.patient_id}`, `doctor_${req.user.id}`], 'consultation_saved', { appointmentId: Number(appointmentId), patientId: appt.patient_id, doctorId: req.user.id })
   res.json({ message: 'Consultation saved.' })
@@ -254,8 +286,14 @@ const getMyQueue = async (req, res) => {
   const today = getTodayDateOnly()
   const [rows] = await db.query(
     `SELECT q.id, q.queue_number, q.patient_name, q.type, q.status,
-            TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt
+            q.patient_id, q.appointment_id,
+            TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt,
+            a.reason, a.appointment_time AS time,
+            p.phone AS patient_phone, p.sex AS patient_sex,
+            TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age
      FROM queue q
+     LEFT JOIN appointments a ON a.id = q.appointment_id
+     LEFT JOIN patients p ON p.id = q.patient_id
      WHERE q.doctor_id = ? AND q.queue_date = ?
        AND q.status IN ('waiting','in-progress')
      ORDER BY q.queue_number ASC`,

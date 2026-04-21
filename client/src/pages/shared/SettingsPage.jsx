@@ -11,17 +11,34 @@ const SettingsPage = () => {
   const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!role) return
+    let ignore = false
+    setError('')
+    setForm(null)
     getSettings(role).then(data => {
+      if (ignore) return
       setForm(data)
       if (data?.theme_preference) setTheme(data.theme_preference)
-    }).catch(() => {})
+    }).catch((err) => {
+      if (ignore) return
+      setError(err.message || 'Failed to load settings.')
+    })
+    return () => {
+      ignore = true
+    }
   }, [role, setTheme])
 
   if (!form) {
-    return <div className="p-10 text-sm text-slate-400">Loading settings...</div>
+    return (
+      <div className="p-10">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+          {error || 'Loading settings...'}
+        </div>
+      </div>
+    )
   }
 
   const onChange = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
@@ -33,8 +50,9 @@ const SettingsPage = () => {
     try {
       const url = await uploadToCloudinary(file)
       setForm(prev => ({ ...prev, profile_image_url: url }))
+      setError('')
     } catch (err) {
-      alert(err.message)
+      setError(err.message)
     } finally {
       setUploading(false)
     }
@@ -48,9 +66,10 @@ const SettingsPage = () => {
       setForm(saved)
       setTheme(saved.theme_preference || theme)
       setUser(prev => prev ? { ...prev, ...saved, role } : prev)
+      setError('')
       alert('Settings saved.')
     } catch (err) {
-      alert(err.message)
+      setError(err.message)
     } finally {
       setSaving(false)
     }
@@ -62,6 +81,12 @@ const SettingsPage = () => {
         <h1 className="text-2xl font-bold text-slate-800">Settings</h1>
         <p className="text-sm text-slate-500 mt-1">Update your profile, profile image, and interface theme.</p>
       </div>
+
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+          {error}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-[280px_1fr] gap-6">
         <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4">

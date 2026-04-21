@@ -122,7 +122,7 @@ const PatientLogin = () => {
                 </button>
               </div>
               <div className="flex justify-end">
-                <NavLink to="/forgot-password"
+                <NavLink to="/patient/forgot-password"
                   className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold">
                   Forgot password?
                 </NavLink>

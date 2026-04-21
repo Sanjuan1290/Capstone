@@ -18,7 +18,7 @@ import {
   MdChevronRight, MdPerson, MdNotes, MdArrowBack,
   MdCheck, MdAdd, MdClose, MdSave,
   MdQueuePlayNext, MdSkipNext, MdWc, MdCake,
-  MdLocalPharmacy, MdEdit, MdPhone, MdPrint,
+  MdLocalPharmacy, MdEdit, MdPhone,
 } from 'react-icons/md'
 import { getLocalDateOnly } from '../../utils/date'
 
@@ -47,33 +47,10 @@ function calcAge(birthdate) {
 
 const FREQUENCIES = ['Once daily', 'Twice daily', 'Three times daily', 'Every 8 hours', 'Every 12 hours', 'As needed (PRN)']
 const DURATIONS   = ['3 days', '5 days', '7 days', '2 weeks', '1 month', '3 months', 'Ongoing']
-const getDosageOptions = (medicineName, inventoryItems = []) => {
-  const item = inventoryItems.find(
+const getMedicineUnit = (medicineName, inventoryItems = []) =>
+  inventoryItems.find(
     (entry) => entry.name?.trim().toLowerCase() === String(medicineName || '').trim().toLowerCase()
-  )
-  const unit = String(item?.unit || '').toLowerCase()
-
-  if (unit.includes('tablet') || unit.includes('capsule') || unit.includes('caplet')) {
-    return ['1 tablet', '2 tablets', '1 capsule', '2 capsules']
-  }
-  if (unit.includes('ml') || unit.includes('syrup') || unit.includes('solution')) {
-    return ['2.5 mL', '5 mL', '10 mL', '15 mL']
-  }
-  if (unit.includes('drop')) {
-    return ['1 drop', '2 drops', '3 drops']
-  }
-  if (unit.includes('puff') || unit.includes('spray')) {
-    return ['1 puff', '2 puffs', '1 spray', '2 sprays']
-  }
-  if (unit.includes('tube') || unit.includes('cream') || unit.includes('ointment') || unit.includes('gel')) {
-    return ['Thin layer', 'Small amount', 'Pea-sized amount']
-  }
-  if (unit.includes('vial') || unit.includes('ampoule')) {
-    return ['1 vial', '1/2 vial', 'As prescribed']
-  }
-  if (unit) return [`1 ${item.unit}`, `2 ${item.unit}`, 'As prescribed']
-  return ['1 unit', '2 units', 'As prescribed']
-}
+  )?.unit || ''
 
 // ── Prescription View/Edit Modal ──────────────────────────────────────────────
 const PrescriptionModal = ({ appointmentId, patientName, onClose, onOpenFullRecord }) => {
@@ -214,19 +191,27 @@ const PrescriptionModal = ({ appointmentId, patientName, onClose, onOpenFullReco
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Dosage</label>
-                          <select
-                            value={rx.dosage}
-                            onChange={e => updateRx(i, 'dosage', e.target.value)}
-                            className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
-                          >
-                            <option value="">Select dosage…</option>
-                            {getDosageOptions(rx.medicine, inventoryItems).map((dose) => (
-                              <option key={dose} value={dose}>{dose}</option>
-                            ))}
-                            {rx.dosage && !getDosageOptions(rx.medicine, inventoryItems).includes(rx.dosage) && (
-                              <option value={rx.dosage}>{rx.dosage}</option>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={/^\d*\.?\d*$/.test(String(rx.dosage || '')) ? rx.dosage : ''}
+                              onChange={e => updateRx(i, 'dosage', e.target.value)}
+                              placeholder="0"
+                              className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
+                            />
+                            {getMedicineUnit(rx.medicine, inventoryItems) && (
+                              <span className="shrink-0 text-xs font-medium text-slate-500">
+                                {getMedicineUnit(rx.medicine, inventoryItems)}
+                              </span>
                             )}
-                          </select>
+                          </div>
+                          {rx.dosage && !/^\d*\.?\d*$/.test(String(rx.dosage || '')) && (
+                            <p className="mt-1 text-[10px] text-amber-600">
+                              Existing dosage "{rx.dosage}" is not numeric. Update it to save changes.
+                            </p>
+                          )}
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Frequency</label>
@@ -276,10 +261,6 @@ const PrescriptionModal = ({ appointmentId, patientName, onClose, onOpenFullReco
         {/* Footer */}
         {!loading && !error && (
           <div className="px-6 pb-5 pt-3 border-t border-slate-100 flex gap-3 shrink-0">
-            <button onClick={() => window.print()}
-              className="flex-1 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 flex items-center justify-center gap-2">
-              <MdPrint className="text-[14px]" /> Print
-            </button>
             <button onClick={() => onOpenFullRecord(appointmentId)}
               className="flex-1 py-2.5 text-sm font-semibold text-violet-700 border border-violet-200 bg-violet-50 rounded-xl hover:bg-violet-100">
               Open Full Record
@@ -474,7 +455,7 @@ const DetailPanel = ({ appt, onClose, onStart, onViewPrescription }) => {
 }
 
 // ── Walk-in Queue Panel ───────────────────────────────────────────────────────
-const WalkInPanel = ({ queue, onCallNext, onMarkDone, calling }) => (
+const WalkInPanel = ({ queue, onCallNext, onMarkDone, onConsultWalkIn, calling }) => (
   <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
     <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
       <div>
@@ -517,11 +498,20 @@ const WalkInPanel = ({ queue, onCallNext, onMarkDone, calling }) => (
               </div>
             </div>
             {q.status === 'in-progress' && (
-              <button onClick={() => onMarkDone(q.id)}
-                className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200
-                  px-2.5 py-1 rounded-lg hover:bg-emerald-100 transition-colors shrink-0">
-                Done
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {q.appointment_id && (
+                  <button onClick={() => onConsultWalkIn(q)}
+                    className="text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-200
+                      px-2.5 py-1 rounded-lg hover:bg-violet-100 transition-colors">
+                    Consult
+                  </button>
+                )}
+                <button onClick={() => onMarkDone(q.id)}
+                  className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200
+                    px-2.5 py-1 rounded-lg hover:bg-emerald-100 transition-colors">
+                  Done
+                </button>
+              </div>
             )}
             {q.status === 'waiting' && idx === 0 && (
               <span className="text-[10px] font-bold text-amber-600 shrink-0">Up next</span>
@@ -604,6 +594,35 @@ const Doctor_DailyAppointments = () => {
 
   const handleViewPrescription = (appt) => {
     setPrescModal({ id: appt.id, patientName: appt.patient_name || appt.patient })
+  }
+
+  const handleConsultWalkIn = async (entry) => {
+    if (!entry?.appointment_id) {
+      alert('This walk-in does not have a linked appointment record yet.')
+      return
+    }
+
+    const walkInAppt = {
+      id: entry.appointment_id,
+      patient_id: entry.patient_id,
+      patient_name: entry.patient_name,
+      patient: entry.patient_name,
+      patient_age: entry.patient_age,
+      patient_sex: entry.patient_sex,
+      patient_phone: entry.patient_phone,
+      reason: entry.reason || 'Walk-in consultation',
+      time: entry.time || entry.arrivedAt,
+      type: entry.type,
+      status: 'in-progress',
+    }
+
+    try {
+      await startConsultation(entry.appointment_id)
+      navigate('/doctor/consultation', { state: { appointment: walkInAppt } })
+    } catch (err) {
+      console.error('Failed to open walk-in consultation', err)
+      alert('Failed to open walk-in consultation. Please try again.')
+    }
   }
 
   const openConsultationRecord = (appointmentId) => {
@@ -704,6 +723,7 @@ const Doctor_DailyAppointments = () => {
             queue={walkInQueue}
             onCallNext={handleCallNext}
             onMarkDone={handleMarkDone}
+            onConsultWalkIn={handleConsultWalkIn}
             calling={calling}
           />
         </div>
