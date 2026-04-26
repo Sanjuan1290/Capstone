@@ -9,7 +9,8 @@ const jwt          = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
 const { sendAppointmentStatusEmail } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
-const { markOverdueAppointments, syncInventoryBaseStock } = require('../utils/appointments')
+const { markOverdueAppointments } = require('../utils/appointments')
+const { addInventoryBatch, attachBatchesToInventory, consumeInventoryFEFO, syncInventorySnapshot } = require('../utils/inventoryBatches')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel } = require('../utils/date')
 
@@ -30,6 +31,20 @@ const normalizeInventoryPayload = (body = {}) => ({
   expiration_date: body.expiration_date || null,
   storage_location: body.storage_location?.trim() || null,
 })
+
+const loadInventoryRows = async (executor = db, whereClause = '', params = []) => {
+  const [rows] = await executor.query(
+    `SELECT * FROM inventory
+     ${whereClause}
+     ORDER BY
+       CASE WHEN expiration_date IS NULL THEN 1 ELSE 0 END,
+       expiration_date ASC,
+       category ASC,
+       name ASC`,
+    params
+  )
+  return attachBatchesToInventory(rows, executor)
+}
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -489,14 +504,7 @@ const getPatientRecord = async (req, res) => {
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 const getInventory = async (req, res) => {
-  const [items] = await db.query(
-    `SELECT * FROM inventory
-     ORDER BY
-       CASE WHEN expiration_date IS NULL THEN 1 ELSE 0 END,
-       expiration_date ASC,
-       category ASC,
-       name ASC`
-  )
+  const items = await loadInventoryRows()
   res.json(items)
 }
 
@@ -514,21 +522,44 @@ const addInventoryItem = async (req, res) => {
       return res.status(409).json({ message: 'An item with that barcode already exists.' })
   }
 
+  const conn = await db.getConnection()
   try {
-    const [result] = await db.query(
+    await conn.beginTransaction()
+    const [result] = await conn.query(
       `INSERT INTO inventory
        (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location]
+      [barcode, name, category, unit, base_unit, unit_size, 0, threshold, price, supplier, null, storage_location]
     )
-    await syncInventoryBaseStock(result.insertId)
-    const [rows] = await db.query('SELECT * FROM inventory WHERE id = ?', [result.insertId])
+    if (stock > 0) {
+      await addInventoryBatch(result.insertId, {
+        quantity: stock,
+        expiration_date,
+        note: 'Opening stock',
+      }, conn)
+    }
+    await syncInventorySnapshot(result.insertId, conn)
+    await conn.query(
+      'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
+      [
+        result.insertId,
+        req.user.id,
+        'create',
+        stock,
+        `Created inventory item${barcode ? ` with barcode ${barcode}` : ''}${stock > 0 ? `; opening batch expiry: ${expiration_date || 'none'}` : ''}`,
+      ]
+    )
+    await conn.commit()
+    const rows = await loadInventoryRows(db, 'WHERE id = ?', [result.insertId])
     return res.status(201).json(rows[0])
   } catch (err) {
+    await conn.rollback()
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ message: 'That barcode is already assigned to another inventory item.' })
     }
     throw err
+  } finally {
+    conn.release()
   }
 }
 
@@ -536,56 +567,115 @@ const addInventoryItem = async (req, res) => {
 const updateInventoryItem = async (req, res) => {
   const {
     barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier,
-    expiration_date, storage_location,
+    storage_location,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
-  const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
-  if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
+
+  const conn = await db.getConnection()
   try {
-    await db.query(
+    await conn.beginTransaction()
+    const [rows] = await conn.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
+    if (rows.length === 0) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Item not found.' })
+    }
+
+    await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, supplier=?, expiration_date=?, storage_location=?
+       SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, supplier=?, storage_location=?
        WHERE id=?`,
-      [barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier, expiration_date, storage_location, req.params.id]
+      [barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier, storage_location, req.params.id]
     )
-    await syncInventoryBaseStock(req.params.id)
-    const [updated] = await db.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
+    await syncInventorySnapshot(req.params.id, conn)
+    const previous = rows[0]
+    const changeNotes = [
+      previous?.barcode !== barcode ? `barcode: ${previous?.barcode || 'none'} -> ${barcode || 'none'}` : null,
+      previous?.name !== name ? `name: ${previous?.name || 'none'} -> ${name}` : null,
+      previous?.unit !== unit ? `unit: ${previous?.unit || 'none'} -> ${unit}` : null,
+      Number(previous?.unit_size || 1) !== Number(unit_size || 1) ? `unit size: ${previous?.unit_size || 1} -> ${unit_size}` : null,
+      previous?.storage_location !== storage_location ? `location: ${previous?.storage_location || 'none'} -> ${storage_location || 'none'}` : null,
+    ].filter(Boolean).join('; ')
+    await conn.query(
+      'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
+      [req.params.id, req.user.id, 'update', 0, changeNotes || 'Updated inventory item details']
+    )
+    await conn.commit()
+    const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
     res.json(updated[0])
   } catch (err) {
+    await conn.rollback()
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ message: 'That barcode is already assigned to another inventory item.' })
     }
     throw err
+  } finally {
+    conn.release()
   }
 }
 
 // FIX 2: Delete inventory item
 const deleteInventoryItem = async (req, res) => {
-  const [rows] = await db.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
+  const [rows] = await db.query('SELECT id, name, stock FROM inventory WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
+  await db.query(
+    'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
+    [req.params.id, req.user.id, 'delete', rows[0].stock || 0, `Deleted inventory item ${rows[0].name}`]
+  )
   await db.query('DELETE FROM inventory WHERE id = ?', [req.params.id])
   res.json({ message: 'Item deleted.' })
 }
 
 const updateStock = async (req, res) => {
-  const { type, qty, note } = req.body
-  if (!type || !qty)
+  const { type, qty, note, expiration_date } = req.body
+  if (!['in', 'out'].includes(type) || !qty)
     return res.status(400).json({ message: 'type and qty are required.' })
-  const [rows] = await db.query('SELECT id, stock, stock_base, unit_size FROM inventory WHERE id = ?', [req.params.id])
-  if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
 
-  const unitSize = Number(rows[0].unit_size) > 0 ? Number(rows[0].unit_size) : 1
-  const currentBase = Number(rows[0].stock_base ?? rows[0].stock * unitSize)
-  const deltaBase = Number(qty) * unitSize
-  const newBase = type === 'in' ? currentBase + deltaBase : Math.max(0, currentBase - deltaBase)
-  const newStock = newBase / unitSize
-  await db.query('UPDATE inventory SET stock=?, stock_base=? WHERE id=?', [newStock, newBase, req.params.id])
-  await db.query(
-    'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
-    [req.params.id, req.user.id, type, qty, note || null]
-  )
-  res.json({ new_stock: newStock })
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query('SELECT id FROM inventory WHERE id = ?', [req.params.id])
+    if (rows.length === 0) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Item not found.' })
+    }
+
+    if (type === 'in') {
+      await addInventoryBatch(req.params.id, {
+        quantity: qty,
+        expiration_date,
+        note: note || 'Manual stock-in',
+      }, conn)
+      await syncInventorySnapshot(req.params.id, conn)
+    } else {
+      const consumption = await consumeInventoryFEFO(req.params.id, qty, conn)
+      if (!consumption.ok) {
+        await conn.rollback()
+        return res.status(400).json({ message: consumption.message })
+      }
+    }
+
+    await conn.query(
+      'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
+      [
+        req.params.id,
+        req.user.id,
+        type,
+        qty,
+        type === 'in'
+          ? `${note || 'Manual stock-in'}${expiration_date ? ` (batch expiry: ${expiration_date})` : ''}`
+          : (note || 'Manual stock-out via FEFO'),
+      ]
+    )
+    await conn.commit()
+    const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
+    res.json(updated[0])
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
 }
 
 // ── Doctors list ──────────────────────────────────────────────────────────────
@@ -640,26 +730,29 @@ const resolveSupplyRequest = async (req, res) => {
   if (rows[0].status !== 'pending')
     return res.status(400).json({ message: 'Only pending requests can be resolved.' })
 
-  await db.query('UPDATE supply_requests SET status = ? WHERE id = ?', [status, req.params.id])
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
 
-  if (status === 'approved') {
-    const [[item]] = await db.query(
-      'SELECT stock, stock_base, unit_size FROM inventory WHERE id = ?',
-      [rows[0].inventory_id]
-    )
-    const unitSize = Number(item?.unit_size) > 0 ? Number(item.unit_size) : 1
-    const currentBase = Number(item?.stock_base ?? Number(item?.stock || 0) * unitSize)
-    const deltaBase = Number(rows[0].qty_requested) * unitSize
-    const newBase = Math.max(0, currentBase - deltaBase)
-    const newStock = newBase / unitSize
-    await db.query(
-      'UPDATE inventory SET stock = ?, stock_base = ? WHERE id = ?',
-      [newStock, newBase, rows[0].inventory_id]
-    )
-    await db.query(
-      'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
-      [rows[0].inventory_id, req.user.id, 'out', rows[0].qty_requested, 'Supply request approved']
-    )
+    if (status === 'approved') {
+      const consumption = await consumeInventoryFEFO(rows[0].inventory_id, rows[0].qty_requested, conn)
+      if (!consumption.ok) {
+        await conn.rollback()
+        return res.status(400).json({ message: consumption.message })
+      }
+      await conn.query(
+        'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
+        [rows[0].inventory_id, req.user.id, 'out', rows[0].qty_requested, 'Supply request approved via FEFO']
+      )
+    }
+
+    await conn.query('UPDATE supply_requests SET status = ? WHERE id = ?', [status, req.params.id])
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
   }
 
   broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'supply_request_resolved', {

@@ -106,11 +106,11 @@ export const getInventoryLogs = (params = {}) => {
 }
 
 export const updateStock = (id, payload) =>
-  fetch(`${BASE}/inventory/${id}/stock`, {
+  requestJson(`${BASE}/inventory/${id}/stock`, {
     method: 'PATCH', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 export const addInventoryItem = (payload) =>
   requestJson(`${BASE}/inventory`, {

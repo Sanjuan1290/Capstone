@@ -23,16 +23,32 @@ const getStockBadge = (item) => {
   return 'bg-emerald-50 text-emerald-700 border-emerald-200'
 }
 
+const parseDateOnly = (value) => {
+  const normalized = String(value || '').trim().slice(0, 10)
+  const [year, month, day] = normalized.split('-').map(Number)
+  if (!year || !month || !day) return null
+  return new Date(year, month - 1, day)
+}
+
 const formatDate = (value) => {
   if (!value) return 'No expiry recorded'
-  return new Date(value).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+  const parsed = parseDateOnly(value)
+  if (!parsed) return 'No expiry recorded'
+  return parsed.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const formatBatchLabel = (batch, unit) => {
+  const qty = Number(batch?.quantity || 0)
+  const expiry = batch?.expiration_date ? formatDate(batch.expiration_date) : 'No expiry'
+  return `${qty} ${unit}${qty === 1 ? '' : 's'} - ${expiry}`
 }
 
 const getExpiryMeta = (item) => {
   if (!item.expiration_date) return { label: 'No expiry recorded', tone: 'text-slate-400' }
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const expiry = new Date(item.expiration_date)
+  const expiry = parseDateOnly(item.expiration_date)
+  if (!expiry) return { label: 'No expiry recorded', tone: 'text-slate-400' }
   expiry.setHours(0, 0, 0, 0)
   const diffDays = Math.round((expiry - today) / 86400000)
   if (diffDays < 0) return { label: `Expired ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} ago`, tone: 'text-red-600' }
@@ -251,6 +267,7 @@ const CameraScanner = ({ onDetected, onClose }) => {
 }
 
 const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
+  const isEditing = Boolean(initialItem?.id)
   const [form, setForm] = useState({
     barcode: initialItem?.barcode || '',
     name: initialItem?.name || '',
@@ -286,7 +303,11 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
             <p className="text-sm font-bold text-slate-800">{title}</p>
-            <p className="text-xs text-slate-400">Set package size so stock deductions stay accurate.</p>
+            <p className="text-xs text-slate-400">
+              {isEditing
+                ? 'Product details only. Stock and expiry are managed per batch.'
+                : 'Set opening stock and its batch expiry so inventory stays accurate.'}
+            </p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-400 flex items-center justify-center"><MdClose /></button>
         </div>
@@ -297,12 +318,17 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
           <Field label="Selling Unit"><select value={form.unit} onChange={update('unit')} className={inputClass}>{UNIT_OPTIONS.map(option => <option key={option}>{option}</option>)}</select></Field>
           <Field label="Base Quantity Type"><select value={form.base_unit} onChange={update('base_unit')} className={inputClass}>{BASE_UNITS.map(option => <option key={option}>{option}</option>)}</select></Field>
           <Field label="Quantity per Unit"><input type="number" min="1" value={form.unit_size} onChange={update('unit_size')} className={inputClass} /></Field>
-          <Field label="Stock"><input type="number" min="0" value={form.stock} onChange={update('stock')} className={inputClass} /></Field>
+          {!isEditing && <Field label="Opening Stock"><input type="number" min="0" value={form.stock} onChange={update('stock')} className={inputClass} /></Field>}
           <Field label="Low Stock Threshold"><input type="number" min="0" value={form.threshold} onChange={update('threshold')} className={inputClass} /></Field>
           <Field label="Unit Price"><input type="number" min="0" value={form.price} onChange={update('price')} className={inputClass} /></Field>
           <Field label="Supplier"><input value={form.supplier} onChange={update('supplier')} className={inputClass} /></Field>
-          <Field label="Expiration Date"><input type="date" value={form.expiration_date} onChange={update('expiration_date')} className={inputClass} /></Field>
+          {!isEditing && <Field label="Opening Batch Expiry"><input type="date" value={form.expiration_date} onChange={update('expiration_date')} className={inputClass} /></Field>}
           <Field label="Storage Location"><input value={form.storage_location} onChange={update('storage_location')} className={inputClass} placeholder="e.g. Shelf A2 / Cold storage" /></Field>
+          {isEditing && (
+            <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+              Existing stock keeps its own batch expiry dates. Use <strong>Update Stock</strong> when a new delivery arrives.
+            </div>
+          )}
         </div>
         <div className="px-6 pb-6 flex gap-3">
           <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
@@ -317,6 +343,7 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
   const [type, setType] = useState('in')
   const [qty, setQty] = useState(1)
   const [note, setNote] = useState('')
+  const [expirationDate, setExpirationDate] = useState('')
 
   const available = getPackageCount(item)
 
@@ -340,9 +367,35 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
             <input type="number" min="1" value={qty} onChange={e => setQty(Math.max(1, parseInt(e.target.value || '1', 10)))} className={inputClass} />
           </Field>
 
+          {type === 'in' && (
+            <Field label="Batch Expiration Date">
+              <input type="date" value={expirationDate} onChange={e => setExpirationDate(e.target.value)} className={inputClass} />
+            </Field>
+          )}
+
           <Field label="Note">
             <input value={note} onChange={e => setNote(e.target.value)} className={inputClass} placeholder="Optional note" />
           </Field>
+
+          {type === 'out' && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Stock-out follows FEFO, so the batch with the nearest expiration is deducted first.
+            </div>
+          )}
+
+          {Array.isArray(item.batches) && item.batches.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Active Batches</p>
+              <div className="mt-3 space-y-2">
+                {item.batches.map(batch => (
+                  <div key={batch.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-2 text-sm text-slate-600">
+                    <span>Lot #{batch.id}</span>
+                    <span>{formatBatchLabel(batch, item.unit)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <button onClick={onOpenScanner} className="w-full rounded-2xl border border-sky-200 bg-sky-50 py-3 text-sm font-semibold text-sky-700 flex items-center justify-center gap-2">
             <MdQrCodeScanner className="text-[18px]" /> Open Camera Scanner
@@ -350,7 +403,7 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
         </div>
         <div className="px-6 pb-6">
           <button
-            onClick={() => onSubmit({ type, qty, note })}
+            onClick={() => onSubmit({ type, qty, note, expiration_date: type === 'in' ? expirationDate : '' })}
             disabled={type === 'out' && qty > available}
             className="w-full rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-40"
           >
@@ -440,16 +493,10 @@ const Inventory = ({ services }) => {
     setFeedback({ type: 'success', message: `${item.name} was removed from inventory.` })
   }
 
-  const handleStockUpdate = async ({ type, qty, note }) => {
+  const handleStockUpdate = async ({ type, qty, note, expiration_date }) => {
     try {
-      const result = await updateStock(stockItem.id, { type, qty, note })
-      const nextStock = result?.stock ?? result?.new_stock
-      const unitSize = Number(stockItem.unit_size || 1)
-      setItems(prev => prev.map(item => item.id === stockItem.id ? {
-        ...item,
-        stock: nextStock,
-        stock_base: Number(nextStock) * unitSize,
-      } : item))
+      await updateStock(stockItem.id, { type, qty, note, expiration_date })
+      await load()
       setFeedback({ type: 'success', message: `${stockItem.name} stock was updated successfully.` })
       setStockItem(null)
     } catch (err) {
@@ -481,7 +528,8 @@ const Inventory = ({ services }) => {
     out: items.filter(item => getPackageCount(item) === 0).length,
     expiring: items.filter(item => {
       if (!item.expiration_date) return false
-      const expiry = new Date(item.expiration_date)
+      const expiry = parseDateOnly(item.expiration_date)
+      if (!expiry) return false
       const today = new Date()
       expiry.setHours(0, 0, 0, 0)
       today.setHours(0, 0, 0, 0)
@@ -494,7 +542,7 @@ const Inventory = ({ services }) => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
-          <p className="text-sm text-slate-500 mt-1">Package-aware inventory with barcode scanning and more accurate deductions.</p>
+          <p className="text-sm text-slate-500 mt-1">Package-aware inventory with barcode scanning, batch expiry tracking, and FEFO deductions.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center"><MdRefresh className="text-[18px]" /></button>
@@ -564,6 +612,23 @@ const Inventory = ({ services }) => {
                     <MdCalendarToday className="text-[14px]" /> {getExpiryMeta(item).label}
                   </span>
                 </div>
+                {Array.isArray(item.batches) && item.batches.length > 0 && (
+                  <div className="pt-3">
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Batches</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {item.batches.slice(0, 4).map(batch => (
+                        <span key={batch.id} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                          Lot #{batch.id} - {formatBatchLabel(batch, item.unit)}
+                        </span>
+                      ))}
+                      {item.batches.length > 4 && (
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500">
+                          +{item.batches.length - 4} more batches
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setStockItem(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdInventory2 /> Update Stock</button>

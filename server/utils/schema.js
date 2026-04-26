@@ -29,6 +29,54 @@ const ensureAppSchema = async () => {
   await ensureColumn('inventory', 'expiration_date', 'DATE NULL')
   await ensureColumn('inventory', 'storage_location', "VARCHAR(120) NULL")
 
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_batches (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      inventory_id INT NOT NULL,
+      quantity DECIMAL(12,2) NOT NULL DEFAULT 0,
+      expiration_date DATE NULL,
+      note TEXT NULL,
+      received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_inventory_batches_inventory_expiry (inventory_id, expiration_date, received_at),
+      CONSTRAINT fk_inventory_batches_inventory
+        FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE CASCADE
+    )
+  `)
+
+  await db.query(`
+    INSERT INTO inventory_batches (inventory_id, quantity, expiration_date, note, received_at)
+    SELECT
+      i.id,
+      i.stock,
+      i.expiration_date,
+      'Legacy opening balance',
+      COALESCE(i.updated_at, i.created_at, NOW())
+    FROM inventory i
+    WHERE COALESCE(i.stock, 0) > 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM inventory_batches b
+        WHERE b.inventory_id = i.id
+      )
+  `)
+
+  await db.query(`
+    UPDATE inventory i
+    LEFT JOIN (
+      SELECT
+        inventory_id,
+        COALESCE(SUM(CASE WHEN quantity > 0 THEN quantity ELSE 0 END), 0) AS total_qty,
+        MIN(CASE WHEN quantity > 0 THEN expiration_date ELSE NULL END) AS earliest_expiry
+      FROM inventory_batches
+      GROUP BY inventory_id
+    ) b ON b.inventory_id = i.id
+    SET
+      i.stock = COALESCE(b.total_qty, 0),
+      i.stock_base = COALESCE(b.total_qty, 0) * COALESCE(NULLIF(i.unit_size, 0), 1),
+      i.expiration_date = b.earliest_expiry,
+      i.base_unit = COALESCE(i.base_unit, i.unit)
+  `)
+
   await ensureColumn('patients', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('patients', 'profile_image_url', "TEXT NULL")
   await ensureColumn('patients', 'is_walk_in', "TINYINT(1) NOT NULL DEFAULT 0")
