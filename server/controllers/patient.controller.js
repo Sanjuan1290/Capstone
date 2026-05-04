@@ -342,7 +342,7 @@ const updateProfile = async (req, res) => {
   const normalized = normalizePatientProfileInput(req.body)
   if (!normalized.birthdate || !normalized.gender || !normalized.address) {
     return res.status(400).json({
-      message: 'Birthdate, gender, and address are required before booking an appointment.',
+      message: 'Birthdate, gender, and address are required to complete your patient profile.',
     })
   }
 
@@ -469,15 +469,6 @@ const createAppointment = async (req, res) => {
 
   const patient = await loadPatientById(req.user.id)
   if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
-
-  const syncedPatient = await syncPatientProfileStatus(patient)
-  if (!syncedPatient.is_profile_complete) {
-    return res.status(403).json({
-      code: 'PROFILE_INCOMPLETE',
-      message: 'Complete your patient profile before booking an appointment.',
-      missing_fields: syncedPatient.missing_fields,
-    })
-  }
 
   const [activeWithDoctor] = await db.query(
     `SELECT id
@@ -708,6 +699,32 @@ const getDoctorSchedule = async (req, res) => {
   res.json(rows)
 }
 
+const getDoctorTakenSlots = async (req, res) => {
+  const normalizedDate = toDateOnly(req.query.date)
+  if (!isValidDateOnly(normalizedDate)) {
+    return res.status(400).json({ message: 'A valid date is required.' })
+  }
+
+  const excludeAppointmentId = Number(req.query.exclude_appointment_id)
+  const params = [req.params.id, normalizedDate]
+  let sql = `
+    SELECT appointment_time
+    FROM appointments
+    WHERE doctor_id = ? AND appointment_date = ?
+      AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress')
+  `
+
+  if (Number.isInteger(excludeAppointmentId) && excludeAppointmentId > 0) {
+    sql += ' AND id != ?'
+    params.push(excludeAppointmentId)
+  }
+
+  sql += ' ORDER BY appointment_time ASC'
+
+  const [rows] = await db.query(sql, params)
+  res.json(rows.map((row) => row.appointment_time))
+}
+
 module.exports = {
   register,
   verifyRegistration,
@@ -723,4 +740,5 @@ module.exports = {
   rescheduleAppointment,
   getDoctors,
   getDoctorSchedule,
+  getDoctorTakenSlots,
 }

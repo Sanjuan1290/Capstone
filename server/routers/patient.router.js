@@ -10,7 +10,7 @@ const {
   getProfileStatus, updateProfile,
   getAppointments, getHistory,
   createAppointment, cancelAppointment, rescheduleAppointment,
-  getDoctors, getDoctorSchedule,
+  getDoctors, getDoctorSchedule, getDoctorTakenSlots,
 } = require('../controllers/patient.controller')
 const commonCtrl = require('../controllers/common.controller')
 
@@ -37,5 +37,6 @@ router.patch('/appointments/:id/cancel',           cancelAppointment)
 router.patch('/appointments/:id/reschedule',       rescheduleAppointment)
 router.get('/doctors',                             getDoctors)
 router.get('/doctors/:id/schedule',                getDoctorSchedule)
+router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router

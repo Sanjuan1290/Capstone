@@ -7,7 +7,7 @@ import { getMyAppointments } from "../../services/patient.service"
 import {
   MdCalendarToday, MdEventAvailable, MdHistory,
   MdAdd, MdPerson, MdArrowForward, MdAccessTime,
-  MdFace, MdMedicalServices, MdCheckCircle,
+  MdFace, MdMedicalServices, MdCheckCircle, MdFactCheck,
 } from "react-icons/md"
 import { NavLink } from "react-router-dom"
 import { parseDateOnly } from "../../utils/date"
@@ -146,6 +146,31 @@ const PatientDashboard = () => {
           </NavLink>
         ))}
       </div>
+
+      {!user?.is_profile_complete && (
+        <div className="rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,rgba(251,191,36,0.14),rgba(255,255,255,1))] p-5 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                <MdFactCheck className="text-[22px]" />
+              </div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-700">Profile Reminder</p>
+                <h2 className="mt-1 text-lg font-black text-slate-900">Complete your profile for more personalized booking.</h2>
+                <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                  Add your birthdate, gender, and address anytime so the clinic can prepare for your visits more smoothly.
+                </p>
+              </div>
+            </div>
+            <NavLink
+              to="/patient/settings"
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-amber-600"
+            >
+              Complete Profile <MdArrowForward className="text-[15px]" />
+            </NavLink>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
         <div className="px-5 py-4 border-b border-slate-100">

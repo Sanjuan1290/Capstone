@@ -4,10 +4,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
-  getDoctors, getDoctorSchedule, bookAppointment, getProfileStatus,
+  getDoctors, getDoctorSchedule, getDoctorTakenSlots, bookAppointment,
 } from '../../services/patient.service'
-import { useAuth } from '../../context/AuthContext'
-import ProfileCompletionPrompt from '../../components/ProfileCompletionPrompt'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
   MdCalendarToday, MdAccessTime, MdPerson, MdAdd,
@@ -142,7 +140,7 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList }) => {
 }
 
 // ── Step 3: Schedule ──────────────────────────────────────────────────────────
-const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, takenSlots, doctorSchedules }) => {
+const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules }) => {
   const today = new Date()
   const [viewYear,  setViewYear]  = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
@@ -238,18 +236,13 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
             </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {timeSlots.map(slot => {
-                const taken = takenSlots.includes(slot)
-                return (
-                  <button key={slot} disabled={taken} onClick={() => onTimeChange(slot)}
-                    className={`py-3 rounded-xl text-xs font-semibold transition-all border-2
-                      ${taken ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed line-through' : ''}
-                      ${!taken && time===slot ? 'bg-[#0b1a2c] text-emerald-400 border-transparent shadow-md' : ''}
-                      ${!taken && time!==slot ? 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50' : ''}`}>
-                    {slot}
-                  </button>
-                )
-              })}
+              {timeSlots.map(slot => (
+                <button key={slot} onClick={() => onTimeChange(slot)}
+                  className={`py-3 rounded-xl text-xs font-semibold transition-all border-2
+                    ${time===slot ? 'bg-[#0b1a2c] text-emerald-400 border-transparent shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50'}`}>
+                  {slot}
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -373,7 +366,6 @@ const SuccessScreen = ({ onReset }) => (
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const BookAppointment = () => {
-  const { setUser } = useAuth()
   const [step, setStep] = useState(0)
   const [done, setDone] = useState(false)
   const [form, setForm] = useState({
@@ -381,17 +373,9 @@ const BookAppointment = () => {
   })
   const [doctorList,      setDoctorList]      = useState({ medical: [], derma: [] })
   const [timeSlots,       setTimeSlots]       = useState([])
-  const [takenSlots,      setTakenSlots]      = useState([])
   const [doctorSchedules, setDoctorSchedules] = useState([])
-  const [profileStatus,   setProfileStatus]   = useState(null)
-  const [profileLoading,  setProfileLoading]  = useState(true)
 
   useEffect(() => {
-    getProfileStatus()
-      .then((data) => setProfileStatus(data))
-      .catch(() => {})
-      .finally(() => setProfileLoading(false))
-
     getDoctors()
       .then(data => {
         const derma = data.filter(d => String(d.specialty || '').toLowerCase().includes('derm'))
@@ -402,7 +386,7 @@ const BookAppointment = () => {
   }, [])
 
   useEffect(() => {
-    if (!form.doctor) { setDoctorSchedules([]); setTimeSlots([]); setTakenSlots([]); return }
+    if (!form.doctor) { setDoctorSchedules([]); setTimeSlots([]); return }
     getDoctorSchedule(form.doctor.id)
       .then(s => setDoctorSchedules(s))
       .catch(() => setDoctorSchedules([]))
@@ -414,12 +398,29 @@ const BookAppointment = () => {
     const dayName   = localDate.toLocaleDateString('en-US', { weekday: 'long' })
     const sched     = doctorSchedules.find(s => s.day_of_week === dayName && s.is_active)
     if (!sched) { setTimeSlots([]); return }
-    let slots = buildSlots(sched)
-    const todayStr = getLocalDateOnly()
-    if (form.date === todayStr) slots = slots.filter(s => !isPastSlot(s))
-    setTimeSlots(slots)
-    setTakenSlots([])
-  }, [form.date, doctorSchedules])
+
+    let cancelled = false
+
+    getDoctorTakenSlots(form.doctor.id, form.date)
+      .then((reservedSlots) => {
+        if (cancelled) return
+        let slots = buildSlots(sched)
+        const todayStr = getLocalDateOnly()
+        if (form.date === todayStr) slots = slots.filter((slot) => !isPastSlot(slot))
+
+        const taken = Array.isArray(reservedSlots) ? reservedSlots : []
+        const available = slots.filter((slot) => !taken.includes(slot))
+
+        setTimeSlots(available)
+        setForm((prev) => (prev.time && !available.includes(prev.time) ? { ...prev, time: '' } : prev))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setTimeSlots([])
+      })
+
+    return () => { cancelled = true }
+  }, [form.date, form.doctor, doctorSchedules])
 
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
@@ -448,21 +449,13 @@ const BookAppointment = () => {
       })
       setDone(true)
     } catch (err) {
-      if (err.code === 'PROFILE_INCOMPLETE') {
-        setProfileStatus((prev) => ({
-          ...(prev || {}),
-          is_profile_complete: false,
-          missing_fields: err.missing_fields || ['birthdate', 'gender', 'address'],
-        }))
-        return
-      }
       alert(err.message)
     }
   }
 
   const handleReset = () => {
     setStep(0); setDone(false)
-    setTimeSlots([]); setTakenSlots([]); setDoctorSchedules([])
+    setTimeSlots([]); setDoctorSchedules([])
     setForm({ clinicType:'', doctor:null, date:null, time:'', reason:'', notes:'' })
   }
 
@@ -476,27 +469,6 @@ const BookAppointment = () => {
         </h1>
         <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Schedule your clinic visit in a few steps.</p>
       </div>
-
-      {profileLoading ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <div className="w-8 h-8 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-sm text-slate-500">Checking your patient profile...</p>
-        </div>
-      ) : profileStatus && !profileStatus.is_profile_complete ? (
-        <ProfileCompletionPrompt
-          initialProfile={profileStatus.profile}
-          missingFields={profileStatus.missing_fields}
-          onCompleted={(result) => {
-            setProfileStatus({
-              profile: result.profile,
-              is_profile_complete: result.is_profile_complete,
-              missing_fields: result.missing_fields,
-            })
-            setUser((prev) => prev ? { ...prev, ...result.user } : prev)
-          }}
-        />
-      ) : (
-        <>
 
       {/* Main card */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -520,7 +492,7 @@ const BookAppointment = () => {
                 <StepSchedule
                   date={form.date} time={form.time}
                   onDateChange={set('date')} onTimeChange={set('time')}
-                  timeSlots={timeSlots} takenSlots={takenSlots}
+                  timeSlots={timeSlots}
                   doctorSchedules={doctorSchedules}
                 />
               )}
@@ -547,8 +519,6 @@ const BookAppointment = () => {
           )}
         </div>
       </div>
-        </>
-      )}
     </div>
   )
 }

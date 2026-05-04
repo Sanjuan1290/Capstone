@@ -34,6 +34,16 @@ export const getDoctorSchedule = async (doctorId) => {
   return res.json()
 }
 
+export const getDoctorTakenSlots = async (doctorId, date, options = {}) => {
+  const params = new URLSearchParams({ date })
+  if (options.excludeAppointmentId) {
+    params.set('exclude_appointment_id', String(options.excludeAppointmentId))
+  }
+  const res = await fetch(`${BASE}/doctors/${doctorId}/taken-slots?${params.toString()}`, { credentials: 'include' })
+  if (!res.ok) throw new Error('Failed to fetch taken slots')
+  return res.json()
+}
+
 export const bookAppointment = async (payload) => {
   const res = await fetch(`${BASE}/appointments`, {
     method: 'POST',

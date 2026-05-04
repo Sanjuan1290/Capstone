@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  getMyAppointments, getDoctorSchedule, rescheduleAppointment,
+  getMyAppointments, getDoctorSchedule, getDoctorTakenSlots, rescheduleAppointment,
 } from '../../services/patient.service'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdCalendarToday,
@@ -20,6 +20,16 @@ const STEPS = ['Date & Time', 'Reason', 'Confirm']
 function getDaysInMonth(y, m) { return new Date(y, m + 1, 0).getDate() }
 function getFirstDay(y, m)    { return new Date(y, m, 1).getDay() }
 function pad(n) { return String(n).padStart(2, '0') }
+function toDateOnly(year, month, day) { return `${year}-${pad(month + 1)}-${pad(day)}` }
+
+function isPastTimeSlot(slot) {
+  const [tp, pd] = slot.split(' ')
+  let [h, m] = tp.split(':').map(Number)
+  if (pd === 'PM' && h !== 12) h += 12
+  if (pd === 'AM' && h === 12) h = 0
+  const now = new Date()
+  return h * 60 + m <= now.getHours() * 60 + now.getMinutes() + 5
+}
 
 const RESCHEDULE_REASONS = [
   'Schedule conflict', 'Personal emergency', 'Doctor unavailable',
@@ -75,6 +85,7 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
   const [viewYear,  setViewYear]  = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [schedule,  setSchedule]  = useState([])
+  const [timeSlots, setTimeSlots] = useState([])
 
   useEffect(() => {
     if (!appt?.doctor_id) return
@@ -101,20 +112,54 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
   const isDayOff = d => schedule.length > 0 && !activeDays.has(new Date(viewYear,viewMonth,d).getDay())
   const isSel    = d => date?.day===d && date?.month===viewMonth && date?.year===viewYear
 
-  // Build time slots for selected day
-  const selDOW = date ? new Date(date.year, date.month, date.day).getDay() : null
-  const daySchedule = schedule.find(s => selDOW !== null && DAYS_MAP[s.day_of_week] === selDOW)
-  const timeSlots = []
-  if (daySchedule) {
-    const [sh,sm] = daySchedule.start_time.split(':').map(Number)
-    const [eh,em] = daySchedule.end_time.split(':').map(Number)
-    let cur = sh*60+sm, end = eh*60+em, dur = daySchedule.slot_duration_mins||60
-    while (cur+dur<=end) {
-      const h=Math.floor(cur/60), m=cur%60, ampm=h>=12?'PM':'AM', h12=h%12||12
-      timeSlots.push(`${h12}:${pad(m)} ${ampm}`)
-      cur+=dur
-    }
-  }
+  useEffect(() => {
+    if (!appt?.doctor_id || !date || !schedule.length) { setTimeSlots([]); return }
+
+    const selDOW = new Date(date.year, date.month, date.day).getDay()
+    const daySchedule = schedule.find((item) => DAYS_MAP[item.day_of_week] === selDOW)
+    if (!daySchedule) { setTimeSlots([]); return }
+
+    const dateStr = toDateOnly(date.year, date.month, date.day)
+    let cancelled = false
+
+    getDoctorTakenSlots(appt.doctor_id, dateStr, { excludeAppointmentId: appt.id })
+      .then((reservedSlots) => {
+        if (cancelled) return
+
+        const slots = []
+        const [sh, sm] = daySchedule.start_time.split(':').map(Number)
+        const [eh, em] = daySchedule.end_time.split(':').map(Number)
+        let cur = sh * 60 + sm
+        const end = eh * 60 + em
+        const dur = daySchedule.slot_duration_mins || 60
+
+        while (cur + dur <= end) {
+          const h = Math.floor(cur / 60)
+          const m = cur % 60
+          const ampm = h >= 12 ? 'PM' : 'AM'
+          const h12 = h % 12 || 12
+          slots.push(`${h12}:${pad(m)} ${ampm}`)
+          cur += dur
+        }
+
+        const now = new Date()
+        const todayStr = toDateOnly(now.getFullYear(), now.getMonth(), now.getDate())
+        const notPast = dateStr === todayStr
+          ? slots.filter((slot) => !isPastTimeSlot(slot))
+          : slots
+        const taken = Array.isArray(reservedSlots) ? reservedSlots : []
+        const available = notPast.filter((slot) => !taken.includes(slot))
+
+        setTimeSlots(available)
+        if (time && !available.includes(time)) setTime('')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setTimeSlots([])
+      })
+
+    return () => { cancelled = true }
+  }, [appt?.doctor_id, appt?.id, date, schedule, setTime, time])
 
   return (
     <div className="space-y-4">
