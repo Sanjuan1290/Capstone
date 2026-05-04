@@ -5,6 +5,9 @@ import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import ProfileAvatar from '../../components/ProfileAvatar'
 
+const GENDER_OPTIONS = ['Male', 'Female', 'Other']
+const CIVIL_STATUS_OPTIONS = ['Single', 'Married', 'Widowed', 'Separated', 'Divorced']
+
 const SettingsPage = () => {
   const { role, setUser } = useAuth()
   const { theme, setTheme } = useTheme()
@@ -94,7 +97,7 @@ const SettingsPage = () => {
             <ProfileAvatar user={form} size="lg" />
             <div>
               <p className="text-lg font-bold text-slate-800">{form.full_name}</p>
-              <p className="text-sm text-slate-500">{form.email}</p>
+              <p className="text-sm text-slate-500">{form.email || form.phone || 'No contact info added yet'}</p>
             </div>
           </div>
 
@@ -143,11 +146,17 @@ const SettingsPage = () => {
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Civil status</span>
-                  <input value={form.civil_status || ''} onChange={onChange('civil_status')} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+                  <select value={form.civil_status || ''} onChange={onChange('civil_status')} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400">
+                    <option value="">Select civil status</option>
+                    {CIVIL_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
                 </label>
                 <label className="space-y-1.5">
-                  <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Sex</span>
-                  <input value={form.sex || ''} onChange={onChange('sex')} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Gender</span>
+                  <select value={form.gender || ''} onChange={onChange('gender')} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-sky-400">
+                    <option value="">Select gender</option>
+                    {GENDER_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
                 </label>
               </>
             )}

@@ -14,7 +14,7 @@ const AddModal = ({ onClose, onAdd }) => {
   const [form,     setForm]     = useState({ full_name: '', email: '', phone: '' })
   const [submitting,setSub]     = useState(false)
   const [error,    setError]    = useState('')
-  const valid = form.full_name.trim() && form.email.trim()
+  const valid = form.full_name.trim() && form.email.trim() && form.phone.trim()
 
   const handleSubmit = async () => {
     setSub(true); setError('')
@@ -47,7 +47,7 @@ const AddModal = ({ onClose, onAdd }) => {
           {[
             { k: 'full_name', l: 'Full Name', t: 'text',  p: 'e.g. Ana Reyes', req: true  },
             { k: 'email',     l: 'Email',     t: 'email', p: 'e.g. ana@carait.com', req: true },
-            { k: 'phone',     l: 'Phone',     t: 'tel',   p: 'e.g. 09171234567', req: false },
+            { k: 'phone',     l: 'Phone',     t: 'tel',   p: 'e.g. 09171234567', req: true },
           ].map(({ k, l, t, p, req }) => (
             <div key={k}>
               <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">

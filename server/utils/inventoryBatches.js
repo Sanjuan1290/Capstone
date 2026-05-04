@@ -126,6 +126,75 @@ const consumeInventoryFEFO = async (inventoryId, quantity, executor = db) => {
   }
 }
 
+const consumeInventoryByBatches = async (inventoryId, selections = [], executor = db) => {
+  const normalizedSelections = Array.isArray(selections)
+    ? selections
+        .map((entry) => ({
+          batch_id: Number(entry?.batch_id),
+          quantity: toPositiveNumber(entry?.quantity),
+        }))
+        .filter((entry) => entry.batch_id > 0 && entry.quantity > 0)
+    : []
+
+  if (normalizedSelections.length === 0) {
+    return { ok: false, message: 'Select at least one batch for manual stock-out.', shortage: 0, consumed: [] }
+  }
+
+  const requestedQty = normalizedSelections.reduce((sum, entry) => sum + entry.quantity, 0)
+  const [batches] = await executor.query(
+    `SELECT id, quantity, expiration_date
+     FROM inventory_batches
+     WHERE inventory_id = ?
+       AND quantity > 0`,
+    [inventoryId]
+  )
+
+  const batchMap = new Map(batches.map((batch) => [Number(batch.id), batch]))
+  const consumed = []
+
+  for (const selection of normalizedSelections) {
+    const batch = batchMap.get(selection.batch_id)
+    if (!batch) {
+      return {
+        ok: false,
+        message: `Batch ${selection.batch_id} is not available for this item.`,
+        shortage: selection.quantity,
+        consumed,
+      }
+    }
+
+    const available = Number(batch.quantity || 0)
+    if (available < selection.quantity) {
+      return {
+        ok: false,
+        message: `Batch ${selection.batch_id} only has ${available} remaining.`,
+        shortage: selection.quantity - available,
+        consumed,
+      }
+    }
+
+    await executor.query(
+      'UPDATE inventory_batches SET quantity = ? WHERE id = ?',
+      [available - selection.quantity, selection.batch_id]
+    )
+
+    consumed.push({
+      id: selection.batch_id,
+      quantity: selection.quantity,
+      expiration_date: batch.expiration_date || null,
+    })
+  }
+
+  await syncInventorySnapshot(inventoryId, executor)
+
+  return {
+    ok: true,
+    shortage: 0,
+    consumed,
+    requested: requestedQty,
+  }
+}
+
 const attachBatchesToInventory = async (items, executor = db) => {
   if (!Array.isArray(items) || items.length === 0) return []
 
@@ -167,5 +236,6 @@ module.exports = {
   syncInventorySnapshot,
   addInventoryBatch,
   consumeInventoryFEFO,
+  consumeInventoryByBatches,
   attachBatchesToInventory,
 }

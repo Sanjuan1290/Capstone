@@ -1,51 +1,50 @@
-// client/src/pages/auth/Patient/PatientRegister.jsx
-// REDESIGNED: Mobile-first 2-step flow, modern card, icon inputs, smooth OTP input
-
-import { useState, useRef } from 'react'
-import logo from '../../../assets/logo-removebg.png'
+import { useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { useAuth } from '../../../context/AuthContext'
 import {
-  MdPerson, MdCalendarToday, MdWc, MdPhone, MdHome,
-  MdEmail, MdLock, MdVisibility, MdVisibilityOff,
-  MdArrowForward, MdArrowBack, MdCheckCircle,
+  MdArrowBack,
+  MdArrowForward,
+  MdCheckCircle,
+  MdLock,
+  MdPerson,
+  MdPhone,
+  MdVisibility,
+  MdVisibilityOff,
 } from 'react-icons/md'
+import logo from '../../../assets/logo-removebg.png'
+import { useAuth } from '../../../context/AuthContext'
 
-// ── Shared input styles ────────────────────────────────────────────────────────
-const inp = `w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3.5 py-3 text-sm
-  text-slate-800 placeholder-slate-300 focus:outline-none focus:border-emerald-400
-  focus:bg-white focus:ring-2 focus:ring-emerald-400/10 transition-all`
+const INPUT_CLASS = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 text-sm
+  text-slate-800 placeholder-slate-300 transition-all focus:border-emerald-400 focus:bg-white
+  focus:outline-none focus:ring-2 focus:ring-emerald-400/10`
 
-const lbl = `block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5`
-const computeAge = (birthdate) => {
-  if (!birthdate) return null
-  const [year, month, day] = String(birthdate).slice(0, 10).split('-').map(Number)
-  if (!year || !month || !day) return null
-  const today = new Date()
-  let age = today.getFullYear() - year
-  const monthDiff = today.getMonth() - (month - 1)
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < day)) age -= 1
-  return age
-}
+const LABEL_CLASS = 'mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500'
 
-// ── Password input with eye toggle ────────────────────────────────────────────
 const PasswordInput = ({ name, value, onChange, placeholder }) => {
   const [show, setShow] = useState(false)
+
   return (
     <div className="relative">
-      <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-      <input type={show ? 'text' : 'password'} name={name} value={value}
-        onChange={onChange} required placeholder={placeholder}
-        className={`${inp} pl-10 pr-11`} />
-      <button type="button" onClick={() => setShow(s => !s)}
-        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+      <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
+      <input
+        type={show ? 'text' : 'password'}
+        name={name}
+        value={value}
+        onChange={onChange}
+        required
+        placeholder={placeholder}
+        className={`${INPUT_CLASS} pl-10 pr-11`}
+      />
+      <button
+        type="button"
+        onClick={() => setShow((current) => !current)}
+        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+      >
         {show ? <MdVisibilityOff className="text-[17px]" /> : <MdVisibility className="text-[17px]" />}
       </button>
     </div>
   )
 }
 
-// ── OTP Input — 6 big digit boxes ─────────────────────────────────────────────
 const OtpBoxes = ({ value, onChange }) => {
   const refs = useRef([])
   const digits = value.split('')
@@ -56,222 +55,185 @@ const OtpBoxes = ({ value, onChange }) => {
     onChange(next.join('').slice(0, 6))
   }
 
-  const handleInput = (i, e) => {
-    const numeric = e.target.value.replace(/\D/g, '').slice(-1)
-    writeDigit(i, numeric)
-    if (numeric && i < 5) refs.current[i + 1]?.focus()
+  const handleInput = (index, event) => {
+    const numeric = event.target.value.replace(/\D/g, '').slice(-1)
+    writeDigit(index, numeric)
+    if (numeric && index < 5) refs.current[index + 1]?.focus()
   }
 
-  const handleKey = (i, e) => {
-    if (e.key === 'Backspace') {
-      if (digits[i]) writeDigit(i, '')
-      else if (i > 0) refs.current[i - 1]?.focus()
+  const handleKey = (index, event) => {
+    if (event.key === 'Backspace') {
+      if (digits[index]) writeDigit(index, '')
+      else if (index > 0) refs.current[index - 1]?.focus()
       return
     }
-    if (e.key === 'ArrowLeft' && i > 0) refs.current[i - 1]?.focus()
-    if (e.key === 'ArrowRight' && i < 5) refs.current[i + 1]?.focus()
+    if (event.key === 'ArrowLeft' && index > 0) refs.current[index - 1]?.focus()
+    if (event.key === 'ArrowRight' && index < 5) refs.current[index + 1]?.focus()
   }
 
-  const handlePaste = e => {
-    const p = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
-    if (p) { onChange(p); refs.current[Math.min(p.length, 5)]?.focus() }
-    e.preventDefault()
+  const handlePaste = (event) => {
+    const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
+    if (pasted) {
+      onChange(pasted)
+      refs.current[Math.min(pasted.length, 5)]?.focus()
+    }
+    event.preventDefault()
   }
 
   return (
-    <div className="flex gap-1 sm:gap-3 justify-center px-1">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <input key={i} ref={el => refs.current[i] = el}
-          type="text" inputMode="numeric" maxLength={1}
-          value={digits[i] || ''} onChange={e => handleInput(i, e)}
-          onKeyDown={e => handleKey(i, e)} onPaste={handlePaste}
-          className={`w-11 h-14 sm:w-14 sm:h-16 text-center text-2xl font-black border-2 rounded-2xl
-            outline-none transition-all cursor-text select-none
-            ${digits[i]
+    <div className="flex justify-center gap-1 px-1 sm:gap-3">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <input
+          key={index}
+          ref={(element) => { refs.current[index] = element }}
+          type="text"
+          inputMode="numeric"
+          maxLength={1}
+          value={digits[index] || ''}
+          onChange={(event) => handleInput(index, event)}
+          onKeyDown={(event) => handleKey(index, event)}
+          onPaste={handlePaste}
+          className={`h-14 w-11 select-none rounded-2xl border-2 text-center text-2xl font-black outline-none transition-all sm:h-16 sm:w-14 ${
+            digits[index]
               ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-              : 'border-slate-200 bg-slate-50 text-slate-800'}
-            focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-400/20`}
+              : 'border-slate-200 bg-slate-50 text-slate-800'
+          } focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-400/20`}
         />
       ))}
     </div>
   )
 }
 
-// ── Step 1: Registration Form ──────────────────────────────────────────────────
 const RegistrationForm = ({ onSuccess }) => {
   const [form, setForm] = useState({
-    full_name: '', birthdate: '', sex: '', civil_status: '',
-    phone: '', address: '', email: '', password: '', confirmPassword: '',
+    full_name: '',
+    phone: '',
+    password: '',
+    confirmPassword: '',
+    receive_promotions: false,
   })
   const [consentGiven, setConsentGiven] = useState(false)
-  const [error,   setError]   = useState('')
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const set = e => { setForm(p => ({ ...p, [e.target.name]: e.target.value })); setError('') }
+  const updateField = (event) => {
+    const { name, type, checked, value } = event.target
+    setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
+    setError('')
+  }
 
-  const handleSubmit = async e => {
-    e.preventDefault()
-    if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return }
-    if (form.password.length < 6) { setError('Password must be at least 6 characters.'); return }
-    const age = computeAge(form.birthdate)
-    if (age === null || age < 21) { setError('You must be at least 21 years old to register.'); return }
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    if (form.password !== form.confirmPassword) {
+      setError('Passwords do not match.')
+      return
+    }
+    if (form.password.length < 6) {
+      setError('Password must be at least 6 characters.')
+      return
+    }
+
     setLoading(true)
     try {
-      const res  = await fetch('/api/patient/register', {
-        method: 'POST', credentials: 'include',
+      const res = await fetch('/api/patient/register', {
+        method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, civil_status: form.civil_status || null, consent_given: true }),
+        body: JSON.stringify({ ...form, consent_given: consentGiven }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.message || 'Registration failed.'); return }
-      onSuccess(form.email)
-    } catch { setError('Cannot connect to server.') }
-    finally  { setLoading(false) }
+      if (!res.ok) {
+        setError(data.message || 'Registration failed.')
+        return
+      }
+      onSuccess({ phone: data.phone || form.phone, devOtp: data.dev_otp || null })
+    } catch {
+      setError('Cannot connect to server.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c]
-      flex items-center justify-center p-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c] p-4 py-10">
+      <div className="fixed right-0 top-0 h-96 w-96 rounded-full bg-emerald-500/5 blur-3xl pointer-events-none" />
+      <div className="fixed bottom-0 left-0 h-72 w-72 rounded-full bg-sky-500/5 blur-3xl pointer-events-none" />
 
-      {/* bg blobs */}
-      <div className="fixed top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-0 left-0 w-72 h-72 bg-sky-500/5 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="w-full max-w-xl relative">
-
-        {/* Brand */}
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center mb-3
-            shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-            <img src={logo} alt="Carait" className="w-10 h-10 object-contain" />
+      <div className="relative w-full max-w-xl">
+        <div className="mb-6 flex flex-col items-center">
+          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+            <img src={logo} alt="Carait" className="h-10 w-10 object-contain" />
           </div>
-          <h1 className="text-white text-xl font-black tracking-tight">Carait Clinic</h1>
-          <p className="text-slate-400 text-sm mt-0.5">Create your patient account</p>
+          <h1 className="text-xl font-black tracking-tight text-white">Carait Clinic</h1>
+          <p className="mt-0.5 text-sm text-slate-400">Create your patient account</p>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-
-          {/* Progress bar */}
+        <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
           <div className="h-1 bg-slate-100">
-            <div className="h-1 bg-emerald-500 w-1/2 transition-all" />
+            <div className="h-1 w-1/2 bg-emerald-500 transition-all" />
           </div>
 
-          {/* Card header */}
           <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5">
-            <div className="flex items-center gap-2 text-white/60 text-xs mb-1">
-              <span className="bg-white/20 rounded-full px-2 py-0.5 font-bold">Step 1 of 2</span>
+            <div className="mb-1 flex items-center gap-2 text-xs text-white/60">
+              <span className="rounded-full bg-white/20 px-2 py-0.5 font-bold">Step 1 of 2</span>
             </div>
-            <h2 className="text-white font-bold text-lg">Personal Information</h2>
-            <p className="text-emerald-100 text-sm mt-0.5">Fill in your details to get started</p>
+            <h2 className="text-lg font-bold text-white">Fast Registration</h2>
+            <p className="mt-0.5 text-sm text-emerald-100">We only need your name, mobile number, and password.</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="px-5 sm:px-8 py-6 space-y-4">
-
+          <form onSubmit={handleSubmit} className="space-y-4 px-5 py-6 sm:px-8">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
                 {error}
               </div>
             )}
 
-            {/* Full name */}
             <div>
-              <label className={lbl}>Full Name</label>
+              <label className={LABEL_CLASS}>Full Name</label>
               <div className="relative">
-                <MdPerson className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                <input type="text" name="full_name" value={form.full_name} onChange={set}
-                  required placeholder="e.g. Juan dela Cruz"
-                  className={`${inp} pl-10`} />
+                <MdPerson className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
+                <input
+                  type="text"
+                  name="full_name"
+                  value={form.full_name}
+                  onChange={updateField}
+                  required
+                  placeholder="e.g. Juan dela Cruz"
+                  className={`${INPUT_CLASS} pl-10`}
+                />
               </div>
             </div>
 
-            {/* Birthdate + Sex */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={lbl}>Birthdate</label>
-                <div className="relative">
-                  <MdCalendarToday className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]" />
-                  <input type="date" name="birthdate" value={form.birthdate} onChange={set}
-                    required className={`${inp} pl-10`} />
-                </div>
-              </div>
-              <div>
-                <label className={lbl}>Sex</label>
-                <div className="relative">
-                  <MdWc className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                  <select name="sex" value={form.sex} onChange={set} required
-                    className={`${inp} pl-10 appearance-none`}>
-                    <option value="">Select sex</option>
-                    <option>Male</option>
-                    <option>Female</option>
-                    <option>Other</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* Civil status + Phone */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={lbl}>Civil Status <span className="normal-case font-normal text-slate-300">(optional)</span></label>
-                <select name="civil_status" value={form.civil_status} onChange={set}
-                  className={`${inp} appearance-none`}>
-                  <option value="">Select status</option>
-                  <option>Single</option>
-                  <option>Married</option>
-                  <option>Widowed</option>
-                  <option>Divorced</option>
-                </select>
-              </div>
-              <div>
-                <label className={lbl}>Phone</label>
-                <div className="relative">
-                  <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                  <input type="tel" name="phone" value={form.phone} onChange={set}
-                    required placeholder="+63 9XX XXX XXXX"
-                    className={`${inp} pl-10`} />
-                </div>
-              </div>
-            </div>
-
-            {/* Address */}
             <div>
-              <label className={lbl}>Address</label>
+              <label className={LABEL_CLASS}>Phone Number</label>
               <div className="relative">
-                <MdHome className="absolute left-3.5 top-3.5 text-slate-400 text-[17px]" />
-                <input type="text" name="address" value={form.address} onChange={set}
-                  required placeholder="Street, Barangay, City, Province"
-                  className={`${inp} pl-10`} />
+                <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
+                <input
+                  type="tel"
+                  name="phone"
+                  value={form.phone}
+                  onChange={updateField}
+                  required
+                  placeholder="09XXXXXXXXX or +639XXXXXXXXX"
+                  className={`${INPUT_CLASS} pl-10`}
+                />
               </div>
             </div>
 
-            {/* Email */}
-            <div>
-              <label className={lbl}>Email Address</label>
-              <div className="relative">
-                <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                <input type="email" name="email" value={form.email} onChange={set}
-                  required placeholder="you@example.com"
-                  className={`${inp} pl-10`} />
-              </div>
-            </div>
-
-            {/* Divider */}
             <div className="border-t border-slate-100 pt-1">
-              <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Security</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Security</p>
             </div>
 
-            {/* Passwords */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <label className={lbl}>Password</label>
-                <PasswordInput name="password" value={form.password} onChange={set} placeholder="Min 6 characters" />
+                <label className={LABEL_CLASS}>Password</label>
+                <PasswordInput name="password" value={form.password} onChange={updateField} placeholder="Min 6 characters" />
               </div>
               <div>
-                <label className={lbl}>Confirm Password</label>
-                <PasswordInput name="confirmPassword" value={form.confirmPassword} onChange={set} placeholder="Repeat password" />
+                <label className={LABEL_CLASS}>Confirm Password</label>
+                <PasswordInput name="confirmPassword" value={form.confirmPassword} onChange={updateField} placeholder="Repeat password" />
                 {form.confirmPassword && form.password !== form.confirmPassword && (
-                  <p className="text-xs text-red-500 mt-1">Passwords do not match.</p>
+                  <p className="mt-1 text-xs text-red-500">Passwords do not match.</p>
                 )}
               </div>
             </div>
@@ -279,8 +241,19 @@ const RegistrationForm = ({ onSuccess }) => {
             <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
               <input
                 type="checkbox"
+                name="receive_promotions"
+                checked={form.receive_promotions}
+                onChange={updateField}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600"
+              />
+              <span>I want to receive promotions and clinic updates by email.</span>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+              <input
+                type="checkbox"
                 checked={consentGiven}
-                onChange={(e) => setConsentGiven(e.target.checked)}
+                onChange={(event) => setConsentGiven(event.target.checked)}
                 className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600"
               />
               <span>
@@ -292,27 +265,33 @@ const RegistrationForm = ({ onSuccess }) => {
               </span>
             </label>
 
-            <button type="submit" disabled={loading || !consentGiven}
-              className="w-full flex items-center justify-center gap-2 py-3.5 bg-emerald-500 hover:bg-emerald-600
-                text-white font-bold text-sm rounded-xl transition-colors shadow-lg shadow-emerald-500/20
-                disabled:opacity-60 mt-2">
-              {loading
-                ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : <> Send Verification Code <MdArrowForward className="text-[16px]" /></>}
+            <button
+              type="submit"
+              disabled={loading || !consentGiven}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 transition-colors hover:bg-emerald-600 disabled:opacity-60"
+            >
+              {loading ? (
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              ) : (
+                <>
+                  Send SMS Verification Code
+                  <MdArrowForward className="text-[16px]" />
+                </>
+              )}
             </button>
 
             <p className="text-center text-sm text-slate-400">
               Already have an account?{' '}
-              <NavLink to="/patient/login" className="text-emerald-600 hover:text-emerald-700 font-bold">
+              <NavLink to="/patient/login" className="font-bold text-emerald-600 hover:text-emerald-700">
                 Sign in
               </NavLink>
             </p>
           </form>
         </div>
 
-        <p className="text-center mt-4">
-          <NavLink to="/" className="text-slate-500 hover:text-white text-xs transition-colors">
-            ← Back to home
+        <p className="mt-4 text-center">
+          <NavLink to="/" className="text-xs text-slate-500 transition-colors hover:text-white">
+            {'<-'} Back to home
           </NavLink>
         </p>
       </div>
@@ -320,94 +299,109 @@ const RegistrationForm = ({ onSuccess }) => {
   )
 }
 
-// ── Step 2: Email Verification ─────────────────────────────────────────────────
-const VerificationForm = ({ email, onBack }) => {
-  const [code,    setCode]    = useState('')
-  const [error,   setError]   = useState('')
+const VerificationForm = ({ pendingPhone, devOtp, onBack }) => {
+  const [code, setCode] = useState(devOtp || '')
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
-  const navigate  = useNavigate()
+  const navigate = useNavigate()
 
-  const handleVerify = async e => {
-    e.preventDefault()
-    if (code.length < 6) { setError('Please enter the complete 6-digit code.'); return }
+  const handleVerify = async (event) => {
+    event.preventDefault()
+    if (code.length < 6) {
+      setError('Please enter the complete 6-digit code.')
+      return
+    }
+
     setError('')
     setLoading(true)
     try {
-      const res  = await fetch('/api/patient/register/verify', {
-        method: 'POST', credentials: 'include',
+      const res = await fetch('/api/patient/register/verify', {
+        method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code }),
+        body: JSON.stringify({ phone: pendingPhone, code }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.message || 'Verification failed.'); return }
+      if (!res.ok) {
+        setError(data.message || 'Verification failed.')
+        return
+      }
       login(data.user, 'patient')
       navigate('/patient')
-    } catch { setError('Cannot connect to server.') }
-    finally  { setLoading(false) }
+    } catch {
+      setError('Cannot connect to server.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c]
-      flex items-center justify-center p-4">
-
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c] p-4">
       <div className="w-full max-w-fit">
-
-        {/* Brand */}
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center mb-3">
-            <img src={logo} alt="Carait" className="w-10 h-10 object-contain" />
+        <div className="mb-6 flex flex-col items-center">
+          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10">
+            <img src={logo} alt="Carait" className="h-10 w-10 object-contain" />
           </div>
-          <h1 className="text-white text-xl font-black">Carait Clinic</h1>
+          <h1 className="text-xl font-black text-white">Carait Clinic</h1>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-
-          {/* Progress */}
+        <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
           <div className="h-1 bg-slate-100">
-            <div className="h-1 bg-emerald-500 w-full transition-all" />
+            <div className="h-1 w-full bg-emerald-500 transition-all" />
           </div>
 
-          {/* Header */}
           <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5 text-center">
-            <span className="bg-white/20 rounded-full px-2 py-0.5 font-bold text-white/60 text-xs">Step 2 of 2</span>
-            <h2 className="text-white font-bold text-lg mt-1">Verify Your Email</h2>
-            <p className="text-emerald-100 text-sm mt-0.5">Code sent to</p>
-            <p className="text-white font-bold text-sm">{email}</p>
+            <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold text-white/60">Step 2 of 2</span>
+            <h2 className="mt-1 text-lg font-bold text-white">Verify Your Phone</h2>
+            <p className="mt-0.5 text-sm text-emerald-100">Code sent to</p>
+            <p className="text-sm font-bold text-white">{pendingPhone}</p>
           </div>
 
-          <form onSubmit={handleVerify} className="px-6 py-6 space-y-5">
-
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-center">
-              <p className="text-xs text-amber-700">Check your inbox and spam. Code expires in 10 minutes.</p>
+          <form onSubmit={handleVerify} className="space-y-5 px-6 py-6">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
+              <p className="text-xs text-amber-700">
+                Check your SMS inbox. The code expires in 10 minutes.
+                {devOtp ? ` Dev OTP: ${devOtp}` : ''}
+              </p>
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3 text-center">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-600">
                 {error}
               </div>
             )}
 
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 text-center">
+              <label className="mb-3 block text-center text-[11px] font-bold uppercase tracking-widest text-slate-500">
                 6-Digit Verification Code
               </label>
-                <OtpBoxes value={code} onChange={v => { setCode(v); setError('') }} />
+              <OtpBoxes value={code} onChange={(next) => { setCode(next); setError('') }} />
             </div>
 
-            <button type="submit" disabled={loading || code.length < 6}
-              className="w-full flex items-center justify-center gap-2 py-3.5 bg-emerald-500 hover:bg-emerald-600
-                text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-60">
-              {loading
-                ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : <><MdCheckCircle className="text-[16px]" /> Verify & Create Account</>}
+            <button
+              type="submit"
+              disabled={loading || code.length < 6}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white transition-colors hover:bg-emerald-600 disabled:opacity-60"
+            >
+              {loading ? (
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              ) : (
+                <>
+                  <MdCheckCircle className="text-[16px]" />
+                  Verify and Create Account
+                </>
+              )}
             </button>
 
             <div className="flex items-center justify-center gap-4 text-xs">
-              <button type="button" onClick={onBack}
-                className="flex items-center gap-1 text-slate-400 hover:text-slate-600 transition-colors">
-                <MdArrowBack className="text-[13px]" /> Change email
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex items-center gap-1 text-slate-400 transition-colors hover:text-slate-600"
+              >
+                <MdArrowBack className="text-[13px]" />
+                Change phone number
               </button>
             </div>
           </form>
@@ -417,12 +411,20 @@ const VerificationForm = ({ email, onBack }) => {
   )
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
 const PatientRegister = () => {
-  const [pendingEmail, setPendingEmail] = useState(null)
-  if (pendingEmail)
-    return <VerificationForm email={pendingEmail} onBack={() => setPendingEmail(null)} />
-  return <RegistrationForm onSuccess={setPendingEmail} />
+  const [pendingRegistration, setPendingRegistration] = useState(null)
+
+  if (pendingRegistration) {
+    return (
+      <VerificationForm
+        pendingPhone={pendingRegistration.phone}
+        devOtp={pendingRegistration.devOtp}
+        onBack={() => setPendingRegistration(null)}
+      />
+    )
+  }
+
+  return <RegistrationForm onSuccess={setPendingRegistration} />
 }
 
 export default PatientRegister

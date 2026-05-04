@@ -135,7 +135,7 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
               { icon: MdEmail,  label: 'Email',      value: appt.patient_email     || appt.email     },
               { icon: MdPhone,  label: 'Phone',      value: appt.patient_phone     || appt.phone     },
               { icon: MdCake,   label: 'Birthdate',  value: appt.patient_birthdate ? formatDate(appt.patient_birthdate) : appt.birthdate },
-              { icon: MdWc,     label: 'Sex',        value: appt.patient_sex       || appt.sex       },
+              { icon: MdWc,     label: 'Gender',     value: appt.patient_sex       || appt.sex       },
               { icon: MdHome,   label: 'Address',    value: appt.patient_address   || appt.address   },
             ].filter(r => r.value).map(({ icon: Ic, label, value }) => (
               <div key={label} className="flex items-start gap-2.5">

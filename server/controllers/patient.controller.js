@@ -1,149 +1,318 @@
-// server/controllers/patient.controller.js
-
-const db           = require('../db/connect')
-const bcrypt       = require('bcrypt')
-const jwt          = require('jsonwebtoken')
+const db = require('../db/connect')
+const bcrypt = require('bcrypt')
+const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
-const { sendVerificationCode, sendAppointmentStatusEmail } = require('../utils/emailService')
+const { sendAppointmentStatusEmail } = require('../utils/emailService')
 const { notifyRoles, createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly } = require('../utils/date')
+const { normalizePhilippinePhone } = require('../utils/phone')
+const { sendDoctorAppointmentSms, sendPatientRegistrationOtp, isSmsConfigured } = require('../utils/smsService')
+const {
+  normalizePatientProfileInput,
+  getPatientProfileStatus,
+  toDateOnly,
+  isValidDateOnly,
+} = require('../utils/patientProfile')
 
-// In-memory pending registrations (keyed by email)
-const pendingRegistrations = {}
+const OTP_EXPIRY_MS = 10 * 60 * 1000
 
-const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
-const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
-const getAgeFromBirthdate = (birthdate) => {
-  const birth = new Date(`${birthdate}T00:00:00`)
-  if (Number.isNaN(birth.getTime())) return null
-  const today = new Date()
-  let age = today.getFullYear() - birth.getFullYear()
-  const monthDiff = today.getMonth() - birth.getMonth()
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age -= 1
-  return age
+const buildPatientAuthUser = (patient) => ({
+  id: patient.id,
+  full_name: patient.full_name,
+  email: patient.email,
+  phone: patient.phone,
+  gender: patient.gender || patient.sex || null,
+  role: 'patient',
+  theme_preference: patient.theme_preference || 'light',
+  profile_image_url: patient.profile_image_url || null,
+  is_profile_complete: Boolean(patient.is_profile_complete),
+})
+
+const loadPatientById = async (id) => {
+  const [rows] = await db.query(
+    `SELECT
+       id,
+       full_name,
+       email,
+       phone,
+       birthdate,
+       gender,
+       sex,
+       civil_status,
+       address,
+       receive_promotions,
+       is_profile_complete,
+       theme_preference,
+       profile_image_url
+     FROM patients
+     WHERE id = ?`,
+    [id]
+  )
+  return rows[0] || null
 }
 
-// ─── Registration ─────────────────────────────────────────────────────────────
+const syncPatientProfileStatus = async (patient) => {
+  const status = getPatientProfileStatus(patient)
+  if (Number(Boolean(patient?.is_profile_complete)) !== Number(status.is_profile_complete)) {
+    await db.query('UPDATE patients SET is_profile_complete = ? WHERE id = ?', [
+      status.is_profile_complete ? 1 : 0,
+      patient.id,
+    ])
+  }
+
+  return {
+    ...patient,
+    is_profile_complete: status.is_profile_complete ? 1 : 0,
+    missing_fields: status.missing_fields,
+  }
+}
+
+const getProfileResponse = (patient) => ({
+  full_name: patient.full_name,
+  phone: patient.phone,
+  email: patient.email,
+  birthdate: patient.birthdate ? toDateOnly(patient.birthdate) : null,
+  gender: patient.gender || patient.sex || null,
+  civil_status: patient.civil_status,
+  address: patient.address,
+  receive_promotions: Boolean(patient.receive_promotions),
+  is_profile_complete: Boolean(patient.is_profile_complete),
+})
+
+const issuePatientSession = (res, patientId) => {
+  const token = jwt.sign({ id: patientId, role: 'patient' }, process.env.JWT_SECRET, { expiresIn: '7d' })
+  generateCookie(res, token, 'patient')
+}
+
+const parseVerificationPayload = (rawPayload) => {
+  if (!rawPayload) return {}
+  if (typeof rawPayload === 'object') return rawPayload
+  if (typeof rawPayload === 'string') return JSON.parse(rawPayload)
+  return {}
+}
 
 const register = async (req, res) => {
-  const { full_name, birthdate, sex, civil_status, phone, address, email, password, confirmPassword, consent_given } = req.body
+  const {
+    full_name,
+    phone,
+    password,
+    confirmPassword,
+    consent_given,
+    receive_promotions,
+  } = req.body
 
-  if (!full_name || !birthdate || !sex || !phone || !address || !email || !password)
-    return res.status(400).json({ message: 'All required fields must be filled.' })
-  const cleanBirthdate = toDateOnly(birthdate)
-  if (!isValidDateOnly(cleanBirthdate))
-    return res.status(400).json({ message: 'Birthdate is invalid.' })
-  const age = getAgeFromBirthdate(cleanBirthdate)
-  if (age === null || age < 21)
-    return res.status(400).json({ message: 'You must be at least 21 years old to register an account.' })
+  if (!full_name || !phone || !password) {
+    return res.status(400).json({ message: 'Full name, phone number, and password are required.' })
+  }
 
-  if (password !== confirmPassword)
+  const normalizedPhone = normalizePhilippinePhone(phone)
+  if (!normalizedPhone) {
+    return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+  }
+
+  if (password !== confirmPassword) {
     return res.status(400).json({ message: 'Passwords do not match.' })
+  }
 
-  if (password.length < 6)
+  if (password.length < 6) {
     return res.status(400).json({ message: 'Password must be at least 6 characters.' })
-  if (!consent_given)
+  }
+
+  if (!consent_given) {
     return res.status(400).json({ message: 'Data privacy consent is required.' })
+  }
 
-  const [existing] = await db.query('SELECT id FROM patients WHERE email = ?', [email])
-  if (existing.length > 0)
-    return res.status(409).json({ message: 'An account with that email already exists.' })
+  const [existing] = await db.query('SELECT id FROM patients WHERE phone = ?', [normalizedPhone])
+  if (existing.length > 0) {
+    return res.status(409).json({ message: 'An account with that phone number already exists.' })
+  }
 
-  const hashed = await bcrypt.hash(password, 10)
-  const code   = String(Math.floor(100000 + Math.random() * 900000))
-
-  pendingRegistrations[email] = {
-    full_name, birthdate: cleanBirthdate, sex, civil_status: civil_status || null,
-    phone, address, email, password: hashed,
+  const hashedPassword = await bcrypt.hash(password, 10)
+  const code = String(Math.floor(100000 + Math.random() * 900000))
+  const payload = JSON.stringify({
+    full_name: String(full_name).trim(),
+    phone: normalizedPhone,
+    password: hashedPassword,
     consent_given: true,
-    code, expiresAt: Date.now() + 10 * 60 * 1000,
+    receive_promotions: receive_promotions ? 1 : 0,
+  })
+
+  await db.query(
+    `INSERT INTO patient_phone_verifications (phone, otp_code, payload, expires_at, verified_at)
+     VALUES (?, ?, ?, ?, NULL)
+     ON DUPLICATE KEY UPDATE
+       otp_code = VALUES(otp_code),
+       payload = VALUES(payload),
+       expires_at = VALUES(expires_at),
+      verified_at = NULL`,
+    [normalizedPhone, code, payload, new Date(Date.now() + OTP_EXPIRY_MS)]
+  )
+
+  if (isSmsConfigured()) {
+    try {
+      await sendPatientRegistrationOtp({
+        phone: normalizedPhone,
+        code,
+        fullName: full_name,
+      })
+    } catch (err) {
+      console.error('Patient registration OTP SMS failed:', {
+        message: err.message,
+        statusCode: err.statusCode,
+        responseBody: err.responseBody,
+      })
+
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(502).json({
+          message: 'Failed to send verification code by SMS. Please try again later.',
+          error: err.message,
+        })
+      }
+
+      return res.status(200).json({
+        message: `Verification code generated, but SMS delivery failed: ${err.message}. Use the dev OTP from the response.`,
+        phone: normalizedPhone,
+        dev_otp: code,
+        sms_error: err.message,
+      })
+    }
   }
 
-  try {
-    await sendVerificationCode(email, full_name, code)
-  } catch (err) {
-    console.error('⚠️  Verification email failed:', err.message)
-  }
-
-  res.status(200).json({ message: 'Verification code sent. Please check your email.' })
+  res.status(200).json({
+    message: isSmsConfigured()
+      ? 'Verification code sent by SMS.'
+      : 'Verification code generated. SMS is not configured, so use the dev OTP from the response.',
+    phone: normalizedPhone,
+    ...(isSmsConfigured() ? {} : { dev_otp: code }),
+  })
 }
 
 const verifyRegistration = async (req, res) => {
-  const { email, code } = req.body
+  const normalizedPhone = normalizePhilippinePhone(req.body.phone)
+  const code = String(req.body.code || '').trim()
 
-  const pending = pendingRegistrations[email]
-  if (!pending)
-    return res.status(400).json({ message: 'No pending registration found for this email.' })
-
-  if (Date.now() > pending.expiresAt) {
-    delete pendingRegistrations[email]
-    return res.status(400).json({ message: 'Verification code has expired. Please register again.' })
+  if (!normalizedPhone || !code) {
+    return res.status(400).json({ message: 'Phone number and verification code are required.' })
   }
 
-  if (String(pending.code) !== String(code))
-    return res.status(400).json({ message: 'Invalid verification code.' })
-
-  const [result] = await db.query(
-    `INSERT INTO patients
-      (full_name, birthdate, sex, civil_status, phone, address, email, password, consent_given, consent_given_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [pending.full_name, pending.birthdate, pending.sex, pending.civil_status, pending.phone, pending.address, pending.email, pending.password, pending.consent_given ? 1 : 0, pending.consent_given ? new Date() : null]
+  const [rows] = await db.query(
+    'SELECT * FROM patient_phone_verifications WHERE phone = ? AND expires_at > NOW()',
+    [normalizedPhone]
   )
 
-  if (pending.consent_given) {
+  if (rows.length === 0) {
+    return res.status(400).json({ message: 'Verification code expired or no pending registration was found.' })
+  }
+
+  const pending = rows[0]
+  if (String(pending.otp_code) !== code) {
+    return res.status(400).json({ message: 'Invalid verification code.' })
+  }
+
+  const [existing] = await db.query('SELECT id FROM patients WHERE phone = ?', [normalizedPhone])
+  if (existing.length > 0) {
+    await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
+    return res.status(409).json({ message: 'An account with that phone number already exists.' })
+  }
+
+  let payload
+  try {
+    payload = parseVerificationPayload(pending.payload)
+  } catch {
+    await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
+    return res.status(500).json({ message: 'Stored verification data is invalid. Please register again.' })
+  }
+  const [result] = await db.query(
+    `INSERT INTO patients
+      (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, consent_given, consent_given_at, receive_promotions, is_profile_complete)
+     VALUES (?, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?, ?, 0)`,
+    [
+      payload.full_name,
+      normalizedPhone,
+      payload.password,
+      payload.consent_given ? 1 : 0,
+      payload.consent_given ? new Date() : null,
+      payload.receive_promotions ? 1 : 0,
+    ]
+  )
+
+  if (payload.consent_given) {
     await db.query(
       'INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)',
       [result.insertId, 'data_processing', req.ip || null]
     )
   }
 
-  delete pendingRegistrations[email]
+  await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
 
-  const token = jwt.sign({ id: result.insertId, role: 'patient' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'patient')
+  issuePatientSession(res, result.insertId)
+  const createdPatient = await loadPatientById(result.insertId)
 
   res.status(201).json({
     message: 'Registration successful.',
-    user: { id: result.insertId, full_name: pending.full_name, email: pending.email, role: 'patient' },
+    user: buildPatientAuthUser(createdPatient),
   })
 }
 
-// ─── Auth ─────────────────────────────────────────────────────────────────────
-
 const login = async (req, res) => {
-  const { email, password } = req.body
-  if (!email || !password)
-    return res.status(400).json({ message: 'Email and password are required.' })
+  const { phone, email, password } = req.body
+  if ((!phone && !email) || !password) {
+    return res.status(400).json({ message: 'Phone number and password are required.' })
+  }
 
-  const [rows] = await db.query('SELECT * FROM patients WHERE email = ?', [email])
-  if (rows.length === 0)
-    return res.status(401).json({ message: 'Invalid email or password.' })
+  let rows
+  if (phone) {
+    const normalizedPhone = normalizePhilippinePhone(phone)
+    if (!normalizedPhone) {
+      return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+    }
+    ;[rows] = await db.query('SELECT * FROM patients WHERE phone = ?', [normalizedPhone])
+    if (rows.length > 1) {
+      return res.status(409).json({
+        message: 'Multiple patient records use this phone number. Please contact the clinic to resolve the duplicate records.',
+      })
+    }
+  } else {
+    ;[rows] = await db.query('SELECT * FROM patients WHERE email = ?', [email])
+  }
+
+  if (rows.length === 0) {
+    return res.status(401).json({ message: 'Invalid phone number or password.' })
+  }
 
   const patient = rows[0]
-  const match   = await bcrypt.compare(password, patient.password)
-  if (!match)
-    return res.status(401).json({ message: 'Invalid email or password.' })
+  const match = await bcrypt.compare(password, patient.password)
+  if (!match) {
+    return res.status(401).json({ message: 'Invalid phone number or password.' })
+  }
 
-  const token = jwt.sign({ id: patient.id, role: 'patient' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'patient')
+  issuePatientSession(res, patient.id)
+  const syncedPatient = await syncPatientProfileStatus(patient)
 
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: patient.id, full_name: patient.full_name, email: patient.email, role: 'patient', theme_preference: patient.theme_preference, profile_image_url: patient.profile_image_url },
+    user: buildPatientAuthUser(syncedPatient),
   })
 }
 
 const checkAuth = async (req, res) => {
-  const token = req.cookies['patient_token']
+  const token = req.cookies.patient_token
   if (!token) return res.status(200).json({ authenticated: false })
+
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     if (decoded.role !== 'patient') return res.status(200).json({ authenticated: false })
-    const [rows] = await db.query('SELECT id, full_name, email, theme_preference, profile_image_url FROM patients WHERE id = ?', [decoded.id])
-    if (rows.length === 0) return res.status(200).json({ authenticated: false })
-    res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'patient' } })
+
+    const patient = await loadPatientById(decoded.id)
+    if (!patient) return res.status(200).json({ authenticated: false })
+
+    const syncedPatient = await syncPatientProfileStatus(patient)
+    res.status(200).json({
+      authenticated: true,
+      user: buildPatientAuthUser(syncedPatient),
+    })
   } catch {
     res.status(200).json({ authenticated: false })
   }
@@ -154,35 +323,95 @@ const logout = (req, res) => {
   res.status(200).json({ message: 'Logged out.' })
 }
 
-// ─── Appointments ─────────────────────────────────────────────────────────────
+const getProfileStatus = async (req, res) => {
+  const patient = await loadPatientById(req.user.id)
+  if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
+
+  const syncedPatient = await syncPatientProfileStatus(patient)
+  res.json({
+    profile: getProfileResponse(syncedPatient),
+    is_profile_complete: Boolean(syncedPatient.is_profile_complete),
+    missing_fields: syncedPatient.missing_fields,
+  })
+}
+
+const updateProfile = async (req, res) => {
+  const patient = await loadPatientById(req.user.id)
+  if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
+
+  const normalized = normalizePatientProfileInput(req.body)
+  if (!normalized.birthdate || !normalized.gender || !normalized.address) {
+    return res.status(400).json({
+      message: 'Birthdate, gender, and address are required before booking an appointment.',
+    })
+  }
+
+  if (normalized.email) {
+    const [existingEmail] = await db.query(
+      'SELECT id FROM patients WHERE email = ? AND id <> ?',
+      [normalized.email, req.user.id]
+    )
+    if (existingEmail.length > 0) {
+      return res.status(409).json({ message: 'That email address is already linked to another patient account.' })
+    }
+  }
+
+  const receivePromotions = normalized.receive_promotions === undefined
+    ? Boolean(patient.receive_promotions)
+    : normalized.receive_promotions
+
+  await db.query(
+    `UPDATE patients
+     SET birthdate = ?, gender = ?, sex = ?, civil_status = ?, address = ?, email = ?, receive_promotions = ?
+     WHERE id = ?`,
+    [
+      normalized.birthdate,
+      normalized.gender,
+      normalized.sex,
+      normalized.civil_status,
+      normalized.address,
+      normalized.email,
+      receivePromotions ? 1 : 0,
+      req.user.id,
+    ]
+  )
+
+  const updatedPatient = await syncPatientProfileStatus(await loadPatientById(req.user.id))
+  res.json({
+    message: 'Profile updated.',
+    user: buildPatientAuthUser(updatedPatient),
+    profile: getProfileResponse(updatedPatient),
+    is_profile_complete: Boolean(updatedPatient.is_profile_complete),
+    missing_fields: updatedPatient.missing_fields,
+  })
+}
 
 const getAppointments = async (req, res) => {
   await markOverdueAppointments()
   const [rows] = await db.query(
-    // ✅ FIX: include full patient details + properly formatted date
     `SELECT
        a.*,
        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
-       a.appointment_time                           AS time,
-       a.clinic_type                                AS type,
-       d.full_name                                  AS doctor_name,
-       d.full_name                                  AS doctor,
+       a.appointment_time AS time,
+       a.clinic_type AS type,
+       d.full_name AS doctor_name,
+       d.full_name AS doctor,
        d.specialty,
        CASE a.clinic_type
-         WHEN 'derma'   THEN 'Dermatology'
+         WHEN 'derma' THEN 'Dermatology'
          WHEN 'medical' THEN 'General Medicine'
          ELSE a.clinic_type
-       END                                          AS clinic,
-       p.full_name                                  AS patient_full_name,
-       p.email                                      AS patient_email,
-       p.phone                                      AS patient_phone,
-       DATE_FORMAT(p.birthdate, '%Y-%m-%d')         AS patient_birthdate,
-       p.sex                                        AS patient_sex,
-       p.address                                    AS patient_address,
-       p.civil_status                               AS patient_civil_status
+       END AS clinic,
+       p.full_name AS patient_full_name,
+       p.email AS patient_email,
+       p.phone AS patient_phone,
+       DATE_FORMAT(p.birthdate, '%Y-%m-%d') AS patient_birthdate,
+       COALESCE(p.gender, p.sex) AS patient_sex,
+       p.address AS patient_address,
+       p.civil_status AS patient_civil_status
      FROM appointments a
-     JOIN doctors  d ON a.doctor_id  = d.id
+     JOIN doctors d ON a.doctor_id = d.id
      JOIN patients p ON a.patient_id = p.id
      WHERE a.patient_id = ?
      ORDER BY a.appointment_date DESC, a.appointment_time DESC`,
@@ -199,23 +428,23 @@ const getHistory = async (req, res) => {
        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS rawDate,
-       a.appointment_time                           AS time,
-       a.clinic_type                                AS type,
-       d.full_name                                  AS doctor_name,
-       d.full_name                                  AS doctor,
+       a.appointment_time AS time,
+       a.clinic_type AS type,
+       d.full_name AS doctor_name,
+       d.full_name AS doctor,
        d.specialty,
        CASE a.clinic_type
-         WHEN 'derma'   THEN 'Dermatology'
+         WHEN 'derma' THEN 'Dermatology'
          WHEN 'medical' THEN 'General Medicine'
          ELSE a.clinic_type
-       END                                          AS clinic,
+       END AS clinic,
        c.diagnosis,
        c.prescription,
-       c.notes                                      AS consultation_notes
+       c.notes AS consultation_notes
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled','no_show')
+     WHERE a.patient_id = ? AND a.status IN ('completed', 'cancelled', 'no_show')
      ORDER BY a.appointment_date DESC`,
     [req.user.id]
   )
@@ -224,20 +453,37 @@ const getHistory = async (req, res) => {
 
 const createAppointment = async (req, res) => {
   const { doctor_id, clinic_type, reason, appointment_date, appointment_time, notes } = req.body
-  if (!doctor_id || !clinic_type || !appointment_date || !appointment_time)
+  if (!doctor_id || !clinic_type || !appointment_date || !appointment_time) {
     return res.status(400).json({ message: 'Missing required fields.' })
+  }
+
   const normalizedDate = toDateOnly(appointment_date)
-  if (!isValidDateOnly(normalizedDate))
+  if (!isValidDateOnly(normalizedDate)) {
     return res.status(400).json({ message: 'Invalid appointment date.' })
-  if (normalizedDate < getTodayDateOnly())
+  }
+  if (normalizedDate < getTodayDateOnly()) {
     return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
+  }
+
   await markOverdueAppointments()
+
+  const patient = await loadPatientById(req.user.id)
+  if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
+
+  const syncedPatient = await syncPatientProfileStatus(patient)
+  if (!syncedPatient.is_profile_complete) {
+    return res.status(403).json({
+      code: 'PROFILE_INCOMPLETE',
+      message: 'Complete your patient profile before booking an appointment.',
+      missing_fields: syncedPatient.missing_fields,
+    })
+  }
 
   const [activeWithDoctor] = await db.query(
     `SELECT id
      FROM appointments
      WHERE patient_id = ? AND doctor_id = ?
-       AND status IN ('pending','confirmed','rescheduled','in-progress')
+       AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress')
      LIMIT 1`,
     [req.user.id, doctor_id]
   )
@@ -248,21 +494,30 @@ const createAppointment = async (req, res) => {
   }
 
   const [existing] = await db.query(
-    `SELECT id FROM appointments
+    `SELECT id
+     FROM appointments
      WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ?
-     AND status IN ('pending','confirmed','rescheduled','in-progress')`,
+       AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress')`,
     [doctor_id, normalizedDate, appointment_time]
   )
-  if (existing.length > 0)
+  if (existing.length > 0) {
     return res.status(409).json({ message: 'That time slot is already taken.' })
+  }
 
   const [result] = await db.query(
-    'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    `INSERT INTO appointments
+      (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [req.user.id, doctor_id, clinic_type, reason, normalizedDate, appointment_time, notes || null]
   )
 
   const [details] = await db.query(
-    `SELECT a.id, p.full_name AS patient_name, d.full_name AS doctor_name
+    `SELECT
+       a.id,
+       p.full_name AS patient_name,
+       d.id AS doctor_id,
+       d.full_name AS doctor_name,
+       d.phone AS doctor_phone
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
      JOIN doctors d ON a.doctor_id = d.id
@@ -270,11 +525,11 @@ const createAppointment = async (req, res) => {
     [result.insertId]
   )
 
-  const appt = details[0]
+  const appointment = details[0]
   await notifyRoles(['admin', 'staff'], {
     type: 'appointment_booked',
     title: 'New patient booking',
-    message: `${appt.patient_name} booked an appointment with ${appt.doctor_name} on ${normalizedDate} at ${appointment_time}.`,
+    message: `${appointment.patient_name} booked an appointment with ${appointment.doctor_name} on ${normalizedDate} at ${appointment_time}.`,
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
@@ -288,7 +543,32 @@ const createAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
-  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
+
+  await createNotification({
+    target_role: 'doctor',
+    target_user_id: appointment.doctor_id,
+    type: 'appointment_booked',
+    title: 'New appointment booked',
+    message: `${appointment.patient_name} booked an appointment on ${normalizedDate} at ${appointment_time}.`,
+    reference_type: 'appointment',
+    reference_id: result.insertId,
+  })
+
+  await sendDoctorAppointmentSms({
+    doctorPhone: appointment.doctor_phone,
+    doctorName: appointment.doctor_name,
+    patientName: appointment.patient_name,
+    clinicType: clinic_type,
+    appointmentDate: normalizedDate,
+    appointmentTime: appointment_time,
+  }).catch((err) => {
+    console.error('SMS doctor booking notification failed:', err.message)
+  })
+
+  broadcast(['admin', 'staff', `doctor_${appointment.doctor_id}`, `patient_${req.user.id}`], 'appointment_updated', {
+    appointmentId: result.insertId,
+    status: 'pending',
+  })
 
   res.status(201).json({ message: 'Appointment booked.', id: result.insertId })
 }
@@ -299,8 +579,10 @@ const cancelAppointment = async (req, res) => {
     [req.params.id, req.user.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
-  if (!['pending', 'confirmed'].includes(rows[0].status))
+  if (!['pending', 'confirmed'].includes(rows[0].status)) {
     return res.status(400).json({ message: 'Only pending or confirmed appointments can be cancelled.' })
+  }
+
   await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [req.params.id])
   await createNotification({
     target_role: 'patient',
@@ -311,53 +593,69 @@ const cancelAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
-  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'cancelled' })
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', {
+    appointmentId: Number(req.params.id),
+    status: 'cancelled',
+  })
   res.json({ message: 'Appointment cancelled.' })
 }
 
 const rescheduleAppointment = async (req, res) => {
   const { appointment_date, appointment_time, notes } = req.body
-  if (!appointment_date || !appointment_time)
+  if (!appointment_date || !appointment_time) {
     return res.status(400).json({ message: 'Date and time required.' })
+  }
+
   const normalizedDate = toDateOnly(appointment_date)
-  if (!isValidDateOnly(normalizedDate))
+  if (!isValidDateOnly(normalizedDate)) {
     return res.status(400).json({ message: 'Invalid appointment date.' })
-  if (normalizedDate < getTodayDateOnly())
+  }
+  if (normalizedDate < getTodayDateOnly()) {
     return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
+  }
+
   await markOverdueAppointments()
   const [rows] = await db.query(
     'SELECT id, doctor_id, status FROM appointments WHERE id = ? AND patient_id = ?',
     [req.params.id, req.user.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
-  if (!['pending', 'confirmed'].includes(rows[0].status))
+  if (!['pending', 'confirmed'].includes(rows[0].status)) {
     return res.status(400).json({ message: 'Only pending or confirmed appointments can be rescheduled.' })
+  }
 
   const [conflict] = await db.query(
-    `SELECT id FROM appointments
+    `SELECT id
+     FROM appointments
      WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ?
-     AND status IN ('pending','confirmed','rescheduled','in-progress') AND id != ?`,
+       AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress') AND id != ?`,
     [rows[0].doctor_id, normalizedDate, appointment_time, req.params.id]
   )
-  if (conflict.length > 0)
+  if (conflict.length > 0) {
     return res.status(409).json({ message: 'That time slot is already taken.' })
+  }
 
   await db.query(
-    "UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes) WHERE id = ?",
+    `UPDATE appointments
+     SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes)
+     WHERE id = ?`,
     [normalizedDate, appointment_time, notes?.trim() || null, req.params.id]
   )
+
   const [details] = await db.query(
     `SELECT a.id, p.email AS patient_email, p.full_name AS patient_name, d.full_name AS doctor_name, a.clinic_type
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
      JOIN doctors d ON a.doctor_id = d.id
-    WHERE a.id = ?`,
+     WHERE a.id = ?`,
     [req.params.id]
   )
+
   if (details.length === 0) {
     return res.status(404).json({ message: 'Appointment not found.' })
   }
-  if (details[0]?.patient_email) {
+
+  if (details[0].patient_email) {
     await sendAppointmentStatusEmail({
       to: details[0].patient_email,
       patient_name: details[0].patient_name,
@@ -368,6 +666,7 @@ const rescheduleAppointment = async (req, res) => {
       status: 'rescheduled',
     }).catch(() => {})
   }
+
   await notifyRoles(['admin', 'staff'], {
     type: 'appointment_reschedule_request',
     title: 'Appointment needs reconfirmation',
@@ -375,6 +674,7 @@ const rescheduleAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
+
   await createNotification({
     target_role: 'patient',
     target_user_id: req.user.id,
@@ -384,7 +684,12 @@ const rescheduleAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
-  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'pending' })
+
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', {
+    appointmentId: Number(req.params.id),
+    status: 'pending',
+  })
+
   res.json({ message: 'Appointment rescheduled and returned to pending confirmation.' })
 }
 
@@ -404,8 +709,18 @@ const getDoctorSchedule = async (req, res) => {
 }
 
 module.exports = {
-  register, verifyRegistration, login, checkAuth, logout,
-  getAppointments, getHistory,
-  createAppointment, cancelAppointment, rescheduleAppointment,
-  getDoctors, getDoctorSchedule,
+  register,
+  verifyRegistration,
+  login,
+  checkAuth,
+  logout,
+  getProfileStatus,
+  updateProfile,
+  getAppointments,
+  getHistory,
+  createAppointment,
+  cancelAppointment,
+  rescheduleAppointment,
+  getDoctors,
+  getDoctorSchedule,
 }

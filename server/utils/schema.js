@@ -82,6 +82,10 @@ const ensureAppSchema = async () => {
   await ensureColumn('patients', 'is_walk_in', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('patients', 'consent_given', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('patients', 'consent_given_at', "TIMESTAMP NULL")
+  await ensureColumn('patients', 'gender', "ENUM('Male','Female','Other') NULL")
+  await ensureColumn('patients', 'receive_promotions', "TINYINT(1) NOT NULL DEFAULT 0")
+  await ensureColumn('patients', 'is_profile_complete', "TINYINT(1) NOT NULL DEFAULT 0")
+  await db.query("ALTER TABLE patients MODIFY COLUMN sex ENUM('Male','Female','Other') NULL").catch(() => {})
   await ensureColumn('queue', 'appointment_id', 'INT NULL').catch(() => {})
 
   await ensureColumn('staff', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
@@ -128,6 +132,20 @@ const ensureAppSchema = async () => {
       signed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       ip_address VARCHAR(45) NULL,
       FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS patient_phone_verifications (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      phone VARCHAR(20) NOT NULL,
+      otp_code VARCHAR(6) NOT NULL,
+      payload JSON NOT NULL,
+      expires_at DATETIME NOT NULL,
+      verified_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_patient_phone_verifications_phone (phone)
     )
   `)
 }

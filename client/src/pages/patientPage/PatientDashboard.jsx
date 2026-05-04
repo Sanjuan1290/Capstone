@@ -29,6 +29,23 @@ const STATUS_STYLE = {
   rescheduled: { label: "Rescheduled", bg: "bg-sky-50",     text: "text-sky-700",     border: "border-sky-200"     },
 }
 
+const CONSULTATION_PRICING = [
+  {
+    label: "General Medicine",
+    price: "From PHP 500",
+    note: "For routine check-ups and general health concerns.",
+    tone: "border-sky-200 bg-sky-50 text-sky-700",
+    icon: MdMedicalServices,
+  },
+  {
+    label: "Dermatology",
+    price: "From PHP 800",
+    note: "For skin, hair, nail, and follow-up skin consultations.",
+    tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    icon: MdFace,
+  },
+]
+
 const PatientDashboard = () => {
   const { user } = useAuth()
   const [upcoming,    setUpcoming]    = useState(null)
@@ -128,6 +145,29 @@ const PatientDashboard = () => {
             </span>
           </NavLink>
         ))}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h2 className="text-sm font-bold text-slate-800">Consultation Pricing</h2>
+          <p className="mt-1 text-xs text-slate-400">Starting rates shown before booking.</p>
+        </div>
+        <div className="grid gap-3 p-5 md:grid-cols-2">
+          {CONSULTATION_PRICING.map(({ label, price, note, tone, icon: Icon }) => (
+            <div key={label} className={`rounded-2xl border p-4 ${tone}`}>
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-white/70 flex items-center justify-center shrink-0">
+                  <Icon className="text-[20px]" />
+                </div>
+                <div>
+                  <p className="text-sm font-black">{label}</p>
+                  <p className="mt-1 text-2xl font-black">{price}</p>
+                  <p className="mt-2 text-xs leading-relaxed opacity-85">{note}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Next Appointment Card ──────────────────────────────────────────── */}

@@ -1,5 +1,15 @@
 const BASE = '/api/patient'
 
+const parseJson = async (res) => {
+  const data = await res.json()
+  if (!res.ok) {
+    const err = new Error(data.message || 'Request failed')
+    Object.assign(err, data)
+    throw err
+  }
+  return data
+}
+
 export const getMyAppointments = async () => {
   const res = await fetch(`${BASE}/appointments`, { credentials: 'include' })
   if (!res.ok) throw new Error('Failed to fetch appointments')
@@ -31,9 +41,7 @@ export const bookAppointment = async (payload) => {
     credentials: 'include',
     body: JSON.stringify(payload),
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.message || 'Booking failed')
-  return data
+  return parseJson(res)
 }
 
 export const cancelAppointment = async (appointmentId) => {
@@ -56,4 +64,19 @@ export const rescheduleAppointment = async (appointmentId, payload) => {
   const data = await res.json()
   if (!res.ok) throw new Error(data.message || 'Reschedule failed')
   return data
+}
+
+export const getProfileStatus = async () => {
+  const res = await fetch(`${BASE}/profile-status`, { credentials: 'include' })
+  return parseJson(res)
+}
+
+export const updatePatientProfile = async (payload) => {
+  const res = await fetch(`${BASE}/profile-status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+  return parseJson(res)
 }

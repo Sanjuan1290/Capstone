@@ -10,9 +10,16 @@ const generateCookie = require('../utils/generateCookie')
 const { sendAppointmentStatusEmail } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
-const { addInventoryBatch, attachBatchesToInventory, consumeInventoryFEFO, syncInventorySnapshot } = require('../utils/inventoryBatches')
+const {
+  addInventoryBatch,
+  attachBatchesToInventory,
+  consumeInventoryFEFO,
+  consumeInventoryByBatches,
+  syncInventorySnapshot,
+} = require('../utils/inventoryBatches')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel } = require('../utils/date')
+const { sendDoctorAppointmentSms } = require('../utils/smsService')
 
 const makeTempPassword = () => Math.random().toString(36).slice(-8)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
@@ -180,7 +187,7 @@ const createAppointment = async (req, res) => {
     [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null]
   )
   const [rows] = await db.query(
-    `SELECT p.full_name AS patient_name, d.full_name AS doctor_name
+    `SELECT p.full_name AS patient_name, d.id AS doctor_id, d.full_name AS doctor_name, d.phone AS doctor_phone
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
      JOIN doctors d ON a.doctor_id = d.id
@@ -194,7 +201,26 @@ const createAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
-  broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
+  await createNotification({
+    target_role: 'doctor',
+    target_user_id: rows[0].doctor_id,
+    type: 'appointment_booked',
+    title: 'New appointment booked',
+    message: `${rows[0].patient_name} booked an appointment on ${normalizedDate} at ${appointment_time}.`,
+    reference_type: 'appointment',
+    reference_id: result.insertId,
+  })
+  await sendDoctorAppointmentSms({
+    doctorPhone: rows[0].doctor_phone,
+    doctorName: rows[0].doctor_name,
+    patientName: rows[0].patient_name,
+    clinicType: clinic_type,
+    appointmentDate: normalizedDate,
+    appointmentTime: appointment_time,
+  }).catch((err) => {
+    console.error('SMS doctor booking notification failed:', err.message)
+  })
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
   res.status(201).json({ message: 'Appointment created.', id: result.insertId })
 }
 
@@ -544,7 +570,7 @@ const addInventoryItem = async (req, res) => {
       [
         result.insertId,
         req.user.id,
-        'create',
+        'in',
         stock,
         `Created inventory item${barcode ? ` with barcode ${barcode}` : ''}${stock > 0 ? `; opening batch expiry: ${expiration_date || 'none'}` : ''}`,
       ]
@@ -588,18 +614,6 @@ const updateInventoryItem = async (req, res) => {
       [barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier, storage_location, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
-    const previous = rows[0]
-    const changeNotes = [
-      previous?.barcode !== barcode ? `barcode: ${previous?.barcode || 'none'} -> ${barcode || 'none'}` : null,
-      previous?.name !== name ? `name: ${previous?.name || 'none'} -> ${name}` : null,
-      previous?.unit !== unit ? `unit: ${previous?.unit || 'none'} -> ${unit}` : null,
-      Number(previous?.unit_size || 1) !== Number(unit_size || 1) ? `unit size: ${previous?.unit_size || 1} -> ${unit_size}` : null,
-      previous?.storage_location !== storage_location ? `location: ${previous?.storage_location || 'none'} -> ${storage_location || 'none'}` : null,
-    ].filter(Boolean).join('; ')
-    await conn.query(
-      'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
-      [req.params.id, req.user.id, 'update', 0, changeNotes || 'Updated inventory item details']
-    )
     await conn.commit()
     const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
     res.json(updated[0])
@@ -620,16 +634,22 @@ const deleteInventoryItem = async (req, res) => {
   if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
   await db.query(
     'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
-    [req.params.id, req.user.id, 'delete', rows[0].stock || 0, `Deleted inventory item ${rows[0].name}`]
+    [req.params.id, req.user.id, 'out', rows[0].stock || 0, `Deleted inventory item ${rows[0].name}`]
   )
   await db.query('DELETE FROM inventory WHERE id = ?', [req.params.id])
   res.json({ message: 'Item deleted.' })
 }
 
 const updateStock = async (req, res) => {
-  const { type, qty, note, expiration_date } = req.body
+  const { type, qty, note, expiration_date, selected_batches } = req.body
   if (!['in', 'out'].includes(type) || !qty)
     return res.status(400).json({ message: 'type and qty are required.' })
+  if (type === 'out' && Array.isArray(selected_batches) && selected_batches.length > 0) {
+    const selectedQty = selected_batches.reduce((sum, entry) => sum + Number(entry?.quantity || 0), 0)
+    if (selectedQty !== Number(qty)) {
+      return res.status(400).json({ message: 'Selected batch quantities must equal the stock-out quantity.' })
+    }
+  }
 
   const conn = await db.getConnection()
   try {
@@ -648,7 +668,9 @@ const updateStock = async (req, res) => {
       }, conn)
       await syncInventorySnapshot(req.params.id, conn)
     } else {
-      const consumption = await consumeInventoryFEFO(req.params.id, qty, conn)
+      const consumption = Array.isArray(selected_batches) && selected_batches.length > 0
+        ? await consumeInventoryByBatches(req.params.id, selected_batches, conn)
+        : await consumeInventoryFEFO(req.params.id, qty, conn)
       if (!consumption.ok) {
         await conn.rollback()
         return res.status(400).json({ message: consumption.message })
@@ -664,7 +686,12 @@ const updateStock = async (req, res) => {
         qty,
         type === 'in'
           ? `${note || 'Manual stock-in'}${expiration_date ? ` (batch expiry: ${expiration_date})` : ''}`
-          : (note || 'Manual stock-out via FEFO'),
+          : (
+              note
+              || (Array.isArray(selected_batches) && selected_batches.length > 0
+                ? 'Manual stock-out from selected batches'
+                : 'Manual stock-out via FEFO')
+            ),
       ]
     )
     await conn.commit()

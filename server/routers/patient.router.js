@@ -7,6 +7,7 @@ const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
 const {
   register, verifyRegistration, login, checkAuth, logout,
+  getProfileStatus, updateProfile,
   getAppointments, getHistory,
   createAppointment, cancelAppointment, rescheduleAppointment,
   getDoctors, getDoctorSchedule,
@@ -27,6 +28,8 @@ router.patch('/notifications/read-all',             commonCtrl.readAllNotificati
 router.patch('/notifications/:id/read',             commonCtrl.readNotification)
 router.get('/settings',                             commonCtrl.getMySettings)
 router.put('/settings',                             commonCtrl.saveMySettings)
+router.get('/profile-status',                       getProfileStatus)
+router.put('/profile-status',                       updateProfile)
 router.get('/appointments',                        getAppointments)
 router.post('/appointments',                       createAppointment)
 router.get('/appointments/history',                getHistory)

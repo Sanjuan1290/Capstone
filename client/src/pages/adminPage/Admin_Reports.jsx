@@ -12,6 +12,7 @@ import {
   MdInventory2,
   MdMedicalServices,
   MdPeople,
+  MdPictureAsPdf,
   MdTrendingDown,
   MdTrendingFlat,
   MdWarning,
@@ -19,6 +20,12 @@ import {
 
 const formatPeso = (value) => `PHP ${Number(value || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`
 const formatPercent = (value) => `${Math.round(Number(value || 0))}%`
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
 
 const getTrendMeta = (value) => {
   if (value > 0) return { icon: MdArrowUpward, text: `Up ${Math.abs(value)}% vs previous month`, tone: 'text-emerald-600' }
@@ -181,6 +188,140 @@ const Admin_Reports = () => {
   } = derived
 
   const netStockTone = netStock >= 0 ? 'text-emerald-600' : 'text-rose-600'
+  const handleExportPdf = () => {
+    const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=900')
+    if (!popup) {
+      window.alert('Please allow pop-ups so the PDF export window can open.')
+      return
+    }
+
+    const monthlyRows = monthly.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.month)}</td>
+        <td>${escapeHtml(row.appointments)}</td>
+        <td>${escapeHtml(row.medical || 0)}</td>
+        <td>${escapeHtml(row.derma || 0)}</td>
+        <td>${escapeHtml(row.patients)}</td>
+      </tr>
+    `).join('')
+
+    const topDoctorRows = topDoctors.map((doctor) => `
+      <tr>
+        <td>${escapeHtml(doctor.name)}</td>
+        <td>${escapeHtml(doctor.specialty)}</td>
+        <td>${escapeHtml(doctor.patients)}</td>
+        <td>${escapeHtml(doctor.completed)}</td>
+      </tr>
+    `).join('')
+
+    const statusRows = statusBreakdown.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.label)}</td>
+        <td>${escapeHtml(row.value)}</td>
+        <td>${escapeHtml(row.pct)}%</td>
+      </tr>
+    `).join('')
+
+    popup.document.write(`
+      <!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8" />
+          <title>Carait Clinic Reports - ${escapeHtml(period)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 32px; color: #0f172a; }
+            h1, h2 { margin: 0 0 12px; }
+            h1 { font-size: 28px; }
+            h2 { font-size: 18px; margin-top: 28px; }
+            p { margin: 0 0 8px; color: #475569; }
+            .meta { margin-bottom: 24px; }
+            .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+            .card { border: 1px solid #cbd5e1; border-radius: 14px; padding: 14px; }
+            .card-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; }
+            .card-value { font-size: 24px; font-weight: 700; margin-top: 8px; color: #0f172a; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; font-size: 13px; }
+            th { background: #f8fafc; }
+            ul { padding-left: 18px; color: #334155; }
+            @media print {
+              body { margin: 18px; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Carait Clinic Reports</h1>
+          <div class="meta">
+            <p>Period: ${escapeHtml(period === '3months' ? 'Last 3 Months' : 'Last 6 Months')}</p>
+            <p>Generated: ${escapeHtml(new Date().toLocaleString('en-PH'))}</p>
+          </div>
+
+          <div class="cards">
+            <div class="card">
+              <div class="card-label">Appointments</div>
+              <div class="card-value">${escapeHtml(totalAppts)}</div>
+            </div>
+            <div class="card">
+              <div class="card-label">Unique Patients</div>
+              <div class="card-value">${escapeHtml(totalPats)}</div>
+            </div>
+            <div class="card">
+              <div class="card-label">Completion Rate</div>
+              <div class="card-value">${escapeHtml(formatPercent(completionRate))}</div>
+            </div>
+            <div class="card">
+              <div class="card-label">Inventory Value</div>
+              <div class="card-value">${escapeHtml(formatPeso(inventoryStats?.total_value))}</div>
+            </div>
+          </div>
+
+          <h2>Key Insights</h2>
+          <ul>${insights.map((insight) => `<li>${escapeHtml(insight)}</li>`).join('')}</ul>
+
+          <h2>Monthly Performance</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Appointments</th>
+                <th>Medical</th>
+                <th>Derma</th>
+                <th>Patients</th>
+              </tr>
+            </thead>
+            <tbody>${monthlyRows || '<tr><td colspan="5">No monthly data available.</td></tr>'}</tbody>
+          </table>
+
+          <h2>Status Breakdown</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Total</th>
+                <th>Share</th>
+              </tr>
+            </thead>
+            <tbody>${statusRows || '<tr><td colspan="3">No status data available.</td></tr>'}</tbody>
+          </table>
+
+          <h2>Top Doctors</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Doctor</th>
+                <th>Specialty</th>
+                <th>Appointments</th>
+                <th>Completed</th>
+              </tr>
+            </thead>
+            <tbody>${topDoctorRows || '<tr><td colspan="4">No doctor data available.</td></tr>'}</tbody>
+          </table>
+        </body>
+      </html>
+    `)
+    popup.document.close()
+    popup.focus()
+    popup.onload = () => popup.print()
+  }
 
   return (
     <div className="max-w-6xl space-y-6">
@@ -189,18 +330,27 @@ const Admin_Reports = () => {
           <h1 className="text-2xl font-bold text-slate-800">Reports and Analytics</h1>
           <p className="mt-0.5 text-sm text-slate-500">Operational summary for appointments, doctors, patients, inventory, and supply pressure.</p>
         </div>
-        <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
-          {[{ v: '3months', l: 'Last 3 Months' }, { v: '6months', l: 'Last 6 Months' }].map(({ v, l }) => (
-            <button
-              key={v}
-              onClick={() => handlePeriodChange(v)}
-              className={`rounded-lg px-4 py-2 text-xs font-bold transition-all ${
-                period === v ? 'bg-[#0b1a2c] text-sky-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {l}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleExportPdf}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            <MdPictureAsPdf className="text-[18px] text-rose-500" />
+            Export PDF
+          </button>
+          <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
+            {[{ v: '3months', l: 'Last 3 Months' }, { v: '6months', l: 'Last 6 Months' }].map(({ v, l }) => (
+              <button
+                key={v}
+                onClick={() => handlePeriodChange(v)}
+                className={`rounded-lg px-4 py-2 text-xs font-bold transition-all ${
+                  period === v ? 'bg-[#0b1a2c] text-sky-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

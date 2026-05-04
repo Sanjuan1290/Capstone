@@ -16,7 +16,7 @@ const AddModal = ({ onClose, onAdd }) => {
   const [form,    setForm]    = useState({ full_name: '', specialty: 'Dermatologist', type: 'derma', email: '', phone: '', prc_license: '' })
   const [sub,     setSub]     = useState(false)
   const [error,   setError]   = useState('')
-  const valid = form.full_name.trim() && form.email.trim() && form.prc_license.trim()
+  const valid = form.full_name.trim() && form.email.trim() && form.phone.trim() && form.prc_license.trim()
   const set   = k => e => {
     const nextValue = e.target.value
     setForm(f => ({
@@ -59,7 +59,7 @@ const AddModal = ({ onClose, onAdd }) => {
           {[
             { k: 'full_name',   l: 'Full Name (with title)', t: 'text',  p: 'e.g. Dr. Juan Santos', req: true  },
             { k: 'email',       l: 'Email',                  t: 'email', p: 'e.g. juan@carait.com', req: true  },
-            { k: 'phone',       l: 'Phone (optional)',        t: 'tel',   p: '09171234567',           req: false },
+            { k: 'phone',       l: 'Phone Number',            t: 'tel',   p: '09171234567',           req: true  },
             { k: 'prc_license', l: 'PRC License No.',        t: 'text',  p: 'e.g. PRC-001234',       req: true  },
           ].map(({ k, l, t, p, req }) => (
             <div key={k}>

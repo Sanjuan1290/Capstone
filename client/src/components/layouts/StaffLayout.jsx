@@ -22,6 +22,7 @@ const sideNav = [
   { name: "Walk-in Queue",   path: "/staff/walkin",           icon: MdQueuePlayNext, short: "Queue"    },
   { name: "Patient Records", path: "/staff/patient-records",  icon: MdPeople,        short: "Patients" },
   { name: "Inventory",       path: "/staff/inventory",        icon: MdInventory2,    short: "Stock"    },
+  { name: "Supply Requests", path: "/staff/supply-requests",  icon: MdInventory2,    short: "Supply"   },
 ]
 
 const StaffLayout = () => {
@@ -92,7 +93,7 @@ const StaffLayout = () => {
   }
 
   // Mobile bottom nav — only show 5 most important items
-  const mobileNav = sideNav.slice(0, 5)
+  const mobileNav = [sideNav[0], sideNav[1], sideNav[2], sideNav[4], sideNav[5]]
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">

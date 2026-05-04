@@ -1,11 +1,13 @@
 // client/src/pages/patientPage/BookAppointment.jsx
 // REDESIGNED: 5-step wizard, mobile-first, touch-friendly calendar, clean cards
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
-  getDoctors, getDoctorSchedule, bookAppointment,
+  getDoctors, getDoctorSchedule, bookAppointment, getProfileStatus,
 } from '../../services/patient.service'
+import { useAuth } from '../../context/AuthContext'
+import ProfileCompletionPrompt from '../../components/ProfileCompletionPrompt'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
   MdCalendarToday, MdAccessTime, MdPerson, MdAdd,
@@ -227,7 +229,6 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, taken
         <div>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1">
             <MdAccessTime className="text-[13px]" /> Available Time Slots
-            {date === todayStr && <span className="text-amber-500 font-normal normal-case ml-1">(today — past slots hidden)</span>}
           </p>
           {timeSlots.length === 0 ? (
             <div className="text-center py-5 bg-slate-50 rounded-2xl border border-slate-200">
@@ -372,6 +373,7 @@ const SuccessScreen = ({ onReset }) => (
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const BookAppointment = () => {
+  const { setUser } = useAuth()
   const [step, setStep] = useState(0)
   const [done, setDone] = useState(false)
   const [form, setForm] = useState({
@@ -381,8 +383,15 @@ const BookAppointment = () => {
   const [timeSlots,       setTimeSlots]       = useState([])
   const [takenSlots,      setTakenSlots]      = useState([])
   const [doctorSchedules, setDoctorSchedules] = useState([])
+  const [profileStatus,   setProfileStatus]   = useState(null)
+  const [profileLoading,  setProfileLoading]  = useState(true)
 
   useEffect(() => {
+    getProfileStatus()
+      .then((data) => setProfileStatus(data))
+      .catch(() => {})
+      .finally(() => setProfileLoading(false))
+
     getDoctors()
       .then(data => {
         const derma = data.filter(d => String(d.specialty || '').toLowerCase().includes('derm'))
@@ -439,6 +448,14 @@ const BookAppointment = () => {
       })
       setDone(true)
     } catch (err) {
+      if (err.code === 'PROFILE_INCOMPLETE') {
+        setProfileStatus((prev) => ({
+          ...(prev || {}),
+          is_profile_complete: false,
+          missing_fields: err.missing_fields || ['birthdate', 'gender', 'address'],
+        }))
+        return
+      }
       alert(err.message)
     }
   }
@@ -459,6 +476,27 @@ const BookAppointment = () => {
         </h1>
         <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Schedule your clinic visit in a few steps.</p>
       </div>
+
+      {profileLoading ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+          <div className="w-8 h-8 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-sm text-slate-500">Checking your patient profile...</p>
+        </div>
+      ) : profileStatus && !profileStatus.is_profile_complete ? (
+        <ProfileCompletionPrompt
+          initialProfile={profileStatus.profile}
+          missingFields={profileStatus.missing_fields}
+          onCompleted={(result) => {
+            setProfileStatus({
+              profile: result.profile,
+              is_profile_complete: result.is_profile_complete,
+              missing_fields: result.missing_fields,
+            })
+            setUser((prev) => prev ? { ...prev, ...result.user } : prev)
+          }}
+        />
+      ) : (
+        <>
 
       {/* Main card */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -509,6 +547,8 @@ const BookAppointment = () => {
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }

@@ -9,6 +9,8 @@ import {
 const CATEGORIES = ['Medicine', 'Derma', 'Supplies']
 const UNIT_OPTIONS = ['box', 'tube', 'bottle', 'pack', 'piece', 'sachet']
 const BASE_UNITS = ['piece', 'tablet', 'capsule', 'ml', 'gram', 'sachet']
+const ITEMS_PER_PAGE = 5
+const BATCHES_PER_PAGE = 4
 
 const getPackageCount = (item) => {
   const unitSize = Number(item.unit_size || 1)
@@ -298,7 +300,7 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
       <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
@@ -344,28 +346,95 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
   const [qty, setQty] = useState(1)
   const [note, setNote] = useState('')
   const [expirationDate, setExpirationDate] = useState('')
+  const [stockOutMode, setStockOutMode] = useState('fefo')
+  const [batchPage, setBatchPage] = useState(1)
+  const [batchAllocations, setBatchAllocations] = useState(
+    Array.isArray(item?.batches)
+      ? item.batches.map((batch) => ({ batch_id: batch.id, quantity: '' }))
+      : []
+  )
 
+  const batches = Array.isArray(item?.batches) ? item.batches : []
   const available = getPackageCount(item)
+  const selectedBatchQty = batchAllocations.reduce((sum, batch) => sum + Number(batch.quantity || 0), 0)
+  const isManualStockOut = type === 'out' && stockOutMode === 'manual'
+  const effectiveQty = isManualStockOut ? selectedBatchQty : Number(qty)
+  const manualModeInvalid = isManualStockOut && selectedBatchQty <= 0
+  const totalBatchPages = Math.max(1, Math.ceil(batches.length / BATCHES_PER_PAGE))
+  const currentBatchPage = Math.min(batchPage, totalBatchPages)
+  const paginatedBatches = batches.slice((currentBatchPage - 1) * BATCHES_PER_PAGE, currentBatchPage * BATCHES_PER_PAGE)
+
+  useEffect(() => {
+    setBatchPage(1)
+  }, [item?.id, type, stockOutMode])
+
+  useEffect(() => {
+    if (batchPage > totalBatchPages) {
+      setBatchPage(totalBatchPages)
+    }
+  }, [batchPage, totalBatchPages])
+
+  const updateBatchQty = (batchId, value) => {
+    const maxForBatch = Number(item?.batches?.find((batch) => batch.id === batchId)?.quantity || 0)
+    setBatchAllocations((prev) => prev.map((batch) => (
+      batch.batch_id === batchId
+        ? { ...batch, quantity: value === '' ? '' : Math.min(maxForBatch, Math.max(0, parseInt(value || '0', 10))) }
+        : batch
+    )))
+  }
+
+  const fillBatchQty = (batchId, quantity) => {
+    setBatchAllocations((prev) => prev.map((batch) => (
+      batch.batch_id === batchId
+        ? { ...batch, quantity }
+        : batch
+    )))
+  }
+
+  const handleSave = () => {
+    onSubmit({
+      type,
+      qty: effectiveQty,
+      note,
+      expiration_date: type === 'in' ? expirationDate : '',
+      selected_batches: isManualStockOut
+        ? batchAllocations
+            .filter((batch) => Number(batch.quantity || 0) > 0)
+            .map((batch) => ({ batch_id: batch.batch_id, quantity: Number(batch.quantity) }))
+        : [],
+    })
+  }
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <div className="flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
             <p className="text-sm font-bold text-slate-800">{item.name}</p>
             <p className="text-xs text-slate-400">Available: {available} {item.unit}s - {item.unit_size || 1} {item.base_unit || item.unit} per {item.unit}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-400 flex items-center justify-center"><MdClose /></button>
         </div>
-        <div className="p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <button onClick={() => setType('in')} className={`rounded-2xl border py-3 text-sm font-semibold ${type === 'in' ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-600'}`}>Stock In</button>
             <button onClick={() => setType('out')} className={`rounded-2xl border py-3 text-sm font-semibold ${type === 'out' ? 'bg-red-50 border-red-300 text-red-600' : 'border-slate-200 text-slate-600'}`}>Stock Out</button>
           </div>
 
-          <Field label={`Quantity (${item.unit}s)`}>
-            <input type="number" min="1" value={qty} onChange={e => setQty(Math.max(1, parseInt(e.target.value || '1', 10)))} className={inputClass} />
-          </Field>
+          {(!isManualStockOut || type === 'in') ? (
+            <Field label={`Quantity (${item.unit}s)`}>
+              <input type="number" min="1" value={qty} onChange={e => setQty(Math.max(1, parseInt(e.target.value || '1', 10)))} className={inputClass} />
+            </Field>
+          ) : (
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-widest text-sky-700">Selected Stock-Out Quantity</p>
+              <p className="mt-1 text-2xl font-black text-sky-900">{selectedBatchQty}</p>
+              <p className="mt-1 text-xs text-sky-700">
+                Total is calculated from the batches you choose below.
+              </p>
+            </div>
+          )}
 
           {type === 'in' && (
             <Field label="Batch Expiration Date">
@@ -378,33 +447,116 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
           </Field>
 
           {type === 'out' && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-              Stock-out follows FEFO, so the batch with the nearest expiration is deducted first.
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => setStockOutMode('fefo')} className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${stockOutMode === 'fefo' ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600'}`}>
+                  Use FEFO
+                </button>
+                <button onClick={() => setStockOutMode('manual')} className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${stockOutMode === 'manual' ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 text-slate-600'}`}>
+                  Choose Batches
+                </button>
+              </div>
+
+              {stockOutMode === 'fefo' ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                  Automatic FEFO will deduct from the batch with the nearest expiration first.
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+                  Choose exactly which batch or batches were used. The stock-out total is calculated automatically from your selections.
+                </div>
+              )}
             </div>
           )}
 
-          {Array.isArray(item.batches) && item.batches.length > 0 && (
+          {batches.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Active Batches</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Active Batches</p>
+                {batches.length > BATCHES_PER_PAGE && (
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    Page {currentBatchPage} of {totalBatchPages}
+                  </span>
+                )}
+              </div>
               <div className="mt-3 space-y-2">
-                {item.batches.map(batch => (
-                  <div key={batch.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-2 text-sm text-slate-600">
-                    <span>Lot #{batch.id}</span>
-                    <span>{formatBatchLabel(batch, item.unit)}</span>
+                {paginatedBatches.map(batch => (
+                  <div key={batch.id} className="rounded-2xl bg-white px-3 py-2 text-sm text-slate-600">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Lot #{batch.id}</span>
+                      <span>{formatBatchLabel(batch, item.unit)}</span>
+                    </div>
+                    {isManualStockOut && (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => fillBatchQty(batch.id, Number(batch.quantity || 0))}
+                            className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700"
+                          >
+                            Use all
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => fillBatchQty(batch.id, '')}
+                            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          max={Number(batch.quantity || 0)}
+                          value={batchAllocations.find((entry) => entry.batch_id === batch.id)?.quantity ?? ''}
+                          onChange={(e) => updateBatchQty(batch.id, e.target.value)}
+                          placeholder={`Qty from lot #${batch.id}`}
+                          className={inputClass}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
+              {batches.length > BATCHES_PER_PAGE && (
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBatchPage((prev) => Math.max(1, prev - 1))}
+                    disabled={currentBatchPage === 1}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBatchPage((prev) => Math.min(totalBatchPages, prev + 1))}
+                    disabled={currentBatchPage === totalBatchPages}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+              {type === 'out' && stockOutMode === 'manual' && (
+                <p className={`mt-3 text-xs font-semibold ${manualModeInvalid ? 'text-rose-600' : 'text-slate-500'}`}>
+                  {manualModeInvalid
+                    ? `Select at least one batch quantity before saving.`
+                    : `Selected total: ${selectedBatchQty} ${item.unit}(s)`}
+                </p>
+              )}
             </div>
           )}
 
           <button onClick={onOpenScanner} className="w-full rounded-2xl border border-sky-200 bg-sky-50 py-3 text-sm font-semibold text-sky-700 flex items-center justify-center gap-2">
             <MdQrCodeScanner className="text-[18px]" /> Open Camera Scanner
           </button>
+          </div>
         </div>
-        <div className="px-6 pb-6">
+        <div className="shrink-0 border-t border-slate-100 bg-white px-6 pb-6 pt-4">
           <button
-            onClick={() => onSubmit({ type, qty, note, expiration_date: type === 'in' ? expirationDate : '' })}
-            disabled={type === 'out' && qty > available}
+            onClick={handleSave}
+            disabled={(type === 'out' && !isManualStockOut && qty > available) || manualModeInvalid}
             className="w-full rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-40"
           >
             Save Stock Update
@@ -435,6 +587,7 @@ const Inventory = ({ services }) => {
   const [stockItem, setStockItem] = useState(null)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [feedback, setFeedback] = useState(null)
+  const [page, setPage] = useState(1)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -454,6 +607,10 @@ const Inventory = ({ services }) => {
     return () => window.clearTimeout(timer)
   }, [feedback])
 
+  useEffect(() => {
+    setPage(1)
+  }, [search, category])
+
   const filtered = useMemo(() => items.filter(item => {
     const matchesCategory = category === 'All' || item.category === category
     const needle = search.toLowerCase()
@@ -463,6 +620,10 @@ const Inventory = ({ services }) => {
       item.supplier?.toLowerCase().includes(needle)
     return matchesCategory && matchesSearch
   }), [items, category, search])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE))
+  const currentPage = Math.min(page, totalPages)
+  const paginated = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
 
   const handleAdd = async (payload) => {
     try {
@@ -493,9 +654,9 @@ const Inventory = ({ services }) => {
     setFeedback({ type: 'success', message: `${item.name} was removed from inventory.` })
   }
 
-  const handleStockUpdate = async ({ type, qty, note, expiration_date }) => {
+  const handleStockUpdate = async ({ type, qty, note, expiration_date, selected_batches }) => {
     try {
-      await updateStock(stockItem.id, { type, qty, note, expiration_date })
+      await updateStock(stockItem.id, { type, qty, note, expiration_date, selected_batches })
       await load()
       setFeedback({ type: 'success', message: `${stockItem.name} stock was updated successfully.` })
       setStockItem(null)
@@ -542,7 +703,7 @@ const Inventory = ({ services }) => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
-          <p className="text-sm text-slate-500 mt-1">Package-aware inventory with barcode scanning, batch expiry tracking, and FEFO deductions.</p>
+          <p className="text-sm text-slate-500 mt-1">Package-aware inventory with barcode scanning, batch expiry tracking, and flexible stock deductions.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center"><MdRefresh className="text-[18px]" /></button>
@@ -591,7 +752,7 @@ const Inventory = ({ services }) => {
       </div>
 
       <div className="grid gap-4">
-        {filtered.map(item => (
+        {paginated.map(item => (
           <div key={item.id} className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="space-y-2">
@@ -642,6 +803,33 @@ const Inventory = ({ services }) => {
 
       {filtered.length === 0 && (
         <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-sm text-slate-400">No inventory items match your filters.</div>
+      )}
+
+      {filtered.length > 0 && (
+        <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} items
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="rounded-2xl border border-slate-200 px-4 py-2 font-semibold text-slate-600 disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="rounded-2xl border border-slate-200 px-4 py-2 font-semibold text-slate-600 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       )}
 
       {showAdd && <ItemFormModal title="Add Inventory Item" onClose={() => setShowAdd(false)} onSubmit={handleAdd} />}

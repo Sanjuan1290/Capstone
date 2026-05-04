@@ -74,6 +74,7 @@ const SupplyRequestReviewPanel = ({
   resolveRequest,
   theme = DEFAULT_THEME,
   compact = false,
+  itemsPerPage = 10,
 }) => {
   const mergedTheme = { ...DEFAULT_THEME, ...theme }
   const [requests, setRequests] = useState([])
@@ -82,6 +83,7 @@ const SupplyRequestReviewPanel = ({
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [feedback, setFeedback] = useState(null)
+  const [page, setPage] = useState(1)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -108,6 +110,10 @@ const SupplyRequestReviewPanel = ({
     const timer = window.setTimeout(() => setFeedback(null), 3500)
     return () => window.clearTimeout(timer)
   }, [feedback])
+
+  useEffect(() => {
+    setPage(1)
+  }, [filter, search])
 
   const handleResolve = async (id, status) => {
     setResolving(id)
@@ -144,6 +150,10 @@ const SupplyRequestReviewPanel = ({
       request.category?.toLowerCase().includes(needle)
     return matchFilter && matchSearch
   }), [requests, filter, search])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage))
+  const currentPage = Math.min(page, totalPages)
+  const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
 
   if (loading) {
     return (
@@ -250,7 +260,7 @@ const SupplyRequestReviewPanel = ({
         </div>
       ) : (
         <div className="mt-5 space-y-3">
-          {filtered.map((request) => {
+          {paginated.map((request) => {
             const status = STATUS_CFG[request.status] || STATUS_CFG.pending
             const category = getCategory(request.category)
             const CategoryIcon = category.Icon
@@ -326,6 +336,33 @@ const SupplyRequestReviewPanel = ({
               </article>
             )
           })}
+        </div>
+      )}
+
+      {filtered.length > 0 && (
+        <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length} requests
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-600 disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="rounded-2xl bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-600 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
     </section>
