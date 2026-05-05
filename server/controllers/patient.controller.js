@@ -17,6 +17,7 @@ const {
 } = require('../utils/patientProfile')
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000
+const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
 const buildPatientAuthUser = (patient) => ({
   id: patient.id,
@@ -93,6 +94,31 @@ const parseVerificationPayload = (rawPayload) => {
   return {}
 }
 
+const getPhoneVariants = (value) => {
+  const normalizedPhone = normalizePhilippinePhone(value)
+  if (!normalizedPhone) return []
+
+  return Array.from(new Set([
+    normalizedPhone,
+    `0${normalizedPhone.slice(2)}`,
+    normalizedPhone.slice(2),
+  ]))
+}
+
+const findPatientsByPhone = async (phone, columns = '*') => {
+  const variants = getPhoneVariants(phone)
+  if (variants.length === 0) return []
+
+  const placeholders = variants.map(() => '?').join(', ')
+  const [rows] = await db.query(
+    `SELECT ${columns}
+     FROM patients
+     WHERE ${NORMALIZED_PHONE_SQL} IN (${placeholders})`,
+    variants
+  )
+  return rows
+}
+
 const register = async (req, res) => {
   const {
     full_name,
@@ -124,8 +150,13 @@ const register = async (req, res) => {
     return res.status(400).json({ message: 'Data privacy consent is required.' })
   }
 
-  const [existing] = await db.query('SELECT id FROM patients WHERE phone = ?', [normalizedPhone])
-  if (existing.length > 0) {
+  const existing = await findPatientsByPhone(normalizedPhone, 'id, is_walk_in')
+  if (existing.length > 1) {
+    return res.status(409).json({
+      message: 'Multiple patient records use this phone number. Please contact the clinic to resolve the duplicate records.',
+    })
+  }
+  if (existing.length === 1 && !existing[0].is_walk_in) {
     return res.status(409).json({ message: 'An account with that phone number already exists.' })
   }
 
@@ -211,8 +242,14 @@ const verifyRegistration = async (req, res) => {
     return res.status(400).json({ message: 'Invalid verification code.' })
   }
 
-  const [existing] = await db.query('SELECT id FROM patients WHERE phone = ?', [normalizedPhone])
-  if (existing.length > 0) {
+  const existing = await findPatientsByPhone(normalizedPhone, 'id, is_walk_in')
+  if (existing.length > 1) {
+    await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
+    return res.status(409).json({
+      message: 'Multiple patient records use this phone number. Please contact the clinic to resolve the duplicate records.',
+    })
+  }
+  if (existing.length === 1 && !existing[0].is_walk_in) {
     await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
     return res.status(409).json({ message: 'An account with that phone number already exists.' })
   }
@@ -224,31 +261,51 @@ const verifyRegistration = async (req, res) => {
     await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
     return res.status(500).json({ message: 'Stored verification data is invalid. Please register again.' })
   }
-  const [result] = await db.query(
-    `INSERT INTO patients
-      (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, consent_given, consent_given_at, receive_promotions, is_profile_complete)
-     VALUES (?, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?, ?, 0)`,
-    [
-      payload.full_name,
-      normalizedPhone,
-      payload.password,
-      payload.consent_given ? 1 : 0,
-      payload.consent_given ? new Date() : null,
-      payload.receive_promotions ? 1 : 0,
-    ]
-  )
+  let patientId
+  if (existing.length === 1) {
+    await db.query(
+      `UPDATE patients
+       SET full_name = ?, phone = ?, password = ?, consent_given = ?, consent_given_at = ?, receive_promotions = ?
+       WHERE id = ?`,
+      [
+        payload.full_name,
+        normalizedPhone,
+        payload.password,
+        payload.consent_given ? 1 : 0,
+        payload.consent_given ? new Date() : null,
+        payload.receive_promotions ? 1 : 0,
+        existing[0].id,
+      ]
+    )
+    patientId = existing[0].id
+  } else {
+    const [result] = await db.query(
+      `INSERT INTO patients
+        (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, consent_given, consent_given_at, receive_promotions, is_profile_complete)
+       VALUES (?, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?, ?, 0)`,
+      [
+        payload.full_name,
+        normalizedPhone,
+        payload.password,
+        payload.consent_given ? 1 : 0,
+        payload.consent_given ? new Date() : null,
+        payload.receive_promotions ? 1 : 0,
+      ]
+    )
+    patientId = result.insertId
+  }
 
   if (payload.consent_given) {
     await db.query(
       'INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)',
-      [result.insertId, 'data_processing', req.ip || null]
+      [patientId, 'data_processing', req.ip || null]
     )
   }
 
   await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
 
-  issuePatientSession(res, result.insertId)
-  const createdPatient = await loadPatientById(result.insertId)
+  issuePatientSession(res, patientId)
+  const createdPatient = await loadPatientById(patientId)
 
   res.status(201).json({
     message: 'Registration successful.',
@@ -268,7 +325,7 @@ const login = async (req, res) => {
     if (!normalizedPhone) {
       return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
     }
-    ;[rows] = await db.query('SELECT * FROM patients WHERE phone = ?', [normalizedPhone])
+    rows = await findPatientsByPhone(normalizedPhone)
     if (rows.length > 1) {
       return res.status(409).json({
         message: 'Multiple patient records use this phone number. Please contact the clinic to resolve the duplicate records.',

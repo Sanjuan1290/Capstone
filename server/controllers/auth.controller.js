@@ -2,56 +2,151 @@ const db = require('../db/connect')
 const bcrypt = require('bcrypt')
 const crypto = require('crypto')
 const { sendPasswordResetOtp } = require('../utils/emailService')
+const { normalizePhilippinePhone } = require('../utils/phone')
+const { sendPatientPasswordResetOtp, isSmsConfigured } = require('../utils/smsService')
+
+const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
 const ROLE_CONFIG = {
   patient: {
     table: 'patients',
-    where: 'email = ?',
-    missingMessage: 'No patient account is registered with that email.',
+    lookupField: 'phone',
+    missingMessage: 'No patient account is registered with that phone number.',
   },
   doctor: {
     table: 'doctors',
+    lookupField: 'email',
     where: 'email = ? AND is_active = 1',
     missingMessage: 'No active doctor account is registered with that email.',
   },
   staff: {
     table: 'staff',
+    lookupField: 'email',
     where: "email = ? AND status = 'active'",
     missingMessage: 'No active staff account is registered with that email.',
   },
 }
 
-const forgotPassword = async (req, res) => {
-  const { email, role } = req.body
-  const config = ROLE_CONFIG[role]
+const getPhoneVariants = (value) => {
+  const normalizedPhone = normalizePhilippinePhone(value)
+  if (!normalizedPhone) return []
 
-  if (!email || !config) {
-    return res.status(400).json({ message: 'Email and valid role are required.' })
+  return Array.from(new Set([
+    normalizedPhone,
+    `0${normalizedPhone.slice(2)}`,
+    normalizedPhone.slice(2),
+  ]))
+}
+
+const findPatientByPhone = async (phone) => {
+  const variants = getPhoneVariants(phone)
+  if (variants.length === 0) {
+    return { normalizedPhone: null, rows: [] }
   }
 
+  const placeholders = variants.map(() => '?').join(', ')
   const [rows] = await db.query(
-    `SELECT id, full_name FROM ${config.table} WHERE ${config.where}`,
-    [email]
+    `SELECT id, full_name, phone
+     FROM patients
+     WHERE ${NORMALIZED_PHONE_SQL} IN (${placeholders})`,
+    variants
   )
 
-  if (rows.length === 0) {
-    return res.status(404).json({ message: config.missingMessage })
+  return {
+    normalizedPhone: variants[0],
+    rows,
+  }
+}
+
+const forgotPassword = async (req, res) => {
+  const { email, phone, role } = req.body
+  const config = ROLE_CONFIG[role]
+
+  if (!config) {
+    return res.status(400).json({ message: 'A valid role is required.' })
+  }
+
+  let account
+  let identifier
+
+  if (role === 'patient') {
+    if (!phone) {
+      return res.status(400).json({ message: 'Phone number and valid role are required.' })
+    }
+
+    const patientMatch = await findPatientByPhone(phone)
+    if (!patientMatch.normalizedPhone) {
+      return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+    }
+    if (patientMatch.rows.length > 1) {
+      return res.status(409).json({
+        message: 'Multiple patient records use this phone number. Please contact the clinic to resolve the duplicate records.',
+      })
+    }
+    if (patientMatch.rows.length === 0) {
+      return res.status(404).json({ message: config.missingMessage })
+    }
+
+    identifier = patientMatch.normalizedPhone
+    account = patientMatch.rows[0]
+  } else {
+    if (!email) {
+      return res.status(400).json({ message: 'Email and valid role are required.' })
+    }
+
+    const [rows] = await db.query(
+      `SELECT id, full_name, email FROM ${config.table} WHERE ${config.where}`,
+      [email]
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: config.missingMessage })
+    }
+
+    identifier = email
+    account = rows[0]
   }
 
   const otp = String(Math.floor(100000 + Math.random() * 900000))
   const expires = new Date(Date.now() + 10 * 60 * 1000)
 
-  await db.query('DELETE FROM password_resets WHERE email = ? AND role = ?', [email, role])
+  await db.query('DELETE FROM password_resets WHERE role = ? AND (identifier = ? OR email = ?)', [role, identifier, identifier])
   await db.query(
-    'INSERT INTO password_resets (email, token, role, expires_at) VALUES (?, ?, ?, ?)',
-    [email, otp, role, expires]
+    'INSERT INTO password_resets (email, identifier, account_id, token, role, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [role === 'patient' ? identifier : account.email, identifier, account.id, otp, role, expires]
   )
 
+  if (role === 'patient') {
+    const shouldUseDevOtp = !isSmsConfigured() || !process.env.SEMAPHORE_SENDER_NAME
+
+    if (!shouldUseDevOtp) {
+      try {
+        await sendPatientPasswordResetOtp({
+          phone: identifier,
+          code: otp,
+          fullName: account.full_name,
+        })
+      } catch (err) {
+        console.error('Patient password reset OTP SMS failed:', err.message)
+        await db.query('DELETE FROM password_resets WHERE role = ? AND identifier = ?', [role, identifier])
+        return res.status(500).json({ message: 'Failed to send verification code. Please try again.' })
+      }
+
+      return res.json({ message: 'Verification code sent by SMS.' })
+    }
+
+    return res.json({
+      message: 'Verification code generated. SMS sender name is not configured yet, so use the dev OTP for now.',
+      phone: identifier,
+      dev_otp: otp,
+    })
+  }
+
   try {
-    await sendPasswordResetOtp(email, rows[0].full_name, role, otp)
+    await sendPasswordResetOtp(identifier, account.full_name, role, otp)
   } catch (err) {
     console.error('Password reset OTP email failed:', err.message)
-    await db.query('DELETE FROM password_resets WHERE email = ? AND role = ?', [email, role])
+    await db.query('DELETE FROM password_resets WHERE role = ? AND identifier = ?', [role, identifier])
     return res.status(500).json({ message: 'Failed to send verification code. Please try again.' })
   }
 
@@ -59,15 +154,26 @@ const forgotPassword = async (req, res) => {
 }
 
 const verifyOtp = async (req, res) => {
-  const { email, role, otp } = req.body
+  const { email, phone, role, otp } = req.body
 
-  if (!email || !role || !otp) {
+  if (!role || !otp) {
+    return res.status(400).json({ message: 'Recovery identifier, role, and OTP are required.' })
+  }
+
+  let identifier = email
+  if (role === 'patient') {
+    const normalizedPhone = normalizePhilippinePhone(phone)
+    if (!normalizedPhone) {
+      return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+    }
+    identifier = normalizedPhone
+  } else if (!email) {
     return res.status(400).json({ message: 'Email, role, and OTP are required.' })
   }
 
   const [rows] = await db.query(
-    'SELECT * FROM password_resets WHERE email = ? AND role = ? AND token = ? AND expires_at > NOW()',
-    [email, role, String(otp)]
+    'SELECT * FROM password_resets WHERE identifier = ? AND role = ? AND token = ? AND expires_at > NOW()',
+    [identifier, role, String(otp)]
   )
 
   if (rows.length === 0) {
@@ -107,13 +213,21 @@ const resetPassword = async (req, res) => {
 
   const { email, role } = rows[0]
   const config = ROLE_CONFIG[role]
+  const identifier = rows[0].identifier || email
 
   if (!config) {
     return res.status(400).json({ message: 'Invalid role in reset token.' })
   }
 
   const hashed = await bcrypt.hash(password, 10)
-  await db.query(`UPDATE ${config.table} SET password = ? WHERE email = ?`, [hashed, email])
+  if (role === 'patient') {
+    if (!rows[0].account_id) {
+      return res.status(400).json({ message: 'Reset session is missing the patient account reference. Please start over.' })
+    }
+    await db.query('UPDATE patients SET password = ? WHERE id = ?', [hashed, rows[0].account_id])
+  } else {
+    await db.query(`UPDATE ${config.table} SET password = ? WHERE email = ?`, [hashed, identifier])
+  }
   await db.query('DELETE FROM password_resets WHERE token = ?', [resetToken])
 
   return res.json({ message: 'Password reset successfully. You can now log in.' })

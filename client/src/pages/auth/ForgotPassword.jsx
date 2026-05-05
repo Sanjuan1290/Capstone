@@ -7,7 +7,7 @@ import logo from '../../assets/logo-removebg.png'
 import {
   MdEmail, MdLock, MdVisibility, MdVisibilityOff,
   MdCheck, MdArrowBack, MdRefresh, MdArrowForward,
-  MdLockReset,
+  MdLockReset, MdPhone,
 } from 'react-icons/md'
 
 const ROLE_CFG = {
@@ -73,7 +73,7 @@ const OtpInput = ({ value, onChange, accent, light }) => {
 
 // ── Step indicators ───────────────────────────────────────────────────────────
 const Steps = ({ current, cfg }) => {
-  const steps = ['Email', 'Verify', 'New Password', 'Done']
+  const steps = ['Recover', 'Verify', 'New Password', 'Done']
   return (
     <div className="flex items-center justify-center gap-1 mb-6">
       {steps.map((s, i) => (
@@ -96,10 +96,13 @@ const Steps = ({ current, cfg }) => {
 // ── Main ──────────────────────────────────────────────────────────────────────
 const ForgotPassword = ({ role }) => {
   const cfg = ROLE_CFG[role] || ROLE_CFG.patient
+  const isPatient = role === 'patient'
 
   const [step,       setStep]      = useState('request') // request | otp | reset | done
   const [email,      setEmail]     = useState('')
+  const [phone,      setPhone]     = useState('')
   const [otp,        setOtp]       = useState('')
+  const [devOtp,     setDevOtp]    = useState('')
   const [resetToken, setToken]     = useState('')
   const [password,   setPass]      = useState('')
   const [confirm,    setConfirm]   = useState('')
@@ -116,6 +119,8 @@ const ForgotPassword = ({ role }) => {
 
   const stepNum = { request: 0, otp: 1, reset: 2, done: 3 }[step]
   const loginPath = `/${role}/login`
+  const recoveryLabel = isPatient ? 'phone number' : 'email'
+  const recoveryValue = isPatient ? phone : email
 
   const inpClass = `w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 text-sm
     text-slate-700 placeholder-slate-300 outline-none transition-all ${cfg.border} ${cfg.ring}
@@ -128,10 +133,11 @@ const ForgotPassword = ({ role }) => {
     try {
       const res  = await fetch('/api/auth/forgot-password', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, role }),
+        body: JSON.stringify({ email, phone, role }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.message || 'Request failed.'); return }
+      setDevOtp(data.dev_otp || '')
       setStep('otp'); setCountdown(60); setOtp('')
     } catch { setError('Cannot connect to server.') }
     finally  { setLoading(false) }
@@ -144,7 +150,7 @@ const ForgotPassword = ({ role }) => {
     try {
       const res  = await fetch('/api/auth/verify-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, role, otp }),
+        body: JSON.stringify({ email, phone, role, otp }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.message || 'Invalid code.'); return }
@@ -224,14 +230,23 @@ const ForgotPassword = ({ role }) => {
             {step === 'request' && (
               <form onSubmit={handleRequest} className="space-y-4">
                 <p className="text-sm text-slate-500 text-center">
-                  Enter your {cfg.badge.toLowerCase()} email and we'll send a verification code.
+                  Enter your {cfg.badge.toLowerCase()} {recoveryLabel} and we'll send a verification code.
                 </p>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email Address</label>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">{isPatient ? 'Phone Number' : 'Email Address'}</label>
                   <div className="relative">
-                    <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                    <input type="email" required value={email} onChange={e => { setEmail(e.target.value); setError('') }}
-                      placeholder="your@email.com"
+                    {isPatient ? (
+                      <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
+                    ) : (
+                      <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
+                    )}
+                    <input type={isPatient ? 'tel' : 'email'} required value={recoveryValue}
+                      onChange={e => {
+                        if (isPatient) setPhone(e.target.value)
+                        else setEmail(e.target.value)
+                        setError('')
+                      }}
+                      placeholder={isPatient ? '09XXXXXXXXX or +639XXXXXXXXX' : 'your@email.com'}
                       className={`${inpClass} pl-10`} />
                   </div>
                 </div>
@@ -256,10 +271,15 @@ const ForgotPassword = ({ role }) => {
               <div className="space-y-5">
                 <div className="text-center">
                   <p className="text-sm text-slate-600">
-                    Code sent to <strong className="text-slate-800">{email}</strong>
+                    Code sent to <strong className="text-slate-800">{recoveryValue}</strong>
                   </p>
                   <p className="text-xs text-slate-400 mt-1">Expires in 10 minutes</p>
                 </div>
+                {devOtp && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-700">
+                    Dev OTP: <strong>{devOtp}</strong>
+                  </div>
+                )}
                 <OtpInput value={otp} onChange={v => { setOtp(v); setError('') }} accent={cfg.accent} light={cfg.light} />
                 <button onClick={handleVerify} disabled={loading || otp.length !== 6}
                   className={`w-full flex items-center justify-center gap-2 py-3.5 text-white font-bold text-sm
@@ -279,9 +299,9 @@ const ForgotPassword = ({ role }) => {
                     </button>
                   )}
                   <span className="text-slate-200">|</span>
-                  <button onClick={() => { setStep('request'); setError(''); setOtp('') }}
+                  <button onClick={() => { setStep('request'); setError(''); setOtp(''); setDevOtp('') }}
                     className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors">
-                    <MdArrowBack className="text-[13px]" /> Change email
+                    <MdArrowBack className="text-[13px]" /> Change {recoveryLabel}
                   </button>
                 </div>
               </div>

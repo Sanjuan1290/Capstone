@@ -91,6 +91,20 @@ const sendPatientRegistrationOtp = async ({ phone, code, fullName }) => {
   }, fallbackLabel)
 }
 
+const sendPatientPasswordResetOtp = async ({ phone, code, fullName }) => {
+  const normalized = normalizePhilippinePhone(phone)
+  if (!normalized) throw new Error('A valid Philippine mobile number is required.')
+
+  const message = 'Carait Clinic password reset code: {otp}. It expires in 10 minutes.'
+  const fallbackLabel = `Password reset OTP for ${fullName || 'patient'} (${normalized}): ${code}`
+
+  return sendSemaphore('/otp', {
+    number: normalized,
+    message,
+    code,
+  }, fallbackLabel)
+}
+
 const sendDoctorAppointmentSms = async ({
   doctorPhone,
   doctorName,
@@ -114,5 +128,6 @@ const sendDoctorAppointmentSms = async ({
 module.exports = {
   isSmsConfigured,
   sendPatientRegistrationOtp,
+  sendPatientPasswordResetOtp,
   sendDoctorAppointmentSms,
 }

@@ -28,6 +28,7 @@ const { sendDoctorAppointmentSms } = require('../utils/smsService')
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 const DOCTOR_SPECIALTIES = new Set(['Dermatologist', 'General Medicine'])
+const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
 const normalizeInventoryPayload = (body = {}) => ({
   barcode: body.barcode?.trim() || null,
@@ -69,6 +70,44 @@ const normalizePatientPayload = (body = {}) => ({
   email: body.email?.trim() || null,
   consent_given: Boolean(body.consent_given),
 })
+
+const buildPhoneSearchTerms = (value = '') => {
+  const trimmed = String(value || '').trim()
+  const digits = trimmed.replace(/\D/g, '')
+  const normalizedPhone = normalizePhilippinePhone(trimmed)
+  const localPhone = normalizedPhone
+    ? `0${normalizedPhone.slice(2)}`
+    : digits.startsWith('63') && digits.length >= 12
+      ? `0${digits.slice(2)}`
+      : digits.startsWith('9') && digits.length >= 10
+        ? `0${digits}`
+        : null
+
+  return {
+    likeSearch: `%${trimmed}%`,
+    phoneSearch: `%${normalizedPhone || digits || trimmed}%`,
+    altPhoneSearch: `%${localPhone || digits || trimmed}%`,
+  }
+}
+
+const findExistingPatientByPhone = async (phone) => {
+  const normalizedPhone = normalizePhilippinePhone(phone)
+  if (!normalizedPhone) return { normalizedPhone: null, existing: null }
+
+  const localPhone = `0${normalizedPhone.slice(2)}`
+  const [rows] = await db.query(
+    `SELECT id, full_name, phone
+     FROM patients
+     WHERE ${NORMALIZED_PHONE_SQL} IN (?, ?)
+     LIMIT 1`,
+    [normalizedPhone, localPhone]
+  )
+
+  return {
+    normalizedPhone,
+    existing: rows[0] || null,
+  }
+}
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -498,12 +537,13 @@ const updateQueueStatus = async (req, res) => {
 
 const getPatients = async (req, res) => {
   const search = req.query.search || ''
+  const { likeSearch, phoneSearch, altPhoneSearch } = buildPhoneSearchTerms(search)
   const [rows] = await db.query(
     `SELECT id, full_name AS name, full_name, email, phone, sex, birthdate, address, civil_status, created_at
      FROM patients
-     WHERE full_name LIKE ? OR email LIKE ?
+     WHERE full_name LIKE ? OR email LIKE ? OR ${NORMALIZED_PHONE_SQL} LIKE ? OR ${NORMALIZED_PHONE_SQL} LIKE ?
      ORDER BY full_name`,
-    [`%${search}%`, `%${search}%`]
+    [likeSearch, likeSearch, phoneSearch, altPhoneSearch]
   )
   res.json(rows)
 }
@@ -543,12 +583,21 @@ const getPatientRecord = async (req, res) => {
 }
 
 const createWalkInPatient = async (req, res) => {
-  const { full_name, birthdate, sex, civil_status, phone, address, email, consent_given } = normalizePatientPayload(req.body)
+  const { full_name, phone, email, consent_given } = normalizePatientPayload(req.body)
 
-  if (!full_name || !birthdate || !sex || !phone || !address)
-    return res.status(400).json({ message: 'Missing required patient fields.' })
+  if (!full_name || !phone)
+    return res.status(400).json({ message: 'Full name and phone number are required.' })
   if (!consent_given)
     return res.status(400).json({ message: 'Data privacy consent is required.' })
+
+  const { normalizedPhone, existing } = await findExistingPatientByPhone(phone)
+  if (!normalizedPhone)
+    return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+  if (existing) {
+    return res.status(409).json({
+      message: 'A patient with that phone number already exists. Search for the patient and add them as an existing account instead.',
+    })
+  }
 
   if (email) {
     const [existing] = await db.query('SELECT id FROM patients WHERE email = ?', [email])
@@ -559,15 +608,11 @@ const createWalkInPatient = async (req, res) => {
   const hashedPassword = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
     `INSERT INTO patients
-      (full_name, birthdate, sex, civil_status, phone, address, email, password, is_walk_in, consent_given, consent_given_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, is_walk_in, consent_given, consent_given_at, receive_promotions, is_profile_complete)
+     VALUES (?, NULL, NULL, NULL, NULL, ?, NULL, ?, ?, 1, ?, ?, 0, 0)`,
     [
       full_name,
-      birthdate,
-      sex,
-      civil_status,
-      phone,
-      address,
+      normalizedPhone,
       email,
       hashedPassword,
       1,
@@ -580,7 +625,7 @@ const createWalkInPatient = async (req, res) => {
     [result.insertId, 'data_processing', req.ip || null]
   )
 
-  res.status(201).json({ id: result.insertId, full_name, email, phone })
+  res.status(201).json({ id: result.insertId, full_name, email, phone: normalizedPhone })
 }
 
 // ── Staff ─────────────────────────────────────────────────────────────────────

@@ -4,10 +4,9 @@ import {
   MdCheck,
   MdClose,
   MdMedicalServices,
-  MdPerson,
+  MdPrint,
   MdQueuePlayNext,
   MdRefresh,
-  MdRemoveCircleOutline,
 } from 'react-icons/md'
 import {
   addToQueue,
@@ -17,6 +16,7 @@ import {
   getQueue,
   updateQueueStatus,
 } from '../../services/staff.service'
+import { printWalkInIntakeForm } from '../../utils/printWalkInIntakeForm'
 
 const QueueCard = ({ entry, onCall, onDone, onRemove }) => {
   const active = entry.status === 'in-progress'
@@ -62,12 +62,7 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
   const [selectedPatient, setSelectedPatient] = useState(null)
   const [form, setForm] = useState({
     full_name: '',
-    birthdate: '',
-    sex: '',
-    civil_status: 'Single',
     phone: '',
-    address: '',
-    email: '',
     clinic_type: 'medical',
     reason: '',
     doctor_id: '',
@@ -106,6 +101,10 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
       alert('Select an existing patient first.')
       return
     }
+    if (mode === 'new' && (!form.full_name.trim() || !form.phone.trim())) {
+      alert('Enter the patient name and phone number first.')
+      return
+    }
     if (!form.doctor_id) {
       alert('Select a doctor before adding to queue.')
       return
@@ -126,9 +125,13 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-bold text-slate-800">Register Walk-in Patient</p>
-            <p className="text-xs text-slate-500">Create the patient record first, then add to queue.</p>
+            <p className="text-xs text-slate-500">Ask first if the patient already has an account, then continue with the right flow.</p>
           </div>
           <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><MdClose /></button>
+        </div>
+
+        <div className="mb-4 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+          Search existing patients by name, email, or phone number. Only register a new walk-in when the patient has no account yet.
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
@@ -157,7 +160,7 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
                   setPatientSearch(e.target.value)
                   setSelectedPatient(null)
                 }}
-                placeholder="Type name or email"
+                placeholder="Type name, phone number, or email"
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"
               />
             </label>
@@ -173,7 +176,8 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
                     }}
                     className="block w-full border-b border-slate-100 px-4 py-2.5 text-left text-sm text-slate-700 last:border-b-0 hover:bg-slate-50"
                   >
-                    {patient.full_name || patient.name}
+                    <p className="font-semibold text-slate-800">{patient.full_name || patient.name}</p>
+                    <p className="mt-1 text-xs text-slate-500">{patient.phone || 'No phone'} • {patient.email || 'No email'}</p>
                   </button>
                 ))}
               </div>
@@ -209,64 +213,57 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
             </div>
           </div>
         ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {[
-            ['Full Name', 'full_name', 'text', true],
-            ['Birthdate', 'birthdate', 'date', true],
-            ['Phone Number', 'phone', 'text', true],
-            ['Address', 'address', 'text', true],
-            ['Email Address', 'email', 'email', false],
-            ['Reason for Visit', 'reason', 'text', false],
-          ].map(([label, key, type]) => (
-            <label key={key} className={`block ${key === 'address' || key === 'reason' || key === 'full_name' ? 'sm:col-span-2' : ''}`}>
-              <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">{label}</span>
-              <input type={type} value={form[key]} onChange={(e) => updateField(key, e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
-            </label>
-          ))}
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              Match the online patient registration flow: collect the patient&apos;s full name and mobile number now. Password setup happens later when the patient registers online using the same number.
+            </div>
 
-          <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Sex</span>
-            <select value={form.sex} onChange={(e) => updateField('sex', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
-              <option value="">Select sex</option>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Other">Other</option>
-            </select>
-          </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Full Name</span>
+                <input type="text" value={form.full_name} onChange={(e) => updateField('full_name', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+              </label>
 
-          <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Civil Status</span>
-            <select value={form.civil_status} onChange={(e) => updateField('civil_status', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
-              <option value="Single">Single</option>
-              <option value="Married">Married</option>
-              <option value="Widowed">Widowed</option>
-              <option value="Divorced">Divorced</option>
-            </select>
-          </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Phone Number</span>
+                <input type="tel" value={form.phone} onChange={(e) => updateField('phone', e.target.value)} placeholder="09XXXXXXXXX or +639XXXXXXXXX" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+              </label>
 
-          <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic Type</span>
-            <select value={form.clinic_type} onChange={(e) => updateField('clinic_type', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
-              <option value="medical">Medical</option>
-              <option value="derma">Derma</option>
-            </select>
-          </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic Type</span>
+                <select value={form.clinic_type} onChange={(e) => updateField('clinic_type', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
+                  <option value="medical">Medical</option>
+                  <option value="derma">Derma</option>
+                </select>
+              </label>
 
-          <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</span>
-            <select value={form.doctor_id} onChange={(e) => updateField('doctor_id', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
-              <option value="">Select doctor</option>
-              {filteredDoctors.map((doctor) => (
-                <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>
-              ))}
-            </select>
-          </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</span>
+                <select value={form.doctor_id} onChange={(e) => updateField('doctor_id', e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
+                  <option value="">Select doctor</option>
+                  {filteredDoctors.map((doctor) => (
+                    <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>
+                  ))}
+                </select>
+              </label>
 
-          <label className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 sm:col-span-2">
-            <input type="checkbox" checked={form.consent_given} onChange={(e) => updateField('consent_given', e.target.checked)} className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600" />
-            <span>I consent to the collection and processing of my personal data in accordance with Republic Act 10173 (Data Privacy Act of 2012).</span>
-          </label>
-        </div>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Reason for Visit</span>
+                <input type="text" value={form.reason} onChange={(e) => updateField('reason', e.target.value)} placeholder="Optional" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
+              </label>
+
+              <label className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 sm:col-span-2">
+                <input type="checkbox" checked={form.consent_given} onChange={(e) => updateField('consent_given', e.target.checked)} className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600" />
+                <span>
+                  I have read and agree to the{' '}
+                  <a href="/privacy-policy" target="_blank" rel="noreferrer" className="font-bold text-sky-700 hover:text-sky-800">
+                    Privacy Policy
+                  </a>
+                  . I consent to the collection and processing of my personal data in accordance with Republic Act 10173 (Data Privacy Act of 2012).
+                </span>
+              </label>
+            </div>
+          </div>
         )}
 
         <div className="mt-5 flex gap-3">
@@ -313,12 +310,7 @@ const StaffWalkInQueue = () => {
     if (payload.mode === 'new') {
       patient = await createWalkInPatient({
         full_name: payload.full_name,
-        birthdate: payload.birthdate,
-        sex: payload.sex,
-        civil_status: payload.civil_status,
         phone: payload.phone,
-        address: payload.address,
-        email: payload.email || null,
         consent_given: payload.consent_given,
       })
       if (!patient?.id) {
@@ -374,6 +366,9 @@ const StaffWalkInQueue = () => {
           <p className="mt-1 text-sm text-slate-500">Register walk-in patients, collect consent, and manage today’s queue.</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={printWalkInIntakeForm} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+            <MdPrint /> Print Intake Form
+          </button>
           <button onClick={loadData} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50">
             <MdRefresh /> Refresh
           </button>

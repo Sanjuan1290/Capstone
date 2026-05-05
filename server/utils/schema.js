@@ -148,6 +148,22 @@ const ensureAppSchema = async () => {
       UNIQUE KEY uniq_patient_phone_verifications_phone (phone)
     )
   `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      email VARCHAR(255) NULL,
+      identifier VARCHAR(120) NULL,
+      account_id INT NULL,
+      token VARCHAR(255) NOT NULL,
+      role VARCHAR(20) NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  await db.query('ALTER TABLE password_resets MODIFY COLUMN email VARCHAR(255) NULL').catch(() => {})
+  await ensureColumn('password_resets', 'identifier', 'VARCHAR(120) NULL')
+  await ensureColumn('password_resets', 'account_id', 'INT NULL')
 }
 
 module.exports = {
