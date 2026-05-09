@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react'
-import { getMyScheduleAll, saveMyScheduleDay } from '../../services/doctor.service'
+import {
+  deleteMyUnavailableDate,
+  getMyScheduleAll,
+  getMyUnavailableDates,
+  saveMyScheduleDay,
+  saveMyUnavailableDate,
+} from '../../services/doctor.service'
 import {
   MdCalendarToday, MdAccessTime, MdCheck, MdEdit, MdSave,
-  MdToggleOn, MdToggleOff, MdClose, MdInfo, MdSchedule,
+  MdToggleOn, MdToggleOff, MdClose, MdInfo, MdSchedule, MdEventBusy,
 } from 'react-icons/md'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -205,6 +211,100 @@ const DayCard = ({ day, schedule, onSaved }) => {
           <p className="text-center text-xs font-semibold text-slate-500">Click the Enable button to open this day for bookings.</p>
         </div>
       )}
+    </div>
+  )
+}
+
+const UnavailableDatesPanel = ({ dates, onSaved }) => {
+  const [form, setForm] = useState({ unavailable_date: '', reason: '' })
+  const [saving, setSaving] = useState(false)
+  const [removingDate, setRemovingDate] = useState('')
+
+  const handleSave = async () => {
+    if (!form.unavailable_date) return
+    setSaving(true)
+    try {
+      await saveMyUnavailableDate(form)
+      setForm({ unavailable_date: '', reason: '' })
+      onSaved()
+    } catch (err) {
+      alert(err.message || 'Failed to save unavailable date.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRemove = async (date) => {
+    setRemovingDate(date)
+    try {
+      await deleteMyUnavailableDate(date)
+      onSaved()
+    } catch (err) {
+      alert(err.message || 'Failed to remove unavailable date.')
+    } finally {
+      setRemovingDate('')
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50">
+          <MdEventBusy className="text-[18px] text-rose-500" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-sm font-bold text-slate-800">Specific Date Unavailable</h2>
+          <p className="mt-1 text-xs text-slate-500">Use this when you are available on that weekday in general, but need one exact date blocked off.</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr,1.2fr,auto]">
+        <input
+          type="date"
+          min={new Date().toISOString().slice(0, 10)}
+          value={form.unavailable_date}
+          onChange={(e) => setForm((current) => ({ ...current, unavailable_date: e.target.value }))}
+          className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition-all focus:border-rose-300"
+        />
+        <input
+          type="text"
+          value={form.reason}
+          onChange={(e) => setForm((current) => ({ ...current, reason: e.target.value }))}
+          placeholder="Reason (optional)"
+          className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition-all focus:border-rose-300"
+        />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!form.unavailable_date || saving}
+          className="rounded-2xl bg-rose-500 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-rose-600 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Block Date'}
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {dates.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-400">
+            No specific blocked dates yet.
+          </p>
+        ) : dates.map((item) => (
+          <div key={item.unavailable_date} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">{item.unavailable_date}</p>
+              <p className="text-xs text-slate-500">{item.reason || 'No reason added.'}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleRemove(item.unavailable_date)}
+              disabled={removingDate === item.unavailable_date}
+              className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {removingDate === item.unavailable_date ? 'Removing...' : 'Remove'}
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

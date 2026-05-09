@@ -22,6 +22,13 @@ export const getMyHistory = async () => {
   return res.json()
 }
 
+export const getAppointmentReasons = async (clinicType = '') => {
+  const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
+  const res = await fetch(`${BASE}/appointment-reasons${query}`, { credentials: 'include' })
+  if (!res.ok) throw new Error('Failed to fetch appointment reasons')
+  return res.json()
+}
+
 export const getDoctors = async () => {
   const res = await fetch(`${BASE}/doctors`, { credentials: 'include' })
   if (!res.ok) throw new Error('Failed to fetch doctors')
@@ -31,6 +38,16 @@ export const getDoctors = async () => {
 export const getDoctorSchedule = async (doctorId) => {
   const res = await fetch(`${BASE}/doctors/${doctorId}/schedule`, { credentials: 'include' })
   if (!res.ok) throw new Error('Failed to fetch schedule')
+  return res.json()
+}
+
+export const getDoctorUnavailableDates = async (doctorId, params = {}) => {
+  const search = new URLSearchParams()
+  if (params.startDate) search.set('start_date', params.startDate)
+  if (params.endDate) search.set('end_date', params.endDate)
+  const query = search.toString()
+  const res = await fetch(`${BASE}/doctors/${doctorId}/unavailable-dates${query ? `?${query}` : ''}`, { credentials: 'include' })
+  if (!res.ok) throw new Error('Failed to fetch unavailable dates')
   return res.json()
 }
 

@@ -8,7 +8,7 @@ import { getLocalDateOnly } from '../../utils/date'
 import {
   MdEventAvailable, MdQueuePlayNext, MdPeople, MdInventory2,
   MdWarning, MdChevronRight, MdFace, MdMedicalServices,
-  MdAccessTime, MdAdd, MdRefresh, MdCalendarToday,
+  MdAccessTime, MdAdd, MdRefresh, MdCalendarToday, MdPayments,
 } from "react-icons/md"
 import { NavLink } from "react-router-dom"
 
@@ -48,6 +48,7 @@ const Staff_Dashboard = () => {
 
   const quickLinks = [
     { label: "Appointments",    path: "/staff/appointments",    icon: MdEventAvailable, color: "text-sky-600",     bg: "bg-sky-50"     },
+    { label: "Billing",         path: "/staff/billing",         icon: MdPayments,       color: "text-emerald-600", bg: "bg-emerald-50" },
     { label: "Walk-in Queue",   path: "/staff/walkin",          icon: MdQueuePlayNext,  color: "text-emerald-600", bg: "bg-emerald-50" },
     { label: "Patient Records", path: "/staff/patient-records", icon: MdPeople,         color: "text-violet-600",  bg: "bg-violet-50"  },
     { label: "Inventory",       path: "/staff/inventory",       icon: MdInventory2,     color: "text-amber-600",   bg: "bg-amber-50"   },
@@ -117,7 +118,7 @@ const Staff_Dashboard = () => {
       </div>
 
       {/* ── Quick action links (mobile 2-col, desktop 4-col) ──────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {quickLinks.map(({ label, path, icon: Icon, color, bg }) => (
           <NavLink key={path} to={path}
             className={`flex flex-col items-center gap-2 p-4 ${bg} rounded-2xl border-2 border-transparent

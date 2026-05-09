@@ -7,10 +7,11 @@ const {
   login, checkAuth, logout,
   getDashboard, getDailyAppointments, startConsultation,
   saveConsultation, getConsultation, updateConsultation,
-  getPatientHistory,
+  getPatientHistory, getBillingCatalog,
   getInventoryItems, getMyRequests, submitRequest,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
+  getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 } = require('../controllers/doctor.controller')
 const commonCtrl = require('../controllers/common.controller')
 
@@ -35,6 +36,7 @@ router.patch('/appointments/:id/start',      startConsultation)
 router.post('/consultations/:appointmentId',   saveConsultation)
 router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
+router.get('/billing/catalog',                 getBillingCatalog)
 
 router.get('/patients/:id/history',          getPatientHistory)
 router.get('/inventory',                     getInventoryItems)
@@ -52,5 +54,8 @@ router.patch('/queue/:id/done',   markQueueDone)
 router.get('/schedule',     getMySchedule)
 router.get('/schedule/all', getMyScheduleAll)
 router.put('/schedule',     saveMyScheduleDay)
+router.get('/schedule/unavailable-dates',      getMyUnavailableDates)
+router.put('/schedule/unavailable-dates',      saveMyUnavailableDate)
+router.delete('/schedule/unavailable-dates/:date', deleteMyUnavailableDate)
 
 module.exports = router

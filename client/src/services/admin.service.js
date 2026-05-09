@@ -38,6 +38,28 @@ export const createAppointment = (payload) =>
     body: JSON.stringify(payload),
   })
 
+export const getAppointmentReasons = () =>
+  requestJson(`${BASE}/appointment-reasons`)
+
+export const createAppointmentReason = (payload) =>
+  requestJson(`${BASE}/appointment-reasons`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const updateAppointmentReason = (id, payload) =>
+  requestJson(`${BASE}/appointment-reasons/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const deleteAppointmentReason = (id) =>
+  requestJson(`${BASE}/appointment-reasons/${id}`, {
+    method: 'DELETE',
+  })
+
 export const getStaff = () =>
   fetch(`${BASE}/staff`, { credentials: 'include' }).then(r => r.json())
 
@@ -87,6 +109,26 @@ export const saveDaySchedule = (doctorId, payload) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then(r => r.json())
+
+export const getDoctorUnavailableDates = (doctorId, params = {}) => {
+  const search = new URLSearchParams()
+  if (params.startDate) search.set('start_date', params.startDate)
+  if (params.endDate) search.set('end_date', params.endDate)
+  const query = search.toString()
+  return requestJson(`${BASE}/doctors/${doctorId}/unavailable-dates${query ? `?${query}` : ''}`)
+}
+
+export const saveDoctorUnavailableDate = (doctorId, payload) =>
+  requestJson(`${BASE}/doctors/${doctorId}/unavailable-dates`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const deleteDoctorUnavailableDate = (doctorId, date) =>
+  requestJson(`${BASE}/doctors/${doctorId}/unavailable-dates/${encodeURIComponent(date)}`, {
+    method: 'DELETE',
+  })
 
 export const getReports = (period) =>
   fetch(`${BASE}/reports?period=${period}`, { credentials: 'include' }).then(r => r.json())

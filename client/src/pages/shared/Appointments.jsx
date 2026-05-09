@@ -18,10 +18,9 @@ import {
   MdHome,
 } from 'react-icons/md'
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
+import { buildSlotsForScheduleDate } from '../../utils/schedule'
 
 const PAGE_SIZE = 10
-const DAYS_MAP = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 }
-
 const STATUS_TABS = [
   { key: 'all', label: 'All' },
   { key: 'pending', label: 'Pending' },
@@ -46,51 +45,6 @@ const buttonBase = 'rounded-xl px-3 py-2 text-xs font-semibold transition'
 const formatDate = (value) => formatDateOnly(value)
 
 const formatStatus = (value) => value?.replace('_', ' ').replace(/\b\w/g, (m) => m.toUpperCase()) || 'Unknown'
-const pad = (value) => String(value).padStart(2, '0')
-
-const buildSlotsForDate = (date, schedules = []) => {
-  if (!date || !Array.isArray(schedules) || schedules.length === 0) return []
-
-  const selected = new Date(`${date}T00:00:00`)
-  if (Number.isNaN(selected.getTime())) return []
-
-  const daySchedule = schedules.find((schedule) => (
-    schedule?.is_active !== 0
-    && DAYS_MAP[schedule.day_of_week] === selected.getDay()
-  ))
-
-  if (!daySchedule?.start_time || !daySchedule?.end_time) return []
-
-  const [startHour, startMinute] = daySchedule.start_time.split(':').map(Number)
-  const [endHour, endMinute] = daySchedule.end_time.split(':').map(Number)
-  const slotDuration = Number(daySchedule.slot_duration_mins) || 60
-  let currentMinutes = startHour * 60 + startMinute
-  const endMinutes = endHour * 60 + endMinute
-  const slots = []
-
-  while (currentMinutes + slotDuration <= endMinutes) {
-    const hour = Math.floor(currentMinutes / 60)
-    const minute = currentMinutes % 60
-    const ampm = hour >= 12 ? 'PM' : 'AM'
-    const hour12 = hour % 12 || 12
-    slots.push(`${hour12}:${pad(minute)} ${ampm}`)
-    currentMinutes += slotDuration
-  }
-
-  const today = new Date()
-  const todayIso = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
-  if (date !== todayIso) return slots
-
-  const cutoffMinutes = today.getHours() * 60 + today.getMinutes() + 5
-  return slots.filter((slot) => {
-    const [timePart, period] = slot.split(' ')
-    let [hour, minute] = timePart.split(':').map(Number)
-    if (period === 'PM' && hour !== 12) hour += 12
-    if (period === 'AM' && hour === 12) hour = 0
-    return hour * 60 + minute > cutoffMinutes
-  })
-}
-
 const getActionsForStatus = (status) => {
   if (status === 'pending') return ['confirm', 'cancel', 'reschedule']
   if (status === 'confirmed') return ['cancel', 'reschedule', 'no_show']
@@ -139,7 +93,7 @@ const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onR
   )
 }
 
-const TimeSlotPicker = ({ date, value, onChange, schedules, takenSlots = [], emptyMessage = 'No slots available for this day.' }) => {
+const TimeSlotPicker = ({ date, value, onChange, schedules, takenSlots = [], unavailableDates = [], emptyMessage = 'No slots available for this day.' }) => {
   if (!date) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
@@ -148,7 +102,7 @@ const TimeSlotPicker = ({ date, value, onChange, schedules, takenSlots = [], emp
     )
   }
 
-  const slots = buildSlotsForDate(date, schedules)
+  const slots = buildSlotsForScheduleDate(date, schedules, { takenSlots, unavailableDates })
 
   if (slots.length === 0) {
     return (
@@ -188,6 +142,7 @@ const RescheduleDrawer = ({ appointment, appointments, services, onClose, onSave
   const [date, setDate] = useState(appointment?.appointment_date?.slice(0, 10) || '')
   const [time, setTime] = useState(appointment?.appointment_time || appointment?.time || '')
   const [schedules, setSchedules] = useState([])
+  const [unavailableDates, setUnavailableDates] = useState([])
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -198,12 +153,22 @@ const RescheduleDrawer = ({ appointment, appointments, services, onClose, onSave
   useEffect(() => {
     if (!appointment?.doctor_id || !services.getDoctorSchedules) {
       setSchedules([])
+      setUnavailableDates([])
       return
     }
 
-    services.getDoctorSchedules(appointment.doctor_id)
-      .then((rows) => setSchedules(Array.isArray(rows) ? rows : []))
-      .catch(() => setSchedules([]))
+    Promise.all([
+      services.getDoctorSchedules(appointment.doctor_id),
+      services.getDoctorUnavailableDates?.(appointment.doctor_id) || Promise.resolve([]),
+    ])
+      .then(([rows, blocked]) => {
+        setSchedules(Array.isArray(rows) ? rows : [])
+        setUnavailableDates(Array.isArray(blocked) ? blocked : [])
+      })
+      .catch(() => {
+        setSchedules([])
+        setUnavailableDates([])
+      })
   }, [appointment?.doctor_id, services])
 
   const takenSlots = useMemo(() => {
@@ -268,6 +233,7 @@ const RescheduleDrawer = ({ appointment, appointments, services, onClose, onSave
               onChange={setTime}
               schedules={schedules}
               takenSlots={takenSlots}
+              unavailableDates={unavailableDates}
             />
           </div>
         </div>
@@ -317,6 +283,7 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
   const [patients, setPatients] = useState([])
   const [doctors, setDoctors] = useState([])
   const [doctorSchedules, setDoctorSchedules] = useState([])
+  const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([])
   const [search, setSearch] = useState('')
   const [mode, setMode] = useState('existing')
   const [selectedPatient, setSelectedPatient] = useState(null)
@@ -367,12 +334,22 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
   useEffect(() => {
     if (!form.doctor_id || !services.getDoctorSchedules) {
       setDoctorSchedules([])
+      setDoctorUnavailableDates([])
       return
     }
 
-    services.getDoctorSchedules(form.doctor_id)
-      .then((rows) => setDoctorSchedules(Array.isArray(rows) ? rows : []))
-      .catch(() => setDoctorSchedules([]))
+    Promise.all([
+      services.getDoctorSchedules(form.doctor_id),
+      services.getDoctorUnavailableDates?.(form.doctor_id) || Promise.resolve([]),
+    ])
+      .then(([rows, blocked]) => {
+        setDoctorSchedules(Array.isArray(rows) ? rows : [])
+        setDoctorUnavailableDates(Array.isArray(blocked) ? blocked : [])
+      })
+      .catch(() => {
+        setDoctorSchedules([])
+        setDoctorUnavailableDates([])
+      })
   }, [form.doctor_id, services])
 
   const takenSlots = useMemo(() => {
@@ -555,6 +532,7 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
               onChange={(slot) => setForm((prev) => ({ ...prev, appointment_time: slot }))}
               schedules={doctorSchedules}
               takenSlots={takenSlots}
+              unavailableDates={doctorUnavailableDates}
               emptyMessage={form.doctor_id ? 'No slots available for this doctor on the selected date.' : 'Select a doctor first to view available time slots.'}
             />
           </div>

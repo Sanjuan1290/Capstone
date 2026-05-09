@@ -24,6 +24,7 @@ import RescheduleAppointment from './pages/patientPage/ResheduleAppointment'
 import StaffLayout           from './components/layouts/StaffLayout'
 import Staff_Dashboard       from './pages/staffPage/Staff_Dashboard'
 import Staff_Appointments    from './pages/staffPage/Staff_Appointments'
+import Staff_Billing         from './pages/staffPage/Staff_Billing'
 import Staff_WalkInQueue     from './pages/staffPage/Staff_WalkInQueue'
 import Staff_PatientRecord   from './pages/staffPage/Staff_PatientRecord'
 import StaffLogin            from './pages/auth/Staff/StaffLogin'
@@ -94,6 +95,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/staff' element={<StaffRoute><StaffLayout /></StaffRoute>}>
         <Route index                  element={<Staff_Dashboard />} />
         <Route path='appointments'    element={<Staff_Appointments />} />
+        <Route path='billing'         element={<Staff_Billing />} />
         <Route path='walkin'          element={<Staff_WalkInQueue />} />
         <Route path='inventory'       element={<Staff_Inventory />} />
         <Route path='patient-records' element={<Staff_PatientRecord />} />

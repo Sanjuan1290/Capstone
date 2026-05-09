@@ -13,12 +13,13 @@ import {
   MdDashboard, MdEventAvailable, MdQueuePlayNext,
   MdPeople, MdInventory2, MdChevronLeft, MdLogout,
   MdPerson, MdMenu, MdClose,
-  MdSettings, MdDarkMode, MdLightMode,
+  MdSettings, MdDarkMode, MdLightMode, MdPayments,
 } from "react-icons/md"
 
 const sideNav = [
   { name: "Dashboard",       path: "/staff",                  icon: MdDashboard,     short: "Home"     },
   { name: "Appointments",    path: "/staff/appointments",     icon: MdEventAvailable,short: "Appts"    },
+  { name: "Billing",         path: "/staff/billing",          icon: MdPayments,      short: "Billing"  },
   { name: "Walk-in Queue",   path: "/staff/walkin",           icon: MdQueuePlayNext, short: "Queue"    },
   { name: "Patient Records", path: "/staff/patient-records",  icon: MdPeople,        short: "Patients" },
   { name: "Inventory",       path: "/staff/inventory",        icon: MdInventory2,    short: "Stock"    },
@@ -93,7 +94,7 @@ const StaffLayout = () => {
   }
 
   // Mobile bottom nav — only show 5 most important items
-  const mobileNav = [sideNav[0], sideNav[1], sideNav[2], sideNav[4], sideNav[5]]
+  const mobileNav = [sideNav[0], sideNav[1], sideNav[2], sideNav[3], sideNav[5]]
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">

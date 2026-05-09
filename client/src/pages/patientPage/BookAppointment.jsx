@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
-  getDoctors, getDoctorSchedule, getDoctorTakenSlots, bookAppointment,
+  getAppointmentReasons, getDoctors, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
@@ -12,13 +12,17 @@ import {
   MdArrowForward,
 } from 'react-icons/md'
 import { getLocalDateOnly } from '../../utils/date'
+import {
+  buildSlotsForScheduleDate,
+  buildUnavailableDateSet,
+  isDoctorAvailableOnDate,
+} from '../../utils/schedule'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CLINIC_TYPES = [
   { id: 'medical', label: 'General Medicine', desc: 'Check-ups, general health concerns, minor procedures.',   Icon: MdMedicalServices, from: 'from-sky-500',     to: 'to-sky-600',     light: 'bg-sky-50',     border: 'border-sky-200',     check: 'bg-sky-500'     },
   { id: 'derma',   label: 'Dermatology',      desc: 'Skin, hair & nail conditions, cosmetic procedures.',      Icon: MdFace,            from: 'from-emerald-500', to: 'to-emerald-600', light: 'bg-emerald-50', border: 'border-emerald-200', check: 'bg-emerald-500' },
 ]
-const REASONS = ['General Consultation','Follow-up Visit','Skin Assessment','Acne Treatment','Annual Check-up','Other']
 const MONTHS  = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAYS    = ['Su','Mo','Tu','We','Th','Fr','Sa']
 const STEPS   = ['Clinic','Doctor','Schedule','Details','Confirm']
@@ -28,28 +32,6 @@ function getDaysInMonth(y, m) { return new Date(y, m+1, 0).getDate() }
 function getFirstDay(y, m)    { return new Date(y, m, 1).getDay() }
 function pad(n) { return String(n).padStart(2, '0') }
 function toISO(y, m, d) { return `${y}-${pad(m+1)}-${pad(d)}` }
-function parseLocal(iso) { const [y,m,d] = iso.split('-').map(Number); return new Date(y,m-1,d) }
-
-function buildSlots(sched) {
-  const slots = []
-  let [h, m]    = sched.start_time.split(':').map(Number)
-  const [eh,em] = sched.end_time.split(':').map(Number)
-  while (h*60+m < eh*60+em) {
-    const ampm = h>=12?'PM':'AM', h12=h>12?h-12:h===0?12:h
-    slots.push(`${h12}:${pad(m)} ${ampm}`)
-    m += sched.slot_duration_mins
-    if (m>=60) { h+=Math.floor(m/60); m%=60 }
-  }
-  return slots
-}
-function isPastSlot(slot) {
-  const [tp, pd] = slot.split(' ')
-  let [h,m] = tp.split(':').map(Number)
-  if (pd==='PM'&&h!==12) h+=12
-  if (pd==='AM'&&h===12) h=0
-  const n = new Date()
-  return h*60+m <= n.getHours()*60+n.getMinutes()+5
-}
 
 // ── Step bar ──────────────────────────────────────────────────────────────────
 const StepBar = ({ current }) => (
@@ -140,10 +122,11 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList }) => {
 }
 
 // ── Step 3: Schedule ──────────────────────────────────────────────────────────
-const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules }) => {
+const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules, unavailableDates }) => {
   const today = new Date()
   const [viewYear,  setViewYear]  = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
+  const blockedDates = buildUnavailableDateSet(unavailableDates)
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth)
   const firstDay    = getFirstDay(viewYear, viewMonth)
@@ -151,9 +134,10 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
 
   const isPast = d => new Date(viewYear,viewMonth,d) < new Date(today.getFullYear(),today.getMonth(),today.getDate())
   const isUnavailable = d => {
+    const dateString = toISO(viewYear, viewMonth, d)
+    if (blockedDates.has(dateString)) return true
     if (!doctorSchedules?.length) return false
-    const dayName = new Date(viewYear,viewMonth,d).toLocaleDateString('en-US',{weekday:'long'})
-    return !doctorSchedules.find(s => s.day_of_week===dayName && s.is_active)
+    return !isDoctorAvailableOnDate(dateString, doctorSchedules, unavailableDates)
   }
   const isSelected = d => date === toISO(viewYear,viewMonth,d)
   const isToday    = d => d===today.getDate()&&viewMonth===today.getMonth()&&viewYear===today.getFullYear()
@@ -252,7 +236,7 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
 }
 
 // ── Step 4: Details ───────────────────────────────────────────────────────────
-const StepDetails = ({ reason, notes, onReasonChange, onNotesChange }) => (
+const StepDetails = ({ reason, notes, reasonOptions, loadingReasons, onReasonChange, onNotesChange }) => (
   <div className="space-y-4">
     <div>
       <h2 className="text-lg font-bold text-slate-800">Visit Details</h2>
@@ -263,14 +247,24 @@ const StepDetails = ({ reason, notes, onReasonChange, onNotesChange }) => (
         Reason for Visit <span className="text-red-400">*</span>
       </p>
       <div className="grid grid-cols-2 gap-2">
-        {REASONS.map(r => (
-          <button key={r} onClick={() => onReasonChange(r)}
+        {(reasonOptions || []).map((option) => (
+          <button key={option.id || option.label} onClick={() => onReasonChange(option.label)}
             className={`p-3 rounded-2xl text-xs font-semibold text-left border-2 transition-all active:scale-[0.98]
-              ${reason===r ? 'border-emerald-400 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'}`}>
-            {r}
+              ${reason===option.label ? 'border-emerald-400 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'}`}>
+            {option.label}
           </button>
         ))}
       </div>
+      {loadingReasons && (
+        <p className="mt-2 text-xs text-slate-400">Loading reason options…</p>
+      )}
+      <input
+        type="text"
+        value={reason}
+        onChange={(e) => onReasonChange(e.target.value)}
+        placeholder="Or type a custom reason"
+        className="mt-3 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 placeholder-slate-300 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 transition-all"
+      />
     </div>
     <div>
       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
@@ -374,6 +368,9 @@ const BookAppointment = () => {
   const [doctorList,      setDoctorList]      = useState({ medical: [], derma: [] })
   const [timeSlots,       setTimeSlots]       = useState([])
   const [doctorSchedules, setDoctorSchedules] = useState([])
+  const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([])
+  const [reasonOptions, setReasonOptions] = useState([])
+  const [loadingReasons, setLoadingReasons] = useState(false)
 
   useEffect(() => {
     getDoctors()
@@ -386,30 +383,56 @@ const BookAppointment = () => {
   }, [])
 
   useEffect(() => {
-    if (!form.doctor) { setDoctorSchedules([]); setTimeSlots([]); return }
-    getDoctorSchedule(form.doctor.id)
-      .then(s => setDoctorSchedules(s))
-      .catch(() => setDoctorSchedules([]))
+    if (!form.clinicType) {
+      setReasonOptions([])
+      return
+    }
+
+    setLoadingReasons(true)
+    getAppointmentReasons(form.clinicType)
+      .then((rows) => setReasonOptions(Array.isArray(rows) ? rows : []))
+      .catch(() => setReasonOptions([]))
+      .finally(() => setLoadingReasons(false))
+  }, [form.clinicType])
+
+  useEffect(() => {
+    if (!form.doctor) {
+      setDoctorSchedules([])
+      setDoctorUnavailableDates([])
+      setTimeSlots([])
+      return
+    }
+
+    Promise.all([
+      getDoctorSchedule(form.doctor.id),
+      getDoctorUnavailableDates(form.doctor.id),
+    ])
+      .then(([schedules, blockedDates]) => {
+        setDoctorSchedules(Array.isArray(schedules) ? schedules : [])
+        setDoctorUnavailableDates(Array.isArray(blockedDates) ? blockedDates : [])
+      })
+      .catch(() => {
+        setDoctorSchedules([])
+        setDoctorUnavailableDates([])
+      })
   }, [form.doctor])
 
   useEffect(() => {
     if (!form.doctor || !form.date || !doctorSchedules.length) { setTimeSlots([]); return }
-    const localDate = parseLocal(form.date)
-    const dayName   = localDate.toLocaleDateString('en-US', { weekday: 'long' })
-    const sched     = doctorSchedules.find(s => s.day_of_week === dayName && s.is_active)
-    if (!sched) { setTimeSlots([]); return }
+    if (!isDoctorAvailableOnDate(form.date, doctorSchedules, doctorUnavailableDates)) {
+      setTimeSlots([])
+      return
+    }
 
     let cancelled = false
 
     getDoctorTakenSlots(form.doctor.id, form.date)
       .then((reservedSlots) => {
         if (cancelled) return
-        let slots = buildSlots(sched)
-        const todayStr = getLocalDateOnly()
-        if (form.date === todayStr) slots = slots.filter((slot) => !isPastSlot(slot))
-
-        const taken = Array.isArray(reservedSlots) ? reservedSlots : []
-        const available = slots.filter((slot) => !taken.includes(slot))
+        const available = buildSlotsForScheduleDate(form.date, doctorSchedules, {
+          takenSlots: Array.isArray(reservedSlots) ? reservedSlots : [],
+          unavailableDates: doctorUnavailableDates,
+        })
 
         setTimeSlots(available)
         setForm((prev) => (prev.time && !available.includes(prev.time) ? { ...prev, time: '' } : prev))
@@ -420,7 +443,7 @@ const BookAppointment = () => {
       })
 
     return () => { cancelled = true }
-  }, [form.date, form.doctor, doctorSchedules])
+  }, [form.date, form.doctor, doctorSchedules, doctorUnavailableDates])
 
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
@@ -494,9 +517,19 @@ const BookAppointment = () => {
                   onDateChange={set('date')} onTimeChange={set('time')}
                   timeSlots={timeSlots}
                   doctorSchedules={doctorSchedules}
+                  unavailableDates={doctorUnavailableDates}
                 />
               )}
-              {step===3 && <StepDetails reason={form.reason} notes={form.notes} onReasonChange={set('reason')} onNotesChange={set('notes')} />}
+              {step===3 && (
+                <StepDetails
+                  reason={form.reason}
+                  notes={form.notes}
+                  reasonOptions={reasonOptions}
+                  loadingReasons={loadingReasons}
+                  onReasonChange={set('reason')}
+                  onNotesChange={set('notes')}
+                />
+              )}
               {step===4 && <StepConfirm form={form} />}
 
               {/* Nav */}

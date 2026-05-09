@@ -25,6 +25,12 @@ const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendDoctorAppointmentSms } = require('../utils/smsService')
+const {
+  getDoctorUnavailableDate,
+  getDoctorUnavailableDates,
+  countActiveAppointmentsOnDate,
+} = require('../utils/doctorAvailability')
+const { loadImagesForConsultationIds } = require('../utils/consultationImages')
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 const DOCTOR_SPECIALTIES = new Set(['Dermatologist', 'General Medicine'])
@@ -372,6 +378,13 @@ const rescheduleAppointment = async (req, res) => {
   if (conflict.length > 0)
     return res.status(409).json({ message: 'That time slot is already taken.' })
 
+  const blockedDate = await getDoctorUnavailableDate(rows[0].doctor_id, normalizedDate)
+  if (blockedDate) {
+    return res.status(409).json({
+      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
+    })
+  }
+
   await db.query(
     "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=?",
     [normalizedDate, appointment_time, req.params.id]
@@ -431,6 +444,13 @@ const createAppointment = async (req, res) => {
   )
   if (existing.length > 0)
     return res.status(409).json({ message: 'That time slot is already taken.' })
+
+  const blockedDate = await getDoctorUnavailableDate(doctor_id, normalizedDate)
+  if (blockedDate) {
+    return res.status(409).json({
+      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
+    })
+  }
 
   const [result] = await db.query(
     'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes) VALUES (?,?,?,?,?,?,?)',
@@ -560,7 +580,7 @@ const getPatientRecord = async (req, res) => {
   const [history] = await db.query(
     `SELECT a.*, DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS date,
             d.full_name AS doctor_name, d.specialty,
-            c.diagnosis, c.prescription, c.notes AS consultation_notes
+            c.id AS consultation_id, c.diagnosis, c.prescription, c.notes AS consultation_notes
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
@@ -579,7 +599,16 @@ const getPatientRecord = async (req, res) => {
     [req.params.id]
   )
 
-  res.json({ patient, history, upcoming })
+  const imagesByConsultationId = await loadImagesForConsultationIds(history.map((row) => row.consultation_id))
+
+  res.json({
+    patient,
+    history: history.map((row) => ({
+      ...row,
+      progress_images: imagesByConsultationId[row.consultation_id] || [],
+    })),
+    upcoming,
+  })
 }
 
 const createWalkInPatient = async (req, res) => {
@@ -773,6 +802,66 @@ const updateDoctor = async (req, res) => {
 
 // ── Doctor Schedules ──────────────────────────────────────────────────────────
 
+const getAppointmentReasonOptions = async (req, res) => {
+  const [rows] = await db.query(
+    `SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at
+     FROM appointment_reason_options
+     ORDER BY sort_order ASC, label ASC`
+  )
+  res.json(rows)
+}
+
+const createAppointmentReasonOption = async (req, res) => {
+  const label = String(req.body.label || '').trim()
+  const clinicType = ['medical', 'derma', 'all'].includes(req.body.clinic_type) ? req.body.clinic_type : 'all'
+  const sortOrder = Number(req.body.sort_order) || 0
+
+  if (!label) {
+    return res.status(400).json({ message: 'Reason label is required.' })
+  }
+
+  const [result] = await db.query(
+    `INSERT INTO appointment_reason_options (label, clinic_type, is_active, sort_order)
+     VALUES (?, ?, ?, ?)`,
+    [label, clinicType, req.body.is_active === 0 ? 0 : 1, sortOrder]
+  )
+
+  const [rows] = await db.query(
+    'SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at FROM appointment_reason_options WHERE id = ?',
+    [result.insertId]
+  )
+  res.status(201).json(rows[0])
+}
+
+const updateAppointmentReasonOption = async (req, res) => {
+  const label = String(req.body.label || '').trim()
+  const clinicType = ['medical', 'derma', 'all'].includes(req.body.clinic_type) ? req.body.clinic_type : 'all'
+  const sortOrder = Number(req.body.sort_order) || 0
+
+  if (!label) {
+    return res.status(400).json({ message: 'Reason label is required.' })
+  }
+
+  await db.query(
+    `UPDATE appointment_reason_options
+     SET label = ?, clinic_type = ?, is_active = ?, sort_order = ?
+     WHERE id = ?`,
+    [label, clinicType, req.body.is_active === 0 ? 0 : 1, sortOrder, req.params.reasonId]
+  )
+
+  const [rows] = await db.query(
+    'SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at FROM appointment_reason_options WHERE id = ?',
+    [req.params.reasonId]
+  )
+  if (rows.length === 0) return res.status(404).json({ message: 'Reason option not found.' })
+  res.json(rows[0])
+}
+
+const deleteAppointmentReasonOption = async (req, res) => {
+  await db.query('DELETE FROM appointment_reason_options WHERE id = ?', [req.params.reasonId])
+  res.json({ message: 'Reason option removed.' })
+}
+
 const getDoctorSchedules = async (req, res) => {
   const [rows] = await db.query(
     'SELECT * FROM doctor_schedules WHERE doctor_id = ? ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
@@ -802,6 +891,60 @@ const saveDaySchedule = async (req, res) => {
 }
 
 // ── Reports ───────────────────────────────────────────────────────────────────
+
+const getDoctorUnavailableDatesAdmin = async (req, res) => {
+  const rows = await getDoctorUnavailableDates(req.params.id, {
+    startDate: String(req.query.start_date || '').trim() || undefined,
+    endDate: String(req.query.end_date || '').trim() || undefined,
+  })
+  res.json(rows)
+}
+
+const saveDoctorUnavailableDateAdmin = async (req, res) => {
+  const unavailableDate = toDateOnly(req.body.unavailable_date)
+  const reason = String(req.body.reason || '').trim() || null
+  const doctorId = req.params.id
+
+  if (!isValidDateOnly(unavailableDate)) {
+    return res.status(400).json({ message: 'A valid unavailable date is required.' })
+  }
+  if (unavailableDate < getTodayDateOnly()) {
+    return res.status(400).json({ message: 'Cannot block a past date.' })
+  }
+
+  const activeCount = await countActiveAppointmentsOnDate(doctorId, unavailableDate)
+  if (activeCount > 0) {
+    return res.status(409).json({
+      message: 'This date already has active appointments. Reschedule or cancel them first.',
+    })
+  }
+
+  await db.query(
+    `INSERT INTO doctor_unavailable_dates (doctor_id, unavailable_date, reason, created_by_role, created_by_user_id)
+     VALUES (?, ?, ?, 'admin', ?)
+     ON DUPLICATE KEY UPDATE
+       reason = VALUES(reason),
+       created_by_role = 'admin',
+       created_by_user_id = VALUES(created_by_user_id)`,
+    [doctorId, unavailableDate, reason, req.user.id]
+  )
+
+  res.json({ message: 'Unavailable date saved.' })
+}
+
+const deleteDoctorUnavailableDateAdmin = async (req, res) => {
+  const unavailableDate = toDateOnly(req.params.date)
+  if (!isValidDateOnly(unavailableDate)) {
+    return res.status(400).json({ message: 'A valid unavailable date is required.' })
+  }
+
+  await db.query(
+    'DELETE FROM doctor_unavailable_dates WHERE doctor_id = ? AND unavailable_date = ?',
+    [req.params.id, unavailableDate]
+  )
+
+  res.json({ message: 'Unavailable date removed.' })
+}
 
 const getReports = async (req, res) => {
   const months = req.query.period === '3months' ? 3 : 6
@@ -1217,8 +1360,10 @@ module.exports = {
   getPatients, getPatientRecord,
   createWalkInPatient,
   getStaff, createStaff, toggleStaff, updateStaff,
+  getAppointmentReasonOptions, createAppointmentReasonOption, updateAppointmentReasonOption, deleteAppointmentReasonOption,
   getDoctors, createDoctor, toggleDoctor, updateDoctor,
   getDoctorSchedules, saveDaySchedule,
+  getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
   getReports, getInventoryLogs,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,

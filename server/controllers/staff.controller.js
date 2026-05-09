@@ -21,6 +21,13 @@ const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendDoctorAppointmentSms } = require('../utils/smsService')
+const { getDoctorUnavailableDate, getDoctorUnavailableDates } = require('../utils/doctorAvailability')
+const { loadImagesForConsultationIds } = require('../utils/consultationImages')
+const {
+  computeBillingTotals,
+  getBillingRecordWithItems,
+  normalizeBillingItems,
+} = require('../utils/billing')
 
 const makeTempPassword = () => Math.random().toString(36).slice(-8)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
@@ -222,6 +229,13 @@ const createAppointment = async (req, res) => {
   if (existing.length > 0)
     return res.status(409).json({ message: 'That time slot is already taken.' })
 
+  const blockedDate = await getDoctorUnavailableDate(doctor_id, normalizedDate)
+  if (blockedDate) {
+    return res.status(409).json({
+      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
+    })
+  }
+
   const [result] = await db.query(
     'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes) VALUES (?,?,?,?,?,?,?)',
     [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null]
@@ -387,12 +401,19 @@ const rescheduleAppointment = async (req, res) => {
 
   const [conflict] = await db.query(
     `SELECT id FROM appointments
-     WHERE doctor_id=? AND appointment_date=? AND appointment_time=?
+     WHERE doctor_id=? AND appointment_date=? AND appointment_time=? 
      AND status IN ('pending','confirmed','rescheduled','in-progress') AND id != ?`,
     [rows[0].doctor_id, normalizedDate, appointment_time, req.params.id]
   )
   if (conflict.length > 0)
     return res.status(409).json({ message: 'That time slot is already taken.' })
+
+  const blockedDate = await getDoctorUnavailableDate(rows[0].doctor_id, normalizedDate)
+  if (blockedDate) {
+    return res.status(409).json({
+      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
+    })
+  }
 
   await db.query(
     "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=?",
@@ -565,7 +586,7 @@ const getPatientRecord = async (req, res) => {
             a.appointment_time                          AS time,
             a.clinic_type                               AS type,
             d.full_name AS doctor_name, d.specialty,
-            c.diagnosis, c.prescription, c.notes AS consultation_notes
+            c.id AS consultation_id, c.diagnosis, c.prescription, c.notes AS consultation_notes
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
@@ -573,11 +594,164 @@ const getPatientRecord = async (req, res) => {
      ORDER BY a.appointment_date DESC`,
     [req.params.id]
   )
+  const imagesByConsultationId = await loadImagesForConsultationIds(history.map((row) => row.consultation_id))
 
-  res.json({ patient, history })
+  res.json({
+    patient,
+    history: history.map((row) => ({
+      ...row,
+      progress_images: imagesByConsultationId[row.consultation_id] || [],
+    })),
+  })
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
+
+const getBills = async (req, res) => {
+  const status = String(req.query.status || '').trim()
+  const params = []
+  let sql = `
+    SELECT
+      b.id,
+      b.appointment_id,
+      b.status,
+      b.subtotal,
+      b.discount_type,
+      b.discount_label,
+      b.discount_amount,
+      b.total_amount,
+      b.payment_method,
+      b.payment_notes,
+      b.paid_at,
+      b.created_at,
+      b.updated_at,
+      DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+      a.appointment_time,
+      a.reason AS appointment_reason,
+      a.clinic_type,
+      p.full_name AS patient_name,
+      p.phone AS patient_phone,
+      d.full_name AS doctor_name,
+      d.specialty AS doctor_specialty,
+      s.full_name AS confirmed_by_staff_name
+    FROM billing_records b
+    JOIN appointments a ON a.id = b.appointment_id
+    JOIN patients p ON p.id = b.patient_id
+    JOIN doctors d ON d.id = b.doctor_id
+    LEFT JOIN staff s ON s.id = b.confirmed_by_staff_id
+  `
+
+  if (status) {
+    sql += ' WHERE b.status = ?'
+    params.push(status)
+  }
+
+  sql += ' ORDER BY FIELD(b.status, "pending", "paid", "cancelled"), b.created_at DESC'
+
+  const [rows] = await db.query(sql, params)
+  res.json(rows)
+}
+
+const getBillById = async (req, res) => {
+  const bill = await getBillingRecordWithItems(req.params.id)
+  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
+  res.json(bill)
+}
+
+const updateBill = async (req, res) => {
+  const bill = await getBillingRecordWithItems(req.params.id)
+  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
+  if (bill.status === 'paid') {
+    return res.status(400).json({ message: 'Paid bills can no longer be edited.' })
+  }
+
+  const items = normalizeBillingItems(req.body.items)
+  if (items.length === 0) {
+    return res.status(400).json({ message: 'Add at least one bill item.' })
+  }
+
+  const discountType = String(req.body.discount_type || 'none').trim() || 'none'
+  const discountLabel = String(req.body.discount_label || '').trim() || null
+  const discountAmount = Math.max(0, Number(req.body.discount_amount) || 0)
+  const paymentMethod = String(req.body.payment_method || '').trim() || null
+  const paymentNotes = String(req.body.payment_notes || '').trim() || null
+  const totals = computeBillingTotals({ items, discount_amount: discountAmount })
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    await conn.query('DELETE FROM billing_items WHERE billing_id = ?', [req.params.id])
+
+    for (const item of items) {
+      await conn.query(
+        `INSERT INTO billing_items
+         (billing_id, catalog_service_id, category, service_name, quantity, unit_price, line_total, notes, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.params.id,
+          item.catalog_service_id || null,
+          item.category,
+          item.service_name,
+          item.quantity,
+          item.unit_price,
+          item.line_total,
+          item.notes,
+          item.sort_order,
+        ]
+      )
+    }
+
+    await conn.query(
+      `UPDATE billing_records
+       SET subtotal = ?, discount_type = ?, discount_label = ?, discount_amount = ?, total_amount = ?, payment_method = ?, payment_notes = ?
+       WHERE id = ?`,
+      [
+        totals.subtotal,
+        discountType,
+        discountLabel,
+        totals.discount_amount,
+        totals.total_amount,
+        paymentMethod,
+        paymentNotes,
+        req.params.id,
+      ]
+    )
+
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
+
+  const updatedBill = await getBillingRecordWithItems(req.params.id)
+  res.json(updatedBill)
+}
+
+const confirmBillPayment = async (req, res) => {
+  const bill = await getBillingRecordWithItems(req.params.id)
+  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
+  if (bill.status === 'paid') {
+    return res.status(400).json({ message: 'This bill is already marked as paid.' })
+  }
+
+  const paymentMethod = String(req.body.payment_method || bill.payment_method || '').trim().toLowerCase()
+  const paymentNotes = String(req.body.payment_notes || bill.payment_notes || '').trim() || null
+  if (!paymentMethod) {
+    return res.status(400).json({ message: 'Select a payment method first.' })
+  }
+
+  await db.query(
+    `UPDATE billing_records
+     SET status = 'paid', payment_method = ?, payment_notes = ?, confirmed_by_staff_id = ?, paid_at = NOW()
+     WHERE id = ?`,
+    [paymentMethod, paymentNotes, req.user.id, req.params.id]
+  )
+
+  const updatedBill = await getBillingRecordWithItems(req.params.id)
+  res.json(updatedBill)
+}
 
 const getInventory = async (req, res) => {
   const items = await loadInventoryRows()
@@ -782,6 +956,14 @@ const getDoctorSchedules = async (req, res) => {
   res.json(rows)
 }
 
+const getDoctorUnavailableDatesForStaff = async (req, res) => {
+  const rows = await getDoctorUnavailableDates(req.params.id, {
+    startDate: String(req.query.start_date || '').trim() || undefined,
+    endDate: String(req.query.end_date || '').trim() || undefined,
+  })
+  res.json(rows)
+}
+
 // ── Supply Requests ───────────────────────────────────────────────────────────
 
 const getSupplyRequests = async (req, res) => {
@@ -846,7 +1028,8 @@ module.exports = {
   getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment,
   getQueue, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
+  getBills, getBillById, updateBill, confirmBillPayment,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
-  getDoctors, getDoctorSchedules,
+  getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }

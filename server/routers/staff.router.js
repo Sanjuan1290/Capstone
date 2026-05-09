@@ -38,6 +38,10 @@ router.patch('/queue/:id/status', ...auth, staffCtrl.updateQueueStatus)
 router.get('/patients',     ...auth, staffCtrl.getPatients)
 router.post('/patients/walk-in', ...auth, staffCtrl.createWalkInPatient)
 router.get('/patients/:id', ...auth, staffCtrl.getPatientRecord)
+router.get('/billing', ...auth, staffCtrl.getBills)
+router.get('/billing/:id', ...auth, staffCtrl.getBillById)
+router.put('/billing/:id', ...auth, staffCtrl.updateBill)
+router.post('/billing/:id/confirm-payment', ...auth, staffCtrl.confirmBillPayment)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 router.get('/inventory',              ...auth, staffCtrl.getInventory)
@@ -50,6 +54,7 @@ router.delete('/inventory/:id',       ...auth, staffCtrl.deleteInventoryItem)
 // ── Doctors list ──────────────────────────────────────────────────────────────
 router.get('/doctors', ...auth, staffCtrl.getDoctors)
 router.get('/doctors/:id/schedules', ...auth, staffCtrl.getDoctorSchedules)
+router.get('/doctors/:id/unavailable-dates', ...auth, staffCtrl.getDoctorUnavailableDatesForStaff)
 
 // ── Supply Requests ───────────────────────────────────────────────────────────
 router.get('/supply-requests',       ...auth, staffCtrl.getSupplyRequests)

@@ -39,6 +39,9 @@ export const updateConsultation = (appointmentId, payload) =>
     body: JSON.stringify(payload),
   })
 
+export const getBillingCatalog = (clinicType = '') =>
+  requestJson(`${BASE}/billing/catalog${clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''}`)
+
 export const getPatientHistory = (patientId) =>
   fetch(`${BASE}/patients/${patientId}/history`, { credentials: 'include' }).then(r => r.json())
 
@@ -70,6 +73,26 @@ export const saveMyScheduleDay = (payload) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).then(r => r.json())
+
+export const getMyUnavailableDates = (params = {}) => {
+  const search = new URLSearchParams()
+  if (params.startDate) search.set('start_date', params.startDate)
+  if (params.endDate) search.set('end_date', params.endDate)
+  const query = search.toString()
+  return fetch(`${BASE}/schedule/unavailable-dates${query ? `?${query}` : ''}`, { credentials: 'include' }).then(r => r.json())
+}
+
+export const saveMyUnavailableDate = (payload) =>
+  requestJson(`${BASE}/schedule/unavailable-dates`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const deleteMyUnavailableDate = (date) =>
+  requestJson(`${BASE}/schedule/unavailable-dates/${encodeURIComponent(date)}`, {
+    method: 'DELETE',
+  })
 
 // NEW: get today's walk-in queue for the logged-in doctor
 export const getMyQueue = () =>

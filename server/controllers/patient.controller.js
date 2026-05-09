@@ -9,6 +9,8 @@ const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendDoctorAppointmentSms, sendPatientRegistrationOtp, isSmsConfigured } = require('../utils/smsService')
+const { getDoctorUnavailableDates, getDoctorUnavailableDate } = require('../utils/doctorAvailability')
+const { loadImagesForConsultationIds } = require('../utils/consultationImages')
 const {
   normalizePatientProfileInput,
   getPatientProfileStatus,
@@ -495,6 +497,7 @@ const getHistory = async (req, res) => {
          WHEN 'medical' THEN 'General Medicine'
          ELSE a.clinic_type
        END AS clinic,
+       c.id AS consultation_id,
        c.diagnosis,
        c.prescription,
        c.notes AS consultation_notes
@@ -505,7 +508,11 @@ const getHistory = async (req, res) => {
      ORDER BY a.appointment_date DESC`,
     [req.user.id]
   )
-  res.json(rows)
+  const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
+  res.json(rows.map((row) => ({
+    ...row,
+    progress_images: imagesByConsultationId[row.consultation_id] || [],
+  })))
 }
 
 const createAppointment = async (req, res) => {
@@ -550,6 +557,13 @@ const createAppointment = async (req, res) => {
   )
   if (existing.length > 0) {
     return res.status(409).json({ message: 'That time slot is already taken.' })
+  }
+
+  const blockedDate = await getDoctorUnavailableDate(doctor_id, normalizedDate)
+  if (blockedDate) {
+    return res.status(409).json({
+      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
+    })
   }
 
   const [result] = await db.query(
@@ -683,6 +697,13 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(409).json({ message: 'That time slot is already taken.' })
   }
 
+  const blockedDate = await getDoctorUnavailableDate(rows[0].doctor_id, normalizedDate)
+  if (blockedDate) {
+    return res.status(409).json({
+      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
+    })
+  }
+
   await db.query(
     `UPDATE appointments
      SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes)
@@ -748,6 +769,26 @@ const getDoctors = async (req, res) => {
   res.json(rows)
 }
 
+const getAppointmentReasons = async (req, res) => {
+  const clinicType = String(req.query.clinic_type || '').trim()
+  const params = []
+  let sql = `
+    SELECT id, label, clinic_type, is_active, sort_order
+    FROM appointment_reason_options
+    WHERE is_active = 1
+  `
+
+  if (clinicType) {
+    sql += ' AND (clinic_type = ? OR clinic_type = "all")'
+    params.push(clinicType)
+  }
+
+  sql += ' ORDER BY sort_order ASC, label ASC'
+
+  const [rows] = await db.query(sql, params)
+  res.json(rows)
+}
+
 const getDoctorSchedule = async (req, res) => {
   const [rows] = await db.query(
     'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND is_active = 1',
@@ -756,10 +797,23 @@ const getDoctorSchedule = async (req, res) => {
   res.json(rows)
 }
 
+const getDoctorUnavailableDatesController = async (req, res) => {
+  const rows = await getDoctorUnavailableDates(req.params.id, {
+    startDate: String(req.query.start_date || '').trim() || undefined,
+    endDate: String(req.query.end_date || '').trim() || undefined,
+  })
+  res.json(rows)
+}
+
 const getDoctorTakenSlots = async (req, res) => {
   const normalizedDate = toDateOnly(req.query.date)
   if (!isValidDateOnly(normalizedDate)) {
     return res.status(400).json({ message: 'A valid date is required.' })
+  }
+
+  const blockedDate = await getDoctorUnavailableDate(req.params.id, normalizedDate)
+  if (blockedDate) {
+    return res.json([])
   }
 
   const excludeAppointmentId = Number(req.query.exclude_appointment_id)
@@ -795,7 +849,9 @@ module.exports = {
   createAppointment,
   cancelAppointment,
   rescheduleAppointment,
+  getAppointmentReasons,
   getDoctors,
   getDoctorSchedule,
+  getDoctorUnavailableDatesController,
   getDoctorTakenSlots,
 }

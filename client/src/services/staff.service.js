@@ -75,6 +75,28 @@ export const createWalkInPatient = (payload) =>
 export const getPatientRecord = (id) =>
   fetch(`${BASE}/patients/${id}`, { credentials: 'include' }).then(r => r.json())
 
+export const getBills = (status = '') => {
+  const query = status ? `?status=${encodeURIComponent(status)}` : ''
+  return requestJson(`${BASE}/billing${query}`)
+}
+
+export const getBillById = (id) =>
+  requestJson(`${BASE}/billing/${id}`)
+
+export const updateBill = (id, payload) =>
+  requestJson(`${BASE}/billing/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const confirmBillPayment = (id, payload) =>
+  requestJson(`${BASE}/billing/${id}/confirm-payment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
 export const getInventory = () =>
   fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
 
@@ -111,6 +133,14 @@ export const getDoctors = () =>
 
 export const getDoctorSchedules = (doctorId) =>
   fetch(`${BASE}/doctors/${doctorId}/schedules`, { credentials: 'include' }).then(r => r.json())
+
+export const getDoctorUnavailableDates = (doctorId, params = {}) => {
+  const search = new URLSearchParams()
+  if (params.startDate) search.set('start_date', params.startDate)
+  if (params.endDate) search.set('end_date', params.endDate)
+  const query = search.toString()
+  return requestJson(`${BASE}/doctors/${doctorId}/unavailable-dates${query ? `?${query}` : ''}`)
+}
 
 export const getSupplyRequests = () =>
   fetch(`${BASE}/supply-requests`, { credentials: 'include' }).then(r => r.json())

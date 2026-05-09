@@ -8,6 +8,15 @@ const { createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly } = require('../utils/date')
+const {
+  toDateOnly,
+  isValidDateOnly,
+  getDoctorUnavailableDates,
+  getDoctorUnavailableDate,
+  countActiveAppointmentsOnDate,
+} = require('../utils/doctorAvailability')
+const { loadImagesForConsultationIds, syncConsultationImages } = require('../utils/consultationImages')
+const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment } = require('../utils/billing')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -103,7 +112,11 @@ const getDailyAppointments = async (req, res) => {
      ORDER BY a.appointment_time ASC`,
     [req.user.id, date]
   )
-  res.json(rows)
+  const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
+  res.json(rows.map((row) => ({
+    ...row,
+    progress_images: imagesByConsultationId[row.consultation_id] || [],
+  })))
 }
 
 const startConsultation = async (req, res) => {
@@ -135,45 +148,100 @@ const startConsultation = async (req, res) => {
 
 const saveConsultation = async (req, res) => {
   const { diagnosis, prescription, notes } = req.body
+  const hasImagesPayload = Object.prototype.hasOwnProperty.call(req.body, 'images')
+  const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
+  const images = hasImagesPayload ? req.body.images : []
+  const billableServices = hasBillableServicesPayload ? req.body.billable_services : []
   const { appointmentId } = req.params
-  const [apptRows] = await db.query(
-    'SELECT * FROM appointments WHERE id = ? AND doctor_id = ?',
-    [appointmentId, req.user.id]
-  )
-  if (apptRows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
-  const appt = apptRows[0]
-  const [existing] = await db.query('SELECT id FROM consultations WHERE appointment_id = ?', [appointmentId])
-  if (existing.length > 0) {
-    await db.query(
-      'UPDATE consultations SET diagnosis=?, prescription=?, notes=? WHERE appointment_id=?',
-      [diagnosis||null, prescription||null, notes||null, appointmentId]
+  const conn = await db.getConnection()
+  let appt
+  let consultationId = null
+  let queueId = null
+  let billing = null
+
+  try {
+    await conn.beginTransaction()
+
+    const [apptRows] = await conn.query(
+      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ?',
+      [appointmentId, req.user.id]
     )
-  } else {
-    await db.query(
-      'INSERT INTO consultations (appointment_id, doctor_id, patient_id, diagnosis, prescription, notes) VALUES (?,?,?,?,?,?)',
-      [appointmentId, req.user.id, appt.patient_id, diagnosis||null, prescription||null, notes||null]
+    if (apptRows.length === 0) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Appointment not found.' })
+    }
+
+    appt = apptRows[0]
+
+    const [existing] = await conn.query(
+      'SELECT id FROM consultations WHERE appointment_id = ?',
+      [appointmentId]
     )
+
+    if (existing.length > 0) {
+      consultationId = existing[0].id
+      await conn.query(
+        'UPDATE consultations SET diagnosis = ?, prescription = ?, notes = ? WHERE id = ?',
+        [diagnosis || null, prescription || null, notes || null, consultationId]
+      )
+    } else {
+      const [result] = await conn.query(
+        'INSERT INTO consultations (appointment_id, doctor_id, patient_id, diagnosis, prescription, notes) VALUES (?,?,?,?,?,?)',
+        [appointmentId, req.user.id, appt.patient_id, diagnosis || null, prescription || null, notes || null]
+      )
+      consultationId = result.insertId
+    }
+
+    if (hasImagesPayload) {
+      await syncConsultationImages(consultationId, images, conn)
+    }
+    billing = await upsertDraftBillingForAppointment({
+      appointment: appt,
+      consultationId,
+      items: billableServices,
+    }, conn)
+
+    await conn.query("UPDATE appointments SET status = 'completed' WHERE id = ?", [appointmentId])
+
+    const [queueRows] = await conn.query(
+      `SELECT id
+       FROM queue
+       WHERE appointment_id = ? AND doctor_id = ? AND status IN ('waiting','in-progress')
+       ORDER BY id DESC
+       LIMIT 1`,
+      [appointmentId, req.user.id]
+    )
+    if (queueRows.length > 0) {
+      queueId = queueRows[0].id
+      await conn.query("UPDATE queue SET status = 'done' WHERE id = ?", [queueId])
+    }
+
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
   }
-  await db.query("UPDATE appointments SET status='completed' WHERE id=?", [appointmentId])
-  const [queueRows] = await db.query(
-    `SELECT id
-     FROM queue
-     WHERE appointment_id = ? AND doctor_id = ? AND status IN ('waiting','in-progress')
-     ORDER BY id DESC
-     LIMIT 1`,
-    [appointmentId, req.user.id]
-  )
-  if (queueRows.length > 0) {
-    await db.query("UPDATE queue SET status='done' WHERE id = ?", [queueRows[0].id])
+
+  if (queueId) {
     broadcast(['admin', 'staff', `doctor_${req.user.id}`], 'queue_updated', {
-      queueId: queueRows[0].id,
+      queueId,
       status: 'done',
       doctorId: req.user.id,
     })
   }
-  broadcast(['admin', 'staff', `patient_${appt.patient_id}`], 'appointment_updated', { appointmentId: Number(appointmentId), status: 'completed' })
-  broadcast(['admin', 'staff', `patient_${appt.patient_id}`, `doctor_${req.user.id}`], 'consultation_saved', { appointmentId: Number(appointmentId), patientId: appt.patient_id, doctorId: req.user.id })
-  res.json({ message: 'Consultation saved.' })
+
+  broadcast(['admin', 'staff', `patient_${appt.patient_id}`], 'appointment_updated', {
+    appointmentId: Number(appointmentId),
+    status: 'completed',
+  })
+  broadcast(['admin', 'staff', `patient_${appt.patient_id}`, `doctor_${req.user.id}`], 'consultation_saved', {
+    appointmentId: Number(appointmentId),
+    patientId: appt.patient_id,
+    doctorId: req.user.id,
+  })
+  res.json({ message: 'Consultation saved.', consultation_id: consultationId, billing })
 }
 
 // ── NEW: Get a single consultation (for viewing/editing after completion) ─────
@@ -191,24 +259,80 @@ const getConsultation = async (req, res) => {
     [appointmentId, req.user.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Consultation not found.' })
-  res.json(rows[0])
+  const consultation = rows[0]
+  const imagesByConsultationId = await loadImagesForConsultationIds([consultation.id])
+  const billing = await getBillingByAppointmentId(appointmentId)
+  res.json({
+    ...consultation,
+    progress_images: imagesByConsultationId[consultation.id] || [],
+    billing,
+  })
 }
 
 // ── NEW: Update (edit) a completed consultation ───────────────────────────────
 const updateConsultation = async (req, res) => {
   const { appointmentId } = req.params
   const { diagnosis, prescription, notes } = req.body
-  const [rows] = await db.query(
-    'SELECT id FROM consultations WHERE appointment_id = ? AND doctor_id = ?',
-    [appointmentId, req.user.id]
-  )
-  if (rows.length === 0) return res.status(404).json({ message: 'Consultation not found.' })
-  await db.query(
-    'UPDATE consultations SET diagnosis=?, prescription=?, notes=? WHERE appointment_id=? AND doctor_id=?',
-    [diagnosis||null, prescription||null, notes||null, appointmentId, req.user.id]
-  )
-  broadcast(['admin', 'staff', `doctor_${req.user.id}`], 'consultation_saved', { appointmentId: Number(appointmentId), doctorId: req.user.id, updated: true })
-  res.json({ message: 'Consultation updated.' })
+  const hasImagesPayload = Object.prototype.hasOwnProperty.call(req.body, 'images')
+  const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
+  const conn = await db.getConnection()
+  let patientId = null
+  let billing = null
+
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query(
+      `SELECT c.id, c.patient_id, a.id AS appointment_id, a.patient_id AS appointment_patient_id
+       FROM consultations c
+       JOIN appointments a ON a.id = c.appointment_id
+       WHERE c.appointment_id = ? AND c.doctor_id = ?`,
+      [appointmentId, req.user.id]
+    )
+    if (rows.length === 0) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Consultation not found.' })
+    }
+
+    const consultation = rows[0]
+    patientId = consultation.appointment_patient_id || consultation.patient_id
+
+    await conn.query(
+      'UPDATE consultations SET diagnosis = ?, prescription = ?, notes = ? WHERE id = ?',
+      [diagnosis || null, prescription || null, notes || null, consultation.id]
+    )
+    if (hasImagesPayload) {
+      await syncConsultationImages(consultation.id, req.body.images, conn)
+    }
+
+    const [apptRows] = await conn.query(
+      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1',
+      [appointmentId, req.user.id]
+    )
+    if (hasBillableServicesPayload) {
+      billing = await upsertDraftBillingForAppointment({
+        appointment: apptRows[0],
+        consultationId: consultation.id,
+        items: req.body.billable_services,
+      }, conn)
+    } else {
+      billing = await getBillingByAppointmentId(appointmentId, conn)
+    }
+
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
+
+  broadcast(['admin', 'staff', `patient_${patientId}`, `doctor_${req.user.id}`], 'consultation_saved', {
+    appointmentId: Number(appointmentId),
+    doctorId: req.user.id,
+    patientId,
+    updated: true,
+  })
+  res.json({ message: 'Consultation updated.', billing })
 }
 
 // ── Patient History ───────────────────────────────────────────────────────────
@@ -216,17 +340,28 @@ const updateConsultation = async (req, res) => {
 const getPatientHistory = async (req, res) => {
   const [rows] = await db.query(
     `SELECT a.*, a.appointment_date AS date, a.appointment_time AS time,
-            a.clinic_type AS type, c.diagnosis, c.prescription,
+            a.clinic_type AS type, c.id AS consultation_id, c.diagnosis, c.prescription,
             c.notes, c.notes AS consultation_notes, c.consulted_at
      FROM appointments a LEFT JOIN consultations c ON c.appointment_id = a.id
      WHERE a.patient_id = ? AND a.status IN ('completed','cancelled','no_show')
      ORDER BY a.appointment_date DESC`,
     [req.params.id]
   )
-  res.json(rows)
+  const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
+  res.json(rows.map((row) => ({
+    ...row,
+    progress_images: imagesByConsultationId[row.consultation_id] || [],
+  })))
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
+
+const getBillingCatalog = async (req, res) => {
+  const rows = await listBillingCatalog({
+    clinicType: String(req.query.clinic_type || '').trim() || undefined,
+  })
+  res.json(rows)
+}
 
 const getInventoryItems = async (req, res) => {
   const [rows] = await db.query(
@@ -391,12 +526,66 @@ const saveMyScheduleDay = async (req, res) => {
   res.json({ message: 'Schedule saved.' })
 }
 
+const getMyUnavailableDates = async (req, res) => {
+  const rows = await getDoctorUnavailableDates(req.user.id, {
+    startDate: String(req.query.start_date || '').trim() || undefined,
+    endDate: String(req.query.end_date || '').trim() || undefined,
+  })
+  res.json(rows)
+}
+
+const saveMyUnavailableDate = async (req, res) => {
+  const unavailableDate = toDateOnly(req.body.unavailable_date)
+  const reason = String(req.body.reason || '').trim() || null
+
+  if (!isValidDateOnly(unavailableDate)) {
+    return res.status(400).json({ message: 'A valid unavailable date is required.' })
+  }
+  if (unavailableDate < getTodayDateOnly()) {
+    return res.status(400).json({ message: 'Cannot block a past date.' })
+  }
+
+  const activeCount = await countActiveAppointmentsOnDate(req.user.id, unavailableDate)
+  if (activeCount > 0) {
+    return res.status(409).json({
+      message: 'This date already has active appointments. Reschedule or cancel them first.',
+    })
+  }
+
+  await db.query(
+    `INSERT INTO doctor_unavailable_dates (doctor_id, unavailable_date, reason, created_by_role, created_by_user_id)
+     VALUES (?, ?, ?, 'doctor', ?)
+     ON DUPLICATE KEY UPDATE
+       reason = VALUES(reason),
+       created_by_role = 'doctor',
+       created_by_user_id = VALUES(created_by_user_id)`,
+    [req.user.id, unavailableDate, reason, req.user.id]
+  )
+
+  res.json({ message: 'Unavailable date saved.' })
+}
+
+const deleteMyUnavailableDate = async (req, res) => {
+  const unavailableDate = toDateOnly(req.params.date)
+  if (!isValidDateOnly(unavailableDate)) {
+    return res.status(400).json({ message: 'A valid unavailable date is required.' })
+  }
+
+  await db.query(
+    'DELETE FROM doctor_unavailable_dates WHERE doctor_id = ? AND unavailable_date = ?',
+    [req.user.id, unavailableDate]
+  )
+
+  res.json({ message: 'Unavailable date removed.' })
+}
+
 module.exports = {
   login, checkAuth, logout,
   getDashboard, getDailyAppointments, startConsultation,
   saveConsultation, getConsultation, updateConsultation,
-  getPatientHistory,
+  getPatientHistory, getBillingCatalog,
   getInventoryItems, getMyRequests, submitRequest,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
+  getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
