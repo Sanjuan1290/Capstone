@@ -60,6 +60,33 @@ export const deleteAppointmentReason = (id) =>
     method: 'DELETE',
   })
 
+export const getBillingCatalog = (params = {}) => {
+  const search = new URLSearchParams()
+  if (params.clinicType) search.set('clinic_type', params.clinicType)
+  if (params.includeInactive) search.set('include_inactive', '1')
+  const query = search.toString()
+  return requestJson(`${BASE}/billing/catalog${query ? `?${query}` : ''}`)
+}
+
+export const createBillingCatalogService = (payload) =>
+  requestJson(`${BASE}/billing/catalog`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const updateBillingCatalogService = (id, payload) =>
+  requestJson(`${BASE}/billing/catalog/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const deleteBillingCatalogService = (id) =>
+  requestJson(`${BASE}/billing/catalog/${id}`, {
+    method: 'DELETE',
+  })
+
 export const getStaff = () =>
   fetch(`${BASE}/staff`, { credentials: 'include' }).then(r => r.json())
 

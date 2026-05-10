@@ -13,12 +13,15 @@ import {
   MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices,
   MdCalendarToday, MdInventory2, MdBarChart, MdChevronLeft,
   MdLogout, MdAdminPanelSettings, MdMenu, MdClose,
-  MdSettings, MdDarkMode, MdLightMode, MdLanguage,
+  MdSettings, MdDarkMode, MdLightMode, MdLanguage, MdEdit,
+  MdPayments,
 } from "react-icons/md"
 
 const sideNav = [
   { name: "Dashboard",        path: "/admin",                   icon: MdDashboard,         short: "Home"    },
   { name: "Appointments",     path: "/admin/appointments",      icon: MdEventAvailable,    short: "Appts"   },
+  { name: "Patient Booking",  path: "/admin/patient-booking",   icon: MdEdit,              short: "Booking" },
+  { name: "Billing Catalog",  path: "/admin/billing-catalog",   icon: MdPayments,          short: "Billing" },
   { name: "Staff Accounts",   path: "/admin/staff-accounts",    icon: MdPeople,            short: "Staff"   },
   { name: "Doctor Accounts",  path: "/admin/doctor-accounts",   icon: MdMedicalServices,   short: "Doctors" },
   { name: "Doctor Schedules", path: "/admin/doctor-schedules",  icon: MdCalendarToday,     short: "Schedule"},

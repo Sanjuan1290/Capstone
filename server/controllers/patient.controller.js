@@ -783,7 +783,7 @@ const getAppointmentReasons = async (req, res) => {
     params.push(clinicType)
   }
 
-  sql += ' ORDER BY sort_order ASC, label ASC'
+  sql += ' ORDER BY label ASC'
 
   const [rows] = await db.query(sql, params)
   res.json(rows)

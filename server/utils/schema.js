@@ -95,6 +95,7 @@ const ensureAppSchema = async () => {
       service_name VARCHAR(180) NOT NULL,
       clinic_type VARCHAR(20) NOT NULL DEFAULT 'all',
       default_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      profit_percentage DECIMAL(5,2) NOT NULL DEFAULT 20.00,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -103,34 +104,57 @@ const ensureAppSchema = async () => {
     )
   `)
 
+  await ensureColumn('billing_service_catalog', 'profit_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 20.00')
+
   await db.query(`
-    INSERT IGNORE INTO billing_service_catalog (category, service_name, clinic_type, default_price, is_active, sort_order)
+    INSERT IGNORE INTO billing_service_catalog (category, service_name, clinic_type, default_price, profit_percentage, is_active, sort_order)
     VALUES
-      ('Medical Consultations', 'General Consultation', 'medical', 0.00, 1, 10),
-      ('Medical Consultations', 'Follow-up Consultation', 'medical', 0.00, 1, 20),
-      ('Medical Consultations', 'Minor Excision', 'medical', 0.00, 1, 30),
-      ('Medical Consultations', 'Circumcision', 'medical', 0.00, 1, 40),
-      ('Medical Consultations', 'Other Surgical Procedure', 'medical', 0.00, 1, 50),
-      ('Vaccinations', 'Routine Vaccine', 'medical', 0.00, 1, 60),
-      ('Vaccinations', 'Travel Vaccine', 'medical', 0.00, 1, 70),
-      ('Vaccinations', 'Seasonal Flu Vaccine', 'medical', 0.00, 1, 80),
-      ('Dermatologic Services', 'Dermatology Consultation', 'derma', 0.00, 1, 90),
-      ('Dermatologic Services', 'Laser Rejuvenation', 'derma', 0.00, 1, 100),
-      ('Dermatologic Services', 'Laser Scar Treatment', 'derma', 0.00, 1, 110),
-      ('Dermatologic Services', 'IPL Anti-aging', 'derma', 0.00, 1, 120),
-      ('Dermatologic Services', 'IPL Hair Removal', 'derma', 0.00, 1, 130),
-      ('Dermatologic Services', 'Electrocautery', 'derma', 0.00, 1, 140),
-      ('Dermatologic Services', 'Chemical Peeling', 'derma', 0.00, 1, 150),
-      ('Dermatologic Services', 'Skin Biopsy', 'derma', 0.00, 1, 160),
-      ('Acupuncture', 'Acupuncture Session', 'medical', 0.00, 1, 170),
-      ('Acupuncture', 'Pain Relief Treatment', 'medical', 0.00, 1, 180),
-      ('Acupuncture', 'Vertigo / Migraine Treatment', 'medical', 0.00, 1, 190),
-      ('Acupuncture', 'Insomnia Treatment', 'medical', 0.00, 1, 200),
-      ('Acupuncture', 'Smoking Cessation Treatment', 'medical', 0.00, 1, 210),
-      ('Animal Bite Center', 'Pre-exposure Prophylaxis', 'medical', 0.00, 1, 220),
-      ('Animal Bite Center', 'Post-exposure Treatment', 'medical', 0.00, 1, 230),
-      ('Animal Bite Center', 'Rabies Vaccine', 'medical', 0.00, 1, 240),
-      ('Animal Bite Center', 'Immunoglobulin', 'medical', 0.00, 1, 250)
+      ('Medical Consultations', 'General Consultation', 'medical', 0.00, 20.00, 1, 10),
+      ('Medical Consultations', 'Follow-up Consultation', 'medical', 0.00, 20.00, 1, 20),
+      ('Medical Consultations', 'Minor Excision', 'medical', 0.00, 20.00, 1, 30),
+      ('Medical Consultations', 'Circumcision', 'medical', 0.00, 20.00, 1, 40),
+      ('Medical Consultations', 'Other Surgical Procedure', 'medical', 0.00, 20.00, 1, 50),
+      ('Vaccinations', 'Routine Vaccine', 'medical', 0.00, 20.00, 1, 60),
+      ('Vaccinations', 'Travel Vaccine', 'medical', 0.00, 20.00, 1, 70),
+      ('Vaccinations', 'Seasonal Flu Vaccine', 'medical', 0.00, 20.00, 1, 80),
+      ('Dermatologic Services', 'Dermatology Consultation', 'derma', 0.00, 20.00, 1, 90),
+      ('Dermatologic Services', 'Laser Rejuvenation', 'derma', 0.00, 20.00, 1, 100),
+      ('Dermatologic Services', 'Laser Scar Treatment', 'derma', 0.00, 20.00, 1, 110),
+      ('Dermatologic Services', 'IPL Anti-aging', 'derma', 0.00, 20.00, 1, 120),
+      ('Dermatologic Services', 'IPL Hair Removal', 'derma', 0.00, 20.00, 1, 130),
+      ('Dermatologic Services', 'Electrocautery', 'derma', 0.00, 20.00, 1, 140),
+      ('Dermatologic Services', 'Chemical Peeling', 'derma', 0.00, 20.00, 1, 150),
+      ('Dermatologic Services', 'Skin Biopsy', 'derma', 0.00, 20.00, 1, 160),
+      ('Acupuncture', 'Acupuncture Session', 'medical', 0.00, 20.00, 1, 170),
+      ('Acupuncture', 'Pain Relief Treatment', 'medical', 0.00, 20.00, 1, 180),
+      ('Acupuncture', 'Vertigo / Migraine Treatment', 'medical', 0.00, 20.00, 1, 190),
+      ('Acupuncture', 'Insomnia Treatment', 'medical', 0.00, 20.00, 1, 200),
+      ('Acupuncture', 'Smoking Cessation Treatment', 'medical', 0.00, 20.00, 1, 210),
+      ('Animal Bite Center', 'Pre-exposure Prophylaxis', 'medical', 0.00, 20.00, 1, 220),
+      ('Animal Bite Center', 'Post-exposure Treatment', 'medical', 0.00, 20.00, 1, 230),
+      ('Animal Bite Center', 'Rabies Vaccine', 'medical', 0.00, 20.00, 1, 240),
+      ('Animal Bite Center', 'Immunoglobulin', 'medical', 0.00, 20.00, 1, 250)
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS billing_service_materials (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      billing_service_id INT NOT NULL,
+      inventory_id INT NULL,
+      material_name VARCHAR(180) NOT NULL,
+      quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
+      unit_label VARCHAR(50) NULL,
+      unit_cost_override DECIMAL(10,2) NULL,
+      notes TEXT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_billing_service_materials_service (billing_service_id, sort_order, id),
+      CONSTRAINT fk_billing_service_materials_service
+        FOREIGN KEY (billing_service_id) REFERENCES billing_service_catalog(id) ON DELETE CASCADE,
+      CONSTRAINT fk_billing_service_materials_inventory
+        FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE SET NULL
+    )
   `)
 
   await ensureTable(`
@@ -173,11 +197,16 @@ const ensureAppSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       billing_id INT NOT NULL,
       catalog_service_id INT NULL,
+      item_type VARCHAR(20) NOT NULL DEFAULT 'custom',
+      source_inventory_id INT NULL,
       category VARCHAR(120) NULL,
       service_name VARCHAR(180) NOT NULL,
       quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
+      base_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      markup_percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00,
       unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
       line_total DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      details_json LONGTEXT NULL,
       notes TEXT NULL,
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -188,6 +217,17 @@ const ensureAppSchema = async () => {
         FOREIGN KEY (catalog_service_id) REFERENCES billing_service_catalog(id) ON DELETE SET NULL
     )
   `)
+
+  await ensureColumn('billing_items', 'item_type', "VARCHAR(20) NOT NULL DEFAULT 'custom'")
+  await ensureColumn('billing_items', 'source_inventory_id', 'INT NULL')
+  await ensureColumn('billing_items', 'base_amount', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00')
+  await ensureColumn('billing_items', 'markup_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 0.00')
+  await ensureColumn('billing_items', 'details_json', 'LONGTEXT NULL')
+  await db.query(`
+    ALTER TABLE billing_items
+    ADD CONSTRAINT fk_billing_items_inventory
+    FOREIGN KEY (source_inventory_id) REFERENCES inventory(id) ON DELETE SET NULL
+  `).catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_batches (

@@ -47,6 +47,8 @@ import Admin_StaffAccount    from './pages/adminPage/Admin_StaffAccount'
 import Admin_DoctorAccount   from './pages/adminPage/Admin_DoctorAccount'
 import Admin_DoctorSchedules from './pages/adminPage/Admin_DoctorSchedules'
 import Admin_Appointments    from './pages/adminPage/Admin_Appointments'
+import Admin_PatientBooking  from './pages/adminPage/Admin_PatientBooking'
+import Admin_BillingCatalog  from './pages/adminPage/Admin_BillingCatalog'
 import Admin_Inventory       from './pages/adminPage/Admin_Inventory'
 import Admin_LandingPage     from './pages/adminPage/Admin_LandingPage'
 import Admin_SupplyRequests  from './pages/adminPage/Admin_SupplyRequests'
@@ -129,6 +131,8 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='doctor-accounts'  element={<Admin_DoctorAccount />} />
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='appointments'     element={<Admin_Appointments />} />
+        <Route path='patient-booking'  element={<Admin_PatientBooking />} />
+        <Route path='billing-catalog'  element={<Admin_BillingCatalog />} />
         <Route path='inventory'        element={<Admin_Inventory />} />
         <Route path='supply-requests'  element={<Admin_SupplyRequests />} />
         <Route path='landingpage'      element={<Admin_LandingPage />} />

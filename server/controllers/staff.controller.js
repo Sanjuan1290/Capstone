@@ -26,7 +26,9 @@ const { loadImagesForConsultationIds } = require('../utils/consultationImages')
 const {
   computeBillingTotals,
   getBillingRecordWithItems,
+  listBillingCatalog,
   normalizeBillingItems,
+  saveBillingItems,
 } = require('../utils/billing')
 
 const makeTempPassword = () => Math.random().toString(36).slice(-8)
@@ -652,6 +654,13 @@ const getBills = async (req, res) => {
   res.json(rows)
 }
 
+const getBillingCatalogForStaff = async (req, res) => {
+  const rows = await listBillingCatalog({
+    clinicType: String(req.query.clinic_type || '').trim() || undefined,
+  })
+  res.json(rows)
+}
+
 const getBillById = async (req, res) => {
   const bill = await getBillingRecordWithItems(req.params.id)
   if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
@@ -665,43 +674,31 @@ const updateBill = async (req, res) => {
     return res.status(400).json({ message: 'Paid bills can no longer be edited.' })
   }
 
-  const items = normalizeBillingItems(req.body.items)
-  if (items.length === 0) {
-    return res.status(400).json({ message: 'Add at least one bill item.' })
-  }
-
   const discountType = String(req.body.discount_type || 'none').trim() || 'none'
   const discountLabel = String(req.body.discount_label || '').trim() || null
   const discountAmount = Math.max(0, Number(req.body.discount_amount) || 0)
   const paymentMethod = String(req.body.payment_method || '').trim() || null
   const paymentNotes = String(req.body.payment_notes || '').trim() || null
-  const totals = computeBillingTotals({ items, discount_amount: discountAmount })
 
   const conn = await db.getConnection()
+  let items
   try {
-    await conn.beginTransaction()
-    await conn.query('DELETE FROM billing_items WHERE billing_id = ?', [req.params.id])
+    items = await normalizeBillingItems(req.body.items, conn)
+  } finally {
+    conn.release()
+  }
 
-    for (const item of items) {
-      await conn.query(
-        `INSERT INTO billing_items
-         (billing_id, catalog_service_id, category, service_name, quantity, unit_price, line_total, notes, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          req.params.id,
-          item.catalog_service_id || null,
-          item.category,
-          item.service_name,
-          item.quantity,
-          item.unit_price,
-          item.line_total,
-          item.notes,
-          item.sort_order,
-        ]
-      )
-    }
+  if (items.length === 0) {
+    return res.status(400).json({ message: 'Add at least one bill item.' })
+  }
 
-    await conn.query(
+  const totals = computeBillingTotals({ items, discount_amount: discountAmount })
+
+  const writer = await db.getConnection()
+  try {
+    await writer.beginTransaction()
+    await saveBillingItems(req.params.id, items, writer)
+    await writer.query(
       `UPDATE billing_records
        SET subtotal = ?, discount_type = ?, discount_label = ?, discount_amount = ?, total_amount = ?, payment_method = ?, payment_notes = ?
        WHERE id = ?`,
@@ -717,12 +714,12 @@ const updateBill = async (req, res) => {
       ]
     )
 
-    await conn.commit()
+    await writer.commit()
   } catch (err) {
-    await conn.rollback()
+    await writer.rollback()
     throw err
   } finally {
-    conn.release()
+    writer.release()
   }
 
   const updatedBill = await getBillingRecordWithItems(req.params.id)
@@ -1028,7 +1025,7 @@ module.exports = {
   getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment,
   getQueue, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
-  getBills, getBillById, updateBill, confirmBillPayment,
+  getBills, getBillingCatalogForStaff, getBillById, updateBill, confirmBillPayment,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,

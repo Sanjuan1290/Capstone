@@ -11,7 +11,8 @@ import {
   MdEventAvailable, MdPeople, MdMedicalServices, MdInventory2,
   MdBarChart, MdCalendarToday, MdChevronRight, MdRefresh,
   MdAccessTime, MdFace, MdTrendingUp, MdTrendingDown,
-  MdWarning, MdAdminPanelSettings,
+  MdWarning, MdAdminPanelSettings, MdEdit,
+  MdPayments,
 } from 'react-icons/md'
 
 const POLL_MS = 30_000
@@ -73,6 +74,8 @@ const Admin_Dashboard = () => {
 
   const quickLinks = [
     { label: 'Reports',         path: '/admin/reports',          icon: MdBarChart,       color: 'text-amber-600',   bg: 'bg-amber-50'   },
+    { label: 'Patient Booking', path: '/admin/patient-booking',  icon: MdEdit,           color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: 'Billing Catalog', path: '/admin/billing-catalog',  icon: MdPayments,       color: 'text-sky-600',     bg: 'bg-sky-50'     },
     { label: 'Staff Accounts',  path: '/admin/staff-accounts',   icon: MdPeople,         color: 'text-sky-600',     bg: 'bg-sky-50'     },
     { label: 'Doctor Accounts', path: '/admin/doctor-accounts',  icon: MdMedicalServices,color: 'text-violet-600',  bg: 'bg-violet-50'  },
     { label: 'Schedules',       path: '/admin/doctor-schedules', icon: MdCalendarToday,  color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -229,7 +232,7 @@ const Admin_Dashboard = () => {
       {/* ── Quick links ───────────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
         <h2 className="text-sm font-bold text-slate-800 mb-4">Quick Navigation</h2>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-7 gap-3">
           {quickLinks.map(({ label, path, icon: Icon, color, bg }) => (
             <NavLink key={path} to={path}
               className={`flex flex-col items-center gap-2 p-4 rounded-2xl ${bg}

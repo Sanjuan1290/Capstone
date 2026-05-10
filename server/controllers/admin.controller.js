@@ -31,6 +31,11 @@ const {
   countActiveAppointmentsOnDate,
 } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds } = require('../utils/consultationImages')
+const {
+  getBillingCatalogServiceById,
+  listBillingCatalog,
+  normalizeServiceMaterials,
+} = require('../utils/billing')
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 const DOCTOR_SPECIALTIES = new Set(['Dermatologist', 'General Medicine'])
@@ -50,6 +55,38 @@ const normalizeInventoryPayload = (body = {}) => ({
   expiration_date: body.expiration_date || null,
   storage_location: body.storage_location?.trim() || null,
 })
+
+const normalizeBillingCatalogPayload = (body = {}) => ({
+  category: String(body.category || '').trim(),
+  service_name: String(body.service_name || '').trim(),
+  clinic_type: ['all', 'medical', 'derma'].includes(body.clinic_type) ? body.clinic_type : 'all',
+  profit_percentage: Math.max(0, Number(body.profit_percentage) || 20),
+  is_active: body.is_active === 0 ? 0 : 1,
+  sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
+  materials: normalizeServiceMaterials(body.materials),
+})
+
+const saveBillingServiceMaterials = async (serviceId, materials, executor = db) => {
+  await executor.query('DELETE FROM billing_service_materials WHERE billing_service_id = ?', [serviceId])
+
+  for (const material of materials) {
+    await executor.query(
+      `INSERT INTO billing_service_materials
+       (billing_service_id, inventory_id, material_name, quantity, unit_label, unit_cost_override, notes, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        serviceId,
+        material.inventory_id || null,
+        material.material_name,
+        material.quantity,
+        material.unit_label,
+        material.unit_cost_override,
+        material.notes,
+        material.sort_order,
+      ]
+    )
+  }
+}
 
 const loadInventoryRows = async (executor = db, whereClause = '', params = []) => {
   const [rows] = await executor.query(
@@ -806,7 +843,7 @@ const getAppointmentReasonOptions = async (req, res) => {
   const [rows] = await db.query(
     `SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at
      FROM appointment_reason_options
-     ORDER BY sort_order ASC, label ASC`
+     ORDER BY label ASC`
   )
   res.json(rows)
 }
@@ -814,47 +851,59 @@ const getAppointmentReasonOptions = async (req, res) => {
 const createAppointmentReasonOption = async (req, res) => {
   const label = String(req.body.label || '').trim()
   const clinicType = ['medical', 'derma', 'all'].includes(req.body.clinic_type) ? req.body.clinic_type : 'all'
-  const sortOrder = Number(req.body.sort_order) || 0
 
   if (!label) {
     return res.status(400).json({ message: 'Reason label is required.' })
   }
 
-  const [result] = await db.query(
-    `INSERT INTO appointment_reason_options (label, clinic_type, is_active, sort_order)
-     VALUES (?, ?, ?, ?)`,
-    [label, clinicType, req.body.is_active === 0 ? 0 : 1, sortOrder]
-  )
+  try {
+    const [result] = await db.query(
+      `INSERT INTO appointment_reason_options (label, clinic_type, is_active, sort_order)
+       VALUES (?, ?, ?, 0)`,
+      [label, clinicType, req.body.is_active === 0 ? 0 : 1]
+    )
 
-  const [rows] = await db.query(
-    'SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at FROM appointment_reason_options WHERE id = ?',
-    [result.insertId]
-  )
-  res.status(201).json(rows[0])
+    const [rows] = await db.query(
+      'SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at FROM appointment_reason_options WHERE id = ?',
+      [result.insertId]
+    )
+    res.status(201).json(rows[0])
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'That reason already exists for this clinic type.' })
+    }
+    throw err
+  }
 }
 
 const updateAppointmentReasonOption = async (req, res) => {
   const label = String(req.body.label || '').trim()
   const clinicType = ['medical', 'derma', 'all'].includes(req.body.clinic_type) ? req.body.clinic_type : 'all'
-  const sortOrder = Number(req.body.sort_order) || 0
 
   if (!label) {
     return res.status(400).json({ message: 'Reason label is required.' })
   }
 
-  await db.query(
-    `UPDATE appointment_reason_options
-     SET label = ?, clinic_type = ?, is_active = ?, sort_order = ?
-     WHERE id = ?`,
-    [label, clinicType, req.body.is_active === 0 ? 0 : 1, sortOrder, req.params.reasonId]
-  )
+  try {
+    await db.query(
+      `UPDATE appointment_reason_options
+       SET label = ?, clinic_type = ?, is_active = ?, sort_order = 0
+       WHERE id = ?`,
+      [label, clinicType, req.body.is_active === 0 ? 0 : 1, req.params.reasonId]
+    )
 
-  const [rows] = await db.query(
-    'SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at FROM appointment_reason_options WHERE id = ?',
-    [req.params.reasonId]
-  )
-  if (rows.length === 0) return res.status(404).json({ message: 'Reason option not found.' })
-  res.json(rows[0])
+    const [rows] = await db.query(
+      'SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at FROM appointment_reason_options WHERE id = ?',
+      [req.params.reasonId]
+    )
+    if (rows.length === 0) return res.status(404).json({ message: 'Reason option not found.' })
+    res.json(rows[0])
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'That reason already exists for this clinic type.' })
+    }
+    throw err
+  }
 }
 
 const deleteAppointmentReasonOption = async (req, res) => {
@@ -944,6 +993,110 @@ const deleteDoctorUnavailableDateAdmin = async (req, res) => {
   )
 
   res.json({ message: 'Unavailable date removed.' })
+}
+
+const getBillingCatalogAdmin = async (req, res) => {
+  const rows = await listBillingCatalog({
+    clinicType: String(req.query.clinic_type || '').trim() || undefined,
+    includeInactive: String(req.query.include_inactive || '').trim() === '1',
+  })
+  res.json(rows)
+}
+
+const createBillingCatalogService = async (req, res) => {
+  const payload = normalizeBillingCatalogPayload(req.body)
+  if (!payload.category || !payload.service_name) {
+    return res.status(400).json({ message: 'Category and service name are required.' })
+  }
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [result] = await conn.query(
+      `INSERT INTO billing_service_catalog
+       (category, service_name, clinic_type, default_price, profit_percentage, is_active, sort_order)
+       VALUES (?, ?, ?, 0.00, ?, ?, ?)`,
+      [
+        payload.category,
+        payload.service_name,
+        payload.clinic_type,
+        payload.profit_percentage,
+        payload.is_active,
+        payload.sort_order,
+      ]
+    )
+    await saveBillingServiceMaterials(result.insertId, payload.materials, conn)
+    await conn.commit()
+
+    const created = await getBillingCatalogServiceById(result.insertId)
+    res.status(201).json(created)
+  } catch (err) {
+    await conn.rollback()
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'That billing service already exists for this clinic type.' })
+    }
+    throw err
+  } finally {
+    conn.release()
+  }
+}
+
+const updateBillingCatalogService = async (req, res) => {
+  const payload = normalizeBillingCatalogPayload(req.body)
+  if (!payload.category || !payload.service_name) {
+    return res.status(400).json({ message: 'Category and service name are required.' })
+  }
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [existingRows] = await conn.query(
+      'SELECT id FROM billing_service_catalog WHERE id = ? LIMIT 1',
+      [req.params.serviceId]
+    )
+    if (existingRows.length === 0) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Billing service not found.' })
+    }
+
+    await conn.query(
+      `UPDATE billing_service_catalog
+       SET category = ?, service_name = ?, clinic_type = ?, default_price = 0.00, profit_percentage = ?, is_active = ?, sort_order = ?
+       WHERE id = ?`,
+      [
+        payload.category,
+        payload.service_name,
+        payload.clinic_type,
+        payload.profit_percentage,
+        payload.is_active,
+        payload.sort_order,
+        req.params.serviceId,
+      ]
+    )
+    await saveBillingServiceMaterials(req.params.serviceId, payload.materials, conn)
+    await conn.commit()
+
+    const updated = await getBillingCatalogServiceById(req.params.serviceId)
+    res.json(updated)
+  } catch (err) {
+    await conn.rollback()
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'That billing service already exists for this clinic type.' })
+    }
+    throw err
+  } finally {
+    conn.release()
+  }
+}
+
+const deleteBillingCatalogService = async (req, res) => {
+  const [rows] = await db.query('SELECT id FROM billing_service_catalog WHERE id = ? LIMIT 1', [req.params.serviceId])
+  if (rows.length === 0) {
+    return res.status(404).json({ message: 'Billing service not found.' })
+  }
+
+  await db.query('DELETE FROM billing_service_catalog WHERE id = ?', [req.params.serviceId])
+  res.json({ message: 'Billing service removed.' })
 }
 
 const getReports = async (req, res) => {
@@ -1364,6 +1517,7 @@ module.exports = {
   getDoctors, createDoctor, toggleDoctor, updateDoctor,
   getDoctorSchedules, saveDaySchedule,
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
+  getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
   getReports, getInventoryLogs,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,

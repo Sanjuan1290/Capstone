@@ -63,6 +63,10 @@ router.put('/doctors/:id/unavailable-dates', ...auth, adminCtrl.saveDoctorUnavai
 router.delete('/doctors/:id/unavailable-dates/:date', ...auth, adminCtrl.deleteDoctorUnavailableDateAdmin)
 
 // ── Reports ───────────────────────────────────────────────────────────────────
+router.get('/billing/catalog', ...auth, adminCtrl.getBillingCatalogAdmin)
+router.post('/billing/catalog', ...auth, adminCtrl.createBillingCatalogService)
+router.put('/billing/catalog/:serviceId', ...auth, adminCtrl.updateBillingCatalogService)
+router.delete('/billing/catalog/:serviceId', ...auth, adminCtrl.deleteBillingCatalogService)
 router.get('/reports', ...auth, adminCtrl.getReports)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────

@@ -79,7 +79,7 @@ export const getMyUnavailableDates = (params = {}) => {
   if (params.startDate) search.set('start_date', params.startDate)
   if (params.endDate) search.set('end_date', params.endDate)
   const query = search.toString()
-  return fetch(`${BASE}/schedule/unavailable-dates${query ? `?${query}` : ''}`, { credentials: 'include' }).then(r => r.json())
+  return requestJson(`${BASE}/schedule/unavailable-dates${query ? `?${query}` : ''}`)
 }
 
 export const saveMyUnavailableDate = (payload) =>

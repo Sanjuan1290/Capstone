@@ -10,6 +10,7 @@ import {
   MdCalendarToday, MdAccessTime, MdCheck, MdEdit, MdSave,
   MdToggleOn, MdToggleOff, MdClose, MdInfo, MdSchedule, MdEventBusy,
 } from 'react-icons/md'
+import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -261,7 +262,7 @@ const UnavailableDatesPanel = ({ dates, onSaved }) => {
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr,1.2fr,auto]">
         <input
           type="date"
-          min={new Date().toISOString().slice(0, 10)}
+          min={getLocalDateOnly()}
           value={form.unavailable_date}
           onChange={(e) => setForm((current) => ({ ...current, unavailable_date: e.target.value }))}
           className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition-all focus:border-rose-300"
@@ -291,7 +292,8 @@ const UnavailableDatesPanel = ({ dates, onSaved }) => {
         ) : dates.map((item) => (
           <div key={item.unavailable_date} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
             <div>
-              <p className="text-sm font-semibold text-slate-800">{item.unavailable_date}</p>
+              <p className="text-sm font-semibold text-slate-800">{formatDateOnly(item.unavailable_date)}</p>
+              <p className="text-[11px] text-slate-400">{item.unavailable_date}</p>
               <p className="text-xs text-slate-500">{item.reason || 'No reason added.'}</p>
             </div>
             <button
@@ -311,22 +313,31 @@ const UnavailableDatesPanel = ({ dates, onSaved }) => {
 
 const Doctor_Schedule = () => {
   const [schedules, setSchedules] = useState([])
+  const [unavailableDates, setUnavailableDates] = useState([])
   const [loading, setLoading] = useState(true)
   const [schedLoading, setSchedLoading] = useState(false)
 
-  const loadSchedules = () => {
+  const loadScheduleData = async () => {
     setSchedLoading(true)
-    getMyScheduleAll()
-      .then((rows) => setSchedules(Array.isArray(rows) ? rows : []))
-      .catch((err) => console.error('Schedule load error:', err))
-      .finally(() => {
-        setLoading(false)
-        setSchedLoading(false)
-      })
+    try {
+      const [scheduleRows, unavailableRows] = await Promise.all([
+        getMyScheduleAll(),
+        getMyUnavailableDates(),
+      ])
+      setSchedules(Array.isArray(scheduleRows) ? scheduleRows : [])
+      setUnavailableDates(Array.isArray(unavailableRows) ? unavailableRows : [])
+    } catch (err) {
+      console.error('Schedule load error:', err)
+      setSchedules([])
+      setUnavailableDates([])
+    } finally {
+      setLoading(false)
+      setSchedLoading(false)
+    }
   }
 
   useEffect(() => {
-    loadSchedules()
+    loadScheduleData()
   }, [])
 
   const getForDay = (day) => schedules.find((schedule) => schedule.day_of_week === day)
@@ -350,7 +361,7 @@ const Doctor_Schedule = () => {
             <MdSchedule className="text-[22px] text-violet-500" /> My Schedule
           </h1>
           <p className="mt-0.5 text-xs text-slate-500 lg:text-sm">
-            Set your weekly availability and appointment slot durations.
+            Set your weekly availability and block specific dates when needed.
           </p>
         </div>
         {schedLoading && (
@@ -363,7 +374,7 @@ const Doctor_Schedule = () => {
         <div>
           <p className="text-sm font-semibold text-violet-800">Your schedule controls when patients can book appointments.</p>
           <p className="mt-1 text-xs text-violet-600">
-            Use the Enable button on each day card first, then set the time window and slot duration. Changes take effect immediately.
+            Combine weekly schedule cards with exact blocked dates below for more flexibility. Weekly hours stay active, and a specific blocked date overrides them for that one day only.
           </p>
         </div>
       </div>
@@ -388,6 +399,16 @@ const Doctor_Schedule = () => {
             <p className="text-xs font-medium text-slate-400">Inactive</p>
           </div>
         </div>
+        <div className="h-10 w-px bg-slate-100" />
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50">
+            <MdEventBusy className="text-[18px] text-rose-500" />
+          </div>
+          <div>
+            <p className="text-2xl font-black text-rose-500">{unavailableDates.length}</p>
+            <p className="text-xs font-medium text-slate-400">Blocked dates</p>
+          </div>
+        </div>
         {activeDays.length > 0 && (
           <>
             <div className="hidden h-10 w-px bg-slate-100 sm:block" />
@@ -404,10 +425,15 @@ const Doctor_Schedule = () => {
             key={day}
             day={day}
             schedule={getForDay(day)}
-            onSaved={loadSchedules}
+            onSaved={loadScheduleData}
           />
         ))}
       </div>
+
+      <UnavailableDatesPanel
+        dates={unavailableDates}
+        onSaved={loadScheduleData}
+      />
     </div>
   )
 }

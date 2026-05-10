@@ -80,6 +80,11 @@ export const getBills = (status = '') => {
   return requestJson(`${BASE}/billing${query}`)
 }
 
+export const getBillingCatalog = (clinicType = '') => {
+  const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
+  return requestJson(`${BASE}/billing/catalog${query}`)
+}
+
 export const getBillById = (id) =>
   requestJson(`${BASE}/billing/${id}`)
 

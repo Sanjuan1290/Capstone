@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
-import { getDoctors, getDoctorSchedules, saveDaySchedule } from '../../services/admin.service'
+import {
+  deleteDoctorUnavailableDate,
+  getDoctors,
+  getDoctorSchedules,
+  getDoctorUnavailableDates,
+  saveDaySchedule,
+  saveDoctorUnavailableDate,
+} from '../../services/admin.service'
 import {
   MdCalendarToday, MdCheck, MdEdit, MdFace, MdMedicalServices,
-  MdSave, MdClose, MdToggleOn, MdToggleOff, MdExpandMore, MdSchedule,
+  MdSave, MdClose, MdToggleOn, MdToggleOff, MdExpandMore, MdSchedule, MdEventBusy,
 } from 'react-icons/md'
+import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -201,10 +209,109 @@ const DayCard = ({ day, schedule, doctorId, onSaved }) => {
   )
 }
 
+const UnavailableDatesPanel = ({ doctorId, dates, onSaved }) => {
+  const [form, setForm] = useState({ unavailable_date: '', reason: '' })
+  const [saving, setSaving] = useState(false)
+  const [removingDate, setRemovingDate] = useState('')
+
+  const handleSave = async () => {
+    if (!doctorId || !form.unavailable_date) return
+    setSaving(true)
+    try {
+      await saveDoctorUnavailableDate(doctorId, form)
+      setForm({ unavailable_date: '', reason: '' })
+      onSaved()
+    } catch (err) {
+      alert(err.message || 'Failed to save unavailable date.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRemove = async (date) => {
+    if (!doctorId) return
+    setRemovingDate(date)
+    try {
+      await deleteDoctorUnavailableDate(doctorId, date)
+      onSaved()
+    } catch (err) {
+      alert(err.message || 'Failed to remove unavailable date.')
+    } finally {
+      setRemovingDate('')
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50">
+          <MdEventBusy className="text-[18px] text-rose-500" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-sm font-bold text-slate-800">Specific Date Unavailable</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Use this when the doctor is normally available on that weekday, but needs one exact date blocked off.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr,1.2fr,auto]">
+        <input
+          type="date"
+          min={getLocalDateOnly()}
+          value={form.unavailable_date}
+          onChange={(e) => setForm((current) => ({ ...current, unavailable_date: e.target.value }))}
+          className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition-all focus:border-rose-300"
+        />
+        <input
+          type="text"
+          value={form.reason}
+          onChange={(e) => setForm((current) => ({ ...current, reason: e.target.value }))}
+          placeholder="Reason (optional)"
+          className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition-all focus:border-rose-300"
+        />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!form.unavailable_date || saving}
+          className="rounded-2xl bg-rose-500 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-rose-600 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Block Date'}
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {dates.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-400">
+            No specific blocked dates yet.
+          </p>
+        ) : dates.map((item) => (
+          <div key={item.unavailable_date} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">{formatDateOnly(item.unavailable_date)}</p>
+              <p className="text-[11px] text-slate-400">{item.unavailable_date}</p>
+              <p className="text-xs text-slate-500">{item.reason || 'No reason added.'}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleRemove(item.unavailable_date)}
+              disabled={removingDate === item.unavailable_date}
+              className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {removingDate === item.unavailable_date ? 'Removing...' : 'Remove'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const Admin_DoctorSchedules = () => {
   const [doctors, setDoctors] = useState([])
   const [selected, setSelected] = useState(null)
   const [schedules, setSchedules] = useState([])
+  const [unavailableDates, setUnavailableDates] = useState([])
   const [loading, setLoading] = useState(true)
   const [schedLoading, setSchedLoading] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
@@ -216,14 +323,20 @@ const Admin_DoctorSchedules = () => {
       .finally(() => setLoading(false))
   }, [])
 
-  const loadSchedules = async (doctor) => {
+  const loadScheduleData = async (doctor) => {
     setSelected(doctor)
     setShowPicker(false)
     setSchedLoading(true)
     try {
-      setSchedules(await getDoctorSchedules(doctor.id))
+      const [scheduleRows, unavailableRows] = await Promise.all([
+        getDoctorSchedules(doctor.id),
+        getDoctorUnavailableDates(doctor.id),
+      ])
+      setSchedules(Array.isArray(scheduleRows) ? scheduleRows : [])
+      setUnavailableDates(Array.isArray(unavailableRows) ? unavailableRows : [])
     } catch {
       setSchedules([])
+      setUnavailableDates([])
     } finally {
       setSchedLoading(false)
     }
@@ -247,7 +360,7 @@ const Admin_DoctorSchedules = () => {
         <h1 className="flex items-center gap-2 text-xl font-bold text-slate-800 lg:text-2xl">
           <MdSchedule className="text-[22px] text-amber-500" /> Doctor Schedules
         </h1>
-        <p className="mt-0.5 text-xs text-slate-500 lg:text-sm">Manage weekly availability per doctor.</p>
+        <p className="mt-0.5 text-xs text-slate-500 lg:text-sm">Manage weekly availability and specific blocked dates per doctor.</p>
       </div>
 
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -275,7 +388,7 @@ const Admin_DoctorSchedules = () => {
                 <button
                   key={doctor.id}
                   type="button"
-                  onClick={() => loadSchedules(doctor)}
+                  onClick={() => loadScheduleData(doctor)}
                   className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-slate-50 ${
                     selected?.id === doctor.id ? 'bg-amber-50 font-bold text-amber-700' : 'text-slate-700'
                   }`}
@@ -299,7 +412,7 @@ const Admin_DoctorSchedules = () => {
               <button
                 key={doctor.id}
                 type="button"
-                onClick={() => loadSchedules(doctor)}
+                onClick={() => loadScheduleData(doctor)}
                 className={`flex items-center gap-2 rounded-xl border-2 px-4 py-2.5 text-xs font-bold transition-all ${
                   chosen ? 'border-amber-500 bg-amber-500 text-white' : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                 }`}
@@ -333,6 +446,10 @@ const Admin_DoctorSchedules = () => {
                 <p className="text-2xl font-black text-slate-300">{inactiveDays.length}</p>
                 <p className="text-[10px] font-medium text-slate-400">Inactive</p>
               </div>
+              <div>
+                <p className="text-2xl font-black text-rose-500">{unavailableDates.length}</p>
+                <p className="text-[10px] font-medium text-slate-400">Blocked dates</p>
+              </div>
             </div>
           </div>
         </div>
@@ -351,11 +468,19 @@ const Admin_DoctorSchedules = () => {
                 day={day}
                 schedule={getForDay(day)}
                 doctorId={selected.id}
-                onSaved={() => getDoctorSchedules(selected.id).then(setSchedules).catch(() => {})}
+                onSaved={() => loadScheduleData(selected)}
               />
             ))}
           </div>
         )
+      )}
+
+      {selected && !schedLoading && (
+        <UnavailableDatesPanel
+          doctorId={selected.id}
+          dates={unavailableDates}
+          onSaved={() => loadScheduleData(selected)}
+        />
       )}
 
       {!selected && !loading && (
