@@ -8,7 +8,7 @@ const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
-const { sendDoctorAppointmentSms, sendPatientRegistrationOtp, isSmsConfigured } = require('../utils/smsService')
+const { sendPatientRegistrationOtp } = require('../utils/smsService')
 const { getDoctorUnavailableDates, getDoctorUnavailableDate } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds } = require('../utils/consultationImages')
 const {
@@ -183,42 +183,28 @@ const register = async (req, res) => {
     [normalizedPhone, code, payload, new Date(Date.now() + OTP_EXPIRY_MS)]
   )
 
-  if (isSmsConfigured()) {
-    try {
-      await sendPatientRegistrationOtp({
-        phone: normalizedPhone,
-        code,
-        fullName: full_name,
-      })
-    } catch (err) {
-      console.error('Patient registration OTP SMS failed:', {
-        message: err.message,
-        statusCode: err.statusCode,
-        responseBody: err.responseBody,
-      })
+  try {
+    await sendPatientRegistrationOtp({
+      phone: normalizedPhone,
+      code,
+      fullName: full_name,
+    })
+  } catch (err) {
+    console.error('Patient registration OTP SMS failed:', {
+      message: err.message,
+      statusCode: err.statusCode,
+      responseBody: err.responseBody,
+    })
 
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(502).json({
-          message: 'Failed to send verification code by SMS. Please try again later.',
-          error: err.message,
-        })
-      }
-
-      return res.status(200).json({
-        message: `Verification code generated, but SMS delivery failed: ${err.message}. Use the dev OTP from the response.`,
-        phone: normalizedPhone,
-        dev_otp: code,
-        sms_error: err.message,
-      })
-    }
+    return res.status(502).json({
+      message: 'Failed to send verification code by SMS. Please try again later.',
+      error: err.message,
+    })
   }
 
   res.status(200).json({
-    message: isSmsConfigured()
-      ? 'Verification code sent by SMS.'
-      : 'Verification code generated. SMS is not configured, so use the dev OTP from the response.',
+    message: 'Verification code sent by SMS.',
     phone: normalizedPhone,
-    ...(isSmsConfigured() ? {} : { dev_otp: code }),
   })
 }
 
@@ -614,17 +600,6 @@ const createAppointment = async (req, res) => {
     message: `${appointment.patient_name} booked an appointment on ${normalizedDate} at ${appointment_time}.`,
     reference_type: 'appointment',
     reference_id: result.insertId,
-  })
-
-  await sendDoctorAppointmentSms({
-    doctorPhone: appointment.doctor_phone,
-    doctorName: appointment.doctor_name,
-    patientName: appointment.patient_name,
-    clinicType: clinic_type,
-    appointmentDate: normalizedDate,
-    appointmentTime: appointment_time,
-  }).catch((err) => {
-    console.error('SMS doctor booking notification failed:', err.message)
   })
 
   broadcast(['admin', 'staff', `doctor_${appointment.doctor_id}`, `patient_${req.user.id}`], 'appointment_updated', {

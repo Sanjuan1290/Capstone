@@ -52,6 +52,7 @@ const formatMoney = (value) => new Intl.NumberFormat('en-PH', {
 const buildServiceDetails = (service) => ({
   pricing: {
     materials_cost: Number(service?.materials_cost) || 0,
+    consultation_fee: Number(service?.consultation_fee) || 0,
     profit_percentage: Number(service?.profit_percentage) || 0,
     profit_amount: Number(service?.profit_amount) || 0,
     suggested_price: Number(service?.suggested_price) || 0,
@@ -154,7 +155,7 @@ const ServiceBreakdown = ({ item }) => {
         <p className="text-xs font-bold uppercase tracking-widest text-sky-600">Service Breakdown</p>
         {pricing && (
           <p className="text-xs font-semibold text-sky-700">
-            Materials + {Number(pricing.profit_percentage) || 0}% profit
+            Materials + service fee + {Number(pricing.profit_percentage) || 0}% profit
           </p>
         )}
       </div>
@@ -178,6 +179,10 @@ const ServiceBreakdown = ({ item }) => {
           <div className="flex items-center justify-between text-slate-500">
             <span>Materials Cost</span>
             <span>{formatMoney(pricing.materials_cost)}</span>
+          </div>
+          <div className="mt-1 flex items-center justify-between text-slate-500">
+            <span>Service Fee</span>
+            <span>{formatMoney(pricing.consultation_fee)}</span>
           </div>
           <div className="mt-1 flex items-center justify-between text-slate-500">
             <span>Profit</span>
@@ -390,7 +395,7 @@ const Staff_Billing = () => {
               category: service.category || '',
               service_name: service.service_name || '',
               quantity: Number(item.quantity) || 1,
-              base_amount: Number(service.materials_cost) || 0,
+              base_amount: roundMoney((Number(service.materials_cost) || 0) + (Number(service.consultation_fee) || 0)),
               markup_percentage: Number(service.profit_percentage) || 20,
               unit_price: Number(service.suggested_price) || 0,
               details: buildServiceDetails(service),
@@ -695,7 +700,7 @@ const Staff_Billing = () => {
                       <div>
                         <h3 className="text-sm font-bold text-slate-800">Bill Items</h3>
                         <p className="mt-1 text-xs text-slate-500">
-                          Choose a clinic service for automatic materials and 20% markup, then add extra medicines or custom charges if needed.
+                          Choose a clinic service for automatic materials, service fee, and markup, then add extra medicines or custom charges if needed.
                         </p>
                       </div>
                       {!isPaid && (
@@ -986,7 +991,7 @@ const Staff_Billing = () => {
                     </div>
 
                     <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs text-sky-700">
-                      Clinic services automatically use: total materials cost + 20% profit. Additional medicines and custom charges can still be added separately.
+                      Clinic services automatically use: materials cost + service fee + configured profit. Additional medicines and custom charges can still be added separately.
                     </div>
 
                     {detail.confirmed_by_staff_name && (

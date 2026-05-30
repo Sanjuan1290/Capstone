@@ -9,6 +9,7 @@ import { useTheme } from '../../context/ThemeContext'
 import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
 import { useSSE } from '../../hooks/useSSE'
+import { playNotificationSound } from '../../utils/notificationSound'
 import {
   MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices,
   MdCalendarToday, MdInventory2, MdBarChart, MdChevronLeft,
@@ -40,6 +41,11 @@ const AdminLayout = () => {
   const [logoutError, setLogoutError] = useState("")
   const navigate = useNavigate()
   const handleSSEMessage = useCallback((eventName) => {
+    if (eventName === 'notification_created') {
+      playNotificationSound()
+      window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
+      return
+    }
     if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
       window.dispatchEvent(new CustomEvent('clinic:refresh', { detail: { eventName } }))

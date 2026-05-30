@@ -111,7 +111,8 @@ const WalkInModal = ({ doctors, onClose, onSubmit }) => {
     }
     setSaving(true)
     try {
-      await onSubmit({ ...form, mode, selectedPatient })
+      const result = await onSubmit({ ...form, mode, selectedPatient })
+      if (result === false) return
       onClose()
     } finally {
       setSaving(false)
@@ -319,20 +320,40 @@ const StaffWalkInQueue = () => {
       }
     }
 
-    const queueEntry = await addToQueue({
+    const queuePayload = {
       patient_id: patient.id,
       patient_name: patient.full_name || patient.name,
       doctor_id: Number(payload.doctor_id),
       type: payload.clinic_type,
       reason: payload.reason || 'Walk-in consultation',
-    })
+    }
+
+    let queueEntry = await addToQueue(queuePayload)
+
+    if (queueEntry?.code === 'ACTIVE_APPOINTMENT') {
+      const appointment = queueEntry.active_appointment
+      const proceed = window.confirm(
+        `This patient already has an online appointment.\n\n${appointment.appointment_date} at ${appointment.appointment_time}\n${appointment.reason || 'Appointment'} with ${appointment.doctor_name}\nStatus: ${appointment.status}\n\nCancel that appointment and continue as walk-in?`
+      )
+
+      if (!proceed) {
+        alert(`Please inform the patient that they already have an online booking on ${appointment.appointment_date} at ${appointment.appointment_time} for ${appointment.reason || 'their appointment'} with ${appointment.doctor_name}.`)
+        return false
+      }
+
+      queueEntry = await addToQueue({
+        ...queuePayload,
+        cancel_existing_appointment_id: appointment.id,
+      })
+    }
 
     if (!queueEntry?.id) {
       alert(queueEntry?.message || 'Patient was registered, but queueing failed.')
-      return
+      return false
     }
 
     await loadData()
+    return true
   }
 
   const handleCall = async (entry) => {

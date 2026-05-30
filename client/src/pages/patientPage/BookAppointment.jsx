@@ -280,7 +280,7 @@ const StepDetails = ({ reason, notes, reasonOptions, loadingReasons, onReasonCha
 )
 
 // ── Step 5: Confirm ───────────────────────────────────────────────────────────
-const StepConfirm = ({ form }) => {
+const StepConfirm = ({ form, policyAccepted, onPolicyAcceptedChange }) => {
   const ct   = CLINIC_TYPES.find(c => c.id === form.clinicType)
   const Icon = ct?.Icon || MdMedicalServices
   const [y,m,d] = (form.date||'').split('-').map(Number)
@@ -325,12 +325,17 @@ const StepConfirm = ({ form }) => {
         </div>
       )}
 
-      <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-start gap-2">
-        <MdCheck className="text-emerald-500 text-[15px] shrink-0 mt-0.5" />
-        <p className="text-xs text-emerald-700 leading-relaxed">
-          By confirming, you agree to the clinic's appointment policy. Your appointment will appear in <strong>My Appointments</strong>.
-        </p>
-      </div>
+      <label className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-start gap-3">
+        <input
+          type="checkbox"
+          checked={policyAccepted}
+          onChange={(e) => onPolicyAcceptedChange(e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-emerald-300 text-emerald-600"
+        />
+        <span className="text-xs text-emerald-700 leading-relaxed">
+          I agree to the online booking policy: I will attend on time, cancel or reschedule if I cannot come, and understand that no-shows or fake bookings may be reviewed or cancelled by the clinic.
+        </span>
+      </label>
     </div>
   )
 }
@@ -365,6 +370,7 @@ const BookAppointment = () => {
   const [form, setForm] = useState({
     clinicType: '', doctor: null, date: null, time: '', reason: '', notes: '',
   })
+  const [policyAccepted, setPolicyAccepted] = useState(false)
   const [doctorList,      setDoctorList]      = useState({ medical: [], derma: [] })
   const [timeSlots,       setTimeSlots]       = useState([])
   const [doctorSchedules, setDoctorSchedules] = useState([])
@@ -452,6 +458,7 @@ const BookAppointment = () => {
     if (step===1) return !!form.doctor
     if (step===2) return !!form.date && !!form.time
     if (step===3) return !!form.reason
+    if (step===4) return policyAccepted
     return true
   }
 
@@ -479,6 +486,7 @@ const BookAppointment = () => {
   const handleReset = () => {
     setStep(0); setDone(false)
     setTimeSlots([]); setDoctorSchedules([])
+    setPolicyAccepted(false)
     setForm({ clinicType:'', doctor:null, date:null, time:'', reason:'', notes:'' })
   }
 
@@ -491,6 +499,16 @@ const BookAppointment = () => {
           <MdAdd className="text-emerald-500 text-[22px]" /> Book an Appointment
         </h1>
         <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Schedule your clinic visit in a few steps.</p>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Online Booking Policy</p>
+        <div className="mt-2 grid gap-2 text-xs leading-relaxed text-amber-800 sm:grid-cols-2">
+          <p>Use real patient details and keep only one active booking per doctor.</p>
+          <p>Arrive at least 10 minutes before your schedule.</p>
+          <p>Cancel or reschedule early if you cannot attend.</p>
+          <p>No-shows and fake bookings may require staff review before approval.</p>
+        </div>
       </div>
 
       {/* Main card */}
@@ -530,7 +548,7 @@ const BookAppointment = () => {
                   onNotesChange={set('notes')}
                 />
               )}
-              {step===4 && <StepConfirm form={form} />}
+              {step===4 && <StepConfirm form={form} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}
 
               {/* Nav */}
               <div className="flex items-center justify-between mt-8 pt-5 border-t border-slate-100">

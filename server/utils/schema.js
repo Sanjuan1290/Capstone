@@ -19,6 +19,202 @@ const ensureTable = async (sql) => {
   await db.query(sql)
 }
 
+const INVENTORY_SEEDS = [
+  ['SUP-001', 'Disposable Syringe 3mL', 'Supplies', 'piece', 'piece', 1, 500, 50, 8.00, 'MediSupply PH', '2028-02-28', 'Cabinet S1'],
+  ['SUP-002', 'Disposable Syringe 1mL', 'Supplies', 'piece', 'piece', 1, 500, 50, 7.00, 'MediSupply PH', '2028-02-28', 'Cabinet S1'],
+  ['SUP-003', 'Sterile Needle 23G', 'Supplies', 'piece', 'piece', 1, 1000, 100, 5.00, 'MediSupply PH', '2028-03-15', 'Cabinet S1'],
+  ['SUP-004', 'Sterile Gauze Pad 2x2', 'Supplies', 'pack', 'piece', 100, 120, 20, 45.00, 'ClinicCare Supplies', '2029-01-31', 'Cabinet S2'],
+  ['SUP-005', 'Cotton Balls', 'Supplies', 'pack', 'piece', 100, 80, 15, 55.00, 'ClinicCare Supplies', '2029-01-31', 'Cabinet S2'],
+  ['SUP-006', 'Alcohol 70% 500mL', 'Supplies', 'bottle', 'mL', 500, 60, 12, 95.00, 'PharmaPlus', '2028-05-31', 'Disinfection Shelf'],
+  ['SUP-007', 'Povidone-Iodine Solution', 'Supplies', 'bottle', 'mL', 500, 30, 8, 160.00, 'PharmaPlus', '2028-06-30', 'Disinfection Shelf'],
+  ['SUP-008', 'Sterile Gloves', 'Supplies', 'pair', 'pair', 1, 300, 50, 18.00, 'ClinicCare Supplies', '2029-04-30', 'Cabinet S3'],
+  ['SUP-009', 'Surgical Mask', 'Supplies', 'piece', 'piece', 1, 4000, 300, 2.50, 'ClinicCare Supplies', '2029-04-30', 'Cabinet S3'],
+  ['SUP-010', 'Bandage Roll', 'Supplies', 'roll', 'roll', 1, 40, 8, 85.00, 'ClinicCare Supplies', '2028-12-31', 'Cabinet S2'],
+  ['SUP-011', 'Suture Nylon 4-0', 'Supplies', 'pack', 'piece', 12, 35, 8, 220.00, 'SurgiMed PH', '2028-09-30', 'Procedure Cabinet'],
+  ['SUP-012', 'Sterile Drape', 'Supplies', 'piece', 'piece', 1, 80, 15, 35.00, 'SurgiMed PH', '2029-02-28', 'Procedure Cabinet'],
+  ['SUP-013', 'Specimen Container', 'Supplies', 'piece', 'piece', 1, 100, 15, 20.00, 'SurgiMed PH', '2029-02-28', 'Procedure Cabinet'],
+  ['SUP-014', 'Acupuncture Needle 0.25x25mm', 'Supplies', 'box', 'piece', 100, 70, 10, 300.00, 'AcuHealth Supplies', '2028-10-31', 'Acupuncture Shelf'],
+  ['SUP-015', 'Alcohol Swab', 'Supplies', 'box', 'piece', 100, 100, 20, 85.00, 'ClinicCare Supplies', '2028-12-31', 'Disinfection Shelf'],
+  ['MED-003', 'Paracetamol 500mg Tablet', 'Medicine', 'tablet', 'tablet', 1, 1000, 100, 3.00, 'PharmaPlus', '2028-08-31', 'Medicine Cabinet'],
+  ['MED-004', 'Amoxicillin 500mg Capsule', 'Medicine', 'capsule', 'capsule', 1, 500, 80, 12.00, 'PharmaPlus', '2028-07-31', 'Medicine Cabinet'],
+  ['MED-005', 'Cetirizine 10mg Tablet', 'Medicine', 'tablet', 'tablet', 1, 500, 80, 5.00, 'PharmaPlus', '2028-11-30', 'Medicine Cabinet'],
+  ['MED-006', 'Mupirocin Ointment', 'Medicine', 'tube', 'tube', 1, 60, 10, 280.00, 'SkinCare Depot', '2028-05-31', 'Medicine Cabinet'],
+  ['MED-007', 'Lidocaine 2% 50mL', 'Medicine', 'vial', 'vial', 1, 40, 8, 290.00, 'SurgiMed PH', '2028-04-30', 'Procedure Cabinet'],
+  ['MED-008', 'Tetanus Toxoid Vaccine', 'Medicine', 'vial', 'vial', 1, 45, 10, 450.00, 'VaxCare PH', '2028-03-31', 'Vaccine Refrigerator'],
+  ['MED-009', 'Rabies Vaccine', 'Medicine', 'vial', 'vial', 1, 60, 12, 1150.00, 'VaxCare PH', '2028-03-31', 'Vaccine Refrigerator'],
+  ['MED-010', 'Rabies Immunoglobulin', 'Medicine', 'vial', 'vial', 1, 20, 5, 2450.00, 'VaxCare PH', '2028-01-31', 'Vaccine Refrigerator'],
+  ['MED-011', 'Influenza Vaccine', 'Medicine', 'vial', 'vial', 1, 50, 10, 800.00, 'VaxCare PH', '2028-02-28', 'Vaccine Refrigerator'],
+  ['DER-001', 'Chemical Peel Solution', 'Derma', 'bottle', 'mL', 100, 20, 5, 950.00, 'SkinCare Depot', '2028-09-30', 'Derma Shelf'],
+  ['DER-002', 'Salicylic Acid Peel', 'Derma', 'bottle', 'mL', 100, 18, 5, 850.00, 'SkinCare Depot', '2028-09-30', 'Derma Shelf'],
+  ['DER-003', 'Glycolic Acid Peel', 'Derma', 'bottle', 'mL', 100, 18, 5, 780.00, 'SkinCare Depot', '2028-09-30', 'Derma Shelf'],
+  ['DER-004', 'Laser Cooling Gel', 'Derma', 'bottle', 'mL', 500, 50, 8, 350.00, 'DermaPharma Inc.', '2028-12-31', 'Laser Room'],
+  ['DER-005', 'IPL Protective Eye Shield', 'Derma', 'pair', 'pair', 1, 20, 4, 300.00, 'DermaPharma Inc.', null, 'Laser Room'],
+  ['DER-006', 'Electrocautery Tip', 'Derma', 'piece', 'piece', 1, 150, 25, 75.00, 'DermaPharma Inc.', '2029-01-31', 'Procedure Cabinet'],
+  ['DER-007', 'Biopsy Punch 3mm', 'Derma', 'piece', 'piece', 1, 60, 10, 180.00, 'SurgiMed PH', '2028-10-31', 'Procedure Cabinet'],
+  ['DER-008', 'Sterile Blade No. 15', 'Derma', 'piece', 'piece', 1, 100, 20, 25.00, 'SurgiMed PH', '2029-01-31', 'Procedure Cabinet'],
+  ['DER-009', 'Microneedling Cartridge', 'Derma', 'piece', 'piece', 1, 80, 12, 550.00, 'DermaPharma Inc.', '2028-11-30', 'Derma Shelf'],
+]
+
+const SERVICE_MATERIAL_SEEDS = [
+  ['General Consultation', 'medical', [['SUP-009', 1], ['SUP-006', 0.02], ['SUP-005', 0.03]]],
+  ['Follow-up Consultation', 'medical', [['SUP-009', 1], ['SUP-006', 0.01]]],
+  ['Minor Excision', 'medical', [['MED-007', 1], ['SUP-008', 1], ['SUP-011', 1], ['SUP-012', 1], ['DER-008', 1], ['SUP-004', 1], ['SUP-007', 0.05]]],
+  ['Circumcision', 'medical', [['MED-007', 1], ['SUP-008', 2], ['SUP-011', 2], ['SUP-012', 2], ['DER-008', 2], ['SUP-004', 2], ['SUP-010', 1], ['SUP-007', 0.08]]],
+  ['Other Surgical Procedure', 'medical', [['MED-007', 1], ['SUP-008', 2], ['SUP-011', 2], ['SUP-012', 1], ['DER-008', 2], ['SUP-004', 2], ['SUP-007', 0.08]]],
+  ['Routine Vaccine', 'medical', [['SUP-002', 1], ['SUP-003', 1], ['SUP-015', 1], ['SUP-005', 0.02]]],
+  ['Travel Vaccine', 'medical', [['SUP-002', 1], ['SUP-003', 1], ['SUP-015', 1], ['SUP-005', 0.02]]],
+  ['Seasonal Flu Vaccine', 'medical', [['MED-011', 1], ['SUP-002', 1], ['SUP-003', 1], ['SUP-015', 1]]],
+  ['Dermatology Consultation', 'derma', [['SUP-009', 1], ['SUP-006', 0.02], ['SUP-005', 0.03]]],
+  ['Laser Rejuvenation', 'derma', [['DER-004', 0.05], ['DER-005', 1], ['SUP-008', 1], ['SUP-009', 1], ['SUP-006', 0.03]]],
+  ['Laser Scar Treatment', 'derma', [['DER-004', 0.06], ['DER-005', 1], ['SUP-008', 1], ['SUP-009', 1], ['SUP-006', 0.03]]],
+  ['IPL Anti-aging', 'derma', [['DER-004', 0.05], ['DER-005', 1], ['SUP-008', 1], ['SUP-009', 1]]],
+  ['IPL Hair Removal', 'derma', [['DER-004', 0.07], ['DER-005', 1], ['SUP-008', 1], ['SUP-009', 1]]],
+  ['Electrocautery', 'derma', [['DER-006', 1], ['MED-007', 0.5], ['SUP-008', 1], ['SUP-004', 1], ['SUP-007', 0.03]]],
+  ['Chemical Peeling', 'derma', [['DER-001', 0.1], ['DER-002', 0.05], ['DER-003', 0.05], ['SUP-008', 1], ['SUP-005', 0.05], ['SUP-006', 0.03]]],
+  ['Skin Biopsy', 'derma', [['DER-007', 1], ['DER-008', 1], ['MED-007', 1], ['SUP-008', 1], ['SUP-013', 1], ['SUP-004', 1], ['SUP-007', 0.03]]],
+  ['Acupuncture Session', 'medical', [['SUP-014', 0.15], ['SUP-015', 2], ['SUP-009', 1]]],
+  ['Pain Relief Treatment', 'medical', [['SUP-014', 0.2], ['SUP-015', 3], ['SUP-009', 1]]],
+  ['Vertigo / Migraine Treatment', 'medical', [['SUP-014', 0.2], ['SUP-015', 3], ['SUP-009', 1]]],
+  ['Insomnia Treatment', 'medical', [['SUP-014', 0.2], ['SUP-015', 3], ['SUP-009', 1]]],
+  ['Smoking Cessation Treatment', 'medical', [['SUP-014', 0.25], ['SUP-015', 4], ['SUP-009', 1]]],
+  ['Pre-exposure Prophylaxis', 'medical', [['MED-009', 1], ['SUP-002', 1], ['SUP-003', 1], ['SUP-015', 1]]],
+  ['Post-exposure Treatment', 'medical', [['MED-009', 1], ['MED-008', 1], ['SUP-002', 2], ['SUP-003', 2], ['SUP-015', 2]]],
+  ['Rabies Vaccine', 'medical', [['MED-009', 1], ['SUP-002', 1], ['SUP-003', 1], ['SUP-015', 1]]],
+  ['Immunoglobulin', 'medical', [['MED-010', 1], ['SUP-001', 1], ['SUP-003', 1], ['SUP-015', 1]]],
+]
+
+const SERVICE_FEE_SEEDS = [
+  ['General Consultation', 'medical', 600],
+  ['Follow-up Consultation', 'medical', 400],
+  ['Minor Excision', 'medical', 2500],
+  ['Circumcision', 'medical', 4500],
+  ['Other Surgical Procedure', 'medical', 3500],
+  ['Routine Vaccine', 'medical', 500],
+  ['Travel Vaccine', 'medical', 700],
+  ['Seasonal Flu Vaccine', 'medical', 450],
+  ['Dermatology Consultation', 'derma', 800],
+  ['Laser Rejuvenation', 'derma', 2500],
+  ['Laser Scar Treatment', 'derma', 4500],
+  ['IPL Anti-aging', 'derma', 2500],
+  ['IPL Hair Removal', 'derma', 1800],
+  ['Electrocautery', 'derma', 1200],
+  ['Chemical Peeling', 'derma', 1800],
+  ['Skin Biopsy', 'derma', 3000],
+  ['Acupuncture Session', 'medical', 900],
+  ['Pain Relief Treatment', 'medical', 1200],
+  ['Vertigo / Migraine Treatment', 'medical', 1200],
+  ['Insomnia Treatment', 'medical', 1200],
+  ['Smoking Cessation Treatment', 'medical', 1500],
+  ['Pre-exposure Prophylaxis', 'medical', 600],
+  ['Post-exposure Treatment', 'medical', 900],
+  ['Rabies Vaccine', 'medical', 650],
+  ['Immunoglobulin', 'medical', 900],
+]
+
+const seedInventoryAndBillingMaterials = async () => {
+  for (const item of INVENTORY_SEEDS) {
+    const [
+      barcode, name, category, unit, baseUnit, unitSize, stock, threshold, price,
+      supplier, expirationDate, storageLocation,
+    ] = item
+
+    await db.query(
+      `INSERT INTO inventory
+       (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name),
+         category = VALUES(category),
+         unit = VALUES(unit),
+         base_unit = VALUES(base_unit),
+         unit_size = VALUES(unit_size),
+         threshold = VALUES(threshold),
+         price = VALUES(price),
+         supplier = VALUES(supplier),
+         storage_location = VALUES(storage_location)`,
+      [barcode, name, category, unit, baseUnit, unitSize, stock, threshold, price, supplier, expirationDate, storageLocation]
+    )
+
+    const [[inventoryItem]] = await db.query('SELECT id FROM inventory WHERE barcode = ? LIMIT 1', [barcode])
+    if (inventoryItem?.id) {
+      await db.query(
+        `INSERT INTO inventory_batches (inventory_id, quantity, expiration_date, note)
+         SELECT ?, ?, ?, 'Generated opening stock'
+         WHERE NOT EXISTS (
+           SELECT 1 FROM inventory_batches WHERE inventory_id = ?
+         )`,
+        [inventoryItem.id, stock, expirationDate, inventoryItem.id]
+      )
+    }
+  }
+
+  await db.query(`
+    UPDATE inventory i
+    LEFT JOIN (
+      SELECT
+        inventory_id,
+        COALESCE(SUM(CASE WHEN quantity > 0 THEN quantity ELSE 0 END), 0) AS total_qty,
+        MIN(CASE WHEN quantity > 0 THEN expiration_date ELSE NULL END) AS earliest_expiry
+      FROM inventory_batches
+      GROUP BY inventory_id
+    ) b ON b.inventory_id = i.id
+    SET
+      i.stock = COALESCE(b.total_qty, i.stock),
+      i.stock_base = COALESCE(b.total_qty, i.stock) * COALESCE(NULLIF(i.unit_size, 0), 1),
+      i.expiration_date = COALESCE(b.earliest_expiry, i.expiration_date),
+      i.base_unit = COALESCE(i.base_unit, i.unit)
+  `)
+
+  for (const [serviceName, clinicType, materials] of SERVICE_MATERIAL_SEEDS) {
+    const [[service]] = await db.query(
+      `SELECT id
+       FROM billing_service_catalog
+       WHERE service_name = ? AND clinic_type = ?
+       LIMIT 1`,
+      [serviceName, clinicType]
+    )
+    if (!service?.id) continue
+
+    const [[existingMaterials]] = await db.query(
+      'SELECT COUNT(*) AS count FROM billing_service_materials WHERE billing_service_id = ?',
+      [service.id]
+    )
+    if (Number(existingMaterials?.count || 0) > 0) continue
+
+    for (const [barcode, quantity, notes = null] of materials) {
+      const [[inventoryItem]] = await db.query(
+        'SELECT id, name, unit FROM inventory WHERE barcode = ? LIMIT 1',
+        [barcode]
+      )
+      if (!inventoryItem?.id) continue
+
+      await db.query(
+        `INSERT INTO billing_service_materials
+         (billing_service_id, inventory_id, material_name, quantity, unit_label, notes, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          service.id,
+          inventoryItem.id,
+          inventoryItem.name,
+          quantity,
+          inventoryItem.unit,
+          notes,
+          materials.findIndex((entry) => entry[0] === barcode),
+        ]
+      )
+    }
+  }
+
+  for (const [serviceName, clinicType, consultationFee] of SERVICE_FEE_SEEDS) {
+    await db.query(
+      `UPDATE billing_service_catalog
+       SET consultation_fee = ?
+       WHERE service_name = ? AND clinic_type = ?`,
+      [consultationFee, serviceName, clinicType]
+    )
+  }
+}
+
 const ensureAppSchema = async () => {
   await ensureColumn('appointments', 'status', "VARCHAR(32) NOT NULL DEFAULT 'pending'")
     .catch(() => {})
@@ -95,6 +291,7 @@ const ensureAppSchema = async () => {
       service_name VARCHAR(180) NOT NULL,
       clinic_type VARCHAR(20) NOT NULL DEFAULT 'all',
       default_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      consultation_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00,
       profit_percentage DECIMAL(5,2) NOT NULL DEFAULT 20.00,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       sort_order INT NOT NULL DEFAULT 0,
@@ -105,6 +302,7 @@ const ensureAppSchema = async () => {
   `)
 
   await ensureColumn('billing_service_catalog', 'profit_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 20.00')
+  await ensureColumn('billing_service_catalog', 'consultation_fee', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER default_price')
 
   await db.query(`
     INSERT IGNORE INTO billing_service_catalog (category, service_name, clinic_type, default_price, profit_percentage, is_active, sort_order)
@@ -276,6 +474,8 @@ const ensureAppSchema = async () => {
       i.expiration_date = b.earliest_expiry,
       i.base_unit = COALESCE(i.base_unit, i.unit)
   `)
+
+  await seedInventoryAndBillingMaterials()
 
   await ensureColumn('patients', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('patients', 'profile_image_url', "TEXT NULL")

@@ -1,4 +1,5 @@
 const db = require('../db/connect')
+const { broadcast } = require('./sse')
 
 const createNotification = async ({
   target_role,
@@ -9,12 +10,25 @@ const createNotification = async ({
   reference_type = null,
   reference_id = null,
 }) => {
-  await db.query(
+  const [result] = await db.query(
     `INSERT INTO notifications
       (target_role, target_user_id, type, title, message, reference_type, reference_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [target_role, target_user_id, type, title, message, reference_type, reference_id]
   )
+
+  const notification = {
+    id: result.insertId,
+    target_role,
+    target_user_id,
+    type,
+    title,
+    message,
+    reference_type,
+    reference_id,
+  }
+  broadcast(target_user_id ? [target_role, `${target_role}_${target_user_id}`] : target_role, 'notification_created', notification)
+  return notification
 }
 
 const notifyRoles = async (roles, payload) => {

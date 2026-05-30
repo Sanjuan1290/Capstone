@@ -20,16 +20,22 @@ const {
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
-const { sendDoctorAppointmentSms } = require('../utils/smsService')
+const { sendPatientAppointmentStatusSms } = require('../utils/smsService')
 const { getDoctorUnavailableDate, getDoctorUnavailableDates } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds } = require('../utils/consultationImages')
 const {
+  collectInventoryUsageFromBillingItems,
   computeBillingTotals,
   getBillingRecordWithItems,
   listBillingCatalog,
   normalizeBillingItems,
   saveBillingItems,
 } = require('../utils/billing')
+const {
+  getActiveAppointmentConflict,
+  getLastNoShowAppointment,
+  makeNoShowWarningResponse,
+} = require('../utils/appointmentPolicies')
 
 const makeTempPassword = () => Math.random().toString(36).slice(-8)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
@@ -208,6 +214,11 @@ const createAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
   await markOverdueAppointments()
 
+  const lastNoShow = await getLastNoShowAppointment(patient_id)
+  if (lastNoShow && !req.body?.override_no_show_warning) {
+    return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
+  }
+
   const [activeWithDoctor] = await db.query(
     `SELECT id
      FROM appointments
@@ -266,16 +277,6 @@ const createAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
-  await sendDoctorAppointmentSms({
-    doctorPhone: rows[0].doctor_phone,
-    doctorName: rows[0].doctor_name,
-    patientName: rows[0].patient_name,
-    clinicType: clinic_type,
-    appointmentDate: normalizedDate,
-    appointmentTime: appointment_time,
-  }).catch((err) => {
-    console.error('SMS doctor booking notification failed:', err.message)
-  })
   broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
   res.status(201).json({ message: 'Appointment created.', id: result.insertId })
 }
@@ -283,7 +284,7 @@ const createAppointment = async (req, res) => {
 const confirmAppointment = async (req, res) => {
   const [rows] = await db.query(
     `SELECT a.id, a.appointment_date, a.appointment_time, a.clinic_type,
-            p.id AS patient_id, p.email AS patient_email, p.full_name AS patient_name,
+            p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.full_name AS doctor_name
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
@@ -292,6 +293,10 @@ const confirmAppointment = async (req, res) => {
     [req.params.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
+  const lastNoShow = await getLastNoShowAppointment(rows[0].patient_id)
+  if (lastNoShow && !req.body?.override_no_show_warning) {
+    return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
+  }
   await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ?", [req.params.id])
   await createNotification({
     target_role: 'patient',
@@ -311,6 +316,27 @@ const confirmAppointment = async (req, res) => {
     clinic_type: rows[0].clinic_type,
     status: 'confirmed',
   }).catch(() => {})
+  await sendPatientAppointmentStatusSms({
+    patientPhone: rows[0].patient_phone,
+    patientName: rows[0].patient_name,
+    doctorName: rows[0].doctor_name,
+    appointmentDate: rows[0].appointment_date,
+    appointmentTime: rows[0].appointment_time,
+    status: 'confirmed',
+  }).catch((err) => {
+    console.error('SMS patient appointment confirmation failed:', err.message)
+  })
+  if (lastNoShow) {
+    await createNotification({
+      target_role: 'patient',
+      target_user_id: rows[0].patient_id,
+      type: 'appointment_policy_warning',
+      title: 'Appointment policy reminder',
+      message: 'Please arrive on time or cancel ahead if you cannot attend. Repeated no-shows or fake bookings may be cancelled by the clinic.',
+      reference_type: 'appointment',
+      reference_id: req.params.id,
+    })
+  }
   broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
   res.json({ message: 'Appointment confirmed.' })
 }
@@ -318,7 +344,7 @@ const confirmAppointment = async (req, res) => {
 const cancelAppointment = async (req, res) => {
   const [rows] = await db.query(
     `SELECT a.id, a.appointment_date, a.appointment_time, a.clinic_type,
-            p.id AS patient_id, p.email AS patient_email, p.full_name AS patient_name,
+            p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.full_name AS doctor_name
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
@@ -346,15 +372,28 @@ const cancelAppointment = async (req, res) => {
     clinic_type: rows[0].clinic_type,
     status: 'cancelled',
   }).catch(() => {})
+  await sendPatientAppointmentStatusSms({
+    patientPhone: rows[0].patient_phone,
+    patientName: rows[0].patient_name,
+    doctorName: rows[0].doctor_name,
+    appointmentDate: rows[0].appointment_date,
+    appointmentTime: rows[0].appointment_time,
+    status: 'cancelled',
+  }).catch((err) => {
+    console.error('SMS patient appointment cancellation failed:', err.message)
+  })
   broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'cancelled' })
   res.json({ message: 'Appointment cancelled.' })
 }
 
 const markAppointmentNoShow = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT a.id, a.status, p.id AS patient_id
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time,
+            p.id AS patient_id, p.full_name AS patient_name, p.phone AS patient_phone,
+            d.full_name AS doctor_name
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
+     JOIN doctors d ON a.doctor_id = d.id
      WHERE a.id = ?`,
     [req.params.id]
   )
@@ -388,7 +427,7 @@ const rescheduleAppointment = async (req, res) => {
   await markOverdueAppointments()
   const [rows] = await db.query(
     `SELECT a.id, a.doctor_id, a.status, a.clinic_type,
-            p.id AS patient_id, p.email AS patient_email, p.full_name AS patient_name,
+            p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.full_name AS doctor_name
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
@@ -439,6 +478,16 @@ const rescheduleAppointment = async (req, res) => {
     clinic_type: rows[0].clinic_type,
     status: 'rescheduled',
   }).catch(() => {})
+  await sendPatientAppointmentStatusSms({
+    patientPhone: rows[0].patient_phone,
+    patientName: rows[0].patient_name,
+    doctorName: rows[0].doctor_name,
+    appointmentDate: normalizedDate,
+    appointmentTime: appointment_time,
+    status: 'rescheduled',
+  }).catch((err) => {
+    console.error('SMS patient appointment reschedule failed:', err.message)
+  })
   broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
   res.json({ message: 'Appointment rescheduled.' })
 }
@@ -459,17 +508,39 @@ const getQueue = async (req, res) => {
 }
 
 const addToQueue = async (req, res) => {
-  const { patient_id, doctor_id, patient_name, type, reason } = req.body
+  const { patient_id, doctor_id, patient_name, type, reason, cancel_existing_appointment_id } = req.body
   if (!doctor_id || !type)
     return res.status(400).json({ message: 'doctor_id and type are required.' })
 
   const today = getTodayDateOnly()
+  if (patient_id) {
+    const activeAppointment = await getActiveAppointmentConflict(patient_id, { fromDate: today })
+    if (activeAppointment && Number(cancel_existing_appointment_id) !== Number(activeAppointment.id)) {
+      return res.status(409).json({
+        code: 'ACTIVE_APPOINTMENT',
+        message: 'This patient already has an active online appointment. Confirm if staff should cancel it and continue as walk-in.',
+        active_appointment: activeAppointment,
+      })
+    }
+  }
+
   const [[{ maxQ }]] = await db.query(
     'SELECT COALESCE(MAX(queue_number), 0) AS maxQ FROM queue WHERE queue_date = ?', [today]
   )
   let appointmentId = null
 
   if (patient_id) {
+    if (cancel_existing_appointment_id) {
+      await db.query(
+        "UPDATE appointments SET status = 'cancelled', notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE '\n' END, 'Cancelled because staff converted patient to walk-in queue.') WHERE id = ? AND patient_id = ? AND status IN ('pending','confirmed','rescheduled','in-progress')",
+        [cancel_existing_appointment_id, patient_id]
+      )
+      broadcast(['admin', 'staff', `patient_${patient_id}`], 'appointment_updated', {
+        appointmentId: Number(cancel_existing_appointment_id),
+        status: 'cancelled',
+      })
+    }
+
     const appointmentTime = getCurrentTimeLabel()
     const [appointmentResult] = await db.query(
       `INSERT INTO appointments
@@ -739,12 +810,46 @@ const confirmBillPayment = async (req, res) => {
     return res.status(400).json({ message: 'Select a payment method first.' })
   }
 
-  await db.query(
-    `UPDATE billing_records
-     SET status = 'paid', payment_method = ?, payment_notes = ?, confirmed_by_staff_id = ?, paid_at = NOW()
-     WHERE id = ?`,
-    [paymentMethod, paymentNotes, req.user.id, req.params.id]
-  )
+  const inventoryUsage = collectInventoryUsageFromBillingItems(bill.items)
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+
+    for (const usage of inventoryUsage) {
+      const consumption = await consumeInventoryFEFO(usage.inventory_id, usage.quantity, conn)
+      if (!consumption.ok) {
+        await conn.rollback()
+        return res.status(400).json({
+          message: `Not enough stock for billed item #${usage.inventory_id}. ${consumption.message}`,
+        })
+      }
+
+      await conn.query(
+        'INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note) VALUES (?,?,?,?,?)',
+        [
+          usage.inventory_id,
+          req.user.id,
+          'out',
+          usage.quantity,
+          `Billing payment #${bill.id}${usage.labels.length ? `: ${usage.labels.join(', ')}` : ''}`,
+        ]
+      )
+    }
+
+    await conn.query(
+      `UPDATE billing_records
+       SET status = 'paid', payment_method = ?, payment_notes = ?, confirmed_by_staff_id = ?, paid_at = NOW()
+       WHERE id = ?`,
+      [paymentMethod, paymentNotes, req.user.id, req.params.id]
+    )
+
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
 
   const updatedBill = await getBillingRecordWithItems(req.params.id)
   res.json(updatedBill)

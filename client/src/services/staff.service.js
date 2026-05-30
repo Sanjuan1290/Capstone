@@ -4,7 +4,11 @@ const BASE = '/api/staff'
 const requestJson = async (url, options = {}) => {
   const res = await fetch(url, { credentials: 'include', ...options })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.message || 'Request failed.')
+  if (!res.ok) {
+    const err = new Error(data.message || 'Request failed.')
+    Object.assign(err, data)
+    throw err
+  }
   return data
 }
 
@@ -21,8 +25,13 @@ export const getAppointments = (dateOrParams = '') => {
   return fetch(`${BASE}/appointments${query}`, { credentials: 'include' }).then(r => r.json())
 }
 
-export const confirmAppointment = (id) =>
-  fetch(`${BASE}/appointments/${id}/confirm`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+export const confirmAppointment = (id, payload = {}) =>
+  requestJson(`${BASE}/appointments/${id}/confirm`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
 
 export const cancelAppointment = (id) =>
   fetch(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())

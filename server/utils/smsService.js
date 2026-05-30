@@ -5,8 +5,7 @@ const SEMAPHORE_HOST = 'api.semaphore.co'
 const SEMAPHORE_BASE_PATH = '/api/v4'
 
 const isSmsConfigured = () => (
-  String(process.env.SMS_PROVIDER || '').toLowerCase() === 'semaphore'
-  && Boolean(process.env.SEMAPHORE_API_KEY)
+  Boolean(String(process.env.SEMAPHORE_API_KEY || '').trim())
 )
 
 const getSemaphoreErrorMessage = (parsed, raw, statusCode) => {
@@ -66,8 +65,8 @@ const requestSemaphore = (path, payload) => new Promise((resolve, reject) => {
 
 const sendSemaphore = async (path, payload, fallbackLabel) => {
   if (!isSmsConfigured()) {
-    console.warn(`[sms:disabled] ${fallbackLabel}`)
-    return { skipped: true }
+    console.warn(`[sms:missing-config] ${fallbackLabel}`)
+    throw new Error('Semaphore SMS is not configured. Set SEMAPHORE_API_KEY in server/.env and restart the server.')
   }
 
   return requestSemaphore(path, {
@@ -125,9 +124,36 @@ const sendDoctorAppointmentSms = async ({
   }, `Doctor booking notice for ${doctorName || 'doctor'} (${normalized})`)
 }
 
+const sendPatientAppointmentStatusSms = async ({
+  patientPhone,
+  patientName,
+  doctorName,
+  appointmentDate,
+  appointmentTime,
+  status,
+}) => {
+  const normalized = normalizePhilippinePhone(patientPhone)
+  if (!normalized) return { skipped: true }
+
+  const cleanDoctorName = String(doctorName || '').replace(/^Dr\.?\s*/i, '').trim() || 'your doctor'
+  const patientLabel = String(patientName || '').trim() || 'Patient'
+  const statusMessages = {
+    confirmed: `Carait Clinic: Hi ${patientLabel}, your appointment with Dr. ${cleanDoctorName} on ${appointmentDate} at ${appointmentTime} is confirmed.`,
+    cancelled: `Carait Clinic: Hi ${patientLabel}, your appointment with Dr. ${cleanDoctorName} on ${appointmentDate} at ${appointmentTime} has been cancelled.`,
+    rescheduled: `Carait Clinic: Hi ${patientLabel}, your appointment with Dr. ${cleanDoctorName} was moved to ${appointmentDate} at ${appointmentTime}.`,
+    no_show: `Carait Clinic: Your appointment on ${appointmentDate} at ${appointmentTime} was marked no-show. Please contact the clinic before booking again.`,
+  }
+
+  return sendSemaphore('/messages', {
+    number: normalized,
+    message: statusMessages[status] || `Carait Clinic appointment update: ${appointmentDate} at ${appointmentTime}.`,
+  }, `Patient appointment ${status || 'update'} for ${patientLabel} (${normalized})`)
+}
+
 module.exports = {
   isSmsConfigured,
   sendPatientRegistrationOtp,
   sendPatientPasswordResetOtp,
   sendDoctorAppointmentSms,
+  sendPatientAppointmentStatusSms,
 }

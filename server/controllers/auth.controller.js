@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt')
 const crypto = require('crypto')
 const { sendPasswordResetOtp } = require('../utils/emailService')
 const { normalizePhilippinePhone } = require('../utils/phone')
-const { sendPatientPasswordResetOtp, isSmsConfigured } = require('../utils/smsService')
+const { sendPatientPasswordResetOtp } = require('../utils/smsService')
 
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
@@ -117,29 +117,19 @@ const forgotPassword = async (req, res) => {
   )
 
   if (role === 'patient') {
-    const shouldUseDevOtp = !isSmsConfigured() || !process.env.SEMAPHORE_SENDER_NAME
-
-    if (!shouldUseDevOtp) {
-      try {
-        await sendPatientPasswordResetOtp({
-          phone: identifier,
-          code: otp,
-          fullName: account.full_name,
-        })
-      } catch (err) {
-        console.error('Patient password reset OTP SMS failed:', err.message)
-        await db.query('DELETE FROM password_resets WHERE role = ? AND identifier = ?', [role, identifier])
-        return res.status(500).json({ message: 'Failed to send verification code. Please try again.' })
-      }
-
-      return res.json({ message: 'Verification code sent by SMS.' })
+    try {
+      await sendPatientPasswordResetOtp({
+        phone: identifier,
+        code: otp,
+        fullName: account.full_name,
+      })
+    } catch (err) {
+      console.error('Patient password reset OTP SMS failed:', err.message)
+      await db.query('DELETE FROM password_resets WHERE role = ? AND identifier = ?', [role, identifier])
+      return res.status(500).json({ message: 'Failed to send verification code. Please try again.' })
     }
 
-    return res.json({
-      message: 'Verification code generated. SMS sender name is not configured yet, so use the dev OTP for now.',
-      phone: identifier,
-      dev_otp: otp,
-    })
+    return res.json({ message: 'Verification code sent by SMS.' })
   }
 
   try {

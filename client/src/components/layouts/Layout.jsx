@@ -12,6 +12,7 @@ import { FaFacebook } from 'react-icons/fa'
 import logo from '../../assets/logo-removebg.png'
 import { getPublicLandingPage } from '../../services/landing.service'
 import { isExternalPath, normalizeAppPath } from '../../utils/navigation'
+import { useAuth } from '../../context/AuthContext'
 
 // ── Defaults (match DB content) ───────────────────────────────────────────────
 const defaultHeader = {
@@ -23,7 +24,7 @@ const defaultHeader = {
     { label: 'Contact',  path: '#contact' },
   ],
   login_label: 'Log in',
-  login_path:  '/patient/login',
+  login_path:  '/login',
   cta_label:   'Book Appointment',
   cta_path:    '/patient/register',
 }
@@ -63,6 +64,7 @@ const FooterLink = ({ href, children }) => {
 // ── Layout ─────────────────────────────────────────────────────────────────────
 const Layout = () => {
   const location    = useLocation()
+  const { user, role } = useAuth()
   const [landing,   setLanding]   = useState({ header: defaultHeader, footer: defaultFooter })
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -75,9 +77,13 @@ const Layout = () => {
   const header    = landing?.header || defaultHeader
   const footer    = { ...defaultFooter, ...landing?.footer }
   const navLinks  = Array.isArray(header.nav_links) && header.nav_links.length > 0 ? header.nav_links : defaultHeader.nav_links
-  const showMarketingShell = ['/', '/patient/register', '/patient/login'].includes(location.pathname)
+  const showMarketingShell = ['/', '/login', '/patient/register', '/patient/login'].includes(location.pathname)
   const logoSrc   = header.logo_url || logo
-  const loginPath = normalizeAppPath(header.login_path, '/patient/login')
+  const isPatientLoggedIn = Boolean(user && role === 'patient')
+  const loginPath = isPatientLoggedIn
+    ? '/patient'
+    : normalizeAppPath(header.login_path, '/login')
+  const loginLabel = isPatientLoggedIn ? 'Clinic Portal' : (header.login_label || 'Log in')
   const ctaPath   = normalizeAppPath(header.cta_path,   '/patient/register')
 
   if (showMarketingShell) {
@@ -114,11 +120,11 @@ const Layout = () => {
             <div className="hidden items-center gap-4 lg:flex">
               {isExternalPath(loginPath) ? (
                 <a href={loginPath} className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors duration-300">
-                  {header.login_label || 'Log in'}
+                  {loginLabel}
                 </a>
               ) : (
-                <NavLink to={loginPath} className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors duration-300">
-                  {header.login_label || 'Log in'}
+                <NavLink to={loginPath} className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-800 px-4 py-2 rounded-md transition-colors duration-300">
+                  {loginLabel}
                 </NavLink>
               )}
 
@@ -161,11 +167,11 @@ const Layout = () => {
               <div className="mt-4 grid gap-2">
                 {isExternalPath(loginPath) ? (
                   <a href={loginPath} onClick={() => setMobileOpen(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-center text-sm font-semibold text-slate-600">
-                    {header.login_label || 'Log in'}
+                    {loginLabel}
                   </a>
                 ) : (
                   <NavLink to={loginPath} onClick={() => setMobileOpen(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-center text-sm font-semibold text-slate-600">
-                    {header.login_label || 'Log in'}
+                    {loginLabel}
                   </NavLink>
                 )}
                 {isExternalPath(ctaPath) ? (

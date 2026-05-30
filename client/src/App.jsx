@@ -73,6 +73,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/terms'          element={<TermsOfService />} />   {/* NEW */}
 
       {/* ── Patient auth ────────────────────────────────── */}
+      <Route path='/login'                  element={<PatientAuthRoute><PatientLogin /></PatientAuthRoute>} />
       <Route path='/patient/register'        element={<PatientAuthRoute><PatientRegister /></PatientAuthRoute>} />
       <Route path='/patient/login'           element={<PatientAuthRoute><PatientLogin /></PatientAuthRoute>} />
       <Route path='/patient/forgot-password' element={<ForgotPassword role="patient" />} />

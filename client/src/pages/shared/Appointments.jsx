@@ -365,7 +365,7 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
       .filter(Boolean)
   }, [appointments, form.appointment_date, form.doctor_id])
 
-  const handleCreate = async () => {
+  const handleCreate = async (overrideNoShowWarning = false) => {
     setSaving(true)
     setError('')
     try {
@@ -380,10 +380,25 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
         throw new Error('Select an existing patient or complete the new patient details first.')
       }
 
-      await services.createAppointment({ ...form, patient_id: patientId })
+      await services.createAppointment({
+        ...form,
+        patient_id: patientId,
+        override_no_show_warning: overrideNoShowWarning,
+      })
       await onCreated()
       onClose()
     } catch (err) {
+      if (err.code === 'NO_SHOW_WARNING') {
+        const lastNoShow = err.last_no_show
+        const detail = lastNoShow
+          ? `Last no-show: ${lastNoShow.appointment_date} at ${lastNoShow.appointment_time} with ${lastNoShow.doctor_name}.`
+          : 'This patient has a previous no-show appointment.'
+        const proceed = window.confirm(`${err.message}\n\n${detail}\n\nPolicy reminder: ${err.policy}\n\nContinue creating this appointment?`)
+        if (proceed) {
+          await handleCreate(true)
+          return
+        }
+      }
       setError(err.message || 'Failed to create appointment.')
     } finally {
       setSaving(false)
@@ -553,7 +568,7 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
           <div className="border-t border-slate-100 bg-white px-4 py-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] sm:px-5 sm:py-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
               <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
-              <button onClick={handleCreate} disabled={saving} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving...' : 'Create'}</button>
+              <button onClick={() => handleCreate()} disabled={saving} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving...' : 'Create'}</button>
             </div>
           </div>
         </div>
@@ -627,12 +642,30 @@ const Appointments = ({ services }) => {
       } else {
         await loadAppointments()
       }
+    } catch (err) {
+      alert(err.message || 'Action failed.')
     } finally {
       setBusyId(null)
     }
   }
 
-  const handleConfirm = (appointment) => runAction(appointment, () => services.confirmAppointment(appointment.id))
+  const handleConfirm = (appointment) => runAction(appointment, async () => {
+    try {
+      return await services.confirmAppointment(appointment.id)
+    } catch (err) {
+      if (err.code === 'NO_SHOW_WARNING') {
+        const lastNoShow = err.last_no_show
+        const detail = lastNoShow
+          ? `Last no-show: ${lastNoShow.appointment_date} at ${lastNoShow.appointment_time} with ${lastNoShow.doctor_name}.`
+          : 'This patient has a previous no-show appointment.'
+        const proceed = window.confirm(`${err.message}\n\n${detail}\n\nPolicy reminder: ${err.policy}\n\nConfirm this appointment anyway?`)
+        if (proceed) {
+          return services.confirmAppointment(appointment.id, { override_no_show_warning: true })
+        }
+      }
+      throw err
+    }
+  })
   const handleCancel = (appointment) => {
     if (!window.confirm('Cancel this appointment?')) return
     runAction(appointment, () => services.cancelAppointment(appointment.id))

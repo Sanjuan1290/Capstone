@@ -12,6 +12,53 @@ const parseJsonSafe = (value, fallback = null) => {
   }
 }
 
+const collectInventoryUsageFromBillingItems = (items = []) => {
+  const usageMap = new Map()
+
+  const addUsage = (inventoryId, quantity, label) => {
+    const id = Number(inventoryId) || 0
+    const qty = Math.max(0, Number(quantity) || 0)
+    if (!id || qty <= 0) return
+
+    const current = usageMap.get(id) || {
+      inventory_id: id,
+      quantity: 0,
+      labels: new Set(),
+    }
+    current.quantity = roundMoney(current.quantity + qty)
+    if (label) current.labels.add(label)
+    usageMap.set(id, current)
+  }
+
+  for (const item of Array.isArray(items) ? items : []) {
+    const itemQuantity = Math.max(0, Number(item.quantity) || 0)
+    if (itemQuantity <= 0) continue
+
+    if (item.item_type === 'supply') {
+      addUsage(item.source_inventory_id, itemQuantity, item.service_name)
+      continue
+    }
+
+    if (item.item_type === 'service') {
+      const details = parseJsonSafe(item.details_json || item.details, null)
+      const materials = Array.isArray(details?.materials) ? details.materials : []
+      for (const material of materials) {
+        addUsage(
+          material.inventory_id,
+          itemQuantity * (Number(material.quantity) || 0),
+          `${item.service_name}: ${material.material_name}`
+        )
+      }
+    }
+  }
+
+  return Array.from(usageMap.values()).map((entry) => ({
+    inventory_id: entry.inventory_id,
+    quantity: entry.quantity,
+    labels: Array.from(entry.labels),
+  }))
+}
+
 const normalizeServiceMaterials = (materials = []) => (
   Array.isArray(materials)
     ? materials
@@ -46,6 +93,7 @@ const normalizeServiceMaterials = (materials = []) => (
 const computeCatalogServicePricing = (service = {}) => {
   const materials = Array.isArray(service.materials) ? service.materials : []
   const profitPercentage = Math.max(0, Number(service.profit_percentage) || 0)
+  const consultationFee = Math.max(0, Number(service.consultation_fee) || 0)
   const materialsCost = roundMoney(materials.reduce((sum, material) => {
     const quantity = Math.max(0, Number(material?.quantity) || 0)
     const unitCost = material?.unit_cost_override !== null && material?.unit_cost_override !== undefined
@@ -53,12 +101,14 @@ const computeCatalogServicePricing = (service = {}) => {
       : Math.max(0, Number(material?.inventory_price) || 0)
     return sum + roundMoney(quantity * unitCost)
   }, 0))
-  const profitAmount = roundMoney(materialsCost * (profitPercentage / 100))
-  const suggestedPrice = roundMoney(materialsCost + profitAmount)
+  const billableBase = roundMoney(materialsCost + consultationFee)
+  const profitAmount = roundMoney(billableBase * (profitPercentage / 100))
+  const suggestedPrice = roundMoney(billableBase + profitAmount)
 
   return {
     ...service,
     materials_cost: materialsCost,
+    consultation_fee: consultationFee,
     profit_percentage: profitPercentage,
     profit_amount: profitAmount,
     suggested_price: suggestedPrice,
@@ -118,6 +168,7 @@ const hydrateBillingCatalogRows = async (serviceRows = [], executor = db) => {
   return serviceRows.map((row) => computeCatalogServicePricing({
     ...row,
     default_price: Number(row.default_price) || 0,
+    consultation_fee: Number(row.consultation_fee) || 0,
     profit_percentage: Number(row.profit_percentage) || 0,
     materials: materialsByServiceId.get(row.id) || [],
   }))
@@ -143,7 +194,7 @@ const listBillingCatalog = async (options = {}, executor = db) => {
 
   const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : ''
   const [rows] = await executor.query(
-    `SELECT id, category, service_name, clinic_type, default_price, profit_percentage, is_active, sort_order
+    `SELECT id, category, service_name, clinic_type, default_price, consultation_fee, profit_percentage, is_active, sort_order
      FROM billing_service_catalog
      ${whereClause}
      ORDER BY sort_order ASC, category ASC, service_name ASC`,
@@ -226,6 +277,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           ? {
               pricing: {
                 materials_cost: service.materials_cost,
+                consultation_fee: service.consultation_fee,
                 profit_percentage: service.profit_percentage,
                 profit_amount: service.profit_amount,
                 suggested_price: service.suggested_price,
@@ -255,7 +307,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           ? Number(service.suggested_price) || 0
           : Math.max(0, Number(item?.unit_price ?? item?.default_price) || 0)
         const baseAmount = service
-          ? Number(service.materials_cost) || 0
+          ? roundMoney((Number(service.materials_cost) || 0) + (Number(service.consultation_fee) || 0))
           : Math.max(0, Number(item?.base_amount) || 0)
         const markupPercentage = service
           ? Number(service.profit_percentage) || 0
@@ -499,6 +551,7 @@ module.exports = {
   computeCatalogServicePricing,
   normalizeBillingItems,
   computeBillingTotals,
+  collectInventoryUsageFromBillingItems,
   listBillingCatalog,
   getBillingCatalogServiceById,
   getBillingRecordWithItems,
