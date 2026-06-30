@@ -5,8 +5,10 @@ import {
   RouterProvider, createBrowserRouter, createRoutesFromElements,
   Route, Navigate,
 } from 'react-router-dom'
+import { QueryClientProvider } from '@tanstack/react-query'
 
 import { AuthProvider } from './context/AuthContext'
+import { queryClient } from './lib/queryClient'
 import Layout from './components/layouts/Layout'
 import LandingPage from './pages/LandingPages/LandingPage'
 
@@ -150,9 +152,11 @@ const router = createBrowserRouter(createRoutesFromElements(
 ))
 
 const App = () => (
-  <AuthProvider>
-    <RouterProvider router={router} />
-  </AuthProvider>
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>
+      <RouterProvider router={router} />
+    </AuthProvider>
+  </QueryClientProvider>
 )
 
 export default App

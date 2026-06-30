@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createBillingCatalogService,
   deleteBillingCatalogService,
@@ -84,10 +85,7 @@ const serviceToForm = (service) => ({
 })
 
 const Admin_BillingCatalog = () => {
-  const [services, setServices] = useState([])
-  const [inventoryItems, setInventoryItems] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
   const [deletingId, setDeletingId] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [selectedService, setSelectedService] = useState(null)
@@ -96,31 +94,35 @@ const Admin_BillingCatalog = () => {
   const [filter, setFilter] = useState('all')
   const [page, setPage] = useState(1)
   const [form, setForm] = useState(BLANK_FORM)
+  const catalogQueryKey = ['admin', 'billingCatalog', { includeInactive: true }]
+  const inventoryQueryKey = ['admin', 'inventory']
+
+  const catalogQuery = useQuery({
+    queryKey: catalogQueryKey,
+    queryFn: () => getBillingCatalog({ includeInactive: true }),
+    staleTime: 2 * 60 * 1000,
+  })
+
+  const inventoryQuery = useQuery({
+    queryKey: inventoryQueryKey,
+    queryFn: getInventory,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const services = Array.isArray(catalogQuery.data) ? catalogQuery.data : []
+  const inventoryItems = Array.isArray(inventoryQuery.data) ? inventoryQuery.data : []
+  const loading = catalogQuery.isPending || inventoryQuery.isPending
+  const loadError = catalogQuery.error || inventoryQuery.error
 
   const inventoryMap = useMemo(
     () => new Map((inventoryItems || []).map((item) => [Number(item.id), item])),
     [inventoryItems]
   )
 
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      const [catalogRows, inventoryRows] = await Promise.all([
-        getBillingCatalog({ includeInactive: true }),
-        getInventory(),
-      ])
-      setServices(Array.isArray(catalogRows) ? catalogRows : [])
-      setInventoryItems(Array.isArray(inventoryRows) ? inventoryRows : [])
-    } catch (err) {
-      alert(err.message || 'Failed to load billing catalog.')
-    } finally {
-      setLoading(false)
-    }
+  const refreshData = () => {
+    queryClient.invalidateQueries({ queryKey: catalogQueryKey })
+    queryClient.invalidateQueries({ queryKey: inventoryQueryKey })
   }
-
-  useEffect(() => {
-    loadData()
-  }, [])
 
   const filteredServices = useMemo(() => {
     const query = search.trim().toLowerCase()

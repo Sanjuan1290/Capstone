@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MdDone, MdNotifications } from 'react-icons/md'
 import {
   getNotifications,
@@ -7,58 +8,71 @@ import {
 } from '../services/portal.service'
 
 const NotificationBell = ({ role }) => {
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [items, setItems] = useState([])
-  const [unread, setUnread] = useState(0)
-  const [markingAll, setMarkingAll] = useState(false)
+  const queryKey = ['notifications', role]
 
-  const load = useCallback(async () => {
-    if (!role) return
-    try {
-      const data = await getNotifications(role)
-      setItems(data.items || [])
-      setUnread(data.unread || 0)
-    } catch (error) {
-      console.error('Failed to load notifications', error)
-    }
-  }, [role])
+  const { data, isPending, isError } = useQuery({
+    queryKey,
+    queryFn: () => getNotifications(role),
+    enabled: Boolean(role),
+    staleTime: 30 * 1000,
+  })
 
   useEffect(() => {
-    load()
-  }, [load])
-
-  useEffect(() => {
-    const refresh = () => load()
+    const refresh = () => queryClient.invalidateQueries({ queryKey })
     window.addEventListener('clinic:refresh', refresh)
     window.addEventListener('clinic:notifications-refresh', refresh)
     return () => {
       window.removeEventListener('clinic:refresh', refresh)
       window.removeEventListener('clinic:notifications-refresh', refresh)
     }
-  }, [load])
+  }, [queryClient, role])
 
-  const handleRead = async (id) => {
-    try {
-      await markNotificationRead(role, id)
-      setItems((prev) => prev.map((item) => (item.id === id ? { ...item, is_read: 1 } : item)))
-      setUnread((prev) => Math.max(0, prev - 1))
-    } catch (error) {
+  const markReadMutation = useMutation({
+    mutationFn: (id) => markNotificationRead(role, id),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData(queryKey)
+      queryClient.setQueryData(queryKey, (current) => {
+        if (!current) return current
+        const wasUnread = current.items?.some((item) => item.id === id && !item.is_read)
+        return {
+          ...current,
+          items: (current.items || []).map((item) => (item.id === id ? { ...item, is_read: 1 } : item)),
+          unread: wasUnread ? Math.max(0, Number(current.unread || 0) - 1) : current.unread,
+        }
+      })
+      return { previous }
+    },
+    onError: (error, _id, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
       console.error('Failed to mark notification as read', error)
-    }
-  }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  })
 
-  const handleReadAll = async () => {
-    setMarkingAll(true)
-    try {
-      await readAllNotifications(role)
-      setItems((prev) => prev.map((item) => ({ ...item, is_read: 1 })))
-      setUnread(0)
-    } catch (error) {
+  const readAllMutation = useMutation({
+    mutationFn: () => readAllNotifications(role),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData(queryKey)
+      queryClient.setQueryData(queryKey, (current) => (
+        current
+          ? { ...current, items: (current.items || []).map((item) => ({ ...item, is_read: 1 })), unread: 0 }
+          : current
+      ))
+      return { previous }
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
       console.error('Failed to mark all notifications as read', error)
-    } finally {
-      setMarkingAll(false)
-    }
-  }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  })
+
+  const items = data?.items || []
+  const unread = Number(data?.unread || 0)
 
   return (
     <div className="relative">
@@ -80,18 +94,22 @@ const NotificationBell = ({ role }) => {
             <p className="text-sm font-bold text-slate-800">Notifications</p>
             {unread > 0 && (
               <button
-                onClick={handleReadAll}
-                disabled={markingAll}
+                onClick={() => readAllMutation.mutate()}
+                disabled={readAllMutation.isPending}
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {markingAll && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />}
+                {readAllMutation.isPending && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />}
                 Mark all as read
               </button>
             )}
           </div>
 
           <div className="max-h-80 overflow-y-auto">
-            {items.length === 0 ? (
+            {isPending ? (
+              <p className="px-4 py-6 text-center text-sm text-slate-400">Loading notifications...</p>
+            ) : isError ? (
+              <p className="px-4 py-6 text-center text-sm text-red-400">Failed to load notifications.</p>
+            ) : items.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-slate-400">No notifications yet.</p>
             ) : (
               items.map((item) => (
@@ -109,7 +127,7 @@ const NotificationBell = ({ role }) => {
                     </div>
                     {!item.is_read && (
                       <button
-                        onClick={() => handleRead(item.id)}
+                        onClick={() => markReadMutation.mutate(item.id)}
                         className="h-8 w-8 rounded-lg border border-slate-200 text-slate-400 hover:border-sky-200 hover:text-sky-600"
                       >
                         <MdDone className="mx-auto text-[16px]" />
