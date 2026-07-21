@@ -84,9 +84,15 @@ export const createWalkInPatient = (payload) =>
 export const getPatientRecord = (id) =>
   fetch(`${BASE}/patients/${id}`, { credentials: 'include' }).then(r => r.json())
 
-export const getBills = (status = '') => {
-  const query = status ? `?status=${encodeURIComponent(status)}` : ''
-  return requestJson(`${BASE}/billing${query}`)
+export const getBills = (params = {}) => {
+  const normalized = typeof params === 'string' ? { status: params } : params
+  const search = new URLSearchParams()
+  if (normalized.status) search.set('status', normalized.status)
+  if (normalized.search) search.set('search', normalized.search)
+  if (normalized.page) search.set('page', normalized.page)
+  if (normalized.limit) search.set('limit', normalized.limit)
+  const query = search.toString()
+  return requestJson(`${BASE}/billing${query ? `?${query}` : ''}`)
 }
 
 export const getBillingCatalog = (clinicType = '') => {
@@ -110,6 +116,16 @@ export const confirmBillPayment = (id, payload) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+
+export const payBill = (id, payload) =>
+  requestJson(`${BASE}/billing/${id}/pay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const getBillingPaymentSettings = () =>
+  requestJson(`${BASE}/billing-payment-settings`)
 
 export const getInventory = () =>
   fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
@@ -165,3 +181,4 @@ export const resolveSupplyRequest = (id, status) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   }).then(r => r.json())
+

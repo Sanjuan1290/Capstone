@@ -36,11 +36,14 @@ const {
   getLastNoShowAppointment,
   makeNoShowWarningResponse,
 } = require('../utils/appointmentPolicies')
+const { isValidPaymentMethod, requiresPaymentReference, makeReceiptNumber, calculatePaymentAmounts } = require('../utils/payments')
+const { isValidQueueStatus, isValidSupplyRequestResolution } = require('../utils/workflowValidation')
 
 const makeTempPassword = () => Math.random().toString(36).slice(-8)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
+
 const normalizeInventoryPayload = (body = {}) => ({
   barcode: body.barcode?.trim() || null,
   name: body.name?.trim() || '',
@@ -565,7 +568,7 @@ const addToQueue = async (req, res) => {
 
 const updateQueueStatus = async (req, res) => {
   const { status } = req.body
-  if (!['waiting','in-progress','done','removed'].includes(status))
+  if (!isValidQueueStatus(status))
     return res.status(400).json({ message: 'Invalid status.' })
   const [rows] = await db.query('SELECT id, doctor_id FROM queue WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Queue entry not found.' })
@@ -682,9 +685,38 @@ const getPatientRecord = async (req, res) => {
 
 const getBills = async (req, res) => {
   const status = String(req.query.status || '').trim()
+  const search = String(req.query.search || '').trim()
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10))
+  const offset = (page - 1) * limit
+  const conditions = []
   const params = []
-  let sql = `
-    SELECT
+
+  if (status) {
+    conditions.push('b.status = ?')
+    params.push(status)
+  }
+  if (search) {
+    const like = `%${search}%`
+    conditions.push(`(
+      p.full_name LIKE ? OR d.full_name LIKE ? OR a.reason LIKE ? OR
+      b.payment_method LIKE ? OR CAST(b.id AS CHAR) LIKE ?
+    )`)
+    params.push(like, like, like, like, like)
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const baseJoin = `
+    FROM billing_records b
+    JOIN appointments a ON a.id = b.appointment_id
+    JOIN patients p ON p.id = b.patient_id
+    JOIN doctors d ON d.id = b.doctor_id
+    LEFT JOIN staff s ON s.id = b.confirmed_by_staff_id
+  `
+
+  const [[countRow]] = await db.query(`SELECT COUNT(*) AS total ${baseJoin} ${whereClause}`, params)
+  const [rows] = await db.query(
+    `SELECT
       b.id,
       b.appointment_id,
       b.status,
@@ -707,22 +739,54 @@ const getBills = async (req, res) => {
       d.full_name AS doctor_name,
       d.specialty AS doctor_specialty,
       s.full_name AS confirmed_by_staff_name
-    FROM billing_records b
-    JOIN appointments a ON a.id = b.appointment_id
-    JOIN patients p ON p.id = b.patient_id
-    JOIN doctors d ON d.id = b.doctor_id
-    LEFT JOIN staff s ON s.id = b.confirmed_by_staff_id
-  `
+     ${baseJoin}
+     ${whereClause}
+     ORDER BY FIELD(b.status, 'pending', 'paid', 'cancelled'), b.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  )
 
-  if (status) {
-    sql += ' WHERE b.status = ?'
-    params.push(status)
+  const summaryConditions = []
+  const summaryParams = []
+  if (search) {
+    const like = `%${search}%`
+    summaryConditions.push(`(
+      p.full_name LIKE ? OR d.full_name LIKE ? OR a.reason LIKE ? OR
+      b.payment_method LIKE ? OR CAST(b.id AS CHAR) LIKE ?
+    )`)
+    summaryParams.push(like, like, like, like, like)
   }
+  const summaryWhere = summaryConditions.length ? `WHERE ${summaryConditions.join(' AND ')}` : ''
+  const [[summary]] = await db.query(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(b.status = 'pending') AS pending,
+       SUM(b.status = 'paid') AS paid,
+       SUM(CASE WHEN b.status = 'pending' THEN b.total_amount ELSE 0 END) AS outstanding
+     ${baseJoin}
+     ${summaryWhere}`,
+    summaryParams
+  )
 
-  sql += ' ORDER BY FIELD(b.status, "pending", "paid", "cancelled"), b.created_at DESC'
-
-  const [rows] = await db.query(sql, params)
-  res.json(rows)
+  const total = Number(countRow?.total || 0)
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  res.json({
+    items: rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasPrev: page > 1,
+      hasNext: page < totalPages,
+    },
+    summary: {
+      total: Number(summary?.total || 0),
+      pending: Number(summary?.pending || 0),
+      paid: Number(summary?.paid || 0),
+      outstanding: Number(summary?.outstanding || 0),
+    },
+  })
 }
 
 const getBillingCatalogForStaff = async (req, res) => {
@@ -797,30 +861,71 @@ const updateBill = async (req, res) => {
   res.json(updatedBill)
 }
 
-const confirmBillPayment = async (req, res) => {
-  const bill = await getBillingRecordWithItems(req.params.id)
-  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
-  if (bill.status === 'paid') {
-    return res.status(400).json({ message: 'This bill is already marked as paid.' })
+const payBill = async (req, res) => {
+  const billingId = Number(req.params.id)
+  const paymentMethod = String(req.body.payment_method || '').trim().toLowerCase()
+  const paymentNotes = String(req.body.payment_notes || '').trim() || null
+  const referenceNumber = String(req.body.reference_number || '').trim() || null
+
+  if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
+  if (!isValidPaymentMethod(paymentMethod)) {
+    return res.status(400).json({ message: 'Select a valid payment method.' })
+  }
+  if (requiresPaymentReference(paymentMethod) && !referenceNumber) {
+    return res.status(400).json({ message: 'Enter the payment reference number.' })
   }
 
-  const paymentMethod = String(req.body.payment_method || bill.payment_method || '').trim().toLowerCase()
-  const paymentNotes = String(req.body.payment_notes || bill.payment_notes || '').trim() || null
-  if (!paymentMethod) {
-    return res.status(400).json({ message: 'Select a payment method first.' })
-  }
-
-  const inventoryUsage = collectInventoryUsageFromBillingItems(bill.items)
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
 
+    // Lock first so repeated clicks or simultaneous requests cannot deduct stock twice.
+    const [lockedRows] = await conn.query(
+      'SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE',
+      [billingId]
+    )
+    if (lockedRows.length === 0) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Billing record not found.' })
+    }
+    const lockedBill = lockedRows[0]
+    if (lockedBill.status === 'paid') {
+      await conn.rollback()
+      return res.status(409).json({ message: 'This bill has already been paid.' })
+    }
+
+    const existingBill = await getBillingRecordWithItems(billingId, conn)
+    const rawItems = Array.isArray(req.body.items) ? req.body.items : existingBill.items
+    const items = await normalizeBillingItems(rawItems, conn)
+    if (items.length === 0) {
+      await conn.rollback()
+      return res.status(400).json({ message: 'Add at least one valid bill item.' })
+    }
+
+    const discountType = String(req.body.discount_type ?? lockedBill.discount_type ?? 'none').trim() || 'none'
+    const discountLabel = String(req.body.discount_label ?? lockedBill.discount_label ?? '').trim() || null
+    const discountAmount = Math.max(0, Number(req.body.discount_amount ?? lockedBill.discount_amount) || 0)
+    const totals = computeBillingTotals({ items, discount_amount: discountAmount })
+    const paymentAmounts = calculatePaymentAmounts({
+      totalAmount: totals.total_amount,
+      amountReceived: req.body.amount_received,
+    })
+    const amountReceived = paymentAmounts.amountReceived
+
+    if (!paymentAmounts.isSufficient) {
+      await conn.rollback()
+      return res.status(400).json({ message: 'Amount received cannot be lower than the bill total.' })
+    }
+
+    await saveBillingItems(billingId, items, conn)
+
+    const inventoryUsage = collectInventoryUsageFromBillingItems(items)
     for (const usage of inventoryUsage) {
       const consumption = await consumeInventoryFEFO(usage.inventory_id, usage.quantity, conn)
       if (!consumption.ok) {
         await conn.rollback()
         return res.status(400).json({
-          message: `Not enough stock for billed item #${usage.inventory_id}. ${consumption.message}`,
+          message: `Not enough stock for ${usage.labels.join(', ') || `inventory item #${usage.inventory_id}`}. ${consumption.message}`,
         })
       }
 
@@ -831,19 +936,64 @@ const confirmBillPayment = async (req, res) => {
           req.user.id,
           'out',
           usage.quantity,
-          `Billing payment #${bill.id}${usage.labels.length ? `: ${usage.labels.join(', ')}` : ''}`,
+          `Billing payment #${billingId}${usage.labels.length ? `: ${usage.labels.join(', ')}` : ''}`,
         ]
       )
     }
 
+    const receiptNumber = makeReceiptNumber(billingId)
+    const changeAmount = paymentAmounts.changeAmount
+
     await conn.query(
       `UPDATE billing_records
-       SET status = 'paid', payment_method = ?, payment_notes = ?, confirmed_by_staff_id = ?, paid_at = NOW()
+       SET status = 'paid', subtotal = ?, discount_type = ?, discount_label = ?, discount_amount = ?,
+           total_amount = ?, payment_method = ?, payment_notes = ?, confirmed_by_staff_id = ?, paid_at = NOW()
        WHERE id = ?`,
-      [paymentMethod, paymentNotes, req.user.id, req.params.id]
+      [
+        totals.subtotal,
+        discountType,
+        discountLabel,
+        totals.discount_amount,
+        totals.total_amount,
+        paymentMethod,
+        paymentNotes,
+        req.user.id,
+        billingId,
+      ]
+    )
+
+    await conn.query(
+      `INSERT INTO billing_payments
+       (billing_id, amount, payment_method, reference_number, amount_received, change_amount, receipt_number, status, notes, received_by_staff_id, paid_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, NOW())`,
+      [
+        billingId,
+        totals.total_amount,
+        paymentMethod,
+        referenceNumber,
+        amountReceived,
+        changeAmount,
+        receiptNumber,
+        paymentNotes,
+        req.user.id,
+      ]
+    )
+
+    await conn.query(
+      `INSERT INTO audit_logs
+       (user_id, user_role, action, entity_type, entity_id, old_values, new_values, ip_address)
+       VALUES (?, 'staff', 'billing.payment_confirmed', 'billing_record', ?, ?, ?, ?)`,
+      [
+        req.user.id,
+        String(billingId),
+        JSON.stringify({ status: lockedBill.status, total_amount: lockedBill.total_amount }),
+        JSON.stringify({ status: 'paid', total_amount: totals.total_amount, payment_method: paymentMethod, receipt_number: receiptNumber }),
+        req.ip || null,
+      ]
     )
 
     await conn.commit()
+    broadcast(['admin', 'staff'], 'billing_paid', { billingId, receiptNumber })
   } catch (err) {
     await conn.rollback()
     throw err
@@ -851,8 +1001,26 @@ const confirmBillPayment = async (req, res) => {
     conn.release()
   }
 
-  const updatedBill = await getBillingRecordWithItems(req.params.id)
+  const updatedBill = await getBillingRecordWithItems(billingId)
   res.json(updatedBill)
+}
+
+// Backward-compatible route for older clients. It now uses the same atomic transaction.
+const confirmBillPayment = payBill
+
+const getPaymentSettingsForStaff = async (req, res) => {
+  const [rows] = await db.query(
+    `SELECT gcash_qr_url, maya_qr_url, bank_name, bank_account_name, bank_account_number, updated_at
+     FROM clinic_payment_settings WHERE id = 1 LIMIT 1`
+  )
+  res.json(rows[0] || {
+    gcash_qr_url: '',
+    maya_qr_url: '',
+    bank_name: '',
+    bank_account_name: '',
+    bank_account_number: '',
+    updated_at: null,
+  })
 }
 
 const getInventory = async (req, res) => {
@@ -1082,7 +1250,7 @@ const getSupplyRequests = async (req, res) => {
 
 const resolveSupplyRequest = async (req, res) => {
   const { status } = req.body
-  if (!['approved', 'rejected'].includes(status))
+  if (!isValidSupplyRequestResolution(status))
     return res.status(400).json({ message: 'Status must be "approved" or "rejected".' })
 
   const [rows] = await db.query('SELECT * FROM supply_requests WHERE id = ?', [req.params.id])
@@ -1130,8 +1298,9 @@ module.exports = {
   getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment,
   getQueue, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
-  getBills, getBillingCatalogForStaff, getBillById, updateBill, confirmBillPayment,
+  getBills, getBillingCatalogForStaff, getBillById, updateBill, payBill, confirmBillPayment, getPaymentSettingsForStaff,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+

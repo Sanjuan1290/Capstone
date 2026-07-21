@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import {
   MdAdd,
   MdCheck,
@@ -376,9 +378,11 @@ const StaffWalkInQueue = () => {
 
   const activeQueue = queue.filter((entry) => ['waiting', 'in-progress'].includes(entry.status))
   const completedQueue = queue.filter((entry) => ['done', 'removed'].includes(entry.status))
+  const activePagination = useClientPagination(activeQueue, { initialPageSize: 6 })
+  const completedPagination = useClientPagination(completedQueue, { initialPageSize: 6 })
 
   return (
-    <div className="space-y-5">
+    <div className="mx-auto max-w-[1600px] space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-800">
@@ -425,10 +429,11 @@ const StaffWalkInQueue = () => {
             <div className="grid gap-4 lg:grid-cols-2">
               {activeQueue.length === 0 ? (
                 <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400">No active walk-ins yet.</div>
-              ) : activeQueue.map((entry) => (
+              ) : activePagination.pageItems.map((entry) => (
                 <QueueCard key={entry.id} entry={entry} onCall={handleCall} onDone={handleDone} onRemove={handleRemove} />
               ))}
             </div>
+            {activeQueue.length > 0 && <Pagination {...activePagination} total={activeQueue.length} pageSizeOptions={[6, 12, 24]} />}
           </section>
 
           <section className="space-y-3">
@@ -438,7 +443,7 @@ const StaffWalkInQueue = () => {
             <div className="grid gap-4 lg:grid-cols-2">
               {completedQueue.length === 0 ? (
                 <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400">No completed entries yet.</div>
-              ) : completedQueue.map((entry) => (
+              ) : completedPagination.pageItems.map((entry) => (
                 <div key={entry.id} className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
                   <div className="mb-2 flex items-start justify-between gap-3">
                     <div>
@@ -453,6 +458,7 @@ const StaffWalkInQueue = () => {
                 </div>
               ))}
             </div>
+            {completedQueue.length > 0 && <Pagination {...completedPagination} total={completedQueue.length} pageSizeOptions={[6, 12, 24]} />}
           </section>
         </>
       )}
@@ -463,3 +469,4 @@ const StaffWalkInQueue = () => {
 }
 
 export default StaffWalkInQueue
+

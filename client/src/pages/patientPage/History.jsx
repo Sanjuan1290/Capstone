@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import { getMyHistory } from '../../services/patient.service'
 import {
   MdAccessTime,
@@ -260,7 +262,8 @@ const History = () => {
     )
   })
 
-  const grouped = groupByMonth(filtered)
+  const historyPagination = useClientPagination(filtered, { resetDeps: [search] })
+  const grouped = groupByMonth(historyPagination.pageItems)
   const months = Object.keys(grouped)
   const completed = history.filter((visit) => visit.status !== 'cancelled').length
   const cancelled = history.filter((visit) => visit.status === 'cancelled').length
@@ -348,8 +351,10 @@ const History = () => {
           ))}
         </div>
       )}
+      {filtered.length > 0 && <Pagination {...historyPagination} total={filtered.length} />}
     </div>
   )
 }
 
 export default History
+

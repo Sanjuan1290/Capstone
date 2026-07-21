@@ -2,6 +2,8 @@
 // REDESIGNED: Split list+detail, amber theme, doctor add modal with specialty
 
 import { useEffect, useState } from 'react'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import { getDoctors, createDoctor, toggleDoctor, updateDoctor } from '../../services/admin.service'
 import {
   MdSearch, MdClose, MdAdd, MdEmail, MdPhone,
@@ -290,8 +292,10 @@ const Admin_DoctorAccount = () => {
     (d.specialty || '').toLowerCase().includes(search.toLowerCase())
   )
 
+  const doctorPagination = useClientPagination(filtered, { resetDeps: [search] })
+
   return (
-    <div className="max-w-5xl space-y-5">
+    <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -331,7 +335,7 @@ const Admin_DoctorAccount = () => {
               </div>
             ) : filtered.length === 0 ? (
               <div className="py-16 text-center text-sm text-slate-400 px-6">No doctors found.</div>
-            ) : filtered.map(doc => {
+            ) : doctorPagination.pageItems.map(doc => {
               const isDerma  = (doc.type === 'derma') || (doc.specialty || '').toLowerCase().includes('derm')
               const DIcon    = isDerma ? MdFace : MdMedicalServices
               const isActive = doc.is_active === 1
@@ -358,8 +362,8 @@ const Admin_DoctorAccount = () => {
               )
             })}
           </div>
-          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 text-[11px] text-slate-400">
-            {filtered.length} of {doctors.length} doctors
+          <div className="border-t border-slate-100 bg-slate-50/50 p-3">
+            <Pagination {...doctorPagination} total={filtered.length} pageSizeOptions={[5, 10, 20]} />
           </div>
         </div>
 
@@ -391,3 +395,4 @@ const Admin_DoctorAccount = () => {
 }
 
 export default Admin_DoctorAccount
+

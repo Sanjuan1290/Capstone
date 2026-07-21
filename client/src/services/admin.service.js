@@ -96,6 +96,16 @@ export const deleteBillingCatalogService = (id) =>
     method: 'DELETE',
   })
 
+export const getBillingPaymentSettings = () =>
+  requestJson(`${BASE}/billing/payment-settings`)
+
+export const updateBillingPaymentSettings = (payload) =>
+  requestJson(`${BASE}/billing/payment-settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
 export const getStaff = () =>
   fetch(`${BASE}/staff`, { credentials: 'include' }).then(r => r.json())
 
@@ -166,8 +176,15 @@ export const deleteDoctorUnavailableDate = (doctorId, date) =>
     method: 'DELETE',
   })
 
-export const getReports = (period) =>
-  fetch(`${BASE}/reports?period=${period}`, { credentials: 'include' }).then(r => r.json())
+export const getReports = (params = {}) => {
+  const normalized = typeof params === 'string' ? { period: params } : params
+  const search = new URLSearchParams()
+  if (normalized.period) search.set('period', normalized.period)
+  if (normalized.startDate) search.set('start_date', normalized.startDate)
+  if (normalized.endDate) search.set('end_date', normalized.endDate)
+  const query = search.toString()
+  return requestJson(`${BASE}/reports${query ? `?${query}` : ''}`)
+}
 
 export const getInventory = () =>
   fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
@@ -247,3 +264,4 @@ export const updateQueueStatus = (id, status) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   }).then(r => r.json())
+

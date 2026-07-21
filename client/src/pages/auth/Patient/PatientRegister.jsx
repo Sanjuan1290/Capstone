@@ -428,3 +428,4 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
+

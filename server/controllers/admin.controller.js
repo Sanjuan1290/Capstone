@@ -6,6 +6,8 @@
 // 4. getReports → now returns inventoryStats so Reports page shows real numbers
 // 5. NEW: updateInventoryItem (PUT /inventory/:id) — edit a product
 // 6. NEW: deleteInventoryItem (DELETE /inventory/:id) — remove a product
+const { resolveReportRange } = require('../utils/reportRange')
+const { normalizeOptionalImageUrl } = require('../utils/settingsValidation')
 
 const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
@@ -1163,90 +1165,195 @@ const updateBillingCatalogService = async (req, res) => {
 }
 
 const deleteBillingCatalogService = async (req, res) => {
-  const [rows] = await db.query('SELECT id FROM billing_service_catalog WHERE id = ? LIMIT 1', [req.params.serviceId])
+  const [rows] = await db.query('SELECT id, service_name FROM billing_service_catalog WHERE id = ? LIMIT 1', [req.params.serviceId])
   if (rows.length === 0) {
     return res.status(404).json({ message: 'Billing service not found.' })
   }
 
+  // Keep historical bill links valid. Used services are archived rather than physically deleted.
+  const [[usage]] = await db.query(
+    'SELECT COUNT(*) AS count FROM billing_items WHERE catalog_service_id = ?',
+    [req.params.serviceId]
+  )
+  if (Number(usage?.count || 0) > 0) {
+    await db.query('UPDATE billing_service_catalog SET is_active = 0 WHERE id = ?', [req.params.serviceId])
+    return res.json({ message: 'Billing service archived because it is already used by a bill.', archived: true })
+  }
+
   await db.query('DELETE FROM billing_service_catalog WHERE id = ?', [req.params.serviceId])
-  res.json({ message: 'Billing service removed.' })
+  res.json({ message: 'Billing service removed.', archived: false })
+}
+
+
+const getPaymentSettingsAdmin = async (req, res) => {
+  const [rows] = await db.query(
+    `SELECT gcash_qr_url, maya_qr_url, bank_name, bank_account_name, bank_account_number, updated_at
+     FROM clinic_payment_settings WHERE id = 1 LIMIT 1`
+  )
+  res.json(rows[0] || {
+    gcash_qr_url: '',
+    maya_qr_url: '',
+    bank_name: '',
+    bank_account_name: '',
+    bank_account_number: '',
+    updated_at: null,
+  })
+}
+
+const updatePaymentSettingsAdmin = async (req, res) => {
+  const rawGcash = String(req.body.gcash_qr_url || '').trim()
+  const rawMaya = String(req.body.maya_qr_url || '').trim()
+  const gcashQrUrl = normalizeOptionalImageUrl(rawGcash)
+  const mayaQrUrl = normalizeOptionalImageUrl(rawMaya)
+
+  if (rawGcash && !gcashQrUrl) {
+    return res.status(400).json({ message: 'GCash QR must use an HTTPS URL or an app-relative path.' })
+  }
+  if (rawMaya && !mayaQrUrl) {
+    return res.status(400).json({ message: 'Maya QR must use an HTTPS URL or an app-relative path.' })
+  }
+
+  const payload = {
+    gcash_qr_url: gcashQrUrl,
+    maya_qr_url: mayaQrUrl,
+    bank_name: String(req.body.bank_name || '').trim() || null,
+    bank_account_name: String(req.body.bank_account_name || '').trim() || null,
+    bank_account_number: String(req.body.bank_account_number || '').trim() || null,
+  }
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [oldRows] = await conn.query('SELECT * FROM clinic_payment_settings WHERE id = 1 LIMIT 1')
+    await conn.query(
+      `INSERT INTO clinic_payment_settings
+       (id, gcash_qr_url, maya_qr_url, bank_name, bank_account_name, bank_account_number, updated_by_admin_id)
+       VALUES (1, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         gcash_qr_url = VALUES(gcash_qr_url),
+         maya_qr_url = VALUES(maya_qr_url),
+         bank_name = VALUES(bank_name),
+         bank_account_name = VALUES(bank_account_name),
+         bank_account_number = VALUES(bank_account_number),
+         updated_by_admin_id = VALUES(updated_by_admin_id)`,
+      [payload.gcash_qr_url, payload.maya_qr_url, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
+    )
+    await conn.query(
+      `INSERT INTO audit_logs
+       (user_id, user_role, action, entity_type, entity_id, old_values, new_values, ip_address)
+       VALUES (?, 'admin', 'billing.payment_settings_updated', 'clinic_payment_settings', '1', ?, ?, ?)`,
+      [req.user.id, JSON.stringify(oldRows[0] || null), JSON.stringify(payload), req.ip || null]
+    )
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback()
+    throw error
+  } finally {
+    conn.release()
+  }
+
+  return getPaymentSettingsAdmin(req, res)
 }
 
 const getReports = async (req, res) => {
-  const months = req.query.period === '3months' ? 3 : 6
+  let range
+  try {
+    range = resolveReportRange(req.query)
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ message: error.message })
+  }
+  const { startDate, endDate } = range
+  const dateParams = [startDate, endDate]
   const [monthly] = await db.query(
-    `SELECT DATE_FORMAT(appointment_date, '%b') AS month,
+    `SELECT DATE_FORMAT(appointment_date, '%b %Y') AS month,
             DATE_FORMAT(appointment_date, '%Y-%m') AS ym,
             COUNT(*) AS appointments,
             COUNT(DISTINCT patient_id) AS patients,
             SUM(clinic_type = 'derma') AS derma,
             SUM(clinic_type = 'medical') AS medical
      FROM appointments
-     WHERE appointment_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+     WHERE appointment_date BETWEEN ? AND ?
      GROUP BY ym, month ORDER BY ym ASC`,
-    [months]
+    dateParams
   )
+
+  const [[appointmentSummary]] = await db.query(
+    `SELECT COUNT(*) AS appointments,
+            COUNT(DISTINCT patient_id) AS unique_patients,
+            SUM(clinic_type = 'derma') AS derma,
+            SUM(clinic_type = 'medical') AS medical
+     FROM appointments
+     WHERE appointment_date BETWEEN ? AND ?`,
+    dateParams
+  )
+
   const [statusRows] = await db.query(
     `SELECT status, COUNT(*) AS value
      FROM appointments
-     WHERE appointment_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+     WHERE appointment_date BETWEEN ? AND ?
      GROUP BY status`,
-    [months]
+    dateParams
   )
-  const total = statusRows.reduce((s, r) => s + r.value, 0)
+  const total = statusRows.reduce((sum, row) => sum + Number(row.value || 0), 0)
   const colorMap = {
     completed:   { color: 'bg-emerald-500', textColor: 'text-emerald-600' },
     pending:     { color: 'bg-amber-400',   textColor: 'text-amber-600'   },
     confirmed:   { color: 'bg-sky-500',     textColor: 'text-sky-600'     },
     cancelled:   { color: 'bg-red-400',     textColor: 'text-red-500'     },
     rescheduled: { color: 'bg-violet-400',  textColor: 'text-violet-600'  },
+    no_show:     { color: 'bg-slate-400',   textColor: 'text-slate-500'   },
   }
-  const statusBreakdown = statusRows.map(r => ({
-    label: r.status.charAt(0).toUpperCase() + r.status.slice(1),
-    value: r.value,
-    pct: total > 0 ? Math.round((r.value / total) * 100) : 0,
-    color:     (colorMap[r.status] || { color: 'bg-slate-400' }).color,
-    textColor: (colorMap[r.status] || { textColor: 'text-slate-500' }).textColor,
+  const statusBreakdown = statusRows.map((row) => ({
+    label: String(row.status || '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+    value: Number(row.value || 0),
+    pct: total > 0 ? Math.round((Number(row.value || 0) / total) * 100) : 0,
+    color: (colorMap[row.status] || { color: 'bg-slate-400' }).color,
+    textColor: (colorMap[row.status] || { textColor: 'text-slate-500' }).textColor,
   }))
+
   const [topDoctors] = await db.query(
     `SELECT d.full_name AS name, d.specialty, d.specialty LIKE '%erm%' AS is_derma,
-            COUNT(*) AS patients, SUM(a.status='completed') AS completed
-     FROM appointments a JOIN doctors d ON a.doctor_id=d.id
-     WHERE a.appointment_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
-     GROUP BY d.id ORDER BY patients DESC LIMIT 5`,
-    [months]
+            COUNT(*) AS appointments,
+            COUNT(DISTINCT a.patient_id) AS patients,
+            SUM(a.status = 'completed') AS completed
+     FROM appointments a
+     JOIN doctors d ON a.doctor_id = d.id
+     WHERE a.appointment_date BETWEEN ? AND ?
+     GROUP BY d.id, d.full_name, d.specialty
+     ORDER BY appointments DESC, patients DESC
+     LIMIT 10`,
+    dateParams
   )
 
-  // FIX 4: Add real inventory stats so Reports page shows correct numbers
   const [[inventoryStats]] = await db.query(
     `SELECT
-       COUNT(*)                                         AS total_items,
-       SUM(stock * COALESCE(price, 0))                 AS total_value,
-       SUM(stock = 0)                                  AS out_of_stock,
-       SUM(stock > 0 AND stock <= threshold)           AS low_stock,
+       COUNT(*) AS total_items,
+       COALESCE(SUM(stock * COALESCE(price, 0)), 0) AS total_value,
+       SUM(stock = 0) AS out_of_stock,
+       SUM(stock > 0 AND stock <= threshold) AS low_stock,
        SUM(expiration_date IS NOT NULL AND expiration_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)) AS expiring_soon
      FROM inventory`
   )
 
   const [stockActivity] = await db.query(
-    `SELECT DATE_FORMAT(logged_at, '%b') AS month,
+    `SELECT DATE_FORMAT(logged_at, '%b %Y') AS month,
             DATE_FORMAT(logged_at, '%Y-%m') AS ym,
             SUM(type = 'in') AS stock_in_actions,
             SUM(type = 'out') AS stock_out_actions,
-            SUM(CASE WHEN type = 'in' THEN qty ELSE 0 END) AS stock_in,
-            SUM(CASE WHEN type = 'out' THEN qty ELSE 0 END) AS stock_out
+            COALESCE(SUM(CASE WHEN type = 'in' THEN qty ELSE 0 END), 0) AS stock_in,
+            COALESCE(SUM(CASE WHEN type = 'out' THEN qty ELSE 0 END), 0) AS stock_out
      FROM inventory_logs
-     WHERE logged_at >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+     WHERE DATE(logged_at) BETWEEN ? AND ?
      GROUP BY ym, month
      ORDER BY ym ASC`,
-    [months]
+    dateParams
   )
 
   const [inventoryByCategory] = await db.query(
     `SELECT category,
             COUNT(*) AS items,
-            SUM(stock) AS total_stock,
-            SUM(stock * COALESCE(price, 0)) AS total_value
+            COALESCE(SUM(stock), 0) AS total_stock,
+            COALESCE(SUM(stock * COALESCE(price, 0)), 0) AS total_value
      FROM inventory
      GROUP BY category
      ORDER BY total_value DESC, category ASC`
@@ -1261,16 +1368,74 @@ const getReports = async (req, res) => {
 
   const [[supplyRequests]] = await db.query(
     `SELECT
-       SUM(status = 'pending')  AS pending,
+       SUM(status = 'pending') AS pending,
        SUM(status = 'approved') AS approved,
        SUM(status = 'rejected') AS rejected
      FROM supply_requests
-     WHERE requested_at >= DATE_SUB(NOW(), INTERVAL ? MONTH)`,
-    [months]
+     WHERE DATE(requested_at) BETWEEN ? AND ?`,
+    dateParams
+  )
+
+  const [[billingSummary]] = await db.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN status = 'paid' THEN subtotal ELSE 0 END), 0) AS gross_billing,
+       COALESCE(SUM(CASE WHEN status = 'paid' THEN discount_amount ELSE 0 END), 0) AS discounts,
+       COALESCE(SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END), 0) AS net_collected,
+       COALESCE(SUM(CASE WHEN status = 'pending' THEN total_amount ELSE 0 END), 0) AS pending_receivables,
+       SUM(status = 'paid') AS paid_bills,
+       SUM(status = 'pending') AS pending_bills
+     FROM billing_records
+     WHERE DATE(COALESCE(paid_at, created_at)) BETWEEN ? AND ?`,
+    dateParams
+  )
+
+  const [paymentsByMethod] = await db.query(
+    `SELECT payment_method, COUNT(*) AS transactions, COALESCE(SUM(amount), 0) AS amount
+     FROM billing_payments
+     WHERE status = 'completed' AND DATE(paid_at) BETWEEN ? AND ?
+     GROUP BY payment_method
+     ORDER BY amount DESC`,
+    dateParams
+  ).catch((error) => {
+    if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
+    throw error
+  })
+
+  const [serviceRevenue] = await db.query(
+    `SELECT bi.service_name,
+            COUNT(DISTINCT bi.billing_id) AS bills,
+            COALESCE(SUM(bi.quantity), 0) AS quantity,
+            COALESCE(SUM(bi.line_total), 0) AS revenue
+     FROM billing_items bi
+     JOIN billing_records br ON br.id = bi.billing_id AND br.status = 'paid'
+     WHERE DATE(br.paid_at) BETWEEN ? AND ?
+     GROUP BY bi.service_name
+     ORDER BY revenue DESC
+     LIMIT 10`,
+    dateParams
+  )
+
+  const [revenueTrend] = await db.query(
+    `SELECT DATE_FORMAT(paid_at, '%b %Y') AS month,
+            DATE_FORMAT(paid_at, '%Y-%m') AS ym,
+            COUNT(*) AS paid_bills,
+            COALESCE(SUM(total_amount), 0) AS revenue
+     FROM billing_records
+     WHERE status = 'paid' AND DATE(paid_at) BETWEEN ? AND ?
+     GROUP BY ym, month
+     ORDER BY ym ASC`,
+    dateParams
   )
 
   res.json({
+    range: { start_date: startDate, end_date: endDate },
     monthly,
+    appointmentSummary: {
+      appointments: Number(appointmentSummary?.appointments || 0),
+      unique_patients: Number(appointmentSummary?.unique_patients || 0),
+      medical: Number(appointmentSummary?.medical || 0),
+      derma: Number(appointmentSummary?.derma || 0),
+    },
     statusBreakdown,
     topDoctors,
     inventoryStats,
@@ -1282,6 +1447,17 @@ const getReports = async (req, res) => {
       approved: Number(supplyRequests?.approved || 0),
       rejected: Number(supplyRequests?.rejected || 0),
     },
+    billingSummary: {
+      gross_billing: Number(billingSummary?.gross_billing || 0),
+      discounts: Number(billingSummary?.discounts || 0),
+      net_collected: Number(billingSummary?.net_collected || 0),
+      pending_receivables: Number(billingSummary?.pending_receivables || 0),
+      paid_bills: Number(billingSummary?.paid_bills || 0),
+      pending_bills: Number(billingSummary?.pending_bills || 0),
+    },
+    paymentsByMethod,
+    serviceRevenue,
+    revenueTrend,
   })
 }
 
@@ -1591,7 +1767,9 @@ module.exports = {
   getDoctorSchedules, saveDaySchedule,
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
+  getPaymentSettingsAdmin, updatePaymentSettingsAdmin,
   getReports, getInventoryLogs,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }
+

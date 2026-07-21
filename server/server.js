@@ -26,6 +26,10 @@ app.use(cors({
 }))
 app.use(cookieParser())
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' })
+})
+
 app.get('/api/events', (req, res) => {
   const { role, userId } = req.query
   if (!role) return res.status(400).json({ message: 'role is required' })
@@ -61,7 +65,7 @@ app.use('/api/queue', queueRouter)
 
 app.use((err, req, res, next) => {
   console.error(err)
-  res.status(500).json({ message: 'Something went wrong!', error: err.message })
+  res.status(err.statusCode || 500).json({ message: err.message || 'Something went wrong!' })
 })
 
 const start = async () => {
@@ -78,9 +82,13 @@ const start = async () => {
   }
 }
 
-start()
+if (require.main === module) {
+  start()
+}
 
 module.exports = {
   app,
+  start,
   broadcast,
 }
+

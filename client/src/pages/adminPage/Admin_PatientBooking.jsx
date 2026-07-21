@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import {
   getAppointmentReasons,
   createAppointmentReason,
@@ -136,8 +138,10 @@ const Admin_PatientBooking = () => {
     }
   }
 
+  const reasonPagination = useClientPagination(filteredReasons, { resetDeps: [search, filter] })
+
   return (
-    <div className="max-w-6xl space-y-5">
+    <div className="mx-auto max-w-6xl space-y-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -306,7 +310,7 @@ const Admin_PatientBooking = () => {
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {filteredReasons.map((reason) => (
+              {reasonPagination.pageItems.map((reason) => (
                 <div key={reason.id} className="px-5 py-4 flex items-start gap-3">
                   <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${Number(reason.is_active) === 1 ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                   <div className="flex-1 min-w-0">
@@ -346,6 +350,11 @@ const Admin_PatientBooking = () => {
               ))}
             </div>
           )}
+          {!loading && filteredReasons.length > 0 && (
+            <div className="border-t border-slate-100 p-4">
+              <Pagination {...reasonPagination} total={filteredReasons.length} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -369,3 +378,4 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
+

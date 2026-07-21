@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getReports } from '../../services/admin.service'
+import { useToast } from '../../components/ui/ToastProvider'
+import { ErrorState, LoadingState } from '../../components/ui/PageState'
 import {
   MdArrowDownward,
   MdArrowUpward,
@@ -27,6 +29,32 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;')
 
+const toDateInput = (date) => {
+  const value = date instanceof Date ? date : new Date(date)
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const getPresetRange = (preset) => {
+  const end = new Date()
+  const start = new Date(end)
+  if (preset === 'today') return { startDate: toDateInput(end), endDate: toDateInput(end) }
+  if (preset === '7days') start.setDate(start.getDate() - 6)
+  else if (preset === '30days') start.setDate(start.getDate() - 29)
+  else if (preset === '3months') start.setMonth(start.getMonth() - 3)
+  else if (preset === 'year') start.setMonth(0, 1)
+  else start.setMonth(start.getMonth() - 6)
+  return { startDate: toDateInput(start), endDate: toDateInput(end) }
+}
+
+const formatRangeLabel = (range) => {
+  if (!range?.start_date || !range?.end_date) return 'Selected date range'
+  const format = (value) => new Date(`${value}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${format(range.start_date)} – ${format(range.end_date)}`
+}
+
 const getTrendMeta = (value) => {
   if (value > 0) return { icon: MdArrowUpward, text: `Up ${Math.abs(value)}% vs previous month`, tone: 'text-emerald-600' }
   if (value < 0) return { icon: MdArrowDownward, text: `Down ${Math.abs(value)}% vs previous month`, tone: 'text-rose-600' }
@@ -34,22 +62,54 @@ const getTrendMeta = (value) => {
 }
 
 const Admin_Reports = () => {
-  const [period, setPeriod] = useState('6months')
+  const toast = useToast()
+  const initialRange = getPresetRange('6months')
+  const [preset, setPreset] = useState('6months')
+  const [dateRange, setDateRange] = useState(initialRange)
+  const [appliedRange, setAppliedRange] = useState(initialRange)
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  const handlePeriodChange = (nextPeriod) => {
-    if (nextPeriod === period) return
-    setLoading(true)
-    setPeriod(nextPeriod)
+  const applyPreset = (nextPreset) => {
+    const nextRange = getPresetRange(nextPreset)
+    setPreset(nextPreset)
+    setDateRange(nextRange)
+    setAppliedRange(nextRange)
+  }
+
+  const applyCustomRange = () => {
+    if (!dateRange.startDate || !dateRange.endDate) {
+      toast.warning('Select a start and end date.')
+      return
+    }
+    if (dateRange.startDate > dateRange.endDate) {
+      toast.warning('Start date cannot be after end date.')
+      return
+    }
+    setPreset('custom')
+    setAppliedRange(dateRange)
   }
 
   useEffect(() => {
-    getReports(period)
-      .then((data) => setReportData(data))
-      .catch((err) => console.error('Reports error:', err))
-      .finally(() => setLoading(false))
-  }, [period])
+    let active = true
+    setLoading(true)
+    setError('')
+    getReports(appliedRange)
+      .then((data) => {
+        if (active) setReportData(data)
+      })
+      .catch((err) => {
+        if (!active) return
+        const message = err.message || 'Reports could not be loaded.'
+        setError(message)
+        toast.error(message)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [appliedRange.startDate, appliedRange.endDate])
 
   const derived = useMemo(() => {
     const {
@@ -61,12 +121,16 @@ const Admin_Reports = () => {
       inventoryByCategory = [],
       upcomingAppointments = 0,
       supplyRequests = {},
+      appointmentSummary = {},
+      billingSummary = {},
+      paymentsByMethod = [],
+      serviceRevenue = [],
     } = reportData || {}
 
-    const totalAppts = monthly.reduce((sum, row) => sum + Number(row.appointments || 0), 0)
-    const totalPats = monthly.reduce((sum, row) => sum + Number(row.patients || 0), 0)
-    const totalMedical = monthly.reduce((sum, row) => sum + Number(row.medical || 0), 0)
-    const totalDerma = monthly.reduce((sum, row) => sum + Number(row.derma || 0), 0)
+    const totalAppts = Number(appointmentSummary.appointments || 0)
+    const totalPats = Number(appointmentSummary.unique_patients || 0)
+    const totalMedical = Number(appointmentSummary.medical || 0)
+    const totalDerma = Number(appointmentSummary.derma || 0)
     const avgPerMonth = monthly.length ? Math.round(totalAppts / monthly.length) : 0
     const busiestMonth = monthly.reduce((best, row) => (
       Number(row.appointments || 0) > Number(best?.appointments || 0) ? row : best
@@ -107,7 +171,7 @@ const Admin_Reports = () => {
         ? `${topCategory.category || 'Uncategorized'} currently holds the highest inventory value at ${formatPeso(topCategory.total_value)}.`
         : 'Inventory category value data is not available yet.',
       mostLoadedDoctor
-        ? `${mostLoadedDoctor.name} handled the highest volume with ${mostLoadedDoctor.patients} patient appointments in this period.`
+        ? `${mostLoadedDoctor.name} handled the highest volume with ${mostLoadedDoctor.appointments || 0} appointments in this period.`
         : 'Doctor ranking data is not available yet.',
     ]
 
@@ -124,7 +188,17 @@ const Admin_Reports = () => {
         approved: Number(supplyRequests?.approved || 0),
         rejected: Number(supplyRequests?.rejected || 0),
       },
-      totalAppts,
+      billingSummary: {
+        gross_billing: Number(billingSummary?.gross_billing || 0),
+        discounts: Number(billingSummary?.discounts || 0),
+        net_collected: Number(billingSummary?.net_collected || 0),
+        pending_receivables: Number(billingSummary?.pending_receivables || 0),
+        paid_bills: Number(billingSummary?.paid_bills || 0),
+        pending_bills: Number(billingSummary?.pending_bills || 0),
+      },
+      paymentsByMethod,
+      serviceRevenue,
+        totalAppts,
       totalPats,
       totalMedical,
       totalDerma,
@@ -147,14 +221,8 @@ const Admin_Reports = () => {
     }
   }, [reportData])
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center p-20 space-y-4">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
-        <p className="text-sm font-medium text-slate-400 animate-pulse">Loading reports...</p>
-      </div>
-    )
-  }
+  if (loading) return <LoadingState label="Loading reports and billing analytics..." />
+  if (error) return <ErrorState message={error} onRetry={() => setAppliedRange({ ...appliedRange })} />
 
   const {
     monthly,
@@ -165,6 +233,9 @@ const Admin_Reports = () => {
     inventoryByCategory,
     upcomingAppointments,
     supplyRequests,
+    billingSummary,
+    paymentsByMethod,
+    serviceRevenue,
     totalAppts,
     totalPats,
     totalMedical,
@@ -188,143 +259,83 @@ const Admin_Reports = () => {
   } = derived
 
   const netStockTone = netStock >= 0 ? 'text-emerald-600' : 'text-rose-600'
+  const reportRangeLabel = formatRangeLabel(reportData?.range)
+
   const handleExportPdf = () => {
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=900')
-    if (!popup) {
-      window.alert('Please allow pop-ups so the PDF export window can open.')
-      return
-    }
-
     const monthlyRows = monthly.map((row) => `
-      <tr>
-        <td>${escapeHtml(row.month)}</td>
-        <td>${escapeHtml(row.appointments)}</td>
-        <td>${escapeHtml(row.medical || 0)}</td>
-        <td>${escapeHtml(row.derma || 0)}</td>
-        <td>${escapeHtml(row.patients)}</td>
-      </tr>
+      <tr><td>${escapeHtml(row.month)}</td><td>${escapeHtml(row.appointments)}</td><td>${escapeHtml(row.medical || 0)}</td><td>${escapeHtml(row.derma || 0)}</td><td>${escapeHtml(row.patients)}</td></tr>
     `).join('')
-
     const topDoctorRows = topDoctors.map((doctor) => `
-      <tr>
-        <td>${escapeHtml(doctor.name)}</td>
-        <td>${escapeHtml(doctor.specialty)}</td>
-        <td>${escapeHtml(doctor.patients)}</td>
-        <td>${escapeHtml(doctor.completed)}</td>
-      </tr>
+      <tr><td>${escapeHtml(doctor.name)}</td><td>${escapeHtml(doctor.specialty)}</td><td>${escapeHtml(doctor.appointments || 0)}</td><td>${escapeHtml(doctor.patients || 0)}</td><td>${escapeHtml(doctor.completed || 0)}</td></tr>
     `).join('')
-
     const statusRows = statusBreakdown.map((row) => `
-      <tr>
-        <td>${escapeHtml(row.label)}</td>
-        <td>${escapeHtml(row.value)}</td>
-        <td>${escapeHtml(row.pct)}%</td>
-      </tr>
+      <tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(row.value)}</td><td>${escapeHtml(row.pct)}%</td></tr>
+    `).join('')
+    const serviceRows = serviceRevenue.map((row) => `
+      <tr><td>${escapeHtml(row.service_name)}</td><td>${escapeHtml(row.bills)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(formatPeso(row.revenue))}</td></tr>
+    `).join('')
+    const paymentRows = paymentsByMethod.map((row) => `
+      <tr><td>${escapeHtml(String(row.payment_method || '').replace(/_/g, ' '))}</td><td>${escapeHtml(row.transactions)}</td><td>${escapeHtml(formatPeso(row.amount))}</td></tr>
     `).join('')
 
-    popup.document.write(`
-      <!doctype html>
-      <html lang="en">
-        <head>
-          <meta charset="utf-8" />
-          <title>Carait Clinic Reports - ${escapeHtml(period)}</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 32px; color: #0f172a; }
-            h1, h2 { margin: 0 0 12px; }
-            h1 { font-size: 28px; }
-            h2 { font-size: 18px; margin-top: 28px; }
-            p { margin: 0 0 8px; color: #475569; }
-            .meta { margin-bottom: 24px; }
-            .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
-            .card { border: 1px solid #cbd5e1; border-radius: 14px; padding: 14px; }
-            .card-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: #64748b; }
-            .card-value { font-size: 24px; font-weight: 700; margin-top: 8px; color: #0f172a; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; font-size: 13px; }
-            th { background: #f8fafc; }
-            ul { padding-left: 18px; color: #334155; }
-            @media print {
-              body { margin: 18px; }
-            }
-          </style>
-        </head>
-        <body>
-          <h1>Carait Clinic Reports</h1>
-          <div class="meta">
-            <p>Period: ${escapeHtml(period === '3months' ? 'Last 3 Months' : 'Last 6 Months')}</p>
-            <p>Generated: ${escapeHtml(new Date().toLocaleString('en-PH'))}</p>
-          </div>
+    const html = `<!doctype html>
+      <html lang="en"><head><meta charset="utf-8"/><title>Carait Clinic Report</title>
+      <style>
+        @page { size: A4; margin: 14mm; }
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; margin: 0; color: #0f172a; font-size: 11px; }
+        header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 16px; }
+        h1 { margin: 0; font-size: 22px; } h2 { margin: 20px 0 8px; font-size: 14px; page-break-after: avoid; }
+        p { margin: 4px 0; color: #475569; }
+        .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 12px 0; }
+        .card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; }
+        .label { font-size: 8px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+        .value { margin-top: 5px; font-size: 15px; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; page-break-inside: auto; }
+        thead { display: table-header-group; } tr { page-break-inside: avoid; }
+        th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; }
+        th { background: #f1f5f9; font-size: 9px; text-transform: uppercase; }
+        ul { margin: 5px 0; padding-left: 18px; }
+        footer { position: fixed; bottom: -8mm; left: 0; right: 0; text-align: center; color: #64748b; font-size: 8px; }
+      </style></head><body>
+      <header><h1>Carait Medical and Dermatology Clinic</h1><p>Reports and Analytics</p><p>Period: ${escapeHtml(reportRangeLabel)}</p><p>Generated: ${escapeHtml(new Date().toLocaleString('en-PH'))}</p></header>
+      <div class="cards">
+        <div class="card"><div class="label">Appointments</div><div class="value">${escapeHtml(totalAppts)}</div></div>
+        <div class="card"><div class="label">Unique Patients</div><div class="value">${escapeHtml(totalPats)}</div></div>
+        <div class="card"><div class="label">Net Collected</div><div class="value">${escapeHtml(formatPeso(billingSummary.net_collected))}</div></div>
+        <div class="card"><div class="label">Pending Receivables</div><div class="value">${escapeHtml(formatPeso(billingSummary.pending_receivables))}</div></div>
+      </div>
+      <h2>Key Insights</h2><ul>${insights.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+      <h2>Monthly Performance</h2><table><thead><tr><th>Month</th><th>Appointments</th><th>Medical</th><th>Derma</th><th>Patients</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">No data.</td></tr>'}</tbody></table>
+      <h2>Billing Summary</h2><table><tbody>
+        <tr><th>Gross Billing</th><td>${escapeHtml(formatPeso(billingSummary.gross_billing))}</td><th>Discounts</th><td>${escapeHtml(formatPeso(billingSummary.discounts))}</td></tr>
+        <tr><th>Net Collected</th><td>${escapeHtml(formatPeso(billingSummary.net_collected))}</td><th>Pending Receivables</th><td>${escapeHtml(formatPeso(billingSummary.pending_receivables))}</td></tr>
+      </tbody></table>
+      <h2>Payments by Method</h2><table><thead><tr><th>Method</th><th>Transactions</th><th>Amount</th></tr></thead><tbody>${paymentRows || '<tr><td colspan="3">No payments.</td></tr>'}</tbody></table>
+      <h2>Top Services by Revenue</h2><table><thead><tr><th>Service</th><th>Bills</th><th>Quantity</th><th>Revenue</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="4">No paid services.</td></tr>'}</tbody></table>
+      <h2>Status Breakdown</h2><table><thead><tr><th>Status</th><th>Total</th><th>Share</th></tr></thead><tbody>${statusRows || '<tr><td colspan="3">No data.</td></tr>'}</tbody></table>
+      <h2>Doctor Activity</h2><table><thead><tr><th>Doctor</th><th>Specialty</th><th>Appointments</th><th>Patients</th><th>Completed</th></tr></thead><tbody>${topDoctorRows || '<tr><td colspan="5">No data.</td></tr>'}</tbody></table>
+      <footer>Carait Clinic · ${escapeHtml(reportRangeLabel)}</footer></body></html>`
 
-          <div class="cards">
-            <div class="card">
-              <div class="card-label">Appointments</div>
-              <div class="card-value">${escapeHtml(totalAppts)}</div>
-            </div>
-            <div class="card">
-              <div class="card-label">Unique Patients</div>
-              <div class="card-value">${escapeHtml(totalPats)}</div>
-            </div>
-            <div class="card">
-              <div class="card-label">Completion Rate</div>
-              <div class="card-value">${escapeHtml(formatPercent(completionRate))}</div>
-            </div>
-            <div class="card">
-              <div class="card-label">Inventory Value</div>
-              <div class="card-value">${escapeHtml(formatPeso(inventoryStats?.total_value))}</div>
-            </div>
-          </div>
-
-          <h2>Key Insights</h2>
-          <ul>${insights.map((insight) => `<li>${escapeHtml(insight)}</li>`).join('')}</ul>
-
-          <h2>Monthly Performance</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Month</th>
-                <th>Appointments</th>
-                <th>Medical</th>
-                <th>Derma</th>
-                <th>Patients</th>
-              </tr>
-            </thead>
-            <tbody>${monthlyRows || '<tr><td colspan="5">No monthly data available.</td></tr>'}</tbody>
-          </table>
-
-          <h2>Status Breakdown</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Total</th>
-                <th>Share</th>
-              </tr>
-            </thead>
-            <tbody>${statusRows || '<tr><td colspan="3">No status data available.</td></tr>'}</tbody>
-          </table>
-
-          <h2>Top Doctors</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Doctor</th>
-                <th>Specialty</th>
-                <th>Appointments</th>
-                <th>Completed</th>
-              </tr>
-            </thead>
-            <tbody>${topDoctorRows || '<tr><td colspan="4">No doctor data available.</td></tr>'}</tbody>
-          </table>
-        </body>
-      </html>
-    `)
-    popup.document.close()
-    popup.focus()
-    popup.onload = () => popup.print()
+    const frame = document.createElement('iframe')
+    frame.setAttribute('title', 'Printable clinic report')
+    frame.style.position = 'fixed'
+    frame.style.width = '1px'
+    frame.style.height = '1px'
+    frame.style.opacity = '0'
+    frame.style.pointerEvents = 'none'
+    document.body.appendChild(frame)
+    frame.onload = () => {
+      frame.contentWindow?.focus()
+      frame.contentWindow?.print()
+      window.setTimeout(() => frame.remove(), 1500)
+    }
+    frame.srcdoc = html
+    toast.info('Print dialog opened. Choose “Save as PDF” to download the report.')
   }
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Reports and Analytics</h1>
@@ -336,23 +347,54 @@ const Admin_Reports = () => {
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
           >
             <MdPictureAsPdf className="text-[18px] text-rose-500" />
-            Export PDF
+            Print / Save PDF
           </button>
-          <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1">
-            {[{ v: '3months', l: 'Last 3 Months' }, { v: '6months', l: 'Last 6 Months' }].map(({ v, l }) => (
-              <button
-                key={v}
-                onClick={() => handlePeriodChange(v)}
-                className={`rounded-lg px-4 py-2 text-xs font-bold transition-all ${
-                  period === v ? 'bg-[#0b1a2c] text-sky-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {l}
+          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1">
+            {[
+              { value: 'today', label: 'Today' },
+              { value: '7days', label: '7 Days' },
+              { value: '30days', label: '30 Days' },
+              { value: '3months', label: '3 Months' },
+              { value: '6months', label: '6 Months' },
+              { value: 'year', label: 'This Year' },
+            ].map((option) => (
+              <button key={option.value} onClick={() => applyPreset(option.value)} className={`rounded-lg px-3 py-2 text-xs font-bold transition-all ${preset === option.value ? 'bg-[#0b1a2c] text-sky-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                {option.label}
               </button>
             ))}
           </div>
         </div>
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <div>
+            <label htmlFor="report-start-date" className="form-label">Start Date</label>
+            <input id="report-start-date" type="date" value={dateRange.startDate} onChange={(e) => setDateRange((current) => ({ ...current, startDate: e.target.value }))} className="form-control mt-1.5" />
+          </div>
+          <div>
+            <label htmlFor="report-end-date" className="form-label">End Date</label>
+            <input id="report-end-date" type="date" value={dateRange.endDate} onChange={(e) => setDateRange((current) => ({ ...current, endDate: e.target.value }))} className="form-control mt-1.5" />
+          </div>
+          <button type="button" className="button-primary" onClick={applyCustomRange}>Apply Range</button>
+        </div>
+        <p className="mt-3 text-xs font-semibold text-slate-500">Showing {reportRangeLabel}</p>
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: 'Gross Billing', value: formatPeso(billingSummary.gross_billing), helper: `${billingSummary.paid_bills} paid bills` },
+          { label: 'Discounts', value: formatPeso(billingSummary.discounts), helper: 'Approved discounts' },
+          { label: 'Net Collected', value: formatPeso(billingSummary.net_collected), helper: `${paymentsByMethod.length} payment methods` },
+          { label: 'Pending Receivables', value: formatPeso(billingSummary.pending_receivables), helper: `${billingSummary.pending_bills} pending bills` },
+        ].map((card) => (
+          <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{card.label}</p>
+            <p className="mt-2 text-xl font-black text-slate-800">{card.value}</p>
+            <p className="mt-1 text-xs text-slate-500">{card.helper}</p>
+          </div>
+        ))}
+      </section>
 
       <section className="rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_35%),linear-gradient(135deg,#ffffff_0%,#f8fbff_100%)] p-6 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
@@ -754,3 +796,4 @@ const Admin_Reports = () => {
 }
 
 export default Admin_Reports
+

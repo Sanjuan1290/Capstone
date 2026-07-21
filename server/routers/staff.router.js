@@ -42,7 +42,9 @@ router.get('/billing', ...auth, staffCtrl.getBills)
 router.get('/billing/catalog', ...auth, staffCtrl.getBillingCatalogForStaff)
 router.get('/billing/:id', ...auth, staffCtrl.getBillById)
 router.put('/billing/:id', ...auth, staffCtrl.updateBill)
+router.post('/billing/:id/pay', ...auth, staffCtrl.payBill)
 router.post('/billing/:id/confirm-payment', ...auth, staffCtrl.confirmBillPayment)
+router.get('/billing-payment-settings', ...auth, staffCtrl.getPaymentSettingsForStaff)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 router.get('/inventory',              ...auth, staffCtrl.getInventory)
@@ -62,3 +64,4 @@ router.get('/supply-requests',       ...auth, staffCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, staffCtrl.resolveSupplyRequest)
 
 module.exports = router
+

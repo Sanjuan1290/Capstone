@@ -6,6 +6,8 @@
 // 4. Status indicators and quick actions on every row
 
 import { useEffect, useState, useCallback } from 'react'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import { useNavigate } from 'react-router-dom'
 import {
   getDailyAppointments, startConsultation,
@@ -634,6 +636,8 @@ const Doctor_DailyAppointments = () => {
   const done           = appointments.filter(a => a.status === 'completed').length
   const inProgressCount= appointments.filter(a => a.status === 'in-progress').length
   const waitingCount   = appointments.filter(a => a.status === 'pending' || a.status === 'confirmed').length
+  const appointmentPagination = useClientPagination(appointments, { initialPageSize: 8 })
+  const walkInPagination = useClientPagination(walkInQueue, { initialPageSize: 8 })
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-slate-400 text-sm">
@@ -643,7 +647,7 @@ const Doctor_DailyAppointments = () => {
 
   return (
     <>
-      <div className="max-w-6xl space-y-5">
+      <div className="mx-auto max-w-6xl space-y-5">
 
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
@@ -689,12 +693,17 @@ const Doctor_DailyAppointments = () => {
                     <MdCalendarToday className="text-slate-200 text-[32px] mb-2" />
                     <p className="text-xs text-slate-400">No appointments scheduled for today.</p>
                   </div>
-                ) : appointments.map(appt => (
+                ) : appointmentPagination.pageItems.map(appt => (
                   <AppointmentRow key={appt.id} appt={appt}
                     isSelected={selected?.id === appt.id}
                     onSelect={setSelected} />
                 ))}
               </div>
+              {appointments.length > 0 && (
+                <div className="border-t border-slate-100 p-3">
+                  <Pagination {...appointmentPagination} total={appointments.length} pageSizeOptions={[8, 16, 24]} />
+                </div>
+              )}
             </div>
 
             {/* Detail */}
@@ -720,12 +729,17 @@ const Doctor_DailyAppointments = () => {
 
           {/* RIGHT: Walk-in queue panel */}
           <WalkInPanel
-            queue={walkInQueue}
+            queue={walkInPagination.pageItems}
             onCallNext={handleCallNext}
             onMarkDone={handleMarkDone}
             onConsultWalkIn={handleConsultWalkIn}
             calling={calling}
           />
+          {walkInQueue.length > 0 && (
+            <div className="lg:col-start-2">
+              <Pagination {...walkInPagination} total={walkInQueue.length} pageSizeOptions={[8, 16, 24]} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -743,3 +757,4 @@ const Doctor_DailyAppointments = () => {
 }
 
 export default Doctor_DailyAppointments
+

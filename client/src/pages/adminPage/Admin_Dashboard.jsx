@@ -1,7 +1,7 @@
 // client/src/pages/adminPage/Admin_Dashboard.jsx
 // REDESIGNED: Hero banner, stat grid, today's appointments, doctor status, quick links
 
-import { useEffect, useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getDashboard, getAppointments } from '../../services/admin.service'
@@ -248,3 +248,4 @@ const Admin_Dashboard = () => {
 }
 
 export default Admin_Dashboard
+

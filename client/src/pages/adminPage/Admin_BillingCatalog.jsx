@@ -4,8 +4,10 @@ import {
   createBillingCatalogService,
   deleteBillingCatalogService,
   getBillingCatalog,
+  getBillingPaymentSettings,
   getInventory,
   updateBillingCatalogService,
+  updateBillingPaymentSettings,
 } from '../../services/admin.service'
 import {
   MdAdd,
@@ -18,14 +20,17 @@ import {
   MdRefresh,
   MdSearch,
 } from 'react-icons/md'
+import { useToast } from '../../components/ui/ToastProvider'
+import Pagination from '../../components/ui/Pagination'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
+import Modal from '../../components/ui/Modal'
+import { EmptyState, ErrorState, LoadingState } from '../../components/ui/PageState'
 
 const CLINIC_TYPES = [
   { value: 'all', label: 'All Clinics' },
   { value: 'medical', label: 'General Medicine' },
   { value: 'derma', label: 'Dermatology' },
 ]
-
-const PAGE_SIZE = 5
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100
 
@@ -86,13 +91,19 @@ const serviceToForm = (service) => ({
 
 const Admin_BillingCatalog = () => {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [deletingId, setDeletingId] = useState(null)
+  const [deleteCandidate, setDeleteCandidate] = useState(null)
+  const [formErrors, setFormErrors] = useState({})
   const [editingId, setEditingId] = useState(null)
   const [selectedService, setSelectedService] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [paymentSetupOpen, setPaymentSetupOpen] = useState(false)
+  const [paymentForm, setPaymentForm] = useState({ gcash_qr_url: '', maya_qr_url: '', bank_name: '', bank_account_name: '', bank_account_number: '' })
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [form, setForm] = useState(BLANK_FORM)
   const catalogQueryKey = ['admin', 'billingCatalog', { includeInactive: true }]
   const inventoryQueryKey = ['admin', 'inventory']
@@ -106,6 +117,12 @@ const Admin_BillingCatalog = () => {
   const inventoryQuery = useQuery({
     queryKey: inventoryQueryKey,
     queryFn: getInventory,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const paymentSettingsQuery = useQuery({
+    queryKey: ['admin', 'billingPaymentSettings'],
+    queryFn: getBillingPaymentSettings,
     staleTime: 5 * 60 * 1000,
   })
 
@@ -133,8 +150,8 @@ const Admin_BillingCatalog = () => {
     })
   }, [filter, search, services])
 
-  const totalPages = Math.max(1, Math.ceil(filteredServices.length / PAGE_SIZE))
-  const pagedServices = filteredServices.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filteredServices.length / pageSize))
+  const pagedServices = filteredServices.slice((page - 1) * pageSize, page * pageSize)
   const activeCount = services.filter((service) => Number(service.is_active) === 1).length
   const totalMaterials = services.reduce((sum, service) => sum + (service.materials?.length || 0), 0)
 
@@ -142,21 +159,36 @@ const Admin_BillingCatalog = () => {
     setPage(1)
   }, [filter, search])
 
+  useEffect(() => {
+    if (!paymentSettingsQuery.data) return
+    setPaymentForm({
+      gcash_qr_url: paymentSettingsQuery.data.gcash_qr_url || '',
+      maya_qr_url: paymentSettingsQuery.data.maya_qr_url || '',
+      bank_name: paymentSettingsQuery.data.bank_name || '',
+      bank_account_name: paymentSettingsQuery.data.bank_account_name || '',
+      bank_account_number: paymentSettingsQuery.data.bank_account_number || '',
+    })
+  }, [paymentSettingsQuery.data])
+
   const openAddModal = () => {
     setEditingId(null)
     setSelectedService(null)
+    setFormErrors({})
     setForm({ ...BLANK_FORM, materials: [makeBlankMaterial()] })
     setModalOpen(true)
   }
 
   const openServiceModal = (service) => {
+    setFormErrors({})
     setEditingId(service.id)
     setSelectedService(service)
     setForm(serviceToForm(service))
     setModalOpen(true)
   }
 
-  const closeModal = () => {
+  const closeModal = (force = false) => {
+    if (saveMutation.isPending && !force) return
+    setFormErrors({})
     setModalOpen(false)
     setEditingId(null)
     setSelectedService(null)
@@ -209,72 +241,110 @@ const Admin_BillingCatalog = () => {
   const previewProfitAmount = roundMoney(previewBase * ((Number(form.profit_percentage) || 0) / 100))
   const previewSuggestedPrice = roundMoney(previewBase + previewProfitAmount)
 
+  const paymentSettingsMutation = useMutation({
+    mutationFn: updateBillingPaymentSettings,
+    onSuccess: (saved) => {
+      queryClient.setQueryData(['admin', 'billingPaymentSettings'], saved)
+      toast.success('Payment setup saved.')
+      setPaymentSetupOpen(false)
+    },
+    onError: (error) => toast.error(error.message || 'Payment setup could not be saved.'),
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: ({ id, payload }) => id
+      ? updateBillingCatalogService(id, payload)
+      : createBillingCatalogService(payload),
+    onSuccess: (saved, variables) => {
+      queryClient.setQueryData(catalogQueryKey, (current = []) => {
+        const list = Array.isArray(current) ? current : []
+        const next = variables.id
+          ? list.map((service) => Number(service.id) === Number(saved.id) ? saved : service)
+          : [...list, saved]
+        return next.sort((a, b) => {
+          const categoryCompare = String(a.category || '').localeCompare(String(b.category || ''))
+          return categoryCompare || String(a.service_name || '').localeCompare(String(b.service_name || ''))
+        })
+      })
+      toast.success(variables.id ? 'Billing service updated.' : 'Billing service added.')
+      closeModal(true)
+    },
+    onError: (error) => toast.error(error.message || 'Billing service could not be saved.'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteBillingCatalogService,
+    onSuccess: (_, serviceId) => {
+      queryClient.setQueryData(catalogQueryKey, (current = []) => (
+        Array.isArray(current) ? current.filter((service) => Number(service.id) !== Number(serviceId)) : []
+      ))
+      toast.success('Billing service removed.')
+      setDeleteCandidate(null)
+      if (Number(editingId) === Number(serviceId)) closeModal()
+    },
+    onError: (error) => toast.error(error.message || 'Billing service could not be removed.'),
+    onSettled: () => setDeletingId(null),
+  })
+
+  const validateForm = (payload) => {
+    const errors = {}
+    if (!payload.category) errors.category = 'Enter a category.'
+    if (!payload.service_name) errors.service_name = 'Enter a service name.'
+    if (payload.consultation_fee < 0) errors.consultation_fee = 'The service fee cannot be negative.'
+    if (payload.profit_percentage < 0 || payload.profit_percentage > 1000) errors.profit_percentage = 'Enter a percentage from 0 to 1,000.'
+    payload.materials.forEach((material, index) => {
+      if (!material.material_name) errors[`material_name_${index}`] = 'Enter a material name.'
+      if (!(material.quantity > 0)) errors[`material_quantity_${index}`] = 'Quantity must be greater than zero.'
+      if (material.unit_cost_override !== null && material.unit_cost_override < 0) errors[`material_cost_${index}`] = 'Cost cannot be negative.'
+    })
+    setFormErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   const handleSubmit = async () => {
     const payload = {
       category: form.category.trim(),
       service_name: form.service_name.trim(),
       clinic_type: form.clinic_type,
-      consultation_fee: Math.max(0, Number(form.consultation_fee) || 0),
-      profit_percentage: Number(form.profit_percentage) || 20,
+      consultation_fee: Number(form.consultation_fee),
+      profit_percentage: Number(form.profit_percentage),
       is_active: Number(form.is_active) === 1 ? 1 : 0,
       materials: form.materials
         .map((material, index) => ({
           inventory_id: material.inventory_id || null,
           material_name: String(material.material_name || '').trim(),
-          quantity: Number(material.quantity) || 0,
+          quantity: Number(material.quantity),
           unit_label: String(material.unit_label || '').trim(),
-          unit_cost_override: material.unit_cost_override === '' ? null : Number(material.unit_cost_override) || 0,
+          unit_cost_override: material.unit_cost_override === '' ? null : Number(material.unit_cost_override),
           notes: String(material.notes || '').trim(),
           sort_order: index,
         }))
-        .filter((material) => material.material_name && material.quantity > 0),
+        .filter((material) => material.material_name || material.inventory_id),
     }
 
-    if (!payload.category || !payload.service_name) {
-      alert('Category and service name are required.')
+    if (!validateForm(payload)) {
+      toast.warning('Check the highlighted billing service fields.')
       return
     }
 
-    setSaving(true)
-    try {
-      const saved = editingId
-        ? await updateBillingCatalogService(editingId, payload)
-        : await createBillingCatalogService(payload)
-
-      setServices((current) => {
-        const next = editingId
-          ? current.map((service) => (service.id === saved.id ? saved : service))
-          : [...current, saved]
-        return next.sort((a, b) => {
-          const categoryCompare = String(a.category || '').localeCompare(String(b.category || ''))
-          if (categoryCompare !== 0) return categoryCompare
-          return String(a.service_name || '').localeCompare(String(b.service_name || ''))
-        })
-      })
-      closeModal()
-    } catch (err) {
-      alert(err.message || 'Failed to save billing service.')
-    } finally {
-      setSaving(false)
-    }
+    await saveMutation.mutateAsync({ id: editingId, payload }).catch(() => {})
   }
 
-  const handleDelete = async (serviceId) => {
-    if (!window.confirm('Remove this billing service from the catalog?')) return
-    setDeletingId(serviceId)
-    try {
-      await deleteBillingCatalogService(serviceId)
-      setServices((current) => current.filter((service) => service.id !== serviceId))
-      if (editingId === serviceId) closeModal()
-    } catch (err) {
-      alert(err.message || 'Failed to delete billing service.')
-    } finally {
-      setDeletingId(null)
-    }
+  const handleDelete = (serviceId) => {
+    const service = services.find((entry) => Number(entry.id) === Number(serviceId))
+    setDeleteCandidate(service || { id: serviceId, service_name: 'this service' })
   }
+
+  const confirmDelete = async () => {
+    if (!deleteCandidate?.id) return
+    setDeletingId(deleteCandidate.id)
+    await deleteMutation.mutateAsync(deleteCandidate.id).catch(() => {})
+  }
+
+  const saving = saveMutation.isPending
 
   return (
-    <div className="max-w-7xl space-y-5">
+    <div className="mx-auto max-w-7xl space-y-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -286,10 +356,16 @@ const Admin_BillingCatalog = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={loadData}
+            onClick={refreshData}
             className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
           >
             <MdRefresh className="text-[16px]" /> Refresh
+          </button>
+          <button
+            onClick={() => setPaymentSetupOpen(true)}
+            className="button-secondary"
+          >
+            <MdPayments className="text-[16px]" /> Payment Setup
           </button>
           <button
             onClick={openAddModal}
@@ -353,15 +429,11 @@ const Admin_BillingCatalog = () => {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-4 border-slate-200 border-t-amber-500 rounded-full animate-spin" />
-          </div>
+          <LoadingState label="Loading billing services and inventory..." />
+        ) : loadError ? (
+          <ErrorState message={loadError.message || 'Billing services could not be loaded.'} onRetry={refreshData} />
         ) : filteredServices.length === 0 ? (
-          <div className="flex flex-col items-center py-16 text-center px-6">
-            <MdPayments className="text-slate-200 text-[34px] mb-3" />
-            <p className="text-sm font-semibold text-slate-500">No billing services found</p>
-            <p className="text-xs text-slate-400 mt-1">Add a service or adjust the current filter.</p>
-          </div>
+          <EmptyState title="No billing services found" description="Add a service or adjust the search and clinic filter." />
         ) : (
           <>
             <div className="divide-y divide-slate-100">
@@ -412,27 +484,14 @@ const Admin_BillingCatalog = () => {
               ))}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
-              <p className="text-xs font-semibold text-slate-400">
-                Page {page} of {totalPages} - {PAGE_SIZE} services per page
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
-                  disabled={page === 1}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 disabled:opacity-40"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                  disabled={page === totalPages}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 disabled:opacity-40"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={filteredServices.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1) }}
+            />
           </>
         )}
       </div>
@@ -491,29 +550,33 @@ const Admin_BillingCatalog = () => {
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Category</label>
-                      <input value={form.category} onChange={(e) => setForm((current) => ({ ...current, category: e.target.value }))} className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400" />
+                      <input id="billing-category" aria-invalid={Boolean(formErrors.category)} placeholder="e.g. Dermatologic Services" value={form.category} onChange={(e) => { setFormErrors((current) => ({ ...current, category: '' })); setForm((current) => ({ ...current, category: e.target.value })) }} className="form-control" />
+                      {formErrors.category && <p className="form-error">{formErrors.category}</p>}
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinic Type</label>
-                      <select value={form.clinic_type} onChange={(e) => setForm((current) => ({ ...current, clinic_type: e.target.value }))} className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400">
+                      <select id="billing-clinic-type" value={form.clinic_type} onChange={(e) => setForm((current) => ({ ...current, clinic_type: e.target.value }))} className="form-control">
                         {CLINIC_TYPES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Service Name</label>
-                      <input value={form.service_name} onChange={(e) => setForm((current) => ({ ...current, service_name: e.target.value }))} className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400" />
+                      <input id="billing-service-name" aria-invalid={Boolean(formErrors.service_name)} placeholder="e.g. Dermatology Consultation" value={form.service_name} onChange={(e) => { setFormErrors((current) => ({ ...current, service_name: '' })); setForm((current) => ({ ...current, service_name: e.target.value })) }} className="form-control" />
+                      {formErrors.service_name && <p className="form-error">{formErrors.service_name}</p>}
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Service Fee</label>
-                      <input type="number" min="0" step="50" value={form.consultation_fee} onChange={(e) => setForm((current) => ({ ...current, consultation_fee: e.target.value }))} className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400" />
+                      <input id="billing-service-fee" aria-invalid={Boolean(formErrors.consultation_fee)} type="number" min="0" step="0.01" placeholder="0.00" value={form.consultation_fee} onChange={(e) => { setFormErrors((current) => ({ ...current, consultation_fee: '' })); setForm((current) => ({ ...current, consultation_fee: e.target.value })) }} className="form-control" />
+                      {formErrors.consultation_fee && <p className="form-error">{formErrors.consultation_fee}</p>}
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Profit %</label>
-                      <input type="number" min="0" step="1" value={form.profit_percentage} onChange={(e) => setForm((current) => ({ ...current, profit_percentage: e.target.value }))} className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400" />
+                      <input id="billing-profit" aria-invalid={Boolean(formErrors.profit_percentage)} type="number" min="0" max="1000" step="0.01" placeholder="20" value={form.profit_percentage} onChange={(e) => { setFormErrors((current) => ({ ...current, profit_percentage: '' })); setForm((current) => ({ ...current, profit_percentage: e.target.value })) }} className="form-control" />
+                      {formErrors.profit_percentage && <p className="form-error">{formErrors.profit_percentage}</p>}
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Visibility</label>
-                      <select value={form.is_active} onChange={(e) => setForm((current) => ({ ...current, is_active: Number(e.target.value) }))} className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400">
+                      <select id="billing-visibility" value={form.is_active} onChange={(e) => setForm((current) => ({ ...current, is_active: Number(e.target.value) }))} className="form-control">
                         <option value={1}>Active</option>
                         <option value={0}>Inactive</option>
                       </select>
@@ -606,8 +669,60 @@ const Admin_BillingCatalog = () => {
           </div>
         </div>
       )}
+
+      <Modal
+        open={paymentSetupOpen}
+        onClose={() => !paymentSettingsMutation.isPending && setPaymentSetupOpen(false)}
+        closeDisabled={paymentSettingsMutation.isPending}
+        title="Payment Setup"
+        description="Set the QR image URLs and bank details shown to staff during payment."
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="gcash-qr-url" className="form-label">GCash QR Image URL</label>
+            <input id="gcash-qr-url" type="url" value={paymentForm.gcash_qr_url} onChange={(e) => setPaymentForm((current) => ({ ...current, gcash_qr_url: e.target.value }))} placeholder="https://.../gcash-qr.png" className="form-control mt-1.5" />
+            <p className="form-helper mt-1">Use an HTTPS image URL or a path from the client public folder.</p>
+          </div>
+          <div>
+            <label htmlFor="maya-qr-url" className="form-label">Maya QR Image URL</label>
+            <input id="maya-qr-url" type="url" value={paymentForm.maya_qr_url} onChange={(e) => setPaymentForm((current) => ({ ...current, maya_qr_url: e.target.value }))} placeholder="https://.../maya-qr.png" className="form-control mt-1.5" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="bank-name" className="form-label">Bank Name</label>
+              <input id="bank-name" value={paymentForm.bank_name} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_name: e.target.value }))} placeholder="e.g. BPI" className="form-control mt-1.5" />
+            </div>
+            <div>
+              <label htmlFor="bank-account-number" className="form-label">Account Number</label>
+              <input id="bank-account-number" value={paymentForm.bank_account_number} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_account_number: e.target.value }))} placeholder="Enter account number" className="form-control mt-1.5" />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="bank-account-name" className="form-label">Account Name</label>
+            <input id="bank-account-name" value={paymentForm.bank_account_name} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_account_name: e.target.value }))} placeholder="Enter registered account name" className="form-control mt-1.5" />
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" className="button-secondary" disabled={paymentSettingsMutation.isPending} onClick={() => setPaymentSetupOpen(false)}>Cancel</button>
+            <button type="button" className="button-primary" disabled={paymentSettingsMutation.isPending} onClick={() => paymentSettingsMutation.mutate(paymentForm)}>
+              {paymentSettingsMutation.isPending ? 'Saving...' : 'Save Payment Setup'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteCandidate)}
+        title="Remove billing service?"
+        message={`Remove ${deleteCandidate?.service_name || 'this service'} from the catalog? Services already used by a bill will be deactivated by the server instead of losing billing history.`}
+        confirmLabel="Remove service"
+        loading={deleteMutation.isPending}
+        onCancel={() => !deleteMutation.isPending && setDeleteCandidate(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }
 
 export default Admin_BillingCatalog
+

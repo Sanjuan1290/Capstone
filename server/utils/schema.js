@@ -252,7 +252,8 @@ const ensureAppSchema = async () => {
     )
   `)
 
-  await db.query(`
+  if (process.env.SEED_DEMO_DATA === 'true') {
+    await db.query(`
     INSERT IGNORE INTO appointment_reason_options (label, clinic_type, is_active, sort_order)
     VALUES
       ('General Consultation', 'medical', 1, 10),
@@ -266,7 +267,8 @@ const ensureAppSchema = async () => {
       ('Hair / Scalp Concern', 'derma', 1, 90),
       ('Nail Concern', 'derma', 1, 100),
       ('Other', 'all', 1, 110)
-  `)
+    `)
+  }
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS doctor_unavailable_dates (
@@ -304,7 +306,8 @@ const ensureAppSchema = async () => {
   await ensureColumn('billing_service_catalog', 'profit_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 20.00')
   await ensureColumn('billing_service_catalog', 'consultation_fee', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER default_price')
 
-  await db.query(`
+  if (process.env.SEED_DEMO_DATA === 'true') {
+    await db.query(`
     INSERT IGNORE INTO billing_service_catalog (category, service_name, clinic_type, default_price, profit_percentage, is_active, sort_order)
     VALUES
       ('Medical Consultations', 'General Consultation', 'medical', 0.00, 20.00, 1, 10),
@@ -332,7 +335,8 @@ const ensureAppSchema = async () => {
       ('Animal Bite Center', 'Post-exposure Treatment', 'medical', 0.00, 20.00, 1, 230),
       ('Animal Bite Center', 'Rabies Vaccine', 'medical', 0.00, 20.00, 1, 240),
       ('Animal Bite Center', 'Immunoglobulin', 'medical', 0.00, 20.00, 1, 250)
-  `)
+    `)
+  }
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS billing_service_materials (
@@ -475,7 +479,70 @@ const ensureAppSchema = async () => {
       i.base_unit = COALESCE(i.base_unit, i.unit)
   `)
 
-  await seedInventoryAndBillingMaterials()
+  if (process.env.SEED_DEMO_DATA === 'true') {
+    await seedInventoryAndBillingMaterials()
+  }
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS billing_payments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      billing_id INT NOT NULL,
+      amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      payment_method VARCHAR(30) NOT NULL,
+      reference_number VARCHAR(120) NULL,
+      amount_received DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      change_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      receipt_number VARCHAR(80) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'completed',
+      notes TEXT NULL,
+      received_by_staff_id INT NULL,
+      paid_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      voided_at DATETIME NULL,
+      voided_by_staff_id INT NULL,
+      void_reason TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_billing_payment_receipt (receipt_number),
+      INDEX idx_billing_payments_bill (billing_id, paid_at),
+      CONSTRAINT fk_billing_payments_bill
+        FOREIGN KEY (billing_id) REFERENCES billing_records(id) ON DELETE RESTRICT,
+      CONSTRAINT fk_billing_payments_received_staff
+        FOREIGN KEY (received_by_staff_id) REFERENCES staff(id) ON DELETE SET NULL,
+      CONSTRAINT fk_billing_payments_voided_staff
+        FOREIGN KEY (voided_by_staff_id) REFERENCES staff(id) ON DELETE SET NULL
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS clinic_payment_settings (
+      id INT NOT NULL PRIMARY KEY,
+      gcash_qr_url TEXT NULL,
+      maya_qr_url TEXT NULL,
+      bank_name VARCHAR(120) NULL,
+      bank_account_name VARCHAR(180) NULL,
+      bank_account_number VARCHAR(120) NULL,
+      updated_by_admin_id INT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_clinic_payment_settings_admin
+        FOREIGN KEY (updated_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NULL,
+      user_role VARCHAR(20) NOT NULL,
+      action VARCHAR(80) NOT NULL,
+      entity_type VARCHAR(80) NOT NULL,
+      entity_id VARCHAR(80) NULL,
+      old_values JSON NULL,
+      new_values JSON NULL,
+      ip_address VARCHAR(45) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_audit_entity (entity_type, entity_id, created_at),
+      INDEX idx_audit_user (user_role, user_id, created_at)
+    )
+  `)
 
   await ensureColumn('patients', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('patients', 'profile_image_url', "TEXT NULL")
@@ -569,3 +636,4 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
+

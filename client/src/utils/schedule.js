@@ -80,3 +80,4 @@ export const buildSlotsForScheduleDate = (
     return hour * 60 + minute > cutoffMinutes
   })
 }
+

@@ -437,12 +437,39 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
     [billingId]
   )
 
+  const [payments] = await executor.query(
+    `SELECT
+       bp.id,
+       bp.amount,
+       bp.payment_method,
+       bp.reference_number,
+       bp.amount_received,
+       bp.change_amount,
+       bp.receipt_number,
+       bp.status,
+       bp.notes,
+       bp.paid_at,
+       bp.voided_at,
+       bp.void_reason,
+       staff.full_name AS received_by_staff_name
+     FROM billing_payments bp
+     LEFT JOIN staff ON staff.id = bp.received_by_staff_id
+     WHERE bp.billing_id = ?
+     ORDER BY bp.paid_at DESC, bp.id DESC`,
+    [billingId]
+  ).catch((error) => {
+    // Older databases may not have the payment-history migration yet.
+    if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
+    throw error
+  })
+
   return {
     ...records[0],
     items: items.map((item) => ({
       ...item,
       details: parseJsonSafe(item.details_json, null),
     })),
+    payments,
   }
 }
 
@@ -559,3 +586,4 @@ module.exports = {
   saveBillingItems,
   upsertDraftBillingForAppointment,
 }
+

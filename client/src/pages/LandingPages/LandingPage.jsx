@@ -62,42 +62,66 @@ const LandingPage = () => {
 
   return (
     <>
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      {/* Hero section */}
       <section
         id={hero.section_id || 'home'}
-        className="relative min-h-screen flex items-center justify-center px-10 overflow-hidden"
+        className="relative isolate min-h-screen overflow-hidden px-6 sm:px-10"
       >
+        {/* Background */}
         <img
-          src={hero.background_image_url}
-          alt="home background"
-          className="absolute inset-0 w-full h-full object-cover -z-10"
-        />
-        <div
-          className="absolute inset-0 -z-10"
-          style={{ backgroundColor: `rgba(255,255,255,${Number(hero.overlay_opacity ?? 0.7)})` }}
+          src={hero.background_image_url || '/homeBG.png'}
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover"
+          onError={(event) => {
+            event.currentTarget.src = '/homeBG.png'
+          }}
         />
 
-        <div className="max-w-5xl mx-auto flex flex-col gap-6 text-center md:text-left">
-          <h1 className="text-4xl md:text-5xl font-bold text-gray-800 leading-tight">
-            {hero.heading?.replace(hero.heading_highlight || '', '').trim()} {hero.heading_highlight ? <br /> : null}
-            {hero.heading_highlight && <span className="text-blue-600">{hero.heading_highlight}</span>}
+        {/* Overlay */}
+        <div
+          className="pointer-events-none absolute inset-0 z-10"
+          style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.55)',
+          }}
+        />
+
+        {/* Hero content */}
+        <div className="relative z-20 mx-auto flex min-h-screen max-w-5xl flex-col justify-center gap-6 text-center md:text-left">
+          <h1 className="text-4xl font-bold leading-tight text-gray-800 md:text-5xl">
+            {hero.heading
+              ?.replace(hero.heading_highlight || '', '')
+              .trim()}
+
+            {hero.heading_highlight && <br />}
+
+            {hero.heading_highlight && (
+              <span className="text-blue-600">
+                {hero.heading_highlight}
+              </span>
+            )}
           </h1>
 
-          <p className="text-gray-700 text-lg max-w-2xl leading-relaxed">{hero.description}</p>
-          <h3 className="text-xl font-semibold text-gray-800">{hero.subheading}</h3>
+          <p className="max-w-2xl text-lg leading-relaxed text-gray-700">
+            {hero.description}
+          </p>
 
-          <div className="flex flex-col sm:flex-row gap-4 mt-4">
+          <h3 className="text-xl font-semibold text-gray-800">
+            {hero.subheading}
+          </h3>
+
+          <div className="mt-4 flex flex-col gap-4 sm:flex-row">
             {isExternalPath(primaryButtonPath) ? (
               <a
                 href={primaryButtonPath}
-                className="bg-blue-600 text-white text-sm font-semibold px-5 py-3 rounded-lg hover:bg-blue-700 transition duration-300"
+                className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
               >
                 {hero.primary_button_label}
               </a>
             ) : (
               <NavLink
                 to={primaryButtonPath}
-                className="bg-blue-600 text-white text-sm font-semibold px-5 py-3 rounded-lg hover:bg-blue-700 transition duration-300"
+                className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
               >
                 {hero.primary_button_label}
               </NavLink>
@@ -105,7 +129,7 @@ const LandingPage = () => {
 
             <a
               href={secondaryButtonPath}
-              className="border border-blue-600 text-blue-600 font-semibold px-6 py-3 rounded-lg hover:bg-blue-50 transition duration-300"
+              className="rounded-lg border text-base border-blue-600 px-6 py-3 font-semibold text-blue-600 transition hover:bg-blue-50"
             >
               {hero.secondary_button_label}
             </a>

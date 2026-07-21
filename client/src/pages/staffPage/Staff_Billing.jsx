@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  confirmBillPayment,
   getBillById,
   getBillingCatalog,
+  getBillingPaymentSettings,
   getBills,
   getInventory,
+  payBill,
   updateBill,
 } from '../../services/staff.service'
 import {
@@ -22,6 +23,10 @@ import {
   MdRefresh,
   MdSearch,
 } from 'react-icons/md'
+import { useToast } from '../../components/ui/ToastProvider'
+import Pagination from '../../components/ui/Pagination'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
+import { EmptyState, ErrorState, LoadingState } from '../../components/ui/PageState'
 
 const STATUS_FILTERS = [
   { value: '', label: 'All' },
@@ -91,6 +96,8 @@ const normalizeBillForEditor = (bill) => ({
   discount_amount: Number(bill?.discount_amount) || 0,
   payment_method: bill?.payment_method || '',
   payment_notes: bill?.payment_notes || '',
+  reference_number: bill?.payments?.[0]?.reference_number || '',
+  amount_received: bill?.payments?.[0]?.amount_received ?? bill?.total_amount ?? '',
   items: Array.isArray(bill?.items) && bill.items.length > 0
     ? bill.items.map((item) => ({
       id: item.id,
@@ -199,19 +206,28 @@ const ServiceBreakdown = ({ item }) => {
 }
 
 const Staff_Billing = () => {
+  const toast = useToast()
   const [filter, setFilter] = useState('')
   const [search, setSearch] = useState('')
   const [bills, setBills] = useState([])
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 })
+  const [summary, setSummary] = useState({ total: 0, pending: 0, paid: 0, outstanding: 0 })
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [draft, setDraft] = useState(null)
   const [billingCatalog, setBillingCatalog] = useState([])
   const [inventoryItems, setInventoryItems] = useState([])
+  const [paymentSettings, setPaymentSettings] = useState({})
   const [loadingList, setLoadingList] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [listError, setListError] = useState('')
+  const [detailError, setDetailError] = useState('')
 
   const serviceMap = useMemo(
     () => new Map((billingCatalog || []).map((service) => [Number(service.id), service])),
@@ -222,12 +238,21 @@ const Staff_Billing = () => {
     [inventoryItems]
   )
 
-  const loadBills = async (status = filter, preferredId = selectedId) => {
+  const loadBills = async ({
+    status = filter,
+    preferredId = selectedId,
+    targetPage = page,
+    query = search,
+    limit = pageSize,
+  } = {}) => {
     setLoadingList(true)
+    setListError('')
     try {
-      const rows = await getBills(status)
-      const list = Array.isArray(rows) ? rows : []
+      const response = await getBills({ status, search: query, page: targetPage, limit })
+      const list = Array.isArray(response?.items) ? response.items : []
       setBills(list)
+      setPagination(response?.pagination || { page: targetPage, limit, total: list.length, totalPages: 1 })
+      setSummary(response?.summary || { total: list.length, pending: 0, paid: 0, outstanding: 0 })
 
       if (list.length === 0) {
         setSelectedId(null)
@@ -236,10 +261,12 @@ const Staff_Billing = () => {
         return
       }
 
-      const hasPreferred = preferredId && list.some((bill) => bill.id === preferredId)
+      const hasPreferred = preferredId && list.some((bill) => Number(bill.id) === Number(preferredId))
       if (!hasPreferred) setSelectedId(list[0].id)
     } catch (err) {
-      alert(err.message || 'Failed to load billing records.')
+      const message = err.message || 'Billing records could not be loaded.'
+      setListError(message)
+      toast.error(message)
     } finally {
       setLoadingList(false)
     }
@@ -253,12 +280,15 @@ const Staff_Billing = () => {
     }
 
     setLoadingDetail(true)
+    setDetailError('')
     try {
       const bill = await getBillById(billId)
       setDetail(bill)
       setDraft(normalizeBillForEditor(bill))
     } catch (err) {
-      alert(err.message || 'Failed to load billing details.')
+      const message = err.message || 'Billing details could not be loaded.'
+      setDetailError(message)
+      toast.error(message)
     } finally {
       setLoadingDetail(false)
     }
@@ -270,7 +300,7 @@ const Staff_Billing = () => {
       const rows = await getBillingCatalog(clinicType || '')
       setBillingCatalog(Array.isArray(rows) ? rows : [])
     } catch (err) {
-      alert(err.message || 'Failed to load billing services.')
+      toast.error(err.message || 'Billing services could not be loaded.')
       setBillingCatalog([])
     } finally {
       setCatalogLoading(false)
@@ -278,17 +308,27 @@ const Staff_Billing = () => {
   }
 
   useEffect(() => {
-    loadBills(filter, null)
-  }, [filter])
+    const timer = window.setTimeout(() => {
+      loadBills({ status: filter, preferredId: null, targetPage: page, query: search, limit: pageSize })
+    }, search ? 300 : 0)
+    return () => window.clearTimeout(timer)
+  }, [filter, page, pageSize, search])
 
   useEffect(() => {
     loadBillDetail(selectedId)
   }, [selectedId])
 
   useEffect(() => {
-    getInventory()
-      .then((rows) => setInventoryItems(Array.isArray(rows) ? rows : []))
-      .catch(() => setInventoryItems([]))
+    Promise.all([getInventory(), getBillingPaymentSettings()])
+      .then(([inventoryRows, settings]) => {
+        setInventoryItems(Array.isArray(inventoryRows) ? inventoryRows : [])
+        setPaymentSettings(settings || {})
+      })
+      .catch((error) => {
+        setInventoryItems([])
+        setPaymentSettings({})
+        toast.error(error.message || 'Billing inventory or payment setup could not be loaded.')
+      })
   }, [])
 
   useEffect(() => {
@@ -301,37 +341,25 @@ const Staff_Billing = () => {
 
   useEffect(() => {
     const handleRefresh = () => {
-      loadBills(filter, selectedId)
+      loadBills({ status: filter, preferredId: selectedId, targetPage: page, query: search, limit: pageSize })
       if (selectedId) loadBillDetail(selectedId)
     }
 
     window.addEventListener('clinic:refresh', handleRefresh)
     return () => window.removeEventListener('clinic:refresh', handleRefresh)
-  }, [filter, selectedId])
+  }, [filter, selectedId, page, pageSize, search])
 
-  const filteredBills = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return bills
-    return bills.filter((bill) => {
-      const haystack = [
-        bill.patient_name,
-        bill.doctor_name,
-        bill.appointment_reason,
-        bill.payment_method,
-      ].join(' ').toLowerCase()
-      return haystack.includes(query)
-    })
-  }, [bills, search])
+  const filteredBills = bills
+
 
   const totals = computeEditorTotals(draft)
-  const pendingCount = bills.filter((bill) => bill.status === 'pending').length
-  const paidCount = bills.filter((bill) => bill.status === 'paid').length
-  const totalOutstanding = bills
-    .filter((bill) => bill.status === 'pending')
-    .reduce((sum, bill) => sum + (Number(bill.total_amount) || 0), 0)
+  const pendingCount = Number(summary.pending) || 0
+  const paidCount = Number(summary.paid) || 0
+  const totalOutstanding = Number(summary.outstanding) || 0
 
   const selectedPaymentMethod = String(draft?.payment_method || '').toLowerCase()
   const showQr = selectedPaymentMethod === 'gcash' || selectedPaymentMethod === 'maya'
+  const selectedQrUrl = selectedPaymentMethod === 'gcash' ? paymentSettings.gcash_qr_url : paymentSettings.maya_qr_url
   const isPaid = detail?.status === 'paid'
 
   const updateDraftField = (field, value) => {
@@ -436,56 +464,80 @@ const Staff_Billing = () => {
     }))
   }
 
+  const buildBillingPayload = () => ({
+    items: serializeDraftItems(draft.items),
+    discount_type: draft.discount_type,
+    discount_label: draft.discount_label,
+    discount_amount: draft.discount_amount,
+    payment_method: draft.payment_method,
+    payment_notes: draft.payment_notes,
+    reference_number: draft.reference_number,
+    amount_received: draft.amount_received,
+  })
+
+  const validateBill = ({ forPayment = false } = {}) => {
+    const validItems = serializeDraftItems(draft?.items || []).filter((item) => (
+      item.service_name?.trim() && Number(item.quantity) > 0 && Number(item.unit_price) >= 0
+    ))
+    if (validItems.length === 0) return 'Add at least one complete bill item.'
+    if (Number(draft.discount_amount || 0) > totals.subtotal) return 'The discount cannot be higher than the subtotal.'
+    if (!forPayment) return ''
+    if (!draft.payment_method) return 'Select a payment method.'
+    if (draft.payment_method !== 'cash' && !String(draft.reference_number || '').trim()) return 'Enter the payment reference number.'
+    if (Number(draft.amount_received || 0) < totals.total) return 'Amount received cannot be lower than the bill total.'
+    return ''
+  }
+
   const handleSave = async () => {
     if (!selectedId || !draft) return
+    const validationMessage = validateBill()
+    if (validationMessage) {
+      toast.warning(validationMessage)
+      return
+    }
     setSaving(true)
     try {
-      const updated = await updateBill(selectedId, {
-        items: serializeDraftItems(draft.items),
-        discount_type: draft.discount_type,
-        discount_label: draft.discount_label,
-        discount_amount: draft.discount_amount,
-        payment_method: draft.payment_method,
-        payment_notes: draft.payment_notes,
-      })
+      const updated = await updateBill(selectedId, buildBillingPayload())
       setDetail(updated)
       setDraft(normalizeBillForEditor(updated))
-      await loadBills(filter, selectedId)
+      toast.success('Bill saved.')
+      await loadBills({ status: filter, preferredId: selectedId, targetPage: page, query: search, limit: pageSize })
     } catch (err) {
-      alert(err.message || 'Failed to save bill.')
+      toast.error(err.message || 'Bill could not be saved.')
     } finally {
       setSaving(false)
     }
+  }
+
+  const requestPaymentConfirmation = () => {
+    if (!selectedId || !draft) return
+    const validationMessage = validateBill({ forPayment: true })
+    if (validationMessage) {
+      toast.warning(validationMessage)
+      return
+    }
+    setConfirmOpen(true)
   }
 
   const handleConfirmPayment = async () => {
     if (!selectedId || !draft) return
     setConfirming(true)
     try {
-      await updateBill(selectedId, {
-        items: serializeDraftItems(draft.items),
-        discount_type: draft.discount_type,
-        discount_label: draft.discount_label,
-        discount_amount: draft.discount_amount,
-        payment_method: draft.payment_method,
-        payment_notes: draft.payment_notes,
-      })
-      const updated = await confirmBillPayment(selectedId, {
-        payment_method: draft.payment_method,
-        payment_notes: draft.payment_notes,
-      })
+      const updated = await payBill(selectedId, buildBillingPayload())
       setDetail(updated)
       setDraft(normalizeBillForEditor(updated))
-      await loadBills(filter, selectedId)
+      setConfirmOpen(false)
+      toast.success(`Payment confirmed${updated?.payments?.[0]?.receipt_number ? ` · ${updated.payments[0].receipt_number}` : '.'}`)
+      await loadBills({ status: filter, preferredId: selectedId, targetPage: page, query: search, limit: pageSize })
     } catch (err) {
-      alert(err.message || 'Failed to confirm payment.')
+      toast.error(err.message || 'Payment could not be confirmed.')
     } finally {
       setConfirming(false)
     }
   }
 
   return (
-    <div className="space-y-5 max-w-7xl">
+    <div className="mx-auto max-w-7xl space-y-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -497,7 +549,7 @@ const Staff_Billing = () => {
         </div>
         <button
           onClick={() => {
-            loadBills(filter, selectedId)
+            loadBills({ status: filter, preferredId: selectedId, targetPage: page, query: search, limit: pageSize })
             if (selectedId) loadBillDetail(selectedId)
           }}
           className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
@@ -508,7 +560,7 @@ const Staff_Billing = () => {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'All Bills', value: bills.length, tone: 'text-sky-600 bg-sky-50 border-sky-200' },
+          { label: 'All Bills', value: summary.total, tone: 'text-sky-600 bg-sky-50 border-sky-200' },
           { label: 'Pending', value: pendingCount, tone: 'text-amber-600 bg-amber-50 border-amber-200' },
           { label: 'Paid', value: paidCount, tone: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
           { label: 'Outstanding', value: formatMoney(totalOutstanding), tone: 'text-violet-600 bg-violet-50 border-violet-200' },
@@ -527,7 +579,7 @@ const Staff_Billing = () => {
               {STATUS_FILTERS.map((option) => (
                 <button
                   key={option.label}
-                  onClick={() => setFilter(option.value)}
+                  onClick={() => { setFilter(option.value); setPage(1) }}
                   className={`rounded-xl px-3 py-2 text-xs font-bold transition-colors ${
                     filter === option.value
                       ? 'bg-[#0b1a2c] text-sky-400'
@@ -543,8 +595,9 @@ const Staff_Billing = () => {
               <MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]" />
               <input
                 type="text"
+                aria-label="Search billing records"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setPage(1) }}
                 placeholder="Search patient or doctor..."
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-10 text-sm text-slate-700 focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-400/10"
               />
@@ -567,17 +620,11 @@ const Staff_Billing = () => {
             </div>
 
             {loadingList ? (
-              <div className="flex items-center justify-center py-16">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
-              </div>
+              <LoadingState label="Loading billing records..." />
+            ) : listError ? (
+              <ErrorState message={listError} onRetry={() => loadBills({ status: filter, preferredId: selectedId, targetPage: page, query: search, limit: pageSize })} />
             ) : filteredBills.length === 0 ? (
-              <div className="px-6 py-14 text-center">
-                <MdPayments className="mx-auto mb-3 text-[34px] text-slate-200" />
-                <p className="text-sm font-semibold text-slate-500">No billing records found</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Bills appear here after a doctor completes a consultation.
-                </p>
-              </div>
+              <EmptyState title="No billing records found" description="Bills appear after a doctor completes a consultation." />
             ) : (
               <div className="divide-y divide-slate-100">
                 {filteredBills.map((bill) => {
@@ -628,14 +675,24 @@ const Staff_Billing = () => {
                 })}
               </div>
             )}
+            {!loadingList && !listError && (
+              <Pagination
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                total={pagination.total}
+                pageSize={pagination.limit}
+                onPageChange={setPage}
+                onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1) }}
+              />
+            )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           {loadingDetail ? (
-            <div className="flex min-h-[480px] items-center justify-center">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
-            </div>
+            <LoadingState label="Loading bill details..." />
+          ) : detailError ? (
+            <ErrorState message={detailError} onRetry={() => loadBillDetail(selectedId)} />
           ) : !detail || !draft ? (
             <div className="flex min-h-[480px] flex-col items-center justify-center px-8 text-center">
               <MdPayments className="mb-3 text-[38px] text-slate-200" />
@@ -883,7 +940,9 @@ const Staff_Billing = () => {
                               </div>
                             )}
 
+                            <label className="mt-3 mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-400">Item Notes</label>
                             <textarea
+                              aria-label={`Notes for bill item ${index + 1}`}
                               value={item.notes}
                               onChange={(e) => updateDraftItem(index, 'notes', e.target.value)}
                               disabled={isPaid}
@@ -907,11 +966,14 @@ const Staff_Billing = () => {
                     <h3 className="text-sm font-bold text-slate-800">Payment Details</h3>
 
                     <div className="mt-3 space-y-3">
+                      <label className="form-label" htmlFor="payment-method">Payment Method</label>
                       <select
+                        id="payment-method"
+                        aria-label="Payment method"
                         value={draft.payment_method}
                         onChange={(e) => updateDraftField('payment_method', e.target.value)}
                         disabled={isPaid}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
+                        className="form-control disabled:opacity-70"
                       >
                         <option value="">Select payment method</option>
                         {PAYMENT_OPTIONS.map((option) => (
@@ -919,33 +981,74 @@ const Staff_Billing = () => {
                         ))}
                       </select>
 
+                      <label className="form-label" htmlFor="payment-reference">Reference Number</label>
                       <input
+                        id="payment-reference"
                         type="text"
+                        aria-label="Payment reference number"
+                        value={draft.reference_number}
+                        onChange={(e) => updateDraftField('reference_number', e.target.value)}
+                        disabled={isPaid || !draft.payment_method || draft.payment_method === 'cash'}
+                        placeholder="Payment reference number"
+                        className="form-control disabled:opacity-60"
+                      />
+
+                      <label className="form-label" htmlFor="amount-received">Amount Received</label>
+                      <input
+                        id="amount-received"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        aria-label="Amount received"
+                        value={draft.amount_received}
+                        onChange={(e) => updateDraftField('amount_received', e.target.value)}
+                        disabled={isPaid}
+                        placeholder="Amount received"
+                        className="form-control disabled:opacity-60"
+                      />
+
+                      {draft.payment_method === 'cash' && Number(draft.amount_received || 0) >= totals.total && (
+                        <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                          Change: {formatMoney(Math.max(0, Number(draft.amount_received || 0) - totals.total))}
+                        </p>
+                      )}
+
+                      <label className="form-label" htmlFor="discount-label">Discount Label</label>
+                      <input
+                        id="discount-label"
+                        type="text"
+                        aria-label="Discount label"
                         value={draft.discount_label}
                         onChange={(e) => updateDraftField('discount_label', e.target.value)}
                         disabled={isPaid}
                         placeholder="Discount label (e.g. Senior Citizen)"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
+                        className="form-control disabled:opacity-70"
                       />
 
+                      <label className="form-label" htmlFor="discount-amount">Discount Amount</label>
                       <input
+                        id="discount-amount"
                         type="number"
                         min="0"
                         step="0.01"
+                        aria-label="Discount amount"
                         value={draft.discount_amount}
                         onChange={(e) => updateDraftField('discount_amount', e.target.value)}
                         disabled={isPaid}
                         placeholder="Discount amount"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
+                        className="form-control disabled:opacity-70"
                       />
 
+                      <label className="form-label" htmlFor="payment-notes">Payment Notes</label>
                       <textarea
+                        id="payment-notes"
+                        aria-label="Payment notes"
                         value={draft.payment_notes}
                         onChange={(e) => updateDraftField('payment_notes', e.target.value)}
                         disabled={isPaid}
                         rows={3}
                         placeholder="Payment notes or confirmation details"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
+                        className="form-control disabled:opacity-70"
                       />
                     </div>
                   </div>
@@ -958,14 +1061,17 @@ const Staff_Billing = () => {
                       <p className="mt-1 text-xs leading-relaxed text-emerald-700">
                         Show this QR to the patient, wait for the confirmation screen, then click confirm payment below.
                       </p>
-                      <img
-                        src="/payments/qr-ph-placeholder.svg"
-                        alt="Clinic QR placeholder"
-                        className="mt-3 w-full rounded-2xl border border-emerald-200 bg-white p-3"
-                      />
-                      <p className="mt-2 text-[11px] text-emerald-700">
-                        Replace `client/public/payments/qr-ph-placeholder.svg` with your real clinic QR image.
-                      </p>
+                      {selectedQrUrl ? (
+                        <img
+                          src={selectedQrUrl}
+                          alt={`${selectedPaymentMethod === 'gcash' ? 'GCash' : 'Maya'} clinic payment QR`}
+                          className="mt-3 w-full rounded-2xl border border-emerald-200 bg-white p-3"
+                        />
+                      ) : (
+                        <p className="mt-3 rounded-xl border border-dashed border-emerald-300 px-3 py-4 text-center text-xs font-semibold text-emerald-700">
+                          No QR image is configured. Ask an administrator to add it in Billing Service Catalog → Payment Setup.
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -1012,7 +1118,7 @@ const Staff_Billing = () => {
                         </button>
                       )}
                       <button
-                        onClick={handleConfirmPayment}
+                        onClick={requestPaymentConfirmation}
                         disabled={isPaid || confirming}
                         className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
                       >
@@ -1021,6 +1127,24 @@ const Staff_Billing = () => {
                       </button>
                     </div>
                   </div>
+
+                  {Array.isArray(detail.payments) && detail.payments.length > 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <h3 className="text-sm font-bold text-slate-800">Payment History</h3>
+                      <div className="mt-3 space-y-2">
+                        {detail.payments.map((payment) => (
+                          <div key={payment.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-black text-slate-800">{payment.receipt_number}</span>
+                              <span className="font-black text-emerald-600">{formatMoney(payment.amount)}</span>
+                            </div>
+                            <p className="mt-1 text-slate-500">{payment.payment_method} · {payment.paid_at}</p>
+                            {payment.reference_number && <p className="mt-1 text-slate-500">Reference: {payment.reference_number}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <h3 className="text-sm font-bold text-slate-800">What staff should verify</h3>
@@ -1045,8 +1169,20 @@ const Staff_Billing = () => {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Confirm payment?"
+        message={`This will mark the bill as paid, record ${formatMoney(totals.total)}, and deduct linked inventory. This action cannot be repeated.`}
+        confirmLabel="Confirm payment"
+        tone="primary"
+        loading={confirming}
+        onCancel={() => !confirming && setConfirmOpen(false)}
+        onConfirm={handleConfirmPayment}
+      />
     </div>
   )
 }
 
 export default Staff_Billing
+

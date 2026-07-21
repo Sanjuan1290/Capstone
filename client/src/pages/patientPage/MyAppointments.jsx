@@ -3,6 +3,8 @@
 //      Only pending / confirmed / rescheduled appointments are shown.
 
 import { useEffect, useState } from 'react'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import { getMyAppointments, cancelAppointment } from '../../services/patient.service'
 import {
   MdCalendarToday, MdAccessTime, MdFace,
@@ -300,6 +302,8 @@ const MyAppointments = () => {
     return matchTab && matchSearch
   })
 
+  const appointmentPagination = useClientPagination(filtered, { resetDeps: [activeTab, search] })
+
   const nextAppt = appointments
     .filter(a => a.status === 'confirmed' || a.status === 'pending' || a.status === 'rescheduled')
     .sort((a, b) => {
@@ -318,7 +322,7 @@ const MyAppointments = () => {
   )
 
   return (
-    <div className="max-w-5xl space-y-5">
+    <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">My Appointments</h1>
@@ -389,15 +393,13 @@ const MyAppointments = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(appt => (
+          {appointmentPagination.pageItems.map(appt => (
             <AppointmentCard key={appt.id} appt={appt} onSelect={setModal} onCancel={handleCancel} />
           ))}
         </div>
       )}
 
-      <p className="text-[11px] text-slate-400 font-medium">
-        Showing {filtered.length} of {appointments.length} active appointments
-      </p>
+      {filtered.length > 0 && <Pagination {...appointmentPagination} total={filtered.length} />}
 
       {modal && (
         <DetailModal appt={modal} onClose={() => setModal(null)} onCancel={handleCancel} />
@@ -407,3 +409,4 @@ const MyAppointments = () => {
 }
 
 export default MyAppointments
+

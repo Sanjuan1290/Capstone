@@ -67,6 +67,8 @@ router.get('/billing/catalog', ...auth, adminCtrl.getBillingCatalogAdmin)
 router.post('/billing/catalog', ...auth, adminCtrl.createBillingCatalogService)
 router.put('/billing/catalog/:serviceId', ...auth, adminCtrl.updateBillingCatalogService)
 router.delete('/billing/catalog/:serviceId', ...auth, adminCtrl.deleteBillingCatalogService)
+router.get('/billing/payment-settings', ...auth, adminCtrl.getPaymentSettingsAdmin)
+router.put('/billing/payment-settings', ...auth, adminCtrl.updatePaymentSettingsAdmin)
 router.get('/reports', ...auth, adminCtrl.getReports)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
@@ -83,3 +85,4 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
+

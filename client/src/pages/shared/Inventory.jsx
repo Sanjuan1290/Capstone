@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MdAdd, MdCameraAlt, MdClose, MdDelete, MdEdit, MdInventory2,
   MdQrCodeScanner, MdRefresh, MdSave, MdSearch, MdWarningAmber,
-  MdCheckCircle, MdLocationOn, MdCalendarToday,
+  MdCheckCircle, MdLocationOn, MdCalendarToday, MdFlashOn, MdCameraswitch, MdUploadFile,
 } from 'react-icons/md'
+import { useToast } from '../../components/ui/ToastProvider'
 
 const CATEGORIES = ['Medicine', 'Derma', 'Supplies']
 const UNIT_OPTIONS = ['box', 'tube', 'bottle', 'pack', 'piece', 'sachet']
@@ -63,206 +64,219 @@ const CameraScanner = ({ onDetected, onClose }) => {
   const readerRef = useRef(null)
   const controlsRef = useRef(null)
   const mountedRef = useRef(true)
+  const lastCodeRef = useRef({ code: '', at: 0 })
   const [status, setStatus] = useState('starting')
   const [errorMsg, setErrorMsg] = useState('')
+  const [devices, setDevices] = useState([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState('')
+  const [manualCode, setManualCode] = useState('')
+  const [torchOn, setTorchOn] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
+
+  const stopScanner = useCallback(() => {
+    controlsRef.current?.stop?.()
+    controlsRef.current = null
+    readerRef.current?.reset?.()
+    if (videoRef.current) videoRef.current.srcObject = null
+  }, [])
+
+  const emitCode = useCallback((rawCode) => {
+    const code = String(rawCode || '').trim()
+    if (!code) return
+    const now = Date.now()
+    if (lastCodeRef.current.code === code && now - lastCodeRef.current.at < 1800) return
+    lastCodeRef.current = { code, at: now }
+    setStatus('detected')
+    stopScanner()
+    window.setTimeout(() => onDetected(code), 180)
+  }, [onDetected, stopScanner])
 
   useEffect(() => {
     mountedRef.current = true
-
-    const stop = () => {
-      controlsRef.current?.stop?.()
-      controlsRef.current = null
-      readerRef.current?.reset?.()
-      if (videoRef.current) {
-        videoRef.current.srcObject = null
-      }
-    }
+    let permissionStream = null
 
     const init = async () => {
+      setStatus('starting')
+      setErrorMsg('')
+      setTorchOn(false)
+
       if (!navigator.mediaDevices?.getUserMedia) {
         setStatus('error')
-        setErrorMsg('Camera access is not supported in this browser.')
+        setErrorMsg('Camera access is unavailable. Use HTTPS on a phone, or enter the barcode manually.')
         return
       }
 
       try {
+        // Ask for permission first so mobile browsers expose camera labels and rear cameras.
+        permissionStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        permissionStream.getTracks().forEach((track) => track.stop())
+        permissionStream = null
+
+        const availableDevices = await BrowserMultiFormatReader.listVideoInputDevices().catch(() => [])
+        if (!mountedRef.current) return
+        setDevices(availableDevices)
+
+        const preferred = selectedDeviceId
+          || availableDevices.find((device) => /back|rear|environment/i.test(device.label))?.deviceId
+          || availableDevices[0]?.deviceId
+          || ''
+        if (!selectedDeviceId && preferred) setSelectedDeviceId(preferred)
+
         readerRef.current = new BrowserMultiFormatReader()
         controlsRef.current = await readerRef.current.decodeFromConstraints(
           {
-            video: {
-              facingMode: { ideal: 'environment' },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
+            video: preferred
+              ? { deviceId: { exact: preferred }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+              : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
           },
           videoRef.current,
           (result) => {
             if (!mountedRef.current || !result) return
-
-            const code = result.getText()?.trim()
-            if (!code) return
-
-            setStatus('detected')
-            stop()
-            window.setTimeout(() => onDetected(code), 250)
+            emitCode(result.getText())
           }
         )
-
-        if (mountedRef.current) {
-          setStatus('scanning')
-        }
+        if (mountedRef.current) setStatus('scanning')
       } catch (err) {
         if (!mountedRef.current) return
-
         setStatus('error')
         const message = err?.name === 'NotAllowedError'
-          ? 'Camera permission was denied.'
+          ? 'Camera permission was denied. Allow camera access in your browser settings, then retry.'
           : err?.name === 'NotFoundError'
-            ? 'No camera device was found.'
-            : err?.message || 'Scanner failed to start.'
+            ? 'No camera was found. Enter the barcode manually or upload a barcode image.'
+            : err?.name === 'OverconstrainedError'
+              ? 'The selected camera is unavailable. Switch cameras and retry.'
+              : err?.message || 'The scanner could not start.'
         setErrorMsg(message)
       }
     }
 
+    stopScanner()
     init()
     return () => {
       mountedRef.current = false
-      stop()
+      permissionStream?.getTracks?.().forEach((track) => track.stop())
+      stopScanner()
     }
-  }, [onDetected])
+  }, [emitCode, retryKey, selectedDeviceId, stopScanner])
+
+  const switchCamera = () => {
+    if (devices.length < 2) return
+    const currentIndex = devices.findIndex((device) => device.deviceId === selectedDeviceId)
+    const next = devices[(currentIndex + 1) % devices.length]
+    if (next?.deviceId) setSelectedDeviceId(next.deviceId)
+  }
+
+  const toggleTorch = async () => {
+    try {
+      if (controlsRef.current?.switchTorch) {
+        await controlsRef.current.switchTorch()
+        setTorchOn((current) => !current)
+        return
+      }
+      const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
+      const capabilities = track?.getCapabilities?.()
+      if (!capabilities?.torch) throw new Error('Torch is not supported by this camera.')
+      const next = !torchOn
+      await track.applyConstraints({ advanced: [{ torch: next }] })
+      setTorchOn(next)
+    } catch (error) {
+      setErrorMsg(error.message || 'Torch control is unavailable.')
+    }
+  }
+
+  const scanImage = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const objectUrl = URL.createObjectURL(file)
+    setStatus('starting')
+    try {
+      const reader = readerRef.current || new BrowserMultiFormatReader()
+      const result = await reader.decodeFromImageUrl(objectUrl)
+      emitCode(result?.getText())
+    } catch {
+      setStatus('error')
+      setErrorMsg('No readable barcode was found in that image.')
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+      event.target.value = ''
+    }
+  }
 
   const statusConfig = {
     starting: { color: '#64748b', text: 'Starting camera...', pulse: false },
-    scanning: { color: '#0ea5e9', text: 'Scanning - hold barcode steady', pulse: true },
-    detected: { color: '#22c55e', text: 'Barcode detected!', pulse: false },
+    scanning: { color: '#0ea5e9', text: 'Scanning — hold the barcode steady', pulse: true },
+    detected: { color: '#22c55e', text: 'Barcode detected', pulse: false },
     error: { color: '#ef4444', text: errorMsg, pulse: false },
   }
   const cfg = statusConfig[status]
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-3xl bg-white overflow-hidden shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/80 sm:items-center sm:px-4" onClick={onClose}>
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[94vh] sm:max-w-lg sm:rounded-3xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
-            <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <MdCameraAlt className="text-sky-500" /> Camera Barcode Scanner
-            </p>
-            <p className="text-xs text-slate-400">Point camera at barcode</p>
+            <p className="flex items-center gap-2 text-sm font-bold text-slate-800"><MdCameraAlt className="text-sky-500" /> Camera Barcode Scanner</p>
+            <p className="text-xs text-slate-400">Rear camera is preferred on supported phones</p>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-400 flex items-center justify-center"
-          >
-            <MdClose />
-          </button>
+          <button type="button" onClick={onClose} className="icon-button" aria-label="Close barcode scanner"><MdClose /></button>
         </div>
 
-        <div className="bg-black aspect-[4/3] relative overflow-hidden">
+        <div className="relative min-h-[42vh] flex-1 overflow-hidden bg-black sm:aspect-[4/3] sm:min-h-0 sm:flex-none">
           {status === 'error' ? (
-            <div className="h-full flex items-center justify-center text-center text-sm text-slate-300 px-6">
-              {errorMsg}
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-sm text-slate-200">
+              <MdWarningAmber className="text-3xl text-amber-400" />
+              <p>{errorMsg}</p>
+              <button type="button" className="rounded-xl bg-white px-4 py-2 text-xs font-bold text-slate-800" onClick={() => setRetryKey((current) => current + 1)}>Retry Camera</button>
             </div>
           ) : (
             <>
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                muted
-                playsInline
-                autoPlay
-              />
-
-              {['top-6 left-6', 'top-6 right-6', 'bottom-6 left-6', 'bottom-6 right-6'].map((pos, i) => (
-                <div
-                  key={i}
-                  className={`absolute ${pos} w-8 h-8`}
-                  style={{
-                    borderColor: cfg.color,
-                    borderStyle: 'solid',
-                    borderWidth: 0,
-                    ...(i === 0 && { borderTopWidth: 3, borderLeftWidth: 3, borderRadius: '4px 0 0 0' }),
-                    ...(i === 1 && { borderTopWidth: 3, borderRightWidth: 3, borderRadius: '0 4px 0 0' }),
-                    ...(i === 2 && { borderBottomWidth: 3, borderLeftWidth: 3, borderRadius: '0 0 0 4px' }),
-                    ...(i === 3 && { borderBottomWidth: 3, borderRightWidth: 3, borderRadius: '0 0 4px 0' }),
-                    transition: 'border-color 0.3s',
-                  }}
-                />
-              ))}
-
-              {status === 'scanning' && (
-                <div
-                  className="absolute left-8 right-8"
-                  style={{
-                    height: 2,
-                    background: cfg.color,
-                    boxShadow: `0 0 6px ${cfg.color}`,
-                    animation: 'scanline 2s ease-in-out infinite',
-                    top: '50%',
-                  }}
-                />
-              )}
-
-              {status === 'detected' && (
-                <div
-                  className="absolute inset-0 flex items-center justify-center"
-                  style={{ background: 'rgba(34,197,94,0.25)' }}
-                >
-                  <div className="bg-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                      <path d="M5 13l4 4L19 7" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                </div>
-              )}
-
-              {status === 'starting' && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                  <div
-                    className="w-8 h-8 rounded-full border-2 border-white/20"
-                    style={{ borderTopColor: '#fff', animation: 'spin 0.8s linear infinite' }}
-                  />
-                </div>
-              )}
+              <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
+              <div className="pointer-events-none absolute inset-[12%] rounded-2xl border-2 border-sky-400 shadow-[0_0_0_999px_rgba(0,0,0,0.35)]" />
+              {status === 'scanning' && <div className="absolute left-[14%] right-[14%] top-1/2 h-0.5 animate-pulse bg-sky-400 shadow-[0_0_8px_#38bdf8]" />}
+              {status === 'starting' && <div className="absolute inset-0 flex items-center justify-center bg-black/40"><span className="loading-spinner" /></div>}
+              {status === 'detected' && <div className="absolute inset-0 flex items-center justify-center bg-emerald-500/25"><MdCheckCircle className="text-6xl text-white drop-shadow" /></div>}
             </>
           )}
         </div>
 
-        <div className="px-5 py-3 flex items-center gap-2">
-          <div className="relative flex items-center justify-center w-3 h-3 flex-shrink-0">
-            <div
-              className="w-2 h-2 rounded-full"
-              style={{ background: cfg.color }}
-            />
-            {cfg.pulse && (
-              <div
-                className="absolute w-3 h-3 rounded-full"
-                style={{ background: cfg.color, opacity: 0.4, animation: 'ping 1.2s ease-out infinite' }}
-              />
-            )}
+        <div className="space-y-4 overflow-y-auto p-5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-slate-500">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: cfg.color }} />
+              <span className="truncate">{cfg.text}</span>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={switchCamera} disabled={devices.length < 2} className="icon-button border border-slate-200" aria-label="Switch camera"><MdCameraswitch /></button>
+              <button type="button" onClick={toggleTorch} disabled={status !== 'scanning'} className={`icon-button border border-slate-200 ${torchOn ? 'bg-amber-50 text-amber-600' : ''}`} aria-label="Toggle camera torch"><MdFlashOn /></button>
+            </div>
           </div>
-          <span className="text-xs text-slate-500">{cfg.text}</span>
-        </div>
 
-        <style>{`
-          @keyframes scanline {
-            0%   { top: 25%; }
-            50%  { top: 75%; }
-            100% { top: 25%; }
-          }
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-          @keyframes ping {
-            0%   { transform: scale(1); opacity: 0.4; }
-            100% { transform: scale(2.5); opacity: 0; }
-          }
-        `}</style>
+          {devices.length > 1 && (
+            <div>
+              <label htmlFor="scanner-camera" className="form-label">Camera</label>
+              <select id="scanner-camera" value={selectedDeviceId} onChange={(event) => setSelectedDeviceId(event.target.value)} className="form-control mt-1.5">
+                {devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label htmlFor="manual-barcode" className="form-label">Manual Barcode</label>
+            <div className="mt-1.5 flex gap-2">
+              <input id="manual-barcode" value={manualCode} onChange={(event) => setManualCode(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && emitCode(manualCode)} placeholder="Type or paste barcode" className="form-control" />
+              <button type="button" className="button-primary shrink-0" disabled={!manualCode.trim()} onClick={() => emitCode(manualCode)}>Use Code</button>
+            </div>
+          </div>
+
+          <label className="button-secondary w-full cursor-pointer">
+            <MdUploadFile /> Scan Barcode Image
+            <input type="file" accept="image/*" capture="environment" onChange={scanImage} className="sr-only" />
+          </label>
+
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            Phone camera access requires HTTPS or localhost. On a local network, open the app through an HTTPS development URL.
+          </p>
+        </div>
       </div>
     </div>
   )
@@ -577,6 +591,7 @@ const Field = ({ label, children }) => (
 const inputClass = 'w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none focus:border-sky-400'
 
 const Inventory = ({ services }) => {
+  const toast = useToast()
   const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem } = services
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -665,16 +680,17 @@ const Inventory = ({ services }) => {
     }
   }
 
-  const handleScannerDetected = (code) => {
+  const handleScannerDetected = useCallback((code) => {
     setScannerOpen(false)
     const normalizedCode = String(code || '').trim()
-    const found = items.find(item => String(item.barcode || '').trim() === normalizedCode)
+    const found = items.find((item) => String(item.barcode || '').trim() === normalizedCode)
     if (found) {
+      toast.success(`Barcode matched ${found.name}.`)
       setStockItem(found)
     } else {
-      alert(`Barcode ${normalizedCode} was read, but no inventory item matches it yet.`)
+      toast.warning(`Barcode ${normalizedCode} was read, but no inventory item matches it.`)
     }
-  }
+  }, [items, toast])
 
   if (loading) {
     return <div className="p-12 text-center text-sm text-slate-400">Loading inventory...</div>
@@ -699,7 +715,7 @@ const Inventory = ({ services }) => {
   }
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
@@ -740,7 +756,7 @@ const Inventory = ({ services }) => {
       <div className="grid md:grid-cols-[1fr_auto] gap-3">
         <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3">
           <MdSearch className="text-slate-400 text-[18px]" />
-          <input value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Search item, barcode, or supplier" />
+          <input aria-label="Search inventory" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Search item, barcode, or supplier" />
         </div>
         <div className="flex gap-2 overflow-x-auto">
           {['All', ...CATEGORIES].map(option => (
@@ -841,3 +857,4 @@ const Inventory = ({ services }) => {
 }
 
 export default Inventory
+

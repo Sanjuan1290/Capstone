@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import {
   MdAdd,
   MdCheckCircle,
@@ -383,6 +385,8 @@ const Doctor_Request = () => {
     return matchesFilter && matchesSearch
   }), [requests, filter, search])
 
+  const requestPagination = useClientPagination(filtered, { resetDeps: [filter, search] })
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -392,7 +396,7 @@ const Doctor_Request = () => {
   }
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
       <section className="overflow-hidden rounded-[30px] border border-violet-200 bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,0.18),_transparent_45%),linear-gradient(135deg,#ffffff_0%,#f8f7ff_52%,#f4f1ff_100%)] p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
@@ -492,11 +496,12 @@ const Doctor_Request = () => {
         </section>
       ) : (
         <div className="space-y-3">
-          {filtered.map((request) => (
+          {requestPagination.pageItems.map((request) => (
             <RequestCard key={request.id} request={request} />
           ))}
         </div>
       )}
+      {filtered.length > 0 && <Pagination {...requestPagination} total={filtered.length} />}
 
       {showModal && (
         <NewRequestModal
@@ -511,3 +516,4 @@ const Doctor_Request = () => {
 }
 
 export default Doctor_Request
+

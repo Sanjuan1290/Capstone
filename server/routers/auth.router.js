@@ -14,3 +14,4 @@ router.post('/reset-password',  resetPassword)    // Step 3: sets new password
 router.get('/landing-page',     commonCtrl.getPublicLandingPage)
 
 module.exports = router
+

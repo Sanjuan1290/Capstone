@@ -221,8 +221,10 @@ const PatientLayout = () => {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 lg:pb-6">
-          <Outlet />
+        <main className="flex-1 min-w-0 overflow-y-auto p-4 pb-20 lg:p-6 lg:pb-6">
+          <div className="mx-auto w-full max-w-[1600px]">
+            <Outlet />
+          </div>
         </main>
 
         {/* ── Mobile Bottom Nav ──────────────────────────────────────────────── */}
@@ -257,3 +259,4 @@ const PatientLayout = () => {
 }
 
 export default PatientLayout
+

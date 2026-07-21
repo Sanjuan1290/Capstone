@@ -3,6 +3,8 @@
 // Correctly maps all fields and computes age, totalVisits, lastVisit, upcoming
 
 import { useEffect, useState } from 'react'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import { getPatients, getPatientRecord } from '../../services/staff.service'
 import {
   MdSearch, MdClose, MdChevronRight, MdPerson,
@@ -296,8 +298,10 @@ const Staff_PatientRecord = () => {
     }
   }
 
+  const patientPagination = useClientPagination(patients, { resetDeps: [search] })
+
   return (
-    <div className="max-w-5xl space-y-5">
+    <div className="mx-auto max-w-5xl space-y-5">
       <div>
         <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
           <MdPeople className="text-sky-500 text-[22px]" /> Patient Records
@@ -342,11 +346,16 @@ const Staff_PatientRecord = () => {
                 <p className="text-xs text-slate-400 mt-1">{search ? `No results for "${search}"` : 'Type a name to search.'}</p>
               </div>
             ) : (
-              patients.map(p => (
+              patientPagination.pageItems.map(p => (
                 <PatientRow key={p.id} patient={p} isSelected={selectedRecord?.id === p.id} onSelect={handleSelectPatient} />
               ))
             )}
           </div>
+          {patients.length > 0 && (
+            <div className="border-t border-slate-100 p-3">
+              <Pagination {...patientPagination} total={patients.length} pageSizeOptions={[5, 10, 20]} />
+            </div>
+          )}
         </div>
 
         {/* Desktop detail */}

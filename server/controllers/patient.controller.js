@@ -830,3 +830,4 @@ module.exports = {
   getDoctorUnavailableDatesController,
   getDoctorTakenSlots,
 }
+
