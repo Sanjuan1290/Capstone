@@ -97,7 +97,7 @@ const Layout = () => {
             {/* Brand */}
             <div className="flex min-w-0 items-center gap-3">
               <img src={logoSrc} alt="logo" className="w-10 h-10 object-contain" />
-              <h3 className="max-w-[190px] text-xs font-semibold leading-tight text-gray-700 sm:max-w-[260px] sm:text-sm">
+              <h3 className="max-w-[180px] text-xs font-semibold leading-tight text-gray-700 sm:max-w-[20px] sm:text-sm">
                 {header.clinic_name}
               </h3>
             </div>
