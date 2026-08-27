@@ -31,6 +31,7 @@ router.patch('/appointments/:id/reschedule', ...auth, staffCtrl.rescheduleAppoin
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
 router.get('/queue',              ...auth, staffCtrl.getQueue)
+router.get('/queue/precheck/:patientId', ...auth, staffCtrl.getQueuePrecheck)
 router.post('/queue',             ...auth, staffCtrl.addToQueue)
 router.patch('/queue/:id/status', ...auth, staffCtrl.updateQueueStatus)
 
@@ -40,8 +41,11 @@ router.post('/patients/walk-in', ...auth, staffCtrl.createWalkInPatient)
 router.get('/patients/:id', ...auth, staffCtrl.getPatientRecord)
 router.get('/billing', ...auth, staffCtrl.getBills)
 router.get('/billing/catalog', ...auth, staffCtrl.getBillingCatalogForStaff)
+router.get('/billing/discount-presets', ...auth, staffCtrl.getDiscountPresets)
+router.post('/billing/cashier-close', ...auth, staffCtrl.closeCashierShift)
 router.get('/billing/:id', ...auth, staffCtrl.getBillById)
 router.put('/billing/:id', ...auth, staffCtrl.updateBill)
+router.post('/billing/:id/finalize', ...auth, staffCtrl.finalizeBill)
 router.post('/billing/:id/pay', ...auth, staffCtrl.payBill)
 router.post('/billing/:id/confirm-payment', ...auth, staffCtrl.confirmBillPayment)
 router.get('/billing-payment-settings', ...auth, staffCtrl.getPaymentSettingsForStaff)
@@ -64,4 +68,5 @@ router.get('/supply-requests',       ...auth, staffCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, staffCtrl.resolveSupplyRequest)
 
 module.exports = router
+
 

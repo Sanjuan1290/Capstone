@@ -305,6 +305,8 @@ const ensureAppSchema = async () => {
 
   await ensureColumn('billing_service_catalog', 'profit_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 20.00')
   await ensureColumn('billing_service_catalog', 'consultation_fee', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER default_price')
+  // default_price is the clinic's explicit patient-facing selling price.
+  await ensureColumn('billing_service_catalog', 'pricing_notes', 'VARCHAR(255) NULL')
 
   if (process.env.SEED_DEMO_DATA === 'true') {
     await db.query(`
@@ -366,7 +368,7 @@ const ensureAppSchema = async () => {
       consultation_id INT NULL,
       patient_id INT NOT NULL,
       doctor_id INT NOT NULL,
-      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
       subtotal DECIMAL(10,2) NOT NULL DEFAULT 0.00,
       discount_type VARCHAR(30) NOT NULL DEFAULT 'none',
       discount_label VARCHAR(80) NULL,
@@ -435,15 +437,19 @@ const ensureAppSchema = async () => {
     CREATE TABLE IF NOT EXISTS inventory_batches (
       id INT AUTO_INCREMENT PRIMARY KEY,
       inventory_id INT NOT NULL,
+      batch_code VARCHAR(80) NULL,
       quantity DECIMAL(12,2) NOT NULL DEFAULT 0,
       expiration_date DATE NULL,
       note TEXT NULL,
       received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_inventory_batches_inventory_expiry (inventory_id, expiration_date, received_at),
+      INDEX idx_inventory_batches_code (inventory_id, batch_code),
       CONSTRAINT fk_inventory_batches_inventory
         FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE CASCADE
     )
   `)
+  await ensureColumn('inventory_batches', 'batch_code', 'VARCHAR(80) NULL')
+  await db.query('ALTER TABLE inventory_batches ADD INDEX idx_inventory_batches_code (inventory_id, batch_code)').catch(() => {})
 
   await db.query(`
     INSERT INTO inventory_batches (inventory_id, quantity, expiration_date, note, received_at)
@@ -544,6 +550,250 @@ const ensureAppSchema = async () => {
     )
   `)
 
+
+  // ── 2026 clinic workflow upgrades ───────────────────────────────────────────
+  await ensureColumn('appointments', 'appointment_source', "VARCHAR(30) NOT NULL DEFAULT 'online'")
+  await ensureColumn('appointments', 'checked_in_at', 'DATETIME NULL')
+
+  await ensureColumn('patients', 'consent_method', 'VARCHAR(40) NULL')
+  await ensureColumn('patients', 'consent_recorded_by_staff_id', 'INT NULL')
+
+  await db.query("ALTER TABLE billing_records MODIFY COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'").catch(() => {})
+  await ensureColumn('billing_records', 'finalized_at', 'DATETIME NULL')
+  await ensureColumn('billing_records', 'finalized_by_staff_id', 'INT NULL')
+  await ensureColumn('billing_records', 'clinical_inventory_consumed_at', 'DATETIME NULL')
+  await ensureColumn('billing_records', 'voided_at', 'DATETIME NULL')
+  await ensureColumn('billing_records', 'void_reason', 'TEXT NULL')
+  await ensureColumn('billing_records', 'refunded_at', 'DATETIME NULL')
+  await ensureColumn('billing_records', 'refund_reason', 'TEXT NULL')
+
+  await ensureColumn('billing_payments', 'refunded_at', 'DATETIME NULL')
+  await ensureColumn('billing_payments', 'refund_amount', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00')
+  await ensureColumn('billing_payments', 'refund_reason', 'TEXT NULL')
+  await ensureColumn('billing_payments', 'refunded_by_admin_id', 'INT NULL')
+
+  await ensureColumn('inventory_logs', 'movement_type', "VARCHAR(40) NOT NULL DEFAULT 'adjustment'")
+  await ensureColumn('inventory_logs', 'from_location', 'VARCHAR(120) NULL')
+  await ensureColumn('inventory_logs', 'to_location', 'VARCHAR(120) NULL')
+  await ensureColumn('inventory_logs', 'reference_type', 'VARCHAR(50) NULL')
+  await ensureColumn('inventory_logs', 'reference_id', 'INT NULL')
+  await ensureColumn('inventory_logs', 'batch_id', 'INT NULL')
+  await db.query('ALTER TABLE inventory_logs MODIFY COLUMN qty DECIMAL(12,2) NOT NULL').catch(() => {})
+  await db.query('ALTER TABLE queue ADD UNIQUE KEY uniq_queue_doctor_day_number (queue_date, doctor_id, queue_number)').catch(() => {})
+
+  await ensureColumn('supply_requests', 'destination_location', "VARCHAR(120) NOT NULL DEFAULT 'Doctor / Treatment Room'")
+  await ensureColumn('supply_requests', 'resolved_at', 'DATETIME NULL')
+  await ensureColumn('supply_requests', 'resolved_by_admin_id', 'INT NULL')
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS clinic_settings (
+      id INT NOT NULL PRIMARY KEY,
+      clinic_name VARCHAR(180) NOT NULL DEFAULT 'CARAIT MEDICAL AND DERMATOLOGY CLINIC',
+      address VARCHAR(255) NULL,
+      phone VARCHAR(80) NULL,
+      email VARCHAR(160) NULL,
+      report_footer VARCHAR(255) NULL,
+      receipt_footer VARCHAR(255) NULL,
+      updated_by_admin_id INT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `)
+  await db.query(
+    `INSERT IGNORE INTO clinic_settings
+     (id, clinic_name, address, phone, email, report_footer, receipt_footer)
+     VALUES (1, 'CARAIT MEDICAL AND DERMATOLOGY CLINIC', 'A. Bonifacio St., Brgy. Canlalay, Biñan, Laguna', NULL, NULL,
+             'Generated from the Carait Clinic Management System.',
+             'Thank you for choosing Carait Medical and Dermatology Clinic.')`
+  )
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS discount_presets (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      label VARCHAR(80) NOT NULL,
+      discount_type VARCHAR(20) NOT NULL DEFAULT 'percentage',
+      value DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      requires_reference TINYINT(1) NOT NULL DEFAULT 0,
+      requires_admin_approval TINYINT(1) NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_discount_preset_label (label)
+    )
+  `)
+  await db.query(`
+    INSERT IGNORE INTO discount_presets
+      (label, discount_type, value, requires_reference, requires_admin_approval, is_active, sort_order)
+    VALUES
+      ('Senior', 'percentage', 20.00, 1, 0, 1, 10),
+      ('PWD', 'percentage', 20.00, 1, 0, 1, 20),
+      ('Promotional', 'fixed', 0.00, 0, 0, 1, 30),
+      ('Courtesy', 'fixed', 0.00, 0, 1, 1, 40),
+      ('Employee', 'percentage', 0.00, 0, 1, 1, 50)
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS consultation_inventory_usage (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      consultation_id INT NOT NULL,
+      billing_id INT NULL,
+      inventory_id INT NOT NULL,
+      quantity DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      unit_label VARCHAR(50) NULL,
+      notes VARCHAR(255) NULL,
+      recorded_by_doctor_id INT NULL,
+      recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_consultation_inventory_usage (consultation_id, inventory_id),
+      INDEX idx_consultation_inventory_billing (billing_id),
+      CONSTRAINT fk_consultation_inventory_usage_consultation FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE,
+      CONSTRAINT fk_consultation_inventory_usage_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE RESTRICT
+    )
+  `)
+
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS consultation_inventory_usage_batches (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      consultation_usage_id BIGINT NOT NULL,
+      batch_id INT NOT NULL,
+      package_quantity DECIMAL(12,4) NOT NULL DEFAULT 0.0000,
+      usage_quantity DECIMAL(12,4) NULL,
+      usage_unit_label VARCHAR(50) NULL,
+      source_location VARCHAR(120) NULL,
+      recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_consultation_usage_batch (consultation_usage_id, batch_id, source_location),
+      CONSTRAINT fk_consultation_usage_batch_parent FOREIGN KEY (consultation_usage_id) REFERENCES consultation_inventory_usage(id) ON DELETE CASCADE,
+      CONSTRAINT fk_consultation_usage_batch_batch FOREIGN KEY (batch_id) REFERENCES inventory_batches(id) ON DELETE RESTRICT
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS billing_item_batch_usage (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      billing_id INT NOT NULL,
+      billing_item_id INT NULL,
+      inventory_id INT NOT NULL,
+      batch_id INT NOT NULL,
+      package_quantity DECIMAL(12,4) NOT NULL DEFAULT 0.0000,
+      usage_quantity DECIMAL(12,4) NULL,
+      usage_unit_label VARCHAR(50) NULL,
+      movement_type VARCHAR(40) NOT NULL DEFAULT 'dispensed',
+      source_location VARCHAR(120) NULL,
+      recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_billing_item_batch_bill (billing_id),
+      INDEX idx_billing_item_batch_batch (batch_id),
+      CONSTRAINT fk_billing_item_batch_bill FOREIGN KEY (billing_id) REFERENCES billing_records(id) ON DELETE CASCADE,
+      CONSTRAINT fk_billing_item_batch_item FOREIGN KEY (billing_item_id) REFERENCES billing_items(id) ON DELETE SET NULL,
+      CONSTRAINT fk_billing_item_batch_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE RESTRICT,
+      CONSTRAINT fk_billing_item_batch_batch FOREIGN KEY (batch_id) REFERENCES inventory_batches(id) ON DELETE RESTRICT
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_locations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      location_type VARCHAR(40) NOT NULL DEFAULT 'room',
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_inventory_location_name (name)
+    )
+  `)
+  await db.query(`INSERT IGNORE INTO inventory_locations (name, location_type) VALUES ('Main Stockroom', 'stockroom'), ('General Medicine Room', 'room'), ('Dermatology Room', 'room'), ('Dispensing Area', 'dispensing')`)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_location_stock (
+      location_id INT NOT NULL,
+      inventory_id INT NOT NULL,
+      quantity DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (location_id, inventory_id),
+      CONSTRAINT fk_inventory_location_stock_location FOREIGN KEY (location_id) REFERENCES inventory_locations(id) ON DELETE CASCADE,
+      CONSTRAINT fk_inventory_location_stock_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE CASCADE
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_location_batches (
+      location_id INT NOT NULL,
+      inventory_id INT NOT NULL,
+      batch_id INT NOT NULL,
+      quantity DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (location_id, batch_id),
+      INDEX idx_inventory_location_batches_item (inventory_id, location_id),
+      CONSTRAINT fk_inventory_location_batches_location FOREIGN KEY (location_id) REFERENCES inventory_locations(id) ON DELETE CASCADE,
+      CONSTRAINT fk_inventory_location_batches_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE CASCADE,
+      CONSTRAINT fk_inventory_location_batches_batch FOREIGN KEY (batch_id) REFERENCES inventory_batches(id) ON DELETE CASCADE
+    )
+  `)
+
+  // Existing installs did not track batch location. Any unallocated batch balance starts in Main Stockroom.
+  await db.query(`
+    INSERT INTO inventory_location_batches (location_id, inventory_id, batch_id, quantity)
+    SELECT l.id, b.inventory_id, b.id, b.quantity
+    FROM inventory_batches b
+    JOIN inventory_locations l ON l.name = 'Main Stockroom'
+    WHERE b.quantity > 0
+      AND NOT EXISTS (SELECT 1 FROM inventory_location_batches ilb WHERE ilb.batch_id = b.id)
+  `)
+  await db.query(`
+    DELETE FROM inventory_location_stock
+  `)
+  await db.query(`
+    INSERT INTO inventory_location_stock (location_id, inventory_id, quantity)
+    SELECT location_id, inventory_id, SUM(quantity)
+    FROM inventory_location_batches
+    WHERE quantity > 0
+    GROUP BY location_id, inventory_id
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_transfers (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      inventory_id INT NOT NULL,
+      supply_request_id INT NULL,
+      from_location VARCHAR(120) NOT NULL DEFAULT 'Main Stockroom',
+      to_location VARCHAR(120) NOT NULL,
+      quantity DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      transferred_by_role VARCHAR(20) NOT NULL,
+      transferred_by_user_id INT NULL,
+      transferred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      notes VARCHAR(255) NULL,
+      INDEX idx_inventory_transfer_item (inventory_id, transferred_at),
+      INDEX idx_inventory_transfer_request (supply_request_id)
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_transfer_batches (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      transfer_id BIGINT NOT NULL,
+      batch_id INT NOT NULL,
+      quantity DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      expiration_date DATE NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_transfer_batches_transfer (transfer_id),
+      INDEX idx_transfer_batches_batch (batch_id),
+      CONSTRAINT fk_transfer_batches_transfer FOREIGN KEY (transfer_id) REFERENCES inventory_transfers(id) ON DELETE CASCADE,
+      CONSTRAINT fk_transfer_batches_batch FOREIGN KEY (batch_id) REFERENCES inventory_batches(id) ON DELETE RESTRICT
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS cashier_closings (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      staff_id INT NOT NULL,
+      closing_date DATE NOT NULL,
+      expected_cash DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      actual_cash DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      variance DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      notes TEXT NULL,
+      closed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_cashier_closing (staff_id, closing_date)
+    )
+  `)
+
   await ensureColumn('patients', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('patients', 'profile_image_url', "TEXT NULL")
   await ensureColumn('patients', 'is_walk_in', "TINYINT(1) NOT NULL DEFAULT 0")
@@ -636,4 +886,5 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
+
 

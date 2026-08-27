@@ -2,6 +2,7 @@
 const express    = require('express')
 const router     = express.Router()
 const adminCtrl  = require('../controllers/admin.controller')
+const staffCtrl  = require('../controllers/staff.controller')
 const commonCtrl = require('../controllers/common.controller')
 const authenticate = require('../middlewares/auth.middleware')
 const requireRole  = require('../middlewares/role.middleware')
@@ -37,6 +38,7 @@ router.patch('/appointments/:id/reschedule',   ...auth, adminCtrl.rescheduleAppo
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
 router.get('/queue',              ...auth, adminCtrl.getQueue)
+router.get('/queue/precheck/:patientId', ...auth, adminCtrl.getQueuePrecheck)
 router.post('/queue',             ...auth, adminCtrl.addToQueue)
 router.patch('/queue/:id/status', ...auth, adminCtrl.updateQueueStatus)
 
@@ -63,13 +65,24 @@ router.put('/doctors/:id/unavailable-dates', ...auth, adminCtrl.saveDoctorUnavai
 router.delete('/doctors/:id/unavailable-dates/:date', ...auth, adminCtrl.deleteDoctorUnavailableDateAdmin)
 
 // ── Reports ───────────────────────────────────────────────────────────────────
+router.get('/billing', ...auth, staffCtrl.getBills)
+router.get('/billing/reconciliation', ...auth, adminCtrl.getBillingReconciliation)
+router.get('/billing/discount-presets', ...auth, adminCtrl.getDiscountPresetsAdmin)
+router.post('/billing/discount-presets', ...auth, adminCtrl.saveDiscountPresetAdmin)
+router.put('/billing/discount-presets/:id', ...auth, adminCtrl.saveDiscountPresetAdmin)
+router.post('/billing/payments/:paymentId/void', ...auth, adminCtrl.voidBillingPayment)
+router.post('/billing/payments/:paymentId/refund', ...auth, adminCtrl.refundBillingPayment)
 router.get('/billing/catalog', ...auth, adminCtrl.getBillingCatalogAdmin)
 router.post('/billing/catalog', ...auth, adminCtrl.createBillingCatalogService)
 router.put('/billing/catalog/:serviceId', ...auth, adminCtrl.updateBillingCatalogService)
 router.delete('/billing/catalog/:serviceId', ...auth, adminCtrl.deleteBillingCatalogService)
 router.get('/billing/payment-settings', ...auth, adminCtrl.getPaymentSettingsAdmin)
 router.put('/billing/payment-settings', ...auth, adminCtrl.updatePaymentSettingsAdmin)
+router.get('/billing/:id', ...auth, staffCtrl.getBillById)
 router.get('/reports', ...auth, adminCtrl.getReports)
+router.get('/audit-logs', ...auth, adminCtrl.getAuditLogs)
+router.get('/clinic-settings', ...auth, adminCtrl.getClinicSettingsAdmin)
+router.put('/clinic-settings', ...auth, adminCtrl.updateClinicSettingsAdmin)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 router.get('/inventory',              ...auth, adminCtrl.getInventory)
@@ -85,4 +98,5 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
+
 

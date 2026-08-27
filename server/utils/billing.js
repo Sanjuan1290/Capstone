@@ -2,6 +2,14 @@ const db = require('../db/connect')
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100
 
+const getInventoryBaseUnitCost = (item = {}) => {
+  const packageCost = Math.max(0, Number(item.inventory_price ?? item.price) || 0)
+  const unitSize = Math.max(1, Number(item.inventory_unit_size ?? item.unit_size) || 1)
+  const baseUnit = String(item.inventory_base_unit ?? item.base_unit ?? '').trim().toLowerCase()
+  const usageUnit = String(item.unit_label ?? item.inventory_unit ?? item.unit ?? '').trim().toLowerCase()
+  return usageUnit && baseUnit && usageUnit === baseUnit ? roundMoney(packageCost / unitSize) : packageCost
+}
+
 const parseJsonSafe = (value, fallback = null) => {
   if (!value) return fallback
   if (typeof value === 'object') return value
@@ -15,7 +23,7 @@ const parseJsonSafe = (value, fallback = null) => {
 const collectInventoryUsageFromBillingItems = (items = []) => {
   const usageMap = new Map()
 
-  const addUsage = (inventoryId, quantity, label) => {
+  const addUsage = (inventoryId, quantity, label, unitLabel = null) => {
     const id = Number(inventoryId) || 0
     const qty = Math.max(0, Number(quantity) || 0)
     if (!id || qty <= 0) return
@@ -24,9 +32,11 @@ const collectInventoryUsageFromBillingItems = (items = []) => {
       inventory_id: id,
       quantity: 0,
       labels: new Set(),
+      unit_label: unitLabel || null,
     }
     current.quantity = roundMoney(current.quantity + qty)
     if (label) current.labels.add(label)
+    if (!current.unit_label && unitLabel) current.unit_label = unitLabel
     usageMap.set(id, current)
   }
 
@@ -35,7 +45,8 @@ const collectInventoryUsageFromBillingItems = (items = []) => {
     if (itemQuantity <= 0) continue
 
     if (item.item_type === 'supply') {
-      addUsage(item.source_inventory_id, itemQuantity, item.service_name)
+      const details = parseJsonSafe(item.details_json || item.details, null)
+      addUsage(item.source_inventory_id, itemQuantity, item.service_name, details?.unit || null)
       continue
     }
 
@@ -46,7 +57,8 @@ const collectInventoryUsageFromBillingItems = (items = []) => {
         addUsage(
           material.inventory_id,
           itemQuantity * (Number(material.quantity) || 0),
-          `${item.service_name}: ${material.material_name}`
+          `${item.service_name}: ${material.material_name}`,
+          material.unit_label || null
         )
       }
     }
@@ -56,6 +68,7 @@ const collectInventoryUsageFromBillingItems = (items = []) => {
     inventory_id: entry.inventory_id,
     quantity: entry.quantity,
     labels: Array.from(entry.labels),
+    unit_label: entry.unit_label || null,
   }))
 }
 
@@ -98,7 +111,7 @@ const computeCatalogServicePricing = (service = {}) => {
     const quantity = Math.max(0, Number(material?.quantity) || 0)
     const unitCost = material?.unit_cost_override !== null && material?.unit_cost_override !== undefined
       ? Math.max(0, Number(material.unit_cost_override) || 0)
-      : Math.max(0, Number(material?.inventory_price) || 0)
+      : getInventoryBaseUnitCost(material)
     return sum + roundMoney(quantity * unitCost)
   }, 0))
   const billableBase = roundMoney(materialsCost + consultationFee)
@@ -112,7 +125,8 @@ const computeCatalogServicePricing = (service = {}) => {
     profit_percentage: profitPercentage,
     profit_amount: profitAmount,
     suggested_price: suggestedPrice,
-    default_price: suggestedPrice,
+    patient_price: Math.max(0, Number(service.default_price) || 0) || suggestedPrice,
+    default_price: Math.max(0, Number(service.default_price) || 0) || suggestedPrice,
   }
 }
 
@@ -135,6 +149,8 @@ const hydrateBillingCatalogRows = async (serviceRows = [], executor = db) => {
        i.name AS inventory_name,
        i.category AS inventory_category,
        i.unit AS inventory_unit,
+       i.base_unit AS inventory_base_unit,
+       i.unit_size AS inventory_unit_size,
        i.price AS inventory_price,
        i.stock AS inventory_stock
      FROM billing_service_materials m
@@ -152,7 +168,9 @@ const hydrateBillingCatalogRows = async (serviceRows = [], executor = db) => {
       inventory_id: row.inventory_id,
       inventory_name: row.inventory_name || row.material_name,
       inventory_category: row.inventory_category || null,
-      inventory_unit: row.inventory_unit || row.unit_label || null,
+      inventory_unit: row.inventory_unit || null,
+      inventory_base_unit: row.inventory_base_unit || row.unit_label || row.inventory_unit || null,
+      inventory_unit_size: Number(row.inventory_unit_size) || 1,
       inventory_price: Number(row.inventory_price) || 0,
       inventory_stock: Number(row.inventory_stock) || 0,
       material_name: row.material_name,
@@ -235,7 +253,10 @@ const normalizeBillingItems = async (items = [], executor = db) => {
 
   const requestedInventoryIds = Array.from(new Set(
     rawItems
-      .map((item) => Number(item?.source_inventory_id || item?.inventory_id || 0))
+      .flatMap((item) => [
+        Number(item?.source_inventory_id || item?.inventory_id || 0),
+        ...(Array.isArray(item?.materials) ? item.materials.map((material) => Number(material?.inventory_id || 0)) : []),
+      ])
       .filter((value) => value > 0)
   ))
 
@@ -247,7 +268,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
   const inventoryMap = new Map()
   if (requestedInventoryIds.length > 0) {
     const [inventoryRows] = await executor.query(
-      `SELECT id, name, category, unit, price
+      `SELECT id, name, category, unit, base_unit, unit_size, price
        FROM inventory
        WHERE id IN (${requestedInventoryIds.map(() => '?').join(', ')})`,
       requestedInventoryIds
@@ -273,45 +294,65 @@ const normalizeBillingItems = async (items = [], executor = db) => {
 
         if (!service && !fallbackName) return null
 
-        const serviceDetails = service
-          ? {
-              pricing: {
-                materials_cost: service.materials_cost,
-                consultation_fee: service.consultation_fee,
-                profit_percentage: service.profit_percentage,
-                profit_amount: service.profit_amount,
-                suggested_price: service.suggested_price,
-              },
-              materials: service.materials.map((material) => ({
-                inventory_id: material.inventory_id,
-                material_name: material.material_name,
-                quantity: material.quantity,
-                unit_label: material.unit_label,
-                unit_cost: material.unit_cost_override !== null && material.unit_cost_override !== undefined
-                  ? material.unit_cost_override
-                  : material.inventory_price,
-                line_total: roundMoney(
-                  Number(material.quantity || 0)
-                  * (
-                    material.unit_cost_override !== null && material.unit_cost_override !== undefined
-                      ? Number(material.unit_cost_override || 0)
-                      : Number(material.inventory_price || 0)
-                  )
-                ),
-                notes: material.notes,
-              })),
-            }
-          : parseJsonSafe(item?.details_json || item?.details, null)
+        const requestedMaterials = Array.isArray(item?.materials) ? item.materials : null
+        const sourceMaterials = requestedMaterials || service?.materials || []
+        const normalizedMaterials = sourceMaterials.map((material) => {
+          const inventoryId = Number(material?.inventory_id || 0) || null
+          const inventoryItem = inventoryMap.get(inventoryId)
+          const quantityUsed = Math.max(0, Number(material?.quantity) || 0)
+          const unitLabel = String(
+            material?.unit_label
+            || inventoryItem?.base_unit
+            || material?.inventory_base_unit
+            || material?.inventory_unit
+            || ''
+          ).trim() || null
+          const unitCostOverride = material?.unit_cost_override === '' || material?.unit_cost_override === null || material?.unit_cost_override === undefined
+            ? null
+            : Math.max(0, Number(material.unit_cost_override) || 0)
+          const unitCost = unitCostOverride !== null
+            ? unitCostOverride
+            : getInventoryBaseUnitCost({
+                inventory_price: inventoryItem?.price ?? material?.inventory_price,
+                inventory_unit_size: inventoryItem?.unit_size ?? material?.inventory_unit_size,
+                inventory_base_unit: inventoryItem?.base_unit ?? material?.inventory_base_unit,
+                unit_label: unitLabel,
+                inventory_unit: inventoryItem?.unit ?? material?.inventory_unit,
+              })
+          return {
+            inventory_id: inventoryId,
+            material_name: String(material?.material_name || inventoryItem?.name || material?.inventory_name || '').trim(),
+            quantity: quantityUsed,
+            unit_label: unitLabel,
+            unit_cost: roundMoney(unitCost),
+            line_total: roundMoney(quantityUsed * unitCost),
+            notes: String(material?.notes || '').trim() || null,
+          }
+        }).filter((material) => material.material_name && material.quantity > 0)
 
-        const unitPrice = service
-          ? Number(service.suggested_price) || 0
-          : Math.max(0, Number(item?.unit_price ?? item?.default_price) || 0)
-        const baseAmount = service
-          ? roundMoney((Number(service.materials_cost) || 0) + (Number(service.consultation_fee) || 0))
-          : Math.max(0, Number(item?.base_amount) || 0)
-        const markupPercentage = service
-          ? Number(service.profit_percentage) || 0
-          : Math.max(0, Number(item?.markup_percentage) || 0)
+        const defaultMaterialsCost = roundMoney(normalizedMaterials.reduce((sum, material) => sum + Number(material.line_total || 0), 0))
+        const consultationFee = Number(service?.consultation_fee) || Number(item?.base_amount) || 0
+        const markupPercentage = Number(service?.profit_percentage) || Number(item?.markup_percentage) || 0
+        const suggestedPrice = roundMoney((defaultMaterialsCost + consultationFee) * (1 + markupPercentage / 100))
+        const catalogPatientPrice = Math.max(0, Number(service?.default_price) || 0) || suggestedPrice
+        const requestedOverride = Boolean(item?.price_overridden)
+        const unitPrice = requestedOverride
+          ? Math.max(0, Number(item?.unit_price) || 0)
+          : catalogPatientPrice
+        const baseAmount = roundMoney(defaultMaterialsCost + consultationFee)
+        const serviceDetails = {
+          pricing: {
+            materials_cost: defaultMaterialsCost,
+            consultation_fee: consultationFee,
+            markup_percentage: markupPercentage,
+            suggested_price: suggestedPrice,
+            patient_price: catalogPatientPrice,
+            price_overridden: requestedOverride,
+            original_price: catalogPatientPrice,
+            override_reason: String(item?.override_reason || '').trim() || null,
+          },
+          materials: normalizedMaterials,
+        }
 
         return {
           ...base,
@@ -335,15 +376,16 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         const name = String(item?.service_name || item?.name || inventoryItem?.name || '').trim()
         if (!name) return null
 
-        const unitPrice = Math.max(
-          0,
-          Number(item?.unit_price ?? inventoryItem?.price) || 0
-        )
+        const unitLabel = String(item?.unit_label || inventoryItem?.unit || '').trim() || null
+        const calculatedInventoryCost = getInventoryBaseUnitCost({
+          price: inventoryItem?.price, unit_size: inventoryItem?.unit_size, base_unit: inventoryItem?.base_unit, unit_label: unitLabel, unit: inventoryItem?.unit,
+        })
+        const unitPrice = Math.max(0, Number(item?.unit_price ?? calculatedInventoryCost) || 0)
         const details = {
           source: 'inventory',
           inventory_id: inventoryId || null,
           inventory_name: inventoryItem?.name || name,
-          unit: inventoryItem?.unit || item?.unit_label || null,
+          unit: unitLabel,
         }
 
         return {
@@ -451,6 +493,9 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
        bp.paid_at,
        bp.voided_at,
        bp.void_reason,
+       bp.refunded_at,
+       bp.refund_amount,
+       bp.refund_reason,
        staff.full_name AS received_by_staff_name
      FROM billing_payments bp
      LEFT JOIN staff ON staff.id = bp.received_by_staff_id
@@ -463,8 +508,15 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
     throw error
   })
 
+  const activePayments = payments.filter((payment) => payment.status === 'completed')
+  const paidAmount = roundMoney(activePayments.reduce((sum, payment) => sum + Math.max(0, Number(payment.amount) || 0) - Math.max(0, Number(payment.refund_amount) || 0), 0))
+  const totalAmount = Math.max(0, Number(records[0].total_amount) || 0)
+  const balanceAmount = Math.max(0, roundMoney(totalAmount - paidAmount))
+
   return {
     ...records[0],
+    paid_amount: paidAmount,
+    balance_amount: balanceAmount,
     items: items.map((item) => ({
       ...item,
       details: parseJsonSafe(item.details_json, null),
@@ -526,7 +578,7 @@ const upsertDraftBillingForAppointment = async ({
 
   if (existingRows.length > 0) {
     const existing = existingRows[0]
-    if (existing.status === 'paid') {
+    if (['ready', 'partially_paid', 'paid', 'voided', 'refunded'].includes(existing.status)) {
       return getBillingRecordWithItems(existing.id, executor)
     }
 
@@ -549,7 +601,7 @@ const upsertDraftBillingForAppointment = async ({
   const [result] = await executor.query(
     `INSERT INTO billing_records
      (appointment_id, consultation_id, patient_id, doctor_id, status, subtotal, discount_type, discount_amount, total_amount)
-     VALUES (?, ?, ?, ?, 'pending', ?, 'none', 0.00, ?)`,
+     VALUES (?, ?, ?, ?, 'draft', ?, 'none', 0.00, ?)`,
     [
       appointment.id,
       consultationId,
@@ -574,6 +626,7 @@ function itemTypeFromRaw(item = {}) {
 
 module.exports = {
   roundMoney,
+  getInventoryBaseUnitCost,
   normalizeServiceMaterials,
   computeCatalogServicePricing,
   normalizeBillingItems,
@@ -586,4 +639,5 @@ module.exports = {
   saveBillingItems,
   upsertDraftBillingForAppointment,
 }
+
 

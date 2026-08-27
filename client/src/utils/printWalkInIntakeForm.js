@@ -111,7 +111,7 @@ export function printWalkInIntakeForm() {
       </head>
       <body>
         <div class="header">
-          <p class="title">Carait Clinic Walk-in Patient Intake Form</p>
+          <p class="title">CARAIT MEDICAL AND DERMATOLOGY CLINIC — Walk-in Patient Intake Form</p>
           <p class="subtitle">Staff reminder: Ask first if the patient already has an account before registering a new one.</p>
         </div>
 
@@ -210,4 +210,5 @@ export function printWalkInIntakeForm() {
   popup.focus()
   popup.onload = () => popup.print()
 }
+
 

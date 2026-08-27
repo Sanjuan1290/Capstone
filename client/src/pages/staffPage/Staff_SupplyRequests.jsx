@@ -2,10 +2,10 @@ import SupplyRequestReviewPanel from '../../components/supply/SupplyRequestRevie
 import { getSupplyRequests, resolveSupplyRequest } from '../../services/staff.service'
 
 const Staff_SupplyRequests = () => (
-  <div className="max-w-6xl">
+  <div className="mx-auto w-full max-w-7xl">
     <SupplyRequestReviewPanel
-      title="Supply Requests"
-      subtitle="Review doctor requests, keep inventory moving, and resolve pending supply needs."
+      title="Stock Transfer Requests"
+      subtitle="Approve requests to transfer stock per batch from Main Stockroom to the doctor or treatment room without counting it as clinical consumption."
       getRequests={getSupplyRequests}
       resolveRequest={resolveSupplyRequest}
       theme={{
@@ -23,4 +23,5 @@ const Staff_SupplyRequests = () => (
 )
 
 export default Staff_SupplyRequests
+
 

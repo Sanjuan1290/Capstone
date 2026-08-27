@@ -106,3 +106,4 @@ export const callNextPatient = () =>
 export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
 
+

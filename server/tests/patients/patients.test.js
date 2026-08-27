@@ -15,3 +15,4 @@ describe('patient input rules', () => {
     expect(getPatientProfileStatus(normalized).missing_fields).toEqual(['birthdate', 'gender', 'address'])
   })
 })
+

@@ -27,10 +27,11 @@ const defaultHeader = {
   login_path:  '/login',
   cta_label:   'Book Appointment',
   cta_path:    '/patient/register',
+  clinic_name: 'CARAIT MEDICAL AND DERMATOLOGY CLINIC',
 }
 
 const defaultFooter = {
-  copyright:    '©2023 by Carait Medical and Dermatology Clinic',
+  copyright:    '©2026 CARAIT MEDICAL AND DERMATOLOGY CLINIC',
   facebook_url: 'https://www.facebook.com/carait.mdc?mibextid=LQQJ4d',
   terms_url:    '/terms',
   privacy_url:  '/privacy-policy',
@@ -97,7 +98,7 @@ const Layout = () => {
             {/* Brand */}
             <div className="flex min-w-0 items-center gap-3">
               <img src={logoSrc} alt="logo" className="w-10 h-10 object-contain" />
-              <h3 className="max-w-[180px] text-xs font-semibold leading-tight text-gray-700 sm:max-w-[20px] sm:text-sm">
+              <h3 className="whitespace-nowrap text-xs font-bold tracking-tight text-gray-700 sm:text-sm md:text-[15px]">
                 {header.clinic_name}
               </h3>
             </div>
@@ -231,4 +232,5 @@ const Layout = () => {
 }
 
 export default Layout
+
 

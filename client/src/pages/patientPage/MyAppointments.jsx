@@ -77,10 +77,6 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          <span className="text-[11px] font-mono font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md inline-block">
-            #{appt.id}
-          </span>
-
           {/* Schedule */}
           <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Schedule</p>
@@ -409,4 +405,5 @@ const MyAppointments = () => {
 }
 
 export default MyAppointments
+
 

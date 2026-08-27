@@ -40,6 +40,7 @@ const Doctor_Dashboard = () => {
   const [todayAppts,  setTodayAppts]  = useState([])
   const [walkInQueue, setWalkInQueue] = useState([])
   const [requests,    setRequests]    = useState([])
+  const [upcoming,     setUpcoming]    = useState([])
   const [loading,     setLoading]     = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
 
@@ -52,6 +53,7 @@ const Doctor_Dashboard = () => {
         setTodayAppts(Array.isArray(appts) ? appts : [])
         setRequests(Array.isArray(dash.requests) ? dash.requests : [])
         setWalkInQueue(Array.isArray(dash.walkInQueue) ? dash.walkInQueue : [])
+        setUpcoming(Array.isArray(dash.upcoming) ? dash.upcoming : [])
         setLastUpdated(new Date())
         setLoading(false)
       })
@@ -82,7 +84,7 @@ const Doctor_Dashboard = () => {
   )
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="mx-auto w-full max-w-6xl space-y-5">
 
       {/* ── Hero banner ──────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a2c] via-[#120a2e] to-[#0b1a2c] px-6 py-6">
@@ -252,6 +254,22 @@ const Doctor_Dashboard = () => {
             </div>
           </div>
 
+          {/* Upcoming appointments */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div><h2 className="text-sm font-bold text-slate-800">Upcoming Patients</h2><p className="mt-0.5 text-[11px] text-slate-400">Next scheduled visits after today</p></div>
+              <MdSchedule className="text-violet-500" />
+            </div>
+            <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
+              {upcoming.length === 0 ? <p className="py-5 text-center text-xs text-slate-400">No upcoming appointments.</p> : upcoming.slice(0, 5).map((visit) => (
+                <div key={visit.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-800">{visit.patient_name}</p><p className="mt-0.5 text-xs text-slate-500">{visit.reason || (visit.clinic_type === 'derma' ? 'Dermatology visit' : 'Medical consultation')}</p></div><span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold capitalize text-violet-700">{visit.status}</span></div>
+                  <p className="mt-2 flex items-center gap-1.5 text-[11px] font-semibold text-slate-500"><MdCalendarToday /> {new Date(`${visit.appointment_date}T00:00:00`).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})} <span>•</span> <MdAccessTime /> {visit.appointment_time}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Recent supply requests */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
@@ -295,4 +313,5 @@ const Doctor_Dashboard = () => {
 }
 
 export default Doctor_Dashboard
+
 

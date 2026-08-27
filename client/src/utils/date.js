@@ -18,3 +18,4 @@ export const formatDateOnly = (value, locale = 'en-PH', options = { month: 'long
   return date.toLocaleDateString(locale, options)
 }
 
+

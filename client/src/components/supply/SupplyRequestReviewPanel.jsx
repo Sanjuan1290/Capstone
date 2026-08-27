@@ -9,6 +9,7 @@ import {
   MdCleaningServices,
   MdCategory,
   MdPerson,
+  MdLocationOn,
   MdRefresh,
   MdSearch,
   MdOutlinePendingActions,
@@ -68,8 +69,8 @@ const formatDate = (value) => {
 }
 
 const SupplyRequestReviewPanel = ({
-  title = 'Supply Requests',
-  subtitle = 'Review doctor requests and resolve them from one place.',
+  title = 'Stock Transfer Requests',
+  subtitle = 'Review doctor requests and transfer approved stock per batch from the main stockroom to the treatment room.',
   getRequests,
   resolveRequest,
   theme = DEFAULT_THEME,
@@ -118,13 +119,13 @@ const SupplyRequestReviewPanel = ({
   const handleResolve = async (id, status) => {
     setResolving(id)
     try {
-      await resolveRequest(id, status)
+      const result = await resolveRequest(id, status)
       setRequests((prev) => prev.map((request) => (
         request.id === id ? { ...request, status } : request
       )))
       setFeedback({
         type: 'success',
-        message: `Request ${status === 'approved' ? 'approved' : 'rejected'} successfully.`,
+        message: result?.message || `Request ${status === 'approved' ? 'approved and transferred per batch' : 'rejected'} successfully.`,
       })
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Failed to resolve request.' })
@@ -217,7 +218,7 @@ const SupplyRequestReviewPanel = ({
             <p className="text-sm font-bold text-slate-900">
               {pendingCount} pending request{pendingCount !== 1 ? 's' : ''} still waiting for action
             </p>
-            <p className="mt-1 text-xs text-slate-500">Resolve pending requests here so doctors and stock records stay in sync.</p>
+            <p className="mt-1 text-xs text-slate-500">Approve a request to transfer the requested quantity from Main Stockroom to the destination room using FEFO while preserving the exact source batches.</p>
           </div>
         </div>
       )}
@@ -286,7 +287,7 @@ const SupplyRequestReviewPanel = ({
                         </span>
                       </div>
 
-                      <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-3">
+                      <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-4">
                         <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2">
                           <MdPerson className="text-slate-400" />
                           <span>{request.doctor_name || 'Doctor'}</span>
@@ -294,6 +295,10 @@ const SupplyRequestReviewPanel = ({
                         <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2">
                           <MdInventory2 className="text-slate-400" />
                           <span>{request.qty_requested} {request.unit}(s)</span>
+                        </div>
+                        <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2">
+                          <MdLocationOn className="text-slate-400" />
+                          <span>{request.destination_location || 'Doctor / Treatment Room'}</span>
                         </div>
                         <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2">
                           <MdCalendarToday className="text-slate-400" />
@@ -316,7 +321,7 @@ const SupplyRequestReviewPanel = ({
                         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
                       >
                         {isResolving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" /> : <MdCheck className="text-lg" />}
-                        Approve
+                        Approve & Transfer
                       </button>
                       <button
                         onClick={() => handleResolve(request.id, 'rejected')}
@@ -370,4 +375,5 @@ const SupplyRequestReviewPanel = ({
 }
 
 export default SupplyRequestReviewPanel
+
 

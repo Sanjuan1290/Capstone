@@ -16,7 +16,9 @@ const {
   countActiveAppointmentsOnDate,
 } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds, syncConsultationImages } = require('../utils/consultationImages')
-const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment } = require('../utils/billing')
+const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
+const { consumeInventoryFromLocationFEFO } = require('../utils/inventoryBatches')
+const { writeAuditLog } = require('../utils/audit')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -35,7 +37,7 @@ const login = async (req, res) => {
   generateCookie(res, token, 'doctor')
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url },
+    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, prc_license: doctor.prc_license, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url },
   })
 }
 
@@ -46,7 +48,7 @@ const checkAuth = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     if (decoded.role !== 'doctor') return res.status(200).json({ authenticated: false })
     const [rows] = await db.query(
-      'SELECT id, full_name, email, specialty, theme_preference, profile_image_url FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
+      'SELECT id, full_name, email, specialty, prc_license, theme_preference, profile_image_url FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'doctor' } })
@@ -58,6 +60,89 @@ const checkAuth = async (req, res) => {
 const logout = (req, res) => {
   res.clearCookie('doctor_token')
   res.status(200).json({ message: 'Logged out.' })
+}
+
+const consumeClinicalInventory = async ({ billing, consultationId, doctorId, appointment }, conn) => {
+  if (!billing?.id || billing.clinical_inventory_consumed_at || !Array.isArray(billing.items)) return
+  const usage = collectInventoryUsageFromBillingItems(billing.items)
+  const preferredLocation = appointment?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
+
+  for (const entry of usage) {
+    const [[inventory]] = await conn.query(
+      'SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? LIMIT 1',
+      [entry.inventory_id]
+    )
+    if (!inventory) continue
+
+    const unitLabel = String(entry.unit_label || inventory.unit || '').toLowerCase()
+    const baseUnit = String(inventory.base_unit || inventory.unit || '').toLowerCase()
+    const packageUnit = String(inventory.unit || '').toLowerCase()
+    const unitSize = Math.max(1, Number(inventory.unit_size) || 1)
+    const requestedUsageQty = Number(entry.quantity || 0)
+    const packageQuantity = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
+      ? requestedUsageQty / unitSize
+      : requestedUsageQty
+    if (packageQuantity <= 0) continue
+
+    // Consume FEFO inside the treatment room first, then Main Stockroom as a safe
+    // fallback. The exact source batch and source location are recorded below.
+    const consumption = await consumeInventoryFromLocationFEFO(
+      entry.inventory_id,
+      packageQuantity,
+      preferredLocation,
+      conn,
+      { fallbackLocation: 'Main Stockroom' }
+    )
+    if (!consumption.ok) throw new Error(`Not enough stock for ${inventory.name}. ${consumption.message}`)
+
+    const [usageResult] = await conn.query(
+      `INSERT INTO consultation_inventory_usage
+       (consultation_id, billing_id, inventory_id, quantity, unit_label, notes, recorded_by_doctor_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         id = LAST_INSERT_ID(id),
+         quantity = VALUES(quantity),
+         unit_label = VALUES(unit_label),
+         notes = VALUES(notes),
+         recorded_by_doctor_id = VALUES(recorded_by_doctor_id)`,
+      [consultationId, billing.id, entry.inventory_id, requestedUsageQty, entry.unit_label || inventory.unit, entry.labels?.join(', ') || null, doctorId]
+    )
+    const usageId = Number(usageResult.insertId)
+    await conn.query('DELETE FROM consultation_inventory_usage_batches WHERE consultation_usage_id = ?', [usageId])
+
+    let remainingUsageQty = requestedUsageQty
+    for (const batch of consumption.consumed) {
+      const batchUsageQty = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
+        ? Number(batch.quantity || 0) * unitSize
+        : Number(batch.quantity || 0)
+      const allocatedUsage = Math.min(remainingUsageQty, batchUsageQty)
+      remainingUsageQty = Math.max(0, remainingUsageQty - allocatedUsage)
+      const batchLabel = batch.batch_code || `Batch #${batch.batch_id}`
+
+      await conn.query(
+        `INSERT INTO consultation_inventory_usage_batches
+         (consultation_usage_id, batch_id, package_quantity, usage_quantity, usage_unit_label, source_location)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [usageId, batch.batch_id, Number(batch.quantity || 0), allocatedUsage, entry.unit_label || inventory.unit, batch.location || preferredLocation]
+      )
+      await conn.query(
+        `INSERT INTO inventory_logs
+         (inventory_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
+         VALUES (?, 'out', ?, ?, 'clinical_use', 'consultation', ?, ?, ?)`,
+        [
+          entry.inventory_id,
+          Number(batch.quantity || 0),
+          `Clinical use from ${batchLabel}: ${allocatedUsage} ${entry.unit_label || inventory.unit}${entry.labels?.length ? ` — ${entry.labels.join(', ')}` : ''}`,
+          consultationId,
+          batch.batch_id,
+          batch.location || preferredLocation,
+        ]
+      )
+    }
+  }
+
+  await conn.query('UPDATE billing_records SET clinical_inventory_consumed_at = NOW() WHERE id = ?', [billing.id])
+  billing.clinical_inventory_consumed_at = new Date()
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -93,7 +178,19 @@ const getDashboard = async (req, res) => {
     'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND is_active = 1 ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
     [req.user.id]
   )
-  res.json({ totalToday, completed, pending, pendingRequests, schedule, walkInQueue })
+  const [upcomingAppointments] = await db.query(
+    `SELECT a.id, DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date, a.appointment_time,
+            a.clinic_type, a.reason, a.status, a.appointment_source,
+            p.full_name AS patient_name
+     FROM appointments a
+     JOIN patients p ON p.id = a.patient_id
+     WHERE a.doctor_id = ? AND a.appointment_date > ?
+       AND a.status IN ('pending','confirmed','rescheduled')
+     ORDER BY a.appointment_date ASC, a.appointment_time ASC
+     LIMIT 8`,
+    [req.user.id, today]
+  )
+  res.json({ totalToday, completed, pending, pendingRequests, schedule, walkInQueue, upcomingAppointments })
 }
 
 // ── Appointments ──────────────────────────────────────────────────────────────
@@ -200,8 +297,14 @@ const saveConsultation = async (req, res) => {
       consultationId,
       items: billableServices,
     }, conn)
+    await consumeClinicalInventory({ billing, consultationId, doctorId: req.user.id, appointment: appt }, conn)
 
     await conn.query("UPDATE appointments SET status = 'completed' WHERE id = ?", [appointmentId])
+    await writeAuditLog({
+      userId: req.user.id, userRole: 'doctor', action: 'consultation.completed', entityType: 'consultation', entityId: consultationId,
+      newValues: { appointment_id: Number(appointmentId), services_count: Array.isArray(billableServices) ? billableServices.length : 0 },
+      ipAddress: req.ip || null,
+    }, conn)
 
     const [queueRows] = await conn.query(
       `SELECT id
@@ -365,7 +468,7 @@ const getBillingCatalog = async (req, res) => {
 
 const getInventoryItems = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT id, name, category, unit, stock, threshold FROM inventory WHERE stock > 0 ORDER BY category, name'
+    'SELECT id, name, category, unit, base_unit, unit_size, stock, stock_base, threshold, price FROM inventory WHERE stock > 0 ORDER BY category, name'
   )
   res.json(rows)
 }
@@ -384,32 +487,22 @@ const getMyRequests = async (req, res) => {
 
 const submitRequest = async (req, res) => {
   const { inventory_id, qty_requested, reason } = req.body
-  if (!inventory_id || !qty_requested)
-    return res.status(400).json({ message: 'inventory_id and qty_requested are required.' })
+  if (!inventory_id || !qty_requested) return res.status(400).json({ message: 'Inventory item and quantity are required.' })
+  const [[doctorRow]] = await db.query('SELECT specialty FROM doctors WHERE id = ? LIMIT 1', [req.user.id])
+  const defaultDestination = String(doctorRow?.specialty || '').toLowerCase().includes('derm') ? 'Dermatology Room' : 'General Medicine Room'
+  const destinationLocation = String(req.body.destination_location || defaultDestination).trim()
   const [result] = await db.query(
-    'INSERT INTO supply_requests (doctor_id, inventory_id, qty_requested, reason) VALUES (?,?,?,?)',
-    [req.user.id, inventory_id, qty_requested, reason||null]
+    'INSERT INTO supply_requests (doctor_id, inventory_id, qty_requested, reason, destination_location) VALUES (?,?,?,?,?)',
+    [req.user.id, inventory_id, qty_requested, reason || null, destinationLocation]
   )
   const [rows] = await db.query(
     'SELECT sr.*, i.name AS item_name, i.unit FROM supply_requests sr JOIN inventory i ON sr.inventory_id = i.id WHERE sr.id = ?',
     [result.insertId]
   )
-  await createNotification({
-    target_role: 'staff',
-    type: 'supply_request',
-    title: 'Doctor supply request',
-    message: `A doctor requested ${qty_requested} ${rows[0].unit}(s) of ${rows[0].item_name}.`,
-    reference_type: 'supply_request',
-    reference_id: result.insertId,
-  })
-  await createNotification({
-    target_role: 'admin',
-    type: 'supply_request',
-    title: 'Doctor supply request',
-    message: `A doctor requested ${qty_requested} ${rows[0].unit}(s) of ${rows[0].item_name}.`,
-    reference_type: 'supply_request',
-    reference_id: result.insertId,
-  })
+  await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'supply.request_created', entityType: 'supply_request', entityId: result.insertId, newValues: { inventory_id, qty_requested, destination_location: destinationLocation, reason: reason || null }, ipAddress: req.ip || null })
+  for (const target_role of ['staff','admin']) {
+    await createNotification({ target_role, type: 'supply_request', title: 'Doctor supply transfer request', message: `Requested ${qty_requested} ${rows[0].unit}(s) of ${rows[0].item_name} for ${destinationLocation}.`, reference_type: 'supply_request', reference_id: result.insertId })
+  }
   broadcast(['staff', 'admin', `doctor_${req.user.id}`], 'supply_request_resolved', { requestId: result.insertId, status: 'pending', doctorId: req.user.id })
   res.status(201).json(rows[0])
 }
@@ -589,4 +682,5 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 

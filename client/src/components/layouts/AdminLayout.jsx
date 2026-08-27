@@ -1,8 +1,5 @@
-// client/src/components/layouts/AdminLayout.jsx
-// REDESIGNED: Mobile bottom nav, slide-in drawer, amber/gold theme, responsive
-
-import { useCallback, useState } from "react"
-import { NavLink, Outlet, useNavigate } from "react-router-dom"
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import logo from '../../assets/logo-removebg.png'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -10,265 +7,91 @@ import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
 import { useSSE } from '../../hooks/useSSE'
 import { playNotificationSound } from '../../utils/notificationSound'
+import { getDashboard } from '../../services/admin.service'
 import {
-  MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices,
-  MdCalendarToday, MdInventory2, MdBarChart, MdChevronLeft,
-  MdLogout, MdAdminPanelSettings, MdMenu, MdClose,
-  MdSettings, MdDarkMode, MdLightMode, MdLanguage, MdEdit,
-  MdPayments,
-} from "react-icons/md"
+  MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
+  MdBarChart, MdChevronLeft, MdLogout, MdAdminPanelSettings, MdMenu, MdClose, MdSettings,
+  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory, MdBusiness, MdViewList,
+} from 'react-icons/md'
 
-const sideNav = [
-  { name: "Dashboard",        path: "/admin",                   icon: MdDashboard,         short: "Home"    },
-  { name: "Appointments",     path: "/admin/appointments",      icon: MdEventAvailable,    short: "Appts"   },
-  { name: "Patient Booking",  path: "/admin/patient-booking",   icon: MdEdit,              short: "Booking" },
-  { name: "Billing Catalog",  path: "/admin/billing-catalog",   icon: MdPayments,          short: "Billing" },
-  { name: "Staff Accounts",   path: "/admin/staff-accounts",    icon: MdPeople,            short: "Staff"   },
-  { name: "Doctor Accounts",  path: "/admin/doctor-accounts",   icon: MdMedicalServices,   short: "Doctors" },
-  { name: "Doctor Schedules", path: "/admin/doctor-schedules",  icon: MdCalendarToday,     short: "Schedule"},
-  { name: "Inventory",        path: "/admin/inventory",         icon: MdInventory2,        short: "Stock"   },
-  { name: "Supply Requests",  path: "/admin/supply-requests",   icon: MdInventory2,        short: "Supply"  },
-  { name: "Landing Page",     path: "/admin/landingpage",       icon: MdLanguage,          short: "Site"    },
-  { name: "Reports",          path: "/admin/reports",           icon: MdBarChart,          short: "Reports" },
+const GROUPS = [
+  { label: 'Overview', items: [{ name: 'Dashboard', path: '/admin', icon: MdDashboard, short: 'Home' }] },
+  { label: 'Clinic Operations', items: [
+    { name: 'Appointments', path: '/admin/appointments', icon: MdEventAvailable, short: 'Appts', badge: 'pending' },
+    { name: 'Patient Booking', path: '/admin/patient-booking', icon: MdEdit, short: 'Booking' },
+  ] },
+  { label: 'Billing & Stock', items: [
+    { name: 'Billing', path: '/admin/billing', icon: MdPayments, short: 'Billing' },
+    { name: 'Service Catalog', path: '/admin/service-catalog', icon: MdViewList, short: 'Services' },
+    { name: 'Inventory', path: '/admin/inventory', icon: MdInventory2, short: 'Stock' },
+    { name: 'Stock Transfers', path: '/admin/supply-requests', icon: MdInventory2, short: 'Transfer' },
+  ] },
+  { label: 'People', items: [
+    { name: 'Staff Accounts', path: '/admin/staff-accounts', icon: MdPeople, short: 'Staff' },
+    { name: 'Doctor Accounts', path: '/admin/doctor-accounts', icon: MdMedicalServices, short: 'Doctors' },
+    { name: 'Doctor Schedules', path: '/admin/doctor-schedules', icon: MdCalendarToday, short: 'Schedule' },
+  ] },
+  { label: 'Insights & System', items: [
+    { name: 'Reports', path: '/admin/reports', icon: MdBarChart, short: 'Reports' },
+    { name: 'Audit Logs', path: '/admin/audit-logs', icon: MdHistory, short: 'Audit' },
+    { name: 'Clinic Settings', path: '/admin/clinic-settings', icon: MdBusiness, short: 'Clinic' },
+    { name: 'Landing Page', path: '/admin/landingpage', icon: MdLanguage, short: 'Site' },
+  ] },
 ]
 
 const AdminLayout = () => {
   const { user, logout: clearAuth } = useAuth()
   const { theme, toggleTheme } = useTheme()
-  const [collapsed,   setCollapsed]   = useState(false)
-  const [mobileOpen,  setMobileOpen]  = useState(false)
-  const [loggingOut,  setLoggingOut]  = useState(false)
-  const [logoutError, setLogoutError] = useState("")
+  const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
+  const [pending, setPending] = useState(0)
   const navigate = useNavigate()
+
+  const loadCounts = useCallback(() => getDashboard().then((data) => setPending(Number(data?.pendingApprovals || 0))).catch(() => {}), [])
+  useEffect(() => { loadCounts() }, [loadCounts])
+
   const handleSSEMessage = useCallback((eventName) => {
-    if (eventName === 'notification_created') {
-      playNotificationSound()
-      window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
-      return
-    }
-    if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
+    if (eventName === 'notification_created') playNotificationSound()
+    if (['notification_created','appointment_updated','queue_updated','consultation_saved','supply_request_resolved','billing_finalized','billing_paid'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
       window.dispatchEvent(new CustomEvent('clinic:refresh', { detail: { eventName } }))
+      if (eventName === 'appointment_updated') loadCounts()
     }
-  }, [])
-
+  }, [loadCounts])
   useSSE('admin', user?.id, handleSSEMessage)
 
   const handleLogout = async () => {
-    setLoggingOut(true)
-    setLogoutError("")
-    try {
-      await fetch("/api/admin/logout", { method: "POST", credentials: "include" })
-      navigate("/admin/login")
-      clearAuth()
-    } catch {
-      setLogoutError("Could not log out. Try again.")
-      setLoggingOut(false)
-    }
+    setLoggingOut(true); setLogoutError('')
+    try { await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' }); clearAuth(); navigate('/admin/login') }
+    catch { setLogoutError('Could not log out. Try again.'); setLoggingOut(false) }
   }
 
-  const NavItem = (item) => {
-    const IconComponent = item.icon
-    return (
-    <NavLink
-      to={item.path}
-      end={item.path === "/admin"}
-      onClick={() => setMobileOpen(false)}
-      className={({ isActive }) =>
-        `relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-         transition-colors duration-150 group
-         ${isActive
-          ? "bg-amber-500/15 text-amber-400"
-           : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
-    >
-      {({ isActive }) => (
-        <>
-          {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-amber-400 rounded-r-full" />}
-          <IconComponent className="shrink-0 text-[18px]" />
-          <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
-            ${collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-xs"}`}>
-            {item.name}
-          </span>
-          {collapsed && (
-            <span className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white
-              text-xs rounded-lg whitespace-nowrap shadow-lg border border-white/10
-              opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-              {item.name}
-            </span>
-          )}
-        </>
-      )}
+  const badgeFor = (item) => item.badge === 'pending' ? pending : 0
+  const NavItem = ({ item }) => {
+    const Icon = item.icon; const badge = badgeFor(item)
+    return <NavLink to={item.path} end={item.path === '/admin'} onClick={() => setMobileOpen(false)} className={({ isActive }) => `relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors group ${isActive ? 'bg-amber-500/15 text-amber-400' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+      {({ isActive }) => <>{isActive && <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-amber-400" />}<Icon className="shrink-0 text-[19px]" /><span className={`min-w-0 flex-1 whitespace-nowrap transition-all ${collapsed ? 'max-w-0 overflow-hidden opacity-0' : 'max-w-xs opacity-100'}`}>{item.name}</span>{badge > 0 && <span className={`min-w-6 rounded-full bg-amber-400 px-1.5 py-0.5 text-center text-[10px] font-black text-[#0b1a2c] ${collapsed ? 'absolute -right-1 -top-1' : ''}`}>{badge > 99 ? '99+' : badge}</span>}</>}
     </NavLink>
-    )
   }
 
-  // Mobile bottom nav — first 5
-  const mobileNav = sideNav.slice(0, 5)
+  const mobileNav = useMemo(() => [GROUPS[0].items[0], GROUPS[1].items[0], GROUPS[2].items[0], GROUPS[2].items[2], GROUPS[4].items[0]], [])
 
-  return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
-          onClick={() => setMobileOpen(false)} />
-      )}
-
-      {/* Sidebar */}
-      <aside className={`
-        fixed lg:relative inset-y-0 left-0 z-50
-        flex flex-col bg-[#0b1a2c] shrink-0
-        transition-all duration-300 ease-in-out
-        ${collapsed ? "w-[72px]" : "w-64"}
-        ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-      `}>
-
-        {/* Brand */}
-        <div className="flex items-center gap-3 px-4 h-16 border-b border-white/5 overflow-hidden shrink-0">
-          <img src={logo} alt="Carait Clinic"
-            className="w-9 h-9 rounded-xl object-contain bg-white/10 p-1 shrink-0" />
-          <div className={`leading-tight overflow-hidden whitespace-nowrap
-            transition-[opacity,max-width] duration-300
-            ${collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-xs"}`}>
-            <p className="text-white font-bold text-[15px] tracking-tight">Carait Clinic</p>
-            <span className="text-amber-400 text-[10px] font-semibold uppercase tracking-widest font-mono">
-              Admin Portal
-            </span>
-          </div>
-          <button onClick={() => setMobileOpen(false)}
-            className="ml-auto lg:hidden text-slate-400 hover:text-white">
-            <MdClose className="text-[20px]" />
-          </button>
-        </div>
-
-        {/* User pill */}
-        <div className={`mx-3 mt-4 mb-2 p-3 rounded-xl bg-white/5 border border-white/5
-          transition-all duration-300 ${collapsed ? "opacity-0 pointer-events-none h-0 p-0 m-0 border-0" : ""}`}>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-              <MdAdminPanelSettings className="text-amber-400 text-[18px]" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-white truncate">{user?.full_name || "Admin"}</p>
-              <p className="text-[10px] text-amber-400 font-semibold uppercase tracking-widest">Administrator</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Section label */}
-        <div className="px-3 pt-3 pb-1">
-          <p className={`text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3
-            transition-opacity duration-200 ${collapsed ? "opacity-0" : "opacity-100"}`}>
-            Administration
-          </p>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-          {sideNav.map(item => <NavItem key={item.path} {...item} />)}
-        </nav>
-
-        {/* Logout */}
-        <div className="px-3 py-4 border-t border-white/5 space-y-1 shrink-0">
-          {logoutError && !collapsed && (
-            <p className="text-[10px] text-red-400 px-3 pb-1">{logoutError}</p>
-          )}
-          <button onClick={handleLogout} disabled={loggingOut}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full
-              text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors
-              disabled:opacity-50 disabled:cursor-not-allowed">
-            <MdLogout className={`shrink-0 text-[18px] ${loggingOut ? "animate-spin" : ""}`} />
-            <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
-              ${collapsed ? "opacity-0 max-w-0" : "opacity-100 max-w-xs"}`}>
-              {loggingOut ? "Logging out…" : "Logout"}
-            </span>
-          </button>
-        </div>
-
-        {/* Collapse toggle */}
-        <button onClick={() => setCollapsed(!collapsed)} aria-label="Toggle sidebar"
-          className="hidden lg:flex absolute -right-3 top-[72px] z-10 w-6 h-6 rounded-full bg-[#0b1a2c]
-            border border-white/10 items-center justify-center text-slate-400
-            hover:text-white shadow-md transition-all hover:scale-110">
-          <MdChevronLeft className={`text-[13px] transition-transform duration-300 ${collapsed ? "rotate-180" : ""}`} />
-        </button>
-      </aside>
-
-      {/* Main */}
-      <div className="flex flex-col flex-1 min-w-0 min-h-0">
-
-        {/* Header */}
-        <header className="h-14 lg:h-16 bg-white border-b border-slate-100 flex items-center justify-between px-4 lg:px-6 shrink-0 z-30">
-          <button onClick={() => setMobileOpen(true)}
-            className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl bg-slate-50 border border-slate-200 text-slate-500">
-            <MdMenu className="text-[20px]" />
-          </button>
-
-          <div className="lg:hidden flex items-center gap-2 ml-2">
-            <img src={logo} alt="Carait" className="w-7 h-7 rounded-lg object-contain bg-amber-50 p-0.5" />
-            <p className="text-sm font-bold text-slate-800">Admin Portal</p>
-          </div>
-
-          <div className="hidden lg:block" />
-
-          <div className="flex items-center gap-3">
-            <NotificationBell role="admin" />
-            <button onClick={toggleTheme} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
-              {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
-            </button>
-            <NavLink to="/admin/settings" className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
-              <MdSettings className="text-[18px]" />
-            </NavLink>
-            <div className="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-100">
-              <ProfileAvatar user={user} size="sm" />
-              <div className="leading-tight">
-                <p className="text-xs font-semibold text-slate-700">{user?.full_name || "Admin"}</p>
-                <p className="text-[10px] text-slate-400">Administrator</p>
-              </div>
-            </div>
-            <button onClick={handleLogout} disabled={loggingOut}
-              className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 border border-red-100 text-red-400">
-              <MdLogout className={`text-[18px] ${loggingOut ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-        </header>
-
-        {/* Content */}
-        <main className="flex-1 min-w-0 overflow-y-auto p-4 pb-20 lg:p-6 lg:pb-6">
-          <div className="mx-auto w-full max-w-[1600px]">
-            <Outlet />
-          </div>
-        </main>
-
-        {/* Mobile bottom nav */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100
-          flex items-center justify-around px-1 h-16 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-          {mobileNav.map((item) => {
-            const IconComponent = item.icon
-            return (
-            <NavLink key={item.path} to={item.path} end={item.path === "/admin"}
-              className={({ isActive }) =>
-                `flex flex-col items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-xl
-                 transition-all min-w-[48px]
-                 ${isActive ? "text-amber-600" : "text-slate-400"}`}>
-              {({ isActive }) => (
-                <>
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center
-                    ${isActive ? "bg-amber-50" : ""}`}>
-                    <IconComponent className={`text-[19px] ${isActive ? "text-amber-600" : ""}`} />
-                  </div>
-                  <span className={`text-[9px] font-bold ${isActive ? "text-amber-600" : "text-slate-400"}`}>
-                    {item.short}
-                  </span>
-                </>
-              )}
-            </NavLink>
-          )})}
-        </nav>
-      </div>
+  return <div className="flex h-screen overflow-hidden bg-slate-50">
+    {mobileOpen && <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} />}
+    <aside className={`fixed inset-y-0 left-0 z-50 flex shrink-0 flex-col bg-[#0b1a2c] transition-all duration-300 lg:relative ${collapsed ? 'w-[72px]' : 'w-64'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+      <div className="flex h-16 shrink-0 items-center gap-3 overflow-hidden border-b border-white/5 px-4"><img src={logo} alt="Carait Clinic" className="h-9 w-9 shrink-0 rounded-xl bg-white/10 object-contain p-1" /><div className={`overflow-hidden whitespace-nowrap leading-tight transition-all ${collapsed ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100'}`}><p className="text-[15px] font-bold text-white">Carait Clinic</p><span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-amber-400">Admin Portal</span></div><button onClick={() => setMobileOpen(false)} className="ml-auto text-slate-400 lg:hidden"><MdClose className="text-xl" /></button></div>
+      <div className={`mx-3 mt-4 rounded-xl border border-white/5 bg-white/5 p-3 ${collapsed ? 'hidden' : ''}`}><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/20"><MdAdminPanelSettings className="text-lg text-amber-400" /></div><div className="min-w-0"><p className="truncate text-sm font-bold text-white">{user?.full_name || 'Admin'}</p><p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400">Administrator</p></div></div></div>
+      <nav className="flex-1 overflow-y-auto px-3 pb-4 pt-2">{GROUPS.map((group) => <div key={group.label} className="mb-3"><p className={`mb-1 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 ${collapsed ? 'sr-only' : ''}`}>{group.label}</p><div className="space-y-0.5">{group.items.map((item) => <NavItem key={item.path} item={item} />)}</div></div>)}</nav>
+      <div className="shrink-0 border-t border-white/5 px-3 py-4">{logoutError && !collapsed && <p className="px-3 pb-2 text-[10px] text-red-400">{logoutError}</p>}<button onClick={handleLogout} disabled={loggingOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-400 hover:bg-red-500/10 hover:text-red-400"><MdLogout className="text-lg" /><span className={collapsed ? 'hidden' : ''}>{loggingOut ? 'Logging out…' : 'Logout'}</span></button></div>
+      <button onClick={() => setCollapsed((v) => !v)} aria-label="Toggle sidebar" className="absolute -right-3 top-[72px] hidden h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#0b1a2c] text-slate-400 shadow-md lg:flex"><MdChevronLeft className={`text-sm transition-transform ${collapsed ? 'rotate-180' : ''}`} /></button>
+    </aside>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col"><header className="z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4 lg:h-16 lg:px-6"><button onClick={() => setMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 lg:hidden"><MdMenu className="text-xl" /></button><div className="hidden lg:block" /><div className="flex items-center gap-3"><NotificationBell role="admin" /><button onClick={toggleTheme} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500">{theme === 'dark' ? <MdLightMode /> : <MdDarkMode />}</button><NavLink to="/admin/settings" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><MdSettings /></NavLink><div className="hidden items-center gap-2.5 border-l border-slate-100 pl-3 lg:flex"><ProfileAvatar user={user} size="sm" /><div><p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Admin'}</p><p className="text-[10px] text-slate-400">Administrator</p></div></div></div></header>
+      <main className="min-w-0 flex-1 overflow-y-auto p-4 pb-20 lg:p-6 lg:pb-6"><div className="mx-auto w-full max-w-[1600px]"><Outlet /></div></main>
+      <nav className="fixed bottom-0 left-0 right-0 z-30 flex h-16 items-center justify-around border-t border-slate-100 bg-white px-1 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] lg:hidden">{mobileNav.map((item) => { const Icon=item.icon; const badge=badgeFor(item); return <NavLink key={item.path} to={item.path} end={item.path==='/admin'} className={({isActive})=>`relative flex min-w-[50px] flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 ${isActive?'text-amber-600':'text-slate-400'}`}><Icon className="text-xl" />{badge>0&&<span className="absolute right-0 top-0 min-w-4 rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white">{badge>99?'99+':badge}</span>}<span className="text-[9px] font-bold">{item.short}</span></NavLink>})}</nav>
     </div>
-  )
+  </div>
 }
 
 export default AdminLayout
-

@@ -41,6 +41,19 @@ const getPublicLandingPage = async (req, res) => {
   res.json(landingPage)
 }
 
+
+const getPublicClinicSettings = async (req, res) => {
+  const [rows] = await db.query(
+    'SELECT clinic_name, address, phone, email, report_footer, receipt_footer, updated_at FROM clinic_settings WHERE id = 1 LIMIT 1'
+  ).catch(() => [[]])
+  res.json(rows[0] || {
+    clinic_name: 'CARAIT MEDICAL AND DERMATOLOGY CLINIC',
+    address: 'A. Bonifacio St., Brgy. Canlalay, Biñan, Laguna',
+    phone: null,
+    email: null,
+  })
+}
+
 const getAdminLandingPage = async (req, res) => {
   const landingPage = await getLandingPageContent()
   res.json(landingPage)
@@ -58,7 +71,9 @@ module.exports = {
   getMySettings,
   saveMySettings,
   getPublicLandingPage,
+  getPublicClinicSettings,
   getAdminLandingPage,
   saveAdminLandingPage,
 }
+
 

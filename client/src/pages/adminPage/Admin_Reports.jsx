@@ -1,27 +1,29 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getReports } from '../../services/admin.service'
-import { useToast } from '../../components/ui/ToastProvider'
-import { ErrorState, LoadingState } from '../../components/ui/PageState'
 import {
-  MdArrowDownward,
-  MdArrowUpward,
+  MdAssessment,
   MdBarChart,
   MdCalendarToday,
   MdChecklist,
-  MdEventAvailable,
-  MdFace,
-  MdInsights,
+  MdGroups,
   MdInventory2,
   MdMedicalServices,
-  MdPeople,
+  MdPayments,
   MdPictureAsPdf,
-  MdTrendingDown,
-  MdTrendingFlat,
-  MdWarning,
+  MdRefresh,
+  MdTrendingUp,
+  MdWarningAmber,
 } from 'react-icons/md'
+import { getReports } from '../../services/admin.service'
+import { useToast } from '../../components/ui/ToastProvider'
+import { ErrorState, LoadingState } from '../../components/ui/PageState'
 
-const formatPeso = (value) => `PHP ${Number(value || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`
-const formatPercent = (value) => `${Math.round(Number(value || 0))}%`
+const formatMoney = (value) => new Intl.NumberFormat('en-PH', {
+  style: 'currency',
+  currency: 'PHP',
+  maximumFractionDigits: 2,
+}).format(Number(value) || 0)
+
+const formatPercent = (value) => `${Math.round(Number(value) || 0)}%`
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -50,16 +52,42 @@ const getPresetRange = (preset) => {
 }
 
 const formatRangeLabel = (range) => {
-  if (!range?.start_date || !range?.end_date) return 'Selected date range'
-  const format = (value) => new Date(`${value}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+  if (!range?.start_date || !range?.end_date) return 'Selected period'
+  const format = (value) => new Date(`${value}T00:00:00`).toLocaleDateString('en-PH', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  })
   return `${format(range.start_date)} – ${format(range.end_date)}`
 }
 
-const getTrendMeta = (value) => {
-  if (value > 0) return { icon: MdArrowUpward, text: `Up ${Math.abs(value)}% vs previous month`, tone: 'text-emerald-600' }
-  if (value < 0) return { icon: MdArrowDownward, text: `Down ${Math.abs(value)}% vs previous month`, tone: 'text-rose-600' }
-  return { icon: MdTrendingFlat, text: 'No month-over-month change', tone: 'text-slate-500' }
-}
+const titleCase = (value) => String(value || '')
+  .replace(/[_-]/g, ' ')
+  .replace(/\b\w/g, (char) => char.toUpperCase())
+
+const StatCard = ({ label, value, helper, icon: Icon, tone = 'border-slate-200 bg-white text-slate-900' }) => (
+  <div className={`rounded-2xl border p-4 shadow-sm ${tone}`}>
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] opacity-70">{label}</p>
+        <p className="mt-2 text-2xl font-black">{value}</p>
+      </div>
+      {Icon && <Icon className="text-xl opacity-70" />}
+    </div>
+    {helper && <p className="mt-2 text-xs opacity-75">{helper}</p>}
+  </div>
+)
+
+const Section = ({ title, subtitle, children, action }) => (
+  <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm lg:p-6">
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="text-base font-bold text-slate-900">{title}</h2>
+        {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
+      </div>
+      {action}
+    </div>
+    {children}
+  </section>
+)
 
 const Admin_Reports = () => {
   const toast = useToast()
@@ -67,733 +95,290 @@ const Admin_Reports = () => {
   const [preset, setPreset] = useState('6months')
   const [dateRange, setDateRange] = useState(initialRange)
   const [appliedRange, setAppliedRange] = useState(initialRange)
-  const [reportData, setReportData] = useState(null)
+  const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      setData(await getReports(appliedRange))
+    } catch (err) {
+      const message = err.message || 'Reports could not be loaded.'
+      setError(message)
+      toast.error(message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [appliedRange.startDate, appliedRange.endDate])
+
   const applyPreset = (nextPreset) => {
-    const nextRange = getPresetRange(nextPreset)
+    const next = getPresetRange(nextPreset)
     setPreset(nextPreset)
-    setDateRange(nextRange)
-    setAppliedRange(nextRange)
+    setDateRange(next)
+    setAppliedRange(next)
   }
 
   const applyCustomRange = () => {
-    if (!dateRange.startDate || !dateRange.endDate) {
-      toast.warning('Select a start and end date.')
-      return
-    }
-    if (dateRange.startDate > dateRange.endDate) {
-      toast.warning('Start date cannot be after end date.')
-      return
-    }
+    if (!dateRange.startDate || !dateRange.endDate) return toast.warning('Select a start and end date.')
+    if (dateRange.startDate > dateRange.endDate) return toast.warning('Start date cannot be after end date.')
     setPreset('custom')
-    setAppliedRange(dateRange)
+    setAppliedRange({ ...dateRange })
   }
 
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError('')
-    getReports(appliedRange)
-      .then((data) => {
-        if (active) setReportData(data)
-      })
-      .catch((err) => {
-        if (!active) return
-        const message = err.message || 'Reports could not be loaded.'
-        setError(message)
-        toast.error(message)
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => { active = false }
-  }, [appliedRange.startDate, appliedRange.endDate])
+  const report = useMemo(() => {
+    const appointmentSummary = data?.appointmentSummary || {}
+    const billing = data?.billingSummary || {}
+    const inventory = data?.inventoryStats || {}
+    const current = data?.currentOperations || {}
+    const monthly = Array.isArray(data?.monthly) ? data.monthly : []
+    const revenueTrend = Array.isArray(data?.revenueTrend) ? data.revenueTrend : []
+    const status = Array.isArray(data?.statusBreakdown) ? data.statusBreakdown : []
+    const sources = Array.isArray(data?.appointmentSources) ? data.appointmentSources : []
+    const doctors = Array.isArray(data?.topDoctors) ? data.topDoctors : []
+    const payments = Array.isArray(data?.paymentsByMethod) ? data.paymentsByMethod : []
+    const services = Array.isArray(data?.serviceRevenue) ? data.serviceRevenue : []
+    const stockActivity = Array.isArray(data?.stockActivity) ? data.stockActivity : []
+    const stockReasons = Array.isArray(data?.stockMovementByReason) ? data.stockMovementByReason : []
+    const categories = Array.isArray(data?.inventoryByCategory) ? data.inventoryByCategory : []
 
-  const derived = useMemo(() => {
-    const {
-      monthly = [],
-      statusBreakdown = [],
-      topDoctors = [],
-      inventoryStats = {},
-      stockActivity = [],
-      inventoryByCategory = [],
-      upcomingAppointments = 0,
-      supplyRequests = {},
-      appointmentSummary = {},
-      billingSummary = {},
-      paymentsByMethod = [],
-      serviceRevenue = [],
-    } = reportData || {}
-
-    const totalAppts = Number(appointmentSummary.appointments || 0)
-    const totalPats = Number(appointmentSummary.unique_patients || 0)
-    const totalMedical = Number(appointmentSummary.medical || 0)
-    const totalDerma = Number(appointmentSummary.derma || 0)
-    const avgPerMonth = monthly.length ? Math.round(totalAppts / monthly.length) : 0
-    const busiestMonth = monthly.reduce((best, row) => (
-      Number(row.appointments || 0) > Number(best?.appointments || 0) ? row : best
-    ), null)
-    const latestMonth = monthly[monthly.length - 1]
-    const previousMonth = monthly[monthly.length - 2]
-    const monthDelta = previousMonth?.appointments
-      ? Math.round(((Number(latestMonth?.appointments || 0) - Number(previousMonth.appointments || 0)) / Number(previousMonth.appointments || 1)) * 100)
-      : 0
-    const patientDelta = previousMonth?.patients
-      ? Math.round(((Number(latestMonth?.patients || 0) - Number(previousMonth.patients || 0)) / Number(previousMonth.patients || 1)) * 100)
-      : 0
-    const appointmentTrend = getTrendMeta(monthDelta)
-    const patientTrend = getTrendMeta(patientDelta)
-    const maxAppts = Math.max(...monthly.map((row) => Number(row.appointments || 0)), 1)
-    const maxStock = Math.max(...stockActivity.map((row) => Math.max(Number(row.stock_in || 0), Number(row.stock_out || 0))), 1)
-    const maxCategoryValue = Math.max(...inventoryByCategory.map((row) => Number(row.total_value || 0)), 1)
-    const completedValue = Number(statusBreakdown.find((row) => row.label.toLowerCase() === 'completed')?.value || 0)
-    const cancelledValue = Number(statusBreakdown.find((row) => row.label.toLowerCase() === 'cancelled')?.value || 0)
-    const pendingValue = Number(statusBreakdown.find((row) => row.label.toLowerCase() === 'pending')?.value || 0)
-    const confirmedValue = Number(statusBreakdown.find((row) => row.label.toLowerCase() === 'confirmed')?.value || 0)
-    const completionRate = totalAppts ? Math.round((completedValue / totalAppts) * 100) : 0
-    const cancellationRate = totalAppts ? Math.round((cancelledValue / totalAppts) * 100) : 0
-    const fulfillmentPressure = pendingValue + confirmedValue + Number(upcomingAppointments || 0)
-    const totalStockIn = stockActivity.reduce((sum, row) => sum + Number(row.stock_in || 0), 0)
-    const totalStockOut = stockActivity.reduce((sum, row) => sum + Number(row.stock_out || 0), 0)
-    const netStock = totalStockIn - totalStockOut
-    const topCategory = inventoryByCategory[0] || null
-    const mostLoadedDoctor = topDoctors[0] || null
-    const insights = [
-      latestMonth
-        ? `${latestMonth.month} recorded ${latestMonth.appointments} appointments and ${latestMonth.patients} patients.`
-        : 'No appointments were recorded in the selected period.',
-      busiestMonth
-        ? `${busiestMonth.month} was the busiest month with ${busiestMonth.appointments} appointments.`
-        : 'There is no busiest month yet because the report period is empty.',
-      topCategory
-        ? `${topCategory.category || 'Uncategorized'} currently holds the highest inventory value at ${formatPeso(topCategory.total_value)}.`
-        : 'Inventory category value data is not available yet.',
-      mostLoadedDoctor
-        ? `${mostLoadedDoctor.name} handled the highest volume with ${mostLoadedDoctor.appointments || 0} appointments in this period.`
-        : 'Doctor ranking data is not available yet.',
-    ]
+    const totalAppointments = Number(appointmentSummary.appointments || 0)
+    const completed = Number(appointmentSummary.completed || 0)
+    const cancelled = Number(appointmentSummary.cancelled || 0)
+    const noShow = Number(appointmentSummary.no_show || 0)
+    const completionRate = totalAppointments ? (completed / totalAppointments) * 100 : 0
+    const maxAppointments = Math.max(...monthly.map((row) => Number(row.appointments || 0)), 1)
+    const maxRevenue = Math.max(...revenueTrend.map((row) => Number(row.revenue || 0)), 1)
 
     return {
-      monthly,
-      statusBreakdown,
-      topDoctors,
-      inventoryStats,
-      stockActivity,
-      inventoryByCategory,
-      upcomingAppointments: Number(upcomingAppointments || 0),
-      supplyRequests: {
-        pending: Number(supplyRequests?.pending || 0),
-        approved: Number(supplyRequests?.approved || 0),
-        rejected: Number(supplyRequests?.rejected || 0),
-      },
-      billingSummary: {
-        gross_billing: Number(billingSummary?.gross_billing || 0),
-        discounts: Number(billingSummary?.discounts || 0),
-        net_collected: Number(billingSummary?.net_collected || 0),
-        pending_receivables: Number(billingSummary?.pending_receivables || 0),
-        paid_bills: Number(billingSummary?.paid_bills || 0),
-        pending_bills: Number(billingSummary?.pending_bills || 0),
-      },
-      paymentsByMethod,
-      serviceRevenue,
-        totalAppts,
-      totalPats,
-      totalMedical,
-      totalDerma,
-      avgPerMonth,
-      busiestMonth,
-      latestMonth,
-      appointmentTrend,
-      patientTrend,
-      maxAppts,
-      maxStock,
-      maxCategoryValue,
-      completionRate,
-      cancellationRate,
-      fulfillmentPressure,
-      totalStockIn,
-      totalStockOut,
-      netStock,
-      topCategory,
-      insights,
+      appointmentSummary, billing, inventory, current, monthly, revenueTrend, status, sources,
+      doctors, payments, services, stockActivity, stockReasons, categories,
+      totalAppointments, completed, cancelled, noShow, completionRate, maxAppointments, maxRevenue,
     }
-  }, [reportData])
+  }, [data])
 
-  if (loading) return <LoadingState label="Loading reports and billing analytics..." />
-  if (error) return <ErrorState message={error} onRetry={() => setAppliedRange({ ...appliedRange })} />
-
-  const {
-    monthly,
-    statusBreakdown,
-    topDoctors,
-    inventoryStats,
-    stockActivity,
-    inventoryByCategory,
-    upcomingAppointments,
-    supplyRequests,
-    billingSummary,
-    paymentsByMethod,
-    serviceRevenue,
-    totalAppts,
-    totalPats,
-    totalMedical,
-    totalDerma,
-    avgPerMonth,
-    busiestMonth,
-    latestMonth,
-    appointmentTrend,
-    patientTrend,
-    maxAppts,
-    maxStock,
-    maxCategoryValue,
-    completionRate,
-    cancellationRate,
-    fulfillmentPressure,
-    totalStockIn,
-    totalStockOut,
-    netStock,
-    topCategory,
-    insights,
-  } = derived
-
-  const netStockTone = netStock >= 0 ? 'text-emerald-600' : 'text-rose-600'
-  const reportRangeLabel = formatRangeLabel(reportData?.range)
+  const rangeLabel = formatRangeLabel(data?.range)
 
   const handleExportPdf = () => {
-    const monthlyRows = monthly.map((row) => `
-      <tr><td>${escapeHtml(row.month)}</td><td>${escapeHtml(row.appointments)}</td><td>${escapeHtml(row.medical || 0)}</td><td>${escapeHtml(row.derma || 0)}</td><td>${escapeHtml(row.patients)}</td></tr>
-    `).join('')
-    const topDoctorRows = topDoctors.map((doctor) => `
-      <tr><td>${escapeHtml(doctor.name)}</td><td>${escapeHtml(doctor.specialty)}</td><td>${escapeHtml(doctor.appointments || 0)}</td><td>${escapeHtml(doctor.patients || 0)}</td><td>${escapeHtml(doctor.completed || 0)}</td></tr>
-    `).join('')
-    const statusRows = statusBreakdown.map((row) => `
-      <tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(row.value)}</td><td>${escapeHtml(row.pct)}%</td></tr>
-    `).join('')
-    const serviceRows = serviceRevenue.map((row) => `
-      <tr><td>${escapeHtml(row.service_name)}</td><td>${escapeHtml(row.bills)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(formatPeso(row.revenue))}</td></tr>
-    `).join('')
-    const paymentRows = paymentsByMethod.map((row) => `
-      <tr><td>${escapeHtml(String(row.payment_method || '').replace(/_/g, ' '))}</td><td>${escapeHtml(row.transactions)}</td><td>${escapeHtml(formatPeso(row.amount))}</td></tr>
-    `).join('')
+    if (!data) return
+    const clinic = data.clinicSettings || {}
+    const generatedAt = new Date().toLocaleString('en-PH')
+    const doctorRows = report.doctors.map((doctor) => {
+      const completion = Number(doctor.appointments || 0)
+        ? Math.round((Number(doctor.completed || 0) / Number(doctor.appointments || 1)) * 100)
+        : 0
+      return `<tr><td>${escapeHtml(doctor.name)}</td><td>${escapeHtml(doctor.specialty || '')}</td><td>${escapeHtml(doctor.appointments || 0)}</td><td>${escapeHtml(doctor.patients || 0)}</td><td>${escapeHtml(doctor.completed || 0)}</td><td>${completion}%</td></tr>`
+    }).join('')
+    const serviceRows = report.services.map((row) => `<tr><td>${escapeHtml(row.service_name)}</td><td>${escapeHtml(row.bills)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(formatMoney(row.gross_billed_amount))}</td></tr>`).join('')
+    const paymentRows = report.payments.map((row) => `<tr><td>${escapeHtml(titleCase(row.payment_method))}</td><td>${escapeHtml(row.transactions)}</td><td>${escapeHtml(formatMoney(row.amount))}</td></tr>`).join('')
+    const sourceRows = report.sources.map((row) => `<tr><td>${escapeHtml(titleCase(row.source))}</td><td>${escapeHtml(row.value)}</td></tr>`).join('')
+    const inventoryRows = report.stockReasons.map((row) => `<tr><td>${escapeHtml(titleCase(row.movement_type))}</td><td>${escapeHtml(row.actions)}</td><td>${escapeHtml(row.quantity)}</td></tr>`).join('')
+    const monthlyRows = report.monthly.map((row) => `<tr><td>${escapeHtml(row.month)}</td><td>${escapeHtml(row.appointments)}</td><td>${escapeHtml(row.medical || 0)}</td><td>${escapeHtml(row.derma || 0)}</td><td>${escapeHtml(row.patients)}</td></tr>`).join('')
+    const revenueRows = report.revenueTrend.map((row) => `<tr><td>${escapeHtml(row.month)}</td><td>${escapeHtml(row.transactions)}</td><td>${escapeHtml(formatMoney(row.revenue))}</td></tr>`).join('')
 
-    const html = `<!doctype html>
-      <html lang="en"><head><meta charset="utf-8"/><title>Carait Clinic Report</title>
-      <style>
-        @page { size: A4; margin: 14mm; }
-        * { box-sizing: border-box; }
-        body { font-family: Arial, sans-serif; margin: 0; color: #0f172a; font-size: 11px; }
-        header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 16px; }
-        h1 { margin: 0; font-size: 22px; } h2 { margin: 20px 0 8px; font-size: 14px; page-break-after: avoid; }
-        p { margin: 4px 0; color: #475569; }
-        .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 12px 0; }
-        .card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; }
-        .label { font-size: 8px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
-        .value { margin-top: 5px; font-size: 15px; font-weight: 700; }
-        table { width: 100%; border-collapse: collapse; margin-top: 6px; page-break-inside: auto; }
-        thead { display: table-header-group; } tr { page-break-inside: avoid; }
-        th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: left; vertical-align: top; }
-        th { background: #f1f5f9; font-size: 9px; text-transform: uppercase; }
-        ul { margin: 5px 0; padding-left: 18px; }
-        footer { position: fixed; bottom: -8mm; left: 0; right: 0; text-align: center; color: #64748b; font-size: 8px; }
-      </style></head><body>
-      <header><h1>Carait Medical and Dermatology Clinic</h1><p>Reports and Analytics</p><p>Period: ${escapeHtml(reportRangeLabel)}</p><p>Generated: ${escapeHtml(new Date().toLocaleString('en-PH'))}</p></header>
-      <div class="cards">
-        <div class="card"><div class="label">Appointments</div><div class="value">${escapeHtml(totalAppts)}</div></div>
-        <div class="card"><div class="label">Unique Patients</div><div class="value">${escapeHtml(totalPats)}</div></div>
-        <div class="card"><div class="label">Net Collected</div><div class="value">${escapeHtml(formatPeso(billingSummary.net_collected))}</div></div>
-        <div class="card"><div class="label">Pending Receivables</div><div class="value">${escapeHtml(formatPeso(billingSummary.pending_receivables))}</div></div>
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Clinic Report</title><style>
+      @page { size: A4; margin: 13mm 12mm 17mm; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; margin: 0; color: #0f172a; font-size: 10.5px; padding-bottom: 12mm; }
+      header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; }
+      h1 { margin: 0; font-size: 18px; text-transform: uppercase; } h2 { margin: 16px 0 7px; font-size: 12px; page-break-after: avoid; }
+      p { margin: 3px 0; color: #475569; } .meta { display:flex; justify-content:space-between; gap:12px; }
+      .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin:10px 0; }
+      .card { border:1px solid #cbd5e1; border-radius:7px; padding:7px; } .label { font-size:7.5px; text-transform:uppercase; color:#64748b; }
+      .value { margin-top:4px; font-size:13px; font-weight:700; } table { width:100%; border-collapse:collapse; margin-top:5px; page-break-inside:auto; }
+      thead { display:table-header-group; } tr { page-break-inside:avoid; } th,td { border:1px solid #cbd5e1; padding:5px; vertical-align:top; }
+      th { background:#f1f5f9; font-size:8px; text-transform:uppercase; text-align:left; } .note { background:#f8fafc; border:1px solid #e2e8f0; padding:7px; border-radius:7px; }
+      footer { position:fixed; bottom:-11mm; left:0; right:0; text-align:center; color:#64748b; font-size:7.5px; }
+    </style></head><body>
+      <header><h1>${escapeHtml(clinic.clinic_name || 'CARAIT MEDICAL AND DERMATOLOGY CLINIC')}</h1><p>${escapeHtml(clinic.address || '')}</p><div class="meta"><p><strong>Reports & Analytics</strong><br>Period: ${escapeHtml(rangeLabel)}</p><p>Generated: ${escapeHtml(generatedAt)}<br>Generated by: Administrator</p></div></header>
+      <h2>1. Executive Summary</h2><div class="cards">
+        <div class="card"><div class="label">Appointments</div><div class="value">${report.totalAppointments}</div></div>
+        <div class="card"><div class="label">Unique Patients</div><div class="value">${Number(report.appointmentSummary.unique_patients || 0)}</div></div>
+        <div class="card"><div class="label">Net Collections</div><div class="value">${escapeHtml(formatMoney(report.billing.net_collected))}</div></div>
+        <div class="card"><div class="label">Outstanding Now</div><div class="value">${escapeHtml(formatMoney(report.billing.outstanding))}</div></div>
       </div>
-      <h2>Key Insights</h2><ul>${insights.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-      <h2>Monthly Performance</h2><table><thead><tr><th>Month</th><th>Appointments</th><th>Medical</th><th>Derma</th><th>Patients</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">No data.</td></tr>'}</tbody></table>
-      <h2>Billing Summary</h2><table><tbody>
-        <tr><th>Gross Billing</th><td>${escapeHtml(formatPeso(billingSummary.gross_billing))}</td><th>Discounts</th><td>${escapeHtml(formatPeso(billingSummary.discounts))}</td></tr>
-        <tr><th>Net Collected</th><td>${escapeHtml(formatPeso(billingSummary.net_collected))}</td><th>Pending Receivables</th><td>${escapeHtml(formatPeso(billingSummary.pending_receivables))}</td></tr>
+      <h2>2. Financial Summary</h2><table><tbody>
+        <tr><th>Gross Billed</th><td>${escapeHtml(formatMoney(report.billing.gross_billed))}</td><th>Discounts</th><td>${escapeHtml(formatMoney(report.billing.discounts))}</td></tr>
+        <tr><th>Net Billed</th><td>${escapeHtml(formatMoney(report.billing.net_billed))}</td><th>Collections</th><td>${escapeHtml(formatMoney(report.billing.collected))}</td></tr>
+        <tr><th>Refunded</th><td>${escapeHtml(formatMoney(report.billing.refunded))}</td><th>Net Collections</th><td>${escapeHtml(formatMoney(report.billing.net_collected))}</td></tr>
+        <tr><th>Outstanding Now</th><td>${escapeHtml(formatMoney(report.billing.outstanding))}</td><th>Voided Bills</th><td>${escapeHtml(report.billing.voided_bills || 0)}</td></tr>
       </tbody></table>
-      <h2>Payments by Method</h2><table><thead><tr><th>Method</th><th>Transactions</th><th>Amount</th></tr></thead><tbody>${paymentRows || '<tr><td colspan="3">No payments.</td></tr>'}</tbody></table>
-      <h2>Top Services by Revenue</h2><table><thead><tr><th>Service</th><th>Bills</th><th>Quantity</th><th>Revenue</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="4">No paid services.</td></tr>'}</tbody></table>
-      <h2>Status Breakdown</h2><table><thead><tr><th>Status</th><th>Total</th><th>Share</th></tr></thead><tbody>${statusRows || '<tr><td colspan="3">No data.</td></tr>'}</tbody></table>
-      <h2>Doctor Activity</h2><table><thead><tr><th>Doctor</th><th>Specialty</th><th>Appointments</th><th>Patients</th><th>Completed</th></tr></thead><tbody>${topDoctorRows || '<tr><td colspan="5">No data.</td></tr>'}</tbody></table>
-      <footer>Carait Clinic · ${escapeHtml(reportRangeLabel)}</footer></body></html>`
+      <h2>3. Collection Trend</h2><table><thead><tr><th>Month</th><th>Transactions</th><th>Net Collection</th></tr></thead><tbody>${revenueRows || '<tr><td colspan="3">No collections.</td></tr>'}</tbody></table>
+      <h2>4. Appointment Summary</h2><table><thead><tr><th>Month</th><th>Appointments</th><th>Medical</th><th>Dermatology</th><th>Patients</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">No appointments.</td></tr>'}</tbody></table>
+      <h2>Appointment Source</h2><table><thead><tr><th>Source</th><th>Visits</th></tr></thead><tbody>${sourceRows || '<tr><td colspan="2">No data.</td></tr>'}</tbody></table>
+      <h2>5. Doctor Activity</h2><table><thead><tr><th>Doctor</th><th>Specialty</th><th>Appointments</th><th>Unique Patients</th><th>Completed</th><th>Completion</th></tr></thead><tbody>${doctorRows || '<tr><td colspan="6">No doctor activity.</td></tr>'}</tbody></table>
+      <h2>6. Billing Detail</h2><table><thead><tr><th>Payment Method</th><th>Transactions</th><th>Collected</th></tr></thead><tbody>${paymentRows || '<tr><td colspan="3">No payments.</td></tr>'}</tbody></table>
+      <h2>Top Services by Gross Billed Amount</h2><table><thead><tr><th>Service</th><th>Bills</th><th>Qty</th><th>Gross Billed</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="4">No billed services.</td></tr>'}</tbody></table>
+      <h2>7. Inventory Movement</h2><table><thead><tr><th>Movement</th><th>Actions</th><th>Quantity</th></tr></thead><tbody>${inventoryRows || '<tr><td colspan="3">No stock movement.</td></tr>'}</tbody></table>
+      <p class="note"><strong>Current inventory snapshot:</strong> ${report.inventory.total_items || 0} items · ${report.inventory.out_of_stock || 0} out of stock · ${report.inventory.low_stock || 0} low stock · ${report.inventory.expired || 0} expired · ${report.inventory.expiring_soon || 0} expiring within 30 days. Current values are not historical balances for the selected period.</p>
+      <footer>${escapeHtml(clinic.report_footer || clinic.clinic_name || 'CARAIT MEDICAL AND DERMATOLOGY CLINIC')} · ${escapeHtml(rangeLabel)}</footer>
+    </body></html>`
 
     const frame = document.createElement('iframe')
-    frame.setAttribute('title', 'Printable clinic report')
-    frame.style.position = 'fixed'
-    frame.style.width = '1px'
-    frame.style.height = '1px'
-    frame.style.opacity = '0'
-    frame.style.pointerEvents = 'none'
+    frame.title = 'Printable clinic report'
+    frame.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px;'
     document.body.appendChild(frame)
+    const cleanup = () => { if (frame.parentNode) frame.remove() }
     frame.onload = () => {
-      frame.contentWindow?.focus()
-      frame.contentWindow?.print()
-      window.setTimeout(() => frame.remove(), 1500)
+      const win = frame.contentWindow
+      if (!win) return cleanup()
+      win.addEventListener('afterprint', cleanup, { once: true })
+      win.focus()
+      win.print()
+      window.setTimeout(cleanup, 10000)
     }
     frame.srcdoc = html
-    toast.info('Print dialog opened. Choose “Save as PDF” to download the report.')
+    toast.info('Print dialog opened. Choose “Save as PDF” to save the report.')
   }
 
+  if (loading) return <LoadingState label="Loading reports and analytics..." />
+  if (error) return <ErrorState message={error} onRetry={load} />
+
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+    <div className="mx-auto w-full max-w-7xl space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Reports and Analytics</h1>
-          <p className="mt-0.5 text-sm text-slate-500">Operational summary for appointments, doctors, patients, inventory, and supply pressure.</p>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdAssessment className="text-sky-500" /> Reports & Analytics</h1>
+          <p className="mt-1 text-sm text-slate-500">Financial and clinic activity for the selected period, with a separate current operational snapshot.</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={handleExportPdf}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <MdPictureAsPdf className="text-[18px] text-rose-500" />
-            Print / Save PDF
-          </button>
-          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1">
-            {[
-              { value: 'today', label: 'Today' },
-              { value: '7days', label: '7 Days' },
-              { value: '30days', label: '30 Days' },
-              { value: '3months', label: '3 Months' },
-              { value: '6months', label: '6 Months' },
-              { value: 'year', label: 'This Year' },
-            ].map((option) => (
-              <button key={option.value} onClick={() => applyPreset(option.value)} className={`rounded-lg px-3 py-2 text-xs font-bold transition-all ${preset === option.value ? 'bg-[#0b1a2c] text-sky-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                {option.label}
-              </button>
-            ))}
-          </div>
+        <div className="flex gap-2">
+          <button onClick={load} className="button-secondary"><MdRefresh /> Refresh</button>
+          <button onClick={handleExportPdf} className="button-secondary"><MdPictureAsPdf className="text-rose-500" /> Print / Save PDF</button>
         </div>
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <div>
-            <label htmlFor="report-start-date" className="form-label">Start Date</label>
-            <input id="report-start-date" type="date" value={dateRange.startDate} onChange={(e) => setDateRange((current) => ({ ...current, startDate: e.target.value }))} className="form-control mt-1.5" />
-          </div>
-          <div>
-            <label htmlFor="report-end-date" className="form-label">End Date</label>
-            <input id="report-end-date" type="date" value={dateRange.endDate} onChange={(e) => setDateRange((current) => ({ ...current, endDate: e.target.value }))} className="form-control mt-1.5" />
-          </div>
-          <button type="button" className="button-primary" onClick={applyCustomRange}>Apply Range</button>
+        <div className="flex flex-wrap gap-2">
+          {[
+            ['today', 'Today'], ['7days', '7 Days'], ['30days', '30 Days'], ['3months', '3 Months'], ['6months', '6 Months'], ['year', 'This Year'],
+          ].map(([value, label]) => (
+            <button key={value} onClick={() => applyPreset(value)} className={`rounded-xl px-3 py-2 text-xs font-bold ${preset === value ? 'bg-[#0b1a2c] text-sky-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{label}</button>
+          ))}
         </div>
-        <p className="mt-3 text-xs font-semibold text-slate-500">Showing {reportRangeLabel}</p>
-      </section>
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          { label: 'Gross Billing', value: formatPeso(billingSummary.gross_billing), helper: `${billingSummary.paid_bills} paid bills` },
-          { label: 'Discounts', value: formatPeso(billingSummary.discounts), helper: 'Approved discounts' },
-          { label: 'Net Collected', value: formatPeso(billingSummary.net_collected), helper: `${paymentsByMethod.length} payment methods` },
-          { label: 'Pending Receivables', value: formatPeso(billingSummary.pending_receivables), helper: `${billingSummary.pending_bills} pending bills` },
-        ].map((card) => (
-          <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{card.label}</p>
-            <p className="mt-2 text-xl font-black text-slate-800">{card.value}</p>
-            <p className="mt-1 text-xs text-slate-500">{card.helper}</p>
-          </div>
-        ))}
-      </section>
-
-      <section className="rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_35%),linear-gradient(135deg,#ffffff_0%,#f8fbff_100%)] p-6 shadow-sm">
-        <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.24em] text-sky-700">
-              <MdInsights className="text-sm" />
-              Executive Snapshot
-            </div>
-            <h2 className="mt-3 text-2xl font-bold text-slate-900">
-              {latestMonth ? `${latestMonth.month} closed with ${latestMonth.appointments} appointments.` : 'No report data yet.'}
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              Use this page to spot patient demand, doctor workload, inventory risk, and supply request pressure in one place.
-            </p>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                {
-                  label: 'Appointments',
-                  value: totalAppts,
-                  helper: appointmentTrend.text,
-                  icon: MdEventAvailable,
-                  tone: 'bg-sky-50 text-sky-700 border-sky-200',
-                },
-                {
-                  label: 'Unique Patients',
-                  value: totalPats,
-                  helper: patientTrend.text,
-                  icon: MdPeople,
-                  tone: 'bg-violet-50 text-violet-700 border-violet-200',
-                },
-                {
-                  label: 'Completion Rate',
-                  value: formatPercent(completionRate),
-                  helper: `${formatPercent(cancellationRate)} cancelled`,
-                  icon: MdChecklist,
-                  tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                },
-                {
-                  label: 'Inventory Value',
-                  value: formatPeso(inventoryStats?.total_value),
-                  helper: `${inventoryStats?.total_items || 0} tracked items`,
-                  icon: MdInventory2,
-                  tone: 'bg-amber-50 text-amber-700 border-amber-200',
-                },
-              ].map((card) => (
-                <div key={card.label} className={`rounded-2xl border px-4 py-4 ${card.tone}`}>
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.2em]">{card.label}</p>
-                    <card.icon className="text-lg" />
-                  </div>
-                  <p className="mt-3 text-3xl font-black">{card.value}</p>
-                  <p className="mt-2 text-xs font-medium opacity-85">{card.helper}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-[24px] border border-slate-200 bg-white/90 p-5">
-            <div className="flex items-center gap-2">
-              <MdCalendarToday className="text-lg text-slate-500" />
-              <h3 className="text-sm font-bold text-slate-800">Operational Pressure</h3>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Upcoming Appointments</p>
-                <p className="mt-2 text-2xl font-black text-slate-900">{upcomingAppointments}</p>
-                <p className="mt-1 text-xs text-slate-500">Pending, confirmed, and rescheduled patients still in the pipeline.</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Demand Load</p>
-                <p className="mt-2 text-2xl font-black text-slate-900">{fulfillmentPressure}</p>
-                <p className="mt-1 text-xs text-slate-500">Pending and confirmed appointments plus upcoming schedule pressure.</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Supply Requests</p>
-                <p className="mt-2 text-2xl font-black text-slate-900">{supplyRequests.pending}</p>
-                <p className="mt-1 text-xs text-slate-500">Pending requests. {supplyRequests.approved} approved, {supplyRequests.rejected} rejected in this period.</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Average Per Month</p>
-                <p className="mt-2 text-2xl font-black text-slate-900">{avgPerMonth}</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {busiestMonth ? `${busiestMonth.month} was peak demand.` : 'Waiting for enough data to identify a peak month.'}
-                </p>
-              </div>
-            </div>
-          </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label><span className="form-label">Start Date</span><input type="date" className="form-control mt-1.5" value={dateRange.startDate} onChange={(e) => setDateRange((current) => ({ ...current, startDate: e.target.value }))} /></label>
+          <label><span className="form-label">End Date</span><input type="date" className="form-control mt-1.5" value={dateRange.endDate} onChange={(e) => setDateRange((current) => ({ ...current, endDate: e.target.value }))} /></label>
+          <button onClick={applyCustomRange} className="button-primary">Apply Range</button>
         </div>
+        <p className="mt-3 text-xs font-semibold text-slate-500">Selected period: {rangeLabel}</p>
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <div className="flex items-center gap-2">
-            <MdBarChart className="text-lg text-slate-500" />
-            <h2 className="text-sm font-bold text-slate-800">Key Insights</h2>
-          </div>
-          <div className="mt-4 space-y-3">
-            {insights.map((insight) => (
-              <div key={insight} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                {insight}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <div className="flex items-center gap-2">
-            <MdInventory2 className="text-lg text-slate-500" />
-            <h2 className="text-sm font-bold text-slate-800">Inventory Health</h2>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            {[
-              {
-                label: 'Out of Stock',
-                value: inventoryStats?.out_of_stock || 0,
-                tone: 'border-rose-200 bg-rose-50 text-rose-700',
-                helper: 'Needs immediate restocking.',
-              },
-              {
-                label: 'Low Stock',
-                value: inventoryStats?.low_stock || 0,
-                tone: 'border-amber-200 bg-amber-50 text-amber-700',
-                helper: 'Monitor before shortages hit.',
-              },
-              {
-                label: 'Expiring Soon',
-                value: inventoryStats?.expiring_soon || 0,
-                tone: 'border-violet-200 bg-violet-50 text-violet-700',
-                helper: 'Review within the next 30 days.',
-              },
-            ].map((item) => (
-              <div key={item.label} className={`rounded-2xl border px-4 py-4 ${item.tone}`}>
-                <p className="text-2xl font-black">{item.value}</p>
-                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.2em]">{item.label}</p>
-                <p className="mt-2 text-xs opacity-85">{item.helper}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Most Valuable Category</p>
-                <p className="mt-1 text-sm font-bold text-slate-800">{topCategory?.category || 'No category data'}</p>
-              </div>
-              <p className="text-sm font-black text-slate-800">{topCategory ? formatPeso(topCategory.total_value) : '-'}</p>
-            </div>
-          </div>
-        </section>
+      <div>
+        <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-400">Selected Period · Financial</p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Gross Billed" value={formatMoney(report.billing.gross_billed)} helper={`${report.billing.paid_bills || 0} paid · ${report.billing.partially_paid_bills || 0} partial`} icon={MdPayments} tone="border-sky-200 bg-sky-50 text-sky-800" />
+          <StatCard label="Net Billed" value={formatMoney(report.billing.net_billed)} helper={`${formatMoney(report.billing.discounts)} discounts`} icon={MdChecklist} tone="border-violet-200 bg-violet-50 text-violet-800" />
+          <StatCard label="Net Collections" value={formatMoney(report.billing.net_collected)} helper={`${formatMoney(report.billing.refunded)} refunded`} icon={MdTrendingUp} tone="border-emerald-200 bg-emerald-50 text-emerald-800" />
+          <StatCard label="Outstanding Now" value={formatMoney(report.billing.outstanding)} helper="Current unpaid balance across open bills" icon={MdWarningAmber} tone="border-amber-200 bg-amber-50 text-amber-800" />
+        </div>
       </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-sm font-bold text-slate-800">Monthly Appointments</h2>
-            <p className="mt-1 text-xs text-slate-400">Medical and derma split by month.</p>
-          </div>
-          <div className="flex items-center gap-4 text-[11px] font-medium text-slate-400">
-            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-sky-500" /> Medical</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" /> Derma</span>
-          </div>
-        </div>
-        {monthly.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-300">
-            <MdBarChart className="mb-2 text-[40px]" />
-            <p className="text-sm font-medium">No data for this period</p>
-          </div>
-        ) : (
-          <div className="flex items-end gap-2 h-52">
-            {monthly.map((row) => (
-              <div key={row.ym} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-                <p className="text-[10px] font-bold text-slate-500">{row.appointments}</p>
-                <div className="flex w-full flex-col gap-0.5" style={{ height: '170px', justifyContent: 'flex-end' }}>
-                  <div
-                    className="w-full rounded-t-sm bg-emerald-400 transition-all duration-500"
-                    style={{ height: `${((Number(row.derma || 0)) / maxAppts) * 100}%`, minHeight: row.derma > 0 ? '3px' : '0' }}
-                  />
-                  <div
-                    className="w-full rounded-b-sm bg-sky-500 transition-all duration-500"
-                    style={{ height: `${((Number(row.medical || 0)) / maxAppts) * 100}%`, minHeight: row.medical > 0 ? '3px' : '0' }}
-                  />
+      <Section title="Collection Trend" subtitle="Payments are grouped by payment date; refunds are subtracted from collections.">
+        {report.revenueTrend.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No collection data for this period.</p> : (
+          <div className="flex h-64 items-end gap-3 overflow-x-auto pb-2">
+            {report.revenueTrend.map((row) => (
+              <div key={row.ym} className="flex min-w-[74px] flex-1 flex-col items-center gap-2">
+                <p className="text-[10px] font-bold text-slate-600">{formatMoney(row.revenue)}</p>
+                <div className="flex h-44 w-full items-end rounded-t-xl bg-slate-50 px-2">
+                  <div className="w-full rounded-t-lg bg-emerald-500" style={{ height: `${Math.max(3, (Number(row.revenue || 0) / report.maxRevenue) * 100)}%` }} />
                 </div>
-                <p className="w-full truncate text-center text-[10px] font-medium text-slate-400">{row.month}</p>
+                <p className="text-[10px] font-semibold text-slate-500">{row.month}</p>
               </div>
             ))}
           </div>
         )}
-      </section>
+      </Section>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="text-sm font-bold text-slate-800 mb-4">Appointment Status Breakdown</h2>
-          {statusBreakdown.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-400">No data available</p>
-          ) : (
-            <div className="space-y-3">
-              {statusBreakdown.map((row) => (
-                <div key={row.label}>
-                  <div className="mb-1 flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-700">{row.label}</p>
-                    <div className="flex items-center gap-2">
-                      <p className={`text-xs font-bold ${row.textColor}`}>{row.pct}%</p>
-                      <p className="text-[11px] text-slate-400">{row.value}</p>
-                    </div>
+      <div>
+        <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-400">Selected Period · Clinic Operations</p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Appointments" value={report.totalAppointments} helper={`${report.appointmentSummary.unique_patients || 0} unique patients`} icon={MdCalendarToday} />
+          <StatCard label="Completion Rate" value={formatPercent(report.completionRate)} helper={`${report.completed} completed`} icon={MdChecklist} />
+          <StatCard label="Cancelled / No-show" value={report.cancelled + report.noShow} helper={`${report.cancelled} cancelled · ${report.noShow} no-show`} icon={MdWarningAmber} />
+          <StatCard label="Patient Mix" value={`${report.appointmentSummary.new_patients || 0} new`} helper={`${report.appointmentSummary.returning_patients || 0} returning`} icon={MdGroups} />
+        </div>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Section title="Monthly Appointments" subtitle="Medical and dermatology visits during the selected period.">
+          {report.monthly.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No appointment data.</p> : (
+            <div className="flex h-56 items-end gap-2 overflow-x-auto pb-2">
+              {report.monthly.map((row) => (
+                <div key={row.ym} className="flex min-w-[62px] flex-1 flex-col items-center gap-1">
+                  <p className="text-[10px] font-bold text-slate-600">{row.appointments}</p>
+                  <div className="flex h-40 w-full flex-col justify-end overflow-hidden rounded-t-lg bg-slate-50">
+                    <div className="w-full bg-emerald-400" style={{ height: `${(Number(row.derma || 0) / report.maxAppointments) * 100}%` }} />
+                    <div className="w-full bg-sky-500" style={{ height: `${(Number(row.medical || 0) / report.maxAppointments) * 100}%` }} />
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div className={`h-full rounded-full transition-all duration-700 ${row.color}`} style={{ width: `${row.pct}%` }} />
-                  </div>
+                  <p className="text-[10px] font-semibold text-slate-500">{row.month}</p>
                 </div>
               ))}
             </div>
           )}
-        </section>
+        </Section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-bold text-slate-800">Clinical Mix</h2>
-            <p className="text-[11px] font-medium text-slate-400">{totalAppts} total appointments</p>
+        <Section title="Appointment Source" subtitle="Where each visit originated.">
+          <div className="space-y-3">
+            {report.sources.length === 0 ? <p className="py-8 text-center text-sm text-slate-400">No source data.</p> : report.sources.map((row) => (
+              <div key={row.source} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+                <span className="text-sm font-semibold text-slate-700">{titleCase(row.source)}</span>
+                <span className="text-lg font-black text-slate-900">{row.value}</span>
+              </div>
+            ))}
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-sky-700">Medical</p>
-              <p className="mt-2 text-3xl font-black text-sky-700">{totalMedical}</p>
-              <p className="mt-1 text-xs text-sky-700/80">{formatPercent(totalAppts ? (totalMedical / totalAppts) * 100 : 0)} of total visits</p>
-            </div>
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-700">Derma</p>
-              <p className="mt-2 text-3xl font-black text-emerald-700">{totalDerma}</p>
-              <p className="mt-1 text-xs text-emerald-700/80">{formatPercent(totalAppts ? (totalDerma / totalAppts) * 100 : 0)} of total visits</p>
-            </div>
-          </div>
-        </section>
+        </Section>
       </div>
 
-      {stockActivity.length > 0 && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <div className="flex items-center justify-between gap-3 mb-5">
-            <div>
-              <h2 className="text-sm font-bold text-slate-800">Inventory Stock Activity</h2>
-              <p className="mt-1 text-xs text-slate-400">Shows total stock moved in and out each month.</p>
-            </div>
-            <div className="text-right">
-              <p className={`text-sm font-black ${netStockTone}`}>{netStock >= 0 ? '+' : ''}{netStock}</p>
-              <p className="text-[11px] text-slate-400">Net movement for selected period</p>
-            </div>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-[1fr_250px]">
-            <div className="flex items-end gap-2 h-44">
-              {stockActivity.map((row) => (
-                <div key={row.ym} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-                  <div className="flex w-full gap-0.5" style={{ height: '125px', alignItems: 'flex-end' }}>
-                    <div
-                      className="flex-1 rounded-t-sm bg-emerald-400 transition-all duration-500"
-                      style={{ height: `${((Number(row.stock_in || 0)) / maxStock) * 100}%`, minHeight: row.stock_in > 0 ? '3px' : '0' }}
-                    />
-                    <div
-                      className="flex-1 rounded-t-sm bg-rose-400 transition-all duration-500"
-                      style={{ height: `${((Number(row.stock_out || 0)) / maxStock) * 100}%`, minHeight: row.stock_out > 0 ? '3px' : '0' }}
-                    />
-                  </div>
-                  <p className="w-full truncate text-center text-[10px] font-medium text-slate-400">{row.month}</p>
-                </div>
-              ))}
-            </div>
-            <div className="grid gap-3">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Total Stock In</p>
-                <p className="mt-2 text-2xl font-black text-emerald-600">{totalStockIn}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Total Stock Out</p>
-                <p className="mt-2 text-2xl font-black text-rose-600">{totalStockOut}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Net Movement</p>
-                <p className={`mt-2 text-2xl font-black ${netStockTone}`}>{netStock >= 0 ? '+' : ''}{netStock}</p>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+      <Section title="Doctor Activity" subtitle="Completion rate is completed appointments ÷ all appointments for that doctor.">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-400"><tr><th className="px-3 py-3">Doctor</th><th className="px-3 py-3">Specialty</th><th className="px-3 py-3 text-right">Appointments</th><th className="px-3 py-3 text-right">Patients</th><th className="px-3 py-3 text-right">Completed</th><th className="px-3 py-3 text-right">Completion</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">{report.doctors.map((doctor) => {
+              const rate = Number(doctor.appointments || 0) ? (Number(doctor.completed || 0) / Number(doctor.appointments || 1)) * 100 : 0
+              return <tr key={doctor.name}><td className="px-3 py-3 font-bold text-slate-800">{doctor.name}</td><td className="px-3 py-3 text-slate-500">{doctor.specialty}</td><td className="px-3 py-3 text-right">{doctor.appointments}</td><td className="px-3 py-3 text-right">{doctor.patients}</td><td className="px-3 py-3 text-right">{doctor.completed}</td><td className="px-3 py-3 text-right font-bold">{formatPercent(rate)}</td></tr>
+            })}</tbody>
+          </table>
+        </div>
+      </Section>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="text-sm font-bold text-slate-800 mb-4">Top Doctors</h2>
-          {topDoctors.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-400">No data available</p>
-          ) : (
-            <div className="space-y-3">
-              {topDoctors.map((doctor) => {
-                const Icon = doctor.is_derma ? MdFace : MdMedicalServices
-                const pct = topDoctors[0]?.patients > 0 ? Math.round((Number(doctor.patients || 0) / Number(topDoctors[0].patients || 1)) * 100) : 0
-                const completion = Number(doctor.patients || 0) > 0
-                  ? Math.round((Number(doctor.completed || 0) / Number(doctor.patients || 1)) * 100)
-                  : 0
-                return (
-                  <div key={doctor.name} className="flex items-center gap-3">
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 ${doctor.is_derma ? 'bg-emerald-50' : 'bg-slate-100'}`}>
-                      <Icon className={`text-[16px] ${doctor.is_derma ? 'text-emerald-600' : 'text-slate-500'}`} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-0.5 flex items-center justify-between">
-                        <p className="truncate text-xs font-bold text-slate-800">{doctor.name}</p>
-                        <p className="ml-2 shrink-0 text-xs font-bold text-slate-600">{doctor.patients}</p>
-                      </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                        <div className={`h-full rounded-full transition-all duration-700 ${doctor.is_derma ? 'bg-emerald-400' : 'bg-sky-400'}`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <p className="mt-1 text-[10px] text-slate-400">{doctor.specialty} | {doctor.completed} completed | {completion}% completion</p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="text-sm font-bold text-slate-800 mb-4">Inventory by Category</h2>
-          {inventoryByCategory.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-400">No inventory category data available</p>
-          ) : (
-            <div className="space-y-3">
-              {inventoryByCategory.map((row) => {
-                const width = Math.max(8, Math.round((Number(row.total_value || 0) / maxCategoryValue) * 100))
-                return (
-                  <div key={row.category} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-bold text-slate-800">{row.category || 'Uncategorized'}</p>
-                        <p className="text-xs text-slate-500">{row.items} items | {Number(row.total_stock || 0).toLocaleString('en-PH')} units on hand</p>
-                      </div>
-                      <p className="text-sm font-bold text-slate-700">{formatPeso(row.total_value)}</p>
-                    </div>
-                    <div className="mt-3 h-2 rounded-full bg-white">
-                      <div className="h-2 rounded-full bg-[#0b1a2c]" style={{ width: `${width}%` }} />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </section>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Section title="Payments by Method" subtitle="Completed payments minus refunds in the selected period.">
+          <div className="space-y-3">{report.payments.length === 0 ? <p className="py-8 text-center text-sm text-slate-400">No payments.</p> : report.payments.map((row) => <div key={row.payment_method} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"><div><p className="text-sm font-bold text-slate-800">{titleCase(row.payment_method)}</p><p className="text-xs text-slate-400">{row.transactions} transactions</p></div><p className="font-black text-emerald-700">{formatMoney(row.amount)}</p></div>)}</div>
+        </Section>
+        <Section title="Top Services by Gross Billed Amount" subtitle="Before bill-level discounts; historical bill price snapshots are preserved.">
+          <div className="space-y-3">{report.services.length === 0 ? <p className="py-8 text-center text-sm text-slate-400">No billed services.</p> : report.services.map((row) => <div key={row.service_name} className="rounded-2xl bg-slate-50 px-4 py-3"><div className="flex justify-between gap-3"><p className="text-sm font-bold text-slate-800">{row.service_name}</p><p className="font-black text-slate-900">{formatMoney(row.gross_billed_amount)}</p></div><p className="mt-1 text-xs text-slate-400">{row.bills} bills · {row.quantity} units</p></div>)}</div>
+        </Section>
       </div>
 
-      {monthly.length > 0 && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="text-sm font-bold text-slate-800 mb-4">Monthly Performance Table</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400">Month</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400">Appointments</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-widest text-sky-500">Medical</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-widest text-emerald-500">Derma</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400">Patients</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-widest text-slate-400">MoM</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {monthly.map((row, index) => {
-                  const prev = monthly[index - 1]
-                  const delta = prev?.appointments
-                    ? Math.round(((Number(row.appointments || 0) - Number(prev.appointments || 0)) / Number(prev.appointments || 1)) * 100)
-                    : 0
-                  const tone = delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-slate-500'
+      <div>
+        <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-400">Current Snapshot · Not Historical</p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <StatCard label="Today Remaining" value={report.current.today_remaining || 0} icon={MdCalendarToday} />
+          <StatCard label="Future Scheduled" value={report.current.future_confirmed || 0} icon={MdCalendarToday} />
+          <StatCard label="Awaiting Approval" value={report.current.awaiting_approval || 0} icon={MdChecklist} />
+          <StatCard label="Walk-in Queue" value={report.current.walkin_queue || 0} icon={MdGroups} />
+          <StatCard label="Pending Transfers" value={report.current.pending_supply_requests || 0} icon={MdInventory2} />
+        </div>
+      </div>
 
-                  return (
-                    <tr key={row.ym} className="transition-colors hover:bg-slate-50">
-                      <td className="px-3 py-2.5 font-semibold text-slate-700">{row.month}</td>
-                      <td className="px-3 py-2.5 text-right font-bold text-slate-800">{row.appointments}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-sky-600">{row.medical || 0}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-emerald-600">{row.derma || 0}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-500">{row.patients}</td>
-                      <td className={`px-3 py-2.5 text-right font-bold ${tone}`}>
-                        {index === 0 ? '-' : `${delta > 0 ? '+' : ''}${delta}%`}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-200 bg-slate-50">
-                  <td className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-widest text-slate-700">Total</td>
-                  <td className="px-3 py-2.5 text-right font-black text-slate-800">{totalAppts}</td>
-                  <td className="px-3 py-2.5 text-right font-black text-sky-600">{totalMedical}</td>
-                  <td className="px-3 py-2.5 text-right font-black text-emerald-600">{totalDerma}</td>
-                  <td className="px-3 py-2.5 text-right font-black text-slate-500">{totalPats}</td>
-                  <td className="px-3 py-2.5 text-right font-black text-slate-500">-</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </section>
-      )}
+      <Section title="Current Inventory Health" subtitle="Current stock snapshot. Batch expiry is tracked separately; this section does not pretend to be the inventory balance for the selected historical period.">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <StatCard label="Inventory Value" value={formatMoney(report.inventory.total_value)} helper={`${report.inventory.total_items || 0} items`} icon={MdInventory2} />
+          <StatCard label="Out of Stock" value={report.inventory.out_of_stock || 0} tone="border-rose-200 bg-rose-50 text-rose-800" />
+          <StatCard label="Low Stock" value={report.inventory.low_stock || 0} tone="border-amber-200 bg-amber-50 text-amber-800" />
+          <StatCard label="Expired" value={report.inventory.expired || 0} tone="border-red-200 bg-red-50 text-red-800" />
+          <StatCard label="Expiring in 30 Days" value={report.inventory.expiring_soon || 0} tone="border-violet-200 bg-violet-50 text-violet-800" />
+        </div>
+      </Section>
+
+      <Section title="Inventory Movement by Reason" subtitle="Transfers are movement between locations; clinical use/dispensing/wastage are true consumption. Batch details remain available in Inventory Activity.">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{report.stockReasons.length === 0 ? <p className="text-sm text-slate-400">No inventory movements for this period.</p> : report.stockReasons.map((row) => <div key={row.movement_type} className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{titleCase(row.movement_type)}</p><div className="mt-2 flex items-end justify-between"><p className="text-2xl font-black text-slate-900">{row.quantity}</p><p className="text-xs text-slate-500">{row.actions} actions</p></div></div>)}</div>
+      </Section>
     </div>
   )
 }
 
 export default Admin_Reports
-

@@ -56,12 +56,14 @@ export const createAppointment = (payload) =>
 export const getQueue = (date) =>
   fetch(`${BASE}/queue${date ? `?date=${date}` : ''}`, { credentials: 'include' }).then(r => r.json())
 
+export const getQueuePrecheck = (patientId) => requestJson(`${BASE}/queue/precheck/${patientId}`)
+
 export const addToQueue = (payload) =>
-  fetch(`${BASE}/queue`, {
+  requestJson(`${BASE}/queue`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 export const updateQueueStatus = (id, status) =>
   fetch(`${BASE}/queue/${id}/status`, {
@@ -109,6 +111,13 @@ export const updateBill = (id, payload) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+
+export const finalizeBill = (id) =>
+  requestJson(`${BASE}/billing/${id}/finalize`, { method: 'POST' })
+
+export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
+
+export const closeCashierShift = (payload) => requestJson(`${BASE}/billing/cashier-close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
 export const confirmBillPayment = (id, payload) =>
   requestJson(`${BASE}/billing/${id}/confirm-payment`, {
@@ -181,4 +190,5 @@ export const resolveSupplyRequest = (id, status) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   }).then(r => r.json())
+
 

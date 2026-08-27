@@ -8,7 +8,9 @@ import {
   getConsultation,
   getPatientHistory,
   getInventoryItems,
+  getBillingCatalog,
 } from '../../services/doctor.service'
+import { getClinicSettings } from '../../services/clinic.service'
 import {
   MdAccessTime,
   MdAdd,
@@ -67,47 +69,28 @@ const normalizeProgressImages = (images = []) => (
     : []
 )
 
-const PrintPrescription = ({ patient, diagnosis, prescriptions, doctorName, specialty, date }) => (
+const PrintPrescription = ({ patient, diagnosis, prescriptions, doctorName, specialty, prcLicense, date, clinic }) => (
   <div id="print-area" className="hidden print:block font-sans p-8 max-w-lg mx-auto">
     <div className="text-center border-b-2 border-slate-800 pb-4 mb-4">
-      <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">Carait Medical & Dermatologic Clinics</h1>
-      <p className="text-sm text-slate-600 mt-1">A. Bonifacio St., Brgy. Canlalay, Bian, Laguna</p>
+      <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">{clinic?.clinic_name || 'CARAIT MEDICAL AND DERMATOLOGY CLINIC'}</h1>
+      {clinic?.address && <p className="text-sm text-slate-600 mt-1">{clinic.address}</p>}
+      {(clinic?.phone || clinic?.email) && <p className="text-xs text-slate-500 mt-1">{[clinic?.phone, clinic?.email].filter(Boolean).join(' • ')}</p>}
       <div className="mt-3">
         <p className="text-base font-bold text-slate-800">{doctorName}</p>
-        <p className="text-sm text-slate-600">{specialty} · PRC Lic. No. 0012345</p>
+        <p className="text-sm text-slate-600">{specialty}{prcLicense ? ` • PRC Lic. No. ${prcLicense}` : ''}</p>
       </div>
     </div>
     <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
       <div><span className="text-slate-500">Name:</span> <strong>{patient?.name}</strong></div>
       <div><span className="text-slate-500">Age/Sex:</span> <strong>{patient?.age} / {patient?.sex}</strong></div>
       <div><span className="text-slate-500">Date:</span> <strong>{date}</strong></div>
-      <div><span className="text-slate-500">Appt #:</span> <strong>{patient?.appointmentId}</strong></div>
     </div>
-    {diagnosis && (
-      <div className="mb-4 p-3 border border-slate-300 rounded">
-        <p className="text-xs font-bold text-slate-500 uppercase mb-1">Diagnosis</p>
-        <p className="text-sm text-slate-800">{diagnosis}</p>
-      </div>
-    )}
+    {diagnosis && <div className="mb-4 p-3 border border-slate-300 rounded"><p className="text-xs font-bold text-slate-500 uppercase mb-1">Diagnosis</p><p className="text-sm text-slate-800">{diagnosis}</p></div>}
     <div className="mb-6">
       <p className="text-2xl font-serif text-slate-800 mb-3">Rx</p>
-      {prescriptions.map((rx, i) => (
-        <div key={i} className="mb-3 pl-4 border-l-2 border-slate-400">
-          <p className="text-sm font-bold text-slate-800">{i + 1}. {rx.medicine}</p>
-          {rx.dosage && <p className="text-sm text-slate-600 ml-2">Dosage: {rx.dosage}</p>}
-          {rx.frequency && <p className="text-sm text-slate-600 ml-2">Sig: {rx.frequency}</p>}
-          {rx.duration && <p className="text-sm text-slate-600 ml-2">Duration: {rx.duration}</p>}
-          {rx.notes && <p className="text-sm text-slate-500 ml-2 italic">{rx.notes}</p>}
-        </div>
-      ))}
+      {prescriptions.filter((rx) => rx.medicine?.trim()).map((rx, i) => <div key={i} className="mb-3 pl-4 border-l-2 border-slate-400"><p className="text-sm font-bold text-slate-800">{i + 1}. {rx.medicine}</p>{rx.dosage && <p className="text-sm text-slate-600 ml-2">Dosage: {rx.dosage}</p>}{rx.frequency && <p className="text-sm text-slate-600 ml-2">Sig: {rx.frequency}</p>}{rx.duration && <p className="text-sm text-slate-600 ml-2">Duration: {rx.duration}</p>}{rx.notes && <p className="text-sm text-slate-500 ml-2 italic">{rx.notes}</p>}</div>)}
     </div>
-    <div className="mt-12 pt-4 border-t border-slate-300 flex justify-between items-end">
-      <div>
-        <div className="w-40 border-b border-slate-800 mb-1" />
-        <p className="text-xs text-slate-600">Doctor&apos;s Signature</p>
-      </div>
-      <p className="text-xs text-slate-400 italic">Valid for 7 days.</p>
-    </div>
+    <div className="mt-12 pt-4 border-t border-slate-300"><div className="w-40 border-b border-slate-800 mb-1" /><p className="text-xs text-slate-600">Doctor&apos;s Signature</p></div>
   </div>
 )
 
@@ -174,6 +157,9 @@ const Doctor_Consultation = () => {
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState('consultation')
   const [inventoryItems, setInventoryItems] = useState([])
+  const [billingCatalog, setBillingCatalog] = useState([])
+  const [billableServices, setBillableServices] = useState([])
+  const [clinicSettings, setClinicSettings] = useState(null)
   const [uploadingIndex, setUploadingIndex] = useState(null)
 
   const date = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -204,6 +190,12 @@ const Doctor_Consultation = () => {
     } catch {
       setPrescriptions([{ medicine: '', dosage: '', frequency: '', duration: '', notes: '' }])
     }
+    const serviceItems = Array.isArray(consult?.billing?.items) ? consult.billing.items.filter((item) => item.item_type === 'service') : []
+    setBillableServices(serviceItems.map((item) => {
+      let details = {}
+      try { details = typeof item.details_json === 'string' ? JSON.parse(item.details_json) : (item.details_json || {}) } catch { details = {} }
+      return { catalog_service_id: item.catalog_service_id, service_name: item.service_name, quantity: Number(item.quantity || 1), materials: Array.isArray(details?.materials) ? details.materials : [] }
+    }))
   }
 
   useEffect(() => {
@@ -249,6 +241,16 @@ const Doctor_Consultation = () => {
       .then((data) => setInventoryItems(Array.isArray(data) ? data : []))
       .catch(() => setInventoryItems([]))
   }, [])
+
+  useEffect(() => {
+    getClinicSettings().then(setClinicSettings).catch(() => setClinicSettings(null))
+  }, [])
+
+  useEffect(() => {
+    const clinicType = appt?.type || appt?.clinic_type || ''
+    if (!clinicType) return
+    getBillingCatalog(clinicType).then((rows) => setBillingCatalog(Array.isArray(rows) ? rows : [])).catch(() => setBillingCatalog([]))
+  }, [appt?.type, appt?.clinic_type])
 
   const currentPatient = appt ? {
     id: appt.patient_id,
@@ -298,6 +300,32 @@ const Doctor_Consultation = () => {
     }
   }
 
+  const toggleService = (service) => {
+    if (isEditMode) return
+    setBillableServices((prev) => {
+      const exists = prev.some((entry) => Number(entry.catalog_service_id) === Number(service.id))
+      if (exists) return prev.filter((entry) => Number(entry.catalog_service_id) !== Number(service.id))
+      return [...prev, {
+        catalog_service_id: service.id,
+        service_name: service.service_name,
+        quantity: 1,
+        materials: (service.materials || []).map((material) => ({
+          inventory_id: material.inventory_id,
+          material_name: material.material_name || material.inventory_name,
+          quantity: Number(material.quantity || 0),
+          unit_label: material.inventory_base_unit || material.unit_label || material.inventory_unit || '',
+        })),
+      }]
+    })
+  }
+
+  const updateServiceMaterial = (serviceId, materialIndex, quantity) => {
+    if (isEditMode) return
+    setBillableServices((prev) => prev.map((service) => Number(service.catalog_service_id) === Number(serviceId)
+      ? { ...service, materials: service.materials.map((material, index) => index === materialIndex ? { ...material, quantity: Math.max(0, Number(quantity) || 0) } : material) }
+      : service))
+  }
+
   const handleSave = async () => {
     if (!appt) return
     setSaving(true)
@@ -307,6 +335,7 @@ const Doctor_Consultation = () => {
       notes,
       prescription: JSON.stringify(prescriptions),
       images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
+      ...(isEditMode ? {} : { billable_services: billableServices }),
     }
 
     try {
@@ -368,10 +397,12 @@ const Doctor_Consultation = () => {
         prescriptions={prescriptions}
         doctorName={user?.full_name}
         specialty={user?.specialty}
+        prcLicense={user?.prc_license}
+        clinic={clinicSettings}
         date={date}
       />
 
-      <div className="max-w-5xl space-y-5">
+      <div className="mx-auto w-full max-w-6xl space-y-5">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(-1)}
@@ -407,7 +438,6 @@ const Doctor_Consultation = () => {
             <div className="flex-1 min-w-0">
               <p className="text-base font-bold text-slate-800">{currentPatient?.name}</p>
               <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500 flex-wrap">
-                <span className="flex items-center gap-1"><MdPerson className="text-[12px]" /> Appt #{currentPatient?.appointmentId}</span>
                 <span>{currentPatient?.age} yrs · {currentPatient?.sex}</span>
                 <span className="flex items-center gap-1"><MdAccessTime className="text-[12px]" /> {currentPatient?.time}</span>
                 <span>{typeLabel}</span>
@@ -593,6 +623,20 @@ const Doctor_Consultation = () => {
                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Current Gallery</p>
                 <ProgressImageGallery images={progressImages} />
               </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                <div><h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Actual Consumables</h2><p className="mt-1 text-xs text-slate-500">Record what was actually performed. Consumable quantities are deducted when the consultation is completed.</p></div>
+                {isEditMode && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">Clinical usage locked after completion</span>}
+              </div>
+              {billingCatalog.length === 0 ? <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-400">No active services are configured for this clinic type.</div> : <div className="space-y-3">{billingCatalog.map((service) => {
+                const selected = billableServices.find((entry) => Number(entry.catalog_service_id) === Number(service.id))
+                return <div key={service.id} className={`rounded-2xl border p-4 ${selected ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-white'}`}>
+                  <label className="flex cursor-pointer items-start gap-3"><input type="checkbox" disabled={isEditMode} checked={Boolean(selected)} onChange={() => toggleService(service)} className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold text-slate-800">{service.service_name}</p><p className="text-xs text-slate-500">{service.category || 'Clinic service'}</p></div></div></div></label>
+                  {selected && selected.materials?.length > 0 && <div className="mt-4 border-t border-violet-100 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Actual Material Usage</p><div className="grid gap-2 sm:grid-cols-2">{selected.materials.map((material, index) => <label key={`${material.inventory_id || material.material_name}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3"><span className="text-xs font-semibold text-slate-700">{material.material_name}</span><div className="mt-2 flex items-center gap-2"><input type="number" min="0" step="0.01" disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(service.id, index, e.target.value)} className="form-control h-9" /><span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || 'unit'}</span></div></label>)}</div></div>}
+                </div>
+              })}</div>}
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
@@ -828,4 +872,5 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+
 

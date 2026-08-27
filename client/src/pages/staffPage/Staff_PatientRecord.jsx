@@ -10,7 +10,7 @@ import {
   MdSearch, MdClose, MdChevronRight, MdPerson,
   MdCalendarToday, MdPhone, MdHome, MdFace,
   MdMedicalServices, MdAccessTime, MdArrowBack,
-  MdHistory, MdEventAvailable, MdEmail, MdWc, MdPeople,
+  MdHistory, MdEventAvailable, MdEmail, MdWc, MdPeople, MdPayments,
 } from 'react-icons/md'
 
 const STATUS_CONFIG = {
@@ -23,6 +23,18 @@ const STATUS_CONFIG = {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+const BILL_STATUS = {
+  draft: { label: 'Draft', tone: 'bg-slate-100 text-slate-600 border-slate-200' },
+  pending: { label: 'Draft', tone: 'bg-slate-100 text-slate-600 border-slate-200' },
+  ready: { label: 'Ready', tone: 'bg-sky-50 text-sky-700 border-sky-200' },
+  partially_paid: { label: 'Partially Paid', tone: 'bg-amber-50 text-amber-700 border-amber-200' },
+  paid: { label: 'Paid', tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  voided: { label: 'Voided', tone: 'bg-rose-50 text-rose-700 border-rose-200' },
+  refunded: { label: 'Refunded', tone: 'bg-violet-50 text-violet-700 border-violet-200' },
+}
+const formatMoney = (value) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(value) || 0)
+
 function calcAge(birthdateStr) {
   if (!birthdateStr) return null
   const birth = new Date(birthdateStr)
@@ -56,6 +68,7 @@ function buildRecord(raw) {
     lastVisit:   past[0]?.date || null,
     history:     past,
     upcoming:    upcoming,
+    billing:     Array.isArray(raw.billing) ? raw.billing : [],
   }
 }
 
@@ -93,8 +106,8 @@ const DetailPanel = ({ record, onClose }) => {
           </button>
           <Avatar name={record.name} size="lg" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-slate-800 truncate">{record.name}</p>
-            <p className="text-xs text-slate-400 font-mono">#{record.id}</p>
+            <p className="text-base font-bold text-slate-900 truncate">{record.name}</p>
+            <p className="text-xs text-slate-400">Patient record</p>
           </div>
           <div className="text-right shrink-0">
             {record.age !== null && (
@@ -113,6 +126,7 @@ const DetailPanel = ({ record, onClose }) => {
             { key: 'info',     label: 'Profile',  Icon: MdPerson        },
             { key: 'history',  label: 'History',  Icon: MdHistory       },
             { key: 'upcoming', label: 'Upcoming', Icon: MdEventAvailable },
+            { key: 'billing',  label: 'Billing',  Icon: MdPayments },
           ].map(({ key, label, Icon }) => (
             <button key={key} onClick={() => setTab(key)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all
@@ -122,6 +136,12 @@ const DetailPanel = ({ record, onClose }) => {
                 <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ml-0.5
                   ${tab === 'upcoming' ? 'bg-white/20 text-sky-300' : 'bg-amber-100 text-amber-600'}`}>
                   {record.upcoming.length}
+                </span>
+              )}
+              {key === 'billing' && record.billing.some((bill) => Number(bill.balance_amount || 0) > 0) && (
+                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ml-0.5
+                  ${tab === 'billing' ? 'bg-white/20 text-sky-300' : 'bg-rose-100 text-rose-600'}`}>
+                  {record.billing.filter((bill) => Number(bill.balance_amount || 0) > 0).length}
                 </span>
               )}
             </button>
@@ -240,6 +260,45 @@ const DetailPanel = ({ record, onClose }) => {
               })}
             </div>
           )}
+
+          {tab === 'billing' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600">Outstanding</p>
+                  <p className="mt-2 text-xl font-black text-amber-800">{formatMoney(record.billing.reduce((sum, bill) => sum + Number(bill.balance_amount || 0), 0))}</p>
+                </div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Collected</p>
+                  <p className="mt-2 text-xl font-black text-emerald-800">{formatMoney(record.billing.reduce((sum, bill) => sum + Number(bill.paid_amount || 0), 0))}</p>
+                </div>
+              </div>
+              {record.billing.length === 0 ? (
+                <div className="flex flex-col items-center py-12 text-center">
+                  <MdPayments className="mb-2 text-[32px] text-slate-200" />
+                  <p className="text-sm font-semibold text-slate-500">No billing history yet</p>
+                </div>
+              ) : record.billing.map((bill) => {
+                const meta = BILL_STATUS[bill.status] || BILL_STATUS.draft
+                return (
+                  <div key={bill.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-800">{bill.reason || 'Clinic visit'}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{bill.doctor_name || 'Doctor'} · {bill.appointment_date || '—'}</p>
+                      </div>
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${meta.tone}`}>{meta.label}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                      <div><p className="text-slate-400">Total</p><p className="font-bold text-slate-800">{formatMoney(bill.total_amount)}</p></div>
+                      <div><p className="text-slate-400">Paid</p><p className="font-bold text-emerald-700">{formatMoney(bill.paid_amount)}</p></div>
+                      <div><p className="text-slate-400">Balance</p><p className="font-bold text-amber-700">{formatMoney(bill.balance_amount)}</p></div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -306,7 +365,7 @@ const Staff_PatientRecord = () => {
         <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
           <MdPeople className="text-sky-500 text-[22px]" /> Patient Records
         </h1>
-        <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Search and view patient profiles, history, and appointments.</p>
+        <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Search patient profiles, clinical history, upcoming appointments, and billing balances.</p>
       </div>
 
       {/* Search */}
@@ -391,3 +450,4 @@ const Staff_PatientRecord = () => {
 }
 
 export default Staff_PatientRecord
+

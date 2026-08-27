@@ -49,3 +49,4 @@ const usePolling = (fn, intervalMs = 30_000, skip = false) => {
 }
 
 export default usePolling
+

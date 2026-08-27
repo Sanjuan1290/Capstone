@@ -104,9 +104,9 @@ const AdminInventory = () => {
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-slate-800">Audit Log</h2>
+            <h2 className="text-lg font-bold text-slate-800">Inventory Activity</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Browse inventory movements and admin actions with date filters and pagination.
+              Review stock receipts, clinical/dispensing movements, transfers, adjustments, and the exact batch involved.
             </p>
           </div>
           <button
@@ -173,6 +173,7 @@ const AdminInventory = () => {
                     <th className="px-3 py-3">Item Name</th>
                     <th className="px-3 py-3">Type</th>
                     <th className="px-3 py-3">Quantity</th>
+                    <th className="px-3 py-3">Batch / Lot</th>
                     <th className="px-3 py-3">Performed By</th>
                     <th className="px-3 py-3">Note</th>
                   </tr>
@@ -188,6 +189,7 @@ const AdminInventory = () => {
                         </span>
                       </td>
                       <td className="px-3 py-3">{log.qty}</td>
+                      <td className="px-3 py-3">{log.batch_code || (log.batch_id ? `Batch #${log.batch_id}` : '—')}</td>
                       <td className="px-3 py-3">
                         <div className="flex flex-col">
                           <span>{log.performed_by || 'System'}</span>
@@ -228,4 +230,5 @@ const AdminInventory = () => {
 }
 
 export default AdminInventory
+
 

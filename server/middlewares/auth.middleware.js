@@ -14,3 +14,4 @@ const authenticate = (cookieName) => (req, res, next) => {
 }
 
 module.exports = authenticate
+

@@ -746,7 +746,6 @@ const Appointments = ({ services }) => {
                   <div><span className="block text-xs text-slate-400">Date</span>{formatDate(appointment.appointment_date || appointment.date)}</div>
                   <div><span className="block text-xs text-slate-400">Time</span>{appointment.appointment_time || appointment.time || '—'}</div>
                   <div><span className="block text-xs text-slate-400">Reason</span>{appointment.reason || '—'}</div>
-                  <div><span className="block text-xs text-slate-400">ID</span>#{appointment.id}</div>
                 </div>
                 <div className="mt-4">
                   <ActionButtons
@@ -784,8 +783,7 @@ const Appointments = ({ services }) => {
                 ) : paginatedAppointments.map((appointment) => (
                   <tr key={appointment.id} className="border-t border-slate-100 align-top">
                     <td className="px-5 py-4">
-                      <p className="font-semibold text-slate-800">{appointment.patient_name || appointment.patient}</p>
-                      <p className="text-xs text-slate-400">#{appointment.id}</p>
+                      <p className="text-base font-bold text-slate-900">{appointment.patient_name || appointment.patient}</p>
                     </td>
                     <td className="px-5 py-4 text-sm text-slate-600">{appointment.doctor}</td>
                     <td className="px-5 py-4 text-sm text-slate-600">{formatDate(appointment.appointment_date || appointment.date)}</td>
@@ -841,4 +839,5 @@ const Appointments = ({ services }) => {
 }
 
 export default Appointments
+
 

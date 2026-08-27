@@ -69,6 +69,20 @@ export const deleteAppointmentReason = (id) =>
     method: 'DELETE',
   })
 
+export const getBills = (params = {}) => {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') search.set(key, value) })
+  const query = search.toString()
+  return requestJson(`${BASE}/billing${query ? `?${query}` : ''}`)
+}
+
+export const getBillById = (id) => requestJson(`${BASE}/billing/${id}`)
+export const getBillingReconciliation = (date = '') => requestJson(`${BASE}/billing/reconciliation${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+export const voidBillingPayment = (paymentId, reason) => requestJson(`${BASE}/billing/payments/${paymentId}/void`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) })
+export const refundBillingPayment = (paymentId, payload) => requestJson(`${BASE}/billing/payments/${paymentId}/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
+export const saveDiscountPreset = (payload, id = null) => requestJson(`${BASE}/billing/discount-presets${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
 export const getBillingCatalog = (params = {}) => {
   const search = new URLSearchParams()
   if (params.clinicType) search.set('clinic_type', params.clinicType)
@@ -176,6 +190,10 @@ export const deleteDoctorUnavailableDate = (doctorId, date) =>
     method: 'DELETE',
   })
 
+export const getAuditLogs = (params = {}) => { const search = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== '') search.set(k,v) }); const q=search.toString(); return requestJson(`${BASE}/audit-logs${q ? `?${q}` : ''}`) }
+export const getClinicSettings = () => requestJson(`${BASE}/clinic-settings`)
+export const updateClinicSettings = (payload) => requestJson(`${BASE}/clinic-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+
 export const getReports = (params = {}) => {
   const normalized = typeof params === 'string' ? { period: params } : params
   const search = new URLSearchParams()
@@ -251,12 +269,14 @@ export const createWalkInPatient = (payload) =>
 export const getQueue = (date = '') =>
   fetch(`${BASE}/queue${date ? `?date=${date}` : ''}`, { credentials: 'include' }).then(r => r.json())
 
+export const getQueuePrecheck = (patientId) => requestJson(`${BASE}/queue/precheck/${patientId}`)
+
 export const addToQueue = (payload) =>
-  fetch(`${BASE}/queue`, {
+  requestJson(`${BASE}/queue`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 export const updateQueueStatus = (id, status) =>
   fetch(`${BASE}/queue/${id}/status`, {
@@ -264,4 +284,5 @@ export const updateQueueStatus = (id, status) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   }).then(r => r.json())
+
 

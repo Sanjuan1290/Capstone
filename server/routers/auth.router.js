@@ -12,6 +12,8 @@ router.post('/forgot-password', forgotPassword)  // Step 1: sends OTP email
 router.post('/verify-otp',      verifyOtp)        // Step 2: verifies OTP, returns resetToken
 router.post('/reset-password',  resetPassword)    // Step 3: sets new password
 router.get('/landing-page',     commonCtrl.getPublicLandingPage)
+router.get('/clinic-settings',   commonCtrl.getPublicClinicSettings)
 
 module.exports = router
+
 

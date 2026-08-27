@@ -37,3 +37,4 @@ export const useClientPagination = (items = [], options = {}) => {
 }
 
 export default useClientPagination
+

@@ -5,6 +5,8 @@ import {
   getBillingPaymentSettings,
   getBills,
   getInventory,
+  getDiscountPresets,
+  finalizeBill,
   payBill,
   updateBill,
 } from '../../services/staff.service'
@@ -24,13 +26,16 @@ import {
   MdSearch,
 } from 'react-icons/md'
 import { useToast } from '../../components/ui/ToastProvider'
+import { getClinicSettings } from '../../services/clinic.service'
 import Pagination from '../../components/ui/Pagination'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/PageState'
 
 const STATUS_FILTERS = [
   { value: '', label: 'All' },
-  { value: 'pending', label: 'Pending' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'ready', label: 'Ready for Payment' },
+  { value: 'partially_paid', label: 'Partially Paid' },
   { value: 'paid', label: 'Paid' },
 ]
 
@@ -40,6 +45,18 @@ const PAYMENT_OPTIONS = [
   { value: 'maya', label: 'Maya' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
 ]
+
+const BILL_STATUS_META = {
+  draft: { label: 'Draft', tone: 'border-slate-200 bg-slate-50 text-slate-700' },
+  pending: { label: 'Draft', tone: 'border-slate-200 bg-slate-50 text-slate-700' },
+  ready: { label: 'Ready for Payment', tone: 'border-sky-200 bg-sky-50 text-sky-700' },
+  partially_paid: { label: 'Partially Paid', tone: 'border-amber-200 bg-amber-50 text-amber-700' },
+  paid: { label: 'Paid', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+  voided: { label: 'Voided', tone: 'border-rose-200 bg-rose-50 text-rose-700' },
+  refunded: { label: 'Refunded', tone: 'border-violet-200 bg-violet-50 text-violet-700' },
+}
+
+const getBillStatusMeta = (status) => BILL_STATUS_META[status] || BILL_STATUS_META.draft
 
 const ITEM_TYPES = [
   { value: 'service', label: 'Clinic Service' },
@@ -61,15 +78,19 @@ const buildServiceDetails = (service) => ({
     profit_percentage: Number(service?.profit_percentage) || 0,
     profit_amount: Number(service?.profit_amount) || 0,
     suggested_price: Number(service?.suggested_price) || 0,
+    patient_price: Number(service?.default_price ?? service?.patient_price ?? service?.suggested_price) || 0,
   },
   materials: Array.isArray(service?.materials)
     ? service.materials.map((material) => ({
       inventory_id: material.inventory_id || null,
       material_name: material.material_name || material.inventory_name || '',
       quantity: Number(material.quantity) || 0,
-      unit_label: material.unit_label || material.inventory_unit || '',
-      unit_cost: material.unit_cost_override ?? material.inventory_price ?? 0,
-      line_total: roundMoney((Number(material.quantity) || 0) * (Number(material.unit_cost_override ?? material.inventory_price) || 0)),
+      unit_label: material.unit_label || material.inventory_base_unit || material.inventory_unit || '',
+      unit_cost: material.unit_cost_override ?? ((Number(material.inventory_price) || 0) / Math.max(1, Number(material.inventory_unit_size) || 1)),
+      line_total: roundMoney(
+        (Number(material.quantity) || 0)
+        * Number(material.unit_cost_override ?? ((Number(material.inventory_price) || 0) / Math.max(1, Number(material.inventory_unit_size) || 1)))
+      ),
       notes: material.notes || '',
     }))
     : [],
@@ -97,7 +118,8 @@ const normalizeBillForEditor = (bill) => ({
   payment_method: bill?.payment_method || '',
   payment_notes: bill?.payment_notes || '',
   reference_number: bill?.payments?.[0]?.reference_number || '',
-  amount_received: bill?.payments?.[0]?.amount_received ?? bill?.total_amount ?? '',
+  payment_amount: Number(bill?.balance_amount ?? bill?.total_amount) || 0,
+  amount_received: Number(bill?.balance_amount ?? bill?.total_amount) || 0,
   items: Array.isArray(bill?.items) && bill.items.length > 0
     ? bill.items.map((item) => ({
       id: item.id,
@@ -151,7 +173,7 @@ const ServiceBreakdown = ({ item }) => {
   if (materials.length === 0 && !pricing) {
     return (
       <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-400">
-        Select a service to see its required materials and automatic pricing.
+        Select a service to review its default consumables and pricing snapshot.
       </div>
     )
   }
@@ -162,7 +184,7 @@ const ServiceBreakdown = ({ item }) => {
         <p className="text-xs font-bold uppercase tracking-widest text-sky-600">Service Breakdown</p>
         {pricing && (
           <p className="text-xs font-semibold text-sky-700">
-            Materials + service fee + {Number(pricing.profit_percentage) || 0}% profit
+            Cost estimate + {Number(pricing.profit_percentage) || 0}% markup
           </p>
         )}
       </div>
@@ -192,12 +214,16 @@ const ServiceBreakdown = ({ item }) => {
             <span>{formatMoney(pricing.consultation_fee)}</span>
           </div>
           <div className="mt-1 flex items-center justify-between text-slate-500">
-            <span>Profit</span>
+            <span>Markup Amount</span>
             <span>{formatMoney(pricing.profit_amount)}</span>
           </div>
-          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 font-black text-slate-800">
-            <span>Service Price</span>
+          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-slate-500">
+            <span>Suggested Cost-Based Price</span>
             <span>{formatMoney(pricing.suggested_price)}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between font-black text-slate-900">
+            <span>Patient Price</span>
+            <span>{formatMoney(pricing.patient_price ?? pricing.suggested_price)}</span>
           </div>
         </div>
       )}
@@ -213,13 +239,16 @@ const Staff_Billing = () => {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 })
-  const [summary, setSummary] = useState({ total: 0, pending: 0, paid: 0, outstanding: 0 })
+  const [summary, setSummary] = useState({ total: 0, draft: 0, ready: 0, partially_paid: 0, paid: 0, outstanding: 0, collected: 0 })
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [draft, setDraft] = useState(null)
   const [billingCatalog, setBillingCatalog] = useState([])
   const [inventoryItems, setInventoryItems] = useState([])
   const [paymentSettings, setPaymentSettings] = useState({})
+  const [discountPresets, setDiscountPresets] = useState([])
+  const [clinicSettings, setClinicSettings] = useState({})
+  const [finalizing, setFinalizing] = useState(false)
   const [loadingList, setLoadingList] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(false)
@@ -252,7 +281,7 @@ const Staff_Billing = () => {
       const list = Array.isArray(response?.items) ? response.items : []
       setBills(list)
       setPagination(response?.pagination || { page: targetPage, limit, total: list.length, totalPages: 1 })
-      setSummary(response?.summary || { total: list.length, pending: 0, paid: 0, outstanding: 0 })
+      setSummary(response?.summary || { total: list.length, draft: 0, ready: 0, partially_paid: 0, paid: 0, outstanding: 0, collected: 0 })
 
       if (list.length === 0) {
         setSelectedId(null)
@@ -319,14 +348,18 @@ const Staff_Billing = () => {
   }, [selectedId])
 
   useEffect(() => {
-    Promise.all([getInventory(), getBillingPaymentSettings()])
-      .then(([inventoryRows, settings]) => {
+    Promise.all([getInventory(), getBillingPaymentSettings(), getDiscountPresets(), getClinicSettings()])
+      .then(([inventoryRows, settings, presets, clinic]) => {
         setInventoryItems(Array.isArray(inventoryRows) ? inventoryRows : [])
         setPaymentSettings(settings || {})
+        setDiscountPresets(Array.isArray(presets) ? presets : [])
+        setClinicSettings(clinic || {})
       })
       .catch((error) => {
         setInventoryItems([])
         setPaymentSettings({})
+        setDiscountPresets([])
+        setClinicSettings({})
         toast.error(error.message || 'Billing inventory or payment setup could not be loaded.')
       })
   }, [])
@@ -353,14 +386,20 @@ const Staff_Billing = () => {
 
 
   const totals = computeEditorTotals(draft)
-  const pendingCount = Number(summary.pending) || 0
+  const draftCount = Number(summary.draft ?? summary.pending) || 0
+  const readyCount = Number(summary.ready) || 0
+  const partialCount = Number(summary.partially_paid) || 0
   const paidCount = Number(summary.paid) || 0
   const totalOutstanding = Number(summary.outstanding) || 0
+  const totalCollected = Number(summary.collected) || 0
 
   const selectedPaymentMethod = String(draft?.payment_method || '').toLowerCase()
   const showQr = selectedPaymentMethod === 'gcash' || selectedPaymentMethod === 'maya'
   const selectedQrUrl = selectedPaymentMethod === 'gcash' ? paymentSettings.gcash_qr_url : paymentSettings.maya_qr_url
   const isPaid = detail?.status === 'paid'
+  const isDraft = ['draft', 'pending'].includes(detail?.status)
+  const isReadyForPayment = ['ready', 'partially_paid'].includes(detail?.status)
+  const isLocked = ['ready', 'partially_paid', 'paid', 'voided', 'refunded'].includes(detail?.status)
 
   const updateDraftField = (field, value) => {
     setDraft((current) => ({ ...current, [field]: value }))
@@ -425,7 +464,7 @@ const Staff_Billing = () => {
               quantity: Number(item.quantity) || 1,
               base_amount: roundMoney((Number(service.materials_cost) || 0) + (Number(service.consultation_fee) || 0)),
               markup_percentage: Number(service.profit_percentage) || 20,
-              unit_price: Number(service.suggested_price) || 0,
+              unit_price: Number(service.default_price ?? service.patient_price ?? service.suggested_price) || 0,
               details: buildServiceDetails(service),
             }
           : item
@@ -472,6 +511,7 @@ const Staff_Billing = () => {
     payment_method: draft.payment_method,
     payment_notes: draft.payment_notes,
     reference_number: draft.reference_number,
+    payment_amount: draft.payment_amount,
     amount_received: draft.amount_received,
   })
 
@@ -484,7 +524,11 @@ const Staff_Billing = () => {
     if (!forPayment) return ''
     if (!draft.payment_method) return 'Select a payment method.'
     if (draft.payment_method !== 'cash' && !String(draft.reference_number || '').trim()) return 'Enter the payment reference number.'
-    if (Number(draft.amount_received || 0) < totals.total) return 'Amount received cannot be lower than the bill total.'
+    const balance = Math.max(0, Number(detail?.balance_amount ?? totals.total) || 0)
+    const paymentAmount = Math.max(0, Number(draft.payment_amount || 0) || 0)
+    if (paymentAmount <= 0) return 'Enter a payment amount greater than zero.'
+    if (paymentAmount > balance) return 'Payment amount cannot be higher than the remaining balance.'
+    if (draft.payment_method === 'cash' && Number(draft.amount_received || 0) < paymentAmount) return 'Amount received cannot be lower than the payment amount.'
     return ''
   }
 
@@ -507,6 +551,42 @@ const Staff_Billing = () => {
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleFinalize = async () => {
+    if (!selectedId || !draft || !isDraft) return
+    const validationMessage = validateBill()
+    if (validationMessage) { toast.warning(validationMessage); return }
+    setFinalizing(true)
+    try {
+      // Persist the final draft first, then lock the charges for payment.
+      await updateBill(selectedId, buildBillingPayload())
+      const updated = await finalizeBill(selectedId)
+      setDetail(updated)
+      setDraft(normalizeBillForEditor(updated))
+      toast.success('Bill finalized and ready for payment.')
+      await loadBills({ status: filter, preferredId: selectedId, targetPage: page, query: search, limit: pageSize })
+    } catch (err) {
+      toast.error(err.message || 'Bill could not be finalized.')
+    } finally { setFinalizing(false) }
+  }
+
+  const applyDiscountPreset = (presetId) => {
+    const preset = discountPresets.find((row) => Number(row.id) === Number(presetId))
+    if (!preset) {
+      setDraft((current) => ({ ...current, discount_type: 'none', discount_label: '', discount_amount: 0 }))
+      return
+    }
+    const value = Number(preset.value || 0)
+    const amount = preset.discount_type === 'percentage'
+      ? roundMoney(totals.subtotal * (value / 100))
+      : Math.max(0, value)
+    setDraft((current) => ({
+      ...current,
+      discount_type: preset.discount_type,
+      discount_label: preset.label,
+      discount_amount: Math.min(totals.subtotal, amount),
+    }))
   }
 
   const requestPaymentConfirmation = () => {
@@ -536,6 +616,19 @@ const Staff_Billing = () => {
     }
   }
 
+  const printReceipt = (payment) => {
+    if (!payment || !detail) return
+    const popup = window.open('', '_blank', 'width=760,height=900')
+    if (!popup) return toast.warning('Allow pop-ups to print the receipt.')
+    const esc = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    const rows = (detail.items || []).map((item) => `<tr><td>${esc(item.service_name)}</td><td style="text-align:center">${esc(item.quantity)}</td><td style="text-align:right">${esc(formatMoney(item.unit_price))}</td><td style="text-align:right">${esc(formatMoney(item.line_total))}</td></tr>`).join('')
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(payment.receipt_number || 'Receipt')}</title><style>@page{size:A5;margin:12mm}body{font-family:Arial,sans-serif;color:#0f172a;margin:0;font-size:12px}h1,p{margin:0}.head{text-align:center;border-bottom:2px solid #0f172a;padding-bottom:10px}.meta{margin:14px 0;display:grid;grid-template-columns:1fr 1fr;gap:6px}.meta div:nth-child(even){text-align:right}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:7px;border-bottom:1px solid #e2e8f0}th{text-align:left;font-size:10px;text-transform:uppercase;color:#64748b}.totals{margin-top:12px;margin-left:auto;width:230px}.line{display:flex;justify-content:space-between;padding:4px 0}.total{font-size:15px;font-weight:700;border-top:2px solid #0f172a;padding-top:7px}.footer{margin-top:28px;text-align:center;color:#64748b;font-size:10px}</style></head><body><div class="head"><h1>${esc(clinicSettings.clinic_name || 'CARAIT MEDICAL AND DERMATOLOGY CLINIC')}</h1>${clinicSettings.address ? `<p>${esc(clinicSettings.address)}</p>` : ''}${clinicSettings.phone ? `<p>${esc(clinicSettings.phone)}</p>` : ''}<p style="margin-top:7px;font-weight:700">OFFICIAL PAYMENT RECEIPT</p></div><div class="meta"><div><strong>Receipt:</strong> ${esc(payment.receipt_number || '—')}</div><div>${esc(new Date(payment.paid_at || Date.now()).toLocaleString('en-PH'))}</div><div><strong>Patient:</strong> ${esc(detail.patient_name)}</div><div><strong>Doctor:</strong> ${esc(detail.doctor_name)}</div><div><strong>Method:</strong> ${esc(String(payment.payment_method || '').replace(/_/g, ' '))}</div><div>${payment.reference_number ? `<strong>Reference:</strong> ${esc(payment.reference_number)}` : ''}</div></div><table><thead><tr><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div class="line"><span>Bill Total</span><strong>${esc(formatMoney(detail.total_amount))}</strong></div><div class="line"><span>This Payment</span><strong>${esc(formatMoney(payment.amount))}</strong></div><div class="line"><span>Paid to Date</span><strong>${esc(formatMoney(detail.paid_amount))}</strong></div><div class="line total"><span>Balance</span><span>${esc(formatMoney(detail.balance_amount))}</span></div></div><p class="footer">${esc(clinicSettings.receipt_footer || 'Thank you. Please keep this receipt for your records.')}</p></body></html>`)
+    popup.document.close()
+    popup.focus()
+    popup.onload = () => popup.print()
+  }
+
+
   return (
     <div className="mx-auto max-w-7xl space-y-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -544,7 +637,7 @@ const Staff_Billing = () => {
             <MdPayments className="text-sky-500 text-[22px]" /> Billing
           </h1>
           <p className="text-xs lg:text-sm text-slate-500 mt-0.5">
-            Build structured clinic bills with service breakdowns, supply add-ons, and manual payment confirmation.
+            Review consultation charges, finalize the bill, then collect full or partial payments. Inventory movements are recorded per batch before payment.
           </p>
         </div>
         <button
@@ -560,10 +653,10 @@ const Staff_Billing = () => {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'All Bills', value: summary.total, tone: 'text-sky-600 bg-sky-50 border-sky-200' },
-          { label: 'Pending', value: pendingCount, tone: 'text-amber-600 bg-amber-50 border-amber-200' },
-          { label: 'Paid', value: paidCount, tone: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
-          { label: 'Outstanding', value: formatMoney(totalOutstanding), tone: 'text-violet-600 bg-violet-50 border-violet-200' },
+          { label: 'Draft', value: draftCount, tone: 'text-slate-700 bg-slate-50 border-slate-200' },
+          { label: 'Ready / Partial', value: readyCount + partialCount, tone: 'text-sky-700 bg-sky-50 border-sky-200' },
+          { label: 'Collected', value: formatMoney(totalCollected), tone: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+          { label: 'Outstanding', value: formatMoney(totalOutstanding), tone: 'text-violet-700 bg-violet-50 border-violet-200' },
         ].map((card) => (
           <div key={card.label} className={`rounded-2xl border p-4 shadow-sm ${card.tone}`}>
             <p className="text-[11px] font-bold uppercase tracking-widest opacity-80">{card.label}</p>
@@ -642,15 +735,10 @@ const Staff_Billing = () => {
                           <p className="text-sm font-bold text-slate-800 truncate">{bill.patient_name}</p>
                           <p className="mt-0.5 text-xs text-slate-500 truncate">{bill.doctor_name}</p>
                         </div>
-                        <span
-                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                            bill.status === 'paid'
-                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                              : 'border-amber-200 bg-amber-50 text-amber-700'
-                          }`}
-                        >
-                          {bill.status === 'paid' ? 'Paid' : 'Pending'}
-                        </span>
+                        {(() => {
+                          const meta = getBillStatusMeta(bill.status)
+                          return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${meta.tone}`}>{meta.label}</span>
+                        })()}
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
                         <span className="flex items-center gap-1">
@@ -667,8 +755,11 @@ const Staff_Billing = () => {
                           {bill.appointment_reason}
                         </p>
                       )}
-                      <div className="mt-2 text-sm font-black text-slate-800">
-                        {formatMoney(bill.total_amount)}
+                      <div className="mt-2 flex items-end justify-between gap-2">
+                        <div className="text-sm font-black text-slate-800">{formatMoney(bill.total_amount)}</div>
+                        {Number(bill.balance_amount || 0) > 0 && bill.status !== 'draft' && (
+                          <div className="text-[11px] font-bold text-amber-700">Balance {formatMoney(bill.balance_amount)}</div>
+                        )}
                       </div>
                     </button>
                   )
@@ -719,15 +810,10 @@ const Staff_Billing = () => {
                     </span>
                   </div>
                 </div>
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-bold ${
-                    isPaid
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-amber-200 bg-amber-50 text-amber-700'
-                  }`}
-                >
-                  {isPaid ? 'Paid' : 'Pending Payment'}
-                </span>
+                {(() => {
+                  const meta = getBillStatusMeta(detail.status)
+                  return <span className={`rounded-full border px-3 py-1 text-xs font-bold ${meta.tone}`}>{meta.label}</span>
+                })()}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -760,7 +846,7 @@ const Staff_Billing = () => {
                           Choose a clinic service for automatic materials, service fee, and markup, then add extra medicines or custom charges if needed.
                         </p>
                       </div>
-                      {!isPaid && (
+                      {isDraft && (
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => addItem('service')}
@@ -800,7 +886,7 @@ const Staff_Billing = () => {
                                   {ITEM_TYPES.find((option) => option.value === itemType)?.label || 'Charge'}
                                 </p>
                               </div>
-                              {!isPaid && (
+                              {isDraft && (
                                 <button
                                   onClick={() => removeItem(index)}
                                   className="rounded-lg p-1 text-slate-300 hover:bg-red-50 hover:text-red-500"
@@ -817,7 +903,7 @@ const Staff_Billing = () => {
                                 </label>
                                 <select
                                   value={itemType}
-                                  disabled={isPaid}
+                                  disabled={!isDraft}
                                   onChange={(e) => changeItemType(index, e.target.value)}
                                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
                                 >
@@ -834,14 +920,14 @@ const Staff_Billing = () => {
                                   </label>
                                   <select
                                     value={item.catalog_service_id}
-                                    disabled={isPaid || catalogLoading}
+                                    disabled={!isDraft || catalogLoading}
                                     onChange={(e) => handleServiceSelect(index, e.target.value)}
                                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
                                   >
                                     <option value="">Select service</option>
                                     {billingCatalog.map((service) => (
                                       <option key={service.id} value={service.id}>
-                                        {service.category} - {service.service_name} ({formatMoney(service.suggested_price)})
+                                        {service.category} - {service.service_name} ({formatMoney(service.default_price ?? service.patient_price ?? service.suggested_price)})
                                       </option>
                                     ))}
                                   </select>
@@ -853,7 +939,7 @@ const Staff_Billing = () => {
                                   </label>
                                   <select
                                     value={item.source_inventory_id}
-                                    disabled={isPaid}
+                                    disabled={!isDraft}
                                     onChange={(e) => handleSupplySelect(index, e.target.value)}
                                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
                                   >
@@ -873,7 +959,7 @@ const Staff_Billing = () => {
                                   <input
                                     type="text"
                                     value={item.service_name}
-                                    disabled={isPaid}
+                                    disabled={!isDraft}
                                     onChange={(e) => updateDraftItem(index, 'service_name', e.target.value)}
                                     placeholder="Custom charge name"
                                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
@@ -889,7 +975,7 @@ const Staff_Billing = () => {
                                   <input
                                     type="text"
                                     value={item.category}
-                                    disabled={isPaid}
+                                    disabled={!isDraft}
                                     onChange={(e) => updateDraftItem(index, 'category', e.target.value)}
                                     placeholder="Category"
                                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
@@ -906,7 +992,7 @@ const Staff_Billing = () => {
                                   min="0"
                                   step="0.01"
                                   value={item.quantity}
-                                  disabled={isPaid}
+                                  disabled={!isDraft}
                                   onChange={(e) => updateDraftItem(index, 'quantity', e.target.value)}
                                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
                                 />
@@ -921,7 +1007,7 @@ const Staff_Billing = () => {
                                   min="0"
                                   step="0.01"
                                   value={item.unit_price}
-                                  disabled={isPaid || itemType === 'service'}
+                                  disabled={!isDraft || itemType === 'service'}
                                   onChange={(e) => updateDraftItem(index, 'unit_price', e.target.value)}
                                   placeholder="Unit price"
                                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
@@ -935,7 +1021,7 @@ const Staff_Billing = () => {
                               <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                                 <p className="font-semibold">Additional supply item</p>
                                 <p className="mt-1 text-xs text-emerald-700">
-                                  This item is pulled from inventory for easier pricing and documentation. You can still adjust the unit price before payment if needed.
+                                  When this draft is finalized, the item is dispensed from the earliest-expiring available batch and the exact batch/lot is recorded. Patient pricing can still be reviewed while the bill is a draft.
                                 </p>
                               </div>
                             )}
@@ -945,7 +1031,7 @@ const Staff_Billing = () => {
                               aria-label={`Notes for bill item ${index + 1}`}
                               value={item.notes}
                               onChange={(e) => updateDraftItem(index, 'notes', e.target.value)}
-                              disabled={isPaid}
+                              disabled={!isDraft}
                               rows={2}
                               placeholder="Notes (optional)"
                               className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 disabled:opacity-70"
@@ -963,65 +1049,95 @@ const Staff_Billing = () => {
 
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <h3 className="text-sm font-bold text-slate-800">Payment Details</h3>
+                    <h3 className="text-sm font-bold text-slate-800">{isDraft ? 'Discount & Final Review' : 'Payment Details'}</h3>
 
                     <div className="mt-3 space-y-3">
-                      <label className="form-label" htmlFor="payment-method">Payment Method</label>
-                      <select
-                        id="payment-method"
-                        aria-label="Payment method"
-                        value={draft.payment_method}
-                        onChange={(e) => updateDraftField('payment_method', e.target.value)}
-                        disabled={isPaid}
-                        className="form-control disabled:opacity-70"
-                      >
-                        <option value="">Select payment method</option>
-                        {PAYMENT_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                      {isReadyForPayment && (
+                        <>
+                          <label className="form-label" htmlFor="payment-method">Payment Method</label>
+                          <select
+                            id="payment-method"
+                            aria-label="Payment method"
+                            value={draft.payment_method}
+                            onChange={(e) => updateDraftField('payment_method', e.target.value)}
+                            className="form-control"
+                          >
+                            <option value="">Select payment method</option>
+                            {PAYMENT_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
 
-                      <label className="form-label" htmlFor="payment-reference">Reference Number</label>
-                      <input
-                        id="payment-reference"
-                        type="text"
-                        aria-label="Payment reference number"
-                        value={draft.reference_number}
-                        onChange={(e) => updateDraftField('reference_number', e.target.value)}
-                        disabled={isPaid || !draft.payment_method || draft.payment_method === 'cash'}
-                        placeholder="Payment reference number"
-                        className="form-control disabled:opacity-60"
-                      />
+                          <label className="form-label" htmlFor="payment-reference">Reference Number</label>
+                          <input
+                            id="payment-reference"
+                            type="text"
+                            aria-label="Payment reference number"
+                            value={draft.reference_number}
+                            onChange={(e) => updateDraftField('reference_number', e.target.value)}
+                            disabled={!draft.payment_method || draft.payment_method === 'cash'}
+                            placeholder="Required for digital/bank payments"
+                            className="form-control disabled:opacity-60"
+                          />
 
-                      <label className="form-label" htmlFor="amount-received">Amount Received</label>
-                      <input
-                        id="amount-received"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        aria-label="Amount received"
-                        value={draft.amount_received}
-                        onChange={(e) => updateDraftField('amount_received', e.target.value)}
-                        disabled={isPaid}
-                        placeholder="Amount received"
-                        className="form-control disabled:opacity-60"
-                      />
+                          <label className="form-label" htmlFor="payment-amount">Payment Amount</label>
+                          <input
+                            id="payment-amount"
+                            type="number"
+                            min="0.01"
+                            max={Math.max(0, Number(detail.balance_amount ?? totals.total) || 0)}
+                            step="0.01"
+                            value={draft.payment_amount}
+                            onChange={(e) => updateDraftField('payment_amount', e.target.value)}
+                            className="form-control"
+                          />
+                          <p className="form-helper">Remaining balance: {formatMoney(detail.balance_amount ?? totals.total)}</p>
 
-                      {draft.payment_method === 'cash' && Number(draft.amount_received || 0) >= totals.total && (
-                        <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
-                          Change: {formatMoney(Math.max(0, Number(draft.amount_received || 0) - totals.total))}
-                        </p>
+                          {draft.payment_method === 'cash' && (
+                            <>
+                              <label className="form-label" htmlFor="amount-received">Cash Received</label>
+                              <input
+                                id="amount-received"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={draft.amount_received}
+                                onChange={(e) => updateDraftField('amount_received', e.target.value)}
+                                className="form-control"
+                              />
+                              {Number(draft.amount_received || 0) >= Number(draft.payment_amount || 0) && Number(draft.payment_amount || 0) > 0 && (
+                                <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                                  Change: {formatMoney(Math.max(0, Number(draft.amount_received || 0) - Number(draft.payment_amount || 0)))}
+                                </p>
+                              )}
+                            </>
+                          )}
+                        </>
                       )}
 
-                      <label className="form-label" htmlFor="discount-label">Discount Label</label>
+                      {isDraft && (
+                        <>
+                          <label className="form-label" htmlFor="discount-preset">Approved Discount</label>
+                          <select id="discount-preset" className="form-control" value="" onChange={(e) => applyDiscountPreset(e.target.value)}>
+                            <option value="">Choose preset (optional)</option>
+                            {discountPresets.filter((preset) => preset.is_active !== 0).map((preset) => (
+                              <option key={preset.id} value={preset.id}>
+                                {preset.label} · {preset.discount_type === 'percentage' ? `${Number(preset.value || 0)}%` : formatMoney(preset.value)}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      )}
+
+                      <label className="form-label" htmlFor="discount-label">Discount / Reason Label</label>
                       <input
                         id="discount-label"
                         type="text"
                         aria-label="Discount label"
                         value={draft.discount_label}
                         onChange={(e) => updateDraftField('discount_label', e.target.value)}
-                        disabled={isPaid}
-                        placeholder="Discount label (e.g. Senior Citizen)"
+                        disabled={!isDraft}
+                        placeholder="Preset or approved custom reason"
                         className="form-control disabled:opacity-70"
                       />
 
@@ -1034,7 +1150,7 @@ const Staff_Billing = () => {
                         aria-label="Discount amount"
                         value={draft.discount_amount}
                         onChange={(e) => updateDraftField('discount_amount', e.target.value)}
-                        disabled={isPaid}
+                        disabled={!isDraft}
                         placeholder="Discount amount"
                         className="form-control disabled:opacity-70"
                       />
@@ -1045,7 +1161,7 @@ const Staff_Billing = () => {
                         aria-label="Payment notes"
                         value={draft.payment_notes}
                         onChange={(e) => updateDraftField('payment_notes', e.target.value)}
-                        disabled={isPaid}
+                        disabled={!isReadyForPayment}
                         rows={3}
                         placeholder="Payment notes or confirmation details"
                         className="form-control disabled:opacity-70"
@@ -1053,7 +1169,7 @@ const Staff_Billing = () => {
                     </div>
                   </div>
 
-                  {showQr && (
+                  {isReadyForPayment && showQr && (
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                       <p className="text-sm font-bold text-emerald-800">
                         {selectedPaymentMethod === 'gcash' ? 'GCash' : 'Maya'} QR
@@ -1069,7 +1185,7 @@ const Staff_Billing = () => {
                         />
                       ) : (
                         <p className="mt-3 rounded-xl border border-dashed border-emerald-300 px-3 py-4 text-center text-xs font-semibold text-emerald-700">
-                          No QR image is configured. Ask an administrator to add it in Billing Service Catalog → Payment Setup.
+                          No QR image is configured. Ask an administrator to add it in Admin → Service Catalog → Payment Setup.
                         </p>
                       )}
                     </div>
@@ -1094,10 +1210,22 @@ const Staff_Billing = () => {
                         <span>Total</span>
                         <span>{formatMoney(totals.total)}</span>
                       </div>
+                      {!isDraft && (
+                        <>
+                          <div className="flex items-center justify-between text-slate-500">
+                            <span>Paid</span>
+                            <span>{formatMoney(detail.paid_amount || 0)}</span>
+                          </div>
+                          <div className="flex items-center justify-between font-bold text-amber-700">
+                            <span>Balance</span>
+                            <span>{formatMoney(detail.balance_amount || 0)}</span>
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs text-sky-700">
-                      Clinic services automatically use: materials cost + service fee + configured profit. Additional medicines and custom charges can still be added separately.
+                      Catalog services keep their patient-facing price snapshot. Clinical consumables are recorded when the doctor completes the consultation; take-home supplies are dispensed per batch when this bill is finalized. Payment changes money only.
                     </div>
 
                     {detail.confirmed_by_staff_name && (
@@ -1108,23 +1236,35 @@ const Staff_Billing = () => {
                     )}
 
                     <div className="mt-4 flex flex-col gap-2">
-                      {!isPaid && (
+                      {isDraft && (
+                        <>
+                          <button
+                            onClick={handleSave}
+                            disabled={saving || finalizing}
+                            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                          >
+                            {saving ? 'Saving...' : 'Save Draft'}
+                          </button>
+                          <button
+                            onClick={handleFinalize}
+                            disabled={saving || finalizing}
+                            className="rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-700 disabled:opacity-60"
+                          >
+                            {finalizing ? 'Finalizing...' : 'Finalize & Lock Charges'}
+                          </button>
+                        </>
+                      )}
+                      {isReadyForPayment && (
                         <button
-                          onClick={handleSave}
-                          disabled={saving}
-                          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                          onClick={requestPaymentConfirmation}
+                          disabled={confirming}
+                          className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
                         >
-                          {saving ? 'Saving...' : 'Save Bill'}
+                          <MdCheck className="text-[16px]" />
+                          {confirming ? 'Recording...' : `Record ${formatMoney(draft.payment_amount || 0)} Payment`}
                         </button>
                       )}
-                      <button
-                        onClick={requestPaymentConfirmation}
-                        disabled={isPaid || confirming}
-                        className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
-                      >
-                        <MdCheck className="text-[16px]" />
-                        {isPaid ? 'Payment Confirmed' : confirming ? 'Confirming...' : 'Confirm Payment'}
-                      </button>
+                      {isPaid && <p className="rounded-xl bg-emerald-50 px-4 py-2.5 text-center text-sm font-bold text-emerald-700">Paid in Full</p>}
                     </div>
                   </div>
 
@@ -1138,8 +1278,10 @@ const Staff_Billing = () => {
                               <span className="font-black text-slate-800">{payment.receipt_number}</span>
                               <span className="font-black text-emerald-600">{formatMoney(payment.amount)}</span>
                             </div>
-                            <p className="mt-1 text-slate-500">{payment.payment_method} · {payment.paid_at}</p>
+                            <p className="mt-1 text-slate-500">{String(payment.payment_method || '').replace(/_/g, ' ')} · {payment.paid_at}</p>
+                            {payment.status && payment.status !== 'completed' && <p className="mt-1 font-bold uppercase text-rose-600">{payment.status}</p>}
                             {payment.reference_number && <p className="mt-1 text-slate-500">Reference: {payment.reference_number}</p>}
+                            {payment.status === 'completed' && <button type="button" onClick={() => printReceipt(payment)} className="mt-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-600 hover:bg-slate-100">Print Receipt</button>}
                           </div>
                         ))}
                       </div>
@@ -1159,7 +1301,7 @@ const Staff_Billing = () => {
                       </li>
                       <li className="flex items-start gap-2">
                         <MdLocalPharmacy className="mt-0.5 text-violet-500" />
-                        Review discount and payment notes before marking the bill as paid.
+                        Review the approved discount before finalizing, then record payments against the remaining balance.
                       </li>
                     </ul>
                   </div>
@@ -1173,8 +1315,8 @@ const Staff_Billing = () => {
       <ConfirmDialog
         open={confirmOpen}
         title="Confirm payment?"
-        message={`This will mark the bill as paid, record ${formatMoney(totals.total)}, and deduct linked inventory. This action cannot be repeated.`}
-        confirmLabel="Confirm payment"
+        message={`Record ${formatMoney(draft?.payment_amount || 0)} toward this bill? Inventory is not deducted here; stock movement has already been recorded per batch when clinically used or dispensed.`}
+        confirmLabel="Record payment"
         tone="primary"
         loading={confirming}
         onCancel={() => !confirming && setConfirmOpen(false)}
@@ -1185,4 +1327,5 @@ const Staff_Billing = () => {
 }
 
 export default Staff_Billing
+
 

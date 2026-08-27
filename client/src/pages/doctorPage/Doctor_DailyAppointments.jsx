@@ -341,7 +341,7 @@ const DetailPanel = ({ appt, onClose, onStart, onViewPrescription }) => {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-slate-800 truncate">{appt.patient_name || appt.patient}</p>
-          <p className="text-xs text-slate-500">Appt #{appt.id} · {typeLabel}</p>
+          <p className="text-xs text-slate-500">{typeLabel}</p>
         </div>
         <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0 ${cfg.badge}`}>
           {cfg.label}
@@ -757,4 +757,5 @@ const Doctor_DailyAppointments = () => {
 }
 
 export default Doctor_DailyAppointments
+
 

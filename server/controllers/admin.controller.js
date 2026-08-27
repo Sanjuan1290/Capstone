@@ -37,7 +37,12 @@ const {
   getBillingCatalogServiceById,
   listBillingCatalog,
   normalizeServiceMaterials,
+  getBillingRecordWithItems,
 } = require('../utils/billing')
+const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
+const { writeAuditLog } = require('../utils/audit')
+const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
+const { normalizeStockMovementType } = require('../utils/workflowValidation')
 const {
   getActiveAppointmentConflict,
   getLastNoShowAppointment,
@@ -60,6 +65,7 @@ const normalizeInventoryPayload = (body = {}) => ({
   price: Math.max(0, Number(body.price) || 0),
   supplier: body.supplier?.trim() || null,
   expiration_date: body.expiration_date || null,
+  batch_code: String(body.batch_code || '').trim() || null,
   storage_location: body.storage_location?.trim() || null,
 })
 
@@ -67,10 +73,12 @@ const normalizeBillingCatalogPayload = (body = {}) => ({
   category: String(body.category || '').trim(),
   service_name: String(body.service_name || '').trim(),
   clinic_type: ['all', 'medical', 'derma'].includes(body.clinic_type) ? body.clinic_type : 'all',
+  default_price: Math.max(0, Number(body.default_price ?? body.patient_price) || 0),
   consultation_fee: Math.max(0, Number(body.consultation_fee) || 0),
   profit_percentage: Math.max(0, Number(body.profit_percentage) || 20),
   is_active: body.is_active === 0 ? 0 : 1,
   sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
+  pricing_notes: String(body.pricing_notes || '').trim() || null,
   materials: normalizeServiceMaterials(body.materials),
 })
 
@@ -551,9 +559,13 @@ const createAppointment = async (req, res) => {
   }
 
   const [result] = await db.query(
-    'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes) VALUES (?,?,?,?,?,?,?)',
-    [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null]
+    'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes, appointment_source) VALUES (?,?,?,?,?,?,?,?)',
+    [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null, 'admin_booking']
   )
+  await writeAuditLog({
+    userId: req.user.id, userRole: 'admin', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId,
+    newValues: { patient_id, doctor_id, clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'admin_booking' }, ipAddress: req.ip || null,
+  })
   const [rows] = await db.query(
     `SELECT p.full_name AS patient_name, d.id AS doctor_id, d.full_name AS doctor_name, d.phone AS doctor_phone
      FROM appointments a
@@ -597,59 +609,24 @@ const getQueue = async (req, res) => {
   res.json(rows)
 }
 
+const getQueuePrecheck = async (req, res) => {
+  res.json(await getWalkInPrecheck(req.params.patientId))
+}
+
 const addToQueue = async (req, res) => {
-  const { patient_id, doctor_id, patient_name, type, reason, cancel_existing_appointment_id } = req.body
-  if (!doctor_id || !type)
-    return res.status(400).json({ message: 'doctor_id and type are required.' })
-
-  const today = getTodayDateOnly()
-  if (patient_id) {
-    const activeAppointment = await getActiveAppointmentConflict(patient_id, { fromDate: today })
-    if (activeAppointment && Number(cancel_existing_appointment_id) !== Number(activeAppointment.id)) {
-      return res.status(409).json({
-        code: 'ACTIVE_APPOINTMENT',
-        message: 'This patient already has an active online appointment. Confirm if staff should cancel it and continue as walk-in.',
-        active_appointment: activeAppointment,
-      })
-    }
-  }
-
-  const [[{ maxQ }]] = await db.query(
-    'SELECT COALESCE(MAX(queue_number), 0) AS maxQ FROM queue WHERE queue_date = ?', [today]
-  )
-  let appointmentId = null
-
-  if (patient_id) {
-    if (cancel_existing_appointment_id) {
-      await db.query(
-        "UPDATE appointments SET status = 'cancelled', notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE '\n' END, 'Cancelled because staff converted patient to walk-in queue.') WHERE id = ? AND patient_id = ? AND status IN ('pending','confirmed','rescheduled','in-progress')",
-        [cancel_existing_appointment_id, patient_id]
-      )
-      broadcast(['admin', 'staff', `patient_${patient_id}`], 'appointment_updated', {
-        appointmentId: Number(cancel_existing_appointment_id),
-        status: 'cancelled',
-      })
-    }
-
-    const appointmentTime = getCurrentTimeLabel()
-    const [appointmentResult] = await db.query(
-      `INSERT INTO appointments
-       (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, status)
-       VALUES (?,?,?,?,?,?, 'confirmed')`,
-      [patient_id, doctor_id, type, reason || 'Walk-in consultation', today, appointmentTime]
-    )
-    appointmentId = appointmentResult.insertId
-  }
-
-  const [result] = await db.query(
-    'INSERT INTO queue (patient_id, doctor_id, queue_number, patient_name, type, status, queue_date, appointment_id) VALUES (?,?,?,?,?,?,?,?)',
-    [patient_id || null, doctor_id, maxQ + 1, patient_name || 'Walk-in', type, 'waiting', today, appointmentId]
-  )
-  broadcast(['admin', 'staff', `doctor_${doctor_id}`], 'queue_updated', { queueId: result.insertId, status: 'added', doctorId: Number(doctor_id) })
-  if (appointmentId) {
-    broadcast(['admin', 'staff', `doctor_${doctor_id}`], 'appointment_updated', { appointmentId, status: 'confirmed' })
-  }
-  res.status(201).json({ id: result.insertId, queue_number: maxQ + 1, appointment_id: appointmentId })
+  const result = await addWalkInVisit({
+    patientId: req.body.patient_id,
+    patientName: req.body.patient_name,
+    doctorId: req.body.doctor_id,
+    clinicType: req.body.type,
+    reason: req.body.reason,
+    checkInAppointmentId: req.body.check_in_appointment_id,
+    allowSeparateWalkIn: Boolean(req.body.allow_separate_walkin),
+    actorRole: 'admin',
+    actorId: req.user.id,
+    ipAddress: req.ip || null,
+  })
+  return res.status(result.status).json(result.body)
 }
 
 const updateQueueStatus = async (req, res) => {
@@ -722,50 +699,35 @@ const getPatientRecord = async (req, res) => {
 }
 
 const createWalkInPatient = async (req, res) => {
-  const { full_name, phone, email, consent_given } = normalizePatientPayload(req.body)
-
-  if (!full_name || !phone)
-    return res.status(400).json({ message: 'Full name and phone number are required.' })
-  if (!consent_given)
-    return res.status(400).json({ message: 'Data privacy consent is required.' })
-
-  const { normalizedPhone, existing } = await findExistingPatientByPhone(phone)
-  if (!normalizedPhone)
-    return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
-  if (existing) {
-    return res.status(409).json({
-      message: 'A patient with that phone number already exists. Search for the patient and add them as an existing account instead.',
-    })
+  const { full_name, phone, email, birthdate, sex, consent_given, consent_method = 'signed_intake_form' } = req.body
+  const name = String(full_name || '').trim()
+  if (!name || !String(phone || '').trim()) return res.status(400).json({ message: 'Full name and phone number are required.' })
+  if (!consent_given) return res.status(400).json({ message: 'Patient data privacy consent is required.' })
+  const normalizedPhone = normalizePhilippinePhone(phone)
+  if (!normalizedPhone) return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+  const localPhone = `0${normalizedPhone.slice(2)}`
+  const [existingPhone] = await db.query(`SELECT id FROM patients WHERE ${NORMALIZED_PHONE_SQL} IN (?, ?) LIMIT 1`, [normalizedPhone, localPhone])
+  if (existingPhone.length) return res.status(409).json({ message: 'A patient with that phone number already exists. Search and select the existing patient instead.' })
+  const normalizedEmail = String(email || '').trim() || null
+  if (normalizedEmail) {
+    const [existingEmail] = await db.query('SELECT id FROM patients WHERE email = ? LIMIT 1', [normalizedEmail])
+    if (existingEmail.length) return res.status(409).json({ message: 'A patient with that email already exists.' })
   }
-
-  if (email) {
-    const [existing] = await db.query('SELECT id FROM patients WHERE email = ?', [email])
-    if (existing.length > 0) return res.status(409).json({ message: 'A patient with that email already exists.' })
-  }
-
-  const tempPassword = makeTempPassword()
+  const normalizedSex = ['Male','Female','Other'].includes(String(sex || '')) ? String(sex) : null
+  const normalizedBirthdate = /^\d{4}-\d{2}-\d{2}$/.test(String(birthdate || '')) ? String(birthdate) : null
+  const tempPassword = Math.random().toString(36).slice(-8) + 'Aa1!'
   const hashedPassword = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
     `INSERT INTO patients
-      (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, is_walk_in, consent_given, consent_given_at, receive_promotions, is_profile_complete)
-     VALUES (?, NULL, NULL, NULL, NULL, ?, NULL, ?, ?, 1, ?, ?, 0, 0)`,
-    [
-      full_name,
-      normalizedPhone,
-      email,
-      hashedPassword,
-      1,
-      new Date(),
-    ]
+     (full_name, birthdate, gender, sex, phone, email, password, is_walk_in, consent_given, consent_given_at, consent_method, receive_promotions, is_profile_complete)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, NOW(), ?, 0, 0)`,
+    [name, normalizedBirthdate, normalizedSex, normalizedSex, normalizedPhone, normalizedEmail, hashedPassword, String(consent_method || 'signed_intake_form')]
   )
-
-  await db.query(
-    'INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)',
-    [result.insertId, 'data_processing', req.ip || null]
-  )
-
-  res.status(201).json({ id: result.insertId, full_name, email, phone: normalizedPhone })
+  await db.query('INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)', [result.insertId, 'data_processing', req.ip || null])
+  await writeAuditLog({ userId: req.user.id, userRole: 'admin', action: 'patient.walkin_registered', entityType: 'patient', entityId: result.insertId, newValues: { full_name: name, phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex, consent_method }, ipAddress: req.ip || null })
+  res.status(201).json({ id: result.insertId, full_name: name, phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex })
 }
+
 
 // ── Staff ─────────────────────────────────────────────────────────────────────
 
@@ -1087,19 +1049,22 @@ const createBillingCatalogService = async (req, res) => {
     await conn.beginTransaction()
     const [result] = await conn.query(
       `INSERT INTO billing_service_catalog
-       (category, service_name, clinic_type, default_price, consultation_fee, profit_percentage, is_active, sort_order)
-       VALUES (?, ?, ?, 0.00, ?, ?, ?, ?)`,
+       (category, service_name, clinic_type, default_price, consultation_fee, profit_percentage, is_active, sort_order, pricing_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.category,
         payload.service_name,
         payload.clinic_type,
+        payload.default_price,
         payload.consultation_fee,
         payload.profit_percentage,
         payload.is_active,
         payload.sort_order,
+        payload.pricing_notes,
       ]
     )
     await saveBillingServiceMaterials(result.insertId, payload.materials, conn)
+    await writeAuditLog({ userId: req.user.id, userRole: 'admin', action: 'catalog.service_created', entityType: 'billing_service', entityId: result.insertId, newValues: payload, ipAddress: req.ip || null }, conn)
     await conn.commit()
 
     const created = await getBillingCatalogServiceById(result.insertId)
@@ -1135,20 +1100,23 @@ const updateBillingCatalogService = async (req, res) => {
 
     await conn.query(
       `UPDATE billing_service_catalog
-       SET category = ?, service_name = ?, clinic_type = ?, default_price = 0.00, consultation_fee = ?, profit_percentage = ?, is_active = ?, sort_order = ?
+       SET category = ?, service_name = ?, clinic_type = ?, default_price = ?, consultation_fee = ?, profit_percentage = ?, is_active = ?, sort_order = ?, pricing_notes = ?
        WHERE id = ?`,
       [
         payload.category,
         payload.service_name,
         payload.clinic_type,
+        payload.default_price,
         payload.consultation_fee,
         payload.profit_percentage,
         payload.is_active,
         payload.sort_order,
+        payload.pricing_notes,
         req.params.serviceId,
       ]
     )
     await saveBillingServiceMaterials(req.params.serviceId, payload.materials, conn)
+    await writeAuditLog({ userId: req.user.id, userRole: 'admin', action: 'catalog.service_updated', entityType: 'billing_service', entityId: req.params.serviceId, newValues: payload, ipAddress: req.ip || null }, conn)
     await conn.commit()
 
     const updated = await getBillingCatalogServiceById(req.params.serviceId)
@@ -1238,12 +1206,16 @@ const updatePaymentSettingsAdmin = async (req, res) => {
          updated_by_admin_id = VALUES(updated_by_admin_id)`,
       [payload.gcash_qr_url, payload.maya_qr_url, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
     )
-    await conn.query(
-      `INSERT INTO audit_logs
-       (user_id, user_role, action, entity_type, entity_id, old_values, new_values, ip_address)
-       VALUES (?, 'admin', 'billing.payment_settings_updated', 'clinic_payment_settings', '1', ?, ?, ?)`,
-      [req.user.id, JSON.stringify(oldRows[0] || null), JSON.stringify(payload), req.ip || null]
-    )
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'admin',
+      action: 'billing.payment_settings_updated',
+      entityType: 'clinic_payment_settings',
+      entityId: '1',
+      oldValues: oldRows[0] || null,
+      newValues: payload,
+      ipAddress: req.ip || null,
+    }, conn)
     await conn.commit()
   } catch (error) {
     await conn.rollback()
@@ -1257,13 +1229,11 @@ const updatePaymentSettingsAdmin = async (req, res) => {
 
 const getReports = async (req, res) => {
   let range
-  try {
-    range = resolveReportRange(req.query)
-  } catch (error) {
-    return res.status(error.statusCode || 400).json({ message: error.message })
-  }
+  try { range = resolveReportRange(req.query) }
+  catch (error) { return res.status(error.statusCode || 400).json({ message: error.message }) }
   const { startDate, endDate } = range
   const dateParams = [startDate, endDate]
+
   const [monthly] = await db.query(
     `SELECT DATE_FORMAT(appointment_date, '%b %Y') AS month,
             DATE_FORMAT(appointment_date, '%Y-%m') AS ym,
@@ -1271,193 +1241,201 @@ const getReports = async (req, res) => {
             COUNT(DISTINCT patient_id) AS patients,
             SUM(clinic_type = 'derma') AS derma,
             SUM(clinic_type = 'medical') AS medical
-     FROM appointments
-     WHERE appointment_date BETWEEN ? AND ?
-     GROUP BY ym, month ORDER BY ym ASC`,
-    dateParams
-  )
+     FROM appointments WHERE appointment_date BETWEEN ? AND ?
+     GROUP BY ym, month ORDER BY ym ASC`, dateParams)
 
   const [[appointmentSummary]] = await db.query(
-    `SELECT COUNT(*) AS appointments,
-            COUNT(DISTINCT patient_id) AS unique_patients,
-            SUM(clinic_type = 'derma') AS derma,
-            SUM(clinic_type = 'medical') AS medical
-     FROM appointments
-     WHERE appointment_date BETWEEN ? AND ?`,
-    dateParams
-  )
+    `SELECT COUNT(*) AS appointments, COUNT(DISTINCT patient_id) AS unique_patients,
+            SUM(clinic_type = 'derma') AS derma, SUM(clinic_type = 'medical') AS medical,
+            SUM(status = 'completed') AS completed, SUM(status = 'cancelled') AS cancelled,
+            SUM(status = 'no_show') AS no_show
+     FROM appointments WHERE appointment_date BETWEEN ? AND ?`, dateParams)
 
   const [statusRows] = await db.query(
-    `SELECT status, COUNT(*) AS value
-     FROM appointments
-     WHERE appointment_date BETWEEN ? AND ?
-     GROUP BY status`,
-    dateParams
-  )
-  const total = statusRows.reduce((sum, row) => sum + Number(row.value || 0), 0)
+    `SELECT status, COUNT(*) AS value FROM appointments
+     WHERE appointment_date BETWEEN ? AND ? GROUP BY status`, dateParams)
+  const appointmentTotal = statusRows.reduce((sum, row) => sum + Number(row.value || 0), 0)
   const colorMap = {
-    completed:   { color: 'bg-emerald-500', textColor: 'text-emerald-600' },
-    pending:     { color: 'bg-amber-400',   textColor: 'text-amber-600'   },
-    confirmed:   { color: 'bg-sky-500',     textColor: 'text-sky-600'     },
-    cancelled:   { color: 'bg-red-400',     textColor: 'text-red-500'     },
-    rescheduled: { color: 'bg-violet-400',  textColor: 'text-violet-600'  },
-    no_show:     { color: 'bg-slate-400',   textColor: 'text-slate-500'   },
+    completed: { color: 'bg-emerald-500', textColor: 'text-emerald-600' },
+    pending: { color: 'bg-amber-400', textColor: 'text-amber-600' },
+    confirmed: { color: 'bg-sky-500', textColor: 'text-sky-600' },
+    cancelled: { color: 'bg-red-400', textColor: 'text-red-500' },
+    rescheduled: { color: 'bg-violet-400', textColor: 'text-violet-600' },
+    no_show: { color: 'bg-slate-400', textColor: 'text-slate-500' },
+    'in-progress': { color: 'bg-indigo-400', textColor: 'text-indigo-600' },
   }
   const statusBreakdown = statusRows.map((row) => ({
-    label: String(row.status || '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+    label: String(row.status || '').replace(/[_-]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
     value: Number(row.value || 0),
-    pct: total > 0 ? Math.round((Number(row.value || 0) / total) * 100) : 0,
+    pct: appointmentTotal > 0 ? Math.round((Number(row.value || 0) / appointmentTotal) * 100) : 0,
     color: (colorMap[row.status] || { color: 'bg-slate-400' }).color,
     textColor: (colorMap[row.status] || { textColor: 'text-slate-500' }).textColor,
   }))
 
+  const [appointmentSources] = await db.query(
+    `SELECT COALESCE(appointment_source, 'online') AS source, COUNT(*) AS value
+     FROM appointments WHERE appointment_date BETWEEN ? AND ?
+     GROUP BY COALESCE(appointment_source, 'online') ORDER BY value DESC`, dateParams)
+
   const [topDoctors] = await db.query(
     `SELECT d.full_name AS name, d.specialty, d.specialty LIKE '%erm%' AS is_derma,
-            COUNT(*) AS appointments,
-            COUNT(DISTINCT a.patient_id) AS patients,
+            COUNT(*) AS appointments, COUNT(DISTINCT a.patient_id) AS patients,
             SUM(a.status = 'completed') AS completed
-     FROM appointments a
-     JOIN doctors d ON a.doctor_id = d.id
+     FROM appointments a JOIN doctors d ON a.doctor_id = d.id
      WHERE a.appointment_date BETWEEN ? AND ?
      GROUP BY d.id, d.full_name, d.specialty
-     ORDER BY appointments DESC, patients DESC
-     LIMIT 10`,
-    dateParams
-  )
+     ORDER BY appointments DESC, patients DESC LIMIT 10`, dateParams)
+
+  const [[newReturning]] = await db.query(
+    `SELECT
+       SUM(first_visit BETWEEN ? AND ?) AS new_patients,
+       COUNT(*) - SUM(first_visit BETWEEN ? AND ?) AS returning_patients
+     FROM (
+       SELECT patient_id, MIN(appointment_date) AS first_visit
+       FROM appointments
+       WHERE patient_id IN (SELECT DISTINCT patient_id FROM appointments WHERE appointment_date BETWEEN ? AND ?)
+       GROUP BY patient_id
+     ) x`, [startDate, endDate, startDate, endDate, startDate, endDate])
 
   const [[inventoryStats]] = await db.query(
     `SELECT
-       COUNT(*) AS total_items,
-       COALESCE(SUM(stock * COALESCE(price, 0)), 0) AS total_value,
-       SUM(stock = 0) AS out_of_stock,
-       SUM(stock > 0 AND stock <= threshold) AS low_stock,
-       SUM(expiration_date IS NOT NULL AND expiration_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)) AS expiring_soon
-     FROM inventory`
-  )
+       (SELECT COUNT(*) FROM inventory) AS total_items,
+       (SELECT COALESCE(SUM(stock * COALESCE(price, 0)), 0) FROM inventory) AS total_value,
+       (SELECT SUM(stock = 0) FROM inventory) AS out_of_stock,
+       (SELECT SUM(stock > 0 AND stock <= threshold) FROM inventory) AS low_stock,
+       (SELECT COUNT(*) FROM inventory_batches WHERE quantity > 0 AND expiration_date IS NOT NULL AND expiration_date < CURDATE()) AS expired,
+       (SELECT COUNT(*) FROM inventory_batches WHERE quantity > 0 AND expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)) AS expiring_soon`)
 
   const [stockActivity] = await db.query(
     `SELECT DATE_FORMAT(logged_at, '%b %Y') AS month,
             DATE_FORMAT(logged_at, '%Y-%m') AS ym,
-            SUM(type = 'in') AS stock_in_actions,
-            SUM(type = 'out') AS stock_out_actions,
+            SUM(type = 'in') AS stock_in_actions, SUM(type = 'out') AS stock_out_actions,
             COALESCE(SUM(CASE WHEN type = 'in' THEN qty ELSE 0 END), 0) AS stock_in,
             COALESCE(SUM(CASE WHEN type = 'out' THEN qty ELSE 0 END), 0) AS stock_out
-     FROM inventory_logs
-     WHERE DATE(logged_at) BETWEEN ? AND ?
-     GROUP BY ym, month
-     ORDER BY ym ASC`,
-    dateParams
-  )
+     FROM inventory_logs WHERE DATE(logged_at) BETWEEN ? AND ?
+     GROUP BY ym, month ORDER BY ym ASC`, dateParams)
+
+  const [stockMovementByReason] = await db.query(
+    `SELECT COALESCE(movement_type, CASE WHEN type='in' THEN 'received' ELSE 'adjustment' END) AS movement_type,
+            COUNT(*) AS actions, COALESCE(SUM(qty),0) AS quantity
+     FROM inventory_logs WHERE DATE(logged_at) BETWEEN ? AND ?
+     GROUP BY movement_type ORDER BY quantity DESC`, dateParams)
 
   const [inventoryByCategory] = await db.query(
-    `SELECT category,
-            COUNT(*) AS items,
-            COALESCE(SUM(stock), 0) AS total_stock,
+    `SELECT category, COUNT(*) AS items, COALESCE(SUM(stock), 0) AS total_stock,
             COALESCE(SUM(stock * COALESCE(price, 0)), 0) AS total_value
-     FROM inventory
-     GROUP BY category
-     ORDER BY total_value DESC, category ASC`
-  )
+     FROM inventory GROUP BY category ORDER BY total_value DESC, category ASC`)
 
-  const [[upcomingAppointments]] = await db.query(
-    `SELECT COUNT(*) AS value
-     FROM appointments
-     WHERE appointment_date >= CURDATE()
-       AND status IN ('pending', 'confirmed', 'rescheduled')`
-  )
+  const [[currentOperations]] = await db.query(
+    `SELECT
+       (SELECT COUNT(*) FROM appointments WHERE appointment_date = CURDATE() AND status IN ('pending','confirmed','rescheduled','in-progress')) AS today_remaining,
+       (SELECT COUNT(*) FROM appointments WHERE appointment_date > CURDATE() AND status IN ('pending','confirmed','rescheduled')) AS future_confirmed,
+       (SELECT COUNT(*) FROM appointments WHERE status = 'pending' AND appointment_date >= CURDATE()) AS awaiting_approval,
+       (SELECT COUNT(*) FROM queue WHERE queue_date = CURDATE() AND status IN ('waiting','in-progress')) AS walkin_queue,
+       (SELECT COUNT(*) FROM supply_requests WHERE status = 'pending') AS pending_supply_requests`)
 
   const [[supplyRequests]] = await db.query(
-    `SELECT
-       SUM(status = 'pending') AS pending,
-       SUM(status = 'approved') AS approved,
-       SUM(status = 'rejected') AS rejected
-     FROM supply_requests
-     WHERE DATE(requested_at) BETWEEN ? AND ?`,
-    dateParams
-  )
+    `SELECT SUM(status = 'pending') AS pending, SUM(status = 'approved') AS approved, SUM(status = 'rejected') AS rejected
+     FROM supply_requests WHERE DATE(requested_at) BETWEEN ? AND ?`, dateParams)
 
   const [[billingSummary]] = await db.query(
     `SELECT
-       COALESCE(SUM(CASE WHEN status = 'paid' THEN subtotal ELSE 0 END), 0) AS gross_billing,
-       COALESCE(SUM(CASE WHEN status = 'paid' THEN discount_amount ELSE 0 END), 0) AS discounts,
-       COALESCE(SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END), 0) AS net_collected,
-       COALESCE(SUM(CASE WHEN status = 'pending' THEN total_amount ELSE 0 END), 0) AS pending_receivables,
+       COALESCE(SUM(CASE WHEN status NOT IN ('voided') THEN subtotal ELSE 0 END), 0) AS gross_billed,
+       COALESCE(SUM(CASE WHEN status NOT IN ('voided') THEN discount_amount ELSE 0 END), 0) AS discounts,
+       COALESCE(SUM(CASE WHEN status NOT IN ('voided') THEN total_amount ELSE 0 END), 0) AS net_billed,
        SUM(status = 'paid') AS paid_bills,
-       SUM(status = 'pending') AS pending_bills
+       SUM(status = 'partially_paid') AS partially_paid_bills,
+       SUM(status IN ('draft','pending','ready')) AS unpaid_bills,
+       SUM(status = 'voided') AS voided_bills
      FROM billing_records
-     WHERE DATE(COALESCE(paid_at, created_at)) BETWEEN ? AND ?`,
-    dateParams
-  )
+     WHERE DATE(COALESCE(finalized_at, created_at)) BETWEEN ? AND ?`, dateParams)
+
+  const [[collectionSummary]] = await db.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) AS collected,
+       COALESCE(SUM(CASE WHEN status = 'completed' THEN COALESCE(refund_amount,0) ELSE 0 END), 0) AS refunded
+     FROM billing_payments WHERE DATE(paid_at) BETWEEN ? AND ?`, dateParams).catch((error) => {
+       if (error.code === 'ER_NO_SUCH_TABLE') return [[{ collected: 0, refunded: 0 }]]
+       throw error
+     })
+
+  const [[outstandingSummary]] = await db.query(
+    `SELECT COALESCE(SUM(GREATEST(0, b.total_amount - COALESCE(p.paid_amount,0))),0) AS outstanding
+     FROM billing_records b
+     LEFT JOIN (
+       SELECT billing_id, SUM(CASE WHEN status='completed' THEN amount - COALESCE(refund_amount,0) ELSE 0 END) AS paid_amount
+       FROM billing_payments GROUP BY billing_id
+     ) p ON p.billing_id = b.id
+     WHERE b.status IN ('draft','pending','ready','partially_paid')`)
 
   const [paymentsByMethod] = await db.query(
-    `SELECT payment_method, COUNT(*) AS transactions, COALESCE(SUM(amount), 0) AS amount
+    `SELECT payment_method, COUNT(*) AS transactions,
+            COALESCE(SUM(amount - COALESCE(refund_amount,0)), 0) AS amount
      FROM billing_payments
      WHERE status = 'completed' AND DATE(paid_at) BETWEEN ? AND ?
-     GROUP BY payment_method
-     ORDER BY amount DESC`,
-    dateParams
-  ).catch((error) => {
-    if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
-    throw error
-  })
+     GROUP BY payment_method ORDER BY amount DESC`, dateParams).catch((error) => {
+       if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
+       throw error
+     })
 
   const [serviceRevenue] = await db.query(
-    `SELECT bi.service_name,
-            COUNT(DISTINCT bi.billing_id) AS bills,
+    `SELECT bi.service_name, COUNT(DISTINCT bi.billing_id) AS bills,
             COALESCE(SUM(bi.quantity), 0) AS quantity,
-            COALESCE(SUM(bi.line_total), 0) AS revenue
+            COALESCE(SUM(bi.line_total), 0) AS gross_billed_amount
      FROM billing_items bi
-     JOIN billing_records br ON br.id = bi.billing_id AND br.status = 'paid'
-     WHERE DATE(br.paid_at) BETWEEN ? AND ?
-     GROUP BY bi.service_name
-     ORDER BY revenue DESC
-     LIMIT 10`,
-    dateParams
-  )
+     JOIN billing_records br ON br.id = bi.billing_id AND br.status <> 'voided'
+     WHERE DATE(COALESCE(br.finalized_at, br.created_at)) BETWEEN ? AND ?
+     GROUP BY bi.service_name ORDER BY gross_billed_amount DESC LIMIT 10`, dateParams)
 
   const [revenueTrend] = await db.query(
-    `SELECT DATE_FORMAT(paid_at, '%b %Y') AS month,
-            DATE_FORMAT(paid_at, '%Y-%m') AS ym,
-            COUNT(*) AS paid_bills,
-            COALESCE(SUM(total_amount), 0) AS revenue
-     FROM billing_records
-     WHERE status = 'paid' AND DATE(paid_at) BETWEEN ? AND ?
-     GROUP BY ym, month
-     ORDER BY ym ASC`,
-    dateParams
-  )
+    `SELECT DATE_FORMAT(paid_at, '%b %Y') AS month, DATE_FORMAT(paid_at, '%Y-%m') AS ym,
+            COUNT(*) AS transactions,
+            COALESCE(SUM(amount - COALESCE(refund_amount,0)), 0) AS revenue
+     FROM billing_payments
+     WHERE status='completed' AND DATE(paid_at) BETWEEN ? AND ?
+     GROUP BY ym, month ORDER BY ym ASC`, dateParams).catch((error) => {
+       if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
+       throw error
+     })
+
+  const [clinicSettingsRows] = await db.query('SELECT clinic_name, address, phone, email, report_footer FROM clinic_settings WHERE id = 1 LIMIT 1').catch(() => [[]])
+  const collected = Number(collectionSummary?.collected || 0)
+  const refunded = Number(collectionSummary?.refunded || 0)
 
   res.json({
     range: { start_date: startDate, end_date: endDate },
+    clinicSettings: clinicSettingsRows[0] || null,
     monthly,
     appointmentSummary: {
-      appointments: Number(appointmentSummary?.appointments || 0),
-      unique_patients: Number(appointmentSummary?.unique_patients || 0),
-      medical: Number(appointmentSummary?.medical || 0),
-      derma: Number(appointmentSummary?.derma || 0),
+      appointments: Number(appointmentSummary?.appointments || 0), unique_patients: Number(appointmentSummary?.unique_patients || 0),
+      medical: Number(appointmentSummary?.medical || 0), derma: Number(appointmentSummary?.derma || 0),
+      completed: Number(appointmentSummary?.completed || 0), cancelled: Number(appointmentSummary?.cancelled || 0), no_show: Number(appointmentSummary?.no_show || 0),
+      new_patients: Number(newReturning?.new_patients || 0), returning_patients: Number(newReturning?.returning_patients || 0),
     },
-    statusBreakdown,
-    topDoctors,
-    inventoryStats,
-    stockActivity,
-    inventoryByCategory,
-    upcomingAppointments: Number(upcomingAppointments?.value || 0),
-    supplyRequests: {
-      pending: Number(supplyRequests?.pending || 0),
-      approved: Number(supplyRequests?.approved || 0),
-      rejected: Number(supplyRequests?.rejected || 0),
+    statusBreakdown, appointmentSources, topDoctors,
+    inventoryStats: {
+      ...inventoryStats,
+      total_items: Number(inventoryStats?.total_items || 0), total_value: Number(inventoryStats?.total_value || 0),
+      out_of_stock: Number(inventoryStats?.out_of_stock || 0), low_stock: Number(inventoryStats?.low_stock || 0),
+      expired: Number(inventoryStats?.expired || 0), expiring_soon: Number(inventoryStats?.expiring_soon || 0),
     },
+    stockActivity, stockMovementByReason, inventoryByCategory,
+    currentOperations: {
+      today_remaining: Number(currentOperations?.today_remaining || 0), future_confirmed: Number(currentOperations?.future_confirmed || 0),
+      awaiting_approval: Number(currentOperations?.awaiting_approval || 0), walkin_queue: Number(currentOperations?.walkin_queue || 0),
+      pending_supply_requests: Number(currentOperations?.pending_supply_requests || 0),
+    },
+    upcomingAppointments: Number(currentOperations?.future_confirmed || 0),
+    supplyRequests: { pending: Number(supplyRequests?.pending || 0), approved: Number(supplyRequests?.approved || 0), rejected: Number(supplyRequests?.rejected || 0) },
     billingSummary: {
-      gross_billing: Number(billingSummary?.gross_billing || 0),
-      discounts: Number(billingSummary?.discounts || 0),
-      net_collected: Number(billingSummary?.net_collected || 0),
-      pending_receivables: Number(billingSummary?.pending_receivables || 0),
-      paid_bills: Number(billingSummary?.paid_bills || 0),
-      pending_bills: Number(billingSummary?.pending_bills || 0),
+      gross_billed: Number(billingSummary?.gross_billed || 0), gross_billing: Number(billingSummary?.gross_billed || 0),
+      discounts: Number(billingSummary?.discounts || 0), net_billed: Number(billingSummary?.net_billed || 0),
+      collected, net_collected: Math.max(0, collected - refunded), refunded,
+      outstanding: Number(outstandingSummary?.outstanding || 0), pending_receivables: Number(outstandingSummary?.outstanding || 0),
+      paid_bills: Number(billingSummary?.paid_bills || 0), partially_paid_bills: Number(billingSummary?.partially_paid_bills || 0),
+      unpaid_bills: Number(billingSummary?.unpaid_bills || 0), pending_bills: Number(billingSummary?.unpaid_bills || 0), voided_bills: Number(billingSummary?.voided_bills || 0),
     },
-    paymentsByMethod,
-    serviceRevenue,
-    revenueTrend,
+    paymentsByMethod, serviceRevenue, revenueTrend,
   })
 }
 
@@ -1491,7 +1469,7 @@ const getInventoryLogs = async (req, res) => {
   )
 
   const [rows] = await db.query(
-    `SELECT il.*, i.name AS item_name,
+    `SELECT il.*, i.name AS item_name, ib.batch_code,
             COALESCE(s.full_name, a.full_name, 'System') AS performed_by,
             CASE
               WHEN il.admin_id IS NOT NULL THEN 'Admin'
@@ -1500,6 +1478,7 @@ const getInventoryLogs = async (req, res) => {
             END AS performed_by_role
      FROM inventory_logs il
      LEFT JOIN inventory i ON il.inventory_id = i.id
+     LEFT JOIN inventory_batches ib ON ib.id = il.batch_id
      LEFT JOIN staff s ON il.staff_id = s.id
      LEFT JOIN admins a ON il.admin_id = a.id
      ${whereClause}
@@ -1537,7 +1516,7 @@ const getInventory = async (req, res) => {
 const addInventoryItem = async (req, res) => {
   const {
     barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier,
-    expiration_date, storage_location,
+    expiration_date, batch_code, storage_location,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1550,24 +1529,38 @@ const addInventoryItem = async (req, res) => {
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [barcode, name, category, unit, base_unit, unit_size, 0, threshold, price, supplier, null, storage_location]
     )
+    let openingBatchId = null
     if (stock > 0) {
-      await addInventoryBatch(result.insertId, {
+      openingBatchId = await addInventoryBatch(result.insertId, {
         quantity: stock,
         expiration_date,
+        batch_code,
         note: 'Opening stock',
       }, conn)
     }
     await syncInventorySnapshot(result.insertId, conn)
-    await conn.query(
-      'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
-      [
-        result.insertId,
-        req.user.id,
-        'in',
-        stock,
-        `Created inventory item${barcode ? ` with barcode ${barcode}` : ''}${stock > 0 ? `; opening batch expiry: ${expiration_date || 'none'}` : ''}`,
-      ]
-    )
+    if (stock > 0 && openingBatchId) {
+      await conn.query(
+        `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, to_location)
+         VALUES (?, ?, 'in', ?, ?, 'received', ?, 'Main Stockroom')`,
+        [
+          result.insertId,
+          req.user.id,
+          stock,
+          `Opening stock · ${batch_code || `Batch #${openingBatchId}`}${expiration_date ? ` · expires ${expiration_date}` : ''}`,
+          openingBatchId,
+        ]
+      )
+    }
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'admin',
+      action: 'inventory.item_created',
+      entityType: 'inventory_item',
+      entityId: result.insertId,
+      newValues: { name, category, barcode, stock_unit: unit, dispensing_unit: base_unit, units_per_package: unit_size, opening_stock: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
+      ipAddress: req.ip || null,
+    }, conn)
     await conn.commit()
     const rows = await loadInventoryRows(db, 'WHERE id = ?', [result.insertId])
     res.status(201).json(rows[0])
@@ -1625,18 +1618,43 @@ const updateInventoryItem = async (req, res) => {
 const deleteInventoryItem = async (req, res) => {
   const [rows] = await db.query('SELECT id, name, stock FROM inventory WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
-  await db.query(
-    'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
-    [req.params.id, req.user.id, 'out', rows[0].stock || 0, `Deleted inventory item ${rows[0].name}`]
-  )
-  await db.query('DELETE FROM inventory WHERE id = ?', [req.params.id])
-  res.json({ message: 'Item deleted.' })
+  if (Number(rows[0].stock || 0) > 0) {
+    return res.status(409).json({
+      message: 'This item still has batch stock. Record the appropriate batch stock-out/transfer first before deleting the item.',
+    })
+  }
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'admin',
+      action: 'inventory.item_deleted',
+      entityType: 'inventory_item',
+      entityId: req.params.id,
+      oldValues: { name: rows[0].name, stock: Number(rows[0].stock || 0) },
+      ipAddress: req.ip || null,
+    }, conn)
+    await conn.query('DELETE FROM inventory WHERE id = ?', [req.params.id])
+    await conn.commit()
+    res.json({ message: 'Inventory item deleted.' })
+  } catch (error) {
+    await conn.rollback()
+    throw error
+  } finally {
+    conn.release()
+  }
 }
 
 const updateStock = async (req, res) => {
-  const { type, qty, note, expiration_date, selected_batches } = req.body
+  const { type, qty, note, movement_reason, expiration_date, batch_code, selected_batches } = req.body
   if (!['in', 'out'].includes(type) || !qty)
     return res.status(400).json({ message: 'type and qty required.' })
+  const movementType = normalizeStockMovementType(type, movement_reason)
+  const exactBatchRequired = type === 'out' && ['expired', 'damaged', 'wastage', 'returned_to_supplier'].includes(movementType)
+  if (exactBatchRequired && (!Array.isArray(selected_batches) || selected_batches.length === 0)) {
+    return res.status(400).json({ message: 'Select the exact batch/lot for expired, damaged, wastage, or supplier-return stock-out.' })
+  }
   if (type === 'out' && Array.isArray(selected_batches) && selected_batches.length > 0) {
     const selectedQty = selected_batches.reduce((sum, entry) => sum + Number(entry?.quantity || 0), 0)
     if (selectedQty !== Number(qty)) {
@@ -1653,13 +1671,22 @@ const updateStock = async (req, res) => {
       return res.status(404).json({ message: 'Item not found.' })
     }
 
+    let auditValues = null
+
     if (type === 'in') {
-      await addInventoryBatch(req.params.id, {
+      const newBatchId = await addInventoryBatch(req.params.id, {
         quantity: qty,
         expiration_date,
+        batch_code,
         note: note || 'Manual stock-in',
       }, conn)
       await syncInventorySnapshot(req.params.id, conn)
+      await conn.query(
+        `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, to_location)
+         VALUES (?, ?, 'in', ?, ?, ?, ?, 'Main Stockroom')`,
+        [req.params.id, req.user.id, qty, `${note || 'Stock received'} · ${batch_code || `Batch #${newBatchId}`}${expiration_date ? ` · expires ${expiration_date}` : ''}`, movementType, newBatchId]
+      )
+      auditValues = { type: 'in', movement_type: movementType, quantity: Number(qty), batch_id: newBatchId, batch_code: batch_code || null, expiration_date: expiration_date || null, location: 'Main Stockroom', note: note || null }
     } else {
       const consumption = Array.isArray(selected_batches) && selected_batches.length > 0
         ? await consumeInventoryByBatches(req.params.id, selected_batches, conn)
@@ -1668,25 +1695,25 @@ const updateStock = async (req, res) => {
         await conn.rollback()
         return res.status(400).json({ message: consumption.message })
       }
+      for (const batch of consumption.consumed) {
+        const batchLabel = batch.batch_code || `Batch #${batch.batch_id || batch.id}`
+        await conn.query(
+          `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, from_location)
+           VALUES (?, ?, 'out', ?, ?, ?, ?, ?)`,
+          [req.params.id, req.user.id, batch.quantity, `${note || 'Manual stock-out'} · ${batchLabel}${batch.expiration_date ? ` · expires ${batch.expiration_date}` : ''}`, movementType, batch.batch_id || batch.id, batch.location || 'Main Stockroom']
+        )
+      }
+      auditValues = { type: 'out', movement_type: movementType, quantity: Number(qty), batches: consumption.consumed.map((batch) => ({ batch_id: batch.batch_id || batch.id, batch_code: batch.batch_code || null, quantity: Number(batch.quantity || 0), expiration_date: batch.expiration_date || null, location: batch.location || 'Main Stockroom' })), note: note || null }
     }
-
-    await conn.query(
-      'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
-      [
-        req.params.id,
-        req.user.id,
-        type,
-        qty,
-        type === 'in'
-          ? `${note || 'Manual stock-in'}${expiration_date ? ` (batch expiry: ${expiration_date})` : ''}`
-          : (
-              note
-              || (Array.isArray(selected_batches) && selected_batches.length > 0
-                ? 'Manual stock-out from selected batches'
-                : 'Manual stock-out via FEFO')
-            ),
-      ]
-    )
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'admin',
+      action: 'inventory.stock_moved',
+      entityType: 'inventory_item',
+      entityId: req.params.id,
+      newValues: { item_name: rows[0].name, ...auditValues },
+      ipAddress: req.ip || null,
+    }, conn)
     await conn.commit()
     const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
     res.json(updated[0])
@@ -1712,53 +1739,158 @@ const getSupplyRequests = async (req, res) => {
 }
 
 const resolveSupplyRequest = async (req, res) => {
-  const { status } = req.body
-  if (!['approved','rejected'].includes(status))
-    return res.status(400).json({ message: 'Status must be approved or rejected.' })
+  const result = await resolveSupplyTransfer({
+    requestId: req.params.id,
+    status: req.body.status,
+    actorRole: 'admin',
+    actorId: req.user.id,
+    ipAddress: req.ip || null,
+  })
+  res.status(result.statusCode).json(result.body)
+}
 
-  const [rows] = await db.query('SELECT * FROM supply_requests WHERE id = ?', [req.params.id])
-  if (rows.length === 0) return res.status(404).json({ message: 'Request not found.' })
-  if (rows[0].status !== 'pending')
-    return res.status(400).json({ message: 'Only pending requests can be resolved.' })
+// ── Billing oversight / refunds / reconciliation ─────────────────────────────
+const getBillingReconciliation = async (req, res) => {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : getTodayDateOnly()
+  const [methods] = await db.query(
+    `SELECT payment_method, COUNT(*) AS transactions,
+            COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) AS gross,
+            COALESCE(SUM(CASE WHEN status='completed' THEN COALESCE(refund_amount,0) ELSE 0 END),0) AS refunded,
+            COALESCE(SUM(CASE WHEN status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS net
+     FROM billing_payments WHERE DATE(paid_at)=? GROUP BY payment_method ORDER BY net DESC`, [date])
+  const [[summary]] = await db.query(
+    `SELECT COUNT(*) AS transactions,
+            COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) AS gross_collected,
+            COALESCE(SUM(CASE WHEN status='completed' THEN COALESCE(refund_amount,0) ELSE 0 END),0) AS refunded,
+            COALESCE(SUM(CASE WHEN status='voided' THEN 1 ELSE 0 END),0) AS voided_transactions,
+            COALESCE(SUM(CASE WHEN payment_method='cash' AND status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
+     FROM billing_payments WHERE DATE(paid_at)=?`, [date])
+  const [[discounts]] = await db.query(
+    `SELECT COALESCE(SUM(discount_amount),0) AS discounts FROM billing_records
+     WHERE DATE(COALESCE(finalized_at,created_at))=? AND status <> 'voided'`, [date])
+  const [closings] = await db.query(
+    `SELECT cc.*, s.full_name AS staff_name FROM cashier_closings cc JOIN staff s ON s.id=cc.staff_id
+     WHERE cc.closing_date=? ORDER BY cc.closed_at DESC`, [date])
+  res.json({ date, methods, summary: { ...summary, discounts: Number(discounts?.discounts || 0) }, closings })
+}
 
+const voidBillingPayment = async (req, res) => {
+  const paymentId = Number(req.params.paymentId)
+  const reason = String(req.body.reason || '').trim()
+  if (!reason) return res.status(400).json({ message: 'Void reason is required.' })
   const conn = await db.getConnection()
+  let billingId
   try {
     await conn.beginTransaction()
-
-    if (status === 'approved') {
-      const consumption = await consumeInventoryFEFO(rows[0].inventory_id, rows[0].qty_requested, conn)
-      if (!consumption.ok) {
-        await conn.rollback()
-        return res.status(400).json({ message: consumption.message })
-      }
-      await conn.query(
-        'INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note) VALUES (?,?,?,?,?)',
-        [rows[0].inventory_id, req.user.id, 'out', rows[0].qty_requested, 'Supply request approved via FEFO']
-      )
-    }
-
-    await conn.query('UPDATE supply_requests SET status=? WHERE id=?', [status, req.params.id])
+    const [rows] = await conn.query('SELECT * FROM billing_payments WHERE id=? FOR UPDATE', [paymentId])
+    if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Payment not found.' }) }
+    const payment = rows[0]; billingId = payment.billing_id
+    if (payment.status !== 'completed') { await conn.rollback(); return res.status(400).json({ message: 'Only completed payments can be voided.' }) }
+    await conn.query(`UPDATE billing_payments SET status='voided', voided_at=NOW(), void_reason=? WHERE id=?`, [reason, paymentId])
+    const bill = await getBillingRecordWithItems(billingId, conn)
+    const paidAfter = Math.max(0, Number(bill.paid_amount || 0))
+    const balanceAfter = Math.max(0, Number(bill.total_amount || 0) - paidAfter)
+    const nextStatus = paidAfter <= 0 ? 'ready' : balanceAfter <= 0 ? 'paid' : 'partially_paid'
+    await conn.query(`UPDATE billing_records SET status=?, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`, [nextStatus, nextStatus, billingId])
+    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.payment_voided',entityType:'billing_payment',entityId:paymentId,oldValues:{status:'completed',amount:payment.amount},newValues:{status:'voided',reason,billing_status:nextStatus},ipAddress:req.ip||null },conn)
     await conn.commit()
-  } catch (err) {
-    await conn.rollback()
-    throw err
-  } finally {
-    conn.release()
-  }
+  } catch(e){ await conn.rollback(); throw e } finally { conn.release() }
+  res.json(await getBillingRecordWithItems(billingId))
+}
 
-  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'supply_request_resolved', {
-    requestId: Number(req.params.id),
-    status,
-    doctorId: rows[0].doctor_id,
-  })
-  res.json({ message: `Request ${status}.` })
+const refundBillingPayment = async (req, res) => {
+  const paymentId = Number(req.params.paymentId)
+  const reason = String(req.body.reason || '').trim()
+  if (!reason) return res.status(400).json({ message: 'Refund reason is required.' })
+  const conn = await db.getConnection(); let billingId
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query('SELECT * FROM billing_payments WHERE id=? FOR UPDATE',[paymentId])
+    if (!rows.length){ await conn.rollback(); return res.status(404).json({message:'Payment not found.'}) }
+    const payment=rows[0]; billingId=payment.billing_id
+    if(payment.status!=='completed'){ await conn.rollback(); return res.status(400).json({message:'Only completed payments can be refunded.'}) }
+    const available=Math.max(0,Number(payment.amount||0)-Number(payment.refund_amount||0))
+    const amount=req.body.amount===undefined||req.body.amount===null||req.body.amount===''?available:Math.max(0,Number(req.body.amount)||0)
+    if(amount<=0||amount>available+0.001){ await conn.rollback(); return res.status(400).json({message:'Refund amount must be greater than zero and cannot exceed the refundable amount.'}) }
+    const nextRefund=Math.round((Number(payment.refund_amount||0)+amount)*100)/100
+    await conn.query(`UPDATE billing_payments SET refund_amount=?, refunded_at=NOW(), refund_reason=?, refunded_by_admin_id=? WHERE id=?`,[nextRefund,reason,req.user.id,paymentId])
+    const bill=await getBillingRecordWithItems(billingId,conn)
+    const paidAfter=Math.max(0,Number(bill.paid_amount||0))
+    const balanceAfter=Math.max(0,Number(bill.total_amount||0)-paidAfter)
+    const nextStatus=paidAfter<=0?'refunded':balanceAfter<=0?'paid':'partially_paid'
+    await conn.query(`UPDATE billing_records SET status=?, refunded_at=CASE WHEN ?='refunded' THEN NOW() ELSE refunded_at END, refund_reason=CASE WHEN ?='refunded' THEN ? ELSE refund_reason END, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`,[nextStatus,nextStatus,nextStatus,reason,nextStatus,billingId])
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:amount,reason,billing_status:nextStatus},ipAddress:req.ip||null},conn)
+    await conn.commit()
+  }catch(e){await conn.rollback();throw e}finally{conn.release()}
+  res.json(await getBillingRecordWithItems(billingId))
+}
+
+// ── Clinic settings ───────────────────────────────────────────────────────────
+const getClinicSettingsAdmin = async (req,res) => {
+  const [rows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1')
+  res.json(rows[0]||{})
+}
+const updateClinicSettingsAdmin = async (req,res) => {
+  const payload={
+    clinic_name:String(req.body.clinic_name||'CARAIT MEDICAL AND DERMATOLOGY CLINIC').trim(),
+    address:String(req.body.address||'').trim()||null, phone:String(req.body.phone||'').trim()||null,
+    email:String(req.body.email||'').trim()||null, report_footer:String(req.body.report_footer||'').trim()||null,
+    receipt_footer:String(req.body.receipt_footer||'').trim()||null,
+  }
+  if(!payload.clinic_name)return res.status(400).json({message:'Clinic name is required.'})
+  const [oldRows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1')
+  await db.query(`INSERT INTO clinic_settings (id,clinic_name,address,phone,email,report_footer,receipt_footer,updated_by_admin_id)
+                  VALUES (1,?,?,?,?,?,?,?)
+                  ON DUPLICATE KEY UPDATE clinic_name=VALUES(clinic_name),address=VALUES(address),phone=VALUES(phone),email=VALUES(email),report_footer=VALUES(report_footer),receipt_footer=VALUES(receipt_footer),updated_by_admin_id=VALUES(updated_by_admin_id)`,
+                 [payload.clinic_name,payload.address,payload.phone,payload.email,payload.report_footer,payload.receipt_footer,req.user.id])
+  await writeAuditLog({userId:req.user.id,userRole:'admin',action:'settings.clinic_updated',entityType:'clinic_settings',entityId:'1',oldValues:oldRows[0]||null,newValues:payload,ipAddress:req.ip||null})
+  const [rows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1');res.json(rows[0])
+}
+
+// ── Discount presets ──────────────────────────────────────────────────────────
+const getDiscountPresetsAdmin = async (req,res) => {
+  const [rows]=await db.query('SELECT * FROM discount_presets ORDER BY sort_order,label');res.json(rows)
+}
+const saveDiscountPresetAdmin = async (req,res) => {
+  const id=Number(req.params.id)||0
+  const payload={label:String(req.body.label||'').trim(),discount_type:['percentage','fixed'].includes(req.body.discount_type)?req.body.discount_type:'fixed',value:Math.max(0,Number(req.body.value)||0),requires_reference:req.body.requires_reference?1:0,requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===0?0:1,sort_order:Number(req.body.sort_order)||0}
+  if(!payload.label)return res.status(400).json({message:'Discount label is required.'})
+  let targetId=id
+  if(id){ await db.query(`UPDATE discount_presets SET label=?,discount_type=?,value=?,requires_reference=?,requires_admin_approval=?,is_active=?,sort_order=? WHERE id=?`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active,payload.sort_order,id]) }
+  else { const [r]=await db.query(`INSERT INTO discount_presets (label,discount_type,value,requires_reference,requires_admin_approval,is_active,sort_order) VALUES (?,?,?,?,?,?,?)`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active,payload.sort_order]); targetId=r.insertId }
+  await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'billing.discount_preset_updated':'billing.discount_preset_created',entityType:'discount_preset',entityId:targetId,newValues:payload,ipAddress:req.ip||null})
+  const [rows]=await db.query('SELECT * FROM discount_presets WHERE id=?',[targetId]);res.status(id?200:201).json(rows[0])
+}
+
+// ── System audit log ──────────────────────────────────────────────────────────
+const getAuditLogs = async (req,res) => {
+  const page=Math.max(1,Number(req.query.page)||1), limit=Math.min(100,Math.max(1,Number(req.query.limit)||20)), offset=(page-1)*limit
+  const filters=[],params=[]
+  if(req.query.start_date){filters.push('DATE(al.created_at)>=?');params.push(String(req.query.start_date))}
+  if(req.query.end_date){filters.push('DATE(al.created_at)<=?');params.push(String(req.query.end_date))}
+  if(req.query.user_role){filters.push('al.user_role=?');params.push(String(req.query.user_role))}
+  if(req.query.entity_type){filters.push('al.entity_type=?');params.push(String(req.query.entity_type))}
+  if(req.query.action){filters.push('al.action LIKE ?');params.push(`%${String(req.query.action)}%`)}
+  if(req.query.search){filters.push('(al.action LIKE ? OR al.entity_type LIKE ? OR al.entity_id LIKE ?)');const q=`%${String(req.query.search)}%`;params.push(q,q,q)}
+  const where=filters.length?`WHERE ${filters.join(' AND ')}`:''
+  const [[count]]=await db.query(`SELECT COUNT(*) AS total FROM audit_logs al ${where}`,params)
+  const [rows]=await db.query(`SELECT al.*,
+      CASE al.user_role WHEN 'admin' THEN a.full_name WHEN 'staff' THEN s.full_name WHEN 'doctor' THEN d.full_name WHEN 'patient' THEN p.full_name ELSE 'System' END AS performed_by
+      FROM audit_logs al
+      LEFT JOIN admins a ON al.user_role='admin' AND a.id=al.user_id
+      LEFT JOIN staff s ON al.user_role='staff' AND s.id=al.user_id
+      LEFT JOIN doctors d ON al.user_role='doctor' AND d.id=al.user_id
+      LEFT JOIN patients p ON al.user_role='patient' AND p.id=al.user_id
+      ${where} ORDER BY al.created_at DESC,al.id DESC LIMIT ? OFFSET ?`,[...params,limit,offset])
+  const total=Number(count?.total||0),totalPages=Math.max(1,Math.ceil(total/limit))
+  res.json({items:rows,pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages}})
 }
 
 module.exports = {
   login, checkAuth, logout,
   getDashboard,
   getAppointments, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, createAppointment,
-  getQueue, addToQueue, updateQueueStatus,
+  getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord,
   createWalkInPatient,
   getStaff, createStaff, toggleStaff, updateStaff,
@@ -1768,8 +1900,11 @@ module.exports = {
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
   getPaymentSettingsAdmin, updatePaymentSettingsAdmin,
+  getBillingReconciliation, voidBillingPayment, refundBillingPayment,
+  getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs,
   getReports, getInventoryLogs,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 

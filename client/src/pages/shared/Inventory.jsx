@@ -13,6 +13,20 @@ const BASE_UNITS = ['piece', 'tablet', 'capsule', 'ml', 'gram', 'sachet']
 const ITEMS_PER_PAGE = 5
 const BATCHES_PER_PAGE = 4
 
+const STOCK_IN_REASONS = [
+  { value: 'received', label: 'Received from Supplier' },
+  { value: 'returned', label: 'Returned to Stock' },
+  { value: 'correction_in', label: 'Inventory Correction (+)' },
+]
+
+const STOCK_OUT_REASONS = [
+  { value: 'adjustment_out', label: 'Inventory Correction (-)' },
+  { value: 'expired', label: 'Expired Stock' },
+  { value: 'damaged', label: 'Damaged Stock' },
+  { value: 'wastage', label: 'Wastage / Spillage' },
+  { value: 'returned_to_supplier', label: 'Returned to Supplier' },
+]
+
 const getPackageCount = (item) => {
   const unitSize = Number(item.unit_size || 1)
   const stockBase = Number(item.stock_base ?? Number(item.stock || 0) * unitSize)
@@ -44,6 +58,13 @@ const formatBatchLabel = (batch, unit) => {
   const qty = Number(batch?.quantity || 0)
   const expiry = batch?.expiration_date ? formatDate(batch.expiration_date) : 'No expiry'
   return `${qty} ${unit}${qty === 1 ? '' : 's'} - ${expiry}`
+}
+
+const getBatchLocationQuantity = (batch, locationName = 'Main Stockroom') => {
+  const locations = Array.isArray(batch?.locations) ? batch.locations : []
+  if (!locations.length) return Number(batch?.quantity || 0)
+  const location = locations.find((entry) => String(entry?.name || '') === locationName)
+  return Number(location?.quantity || 0)
 }
 
 const getExpiryMeta = (item) => {
@@ -284,6 +305,7 @@ const CameraScanner = ({ onDetected, onClose }) => {
 
 const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
   const isEditing = Boolean(initialItem?.id)
+  const [step, setStep] = useState(1)
   const [form, setForm] = useState({
     barcode: initialItem?.barcode || '',
     name: initialItem?.name || '',
@@ -296,10 +318,15 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
     price: String(initialItem?.price ?? 0),
     supplier: initialItem?.supplier || '',
     expiration_date: initialItem?.expiration_date ? String(initialItem.expiration_date).slice(0, 10) : '',
+    batch_code: '',
     storage_location: initialItem?.storage_location || '',
   })
 
   const update = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
+  const goNext = () => {
+    if (!form.name.trim()) return
+    setStep(2)
+  }
 
   const handleSubmit = async () => {
     if (!form.name.trim()) return
@@ -314,41 +341,77 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+      <div className="w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
-            <p className="text-sm font-bold text-slate-800">{title}</p>
-            <p className="text-xs text-slate-400">
-              {isEditing
-                ? 'Product details only. Stock and expiry are managed per batch.'
-                : 'Set opening stock and its batch expiry so inventory stays accurate.'}
+            <p className="text-base font-bold text-slate-900">{title}</p>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {isEditing ? 'Update the product definition. Stock is managed separately per batch.' : 'Create the item first, then define packaging and the opening batch.'}
             </p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-400 flex items-center justify-center"><MdClose /></button>
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100"><MdClose /></button>
         </div>
-        <div className="p-6 grid md:grid-cols-2 gap-4 max-h-[70vh] overflow-y-auto">
-          <Field label="Barcode"><input value={form.barcode} onChange={update('barcode')} className={inputClass} /></Field>
-          <Field label="Product Name"><input value={form.name} onChange={update('name')} className={inputClass} /></Field>
-          <Field label="Category"><select value={form.category} onChange={update('category')} className={inputClass}>{CATEGORIES.map(option => <option key={option}>{option}</option>)}</select></Field>
-          <Field label="Selling Unit"><select value={form.unit} onChange={update('unit')} className={inputClass}>{UNIT_OPTIONS.map(option => <option key={option}>{option}</option>)}</select></Field>
-          <Field label="Base Quantity Type"><select value={form.base_unit} onChange={update('base_unit')} className={inputClass}>{BASE_UNITS.map(option => <option key={option}>{option}</option>)}</select></Field>
-          <Field label="Quantity per Unit"><input type="number" min="1" value={form.unit_size} onChange={update('unit_size')} className={inputClass} /></Field>
-          {!isEditing && <Field label="Opening Stock"><input type="number" min="0" value={form.stock} onChange={update('stock')} className={inputClass} /></Field>}
-          <Field label="Low Stock Threshold"><input type="number" min="0" value={form.threshold} onChange={update('threshold')} className={inputClass} /></Field>
-          <Field label="Unit Price"><input type="number" min="0" value={form.price} onChange={update('price')} className={inputClass} /></Field>
-          <Field label="Supplier"><input value={form.supplier} onChange={update('supplier')} className={inputClass} /></Field>
-          {!isEditing && <Field label="Opening Batch Expiry"><input type="date" value={form.expiration_date} onChange={update('expiration_date')} className={inputClass} /></Field>}
-          <Field label="Storage Location"><input value={form.storage_location} onChange={update('storage_location')} className={inputClass} placeholder="e.g. Shelf A2 / Cold storage" /></Field>
-          {isEditing && (
-            <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-              Existing stock keeps its own batch expiry dates. Use <strong>Update Stock</strong> when a new delivery arrives.
+
+        <div className="px-6 pt-5">
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 text-sm font-semibold">
+            <div className={`rounded-xl px-3 py-2 text-center ${step === 1 ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>1. Item Details</div>
+            <div className={`rounded-xl px-3 py-2 text-center ${step === 2 ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>2. Stock & Packaging</div>
+          </div>
+        </div>
+
+        <div className="max-h-[66vh] overflow-y-auto p-6">
+          {step === 1 ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2"><Field label="Item Name *"><input value={form.name} onChange={update('name')} className={inputClass} placeholder="e.g. Sterile Gauze Pad" /></Field></div>
+              <Field label="Category"><select value={form.category} onChange={update('category')} className={inputClass}>{CATEGORIES.map(option => <option key={option}>{option}</option>)}</select></Field>
+              <Field label="Barcode"><input value={form.barcode} onChange={update('barcode')} className={inputClass} placeholder="Optional" /></Field>
+              <Field label="Supplier"><input value={form.supplier} onChange={update('supplier')} className={inputClass} placeholder="Optional" /></Field>
+              <Field label="Storage Location"><input value={form.storage_location} onChange={update('storage_location')} className={inputClass} placeholder="e.g. Shelf A2 / Cold storage" /></Field>
+              <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                Stock is tracked <strong>per batch</strong>. Each delivery can have its own lot number, expiry date, quantity, and room/location balance.
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Stock Unit"><select value={form.unit} onChange={update('unit')} className={inputClass}>{UNIT_OPTIONS.map(option => <option key={option}>{option}</option>)}</select></Field>
+              <Field label="Dispensing Unit"><select value={form.base_unit} onChange={update('base_unit')} className={inputClass}>{BASE_UNITS.map(option => <option key={option}>{option}</option>)}</select></Field>
+              <Field label="Units per Package"><input type="number" min="1" step="0.01" value={form.unit_size} onChange={update('unit_size')} className={inputClass} /></Field>
+              <Field label="Low Stock Alert"><input type="number" min="0" step="0.01" value={form.threshold} onChange={update('threshold')} className={inputClass} /></Field>
+              <Field label="Cost per Stock Unit"><input type="number" min="0" step="0.01" value={form.price} onChange={update('price')} className={inputClass} /></Field>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                Example: <strong>1 box = 100 pieces</strong>. Choose “box” as Stock Unit, “piece” as Dispensing Unit, and 100 as Units per Package.
+              </div>
+
+              {!isEditing && (
+                <>
+                  <Field label="Opening Stock"><input type="number" min="0" step="0.01" value={form.stock} onChange={update('stock')} className={inputClass} /></Field>
+                  <Field label="Opening Batch / Lot No."><input value={form.batch_code} onChange={update('batch_code')} className={inputClass} placeholder="e.g. LOT-2026-081" /></Field>
+                  <Field label="Opening Batch Expiry"><input type="date" value={form.expiration_date} onChange={update('expiration_date')} className={inputClass} /></Field>
+                </>
+              )}
+
+              {isEditing && (
+                <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+                  Existing quantities keep their own batch records. Use <strong>Update Stock</strong> for each new delivery or stock-out.
+                </div>
+              )}
             </div>
           )}
         </div>
-        <div className="px-6 pb-6 flex gap-3">
-          <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
-          <button onClick={handleSubmit} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white flex items-center justify-center gap-2"><MdSave /> Save</button>
+
+        <div className="flex gap-3 border-t border-slate-100 px-6 py-5">
+          {step === 1 ? (
+            <>
+              <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
+              <button onClick={goNext} disabled={!form.name.trim()} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50">Next</button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setStep(1)} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Back</button>
+              <button onClick={handleSubmit} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white flex items-center justify-center gap-2"><MdSave /> {isEditing ? 'Save Changes' : 'Add Item'}</button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -360,6 +423,8 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
   const [qty, setQty] = useState(1)
   const [note, setNote] = useState('')
   const [expirationDate, setExpirationDate] = useState('')
+  const [batchCode, setBatchCode] = useState('')
+  const [movementReason, setMovementReason] = useState('received')
   const [stockOutMode, setStockOutMode] = useState('fefo')
   const [batchPage, setBatchPage] = useState(1)
   const [batchAllocations, setBatchAllocations] = useState(
@@ -369,8 +434,9 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
   )
 
   const batches = Array.isArray(item?.batches) ? item.batches : []
-  const available = getPackageCount(item)
+  const available = batches.length > 0 ? batches.reduce((sum, batch) => sum + getBatchLocationQuantity(batch), 0) : getPackageCount(item)
   const selectedBatchQty = batchAllocations.reduce((sum, batch) => sum + Number(batch.quantity || 0), 0)
+  const exactBatchReason = type === 'out' && ['expired', 'damaged', 'wastage', 'returned_to_supplier'].includes(movementReason)
   const isManualStockOut = type === 'out' && stockOutMode === 'manual'
   const effectiveQty = isManualStockOut ? selectedBatchQty : Number(qty)
   const manualModeInvalid = isManualStockOut && selectedBatchQty <= 0
@@ -383,16 +449,24 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
   }, [item?.id, type, stockOutMode])
 
   useEffect(() => {
+    setMovementReason(type === 'in' ? 'received' : 'adjustment_out')
+  }, [type])
+
+  useEffect(() => {
+    if (exactBatchReason && stockOutMode !== 'manual') setStockOutMode('manual')
+  }, [exactBatchReason, stockOutMode])
+
+  useEffect(() => {
     if (batchPage > totalBatchPages) {
       setBatchPage(totalBatchPages)
     }
   }, [batchPage, totalBatchPages])
 
   const updateBatchQty = (batchId, value) => {
-    const maxForBatch = Number(item?.batches?.find((batch) => batch.id === batchId)?.quantity || 0)
+    const maxForBatch = getBatchLocationQuantity(item?.batches?.find((batch) => batch.id === batchId))
     setBatchAllocations((prev) => prev.map((batch) => (
       batch.batch_id === batchId
-        ? { ...batch, quantity: value === '' ? '' : Math.min(maxForBatch, Math.max(0, parseInt(value || '0', 10))) }
+        ? { ...batch, quantity: value === '' ? '' : Math.min(maxForBatch, Math.max(0, parseFloat(value || '0'))) }
         : batch
     )))
   }
@@ -410,7 +484,9 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
       type,
       qty: effectiveQty,
       note,
+      movement_reason: movementReason,
       expiration_date: type === 'in' ? expirationDate : '',
+      batch_code: type === 'in' ? batchCode.trim() : '',
       selected_batches: isManualStockOut
         ? batchAllocations
             .filter((batch) => Number(batch.quantity || 0) > 0)
@@ -438,7 +514,7 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
 
           {(!isManualStockOut || type === 'in') ? (
             <Field label={`Quantity (${item.unit}s)`}>
-              <input type="number" min="1" value={qty} onChange={e => setQty(Math.max(1, parseInt(e.target.value || '1', 10)))} className={inputClass} />
+              <input type="number" min="0.01" step="0.01" value={qty} onChange={e => setQty(Math.max(0.01, parseFloat(e.target.value || '1')))} className={inputClass} />
             </Field>
           ) : (
             <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3">
@@ -450,20 +526,36 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
             </div>
           )}
 
+          <Field label="Movement Reason *">
+            <select value={movementReason} onChange={e => setMovementReason(e.target.value)} className={inputClass}>
+              {(type === 'in' ? STOCK_IN_REASONS : STOCK_OUT_REASONS).map((reason) => (
+                <option key={reason.value} value={reason.value}>{reason.label}</option>
+              ))}
+            </select>
+          </Field>
+
           {type === 'in' && (
-            <Field label="Batch Expiration Date">
-              <input type="date" value={expirationDate} onChange={e => setExpirationDate(e.target.value)} className={inputClass} />
-            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Batch / Lot Number">
+                <input value={batchCode} onChange={e => setBatchCode(e.target.value)} className={inputClass} placeholder="e.g. LOT-2026-081" />
+              </Field>
+              <Field label="Batch Expiration Date">
+                <input type="date" value={expirationDate} onChange={e => setExpirationDate(e.target.value)} className={inputClass} />
+              </Field>
+              <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-500">
+                Every stock-in creates a separate batch. If the supplier does not provide a lot number, the system still keeps the delivery as its own internal batch record.
+              </div>
+            </div>
           )}
 
-          <Field label="Note">
-            <input value={note} onChange={e => setNote(e.target.value)} className={inputClass} placeholder="Optional note" />
+          <Field label="Movement Note">
+            <input value={note} onChange={e => setNote(e.target.value)} className={inputClass} placeholder={type === 'in' ? 'e.g. Delivery receipt DR-1024' : 'Explain the stock-out when needed'} />
           </Field>
 
           {type === 'out' && (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setStockOutMode('fefo')} className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${stockOutMode === 'fefo' ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600'}`}>
+                <button disabled={exactBatchReason} onClick={() => setStockOutMode('fefo')} className={`rounded-2xl border px-4 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${stockOutMode === 'fefo' ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600'}`}>
                   Use FEFO
                 </button>
                 <button onClick={() => setStockOutMode('manual')} className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${stockOutMode === 'manual' ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 text-slate-600'}`}>
@@ -471,9 +563,13 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
                 </button>
               </div>
 
-              {stockOutMode === 'fefo' ? (
+              {exactBatchReason ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  This movement reason requires an exact batch/lot selection so expiry, damage, wastage, or supplier returns remain fully traceable.
+                </div>
+              ) : stockOutMode === 'fefo' ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                  Automatic FEFO will deduct from the batch with the nearest expiration first.
+                  Automatic FEFO skips expired stock and deducts from the usable batch with the nearest expiration first.
                 </div>
               ) : (
                 <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
@@ -497,15 +593,21 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
                 {paginatedBatches.map(batch => (
                   <div key={batch.id} className="rounded-2xl bg-white px-3 py-2 text-sm text-slate-600">
                     <div className="flex items-center justify-between gap-3">
-                      <span>Lot #{batch.id}</span>
+                      <span>{batch.batch_code || `Batch #${batch.id}`}</span>
                       <span>{formatBatchLabel(batch, item.unit)}</span>
                     </div>
+                    {Array.isArray(batch.locations) && batch.locations.length > 0 && (
+                      <div className="mt-1 space-y-0.5 text-[11px] text-slate-400">
+                        <p>{batch.locations.map((location) => `${location.name}: ${location.quantity}`).join(' · ')}</p>
+                        {type === 'out' && <p className="font-semibold text-slate-500">Available for manual stock-out from Main Stockroom: {getBatchLocationQuantity(batch)} {item.unit}(s)</p>}
+                      </div>
+                    )}
                     {isManualStockOut && (
                       <div className="mt-2 space-y-2">
                         <div className="flex gap-2">
                           <button
                             type="button"
-                            onClick={() => fillBatchQty(batch.id, Number(batch.quantity || 0))}
+                            onClick={() => fillBatchQty(batch.id, getBatchLocationQuantity(batch))}
                             className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700"
                           >
                             Use all
@@ -521,10 +623,10 @@ const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
                         <input
                           type="number"
                           min="0"
-                          max={Number(batch.quantity || 0)}
+                          max={getBatchLocationQuantity(batch)}
                           value={batchAllocations.find((entry) => entry.batch_id === batch.id)?.quantity ?? ''}
                           onChange={(e) => updateBatchQty(batch.id, e.target.value)}
-                          placeholder={`Qty from lot #${batch.id}`}
+                          placeholder={`Qty from ${batch.batch_code || `batch #${batch.id}`}`}
                           className={inputClass}
                         />
                       </div>
@@ -669,9 +771,9 @@ const Inventory = ({ services }) => {
     setFeedback({ type: 'success', message: `${item.name} was removed from inventory.` })
   }
 
-  const handleStockUpdate = async ({ type, qty, note, expiration_date, selected_batches }) => {
+  const handleStockUpdate = async ({ type, qty, note, movement_reason, expiration_date, batch_code, selected_batches }) => {
     try {
-      await updateStock(stockItem.id, { type, qty, note, expiration_date, selected_batches })
+      await updateStock(stockItem.id, { type, qty, note, movement_reason, expiration_date, batch_code, selected_batches })
       await load()
       setFeedback({ type: 'success', message: `${stockItem.name} stock was updated successfully.` })
       setStockItem(null)
@@ -795,7 +897,7 @@ const Inventory = ({ services }) => {
                     <div className="mt-2 flex flex-wrap gap-2">
                       {item.batches.slice(0, 4).map(batch => (
                         <span key={batch.id} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
-                          Lot #{batch.id} - {formatBatchLabel(batch, item.unit)}
+                          {batch.batch_code || `Batch #${batch.id}`} - {formatBatchLabel(batch, item.unit)}
                         </span>
                       ))}
                       {item.batches.length > 4 && (
@@ -848,7 +950,7 @@ const Inventory = ({ services }) => {
         </div>
       )}
 
-      {showAdd && <ItemFormModal title="Add Inventory Item" onClose={() => setShowAdd(false)} onSubmit={handleAdd} />}
+      {showAdd && <ItemFormModal title="Add Item" onClose={() => setShowAdd(false)} onSubmit={handleAdd} />}
       {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
       {stockItem && <StockModal item={stockItem} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} onOpenScanner={() => setScannerOpen(true)} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
@@ -857,4 +959,5 @@ const Inventory = ({ services }) => {
 }
 
 export default Inventory
+
 

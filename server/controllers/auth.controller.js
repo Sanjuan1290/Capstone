@@ -225,3 +225,4 @@ const resetPassword = async (req, res) => {
 
 module.exports = { forgotPassword, verifyOtp, resetPassword }
 
+

@@ -17,6 +17,7 @@ import {
   MdWarningAmber,
 } from 'react-icons/md'
 import { getInventoryItems, getMyRequests, submitRequest } from '../../services/doctor.service'
+import { useAuth } from '../../context/AuthContext'
 
 const STATUS_CFG = {
   pending: {
@@ -64,11 +65,12 @@ const formatStock = (item) => {
   return Number.isFinite(amount) ? amount : 0
 }
 
-const NewRequestModal = ({ inventoryItems, onClose, onSubmit, submitting }) => {
+const NewRequestModal = ({ inventoryItems, defaultDestination, onClose, onSubmit, submitting }) => {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   const [qty, setQty] = useState(1)
   const [reason, setReason] = useState('')
+  const [destinationLocation, setDestinationLocation] = useState(defaultDestination || 'General Medicine Room')
 
   const filtered = useMemo(() => inventoryItems.filter((item) => {
     const needle = search.trim().toLowerCase()
@@ -89,6 +91,7 @@ const NewRequestModal = ({ inventoryItems, onClose, onSubmit, submitting }) => {
       inventory_id: selected.id,
       qty_requested: qty,
       reason: reason.trim(),
+      destination_location: destinationLocation,
     })
     onClose()
   }
@@ -105,8 +108,8 @@ const NewRequestModal = ({ inventoryItems, onClose, onSubmit, submitting }) => {
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-6 py-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-violet-500">New Request</p>
-            <h2 className="mt-1 text-lg font-bold text-slate-900">Request supplies from inventory</h2>
-            <p className="mt-1 text-sm text-slate-500">Pick an item, set a quantity, and explain the clinical need if needed.</p>
+            <h2 className="mt-1 text-lg font-bold text-slate-900">Request stock transfer</h2>
+            <p className="mt-1 text-sm text-slate-500">Request stock for your treatment room. Approved requests are transferred from the stockroom per batch using FEFO; they are not counted as clinical consumption yet.</p>
           </div>
           <button
             onClick={onClose}
@@ -183,7 +186,7 @@ const NewRequestModal = ({ inventoryItems, onClose, onSubmit, submitting }) => {
 
           <div className="space-y-4">
             <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Request Details</p>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Transfer Details</p>
 
               {selected ? (
                 <div className="mt-4 space-y-4">
@@ -222,6 +225,16 @@ const NewRequestModal = ({ inventoryItems, onClose, onSubmit, submitting }) => {
                   </label>
 
                   <label className="block">
+                    <span className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Destination</span>
+                    <select value={destinationLocation} onChange={(e) => setDestinationLocation(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-400">
+                      <option value="General Medicine Room">General Medicine Room</option>
+                      <option value="Dermatology Room">Dermatology Room</option>
+                      <option value="Dispensing Area">Dispensing Area</option>
+                    </select>
+                    <p className="mt-1 text-[11px] text-slate-400">Staff/Admin will choose the actual source batches automatically by earliest expiry.</p>
+                  </label>
+
+                  <label className="block">
                     <span className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
                       Reason
                     </span>
@@ -257,7 +270,7 @@ const NewRequestModal = ({ inventoryItems, onClose, onSubmit, submitting }) => {
             disabled={!selected || submitting}
             className="flex-1 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-violet-600/20 hover:bg-violet-700 disabled:opacity-50"
           >
-            {submitting ? 'Submitting...' : 'Submit Request'}
+            {submitting ? 'Submitting...' : 'Request Transfer'}
           </button>
         </div>
       </div>
@@ -287,7 +300,7 @@ const RequestCard = ({ request }) => {
               </span>
             </div>
 
-            <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-3">
+            <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-4">
               <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2">
                 <MdInventory2 className="text-slate-400" />
                 <span>{request.qty_requested} {request.unit}(s)</span>
@@ -299,6 +312,10 @@ const RequestCard = ({ request }) => {
               <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2">
                 <MdDescription className="text-slate-400" />
                 <span>{request.category || 'General'}</span>
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2">
+                <MdInventory2 className="text-slate-400" />
+                <span>{request.destination_location || 'Treatment Room'}</span>
               </div>
             </div>
 
@@ -314,6 +331,7 @@ const RequestCard = ({ request }) => {
 }
 
 const Doctor_Request = () => {
+  const { user } = useAuth()
   const [inventoryItems, setInventoryItems] = useState([])
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
@@ -355,7 +373,7 @@ const Doctor_Request = () => {
     try {
       const newRequest = await submitRequest(payload)
       setRequests((prev) => [newRequest, ...prev])
-      setFeedback({ type: 'success', message: 'Supply request submitted.' })
+      setFeedback({ type: 'success', message: 'Stock transfer request submitted. Batch allocation will be recorded when approved.' })
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Request failed.' })
       throw err
@@ -404,9 +422,9 @@ const Doctor_Request = () => {
               <MdInventory2 className="text-sm" />
               Doctor Supply Desk
             </div>
-            <h1 className="mt-3 text-2xl font-bold text-slate-900">Supply Requests</h1>
+            <h1 className="mt-3 text-2xl font-bold text-slate-900">Stock Transfer Requests</h1>
             <p className="mt-2 text-sm text-slate-600">
-              Submit supply requests from clinic inventory and track approval status without leaving the doctor portal.
+              Request stock transfers to your treatment room and track approval status. Approved quantities retain their batch/lot and expiry information.
             </p>
           </div>
 
@@ -491,7 +509,7 @@ const Doctor_Request = () => {
           <MdInventory2 className="mx-auto text-5xl text-slate-300" />
           <p className="mt-4 text-sm font-semibold text-slate-600">No supply requests found</p>
           <p className="mt-1 text-xs text-slate-400">
-            {filter === 'all' ? 'Create a new request to start tracking supply needs.' : `There are no ${filter} requests right now.`}
+            {filter === 'all' ? 'Create a stock transfer request when your treatment room needs replenishment.' : `There are no ${filter} requests right now.`}
           </p>
         </section>
       ) : (
@@ -506,6 +524,7 @@ const Doctor_Request = () => {
       {showModal && (
         <NewRequestModal
           inventoryItems={inventoryItems}
+          defaultDestination={String(user?.specialty || '').toLowerCase().includes('derm') ? 'Dermatology Room' : 'General Medicine Room'}
           onClose={() => setShowModal(false)}
           onSubmit={handleSubmit}
           submitting={submitting}
@@ -516,4 +535,5 @@ const Doctor_Request = () => {
 }
 
 export default Doctor_Request
+
 
