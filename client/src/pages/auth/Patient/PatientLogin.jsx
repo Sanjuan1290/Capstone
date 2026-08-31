@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { MdArrowForward, MdLock, MdPhone, MdVisibility, MdVisibilityOff } from 'react-icons/md'
-import logo from '../../../assets/logo-removebg.png'
 import { useAuth } from '../../../context/AuthContext'
 
 const PatientLogin = () => {
@@ -51,7 +50,7 @@ const PatientLogin = () => {
       <div className="relative w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center">
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-            <img src={logo} alt="Carait Clinic" className="h-12 w-12 object-contain" />
+            <img src="/logo.png" alt="Carait Clinic" className="h-12 w-12 object-contain" />
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white">Carait Clinic</h1>
           <p className="mt-1 text-sm text-slate-400">Patient Portal</p>
@@ -149,5 +148,3 @@ const PatientLogin = () => {
 }
 
 export default PatientLogin
-
-

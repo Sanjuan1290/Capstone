@@ -23,5 +23,3 @@ export const saveAdminLandingPage = async (payload) => {
   if (!res.ok) throw new Error(data.message || 'Failed to save landing page.')
   return data
 }
-
-

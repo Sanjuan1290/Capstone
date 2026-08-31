@@ -21,7 +21,7 @@ const {
   syncInventorySnapshot,
 } = require('../utils/inventoryBatches')
 const { broadcast } = require('../utils/sse')
-const { getTodayDateOnly, getCurrentTimeLabel } = require('../utils/date')
+const { getTodayDateOnly, getCurrentTimeLabel, getClinicDateTimeSql } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendPatientAppointmentStatusSms } = require('../utils/smsService')
 const { getDoctorUnavailableDate, getDoctorUnavailableDates } = require('../utils/doctorAvailability')
@@ -965,6 +965,20 @@ const payBill = async (req, res) => {
       await conn.rollback()
       return res.json(await getBillingRecordWithItems(existingId))
     }
+
+    // Serialize payment and cashier-close operations for this staff member so a payment
+    // cannot slip in while the day's closing total is being finalized.
+    await conn.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [req.user.id])
+    const paymentDate = getTodayDateOnly()
+    const [closedShift] = await conn.query(
+      'SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? AND COALESCE(is_locked,1) = 1 LIMIT 1',
+      [req.user.id, paymentDate]
+    )
+    if (closedShift.length) {
+      await conn.rollback()
+      return res.status(409).json({ message: 'Your cashier shift is already closed for today. Ask an administrator to reopen it before accepting another payment.' })
+    }
+
     const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE', [billingId])
     if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
     const lockedBill = lockedRows[0]
@@ -993,18 +1007,19 @@ const payBill = async (req, res) => {
     const receiptNumber = makeReceiptNumber(billingId)
     const balanceAfter = Math.max(0, Math.round((balance - requestedPayment) * 100) / 100)
     const nextStatus = balanceAfter <= 0 ? 'paid' : 'partially_paid'
+    const paidAt = getClinicDateTimeSql()
 
     await conn.query(
       `INSERT INTO billing_payments
        (billing_id, amount, payment_method, reference_number, amount_received, change_amount, receipt_number, status, notes, received_by_staff_id, idempotency_key, paid_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, NOW())`,
-      [billingId, requestedPayment, paymentMethod, referenceNumber, tendered, paymentAmounts.changeAmount, receiptNumber, paymentNotes, req.user.id, idempotencyKey]
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?)`,
+      [billingId, requestedPayment, paymentMethod, referenceNumber, tendered, paymentAmounts.changeAmount, receiptNumber, paymentNotes, req.user.id, idempotencyKey, paidAt]
     )
     await conn.query(
       `UPDATE billing_records
-       SET status = ?, payment_method = ?, payment_notes = ?, confirmed_by_staff_id = ?, paid_at = CASE WHEN ? = 'paid' THEN NOW() ELSE paid_at END
+       SET status = ?, payment_method = ?, payment_notes = ?, confirmed_by_staff_id = ?, paid_at = CASE WHEN ? = 'paid' THEN ? ELSE paid_at END
        WHERE id = ?`,
-      [nextStatus, paymentMethod, paymentNotes, req.user.id, nextStatus, billingId]
+      [nextStatus, paymentMethod, paymentNotes, req.user.id, nextStatus, paidAt, billingId]
     )
     await writeAuditLog({
       userId: req.user.id, userRole: 'staff', action: 'billing.payment_received', entityType: 'billing_record', entityId: billingId,
@@ -1032,24 +1047,51 @@ const getDiscountPresets = async (req, res) => {
 }
 
 const closeCashierShift = async (req, res) => {
-  const closingDate = String(req.body.closing_date || getTodayDateOnly()).slice(0, 10)
-  const [[summary]] = await db.query(
-    `SELECT COALESCE(SUM(CASE WHEN payment_method = 'cash' AND status = 'completed' THEN amount - COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
-     FROM billing_payments WHERE received_by_staff_id = ? AND DATE(paid_at) = ?`,
-    [req.user.id, closingDate]
-  )
-  const expectedCash = Number(summary?.expected_cash || 0)
-  const actualCash = Math.max(0, Number(req.body.actual_cash) || 0)
-  const variance = Math.round((actualCash - expectedCash) * 100) / 100
-  const [closed] = await db.query('SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? LIMIT 1', [req.user.id, closingDate])
-  if (closed.length) return res.status(409).json({ message: 'This cashier shift is already closed. An administrator must reopen it before changes can be made.' })
-  await db.query(
-    `INSERT INTO cashier_closings (staff_id, closing_date, expected_cash, actual_cash, variance, notes, is_locked)
-     VALUES (?, ?, ?, ?, ?, ?, 1)`,
-    [req.user.id, closingDate, expectedCash, actualCash, variance, String(req.body.notes || '').trim() || null]
-  )
-  await writeAuditLog({ userId: req.user.id, userRole: 'staff', action: 'cashier.shift_closed', entityType: 'cashier_closing', entityId: closingDate, newValues: { expected_cash: expectedCash, actual_cash: actualCash, variance }, ipAddress: req.ip || null })
-  res.json({ closing_date: closingDate, expected_cash: expectedCash, actual_cash: actualCash, variance })
+  const today = getTodayDateOnly()
+  const closingDate = String(req.body.closing_date || today).slice(0, 10)
+  if (!isValidDateOnly(closingDate)) return res.status(400).json({ message: 'A valid cashier closing date is required.' })
+  if (closingDate > today) return res.status(400).json({ message: 'A cashier shift cannot be closed for a future date.' })
+  const actualCashInput = Number(req.body.actual_cash)
+  if (!Number.isFinite(actualCashInput) || actualCashInput < 0) return res.status(400).json({ message: 'Actual cash must be a valid non-negative amount.' })
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    // Use the same row lock as payBill so closing and payment cannot race each other.
+    await conn.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [req.user.id])
+
+    const [closed] = await conn.query(
+      'SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? LIMIT 1',
+      [req.user.id, closingDate]
+    )
+    if (closed.length) {
+      await conn.rollback()
+      return res.status(409).json({ message: 'This cashier shift is already closed. An administrator must reopen it before changes can be made.' })
+    }
+
+    const [[summary]] = await conn.query(
+      `SELECT COALESCE(SUM(CASE WHEN payment_method = 'cash' AND status = 'completed' THEN amount - COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
+       FROM billing_payments WHERE received_by_staff_id = ? AND DATE(paid_at) = ?`,
+      [req.user.id, closingDate]
+    )
+    const expectedCash = Number(summary?.expected_cash || 0)
+    const actualCash = Math.round(actualCashInput * 100) / 100
+    const variance = Math.round((actualCash - expectedCash) * 100) / 100
+
+    await conn.query(
+      `INSERT INTO cashier_closings (staff_id, closing_date, expected_cash, actual_cash, variance, notes, is_locked)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [req.user.id, closingDate, expectedCash, actualCash, variance, String(req.body.notes || '').trim() || null]
+    )
+    await writeAuditLog({ userId: req.user.id, userRole: 'staff', action: 'cashier.shift_closed', entityType: 'cashier_closing', entityId: closingDate, newValues: { expected_cash: expectedCash, actual_cash: actualCash, variance }, ipAddress: req.ip || null }, conn)
+    await conn.commit()
+    return res.json({ closing_date: closingDate, expected_cash: expectedCash, actual_cash: actualCash, variance })
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
 }
 
 const getPaymentSettingsForStaff = async (req, res) => {
@@ -1357,10 +1399,8 @@ module.exports = {
   getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
-  getBills, getBillingCatalogForStaff, getBillById, updateBill, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, closeCashierShift, getPaymentSettingsForStaff,
+  getBills, getBillingCatalogForStaff, getBillById, updateBill, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, closeCashierShift, getPaymentSettingsForStaff,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
-
-

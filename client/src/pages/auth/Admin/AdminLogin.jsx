@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import logo from '../../../assets/logo-removebg.png'
 import { MdEmail, MdLock, MdVisibility, MdVisibilityOff, MdArrowForward, MdAdminPanelSettings, MdVerifiedUser } from 'react-icons/md'
 import { useAuth } from '../../../context/AuthContext'
 
@@ -31,7 +30,7 @@ const AdminLogin = () => {
     <div className="min-h-screen bg-gradient-to-br from-[#0b1a2c] via-[#1a1000] to-[#0b1a2c] flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/10"><img src={logo} alt="Carait Clinic" className="h-12 w-12 object-contain" /></div>
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/10"><img src="/logo.png" alt="Carait Clinic" className="h-12 w-12 object-contain" /></div>
           <h1 className="text-2xl font-black text-white">Carait Clinic</h1>
           <div className="mt-1.5 flex items-center gap-1.5"><MdAdminPanelSettings className="text-amber-400"/><p className="text-xs font-semibold uppercase tracking-widest text-amber-400">Admin Portal</p></div>
         </div>

@@ -378,5 +378,3 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
-
-

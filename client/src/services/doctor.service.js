@@ -8,9 +8,6 @@ const requestJson = async (url, options = {}) => {
   return data
 }
 
-export const getDoctors = () =>
-  fetch(`${BASE}s`, { credentials: 'include' }).then(r => r.json())
-
 export const getDashboard = () =>
   fetch(`${BASE}/dashboard`, { credentials: 'include' }).then(r => r.json())
 
@@ -115,5 +112,3 @@ export const callNextPatient = () =>
 // NEW: mark a specific queue entry as done
 export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
-
-

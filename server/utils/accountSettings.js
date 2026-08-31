@@ -105,5 +105,3 @@ module.exports = {
   getSettings,
   updateSettings,
 }
-
-

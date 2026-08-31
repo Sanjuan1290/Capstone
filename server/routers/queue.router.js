@@ -9,7 +9,7 @@
 const express = require('express')
 const router  = express.Router()
 const db      = require('../db/connect')
-const { getTodayDateOnly } = require('../utils/date')
+const { getTodayDateOnly, isClinicOpenDate } = require('../utils/date')
 
 router.get('/live', async (req, res) => {
   const today = getTodayDateOnly()
@@ -39,9 +39,8 @@ router.get('/live', async (req, res) => {
     [today]
   )
 
-  // Clinic open Mon–Sat
-  const dayOfWeek = new Date().getDay()
-  const clinicOpen = dayOfWeek >= 1 && dayOfWeek <= 6
+  // Clinic open Mon–Sat, based on the configured clinic timezone rather than the host machine timezone.
+  const clinicOpen = isClinicOpenDate(today)
 
   res.json({
     serving:    servingRows[0] || null,
@@ -51,5 +50,3 @@ router.get('/live', async (req, res) => {
 })
 
 module.exports = router
-
-

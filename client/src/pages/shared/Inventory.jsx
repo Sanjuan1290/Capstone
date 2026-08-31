@@ -959,5 +959,3 @@ const Inventory = ({ services }) => {
 }
 
 export default Inventory
-
-

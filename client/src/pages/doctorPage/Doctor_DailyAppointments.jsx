@@ -757,5 +757,3 @@ const Doctor_DailyAppointments = () => {
 }
 
 export default Doctor_DailyAppointments
-
-

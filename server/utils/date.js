@@ -42,6 +42,18 @@ const getCurrentTimeLabel = (value = new Date(), timeZone = CLINIC_TIMEZONE) => 
   return `${hour12}:${pad(minutes)} ${period}`
 }
 
+
+const getDateOnlyDayOfWeek = (dateOnly) => {
+  const [year, month, day] = String(dateOnly || '').split('-').map(Number)
+  if (!year || !month || !day) return null
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+}
+
+const isClinicOpenDate = (dateOnly) => {
+  const dayOfWeek = getDateOnlyDayOfWeek(dateOnly)
+  return dayOfWeek !== null && dayOfWeek >= 1 && dayOfWeek <= 6
+}
+
 const addDaysDateOnly = (dateOnly, days) => {
   const [year, month, day] = String(dateOnly || '').split('-').map(Number)
   if (!year || !month || !day) return null
@@ -76,6 +88,8 @@ module.exports = {
   getTodayDateOnly,
   getCurrentTimeLabel,
   getClinicDateTimeSql,
+  getDateOnlyDayOfWeek,
+  isClinicOpenDate,
   addDaysDateOnly,
   zonedDateTimeToUtc,
   getNextClinicRunAt,

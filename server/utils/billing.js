@@ -639,5 +639,3 @@ module.exports = {
   saveBillingItems,
   upsertDraftBillingForAppointment,
 }
-
-

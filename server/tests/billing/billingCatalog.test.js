@@ -21,4 +21,3 @@ describe('billing catalog pricing', () => {
     expect(result.suggested_price).toBe(240)
   })
 })
-

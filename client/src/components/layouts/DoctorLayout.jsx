@@ -3,7 +3,6 @@
 
 import { useCallback, useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
-import logo from '../../assets/logo-removebg.png'
 import {
   MdDashboard, MdCalendarToday, MdMedicalServices,
   MdInventory2, MdChevronLeft, MdLogout, MdPerson,
@@ -116,7 +115,7 @@ const DoctorLayout = () => {
 
         {/* Brand */}
         <div className="flex items-center gap-3 px-4 h-16 border-b border-white/5 overflow-hidden shrink-0">
-          <img src={logo} alt="Carait Clinic"
+          <img src="/logo.png" alt="Carait Clinic"
             className="w-9 h-9 rounded-xl object-contain bg-white/10 p-1 shrink-0" />
           <div className={`leading-tight overflow-hidden whitespace-nowrap
             transition-[opacity,max-width] duration-300
@@ -196,7 +195,7 @@ const DoctorLayout = () => {
           </button>
 
           <div className="lg:hidden flex items-center gap-2 ml-2">
-            <img src={logo} alt="Carait" className="w-7 h-7 rounded-lg object-contain bg-violet-50 p-0.5" />
+            <img src="/logo.png" alt="Carait" className="w-7 h-7 rounded-lg object-contain bg-violet-50 p-0.5" />
             <p className="text-sm font-bold text-slate-800">Doctor Portal</p>
           </div>
 
@@ -262,5 +261,3 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
-
-

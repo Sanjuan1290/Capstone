@@ -22,4 +22,3 @@ export const EmptyState = ({ title = 'No records found', description = 'Try chan
     <p className="text-xs text-slate-500">{description}</p>
   </div>
 )
-

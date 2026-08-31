@@ -11,6 +11,7 @@ const { ensureAppSchema } = require('./utils/schema')
 const { registerClient, writeEvent, broadcast } = require('./utils/sse')
 const authenticate = require('./middlewares/auth.middleware')
 const { securityHeaders, originGuard, getAllowedOrigins } = require('./middlewares/httpSecurity.middleware')
+const { validateRuntimeConfig } = require('./utils/envValidation')
 
 const patientRouter = require('./routers/patient.router')
 const adminRouter = require('./routers/admin.router')
@@ -38,6 +39,17 @@ app.use(originGuard)
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' })
+})
+
+// Readiness checks the dependency that must be available before this instance receives traffic.
+app.get('/api/ready', async (req, res) => {
+  try {
+    await db.query('SELECT 1 AS result')
+    return res.json({ status: 'ready' })
+  } catch (err) {
+    console.error('[readiness] database unavailable', { message: err.message })
+    return res.status(503).json({ status: 'not_ready' })
+  }
 })
 
 // Authenticated SSE only. Role/user identity comes from the verified session cookie,
@@ -95,6 +107,9 @@ app.use((err, req, res, next) => {
 
 const start = async () => {
   try {
+    const { warnings } = validateRuntimeConfig()
+    warnings.forEach((warning) => console.warn(`[startup] ${warning}`))
+
     if (String(process.env.RUN_SCHEMA_MIGRATIONS_ON_STARTUP || 'false').toLowerCase() === 'true') {
       console.warn('[startup] RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true; applying schema migrations before serving traffic.')
       await ensureAppSchema()
@@ -107,6 +122,8 @@ const start = async () => {
     })
   } catch (err) {
     console.error('Failed to start server:', err)
+    process.exitCode = 1
+    await db.end().catch(() => {})
   }
 }
 

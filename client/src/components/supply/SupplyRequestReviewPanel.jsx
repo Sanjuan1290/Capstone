@@ -375,5 +375,3 @@ const SupplyRequestReviewPanel = ({
 }
 
 export default SupplyRequestReviewPanel
-
-

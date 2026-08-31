@@ -37,4 +37,3 @@ const Modal = ({ open, onClose, title, description, children, size = 'lg', close
 }
 
 export default Modal
-

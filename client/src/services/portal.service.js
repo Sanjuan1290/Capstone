@@ -81,4 +81,3 @@ export const uploadClinicalImageSigned = async (file, appointmentId) => {
   if (!uploaded.secure_url) throw new Error('Cloudinary did not return an image URL.')
   return uploaded.secure_url
 }
-

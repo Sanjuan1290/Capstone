@@ -22,6 +22,11 @@ export const useClientPagination = (items = [], options = {}) => {
     return (Array.isArray(items) ? items : []).slice(start, start + pageSize)
   }, [currentPage, items, pageSize])
 
+  const changePageSize = (nextSize) => {
+    setPage(1)
+    setPageSize(Math.max(1, Number(nextSize) || 10))
+  }
+
   return {
     page: currentPage,
     pageSize,
@@ -29,12 +34,11 @@ export const useClientPagination = (items = [], options = {}) => {
     totalPages,
     pageItems,
     setPage,
-    setPageSize: (nextSize) => {
-      setPage(1)
-      setPageSize(Math.max(1, Number(nextSize) || 10))
-    },
+    setPageSize: changePageSize,
+    // Pagination component contract. Keeping the setters above preserves direct hook use.
+    onPageChange: setPage,
+    onPageSizeChange: changePageSize,
   }
 }
 
 export default useClientPagination
-

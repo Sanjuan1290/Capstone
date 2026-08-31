@@ -10,4 +10,3 @@ describe('authentication tokens', () => {
     expect(payload.role).toBe('staff')
   })
 })
-

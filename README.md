@@ -213,28 +213,122 @@ npm run build
 
 ---
 
+## Final deployment-readiness fixes (2026-08-31)
+
+This package also includes the final pre-deployment corrections from the code/database audit:
+
+- Fixed the two missing Staff billing-adjustment controller exports that prevented Express from loading the full router.
+- Standardized clinic branding on `client/public/logo.png` across auth screens, Admin/Staff/Doctor/Patient layouts, queue display, public layout fallback, and favicon.
+- Preserved the Landing Page CMS logo override while changing its default/current database value to `/logo.png`.
+- Fixed the shared pagination hook/component contract so Next/Previous and page-size controls work on screens that spread the hook result into `<Pagination />`.
+- Enforced cashier shift locking: new payments cannot be recorded after a shift is closed, and admin void/refund operations require the related cashier shift to be reopened first.
+- Serialized payment/closing operations with a Staff row lock to prevent close/payment race conditions.
+- Stores payment timestamps using clinic-local wall-clock time for consistent daily reconciliation.
+- Fixed public queue open/closed calculation so it uses the configured clinic date instead of the server host timezone.
+- Removed the unused broken Doctor service `/api/doctors` call.
+- Added production runtime configuration validation and a dependency-aware `/api/ready` endpoint.
+- Added `npm run verify:deploy` for non-mutating environment/database readiness checks.
+- Added MySQL-compatible final migration files plus `wholedatabase.sql` and `upgrade_current_database.sql`.
+- Added additional runtime configuration/timezone regression tests.
+
+## Database deployment
+
+### Fresh database
+
+Import the root-level file:
+
+```sql
+wholedatabase.sql
+```
+
+It contains the supplied database/data plus the final schema upgrade and new logo value.
+
+### Existing supplied database
+
+**Back up the database first.** Then either run:
+
+```sql
+upgrade_current_database.sql
+```
+
+or run the application's idempotent schema migrator:
+
+```bash
+cd server
+npm run migrate
+```
+
+`upgrade_current_database.sql` is tailored to the exact database dump supplied with this package and also updates the current Landing Page logo. `npm run migrate` is preferable when the database may already be partially upgraded.
+
+After migration:
+
+```bash
+npm run verify:deploy
+npm test
+```
+
+## Production verification sequence
+
+Server:
+
+```bash
+cd server
+npm ci
+copy .env.example .env   # Windows; use cp on macOS/Linux
+npm run migrate
+npm run verify:deploy
+npm test
+npm start
+```
+
+Client:
+
+```bash
+cd client
+npm ci
+copy .env.example .env   # Windows; use cp on macOS/Linux
+npm run lint
+npm run build
+```
+
+Production should use HTTPS. The frontend calls `/api/...` using same-origin URLs, so route `/api/*` to the Node server and configure your web server with SPA fallback to `client/dist/index.html` for browser routes. Set `CLIENT_URL` to the real production origin and keep `RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` after deployment migration is complete.
+
+Liveness/readiness endpoints:
+
+```text
+GET /api/health   -> Node process is running
+GET /api/ready    -> Node process can reach MySQL
+```
+
 ## Validation performed in this delivery environment
 
-Completed successfully:
-- All server `.js` files passed `node --check`.
-- All Client JS/JSX files passed a TypeScript JSX syntax parse.
-- Local relative Client imports resolve.
-- Client named local imports resolve to matching exports.
-- Local CommonJS controller/utility imports resolve.
-- Router controller action references resolve.
-- `git diff --check` passes.
+Completed successfully after the fixes:
+
+- **82** Server `.js`/`.mjs` files passed `node --check`.
+- **98** Client `.js`/`.jsx` files passed a JSX syntax parse using the installed TypeScript parser.
+- Local relative import resolution passed (the only apparent exception is a commented example inside `queue.router.js`, not a runtime import).
+- Local ES named-import/export contract check passed with **0** missing exports.
+- Local CommonJS destructured-import/export contract check passed with **0** missing exports.
+- Router controller-object contract check passed with **0** undefined controller handlers.
+- Dangerous-code scan found no active `eval`, `new Function`, `dangerouslySetInnerHTML`, direct `.innerHTML =`, or request-property SQL interpolation patterns.
+- `wholedatabase.sql` was statically compared against the current `schema.js`: all expected tables/columns are represented.
+- JSON package files parse successfully.
 
 Not executable in this container:
-- `npm test` — `vitest` binary is not installed in the uploaded workspace.
-- `npm run build` — `vite` binary is not installed in the uploaded workspace.
-- Dependency installation cannot be completed here because npm registry access is unavailable in the execution environment.
 
-Run `npm ci`, `npm test`, and `npm run build` in a network-enabled development environment before production deployment.
+- `npm test` and `npm run build` require project dependencies. The uploaded source did not include `node_modules`, and this execution environment cannot access the npm registry. Run the commands above locally before deployment.
+- A real MySQL import/migration was not executed here because no MySQL server is available in this environment and modifying your live database without a backup would be unsafe.
+- Real email, SMS, Cloudinary, HTTPS/reverse-proxy, and browser end-to-end flows still require your deployment credentials/environment.
 
----
+The package now declares **25 backend test files**. Three additional regression assertions were added on top of the test suite you supplied (runtime configuration and clinic-date behavior).
 
-## Image assets
+## Original media assets
 
-The supplied flattened source represented several original PNG files as source URLs rather than image bytes. Valid local placeholder PNGs are included so the repository does not contain empty/corrupt image files. The matching `.source_url` files are retained beside those assets so the clinic's exact approved originals can be restored before deployment.
+The flattened code export supplied the original clinic photos/service PNGs as GitHub source URLs rather than their image bytes. The exact **new clinic logo you uploaded is included at `client/public/logo.png`**. For the other public media, this ZIP contains valid placeholders so paths remain intact, plus two restoration helpers:
 
-These placeholders should **not** be treated as final clinic photography/branding assets.
+```text
+restore-media-assets.ps1   # Windows PowerShell
+restore-media-assets.sh    # macOS/Linux
+```
+
+Run the appropriate helper on a network-enabled machine to restore the exact original public images before final production deployment, or copy those images from your existing local CAPSTONE project. The restoration scripts intentionally do not replace the new `client/public/logo.png`.

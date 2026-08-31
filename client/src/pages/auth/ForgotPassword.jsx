@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { NavLink } from 'react-router-dom'
-import logo from '../../assets/logo-removebg.png'
 import {
   MdEmail, MdLock, MdVisibility, MdVisibilityOff,
   MdCheck, MdArrowBack, MdRefresh, MdArrowForward,
@@ -189,7 +188,7 @@ const ForgotPassword = ({ role }) => {
         {/* Brand */}
         <div className="flex flex-col items-center mb-6">
           <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center mb-3">
-            <img src={logo} alt="Carait" className="w-10 h-10 object-contain" />
+            <img src="/logo.png" alt="Carait" className="w-10 h-10 object-contain" />
           </div>
           <h1 className="text-white text-xl font-black">Carait Clinic</h1>
           <span className="text-xs font-bold px-3 py-0.5 rounded-full mt-1.5 text-white/70"
@@ -386,5 +385,3 @@ const ForgotPassword = ({ role }) => {
 }
 
 export default ForgotPassword
-
-

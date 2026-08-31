@@ -294,5 +294,3 @@ export const updateQueueStatus = (id, status) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   }).then(r => r.json())
-
-

@@ -10,7 +10,6 @@ import {
   MdVisibility,
   MdVisibilityOff,
 } from 'react-icons/md'
-import logo from '../../../assets/logo-removebg.png'
 import { useAuth } from '../../../context/AuthContext'
 
 const INPUT_CLASS = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 text-sm
@@ -162,7 +161,7 @@ const RegistrationForm = ({ onSuccess }) => {
       <div className="relative w-full max-w-xl">
         <div className="mb-6 flex flex-col items-center">
           <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-            <img src={logo} alt="Carait" className="h-10 w-10 object-contain" />
+            <img src="/logo.png" alt="Carait" className="h-10 w-10 object-contain" />
           </div>
           <h1 className="text-xl font-black tracking-tight text-white">Carait Clinic</h1>
           <p className="mt-0.5 text-sm text-slate-400">Create your patient account</p>
@@ -341,7 +340,7 @@ const VerificationForm = ({ pendingPhone, devOtp, onBack }) => {
       <div className="w-full max-w-fit">
         <div className="mb-6 flex flex-col items-center">
           <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10">
-            <img src={logo} alt="Carait" className="h-10 w-10 object-contain" />
+            <img src="/logo.png" alt="Carait" className="h-10 w-10 object-contain" />
           </div>
           <h1 className="text-xl font-black text-white">Carait Clinic</h1>
         </div>
@@ -428,5 +427,3 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
-
-

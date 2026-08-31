@@ -1811,6 +1811,25 @@ const resolveSupplyRequest = async (req, res) => {
 }
 
 // ── Billing oversight / refunds / reconciliation ─────────────────────────────
+const assertPaymentCashierShiftOpen = async (payment, executor) => {
+  const staffId = Number(payment?.received_by_staff_id || 0)
+  const paymentDate = String(payment?.paid_at || '').slice(0, 10)
+  if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) return
+
+  // Serialize against staff payment/closing operations and preserve a closed day's totals.
+  await executor.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [staffId])
+  const [closedRows] = await executor.query(
+    'SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? AND COALESCE(is_locked,1) = 1 LIMIT 1',
+    [staffId, paymentDate]
+  )
+  if (closedRows.length) {
+    throw Object.assign(
+      new Error('The cashier shift for this payment is closed. Reopen that cashier shift before voiding or refunding the payment.'),
+      { statusCode: 409 }
+    )
+  }
+}
+
 const getBillingReconciliation = async (req, res) => {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : getTodayDateOnly()
   const [methods] = await db.query(
@@ -1847,6 +1866,7 @@ const voidBillingPayment = async (req, res) => {
     if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Payment not found.' }) }
     const payment = rows[0]; billingId = payment.billing_id
     if (payment.status !== 'completed') { await conn.rollback(); return res.status(400).json({ message: 'Only completed payments can be voided.' }) }
+    await assertPaymentCashierShiftOpen(payment, conn)
     await conn.query(`UPDATE billing_payments SET status='voided', voided_at=NOW(), void_reason=? WHERE id=?`, [reason, paymentId])
     const bill = await getBillingRecordWithItems(billingId, conn)
     const paidAfter = Math.max(0, Number(bill.paid_amount || 0))
@@ -1870,6 +1890,7 @@ const refundBillingPayment = async (req, res) => {
     if (!rows.length){ await conn.rollback(); return res.status(404).json({message:'Payment not found.'}) }
     const payment=rows[0]; billingId=payment.billing_id
     if(payment.status!=='completed'){ await conn.rollback(); return res.status(400).json({message:'Only completed payments can be refunded.'}) }
+    await assertPaymentCashierShiftOpen(payment, conn)
     const available=Math.max(0,Number(payment.amount||0)-Number(payment.refund_amount||0))
     const amount=req.body.amount===undefined||req.body.amount===null||req.body.amount===''?available:Math.max(0,Number(req.body.amount)||0)
     if(amount<=0||amount>available+0.001){ await conn.rollback(); return res.status(400).json({message:'Refund amount must be greater than zero and cannot exceed the refundable amount.'}) }
@@ -2023,5 +2044,3 @@ module.exports = {
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }
-
-

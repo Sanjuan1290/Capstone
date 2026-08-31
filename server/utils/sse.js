@@ -49,5 +49,3 @@ module.exports = {
   writeEvent,
   broadcast,
 }
-
-

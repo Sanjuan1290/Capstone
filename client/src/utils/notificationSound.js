@@ -32,5 +32,3 @@ export const playNotificationSound = () => {
     // Browsers may block audio until the user has interacted with the page.
   }
 }
-
-

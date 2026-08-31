@@ -24,5 +24,3 @@ module.exports = {
   isValidPhilippinePhone,
   formatPhilippinePhone,
 }
-
-

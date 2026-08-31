@@ -3,7 +3,7 @@ const db = require('../db/connect')
 const DEFAULT_LANDING_PAGE_CONTENT = {
   header: {
     clinic_name: 'CARAIT MEDICAL AND DERMATOLOGY CLINIC',
-    logo_url: '',
+    logo_url: '/logo.png',
     nav_links: [
       { label: 'Home', path: '#home' },
       { label: 'About', path: '#about' },
@@ -209,5 +209,3 @@ module.exports = {
   updateLandingPageContent,
   normalizeLandingPageContent,
 }
-
-

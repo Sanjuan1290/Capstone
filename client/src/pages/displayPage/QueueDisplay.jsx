@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { MdVolumeUp, MdWifi, MdWifiOff } from 'react-icons/md'
-import logo from '../../assets/logo.png'
 
 const useCurrentTime = () => {
   const [time, setTime] = useState(new Date())
@@ -101,7 +100,7 @@ const QueueDisplay = () => {
 
       <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
         <div className="flex items-center gap-4">
-          <img src={logo} alt="Carait Clinic" className="h-14 w-14 rounded-2xl bg-white/10 p-2" />
+          <img src="/logo.png" alt="Carait Clinic" className="h-14 w-14 rounded-2xl bg-white/10 p-2" />
           <div>
             <h1 className="text-xl font-black tracking-tight">Carait Medical and Dermatology Clinic</h1>
             <p className="text-sm text-slate-400">Live queue display</p>
@@ -166,5 +165,3 @@ const QueueDisplay = () => {
 }
 
 export default QueueDisplay
-
-

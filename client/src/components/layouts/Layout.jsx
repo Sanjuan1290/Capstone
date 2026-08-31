@@ -9,7 +9,6 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { MdClose, MdMenu } from 'react-icons/md'
 import { FaFacebook } from 'react-icons/fa'
-import logo from '../../assets/logo-removebg.png'
 import { getPublicLandingPage } from '../../services/landing.service'
 import { isExternalPath, normalizeAppPath } from '../../utils/navigation'
 import { useAuth } from '../../context/AuthContext'
@@ -79,7 +78,7 @@ const Layout = () => {
   const footer    = { ...defaultFooter, ...landing?.footer }
   const navLinks  = Array.isArray(header.nav_links) && header.nav_links.length > 0 ? header.nav_links : defaultHeader.nav_links
   const showMarketingShell = ['/', '/login', '/patient/register', '/patient/login'].includes(location.pathname)
-  const logoSrc   = header.logo_url || logo
+  const logoSrc   = header.logo_url || '/logo.png'
   const isPatientLoggedIn = Boolean(user && role === 'patient')
   const loginPath = isPatientLoggedIn
     ? '/patient'
@@ -232,5 +231,3 @@ const Layout = () => {
 }
 
 export default Layout
-
-
