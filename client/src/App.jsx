@@ -65,6 +65,8 @@ import AdminRoute  from './components/AdminRoute'
 
 import ForgotPassword from './pages/auth/ForgotPassword'
 import SettingsPage   from './pages/shared/SettingsPage'
+import RequiredPasswordChange from './pages/shared/RequiredPasswordChange'
+import DoctorAvailability from './pages/patientPage/DoctorAvailability'
 import PrivacyPolicys from './pages/shared/PrivacyPolicys'
 import TermsOfService from './pages/shared/TermsOfService'   // NEW
 
@@ -87,6 +89,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       {/* ── Patient protected ───────────────────────────── */}
       <Route path='/patient' element={<PatientRoute><PatientLayout /></PatientRoute>}>
         <Route index                         element={<PatientDashboard />} />
+        <Route path='doctors'                element={<DoctorAvailability />} />
         <Route path='book'                   element={<BookAppointment />} />
         <Route path='appointments'           element={<MyAppointments />} />
         <Route path='reschedule-appointment' element={<RescheduleAppointment />} />
@@ -96,6 +99,7 @@ const router = createBrowserRouter(createRoutesFromElements(
 
       {/* ── Staff auth ──────────────────────────────────── */}
       <Route path='/staff/login'           element={<StaffLogin />} />
+      <Route path='/staff/change-password-required' element={<RequiredPasswordChange />} />
       <Route path='/staff/forgot-password' element={<ForgotPassword role="staff" />} />
       <Route path='/staff/reset-password'  element={<ForgotPassword role="staff" />} />
 
@@ -113,6 +117,7 @@ const router = createBrowserRouter(createRoutesFromElements(
 
       {/* ── Doctor auth ─────────────────────────────────── */}
       <Route path='/doctor/login'           element={<DoctorLogin />} />
+      <Route path='/doctor/change-password-required' element={<RequiredPasswordChange />} />
       <Route path='/doctor/forgot-password' element={<ForgotPassword role="doctor" />} />
       <Route path='/doctor/reset-password'  element={<ForgotPassword role="doctor" />} />
 

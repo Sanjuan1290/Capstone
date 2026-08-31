@@ -80,6 +80,14 @@ export const getBillById = (id) => requestJson(`${BASE}/billing/${id}`)
 export const getBillingReconciliation = (date = '') => requestJson(`${BASE}/billing/reconciliation${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 export const voidBillingPayment = (paymentId, reason) => requestJson(`${BASE}/billing/payments/${paymentId}/void`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) })
 export const refundBillingPayment = (paymentId, payload) => requestJson(`${BASE}/billing/payments/${paymentId}/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const getBillingAdjustmentRequests = (params = {}) => {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') search.set(key, value) })
+  const query = search.toString()
+  return requestJson(`${BASE}/billing/adjustment-requests${query ? `?${query}` : ''}`)
+}
+export const resolveBillingAdjustmentRequest = (id, payload) => requestJson(`${BASE}/billing/adjustment-requests/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
 export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 export const saveDiscountPreset = (payload, id = null) => requestJson(`${BASE}/billing/discount-presets${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
@@ -193,6 +201,8 @@ export const deleteDoctorUnavailableDate = (doctorId, date) =>
 export const getAuditLogs = (params = {}) => { const search = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== '') search.set(k,v) }); const q=search.toString(); return requestJson(`${BASE}/audit-logs${q ? `?${q}` : ''}`) }
 export const getClinicSettings = () => requestJson(`${BASE}/clinic-settings`)
 export const updateClinicSettings = (payload) => requestJson(`${BASE}/clinic-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+
+export const recordReportExport = (payload = {}) => requestJson(`${BASE}/reports/export-audit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
 export const getReports = (params = {}) => {
   const normalized = typeof params === 'string' ? { period: params } : params

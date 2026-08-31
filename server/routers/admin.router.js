@@ -6,13 +6,17 @@ const staffCtrl  = require('../controllers/staff.controller')
 const commonCtrl = require('../controllers/common.controller')
 const authenticate = require('../middlewares/auth.middleware')
 const requireRole  = require('../middlewares/role.middleware')
+const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimit.middleware')
 
 const auth = [authenticate('admin_token'), requireRole('admin')]
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-router.post('/login',      adminCtrl.login)
+router.post('/login',      loginLimiter, adminCtrl.login)
+router.post('/login/mfa',  otpVerifyLimiter, adminCtrl.verifyLoginMfa)
 router.get('/check-auth',  adminCtrl.checkAuth)
 router.post('/logout',     adminCtrl.logout)
+router.post('/security/password/request-code', otpRequestLimiter, ...auth, commonCtrl.requestMyPasswordCode)
+router.post('/security/password/change', otpVerifyLimiter, ...auth, commonCtrl.changeMyPassword)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
@@ -67,6 +71,9 @@ router.delete('/doctors/:id/unavailable-dates/:date', ...auth, adminCtrl.deleteD
 // ── Reports ───────────────────────────────────────────────────────────────────
 router.get('/billing', ...auth, staffCtrl.getBills)
 router.get('/billing/reconciliation', ...auth, adminCtrl.getBillingReconciliation)
+router.get('/billing/adjustment-requests', ...auth, adminCtrl.getBillingAdjustmentRequestsAdmin)
+router.patch('/billing/adjustment-requests/:id', ...auth, adminCtrl.resolveBillingAdjustmentRequestAdmin)
+router.post('/billing/cashier-closings/:id/reopen', ...auth, adminCtrl.reopenCashierShiftAdmin)
 router.get('/billing/discount-presets', ...auth, adminCtrl.getDiscountPresetsAdmin)
 router.post('/billing/discount-presets', ...auth, adminCtrl.saveDiscountPresetAdmin)
 router.put('/billing/discount-presets/:id', ...auth, adminCtrl.saveDiscountPresetAdmin)
@@ -80,6 +87,7 @@ router.get('/billing/payment-settings', ...auth, adminCtrl.getPaymentSettingsAdm
 router.put('/billing/payment-settings', ...auth, adminCtrl.updatePaymentSettingsAdmin)
 router.get('/billing/:id', ...auth, staffCtrl.getBillById)
 router.get('/reports', ...auth, adminCtrl.getReports)
+router.post('/reports/export-audit', ...auth, adminCtrl.recordReportExport)
 router.get('/audit-logs', ...auth, adminCtrl.getAuditLogs)
 router.get('/clinic-settings', ...auth, adminCtrl.getClinicSettingsAdmin)
 router.put('/clinic-settings', ...auth, adminCtrl.updateClinicSettingsAdmin)

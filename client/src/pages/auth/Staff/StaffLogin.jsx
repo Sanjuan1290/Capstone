@@ -37,7 +37,7 @@ const StaffLogin = () => {
       const data = await res.json()
       if (!res.ok) { setError(data.message || 'Login failed'); return }
       login(data.user, 'staff')
-      navigate('/staff')
+      navigate(data.user?.must_change_password ? '/staff/change-password-required' : '/staff')
     } catch {
       setError('Cannot connect to server.')
     } finally {

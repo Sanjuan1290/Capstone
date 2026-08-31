@@ -2,6 +2,9 @@ const db = require('../db/connect')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
+const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
+const { validatePassword } = require('../utils/accountSecurity')
+const { makeNumericCode, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')
 const { sendAppointmentStatusEmail } = require('../utils/emailService')
 const { notifyRoles, createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
@@ -9,6 +12,7 @@ const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendPatientRegistrationOtp } = require('../utils/smsService')
+const { buildDoctorAvailabilitySummary } = require('../utils/doctorAvailabilitySummary')
 const { getDoctorUnavailableDates, getDoctorUnavailableDate } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds } = require('../utils/consultationImages')
 const {
@@ -17,6 +21,8 @@ const {
   toDateOnly,
   isValidDateOnly,
 } = require('../utils/patientProfile')
+const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
+const { writeAuditLog } = require('../utils/audit')
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
@@ -31,6 +37,7 @@ const buildPatientAuthUser = (patient) => ({
   theme_preference: patient.theme_preference || 'light',
   profile_image_url: patient.profile_image_url || null,
   is_profile_complete: Boolean(patient.is_profile_complete),
+  onboarding_completed_at: patient.onboarding_completed_at || null,
 })
 
 const loadPatientById = async (id) => {
@@ -48,7 +55,8 @@ const loadPatientById = async (id) => {
        receive_promotions,
        is_profile_complete,
        theme_preference,
-       profile_image_url
+       profile_image_url,
+       onboarding_completed_at
      FROM patients
      WHERE id = ?`,
     [id]
@@ -82,12 +90,10 @@ const getProfileResponse = (patient) => ({
   address: patient.address,
   receive_promotions: Boolean(patient.receive_promotions),
   is_profile_complete: Boolean(patient.is_profile_complete),
+  onboarding_completed_at: patient.onboarding_completed_at || null,
 })
 
-const issuePatientSession = (res, patientId) => {
-  const token = jwt.sign({ id: patientId, role: 'patient' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'patient')
-}
+const issuePatientSession = async (res, patientId) => issueSession(res, 'patient', patientId)
 
 const parseVerificationPayload = (rawPayload) => {
   if (!rawPayload) return {}
@@ -144,9 +150,8 @@ const register = async (req, res) => {
     return res.status(400).json({ message: 'Passwords do not match.' })
   }
 
-  if (password.length < 6) {
-    return res.status(400).json({ message: 'Password must be at least 6 characters.' })
-  }
+  const passwordError = validatePassword(password)
+  if (passwordError) return res.status(400).json({ message: passwordError })
 
   if (!consent_given) {
     return res.status(400).json({ message: 'Data privacy consent is required.' })
@@ -163,7 +168,7 @@ const register = async (req, res) => {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10)
-  const code = String(Math.floor(100000 + Math.random() * 900000))
+  const code = makeNumericCode()
   const payload = JSON.stringify({
     full_name: String(full_name).trim(),
     phone: normalizedPhone,
@@ -173,14 +178,16 @@ const register = async (req, res) => {
   })
 
   await db.query(
-    `INSERT INTO patient_phone_verifications (phone, otp_code, payload, expires_at, verified_at)
-     VALUES (?, ?, ?, ?, NULL)
+    `INSERT INTO patient_phone_verifications (phone, otp_code, payload, expires_at, verified_at, attempt_count, last_sent_at)
+     VALUES (?, ?, ?, ?, NULL, 0, NOW())
      ON DUPLICATE KEY UPDATE
        otp_code = VALUES(otp_code),
        payload = VALUES(payload),
        expires_at = VALUES(expires_at),
-      verified_at = NULL`,
-    [normalizedPhone, code, payload, new Date(Date.now() + OTP_EXPIRY_MS)]
+       verified_at = NULL,
+       attempt_count = 0,
+       last_sent_at = NOW()`,
+    [normalizedPhone, hashSecret(code), payload, new Date(Date.now() + OTP_EXPIRY_MS)]
   )
 
   try {
@@ -198,7 +205,6 @@ const register = async (req, res) => {
 
     return res.status(502).json({
       message: 'Failed to send verification code by SMS. Please try again later.',
-      error: err.message,
     })
   }
 
@@ -226,7 +232,10 @@ const verifyRegistration = async (req, res) => {
   }
 
   const pending = rows[0]
-  if (String(pending.otp_code) !== code) {
+  if (Number(pending.attempt_count || 0) >= 5 || !timingSafeEqualHash(code, pending.otp_code)) {
+    const nextAttempts = Number(pending.attempt_count || 0) + 1
+    if (nextAttempts >= 5) await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
+    else await db.query('UPDATE patient_phone_verifications SET attempt_count = ? WHERE id = ?', [nextAttempts, pending.id])
     return res.status(400).json({ message: 'Invalid verification code.' })
   }
 
@@ -292,7 +301,7 @@ const verifyRegistration = async (req, res) => {
 
   await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
 
-  issuePatientSession(res, patientId)
+  await issuePatientSession(res, patientId)
   const createdPatient = await loadPatientById(patientId)
 
   res.status(201).json({
@@ -324,16 +333,19 @@ const login = async (req, res) => {
   }
 
   if (rows.length === 0) {
+    await writeAuditLog({ userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid phone number or password.' })
   }
 
   const patient = rows[0]
   const match = await bcrypt.compare(password, patient.password)
   if (!match) {
+    await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid phone number or password.' })
   }
 
-  issuePatientSession(res, patient.id)
+  await issuePatientSession(res, patient.id)
+  await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_success', entityType: 'patient', entityId: patient.id, ipAddress: req.ip || null }).catch(() => {})
   const syncedPatient = await syncPatientProfileStatus(patient)
 
   res.status(200).json({
@@ -347,8 +359,7 @@ const checkAuth = async (req, res) => {
   if (!token) return res.status(200).json({ authenticated: false })
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    if (decoded.role !== 'patient') return res.status(200).json({ authenticated: false })
+    const decoded = await verifySessionToken(token, 'patient')
 
     const patient = await loadPatientById(decoded.id)
     if (!patient) return res.status(200).json({ authenticated: false })
@@ -363,8 +374,9 @@ const checkAuth = async (req, res) => {
   }
 }
 
-const logout = (req, res) => {
-  res.clearCookie('patient_token')
+const logout = async (req, res) => {
+  await writeAuditLog({ userId: req.user?.id || null, userRole: 'patient', action: 'auth.logout', entityType: 'patient', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
+  res.clearCookie('patient_token', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })
 }
 
@@ -519,45 +531,28 @@ const createAppointment = async (req, res) => {
 
   const patient = await loadPatientById(req.user.id)
   if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
+  const profileStatus = await syncPatientProfileStatus(patient)
+  if (!profileStatus.is_profile_complete) {
+    return res.status(428).json({ code: 'PROFILE_REQUIRED', message: 'Complete your patient profile before booking an appointment.' })
+  }
 
   const [activeWithDoctor] = await db.query(
-    `SELECT id
-     FROM appointments
-     WHERE patient_id = ? AND doctor_id = ?
-       AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress')
-     LIMIT 1`,
+    `SELECT id FROM appointments WHERE patient_id = ? AND doctor_id = ?
+     AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress') LIMIT 1`,
     [req.user.id, doctor_id]
   )
-  if (activeWithDoctor.length > 0) {
-    return res.status(409).json({
-      message: 'You already have an active appointment with this doctor. Please wait for completion or cancel it first.',
-    })
-  }
+  if (activeWithDoctor.length) return res.status(409).json({ message: 'You already have an active appointment with this doctor. Please wait for completion or cancel it first.' })
 
-  const [existing] = await db.query(
-    `SELECT id
-     FROM appointments
-     WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ?
-       AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress')`,
-    [doctor_id, normalizedDate, appointment_time]
-  )
-  if (existing.length > 0) {
-    return res.status(409).json({ message: 'That time slot is already taken.' })
-  }
-
-  const blockedDate = await getDoctorUnavailableDate(doctor_id, normalizedDate)
-  if (blockedDate) {
-    return res.status(409).json({
-      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
-    })
-  }
-
-  const [result] = await db.query(
-    `INSERT INTO appointments
-      (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [req.user.id, doctor_id, clinic_type, reason, normalizedDate, appointment_time, notes || null]
-  )
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id, date: normalizedDate, time: appointment_time }, async () => {
+    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time })
+    const [inserted] = await db.query(
+      `INSERT INTO appointments
+       (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, doctor_id, clinic_type, reason, normalizedDate, appointment_time, notes || null]
+    )
+    return inserted
+  })
 
   const [details] = await db.query(
     `SELECT
@@ -602,6 +597,7 @@ const createAppointment = async (req, res) => {
     reference_id: result.insertId,
   })
 
+  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId, newValues: { doctor_id: Number(doctor_id), clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'online' }, ipAddress: req.ip || null }).catch(() => {})
   broadcast(['admin', 'staff', `doctor_${appointment.doctor_id}`, `patient_${req.user.id}`], 'appointment_updated', {
     appointmentId: result.insertId,
     status: 'pending',
@@ -620,7 +616,9 @@ const cancelAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Only pending or confirmed appointments can be cancelled.' })
   }
 
+  assertAppointmentTransition(rows[0].status, 'cancelled')
   await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [req.params.id])
+  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.cancelled', entityType: 'appointment', entityId: req.params.id, oldValues: { status: rows[0].status }, newValues: { status: 'cancelled' }, ipAddress: req.ip || null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: req.user.id,
@@ -661,30 +659,15 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Only pending or confirmed appointments can be rescheduled.' })
   }
 
-  const [conflict] = await db.query(
-    `SELECT id
-     FROM appointments
-     WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ?
-       AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress') AND id != ?`,
-    [rows[0].doctor_id, normalizedDate, appointment_time, req.params.id]
-  )
-  if (conflict.length > 0) {
-    return res.status(409).json({ message: 'That time slot is already taken.' })
-  }
-
-  const blockedDate = await getDoctorUnavailableDate(rows[0].doctor_id, normalizedDate)
-  if (blockedDate) {
-    return res.status(409).json({
-      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
-    })
-  }
-
-  await db.query(
-    `UPDATE appointments
-     SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes)
-     WHERE id = ?`,
-    [normalizedDate, appointment_time, notes?.trim() || null, req.params.id]
-  )
+  assertAppointmentTransition(rows[0].status, 'rescheduled')
+  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id, date: normalizedDate, time: appointment_time }, async () => {
+    const [[appointmentMeta]] = await db.query('SELECT clinic_type FROM appointments WHERE id = ? LIMIT 1', [req.params.id])
+    await validateAppointmentSlot({ doctorId: rows[0].doctor_id, clinicType: appointmentMeta.clinic_type, date: normalizedDate, time: appointment_time, excludeAppointmentId: req.params.id })
+    await db.query(
+      `UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes) WHERE id = ?`,
+      [normalizedDate, appointment_time, notes?.trim() || null, req.params.id]
+    )
+  })
 
   const [details] = await db.query(
     `SELECT a.id, p.email AS patient_email, p.full_name AS patient_name, d.full_name AS doctor_name, a.clinic_type
@@ -734,6 +717,7 @@ const rescheduleAppointment = async (req, res) => {
     status: 'pending',
   })
 
+  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.rescheduled', entityType: 'appointment', entityId: req.params.id, newValues: { appointment_date: normalizedDate, appointment_time, status: 'pending' }, ipAddress: req.ip || null }).catch(() => {})
   res.json({ message: 'Appointment rescheduled and returned to pending confirmation.' })
 }
 
@@ -762,6 +746,19 @@ const getAppointmentReasons = async (req, res) => {
 
   const [rows] = await db.query(sql, params)
   res.json(rows)
+}
+
+const getDoctorsAvailability = async (req, res) => {
+  const clinicType = String(req.query.clinic_type || '').trim()
+  if (clinicType && !['medical','derma'].includes(clinicType)) {
+    return res.status(400).json({ message: 'Invalid clinic type.' })
+  }
+  const result = await buildDoctorAvailabilitySummary({
+    clinicType,
+    startDate: String(req.query.start_date || '').trim() || undefined,
+    days: Math.min(14, Math.max(1, Number(req.query.days) || 7)),
+  })
+  res.json(result)
 }
 
 const getDoctorSchedule = async (req, res) => {
@@ -826,6 +823,7 @@ module.exports = {
   rescheduleAppointment,
   getAppointmentReasons,
   getDoctors,
+  getDoctorsAvailability,
   getDoctorSchedule,
   getDoctorUnavailableDatesController,
   getDoctorTakenSlots,

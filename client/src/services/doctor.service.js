@@ -39,6 +39,13 @@ export const updateConsultation = (appointmentId, payload) =>
     body: JSON.stringify(payload),
   })
 
+export const addConsultationAmendment = (appointmentId, payload) =>
+  requestJson(`${BASE}/consultations/${appointmentId}/amendments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
 export const getBillingCatalog = (clinicType = '') =>
   requestJson(`${BASE}/billing/catalog${clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''}`)
 
@@ -47,6 +54,9 @@ export const getPatientHistory = (patientId) =>
 
 export const getInventoryItems = () =>
   fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
+
+export const getInventoryLocations = () =>
+  requestJson(`${BASE}/inventory/locations`)
 
 export const getMyRequests = () =>
   fetch(`${BASE}/requests`, { credentials: 'include' }).then(r => r.json())

@@ -12,6 +12,7 @@ import {
   MdMedicalServices, MdAccessTime, MdArrowBack,
   MdHistory, MdEventAvailable, MdEmail, MdWc, MdPeople, MdPayments,
 } from 'react-icons/md'
+import { formatPhilippinePhone } from '../../components/ui/PhilippinePhoneInput'
 
 const STATUS_CONFIG = {
   confirmed:    { label: 'Confirmed',   badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -450,4 +451,3 @@ const Staff_PatientRecord = () => {
 }
 
 export default Staff_PatientRecord
-

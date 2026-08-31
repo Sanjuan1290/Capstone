@@ -28,7 +28,7 @@ const updateSettings = async (role, id, payload) => {
     admin: ['full_name', 'theme_preference', 'profile_image_url'],
     staff: ['full_name', 'phone', 'theme_preference', 'profile_image_url'],
     doctor: ['full_name', 'phone', 'specialty', 'theme_preference', 'profile_image_url'],
-    patient: ['full_name', 'phone', 'address', 'civil_status', 'gender', 'birthdate', 'theme_preference', 'profile_image_url', 'email', 'receive_promotions'],
+    patient: ['full_name', 'address', 'civil_status', 'gender', 'birthdate', 'theme_preference', 'profile_image_url', 'email', 'receive_promotions'],
   }
 
   if (role === 'patient') {
@@ -38,7 +38,7 @@ const updateSettings = async (role, id, payload) => {
     const normalized = normalizePatientProfileInput(payload)
     const nextValues = {
       full_name: payload.full_name === undefined ? current.full_name : (payload.full_name || '').trim() || current.full_name,
-      phone: payload.phone === undefined ? current.phone : (payload.phone || '').trim() || current.phone,
+      phone: current.phone,
       address: payload.address === undefined ? current.address : normalized.address,
       civil_status: payload.civil_status === undefined ? current.civil_status : normalized.civil_status,
       gender: payload.gender === undefined ? current.gender : normalized.gender,

@@ -2,9 +2,9 @@
 // REDESIGNED: 5-step wizard, mobile-first, touch-friendly calendar, clean cards
 
 import { useEffect, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useSearchParams } from 'react-router-dom'
 import {
-  getAppointmentReasons, getDoctors, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, bookAppointment,
+  getAppointmentReasons, getDoctorsAvailability, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
@@ -87,7 +87,8 @@ const StepClinicType = ({ value, onChange }) => (
 )
 
 // ── Step 2: Doctor ────────────────────────────────────────────────────────────
-const StepDoctor = ({ clinicType, value, onChange, doctorList }) => {
+const fmtScheduleTime=(t)=>{if(!t)return'';const [h,m]=String(t).split(':').map(Number);return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`}
+const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, doctorError, onRetry }) => {
   const list = doctorList[clinicType] || []
   const ct = CLINIC_TYPES.find(c => c.id === clinicType)
   return (
@@ -96,9 +97,9 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList }) => {
         <h2 className="text-lg font-bold text-slate-800">Select a Doctor</h2>
         <p className="text-sm text-slate-500 mt-0.5">Doctors available for {ct?.label}.</p>
       </div>
-      {list.length === 0 && (
-        <div className="py-10 text-center text-slate-400 text-sm">Loading doctors…</div>
-      )}
+      {loadingDoctors && <div className="py-10 text-center text-slate-400 text-sm">Loading available doctors...</div>}
+      {!loadingDoctors && doctorError && <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-center text-sm text-red-600">We couldn't load doctors.<button onClick={onRetry} className="ml-2 font-bold">Try again</button></div>}
+      {!loadingDoctors && !doctorError && list.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-700">No doctors are currently available for {ct?.label}.</p><p className="mt-1 text-xs text-slate-400">Choose another clinic type or check again later.</p></div>}
       {list.map(doc => (
         <button key={doc.id} onClick={() => onChange(doc)}
           className={`w-full flex items-center gap-4 p-4 sm:p-5 rounded-2xl border-2 text-left transition-all active:scale-[0.99]
@@ -110,6 +111,8 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList }) => {
           <div className="flex-1 min-w-0">
             <p className="font-bold text-sm text-slate-800 truncate">{doc.full_name||doc.name}</p>
             <p className="text-xs text-slate-500 mt-0.5">{doc.specialty||ct?.label}</p>
+            {(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).length>0 ? <p className="mt-1 text-[11px] text-emerald-600">{(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).slice(0,3).map(s=>s.day_of_week.slice(0,3)).join(', ')} · {fmtScheduleTime((doc.weekly_schedule||[]).find(s=>Number(s.is_active)!==0)?.start_time)}–{fmtScheduleTime((doc.weekly_schedule||[]).find(s=>Number(s.is_active)!==0)?.end_time)}</p> : <p className="mt-1 text-[11px] font-semibold text-amber-600">No online schedule configured</p>}
+            {doc.next_available && <p className="mt-1 text-[11px] font-bold text-emerald-700">Next available: {doc.next_available.date} · {doc.next_available.time}</p>}
           </div>
           <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
             ${value?.id===doc.id ? 'bg-emerald-500 border-transparent' : 'border-slate-300 bg-white'}`}>
@@ -372,21 +375,32 @@ const BookAppointment = () => {
   })
   const [policyAccepted, setPolicyAccepted] = useState(false)
   const [doctorList,      setDoctorList]      = useState({ medical: [], derma: [] })
+  const [loadingDoctors, setLoadingDoctors] = useState(true)
+  const [doctorError, setDoctorError] = useState('')
+  const [searchParams] = useSearchParams()
   const [timeSlots,       setTimeSlots]       = useState([])
   const [doctorSchedules, setDoctorSchedules] = useState([])
   const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([])
   const [reasonOptions, setReasonOptions] = useState([])
   const [loadingReasons, setLoadingReasons] = useState(false)
 
-  useEffect(() => {
-    getDoctors()
-      .then(data => {
-        const derma = data.filter(d => String(d.specialty || '').toLowerCase().includes('derm'))
-        const medical = data.filter(d => !String(d.specialty || '').toLowerCase().includes('derm'))
-        setDoctorList({ medical, derma })
-      })
-      .catch(() => {})
-  }, [])
+  const loadDoctors = async () => {
+    setLoadingDoctors(true); setDoctorError('')
+    try {
+      const summary = await getDoctorsAvailability({ startDate: getLocalDateOnly(), days: 7 })
+      const enriched = Array.isArray(summary?.doctors) ? summary.doctors : []
+      const derma = enriched.filter(d => String(d.specialty || '').toLowerCase().includes('derm') && d.weekly_schedule.some(x => Number(x.is_active)!==0))
+      const medical = enriched.filter(d => !String(d.specialty || '').toLowerCase().includes('derm') && d.weekly_schedule.some(x => Number(x.is_active)!==0))
+      setDoctorList({ medical, derma })
+      const preDoctor = Number(searchParams.get('doctor')); const preClinic = searchParams.get('clinic')
+      if (preDoctor && ['medical','derma'].includes(preClinic)) {
+        const found = enriched.find(d => Number(d.id)===preDoctor)
+        if (found) setForm(f => ({...f, clinicType:preClinic, doctor:found}))
+      }
+    } catch (err) { setDoctorError(err.message || 'Failed to load doctors.'); setDoctorList({medical:[],derma:[]}) }
+    finally { setLoadingDoctors(false) }
+  }
+  useEffect(() => { loadDoctors() }, [])
 
   useEffect(() => {
     if (!form.clinicType) {
@@ -528,7 +542,7 @@ const BookAppointment = () => {
           ) : (
             <>
               {step===0 && <StepClinicType value={form.clinicType} onChange={set('clinicType')} />}
-              {step===1 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={set('doctor')} doctorList={doctorList} />}
+              {step===1 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={set('doctor')} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
               {step===2 && (
                 <StepSchedule
                   date={form.date} time={form.time}

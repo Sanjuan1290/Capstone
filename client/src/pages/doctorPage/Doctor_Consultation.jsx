@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { uploadToCloudinary } from '../../services/portal.service'
+import { uploadClinicalImageSigned } from '../../services/portal.service'
 import {
   saveConsultation,
   updateConsultation,
@@ -9,6 +9,7 @@ import {
   getPatientHistory,
   getInventoryItems,
   getBillingCatalog,
+  addConsultationAmendment,
 } from '../../services/doctor.service'
 import { getClinicSettings } from '../../services/clinic.service'
 import {
@@ -161,6 +162,11 @@ const Doctor_Consultation = () => {
   const [billableServices, setBillableServices] = useState([])
   const [clinicSettings, setClinicSettings] = useState(null)
   const [uploadingIndex, setUploadingIndex] = useState(null)
+  const [consultationStatus, setConsultationStatus] = useState('draft')
+  const [amendments, setAmendments] = useState([])
+  const [amendmentReason, setAmendmentReason] = useState('')
+  const [amendmentText, setAmendmentText] = useState('')
+  const [addingAmendment, setAddingAmendment] = useState(false)
 
   const date = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
 
@@ -175,6 +181,8 @@ const Doctor_Consultation = () => {
   }
 
   const applyConsultationData = (consult) => {
+    setConsultationStatus(consult.status || 'finalized')
+    setAmendments(Array.isArray(consult.amendments) ? consult.amendments : [])
     setDiagnosis(consult.diagnosis || '')
     setNotes(consult.notes || '')
     setProgressImages(normalizeProgressImages(consult.progress_images))
@@ -286,9 +294,17 @@ const Doctor_Consultation = () => {
 
   const handleUploadProgressImage = async (index, file) => {
     if (!file) return
+    if (!String(file.type || '').startsWith('image/')) {
+      alert('Select a valid image file.')
+      return
+    }
+    if (Number(file.size || 0) > 10 * 1024 * 1024) {
+      alert('Clinical images must be 10 MB or smaller.')
+      return
+    }
     setUploadingIndex(index)
     try {
-      const imageUrl = await uploadToCloudinary(file)
+      const imageUrl = await uploadClinicalImageSigned(file, appt?.id)
       updateProgressImage(index, 'image_url', imageUrl)
       if (!progressImages[index]?.caption) {
         updateProgressImage(index, 'caption', file.name.replace(/\.[^.]+$/, ''))
@@ -326,8 +342,30 @@ const Doctor_Consultation = () => {
       : service))
   }
 
+  const handleAddAmendment = async () => {
+    if (!appt?.id || !amendmentReason.trim() || !amendmentText.trim()) return
+    setAddingAmendment(true)
+    try {
+      const result = await addConsultationAmendment(appt.id, {
+        reason: amendmentReason.trim(),
+        amendment_text: amendmentText.trim(),
+      })
+      setAmendments(Array.isArray(result.amendments) ? result.amendments : [])
+      setAmendmentReason('')
+      setAmendmentText('')
+    } catch (err) {
+      alert(err.message || 'Failed to add amendment.')
+    } finally {
+      setAddingAmendment(false)
+    }
+  }
+
   const handleSave = async () => {
     if (!appt) return
+    if (consultationStatus === 'finalized') {
+      alert('This medical record is finalized. Add an amendment instead of editing the original record.')
+      return
+    }
     setSaving(true)
 
     const payload = {
@@ -350,6 +388,7 @@ const Doctor_Consultation = () => {
 
       if (!isEditMode) {
         setIsEditMode(true)
+        setConsultationStatus('finalized')
         setAppt((prev) => (prev ? { ...prev, status: 'completed' } : prev))
       }
 
@@ -413,10 +452,10 @@ const Doctor_Consultation = () => {
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               {isEditMode && <MdEdit className="text-violet-500 text-[18px]" />}
-              {isEditMode ? 'Edit Consultation' : 'Consultation'}
-              {isEditMode && (
-                <span className="text-xs font-semibold bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full">
-                  Completed
+              {consultationStatus === 'finalized' ? 'Finalized Consultation' : 'Consultation'}
+              {consultationStatus === 'finalized' && (
+                <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+                  Finalized · Original locked
                 </span>
               )}
             </h1>
@@ -495,6 +534,13 @@ const Doctor_Consultation = () => {
 
         {tab === 'consultation' && (
           <div className="space-y-5">
+            {consultationStatus === 'finalized' && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+                <p className="text-sm font-bold text-emerald-800">Finalized medical record</p>
+                <p className="mt-1 text-xs leading-relaxed text-emerald-700">The original diagnosis, notes, prescription, images, and recorded services are preserved. Corrections or additional information must be added as an amendment below.</p>
+              </div>
+            )}
+            <fieldset disabled={consultationStatus === 'finalized'} className={`space-y-5 ${consultationStatus === 'finalized' ? 'opacity-90' : ''}`}>
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
               <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
                 <MdNotes className="text-violet-500 text-[16px]" /> Diagnosis & Notes
@@ -537,7 +583,7 @@ const Doctor_Consultation = () => {
               </div>
 
               <p className="text-xs text-slate-500 mb-4">
-                Upload a photo or paste an image URL so progress can be reviewed during follow-up visits.
+                Upload a clinical progress photo securely. Upload authorization is signed by the clinic server for this appointment.
               </p>
 
               {progressImages.length === 0 ? (
@@ -577,15 +623,11 @@ const Doctor_Consultation = () => {
                         </div>
 
                         <div className="space-y-3">
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Image URL</label>
-                            <input
-                              type="text"
-                              value={image.image_url}
-                              onChange={(e) => updateProgressImage(index, 'image_url', e.target.value)}
-                              placeholder="Paste image URL"
-                              className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
-                            />
+                          <div className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2.5">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Secure Clinical Upload</p>
+                            <p className="mt-1 text-xs text-violet-700">
+                              {image.image_url ? 'Image uploaded and attached to this consultation.' : 'Choose an image file below. Manual external image URLs are not accepted for clinical records.'}
+                            </p>
                           </div>
 
                           <div>
@@ -762,30 +804,43 @@ const Doctor_Consultation = () => {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3">
-              <button
-                onClick={() => navigate(-1)}
-                className="px-5 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || uploadingIndex !== null}
-                className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold rounded-xl transition-colors ${
-                  saved
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50'
-                }`}
-              >
-                {saved
-                  ? <><MdCheck className="text-[15px]" /> {isEditMode ? 'Updated!' : 'Saved!'}</>
-                  : saving
-                    ? 'Saving...'
-                    : <><MdSave className="text-[15px]" /> {isEditMode ? 'Update Consultation' : 'Save & Complete'}</>
-                }
-              </button>
-            </div>
+            </fieldset>
+
+            {consultationStatus === 'finalized' ? (
+              <div className="rounded-2xl border border-violet-200 bg-white p-6 space-y-4">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800">Medical Record Amendments</h2>
+                  <p className="mt-1 text-xs text-slate-500">Amendments preserve the original finalized record and create a dated correction/addition trail.</p>
+                </div>
+                {amendments.length > 0 && (
+                  <div className="space-y-3">
+                    {amendments.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold text-violet-700">{item.reason}</p>
+                          <p className="text-[11px] text-slate-400">{item.doctor_name || 'Doctor'} · {formatDate(item.created_at)}</p>
+                        </div>
+                        <p className="mt-2 text-sm whitespace-pre-wrap text-slate-700">{item.amendment_text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="grid gap-3">
+                  <input value={amendmentReason} onChange={(e) => setAmendmentReason(e.target.value)} placeholder="Reason for amendment (required)" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400" />
+                  <textarea value={amendmentText} onChange={(e) => setAmendmentText(e.target.value)} rows={4} placeholder="Correction or additional clinical information..." className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400 resize-none" />
+                  <div className="flex justify-end">
+                    <button onClick={handleAddAmendment} disabled={addingAmendment || !amendmentReason.trim() || !amendmentText.trim()} className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{addingAmendment ? 'Adding...' : 'Add Amendment'}</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-end gap-3">
+                <button onClick={() => navigate(-1)} className="px-5 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">Cancel</button>
+                <button onClick={handleSave} disabled={saving || uploadingIndex !== null} className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold rounded-xl transition-colors ${saved ? 'bg-emerald-500 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50'}`}>
+                  {saved ? <><MdCheck className="text-[15px]" /> Saved!</> : saving ? 'Saving...' : <><MdSave className="text-[15px]" /> Save & Complete</>}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

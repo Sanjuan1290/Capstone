@@ -17,7 +17,6 @@ router.get('/live', async (req, res) => {
   // Patient currently being served
   const [servingRows] = await db.query(
     `SELECT q.queue_number AS queueNo,
-            q.patient_name AS patient,
             q.type,
             d.full_name    AS doctor,
             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt
@@ -32,7 +31,6 @@ router.get('/live', async (req, res) => {
   // All waiting patients
   const [waitingRows] = await db.query(
     `SELECT q.queue_number AS queueNo,
-            q.patient_name AS patient,
             q.type,
             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt
      FROM queue q

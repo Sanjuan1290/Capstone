@@ -35,7 +35,7 @@ const DoctorLogin = () => {
       const data = await res.json()
       if (!res.ok) { setError(data.message || 'Login failed'); return }
       login(data.user, 'doctor')
-      navigate('/doctor')
+      navigate(data.user?.must_change_password ? '/doctor/change-password-required' : '/doctor')
     } catch {
       setError('Cannot connect to server.')
     } finally {

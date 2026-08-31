@@ -2,6 +2,8 @@ const { getNotifications, markNotificationRead } = require('../utils/notificatio
 const { getSettings, updateSettings } = require('../utils/accountSettings')
 const { getLandingPageContent, updateLandingPageContent } = require('../utils/landingPageContent')
 const db = require('../db/connect')
+const { requestCode, changeWithCode, completeRequiredChange, requestPatientPhoneChange, confirmPatientPhoneChange } = require('../utils/accountSecurity')
+const { writeAuditLog } = require('../utils/audit')
 
 const listNotifications = async (req, res) => {
   const rows = await getNotifications(req.user.role, req.user.id, req.query.limit || 20)
@@ -64,12 +66,66 @@ const saveAdminLandingPage = async (req, res) => {
   res.json(saved)
 }
 
+
+const requestMyPasswordCode = async (req, res) => {
+  try {
+    const result = await requestCode(req.user.role, req.user.id)
+    res.json({ message: `Verification code sent by ${result.channel}.`, channel: result.channel })
+  } catch (err) { res.status(400).json({ message: err.message }) }
+}
+
+const changeMyPassword = async (req, res) => {
+  try {
+    await changeWithCode(req.user.role, req.user.id, req.body?.code, req.body?.new_password, res)
+    await writeAuditLog({ userId: req.user.id, userRole: req.user.role, action: 'password_changed', entityType: req.user.role, entityId: req.user.id, ipAddress: req.ip || null }).catch(() => {})
+    res.json({ message: 'Password changed successfully.' })
+  } catch (err) { res.status(400).json({ message: err.message }) }
+}
+
+const completeRequiredPasswordChange = async (req, res) => {
+  try {
+    await completeRequiredChange(req.user.role, req.user.id, req.body?.new_password, res)
+    await writeAuditLog({ userId: req.user.id, userRole: req.user.role, action: 'first_password_change_completed', entityType: req.user.role, entityId: req.user.id, ipAddress: req.ip || null }).catch(() => {})
+    res.json({ message: 'Password created successfully.' })
+  } catch (err) { res.status(400).json({ message: err.message }) }
+}
+
+
+const requestMyPhoneChange = async (req, res) => {
+  if (req.user.role !== 'patient') return res.status(403).json({ message: 'Patient account required.' })
+  try {
+    await requestPatientPhoneChange(req.user.id, req.body?.phone)
+    res.json({ message: 'Verification code sent to the new mobile number.' })
+  } catch (err) { res.status(err.statusCode || 400).json({ message: err.message }) }
+}
+
+const confirmMyPhoneChange = async (req, res) => {
+  if (req.user.role !== 'patient') return res.status(403).json({ message: 'Patient account required.' })
+  try {
+    const phone = await confirmPatientPhoneChange(req.user.id, req.body?.code, res)
+    await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'security.phone_changed', entityType: 'patient', entityId: req.user.id, newValues: { phone }, ipAddress: req.ip || null }).catch(() => {})
+    res.json({ message: 'Mobile number changed successfully.', phone })
+  } catch (err) { res.status(err.statusCode || 400).json({ message: err.message }) }
+}
+
+const completePatientOnboarding = async (req, res) => {
+  if (req.user.role !== 'patient') return res.status(403).json({ message: 'Patient account required.' })
+  await db.query('UPDATE patients SET onboarding_completed_at = COALESCE(onboarding_completed_at, NOW()) WHERE id = ?', [req.user.id])
+  res.json({ message: 'Onboarding completed.' })
+}
+
 module.exports = {
   listNotifications,
   readNotification,
   readAllNotifications,
   getMySettings,
   saveMySettings,
+  requestMyPasswordCode,
+  changeMyPassword,
+  completeRequiredPasswordChange,
+  completePatientOnboarding,
+  requestMyPhoneChange,
+  confirmMyPhoneChange,
   getPublicLandingPage,
   getPublicClinicSettings,
   getAdminLandingPage,

@@ -6,6 +6,7 @@ const DoctorRoute = ({ children }) => {
 
   if (!ready) return <div>Loading...</div>; // Wait for the check to finish
   if (!user || role !== 'doctor') return <Navigate to="/doctor/login" />;
+  if (user.must_change_password) return <Navigate to="/doctor/change-password-required" replace />;
 
   return children;
 };

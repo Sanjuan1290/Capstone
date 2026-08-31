@@ -14,16 +14,28 @@ const toPositiveNumber = (value) => {
   return Number.isFinite(num) && num > 0 ? num : 0
 }
 
-const getLocationId = async (name = MAIN_LOCATION, executor = db) => {
+const getLocationId = async (name = MAIN_LOCATION, executor = db, options = {}) => {
   const locationName = String(name || MAIN_LOCATION).trim() || MAIN_LOCATION
-  await executor.query(
-    `INSERT INTO inventory_locations (name, location_type)
-     VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE name = VALUES(name)`,
-    [locationName, locationName === MAIN_LOCATION ? 'stockroom' : 'room']
-  )
-  const [[row]] = await executor.query('SELECT id FROM inventory_locations WHERE name = ? LIMIT 1', [locationName])
+  if (options.createIfMissing !== false) {
+    await executor.query(
+      `INSERT INTO inventory_locations (name, location_type, is_active)
+       VALUES (?, ?, 1)
+       ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+      [locationName, locationName === MAIN_LOCATION ? 'stockroom' : 'room']
+    )
+  }
+  const [[row]] = await executor.query('SELECT id FROM inventory_locations WHERE name = ? AND COALESCE(is_active,1)=1 LIMIT 1', [locationName])
   return row?.id || null
+}
+
+const getInventoryLocationById = async (id, executor = db) => {
+  const locationId = Number(id)
+  if (!locationId) return null
+  const [[row]] = await executor.query(
+    'SELECT id, name, location_type FROM inventory_locations WHERE id = ? AND COALESCE(is_active,1)=1 LIMIT 1',
+    [locationId]
+  )
+  return row || null
 }
 
 const syncLocationSnapshot = async (inventoryId, executor = db) => {
@@ -154,7 +166,8 @@ const loadLocationBatches = async (inventoryId, locationName, executor = db) => 
        CASE WHEN b.expiration_date IS NULL THEN 1 ELSE 0 END,
        b.expiration_date ASC,
        b.received_at ASC,
-       b.id ASC`,
+       b.id ASC
+     FOR UPDATE`,
     [locationId, inventoryId]
   )
   return { locationId, rows }
@@ -188,14 +201,20 @@ const consumeInventoryFromLocationFEFO = async (
       if (available <= 0) continue
       const used = Math.min(available, remaining)
 
-      await executor.query(
-        'UPDATE inventory_location_batches SET quantity = quantity - ? WHERE location_id = ? AND batch_id = ?',
-        [used, locationId, batch.id]
+      const [locationUpdate] = await executor.query(
+        'UPDATE inventory_location_batches SET quantity = quantity - ? WHERE location_id = ? AND batch_id = ? AND quantity >= ?',
+        [used, locationId, batch.id, used]
       )
-      await executor.query(
-        'UPDATE inventory_batches SET quantity = quantity - ? WHERE id = ?',
-        [used, batch.id]
+      if (Number(locationUpdate.affectedRows || 0) !== 1) {
+        throw Object.assign(new Error('Inventory changed while this transaction was processing. Please retry.'), { statusCode: 409 })
+      }
+      const [batchUpdate] = await executor.query(
+        'UPDATE inventory_batches SET quantity = quantity - ? WHERE id = ? AND quantity >= ?',
+        [used, batch.id, used]
       )
+      if (Number(batchUpdate.affectedRows || 0) !== 1) {
+        throw Object.assign(new Error('Batch stock changed while this transaction was processing. Please retry.'), { statusCode: 409 })
+      }
 
       consumed.push({
         id: batch.id,
@@ -261,8 +280,10 @@ const consumeInventoryFromLocationByBatches = async (
     if (available < selection.quantity) {
       return { ok: false, message: `Batch ${batch.batch_code || `#${batch.id}`} only has ${available} remaining at ${locationName}.`, shortage: selection.quantity - available, consumed }
     }
-    await executor.query('UPDATE inventory_location_batches SET quantity = quantity - ? WHERE location_id = ? AND batch_id = ?', [selection.quantity, locationId, batch.id])
-    await executor.query('UPDATE inventory_batches SET quantity = quantity - ? WHERE id = ?', [selection.quantity, batch.id])
+    const [locationUpdate] = await executor.query('UPDATE inventory_location_batches SET quantity = quantity - ? WHERE location_id = ? AND batch_id = ? AND quantity >= ?', [selection.quantity, locationId, batch.id, selection.quantity])
+    if (Number(locationUpdate.affectedRows || 0) !== 1) throw Object.assign(new Error('Selected batch stock changed. Please reload and retry.'), { statusCode: 409 })
+    const [batchUpdate] = await executor.query('UPDATE inventory_batches SET quantity = quantity - ? WHERE id = ? AND quantity >= ?', [selection.quantity, batch.id, selection.quantity])
+    if (Number(batchUpdate.affectedRows || 0) !== 1) throw Object.assign(new Error('Selected batch stock changed. Please reload and retry.'), { statusCode: 409 })
     consumed.push({ id: batch.id, batch_id: batch.id, batch_code: batch.batch_code || null, quantity: selection.quantity, expiration_date: batch.expiration_date || null, location: locationName })
   }
 
@@ -304,7 +325,8 @@ const transferInventoryBatchesFEFO = async (
     const available = Number(batch.location_quantity || 0)
     if (available <= 0) continue
     const moved = Math.min(available, remaining)
-    await executor.query('UPDATE inventory_location_batches SET quantity = quantity - ? WHERE location_id = ? AND batch_id = ?', [moved, fromId, batch.id])
+    const [sourceUpdate] = await executor.query('UPDATE inventory_location_batches SET quantity = quantity - ? WHERE location_id = ? AND batch_id = ? AND quantity >= ?', [moved, fromId, batch.id, moved])
+    if (Number(sourceUpdate.affectedRows || 0) !== 1) throw Object.assign(new Error('Transfer source stock changed. Please retry.'), { statusCode: 409 })
     await executor.query(
       `INSERT INTO inventory_location_batches (location_id, inventory_id, batch_id, quantity)
        VALUES (?, ?, ?, ?)
@@ -389,6 +411,7 @@ const attachBatchesToInventory = async (items, executor = db) => {
 }
 
 module.exports = {
+  getInventoryLocationById,
   MAIN_LOCATION,
   normalizeExpiryDate,
   normalizeBatchCode,

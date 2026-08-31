@@ -150,10 +150,19 @@ const sendPatientAppointmentStatusSms = async ({
   }, `Patient appointment ${status || 'update'} for ${patientLabel} (${normalized})`)
 }
 
+
+const sendPatientPhoneChangeOtp = async ({ phone, code, fullName }) => {
+  const normalized = normalizePhilippinePhone(phone)
+  if (!normalized) throw new Error('A valid Philippine mobile number is required.')
+  const message = 'Carait Clinic mobile-number verification code: {otp}. It expires in 10 minutes.'
+  return sendSemaphore('/otp', { number: normalized, message, code }, `Phone-change OTP for ${fullName || 'patient'} (${normalized})`)
+}
+
 module.exports = {
   isSmsConfigured,
   sendPatientRegistrationOtp,
   sendPatientPasswordResetOtp,
+  sendPatientPhoneChangeOtp,
   sendDoctorAppointmentSms,
   sendPatientAppointmentStatusSms,
 }

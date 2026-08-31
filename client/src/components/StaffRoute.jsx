@@ -10,6 +10,7 @@ const StaffRoute = ({ children }) => {
     </div>
   )
   if (!user || role !== 'staff') return <Navigate to="/staff/login" replace />
+  if (user.must_change_password) return <Navigate to="/staff/change-password-required" replace />
   return children
 }
 

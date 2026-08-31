@@ -7,6 +7,8 @@ const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
+const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
+const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendAppointmentStatusEmail } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
@@ -42,8 +44,10 @@ const { isValidQueueStatus, isValidSupplyRequestResolution, normalizeStockMoveme
 const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
 const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
 const { writeAuditLog } = require('../utils/audit')
+const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
+const { resolveDiscountForDraft, applyApprovedPriceOverrides, loadDiscountPreset } = require('../utils/billingSecurity')
 
-const makeTempPassword = () => Math.random().toString(36).slice(-8)
+const makeTempPassword = () => makeTemporaryPassword(14)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
@@ -124,20 +128,24 @@ const login = async (req, res) => {
     return res.status(400).json({ message: 'Email and password are required.' })
 
   const [rows] = await db.query("SELECT * FROM staff WHERE email = ? AND status = 'active'", [email])
-  if (rows.length === 0)
+  if (rows.length === 0) {
+    await writeAuditLog({ userRole: 'staff', action: 'auth.login_failed', entityType: 'staff', newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
+  }
 
   const staff = rows[0]
   const match = await bcrypt.compare(password, staff.password)
-  if (!match)
+  if (!match) {
+    await writeAuditLog({ userId: staff.id, userRole: 'staff', action: 'auth.login_failed', entityType: 'staff', entityId: staff.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
+  }
 
-  const token = jwt.sign({ id: staff.id, role: 'staff' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'staff')
+  await issueSession(res, 'staff', staff.id)
+  await writeAuditLog({ userId: staff.id, userRole: 'staff', action: 'auth.login_success', entityType: 'staff', entityId: staff.id, ipAddress: req.ip || null }).catch(() => {})
 
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: staff.id, full_name: staff.full_name, email: staff.email, role: 'staff', theme_preference: staff.theme_preference, profile_image_url: staff.profile_image_url },
+    user: { id: staff.id, full_name: staff.full_name, email: staff.email, role: 'staff', theme_preference: staff.theme_preference, profile_image_url: staff.profile_image_url, must_change_password: Boolean(staff.must_change_password) },
   })
 }
 
@@ -145,10 +153,9 @@ const checkAuth = async (req, res) => {
   const token = req.cookies['staff_token']
   if (!token) return res.status(200).json({ authenticated: false })
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    if (decoded.role !== 'staff') return res.status(200).json({ authenticated: false })
+    const decoded = await verifySessionToken(token, 'staff')
     const [rows] = await db.query(
-      "SELECT id, full_name, email, theme_preference, profile_image_url FROM staff WHERE id = ? AND status = 'active'", [decoded.id]
+      "SELECT id, full_name, email, theme_preference, profile_image_url, must_change_password, password_changed_at FROM staff WHERE id = ? AND status = 'active'", [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'staff' } })
@@ -157,8 +164,9 @@ const checkAuth = async (req, res) => {
   }
 }
 
-const logout = (req, res) => {
-  res.clearCookie('staff_token')
+const logout = async (req, res) => {
+  await writeAuditLog({ userId: req.user?.id || null, userRole: 'staff', action: 'auth.logout', entityType: 'staff', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
+  res.clearCookie('staff_token', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })
 }
 
@@ -241,26 +249,14 @@ const createAppointment = async (req, res) => {
     })
   }
 
-  const [existing] = await db.query(
-    `SELECT id FROM appointments
-     WHERE doctor_id=? AND appointment_date=? AND appointment_time=?
-     AND status IN ('pending','confirmed','rescheduled','in-progress')`,
-    [doctor_id, normalizedDate, appointment_time]
-  )
-  if (existing.length > 0)
-    return res.status(409).json({ message: 'That time slot is already taken.' })
-
-  const blockedDate = await getDoctorUnavailableDate(doctor_id, normalizedDate)
-  if (blockedDate) {
-    return res.status(409).json({
-      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
-    })
-  }
-
-  const [result] = await db.query(
-    'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes, appointment_source) VALUES (?,?,?,?,?,?,?,?)',
-    [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null, 'staff_booking']
-  )
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id, date: normalizedDate, time: appointment_time }, async () => {
+    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time })
+    const [inserted] = await db.query(
+      'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes, appointment_source) VALUES (?,?,?,?,?,?,?,?)',
+      [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null, 'staff_booking']
+    )
+    return inserted
+  })
   await writeAuditLog({
     userId: req.user.id, userRole: 'staff', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId,
     newValues: { patient_id, doctor_id, clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'staff_booking' }, ipAddress: req.ip || null,
@@ -295,7 +291,7 @@ const createAppointment = async (req, res) => {
 
 const confirmAppointment = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT a.id, a.appointment_date, a.appointment_time, a.clinic_type,
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.full_name AS doctor_name
      FROM appointments a
@@ -309,7 +305,9 @@ const confirmAppointment = async (req, res) => {
   if (lastNoShow && !req.body?.override_no_show_warning) {
     return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
   }
+  assertAppointmentTransition(rows[0].status, 'confirmed')
   await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ?", [req.params.id])
+  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.confirmed',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -355,7 +353,7 @@ const confirmAppointment = async (req, res) => {
 
 const cancelAppointment = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT a.id, a.appointment_date, a.appointment_time, a.clinic_type,
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.full_name AS doctor_name
      FROM appointments a
@@ -365,7 +363,9 @@ const cancelAppointment = async (req, res) => {
     [req.params.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
+  assertAppointmentTransition(rows[0].status, 'cancelled')
   await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [req.params.id])
+  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.cancelled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'cancelled'},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -413,7 +413,9 @@ const markAppointmentNoShow = async (req, res) => {
   if (!['confirmed', 'rescheduled'].includes(rows[0].status)) {
     return res.status(400).json({ message: 'Only confirmed or rescheduled appointments can be marked as no show.' })
   }
+  assertAppointmentTransition(rows[0].status, 'no_show')
   await db.query("UPDATE appointments SET status = 'no_show' WHERE id = ?", [req.params.id])
+  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.no_show',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'no_show'},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -452,26 +454,15 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
   }
 
-  const [conflict] = await db.query(
-    `SELECT id FROM appointments
-     WHERE doctor_id=? AND appointment_date=? AND appointment_time=? 
-     AND status IN ('pending','confirmed','rescheduled','in-progress') AND id != ?`,
-    [rows[0].doctor_id, normalizedDate, appointment_time, req.params.id]
-  )
-  if (conflict.length > 0)
-    return res.status(409).json({ message: 'That time slot is already taken.' })
-
-  const blockedDate = await getDoctorUnavailableDate(rows[0].doctor_id, normalizedDate)
-  if (blockedDate) {
-    return res.status(409).json({
-      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
-    })
-  }
-
-  await db.query(
-    "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=?",
-    [normalizedDate, appointment_time, req.params.id]
-  )
+  assertAppointmentTransition(rows[0].status, 'rescheduled')
+  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id, date: normalizedDate, time: appointment_time }, async () => {
+    await validateAppointmentSlot({ doctorId: rows[0].doctor_id, clinicType: rows[0].clinic_type, date: normalizedDate, time: appointment_time, excludeAppointmentId: req.params.id })
+    await db.query(
+      "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=?",
+      [normalizedDate, appointment_time, req.params.id]
+    )
+  })
+  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -779,21 +770,24 @@ const getBillById = async (req, res) => {
 const updateBill = async (req, res) => {
   const bill = await getBillingRecordWithItems(req.params.id)
   if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
-  if (!['draft', 'pending'].includes(bill.status)) {
-    return res.status(400).json({ message: 'Only draft bills can be edited. Finalized or paid bills are locked.' })
-  }
-  if (Number(bill.paid_amount || 0) > 0) {
-    return res.status(400).json({ message: 'A bill with recorded payments can no longer be edited.' })
-  }
+  if (!['draft', 'pending'].includes(bill.status)) return res.status(400).json({ message: 'Only draft bills can be edited. Finalized or paid bills are locked.' })
+  if (Number(bill.paid_amount || 0) > 0) return res.status(400).json({ message: 'A bill with recorded payments can no longer be edited.' })
 
-  const discountType = String(req.body.discount_type || 'none').trim() || 'none'
-  const discountLabel = String(req.body.discount_label || '').trim() || null
-  const discountAmount = Math.max(0, Number(req.body.discount_amount) || 0)
   const paymentNotes = String(req.body.payment_notes || '').trim() || null
-  const items = await normalizeBillingItems(req.body.items, db)
-  if (items.length === 0) return res.status(400).json({ message: 'Add at least one bill item.' })
+  const securedRawItems = await applyApprovedPriceOverrides(Number(req.params.id), req.body.items, db)
+  const items = await normalizeBillingItems(securedRawItems, db)
+  if (!items.length) return res.status(400).json({ message: 'Add at least one bill item.' })
 
-  const totals = computeBillingTotals({ items, discount_amount: discountAmount })
+  const subtotalOnly = computeBillingTotals({ items, discount_amount: 0 })
+  const discount = await resolveDiscountForDraft({
+    billingId: Number(req.params.id),
+    subtotal: subtotalOnly.subtotal,
+    presetId: req.body.discount_preset_id,
+    reference: req.body.discount_reference,
+    requestedAmount: req.body.discount_amount,
+  }, db)
+  const totals = computeBillingTotals({ items, discount_amount: discount.amount })
+
   const writer = await db.getConnection()
   try {
     await writer.beginTransaction()
@@ -802,19 +796,68 @@ const updateBill = async (req, res) => {
       `UPDATE billing_records
        SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_amount = ?, total_amount = ?, payment_notes = ?
        WHERE id = ?`,
-      [totals.subtotal, discountType, discountLabel, totals.discount_amount, totals.total_amount, paymentNotes, req.params.id]
+      [totals.subtotal, discount.type, discount.label, totals.discount_amount, totals.total_amount, paymentNotes, req.params.id]
     )
     await writeAuditLog({
       userId: req.user.id, userRole: 'staff', action: 'billing.draft_updated', entityType: 'billing_record', entityId: req.params.id,
       oldValues: { subtotal: bill.subtotal, discount_amount: bill.discount_amount, total_amount: bill.total_amount },
-      newValues: { subtotal: totals.subtotal, discount_type: discountType, discount_label: discountLabel, discount_amount: totals.discount_amount, total_amount: totals.total_amount },
+      newValues: { subtotal: totals.subtotal, discount_type: discount.type, discount_label: discount.label, discount_amount: totals.discount_amount, total_amount: totals.total_amount },
       ipAddress: req.ip || null,
     }, writer)
     await writer.commit()
-  } catch (err) {
-    await writer.rollback(); throw err
-  } finally { writer.release() }
+  } catch (err) { await writer.rollback(); throw err } finally { writer.release() }
   res.json(await getBillingRecordWithItems(req.params.id))
+}
+
+const getBillingAdjustmentRequests = async (req, res) => {
+  const billingId = Number(req.params.id)
+  const [rows] = await db.query(
+    `SELECT bar.*, dp.label AS discount_label
+     FROM billing_adjustment_requests bar
+     LEFT JOIN discount_presets dp ON dp.id = bar.discount_preset_id
+     WHERE bar.billing_id = ? ORDER BY bar.created_at DESC`, [billingId]
+  )
+  res.json(rows)
+}
+
+const requestBillingAdjustment = async (req, res) => {
+  const billingId = Number(req.params.id)
+  const type = String(req.body.request_type || '').trim()
+  if (!['discount', 'price_override'].includes(type)) return res.status(400).json({ message: 'Invalid adjustment request type.' })
+  const bill = await getBillingRecordWithItems(billingId)
+  if (!bill || !['draft', 'pending'].includes(bill.status)) return res.status(400).json({ message: 'Only draft bills can request adjustments.' })
+
+  let discountPresetId = null, catalogServiceId = null, requestedAmount = null, requestedPrice = null
+  if (type === 'discount') {
+    discountPresetId = Number(req.body.discount_preset_id) || null
+    const preset = await loadDiscountPreset(discountPresetId)
+    if (!preset || Number(preset.is_active) === 0) return res.status(400).json({ message: 'Select a valid discount preset.' })
+    requestedAmount = Math.max(0, Number(req.body.requested_amount) || 0) || null
+  } else {
+    catalogServiceId = Number(req.body.catalog_service_id) || null
+    requestedPrice = Math.max(0, Number(req.body.requested_price) || 0)
+    if (!catalogServiceId) return res.status(400).json({ message: 'Select a clinic service for the price override.' })
+  }
+  const reason = String(req.body.reason || '').trim()
+  const reference = String(req.body.reference || '').trim() || null
+  if (!reason) return res.status(400).json({ message: 'A reason is required for administrator approval.' })
+
+  const [existing] = await db.query(
+    `SELECT id FROM billing_adjustment_requests WHERE billing_id=? AND staff_id=? AND request_type=? AND status='pending'
+     AND COALESCE(discount_preset_id,0)=COALESCE(?,0) AND COALESCE(catalog_service_id,0)=COALESCE(?,0) LIMIT 1`,
+    [billingId, req.user.id, type, discountPresetId, catalogServiceId]
+  )
+  if (existing.length) return res.status(409).json({ message: 'A matching approval request is already pending.' })
+
+  const [result] = await db.query(
+    `INSERT INTO billing_adjustment_requests
+     (billing_id, staff_id, request_type, discount_preset_id, catalog_service_id, requested_amount, requested_price, reference_text, reason, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [billingId, req.user.id, type, discountPresetId, catalogServiceId, requestedAmount, requestedPrice, reference, reason]
+  )
+  await writeAuditLog({ userId:req.user.id,userRole:'staff',action:`billing.${type}_approval_requested`,entityType:'billing_adjustment_request',entityId:result.insertId,newValues:{billing_id:billingId,discount_preset_id:discountPresetId,catalog_service_id:catalogServiceId,requested_amount:requestedAmount,requested_price:requestedPrice,reason},ipAddress:req.ip||null })
+  broadcast(['admin'], 'billing_adjustment_requested', { requestId: result.insertId, billingId })
+  res.status(201).json({ message: 'Administrator approval requested.', id: result.insertId })
 }
 
 const finalizeBill = async (req, res) => {
@@ -907,13 +950,21 @@ const payBill = async (req, res) => {
   const paymentMethod = String(req.body.payment_method || '').trim().toLowerCase()
   const paymentNotes = String(req.body.payment_notes || '').trim() || null
   const referenceNumber = String(req.body.reference_number || '').trim() || null
+  const idempotencyKey = String(req.body.idempotency_key || '').trim()
   if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
+  if (!idempotencyKey || idempotencyKey.length > 100) return res.status(400).json({ message: 'A valid payment request key is required.' })
   if (!isValidPaymentMethod(paymentMethod)) return res.status(400).json({ message: 'Select a valid payment method.' })
   if (requiresPaymentReference(paymentMethod) && !referenceNumber) return res.status(400).json({ message: 'Enter the payment reference number.' })
 
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    const [duplicatePayments] = await conn.query('SELECT billing_id FROM billing_payments WHERE idempotency_key = ? LIMIT 1', [idempotencyKey])
+    if (duplicatePayments.length) {
+      const existingId = duplicatePayments[0].billing_id
+      await conn.rollback()
+      return res.json(await getBillingRecordWithItems(existingId))
+    }
     const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE', [billingId])
     if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
     const lockedBill = lockedRows[0]
@@ -945,9 +996,9 @@ const payBill = async (req, res) => {
 
     await conn.query(
       `INSERT INTO billing_payments
-       (billing_id, amount, payment_method, reference_number, amount_received, change_amount, receipt_number, status, notes, received_by_staff_id, paid_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, NOW())`,
-      [billingId, requestedPayment, paymentMethod, referenceNumber, tendered, paymentAmounts.changeAmount, receiptNumber, paymentNotes, req.user.id]
+       (billing_id, amount, payment_method, reference_number, amount_received, change_amount, receipt_number, status, notes, received_by_staff_id, idempotency_key, paid_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, NOW())`,
+      [billingId, requestedPayment, paymentMethod, referenceNumber, tendered, paymentAmounts.changeAmount, receiptNumber, paymentNotes, req.user.id, idempotencyKey]
     )
     await conn.query(
       `UPDATE billing_records
@@ -990,10 +1041,11 @@ const closeCashierShift = async (req, res) => {
   const expectedCash = Number(summary?.expected_cash || 0)
   const actualCash = Math.max(0, Number(req.body.actual_cash) || 0)
   const variance = Math.round((actualCash - expectedCash) * 100) / 100
+  const [closed] = await db.query('SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? LIMIT 1', [req.user.id, closingDate])
+  if (closed.length) return res.status(409).json({ message: 'This cashier shift is already closed. An administrator must reopen it before changes can be made.' })
   await db.query(
-    `INSERT INTO cashier_closings (staff_id, closing_date, expected_cash, actual_cash, variance, notes)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE expected_cash=VALUES(expected_cash), actual_cash=VALUES(actual_cash), variance=VALUES(variance), notes=VALUES(notes), closed_at=NOW()`,
+    `INSERT INTO cashier_closings (staff_id, closing_date, expected_cash, actual_cash, variance, notes, is_locked)
+     VALUES (?, ?, ?, ?, ?, ?, 1)`,
     [req.user.id, closingDate, expectedCash, actualCash, variance, String(req.body.notes || '').trim() || null]
   )
   await writeAuditLog({ userId: req.user.id, userRole: 'staff', action: 'cashier.shift_closed', entityType: 'cashier_closing', entityId: closingDate, newValues: { expected_cash: expectedCash, actual_cash: actualCash, variance }, ipAddress: req.ip || null })

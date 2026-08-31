@@ -6,6 +6,8 @@ import {
   getBills,
   getInventory,
   getDiscountPresets,
+  getBillingAdjustmentRequests,
+  requestBillingAdjustment,
   finalizeBill,
   payBill,
   updateBill,
@@ -106,6 +108,11 @@ const makeBlankItem = (itemType = 'custom') => ({
   base_amount: 0,
   markup_percentage: itemType === 'service' ? 20 : 0,
   unit_price: 0,
+  price_overridden: false,
+  original_price: 0,
+  override_reason: '',
+  requested_override_price: '',
+  override_request_reason: '',
   notes: '',
   details: null,
 })
@@ -132,6 +139,11 @@ const normalizeBillForEditor = (bill) => ({
       base_amount: Number(item.base_amount) || 0,
       markup_percentage: Number(item.markup_percentage) || 0,
       unit_price: Number(item.unit_price) || 0,
+      price_overridden: Boolean(item?.details?.pricing?.price_overridden),
+      original_price: Number(item?.details?.pricing?.original_price ?? item.unit_price) || 0,
+      override_reason: item?.details?.pricing?.override_reason || '',
+      requested_override_price: '',
+      override_request_reason: '',
       notes: item.notes || '',
       details: item.details || null,
     }))
@@ -160,6 +172,8 @@ const serializeDraftItems = (items = []) => (
     base_amount: Number(item.base_amount) || 0,
     markup_percentage: Number(item.markup_percentage) || 0,
     unit_price: Number(item.unit_price) || 0,
+    price_overridden: Boolean(item.price_overridden),
+    override_reason: item.override_reason || '',
     notes: item.notes || '',
     sort_order: index,
     details: item.details || null,
@@ -247,6 +261,11 @@ const Staff_Billing = () => {
   const [inventoryItems, setInventoryItems] = useState([])
   const [paymentSettings, setPaymentSettings] = useState({})
   const [discountPresets, setDiscountPresets] = useState([])
+  const [selectedDiscountPresetId, setSelectedDiscountPresetId] = useState('')
+  const [discountReference, setDiscountReference] = useState('')
+  const [discountApprovalReason, setDiscountApprovalReason] = useState('')
+  const [adjustmentRequests, setAdjustmentRequests] = useState([])
+  const [adjustmentBusy, setAdjustmentBusy] = useState(false)
   const [clinicSettings, setClinicSettings] = useState({})
   const [finalizing, setFinalizing] = useState(false)
   const [loadingList, setLoadingList] = useState(true)
@@ -255,6 +274,7 @@ const Staff_Billing = () => {
   const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [paymentRequestKey, setPaymentRequestKey] = useState('')
   const [listError, setListError] = useState('')
   const [detailError, setDetailError] = useState('')
 
@@ -305,15 +325,20 @@ const Staff_Billing = () => {
     if (!billId) {
       setDetail(null)
       setDraft(null)
+      setAdjustmentRequests([])
       return
     }
 
     setLoadingDetail(true)
     setDetailError('')
     try {
-      const bill = await getBillById(billId)
+      const [bill, requests] = await Promise.all([
+        getBillById(billId),
+        getBillingAdjustmentRequests(billId).catch(() => []),
+      ])
       setDetail(bill)
       setDraft(normalizeBillForEditor(bill))
+      setAdjustmentRequests(Array.isArray(requests) ? requests : [])
     } catch (err) {
       const message = err.message || 'Billing details could not be loaded.'
       setDetailError(message)
@@ -373,6 +398,15 @@ const Staff_Billing = () => {
   }, [detail?.clinic_type])
 
   useEffect(() => {
+    if (!detail || discountPresets.length === 0) return
+    const match = discountPresets.find((preset) => (
+      String(preset.label || '').trim().toLowerCase() === String(detail.discount_label || '').trim().toLowerCase()
+      && String(preset.discount_type || '') === String(detail.discount_type || '')
+    ))
+    setSelectedDiscountPresetId(match ? String(match.id) : '')
+  }, [detail?.id, detail?.discount_label, detail?.discount_type, discountPresets])
+
+  useEffect(() => {
     const handleRefresh = () => {
       loadBills({ status: filter, preferredId: selectedId, targetPage: page, query: search, limit: pageSize })
       if (selectedId) loadBillDetail(selectedId)
@@ -400,6 +434,20 @@ const Staff_Billing = () => {
   const isDraft = ['draft', 'pending'].includes(detail?.status)
   const isReadyForPayment = ['ready', 'partially_paid'].includes(detail?.status)
   const isLocked = ['ready', 'partially_paid', 'paid', 'voided', 'refunded'].includes(detail?.status)
+  const selectedDiscountPreset = discountPresets.find((preset) => Number(preset.id) === Number(selectedDiscountPresetId)) || null
+  const discountApproval = selectedDiscountPreset
+    ? adjustmentRequests.find((request) => request.request_type === 'discount' && Number(request.discount_preset_id) === Number(selectedDiscountPreset.id) && request.status === 'approved')
+    : null
+  const discountPending = selectedDiscountPreset
+    ? adjustmentRequests.find((request) => request.request_type === 'discount' && Number(request.discount_preset_id) === Number(selectedDiscountPreset.id) && request.status === 'pending')
+    : null
+
+  const getPriceOverrideRequest = (item, statusValue) => adjustmentRequests.find((request) => (
+    request.request_type === 'price_override'
+    && Number(request.catalog_service_id) === Number(item.catalog_service_id)
+    && request.status === statusValue
+    && (statusValue !== 'approved' || Math.abs(Number(request.requested_price) - Number(item.requested_override_price || request.requested_price)) < 0.001)
+  ))
 
   const updateDraftField = (field, value) => {
     setDraft((current) => ({ ...current, [field]: value }))
@@ -503,16 +551,16 @@ const Staff_Billing = () => {
     }))
   }
 
-  const buildBillingPayload = () => ({
+  const buildBillingPayload = ({ includePaymentKey = false } = {}) => ({
     items: serializeDraftItems(draft.items),
-    discount_type: draft.discount_type,
-    discount_label: draft.discount_label,
-    discount_amount: draft.discount_amount,
+    discount_preset_id: selectedDiscountPresetId || null,
+    discount_reference: discountReference || null,
     payment_method: draft.payment_method,
     payment_notes: draft.payment_notes,
     reference_number: draft.reference_number,
     payment_amount: draft.payment_amount,
     amount_received: draft.amount_received,
+    ...(includePaymentKey ? { idempotency_key: paymentRequestKey || (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`) } : {}),
   })
 
   const validateBill = ({ forPayment = false } = {}) => {
@@ -572,6 +620,9 @@ const Staff_Billing = () => {
   }
 
   const applyDiscountPreset = (presetId) => {
+    setSelectedDiscountPresetId(String(presetId || ''))
+    setDiscountReference('')
+    setDiscountApprovalReason('')
     const preset = discountPresets.find((row) => Number(row.id) === Number(presetId))
     if (!preset) {
       setDraft((current) => ({ ...current, discount_type: 'none', discount_label: '', discount_amount: 0 }))
@@ -589,6 +640,54 @@ const Staff_Billing = () => {
     }))
   }
 
+  const requestDiscountApproval = async () => {
+    const preset = discountPresets.find((row) => Number(row.id) === Number(selectedDiscountPresetId))
+    if (!preset || !selectedId) return
+    if (!discountApprovalReason.trim()) return toast.warning('Enter a reason for the administrator approval request.')
+    if (Number(preset.requires_reference) === 1 && !discountReference.trim()) return toast.warning('Enter the required discount reference or ID.')
+    setAdjustmentBusy(true)
+    try {
+      await requestBillingAdjustment(selectedId, {
+        request_type: 'discount',
+        discount_preset_id: preset.id,
+        requested_amount: draft.discount_amount,
+        reference: discountReference,
+        reason: discountApprovalReason,
+      })
+      const rows = await getBillingAdjustmentRequests(selectedId)
+      setAdjustmentRequests(Array.isArray(rows) ? rows : [])
+      toast.success('Discount approval request sent to Admin.')
+    } catch (err) { toast.error(err.message || 'Approval request could not be sent.') }
+    finally { setAdjustmentBusy(false) }
+  }
+
+  const requestPriceOverride = async (index) => {
+    const item = draft?.items?.[index]
+    if (!selectedId || !item?.catalog_service_id) return
+    const requestedPrice = Number(item.requested_override_price)
+    if (!Number.isFinite(requestedPrice) || requestedPrice < 0) return toast.warning('Enter a valid requested patient price.')
+    if (!String(item.override_request_reason || '').trim()) return toast.warning('Enter a reason for the price override request.')
+    setAdjustmentBusy(true)
+    try {
+      await requestBillingAdjustment(selectedId, {
+        request_type: 'price_override',
+        catalog_service_id: item.catalog_service_id,
+        requested_price: requestedPrice,
+        reason: item.override_request_reason,
+      })
+      const rows = await getBillingAdjustmentRequests(selectedId)
+      setAdjustmentRequests(Array.isArray(rows) ? rows : [])
+      toast.success('Price override request sent to Admin.')
+    } catch (err) { toast.error(err.message || 'Price override request could not be sent.') }
+    finally { setAdjustmentBusy(false) }
+  }
+
+  const applyApprovedPriceOverride = (index, approval) => {
+    updateDraftItem(index, 'unit_price', Number(approval.requested_price) || 0)
+    updateDraftItem(index, 'price_overridden', true)
+    updateDraftItem(index, 'override_reason', approval.reason || approval.admin_note || 'Administrator approved')
+  }
+
   const requestPaymentConfirmation = () => {
     if (!selectedId || !draft) return
     const validationMessage = validateBill({ forPayment: true })
@@ -596,6 +695,7 @@ const Staff_Billing = () => {
       toast.warning(validationMessage)
       return
     }
+    setPaymentRequestKey(globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`)
     setConfirmOpen(true)
   }
 
@@ -603,10 +703,11 @@ const Staff_Billing = () => {
     if (!selectedId || !draft) return
     setConfirming(true)
     try {
-      const updated = await payBill(selectedId, buildBillingPayload())
+      const updated = await payBill(selectedId, buildBillingPayload({ includePaymentKey: true }))
       setDetail(updated)
       setDraft(normalizeBillForEditor(updated))
       setConfirmOpen(false)
+      setPaymentRequestKey('')
       toast.success(`Payment confirmed${updated?.payments?.[0]?.receipt_number ? ` · ${updated.payments[0].receipt_number}` : '.'}`)
       await loadBills({ status: filter, preferredId: selectedId, targetPage: page, query: search, limit: pageSize })
     } catch (err) {
@@ -1015,7 +1116,39 @@ const Staff_Billing = () => {
                               </div>
                             </div>
 
-                            {itemType === 'service' && <ServiceBreakdown item={item} />}
+                            {itemType === 'service' && (
+                              <>
+                                <ServiceBreakdown item={item} />
+                                {isDraft && item.catalog_service_id && (() => {
+                                  const approved = getPriceOverrideRequest(item, 'approved')
+                                  const pending = getPriceOverrideRequest(item, 'pending')
+                                  return (
+                                    <div className="mt-3 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                                      <p className="text-xs font-bold uppercase tracking-widest text-violet-700">Patient Price Override</p>
+                                      <p className="mt-1 text-xs text-violet-600">Changing a clinic service price requires administrator approval. The catalog Patient Price remains the default until an approved request is applied.</p>
+                                      {item.price_overridden ? (
+                                        <div className="mt-3 rounded-xl bg-white px-3 py-2 text-sm text-violet-800">
+                                          <strong>Approved override applied:</strong> {formatMoney(item.unit_price)}
+                                        </div>
+                                      ) : approved ? (
+                                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                                          <span className="text-sm font-semibold text-emerald-800">Approved: {formatMoney(approved.requested_price)}</span>
+                                          <button type="button" className="button-primary" onClick={() => applyApprovedPriceOverride(index, approved)}>Apply Approved Price</button>
+                                        </div>
+                                      ) : pending ? (
+                                        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">Waiting for Admin approval · Requested {formatMoney(pending.requested_price)}</p>
+                                      ) : (
+                                        <div className="mt-3 grid gap-2 sm:grid-cols-[150px_1fr_auto]">
+                                          <input type="number" min="0" step="0.01" className="form-control" placeholder="Requested price" value={item.requested_override_price || ''} onChange={(e) => updateDraftItem(index, 'requested_override_price', e.target.value)} />
+                                          <input type="text" className="form-control" placeholder="Reason for override" value={item.override_request_reason || ''} onChange={(e) => updateDraftItem(index, 'override_request_reason', e.target.value)} />
+                                          <button type="button" disabled={adjustmentBusy} className="button-secondary" onClick={() => requestPriceOverride(index)}>Request Approval</button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })()}
+                              </>
+                            )}
 
                             {itemType === 'supply' && item.source_inventory_id && (
                               <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -1116,44 +1249,44 @@ const Staff_Billing = () => {
                       )}
 
                       {isDraft && (
-                        <>
-                          <label className="form-label" htmlFor="discount-preset">Approved Discount</label>
-                          <select id="discount-preset" className="form-control" value="" onChange={(e) => applyDiscountPreset(e.target.value)}>
-                            <option value="">Choose preset (optional)</option>
+                        <div className="space-y-3">
+                          <label className="form-label" htmlFor="discount-preset">Discount</label>
+                          <select id="discount-preset" className="form-control" value={selectedDiscountPresetId} onChange={(e) => applyDiscountPreset(e.target.value)}>
+                            <option value="">No discount</option>
                             {discountPresets.filter((preset) => preset.is_active !== 0).map((preset) => (
                               <option key={preset.id} value={preset.id}>
-                                {preset.label} · {preset.discount_type === 'percentage' ? `${Number(preset.value || 0)}%` : formatMoney(preset.value)}
+                                {preset.label} · {preset.discount_type === 'percentage' ? `${Number(preset.value || 0)}%` : formatMoney(preset.value)}{Number(preset.requires_admin_approval) === 1 ? ' · Admin approval' : ''}
                               </option>
                             ))}
                           </select>
-                        </>
+
+                          {selectedDiscountPreset && Number(selectedDiscountPreset.requires_reference) === 1 && (
+                            <>
+                              <label className="form-label" htmlFor="discount-reference">Discount Reference / ID</label>
+                              <input id="discount-reference" className="form-control" value={discountReference} onChange={(e) => setDiscountReference(e.target.value)} placeholder="Required reference or ID" />
+                            </>
+                          )}
+
+                          {selectedDiscountPreset && (
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                              <div className="flex items-center justify-between gap-3"><span className="text-slate-500">Calculated discount</span><strong className="text-slate-800">{formatMoney(totals.discount)}</strong></div>
+                            </div>
+                          )}
+
+                          {selectedDiscountPreset && Number(selectedDiscountPreset.requires_admin_approval) === 1 && !discountApproval && (
+                            discountPending ? (
+                              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">Waiting for Admin approval.</p>
+                            ) : (
+                              <>
+                                <label className="form-label" htmlFor="discount-approval-reason">Approval Reason</label>
+                                <textarea id="discount-approval-reason" rows={2} className="form-control" value={discountApprovalReason} onChange={(e) => setDiscountApprovalReason(e.target.value)} placeholder="Why is this discount being requested?" />
+                                <button type="button" disabled={adjustmentBusy} className="button-secondary w-full justify-center" onClick={requestDiscountApproval}>Request Admin Approval</button>
+                              </>
+                            )
+                          )}
+                          {discountApproval && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">Administrator approval received. Save/finalize the bill to apply it.</p>}
+                        </div>
                       )}
-
-                      <label className="form-label" htmlFor="discount-label">Discount / Reason Label</label>
-                      <input
-                        id="discount-label"
-                        type="text"
-                        aria-label="Discount label"
-                        value={draft.discount_label}
-                        onChange={(e) => updateDraftField('discount_label', e.target.value)}
-                        disabled={!isDraft}
-                        placeholder="Preset or approved custom reason"
-                        className="form-control disabled:opacity-70"
-                      />
-
-                      <label className="form-label" htmlFor="discount-amount">Discount Amount</label>
-                      <input
-                        id="discount-amount"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        aria-label="Discount amount"
-                        value={draft.discount_amount}
-                        onChange={(e) => updateDraftField('discount_amount', e.target.value)}
-                        disabled={!isDraft}
-                        placeholder="Discount amount"
-                        className="form-control disabled:opacity-70"
-                      />
 
                       <label className="form-label" htmlFor="payment-notes">Payment Notes</label>
                       <textarea

@@ -1,228 +1,148 @@
 const db = require('../db/connect')
 const bcrypt = require('bcrypt')
-const crypto = require('crypto')
 const { sendPasswordResetOtp } = require('../utils/emailService')
 const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendPatientPasswordResetOtp } = require('../utils/smsService')
+const { validatePassword } = require('../utils/accountSecurity')
+const { makeNumericCode, makeRandomToken, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')
+const { revokeSessions } = require('../utils/sessionSecurity')
 
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
+const GENERIC_SENT_MESSAGE = 'If an account matches the information provided, a verification code has been sent.'
+const MAX_OTP_ATTEMPTS = 5
 
 const ROLE_CONFIG = {
-  patient: {
-    table: 'patients',
-    lookupField: 'phone',
-    missingMessage: 'No patient account is registered with that phone number.',
-  },
-  doctor: {
-    table: 'doctors',
-    lookupField: 'email',
-    where: 'email = ? AND is_active = 1',
-    missingMessage: 'No active doctor account is registered with that email.',
-  },
-  staff: {
-    table: 'staff',
-    lookupField: 'email',
-    where: "email = ? AND status = 'active'",
-    missingMessage: 'No active staff account is registered with that email.',
-  },
+  patient: { table: 'patients' },
+  doctor: { table: 'doctors', where: 'email = ? AND is_active = 1' },
+  staff: { table: 'staff', where: "email = ? AND status = 'active'" },
+  admin: { table: 'admins', where: 'email = ?' },
 }
 
 const getPhoneVariants = (value) => {
   const normalizedPhone = normalizePhilippinePhone(value)
   if (!normalizedPhone) return []
-
-  return Array.from(new Set([
-    normalizedPhone,
-    `0${normalizedPhone.slice(2)}`,
-    normalizedPhone.slice(2),
-  ]))
+  return Array.from(new Set([normalizedPhone, `0${normalizedPhone.slice(2)}`, normalizedPhone.slice(2)]))
 }
 
 const findPatientByPhone = async (phone) => {
   const variants = getPhoneVariants(phone)
-  if (variants.length === 0) {
-    return { normalizedPhone: null, rows: [] }
-  }
-
+  if (!variants.length) return { normalizedPhone: null, rows: [] }
   const placeholders = variants.map(() => '?').join(', ')
   const [rows] = await db.query(
-    `SELECT id, full_name, phone
-     FROM patients
-     WHERE ${NORMALIZED_PHONE_SQL} IN (${placeholders})`,
+    `SELECT id, full_name, phone FROM patients WHERE ${NORMALIZED_PHONE_SQL} IN (${placeholders})`,
     variants
   )
-
-  return {
-    normalizedPhone: variants[0],
-    rows,
-  }
+  return { normalizedPhone: variants[0], rows }
 }
 
 const forgotPassword = async (req, res) => {
   const { email, phone, role } = req.body
   const config = ROLE_CONFIG[role]
+  if (!config) return res.status(400).json({ message: 'A valid role is required.' })
 
-  if (!config) {
-    return res.status(400).json({ message: 'A valid role is required.' })
-  }
-
-  let account
-  let identifier
-
+  let account = null
+  let identifier = null
   if (role === 'patient') {
-    if (!phone) {
-      return res.status(400).json({ message: 'Phone number and valid role are required.' })
-    }
-
     const patientMatch = await findPatientByPhone(phone)
-    if (!patientMatch.normalizedPhone) {
-      return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
-    }
-    if (patientMatch.rows.length > 1) {
-      return res.status(409).json({
-        message: 'Multiple patient records use this phone number. Please contact the clinic to resolve the duplicate records.',
-      })
-    }
-    if (patientMatch.rows.length === 0) {
-      return res.status(404).json({ message: config.missingMessage })
-    }
-
+    if (!patientMatch.normalizedPhone) return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
     identifier = patientMatch.normalizedPhone
-    account = patientMatch.rows[0]
+    if (patientMatch.rows.length === 1) account = patientMatch.rows[0]
   } else {
-    if (!email) {
-      return res.status(400).json({ message: 'Email and valid role are required.' })
-    }
-
+    if (!email) return res.status(400).json({ message: 'Email and valid role are required.' })
+    identifier = String(email).trim().toLowerCase()
     const [rows] = await db.query(
       `SELECT id, full_name, email FROM ${config.table} WHERE ${config.where}`,
-      [email]
+      [identifier]
     )
-
-    if (rows.length === 0) {
-      return res.status(404).json({ message: config.missingMessage })
-    }
-
-    identifier = email
-    account = rows[0]
+    if (rows.length === 1) account = rows[0]
   }
 
-  const otp = String(Math.floor(100000 + Math.random() * 900000))
-  const expires = new Date(Date.now() + 10 * 60 * 1000)
+  // Do not reveal whether an account exists.
+  if (!account) return res.json({ message: GENERIC_SENT_MESSAGE })
 
-  await db.query('DELETE FROM password_resets WHERE role = ? AND (identifier = ? OR email = ?)', [role, identifier, identifier])
+  const otp = makeNumericCode()
+  const expires = new Date(Date.now() + 10 * 60 * 1000)
+  await db.query('DELETE FROM password_resets WHERE role = ? AND identifier = ?', [role, identifier])
   await db.query(
-    'INSERT INTO password_resets (email, identifier, account_id, token, role, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [role === 'patient' ? identifier : account.email, identifier, account.id, otp, role, expires]
+    `INSERT INTO password_resets
+     (email, identifier, account_id, token, role, expires_at, attempt_count, last_sent_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, NOW())`,
+    [role === 'patient' ? null : account.email, identifier, account.id, hashSecret(otp), role, expires]
   )
 
-  if (role === 'patient') {
-    try {
-      await sendPatientPasswordResetOtp({
-        phone: identifier,
-        code: otp,
-        fullName: account.full_name,
-      })
-    } catch (err) {
-      console.error('Patient password reset OTP SMS failed:', err.message)
-      await db.query('DELETE FROM password_resets WHERE role = ? AND identifier = ?', [role, identifier])
-      return res.status(500).json({ message: 'Failed to send verification code. Please try again.' })
-    }
-
-    return res.json({ message: 'Verification code sent by SMS.' })
-  }
-
   try {
-    await sendPasswordResetOtp(identifier, account.full_name, role, otp)
+    if (role === 'patient') {
+      await sendPatientPasswordResetOtp({ phone: identifier, code: otp, fullName: account.full_name })
+    } else {
+      await sendPasswordResetOtp(account.email, account.full_name, role, otp)
+    }
   } catch (err) {
-    console.error('Password reset OTP email failed:', err.message)
+    console.error('[security] password-reset delivery failed', { role, accountId: account.id, message: err.message })
     await db.query('DELETE FROM password_resets WHERE role = ? AND identifier = ?', [role, identifier])
-    return res.status(500).json({ message: 'Failed to send verification code. Please try again.' })
+    return res.status(502).json({ message: 'Verification code could not be sent. Please try again later.' })
   }
 
-  return res.json({ message: 'Verification code sent.' })
+  return res.json({ message: GENERIC_SENT_MESSAGE })
 }
 
 const verifyOtp = async (req, res) => {
   const { email, phone, role, otp } = req.body
+  if (!ROLE_CONFIG[role] || !otp) return res.status(400).json({ message: 'Recovery identifier, role, and verification code are required.' })
 
-  if (!role || !otp) {
-    return res.status(400).json({ message: 'Recovery identifier, role, and OTP are required.' })
-  }
-
-  let identifier = email
+  let identifier = String(email || '').trim().toLowerCase()
   if (role === 'patient') {
-    const normalizedPhone = normalizePhilippinePhone(phone)
-    if (!normalizedPhone) {
-      return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
-    }
-    identifier = normalizedPhone
-  } else if (!email) {
-    return res.status(400).json({ message: 'Email, role, and OTP are required.' })
+    identifier = normalizePhilippinePhone(phone)
+    if (!identifier) return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+  } else if (!identifier) {
+    return res.status(400).json({ message: 'Email, role, and verification code are required.' })
   }
 
   const [rows] = await db.query(
-    'SELECT * FROM password_resets WHERE identifier = ? AND role = ? AND token = ? AND expires_at > NOW()',
-    [identifier, role, String(otp)]
+    `SELECT * FROM password_resets WHERE identifier = ? AND role = ? AND expires_at > NOW() LIMIT 1`,
+    [identifier, role]
   )
-
-  if (rows.length === 0) {
+  const reset = rows[0]
+  if (!reset || Number(reset.attempt_count || 0) >= MAX_OTP_ATTEMPTS || !timingSafeEqualHash(otp, reset.token)) {
+    if (reset) {
+      const nextAttempts = Number(reset.attempt_count || 0) + 1
+      if (nextAttempts >= MAX_OTP_ATTEMPTS) await db.query('DELETE FROM password_resets WHERE id = ?', [reset.id])
+      else await db.query('UPDATE password_resets SET attempt_count = ? WHERE id = ?', [nextAttempts, reset.id])
+    }
     return res.status(400).json({ message: 'Invalid or expired verification code.' })
   }
 
-  const resetToken = crypto.randomBytes(32).toString('hex')
+  const resetToken = makeRandomToken(32)
   const newExpiry = new Date(Date.now() + 60 * 60 * 1000)
-
   await db.query(
-    'UPDATE password_resets SET token = ?, expires_at = ? WHERE id = ?',
-    [resetToken, newExpiry, rows[0].id]
+    `UPDATE password_resets SET token = ?, expires_at = ?, verified_at = NOW() WHERE id = ?`,
+    [resetToken, newExpiry, reset.id]
   )
-
   return res.json({ message: 'Code verified.', resetToken })
 }
 
 const resetPassword = async (req, res) => {
   const { resetToken, password } = req.body
-
-  if (!resetToken || !password) {
-    return res.status(400).json({ message: 'Reset token and new password are required.' })
-  }
-
-  if (password.length < 6) {
-    return res.status(400).json({ message: 'Password must be at least 6 characters.' })
-  }
+  if (!resetToken || !password) return res.status(400).json({ message: 'Reset token and new password are required.' })
+  const passwordError = validatePassword(password)
+  if (passwordError) return res.status(400).json({ message: passwordError })
 
   const [rows] = await db.query(
-    'SELECT * FROM password_resets WHERE token = ? AND expires_at > NOW()',
+    `SELECT * FROM password_resets WHERE token = ? AND verified_at IS NOT NULL AND expires_at > NOW() LIMIT 1`,
     [resetToken]
   )
+  if (!rows.length) return res.status(400).json({ message: 'Reset session expired. Please start over.' })
 
-  if (rows.length === 0) {
-    return res.status(400).json({ message: 'Reset session expired. Please start over.' })
-  }
-
-  const { email, role } = rows[0]
-  const config = ROLE_CONFIG[role]
-  const identifier = rows[0].identifier || email
-
-  if (!config) {
-    return res.status(400).json({ message: 'Invalid role in reset token.' })
-  }
+  const reset = rows[0]
+  const config = ROLE_CONFIG[reset.role]
+  if (!config || !reset.account_id) return res.status(400).json({ message: 'Reset session is invalid. Please start over.' })
 
   const hashed = await bcrypt.hash(password, 10)
-  if (role === 'patient') {
-    if (!rows[0].account_id) {
-      return res.status(400).json({ message: 'Reset session is missing the patient account reference. Please start over.' })
-    }
-    await db.query('UPDATE patients SET password = ? WHERE id = ?', [hashed, rows[0].account_id])
-  } else {
-    await db.query(`UPDATE ${config.table} SET password = ? WHERE email = ?`, [hashed, identifier])
-  }
-  await db.query('DELETE FROM password_resets WHERE token = ?', [resetToken])
+  const extra = ['staff', 'doctor'].includes(reset.role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
+  await db.query(`UPDATE ${config.table} SET password = ?${extra} WHERE id = ?`, [hashed, reset.account_id])
+  await revokeSessions(reset.role, reset.account_id)
+  await db.query('DELETE FROM password_resets WHERE id = ?', [reset.id])
 
   return res.json({ message: 'Password reset successfully. You can now log in.' })
 }
 
 module.exports = { forgotPassword, verifyOtp, resetPassword }
-
-

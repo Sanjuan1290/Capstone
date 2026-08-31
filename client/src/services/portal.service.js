@@ -40,4 +40,45 @@ export const uploadToCloudinary = async (file) => {
   return data.secure_url
 }
 
+export const requestPatientPhoneChangeCode = (phone) =>
+  request('patient', '/security/phone/request-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  })
+
+export const confirmPatientPhoneChange = (code) =>
+  request('patient', '/security/phone/change', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  })
+
+export const uploadClinicalImageSigned = async (file, appointmentId) => {
+  if (!file) throw new Error('Select an image to upload.')
+  if (!appointmentId) throw new Error('A valid appointment is required before uploading a clinical image.')
+
+  const signatureRes = await fetch('/api/doctor/uploads/clinical/signature', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ appointment_id: appointmentId }),
+  })
+  const signed = await signatureRes.json()
+  if (!signatureRes.ok) throw new Error(signed.message || 'Could not authorize the clinical image upload.')
+
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('api_key', signed.api_key)
+  formData.append('timestamp', String(signed.timestamp))
+  formData.append('folder', signed.folder)
+  formData.append('signature', signed.signature)
+
+  const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${signed.cloud_name}/image/upload`, {
+    method: 'POST',
+    body: formData,
+  })
+  const uploaded = await uploadRes.json()
+  if (!uploadRes.ok) throw new Error(uploaded.error?.message || 'Clinical image upload failed.')
+  if (!uploaded.secure_url) throw new Error('Cloudinary did not return an image URL.')
+  return uploaded.secure_url
+}
 

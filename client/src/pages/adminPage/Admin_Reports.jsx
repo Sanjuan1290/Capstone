@@ -13,7 +13,7 @@ import {
   MdTrendingUp,
   MdWarningAmber,
 } from 'react-icons/md'
-import { getReports } from '../../services/admin.service'
+import { getReports, recordReportExport } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import { ErrorState, LoadingState } from '../../components/ui/PageState'
 
@@ -105,7 +105,8 @@ const Admin_Reports = () => {
     try {
       setData(await getReports(appliedRange))
     } catch (err) {
-      const message = err.message || 'Reports could not be loaded.'
+      const message = 'Unable to load reports right now. Please try again.'
+      console.error('Reports load error:', err)
       setError(message)
       toast.error(message)
     } finally {
@@ -164,6 +165,7 @@ const Admin_Reports = () => {
 
   const handleExportPdf = () => {
     if (!data) return
+    recordReportExport({ start_date: data?.range?.start_date, end_date: data?.range?.end_date }).catch(() => {})
     const clinic = data.clinicSettings || {}
     const generatedAt = new Date().toLocaleString('en-PH')
     const doctorRows = report.doctors.map((doctor) => {

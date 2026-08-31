@@ -13,6 +13,7 @@ import {
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const TIME_OPTIONS = Array.from({length: 29}, (_, i) => { const mins=6*60+i*30; const h=Math.floor(mins/60), m=mins%60; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` })
 
 const DAY_CFG = {
   Monday: { abbr: 'Mon', color: 'bg-sky-500', light: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', ring: 'focus:border-sky-400' },
@@ -134,7 +135,7 @@ const DayCard = ({ day, schedule, onSaved }) => {
                 ].map(({ label, value }) => (
                   <div key={label} className={`${cfg.light} ${cfg.border} rounded-xl border px-3 py-2.5 text-center`}>
                     <p className="mb-0.5 text-[9px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
-                    <p className={`text-sm font-black ${cfg.text}`}>{schedule ? value : '-'}</p>
+                    <p className={`text-base font-black leading-5 ${cfg.text}`}>{schedule ? value : '-'}</p>
                   </div>
                 ))}
               </div>
@@ -151,21 +152,11 @@ const DayCard = ({ day, schedule, onSaved }) => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-widest text-slate-500">Start</label>
-                  <input
-                    type="time"
-                    value={form.start_time}
-                    onChange={(e) => setForm((current) => ({ ...current, start_time: e.target.value }))}
-                    className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition-all ${cfg.ring}`}
-                  />
+                  <select value={form.start_time} onChange={(e) => setForm((current) => ({ ...current, start_time: e.target.value }))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-base font-bold outline-none transition-all ${cfg.ring}`}>{TIME_OPTIONS.map(t=><option key={t} value={t}>{fmtTime(t)}</option>)}</select>
                 </div>
                 <div>
                   <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-widest text-slate-500">End</label>
-                  <input
-                    type="time"
-                    value={form.end_time}
-                    onChange={(e) => setForm((current) => ({ ...current, end_time: e.target.value }))}
-                    className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition-all ${cfg.ring}`}
-                  />
+                  <select value={form.end_time} onChange={(e) => setForm((current) => ({ ...current, end_time: e.target.value }))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-base font-bold outline-none transition-all ${cfg.ring}`}>{TIME_OPTIONS.map(t=><option key={t} value={t}>{fmtTime(t)}</option>)}</select>
                 </div>
               </div>
               <div>

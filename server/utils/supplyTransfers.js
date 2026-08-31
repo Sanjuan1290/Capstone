@@ -1,7 +1,7 @@
 const db = require('../db/connect')
 const { writeAuditLog } = require('./audit')
 const { broadcast } = require('./sse')
-const { transferInventoryBatchesFEFO, MAIN_LOCATION } = require('./inventoryBatches')
+const { transferInventoryBatchesFEFO, MAIN_LOCATION, getInventoryLocationById } = require('./inventoryBatches')
 
 const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ipAddress }) => {
   if (!['approved', 'rejected'].includes(String(status))) {
@@ -13,9 +13,11 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
   try {
     await conn.beginTransaction()
     const [rows] = await conn.query(
-      `SELECT sr.*, i.name AS item_name, i.stock AS total_stock, i.unit
+      `SELECT sr.*, i.name AS item_name, i.stock AS total_stock, i.unit,
+              loc.name AS destination_location_name, loc.location_type AS destination_location_type
        FROM supply_requests sr
        JOIN inventory i ON i.id = sr.inventory_id
+       LEFT JOIN inventory_locations loc ON loc.id = sr.destination_location_id
        WHERE sr.id = ?
        FOR UPDATE`,
       [requestId]
@@ -33,7 +35,12 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
 
     let batchBreakdown = []
     if (status === 'approved') {
-      const destination = String(request.destination_location || 'Doctor / Treatment Room').trim()
+      const destinationRow = request.destination_location_id ? await getInventoryLocationById(request.destination_location_id, conn) : null
+      const destination = String(destinationRow?.name || request.destination_location_name || request.destination_location || '').trim()
+      if (!destinationRow || !['room','dispensing'].includes(String(destinationRow.location_type))) {
+        await conn.rollback()
+        return { statusCode: 400, body: { message: 'The requested inventory destination is no longer available.' } }
+      }
       const qty = Math.max(0, Number(request.qty_requested) || 0)
       if (qty <= 0) {
         await conn.rollback()
@@ -105,7 +112,8 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
       oldValues: { status: 'pending' },
       newValues: {
         status,
-        destination_location: request.destination_location,
+        destination_location_id: request.destination_location_id || null,
+        destination_location: destinationRow?.name || request.destination_location,
         transfer_id: request.transfer_id || null,
         batches: batchBreakdown.map((batch) => ({
           batch_id: batch.batch_id,

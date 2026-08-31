@@ -38,6 +38,7 @@ const sendTempPassword = async (email, full_name, role, tempPassword, loginUrl) 
       <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px">
         <h2 style="color:#0b1a2c">Welcome, ${full_name}!</h2>
         <p>The administrator has created a <strong>${role}</strong> account for you at Carait Medical and Dermatology Clinic.</p>
+        <p>Use the temporary password below for your first sign-in. You will be required to create your own password before accessing the portal.</p>
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:24px 0">
           <p style="margin:0 0 8px 0"><strong>Email:</strong> ${email}</p>
           <p style="margin:0"><strong>Temporary Password:</strong> <code>${tempPassword}</code></p>
@@ -156,12 +157,37 @@ const sendPasswordResetOtp = async (email, full_name, role, otp) => {
   })
 }
 
+
+const sendSecurityOtp = async (email, full_name, title, otp) => {
+  await transporter.sendMail({
+    from: FROM,
+    to: email,
+    subject: `Carait Clinic - ${title}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px">
+        <h2 style="color:#0b1a2c">${title}</h2>
+        <p>Hi <strong>${full_name}</strong>,</p>
+        <p>Enter the 6-digit security code below. It expires in <strong>10 minutes</strong>.</p>
+        <div style="text-align:center;margin:32px 0">
+          <div style="display:inline-block;background:#0b1a2c;color:#34d399;font-size:42px;font-weight:900;letter-spacing:16px;padding:18px 36px;border-radius:14px;font-family:monospace">${otp}</div>
+        </div>
+        <p style="color:#64748b;font-size:13px">If you did not request this code, you can ignore this email.</p>
+      </div>
+    `,
+  })
+}
+
+const sendAdminMfaOtp = (email, full_name, otp) => sendSecurityOtp(email, full_name, 'Administrator Sign-In Code', otp)
+const sendAccountSecurityOtp = (email, full_name, otp) => sendSecurityOtp(email, full_name, 'Account Security Code', otp)
+
 module.exports = {
   sendTempPassword,
   sendVerificationCode,
   sendAppointmentReminder,
   sendAppointmentStatusEmail,
   sendPasswordResetOtp,
+  sendAdminMfaOtp,
+  sendAccountSecurityOtp,
 }
 
 

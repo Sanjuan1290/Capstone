@@ -4,6 +4,7 @@ const db = require('../db/connect')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
+const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
 const { createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
@@ -17,8 +18,11 @@ const {
 } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds, syncConsultationImages } = require('../utils/consultationImages')
 const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
-const { consumeInventoryFromLocationFEFO } = require('../utils/inventoryBatches')
+const { consumeInventoryFromLocationFEFO, getInventoryLocationById } = require('../utils/inventoryBatches')
 const { writeAuditLog } = require('../utils/audit')
+const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
+const { createClinicalUploadSignature } = require('../utils/cloudinarySecurity')
+const { loadConsultationAmendments, assertConsultationEditable } = require('../utils/consultationIntegrity')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -27,17 +31,21 @@ const login = async (req, res) => {
   if (!email || !password)
     return res.status(400).json({ message: 'Email and password are required.' })
   const [rows] = await db.query('SELECT * FROM doctors WHERE email = ? AND is_active = 1', [email])
-  if (rows.length === 0)
+  if (rows.length === 0) {
+    await writeAuditLog({ userRole: 'doctor', action: 'auth.login_failed', entityType: 'doctor', newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
+  }
   const doctor = rows[0]
   const match = await bcrypt.compare(password, doctor.password)
-  if (!match)
+  if (!match) {
+    await writeAuditLog({ userId: doctor.id, userRole: 'doctor', action: 'auth.login_failed', entityType: 'doctor', entityId: doctor.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
-  const token = jwt.sign({ id: doctor.id, role: 'doctor' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'doctor')
+  }
+  await issueSession(res, 'doctor', doctor.id)
+  await writeAuditLog({ userId: doctor.id, userRole: 'doctor', action: 'auth.login_success', entityType: 'doctor', entityId: doctor.id, ipAddress: req.ip || null }).catch(() => {})
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, prc_license: doctor.prc_license, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url },
+    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, prc_license: doctor.prc_license, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url, must_change_password: Boolean(doctor.must_change_password) },
   })
 }
 
@@ -45,10 +53,9 @@ const checkAuth = async (req, res) => {
   const token = req.cookies['doctor_token']
   if (!token) return res.status(200).json({ authenticated: false })
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    if (decoded.role !== 'doctor') return res.status(200).json({ authenticated: false })
+    const decoded = await verifySessionToken(token, 'doctor')
     const [rows] = await db.query(
-      'SELECT id, full_name, email, specialty, prc_license, theme_preference, profile_image_url FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
+      'SELECT id, full_name, email, specialty, prc_license, theme_preference, profile_image_url, must_change_password, password_changed_at FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'doctor' } })
@@ -57,8 +64,9 @@ const checkAuth = async (req, res) => {
   }
 }
 
-const logout = (req, res) => {
-  res.clearCookie('doctor_token')
+const logout = async (req, res) => {
+  await writeAuditLog({ userId: req.user?.id || null, userRole: 'doctor', action: 'auth.logout', entityType: 'doctor', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
+  res.clearCookie('doctor_token', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })
 }
 
@@ -222,6 +230,7 @@ const startConsultation = async (req, res) => {
     [req.params.id, req.user.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  assertAppointmentTransition(rows[0].status, 'in-progress')
   await db.query("UPDATE appointments SET status = 'in-progress' WHERE id = ?", [req.params.id])
   const [queueRows] = await db.query(
     `SELECT id
@@ -271,19 +280,23 @@ const saveConsultation = async (req, res) => {
     appt = apptRows[0]
 
     const [existing] = await conn.query(
-      'SELECT id FROM consultations WHERE appointment_id = ?',
+      'SELECT id, status FROM consultations WHERE appointment_id = ? FOR UPDATE',
       [appointmentId]
     )
 
     if (existing.length > 0) {
+      if (String(existing[0].status || 'draft') === 'finalized') {
+        await conn.rollback()
+        return res.status(409).json({ code: 'CONSULTATION_FINALIZED', message: 'This consultation is already finalized. Add an amendment instead.' })
+      }
       consultationId = existing[0].id
       await conn.query(
-        'UPDATE consultations SET diagnosis = ?, prescription = ?, notes = ? WHERE id = ?',
+        'UPDATE consultations SET diagnosis = ?, prescription = ?, notes = ?, updated_at = NOW() WHERE id = ?',
         [diagnosis || null, prescription || null, notes || null, consultationId]
       )
     } else {
       const [result] = await conn.query(
-        'INSERT INTO consultations (appointment_id, doctor_id, patient_id, diagnosis, prescription, notes) VALUES (?,?,?,?,?,?)',
+        "INSERT INTO consultations (appointment_id, doctor_id, patient_id, diagnosis, prescription, notes, status, updated_at) VALUES (?,?,?,?,?,?,'draft',NOW())",
         [appointmentId, req.user.id, appt.patient_id, diagnosis || null, prescription || null, notes || null]
       )
       consultationId = result.insertId
@@ -299,10 +312,17 @@ const saveConsultation = async (req, res) => {
     }, conn)
     await consumeClinicalInventory({ billing, consultationId, doctorId: req.user.id, appointment: appt }, conn)
 
+    await conn.query(
+      `UPDATE consultations
+       SET status='finalized', finalized_at=NOW(), finalized_by_doctor_id=?, updated_at=NOW()
+       WHERE id=?`,
+      [req.user.id, consultationId]
+    )
+    assertAppointmentTransition(appt.status, 'completed')
     await conn.query("UPDATE appointments SET status = 'completed' WHERE id = ?", [appointmentId])
     await writeAuditLog({
-      userId: req.user.id, userRole: 'doctor', action: 'consultation.completed', entityType: 'consultation', entityId: consultationId,
-      newValues: { appointment_id: Number(appointmentId), services_count: Array.isArray(billableServices) ? billableServices.length : 0 },
+      userId: req.user.id, userRole: 'doctor', action: 'clinical.consultation_finalized', entityType: 'consultation', entityId: consultationId,
+      newValues: { appointment_id: Number(appointmentId), services_count: Array.isArray(billableServices) ? billableServices.length : 0, status: 'finalized' },
       ipAddress: req.ip || null,
     }, conn)
 
@@ -364,10 +384,16 @@ const getConsultation = async (req, res) => {
   if (rows.length === 0) return res.status(404).json({ message: 'Consultation not found.' })
   const consultation = rows[0]
   const imagesByConsultationId = await loadImagesForConsultationIds([consultation.id])
+  const amendmentsByConsultationId = await loadConsultationAmendments([consultation.id])
   const billing = await getBillingByAppointmentId(appointmentId)
+  await writeAuditLog({
+    userId: req.user.id, userRole: 'doctor', action: 'clinical.consultation_viewed',
+    entityType: 'consultation', entityId: consultation.id, ipAddress: req.ip || null,
+  }).catch(() => {})
   res.json({
     ...consultation,
     progress_images: imagesByConsultationId[consultation.id] || [],
+    amendments: amendmentsByConsultationId[consultation.id] || [],
     billing,
   })
 }
@@ -385,7 +411,7 @@ const updateConsultation = async (req, res) => {
   try {
     await conn.beginTransaction()
     const [rows] = await conn.query(
-      `SELECT c.id, c.patient_id, a.id AS appointment_id, a.patient_id AS appointment_patient_id
+      `SELECT c.id, c.patient_id, c.status, a.id AS appointment_id, a.patient_id AS appointment_patient_id
        FROM consultations c
        JOIN appointments a ON a.id = c.appointment_id
        WHERE c.appointment_id = ? AND c.doctor_id = ?`,
@@ -397,10 +423,11 @@ const updateConsultation = async (req, res) => {
     }
 
     const consultation = rows[0]
+    assertConsultationEditable(consultation)
     patientId = consultation.appointment_patient_id || consultation.patient_id
 
     await conn.query(
-      'UPDATE consultations SET diagnosis = ?, prescription = ?, notes = ? WHERE id = ?',
+      'UPDATE consultations SET diagnosis = ?, prescription = ?, notes = ?, updated_at = NOW() WHERE id = ?',
       [diagnosis || null, prescription || null, notes || null, consultation.id]
     )
     if (hasImagesPayload) {
@@ -438,9 +465,78 @@ const updateConsultation = async (req, res) => {
   res.json({ message: 'Consultation updated.', billing })
 }
 
+const addConsultationAmendment = async (req, res) => {
+  const appointmentId = Number(req.params.appointmentId)
+  const reason = String(req.body?.reason || '').trim()
+  const amendmentText = String(req.body?.amendment_text || '').trim()
+  if (!appointmentId || !reason || !amendmentText) {
+    return res.status(400).json({ message: 'Amendment reason and text are required.' })
+  }
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query(
+      `SELECT c.id, c.patient_id, c.status
+       FROM consultations c
+       WHERE c.appointment_id = ? AND c.doctor_id = ?
+       FOR UPDATE`,
+      [appointmentId, req.user.id]
+    )
+    if (!rows.length) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Consultation not found.' })
+    }
+    if (String(rows[0].status) !== 'finalized') {
+      await conn.rollback()
+      return res.status(409).json({ message: 'Only finalized consultations require amendments.' })
+    }
+
+    const [result] = await conn.query(
+      `INSERT INTO consultation_amendments (consultation_id, doctor_id, reason, amendment_text)
+       VALUES (?,?,?,?)`,
+      [rows[0].id, req.user.id, reason, amendmentText]
+    )
+    await writeAuditLog({
+      userId: req.user.id, userRole: 'doctor', action: 'clinical.consultation_amended',
+      entityType: 'consultation', entityId: rows[0].id,
+      newValues: { amendment_id: result.insertId, reason }, ipAddress: req.ip || null,
+    }, conn)
+    await conn.commit()
+
+    const amendmentsByConsultationId = await loadConsultationAmendments([rows[0].id])
+    broadcast(['admin', `doctor_${req.user.id}`, `patient_${rows[0].patient_id}`], 'consultation_saved', {
+      appointmentId, patientId: rows[0].patient_id, doctorId: req.user.id, amended: true,
+    })
+    return res.status(201).json({ message: 'Amendment added.', amendments: amendmentsByConsultationId[rows[0].id] || [] })
+  } catch (error) {
+    await conn.rollback()
+    throw error
+  } finally {
+    conn.release()
+  }
+}
+
 // ── Patient History ───────────────────────────────────────────────────────────
 
 const getPatientHistory = async (req, res) => {
+  const patientId = Number(req.params.id)
+  if (!patientId) return res.status(400).json({ message: 'A valid patient is required.' })
+
+  // Object-level authorization: a doctor may open a patient history only when the
+  // clinic has an appointment relationship between that doctor and patient.
+  const [relationship] = await db.query(
+    `SELECT id FROM appointments WHERE patient_id = ? AND doctor_id = ? LIMIT 1`,
+    [patientId, req.user.id]
+  )
+  if (!relationship.length) {
+    await writeAuditLog({
+      userId: req.user.id, userRole: 'doctor', action: 'security.patient_history_access_denied',
+      entityType: 'patient', entityId: patientId, ipAddress: req.ip || null,
+    }).catch(() => {})
+    return res.status(403).json({ message: 'You are not authorized to view this patient record.' })
+  }
+
   const [rows] = await db.query(
     `SELECT a.*, a.appointment_date AS date, a.appointment_time AS time,
             a.clinic_type AS type, c.id AS consultation_id, c.diagnosis, c.prescription,
@@ -448,13 +544,27 @@ const getPatientHistory = async (req, res) => {
      FROM appointments a LEFT JOIN consultations c ON c.appointment_id = a.id
      WHERE a.patient_id = ? AND a.status IN ('completed','cancelled','no_show')
      ORDER BY a.appointment_date DESC`,
-    [req.params.id]
+    [patientId]
   )
-  const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
-  res.json(rows.map((row) => ({
-    ...row,
-    progress_images: imagesByConsultationId[row.consultation_id] || [],
-  })))
+  const consultationIds = rows.map((row) => row.consultation_id)
+  const imagesByConsultationId = await loadImagesForConsultationIds(consultationIds)
+  const amendmentsByConsultationId = await loadConsultationAmendments(consultationIds)
+  await writeAuditLog({
+    userId: req.user.id, userRole: 'doctor', action: 'clinical.patient_history_viewed',
+    entityType: 'patient', entityId: patientId, ipAddress: req.ip || null,
+  }).catch(() => {})
+  res.json(rows.map((row) => ({ ...row, progress_images: imagesByConsultationId[row.consultation_id] || [], amendments: amendmentsByConsultationId[row.consultation_id] || [] })))
+}
+
+const getClinicalUploadSignature = async (req, res) => {
+  const appointmentId = Number(req.body?.appointment_id)
+  if (!appointmentId) return res.status(400).json({ message: 'A valid appointment is required.' })
+  const [rows] = await db.query(
+    `SELECT id FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1`,
+    [appointmentId, req.user.id]
+  )
+  if (!rows.length) return res.status(403).json({ message: 'You are not authorized to upload images for this appointment.' })
+  res.json(createClinicalUploadSignature({ doctorId: req.user.id, appointmentId }))
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
@@ -477,31 +587,69 @@ const getInventoryItems = async (req, res) => {
 
 const getMyRequests = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT sr.*, i.name AS item_name, i.unit, i.category
-     FROM supply_requests sr JOIN inventory i ON sr.inventory_id = i.id
+    `SELECT sr.*, i.name AS item_name, i.unit, i.category,
+            COALESCE(loc.name, sr.destination_location) AS destination_location
+     FROM supply_requests sr
+     JOIN inventory i ON sr.inventory_id = i.id
+     LEFT JOIN inventory_locations loc ON loc.id = sr.destination_location_id
      WHERE sr.doctor_id = ? ORDER BY sr.requested_at DESC`,
     [req.user.id]
   )
   res.json(rows)
 }
 
+const getRequestLocations = async (req, res) => {
+  const [rows] = await db.query(
+    `SELECT id, name, location_type
+     FROM inventory_locations
+     WHERE COALESCE(is_active,1)=1 AND location_type IN ('room','dispensing')
+     ORDER BY FIELD(location_type,'room','dispensing'), name`
+  )
+  res.json(rows)
+}
+
 const submitRequest = async (req, res) => {
   const { inventory_id, qty_requested, reason } = req.body
-  if (!inventory_id || !qty_requested) return res.status(400).json({ message: 'Inventory item and quantity are required.' })
-  const [[doctorRow]] = await db.query('SELECT specialty FROM doctors WHERE id = ? LIMIT 1', [req.user.id])
-  const defaultDestination = String(doctorRow?.specialty || '').toLowerCase().includes('derm') ? 'Dermatology Room' : 'General Medicine Room'
-  const destinationLocation = String(req.body.destination_location || defaultDestination).trim()
+  const quantity = Number(qty_requested)
+  if (!Number(inventory_id) || !Number.isFinite(quantity) || quantity <= 0) {
+    return res.status(400).json({ message: 'Inventory item and a positive quantity are required.' })
+  }
+
+  let destination = await getInventoryLocationById(req.body.destination_location_id)
+  if (!destination) {
+    const [[doctorRow]] = await db.query('SELECT specialty FROM doctors WHERE id = ? LIMIT 1', [req.user.id])
+    const defaultDestination = String(doctorRow?.specialty || '').toLowerCase().includes('derm') ? 'Dermatology Room' : 'General Medicine Room'
+    const [[defaultRow]] = await db.query(
+      `SELECT id, name, location_type FROM inventory_locations
+       WHERE name = ? AND COALESCE(is_active,1)=1 LIMIT 1`,
+      [defaultDestination]
+    )
+    destination = defaultRow || null
+  }
+  if (!destination || !['room','dispensing'].includes(String(destination.location_type))) {
+    return res.status(400).json({ message: 'Select a valid treatment or dispensing destination.' })
+  }
+
+  const [[inventory]] = await db.query('SELECT id FROM inventory WHERE id = ? LIMIT 1', [inventory_id])
+  if (!inventory) return res.status(404).json({ message: 'Inventory item not found.' })
+
   const [result] = await db.query(
-    'INSERT INTO supply_requests (doctor_id, inventory_id, qty_requested, reason, destination_location) VALUES (?,?,?,?,?)',
-    [req.user.id, inventory_id, qty_requested, reason || null, destinationLocation]
+    `INSERT INTO supply_requests
+     (doctor_id, inventory_id, qty_requested, reason, destination_location, destination_location_id)
+     VALUES (?,?,?,?,?,?)`,
+    [req.user.id, inventory_id, quantity, reason || null, destination.name, destination.id]
   )
   const [rows] = await db.query(
-    'SELECT sr.*, i.name AS item_name, i.unit FROM supply_requests sr JOIN inventory i ON sr.inventory_id = i.id WHERE sr.id = ?',
+    `SELECT sr.*, i.name AS item_name, i.unit, loc.name AS destination_location
+     FROM supply_requests sr
+     JOIN inventory i ON sr.inventory_id = i.id
+     LEFT JOIN inventory_locations loc ON loc.id = sr.destination_location_id
+     WHERE sr.id = ?`,
     [result.insertId]
   )
-  await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'supply.request_created', entityType: 'supply_request', entityId: result.insertId, newValues: { inventory_id, qty_requested, destination_location: destinationLocation, reason: reason || null }, ipAddress: req.ip || null })
+  await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'supply.request_created', entityType: 'supply_request', entityId: result.insertId, newValues: { inventory_id: Number(inventory_id), qty_requested: quantity, destination_location_id: destination.id, destination_location: destination.name, reason: reason || null }, ipAddress: req.ip || null })
   for (const target_role of ['staff','admin']) {
-    await createNotification({ target_role, type: 'supply_request', title: 'Doctor supply transfer request', message: `Requested ${qty_requested} ${rows[0].unit}(s) of ${rows[0].item_name} for ${destinationLocation}.`, reference_type: 'supply_request', reference_id: result.insertId })
+    await createNotification({ target_role, type: 'supply_request', title: 'Doctor supply transfer request', message: `Requested ${quantity} ${rows[0].unit}(s) of ${rows[0].item_name} for ${destination.name}.`, reference_type: 'supply_request', reference_id: result.insertId })
   }
   broadcast(['staff', 'admin', `doctor_${req.user.id}`], 'supply_request_resolved', { requestId: result.insertId, status: 'pending', doctorId: req.user.id })
   res.status(201).json(rows[0])
@@ -616,6 +764,7 @@ const saveMyScheduleDay = async (req, res) => {
       [doctorId, day_of_week, start_time, end_time, slot_duration_mins||60, is_active??1]
     )
   }
+  await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'schedule.updated', entityType: 'doctor_schedule', entityId: `${req.user.id}:${day_of_week}`, newValues: { day_of_week, start_time, end_time, slot_duration_mins: slot_duration_mins || 60, is_active: is_active ?? 1 }, ipAddress: req.ip || null }).catch(() => {})
   res.json({ message: 'Schedule saved.' })
 }
 
@@ -655,6 +804,7 @@ const saveMyUnavailableDate = async (req, res) => {
     [req.user.id, unavailableDate, reason, req.user.id]
   )
 
+  await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'schedule.unavailable_date_saved', entityType: 'doctor_unavailable_date', entityId: `${req.user.id}:${unavailableDate}`, newValues: { unavailable_date: unavailableDate, reason }, ipAddress: req.ip || null }).catch(() => {})
   res.json({ message: 'Unavailable date saved.' })
 }
 
@@ -669,15 +819,16 @@ const deleteMyUnavailableDate = async (req, res) => {
     [req.user.id, unavailableDate]
   )
 
+  await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'schedule.unavailable_date_removed', entityType: 'doctor_unavailable_date', entityId: `${req.user.id}:${unavailableDate}`, ipAddress: req.ip || null }).catch(() => {})
   res.json({ message: 'Unavailable date removed.' })
 }
 
 module.exports = {
   login, checkAuth, logout,
   getDashboard, getDailyAppointments, startConsultation,
-  saveConsultation, getConsultation, updateConsultation,
-  getPatientHistory, getBillingCatalog,
-  getInventoryItems, getMyRequests, submitRequest,
+  saveConsultation, getConsultation, updateConsultation, addConsultationAmendment,
+  getPatientHistory, getBillingCatalog, getClinicalUploadSignature,
+  getInventoryItems, getMyRequests, getRequestLocations, submitRequest,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,

@@ -1,17 +1,31 @@
-// server/middlewares/auth.middleware.js
-const jwt = require('jsonwebtoken')
+const { verifySessionToken, findAuthenticatedRequestSession } = require('../utils/sessionSecurity')
 
-const authenticate = (cookieName) => (req, res, next) => {
+const authenticate = (cookieName) => async (req, res, next) => {
   const token = req.cookies?.[cookieName]
   if (!token) return res.status(401).json({ message: 'Not authenticated.' })
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET)
+    const expectedRole = String(cookieName || '').replace(/_token$/, '')
+    req.user = await verifySessionToken(token, expectedRole)
+    req.authCookieName = cookieName
     next()
-  } catch {
+  } catch (err) {
     res.clearCookie(cookieName)
-    return res.status(401).json({ message: 'Session expired. Please log in again.' })
+    console.warn('[security] rejected session', { cookieName, path: req.originalUrl, ip: req.ip, reason: err.message })
+    return res.status(401).json({ code: 'SESSION_INVALID', message: 'Session expired or was revoked. Please log in again.' })
   }
 }
 
-module.exports = authenticate
+const authenticateAny = async (req, res, next) => {
+  try {
+    const session = await findAuthenticatedRequestSession(req)
+    if (!session) return res.status(401).json({ message: 'Not authenticated.' })
+    req.user = session.user
+    req.authCookieName = session.cookieName
+    next()
+  } catch (err) {
+    next(err)
+  }
+}
 
+authenticate.any = authenticateAny
+module.exports = authenticate

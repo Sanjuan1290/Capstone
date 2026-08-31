@@ -13,6 +13,9 @@ const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
+const { issueSession, verifySessionToken, revokeSessions } = require('../utils/sessionSecurity')
+const { requestAdminMfa, verifyAdminMfa } = require('../utils/accountSecurity')
+const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendTempPassword, sendAppointmentStatusEmail } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
@@ -24,7 +27,7 @@ const {
   syncInventorySnapshot,
 } = require('../utils/inventoryBatches')
 const { broadcast } = require('../utils/sse')
-const { getTodayDateOnly, getCurrentTimeLabel } = require('../utils/date')
+const { getTodayDateOnly, getCurrentTimeLabel, addDaysDateOnly } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendPatientAppointmentStatusSms } = require('../utils/smsService')
 const {
@@ -41,6 +44,7 @@ const {
 } = require('../utils/billing')
 const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
 const { writeAuditLog } = require('../utils/audit')
+const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
 const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
 const { normalizeStockMovementType } = require('../utils/workflowValidation')
 const {
@@ -117,7 +121,7 @@ const loadInventoryRows = async (executor = db, whereClause = '', params = []) =
   return attachBatchesToInventory(rows, executor)
 }
 
-const makeTempPassword = () => Math.random().toString(36).slice(-8)
+const makeTempPassword = () => makeTemporaryPassword(14)
 
 const normalizePatientPayload = (body = {}) => ({
   full_name: body.full_name?.trim() || '',
@@ -172,43 +176,89 @@ const findExistingPatientByPhone = async (phone) => {
 
 const login = async (req, res) => {
   const { email, password } = req.body
-  if (!email || !password)
-    return res.status(400).json({ message: 'Email and password are required.' })
+  if (!email || !password) return res.status(400).json({ message: 'Email and password are required.' })
 
   const [rows] = await db.query('SELECT * FROM admins WHERE email = ?', [email])
-  if (rows.length === 0)
+  if (rows.length === 0) {
+    await writeAuditLog({ userRole: 'admin', action: 'auth.login_failed', entityType: 'admin', newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
-
+  }
   const admin = rows[0]
   const match = await bcrypt.compare(password, admin.password)
-  if (!match)
+  if (!match) {
+    await writeAuditLog({ userId: admin.id, userRole: 'admin', action: 'auth.login_failed', entityType: 'admin', entityId: admin.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
+  }
 
-  const token = jwt.sign({ id: admin.id, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' })
-  generateCookie(res, token, 'admin')
+  if (String(process.env.ADMIN_MFA_ENABLED || 'true').toLowerCase() !== 'false') {
+    await requestAdminMfa(admin)
+    await writeAuditLog({ userId: admin.id, userRole: 'admin', action: 'auth.mfa_challenge_sent', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
+    const pendingToken = jwt.sign(
+      { id: admin.id, role: 'admin_mfa', session_version: Number(admin.session_version || 1) },
+      process.env.JWT_SECRET,
+      { expiresIn: '10m' }
+    )
+    res.cookie('admin_mfa_pending', pendingToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: 10 * 60 * 1000,
+    })
+    return res.json({ message: 'Security code sent to your administrator email.', mfa_required: true })
+  }
 
-  res.status(200).json({
+  await issueSession(res, 'admin', admin.id)
+  await writeAuditLog({ userId: admin.id, userRole: 'admin', action: 'auth.login_success', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
+  return res.status(200).json({
     message: 'Login successful.',
     user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
   })
+}
+
+const verifyLoginMfa = async (req, res) => {
+  const pending = req.cookies?.admin_mfa_pending
+  if (!pending) return res.status(401).json({ message: 'Administrator sign-in session expired. Please sign in again.' })
+  try {
+    const decoded = jwt.verify(pending, process.env.JWT_SECRET)
+    if (decoded.role !== 'admin_mfa') return res.status(401).json({ message: 'Invalid sign-in session.' })
+    const [rows] = await db.query('SELECT id, full_name, email, theme_preference, profile_image_url, COALESCE(session_version,1) AS session_version FROM admins WHERE id = ? LIMIT 1', [decoded.id])
+    if (!rows.length || Number(decoded.session_version || 0) !== Number(rows[0].session_version || 1)) {
+      return res.status(401).json({ message: 'Administrator sign-in session expired. Please sign in again.' })
+    }
+    await verifyAdminMfa(decoded.id, req.body?.code)
+    await issueSession(res, 'admin', decoded.id)
+    await writeAuditLog({ userId: decoded.id, userRole: 'admin', action: 'auth.mfa_verified', entityType: 'admin', entityId: decoded.id, ipAddress: req.ip || null }).catch(() => {})
+    await writeAuditLog({ userId: decoded.id, userRole: 'admin', action: 'auth.login_success', entityType: 'admin', entityId: decoded.id, ipAddress: req.ip || null }).catch(() => {})
+    res.clearCookie('admin_mfa_pending', { path: '/' })
+    const admin = rows[0]
+    return res.json({
+      message: 'Login successful.',
+      user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
+    })
+  } catch (err) {
+    return res.status(400).json({ message: err.message === 'jwt expired' ? 'Administrator sign-in session expired. Please sign in again.' : (err.message || 'Invalid security code.') })
+  }
 }
 
 const checkAuth = async (req, res) => {
   const token = req.cookies['admin_token']
   if (!token) return res.status(200).json({ authenticated: false })
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    if (decoded.role !== 'admin') return res.status(200).json({ authenticated: false })
+    const decoded = await verifySessionToken(token, 'admin')
     const [rows] = await db.query('SELECT id, full_name, email, theme_preference, profile_image_url FROM admins WHERE id = ?', [decoded.id])
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'admin' } })
   } catch {
+    res.clearCookie('admin_token', { path: '/' })
     res.status(200).json({ authenticated: false })
   }
 }
 
-const logout = (req, res) => {
-  res.clearCookie('admin_token')
+const logout = async (req, res) => {
+  await writeAuditLog({ userId: req.user?.id || null, userRole: 'admin', action: 'auth.logout', entityType: 'admin', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
+  res.clearCookie('admin_token', { path: '/' })
+  res.clearCookie('admin_mfa_pending', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })
 }
 
@@ -317,7 +367,9 @@ const confirmAppointment = async (req, res) => {
   if (lastNoShow && !req.body?.override_no_show_warning) {
     return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
   }
+  assertAppointmentTransition(rows[0].status, 'confirmed')
   await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ?", [id])
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'appointment.confirmed',entityType:'appointment',entityId:id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -373,7 +425,9 @@ const cancelAppointment = async (req, res) => {
     [req.params.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  assertAppointmentTransition(rows[0].status, 'cancelled')
   await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [req.params.id])
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'appointment.cancelled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'cancelled'},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -421,7 +475,9 @@ const markAppointmentNoShow = async (req, res) => {
   if (!['confirmed', 'rescheduled'].includes(rows[0].status)) {
     return res.status(400).json({ message: 'Only confirmed or rescheduled appointments can be marked as no show.' })
   }
+  assertAppointmentTransition(rows[0].status, 'no_show')
   await db.query("UPDATE appointments SET status = 'no_show' WHERE id = ?", [req.params.id])
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'appointment.no_show',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'no_show'},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -460,26 +516,15 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
   }
 
-  const [conflict] = await db.query(
-    `SELECT id FROM appointments
-     WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ?
-     AND status IN ('pending','confirmed','rescheduled','in-progress') AND id != ?`,
-    [rows[0].doctor_id, normalizedDate, appointment_time, req.params.id]
-  )
-  if (conflict.length > 0)
-    return res.status(409).json({ message: 'That time slot is already taken.' })
-
-  const blockedDate = await getDoctorUnavailableDate(rows[0].doctor_id, normalizedDate)
-  if (blockedDate) {
-    return res.status(409).json({
-      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
-    })
-  }
-
-  await db.query(
-    "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=?",
-    [normalizedDate, appointment_time, req.params.id]
-  )
+  assertAppointmentTransition(rows[0].status, 'rescheduled')
+  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id, date: normalizedDate, time: appointment_time }, async () => {
+    await validateAppointmentSlot({ doctorId: rows[0].doctor_id, clinicType: rows[0].clinic_type, date: normalizedDate, time: appointment_time, excludeAppointmentId: req.params.id })
+    await db.query(
+      "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=?",
+      [normalizedDate, appointment_time, req.params.id]
+    )
+  })
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -542,26 +587,14 @@ const createAppointment = async (req, res) => {
     })
   }
 
-  const [existing] = await db.query(
-    `SELECT id FROM appointments
-     WHERE doctor_id=? AND appointment_date=? AND appointment_time=?
-     AND status IN ('pending','confirmed','rescheduled','in-progress')`,
-    [doctor_id, normalizedDate, appointment_time]
-  )
-  if (existing.length > 0)
-    return res.status(409).json({ message: 'That time slot is already taken.' })
-
-  const blockedDate = await getDoctorUnavailableDate(doctor_id, normalizedDate)
-  if (blockedDate) {
-    return res.status(409).json({
-      message: blockedDate.reason || 'The doctor is unavailable on the selected date.',
-    })
-  }
-
-  const [result] = await db.query(
-    'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes, appointment_source) VALUES (?,?,?,?,?,?,?,?)',
-    [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null, 'admin_booking']
-  )
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id, date: normalizedDate, time: appointment_time }, async () => {
+    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time })
+    const [inserted] = await db.query(
+      'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes, appointment_source) VALUES (?,?,?,?,?,?,?,?)',
+      [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null, 'admin_booking']
+    )
+    return inserted
+  })
   await writeAuditLog({
     userId: req.user.id, userRole: 'admin', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId,
     newValues: { patient_id, doctor_id, clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'admin_booking' }, ipAddress: req.ip || null,
@@ -715,7 +748,7 @@ const createWalkInPatient = async (req, res) => {
   }
   const normalizedSex = ['Male','Female','Other'].includes(String(sex || '')) ? String(sex) : null
   const normalizedBirthdate = /^\d{4}-\d{2}-\d{2}$/.test(String(birthdate || '')) ? String(birthdate) : null
-  const tempPassword = Math.random().toString(36).slice(-8) + 'Aa1!'
+  const tempPassword = makeTempPassword()
   const hashedPassword = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
     `INSERT INTO patients
@@ -746,13 +779,14 @@ const createStaff = async (req, res) => {
   const [existing] = await db.query('SELECT id FROM staff WHERE email = ?', [email])
   if (existing.length > 0)
     return res.status(409).json({ message: 'Email already exists.' })
-  const tempPassword = Math.random().toString(36).slice(-8) + 'Aa1!'
+  const tempPassword = makeTempPassword()
   const hashed = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
-    'INSERT INTO staff (full_name, email, phone, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO staff (full_name, email, phone, password, role, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
     [full_name, email, normalizedPhone, hashed, 'staff', 'active']
   )
   const [rows] = await db.query('SELECT id, full_name, email, phone, role, status, created_at FROM staff WHERE id = ?', [result.insertId])
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.staff_created',entityType:'staff',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,status:'active',must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/staff/login`
     await sendTempPassword(email, full_name, 'Staff', tempPassword, loginUrl)
@@ -766,7 +800,8 @@ const toggleStaff = async (req, res) => {
   const [rows] = await db.query('SELECT status FROM staff WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   const newStatus = rows[0].status === 'active' ? 'inactive' : 'active'
-  await db.query('UPDATE staff SET status = ? WHERE id = ?', [newStatus, req.params.id])
+  await db.query('UPDATE staff SET status = ?, session_version = COALESCE(session_version,1) + 1 WHERE id = ?', [newStatus, req.params.id])
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:`account.staff_${newStatus === 'active' ? 'enabled' : 'disabled'}`,entityType:'staff',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:newStatus,sessions_revoked:true},ipAddress:req.ip||null }).catch(() => {})
   res.json({ status: newStatus })
 }
 
@@ -790,6 +825,7 @@ const updateStaff = async (req, res) => {
     [full_name.trim(), email.trim(), normalizedPhone, req.params.id]
   )
   const [updated] = await db.query('SELECT id, full_name, email, phone, role, status, created_at FROM staff WHERE id = ?', [req.params.id])
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.staff_updated',entityType:'staff',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone},ipAddress:req.ip||null }).catch(() => {})
   res.json(updated[0])
 }
 
@@ -817,16 +853,17 @@ const createDoctor = async (req, res) => {
   const [existing] = await db.query('SELECT id FROM doctors WHERE email = ?', [email])
   if (existing.length > 0)
     return res.status(409).json({ message: 'Email already exists.' })
-  const tempPassword = Math.random().toString(36).slice(-8) + 'Aa1!'
+  const tempPassword = makeTempPassword()
   const hashed = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
     // FIX 3: save prc_license (requires migration_add_prc_license.sql)
-    'INSERT INTO doctors (full_name, email, phone, specialty, prc_license, password) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO doctors (full_name, email, phone, specialty, prc_license, password, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
     [full_name, email, normalizedPhone, specialty || null, prc_license || null, hashed]
   )
   const [rows] = await db.query(
     'SELECT id, full_name, email, phone, specialty, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
   )
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,specialty,prc_license,is_active:true,must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/doctor/login`
     await sendTempPassword(email, full_name, 'Doctor', tempPassword, loginUrl)
@@ -840,7 +877,8 @@ const toggleDoctor = async (req, res) => {
   const [rows] = await db.query('SELECT is_active FROM doctors WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   const newVal = rows[0].is_active ? 0 : 1
-  await db.query('UPDATE doctors SET is_active = ? WHERE id = ?', [newVal, req.params.id])
+  await db.query('UPDATE doctors SET is_active = ?, session_version = COALESCE(session_version,1) + 1 WHERE id = ?', [newVal, req.params.id])
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:`account.doctor_${newVal ? 'enabled' : 'disabled'}`,entityType:'doctor',entityId:req.params.id,oldValues:{is_active:rows[0].is_active},newValues:{is_active:newVal,sessions_revoked:true},ipAddress:req.ip||null }).catch(() => {})
   res.json({ is_active: newVal })
 }
 
@@ -869,6 +907,7 @@ const updateDoctor = async (req, res) => {
     'SELECT id, full_name, email, phone, specialty, prc_license, is_active, created_at FROM doctors WHERE id = ?',
     [req.params.id]
   )
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,specialty,prc_license},ipAddress:req.ip||null }).catch(() => {})
   res.json(updated[0])
 }
 
@@ -1227,12 +1266,29 @@ const updatePaymentSettingsAdmin = async (req, res) => {
   return getPaymentSettingsAdmin(req, res)
 }
 
+const recordReportExport = async (req, res) => {
+  const startDate = String(req.body?.start_date || '').trim() || null
+  const endDate = String(req.body?.end_date || '').trim() || null
+  await writeAuditLog({
+    userId: req.user.id,
+    userRole: 'admin',
+    action: 'reports.exported',
+    entityType: 'report',
+    entityId: startDate && endDate ? `${startDate}:${endDate}` : null,
+    newValues: { start_date: startDate, end_date: endDate, format: 'print_pdf' },
+    ipAddress: req.ip || null,
+  }).catch(() => {})
+  res.json({ message: 'Report export recorded.' })
+}
+
 const getReports = async (req, res) => {
   let range
   try { range = resolveReportRange(req.query) }
   catch (error) { return res.status(error.statusCode || 400).json({ message: error.message }) }
   const { startDate, endDate } = range
   const dateParams = [startDate, endDate]
+  const clinicToday = getTodayDateOnly()
+  const clinicNext30 = addDaysDateOnly(clinicToday, 30)
 
   const [monthly] = await db.query(
     `SELECT DATE_FORMAT(appointment_date, '%b %Y') AS month,
@@ -1303,23 +1359,26 @@ const getReports = async (req, res) => {
        (SELECT COALESCE(SUM(stock * COALESCE(price, 0)), 0) FROM inventory) AS total_value,
        (SELECT SUM(stock = 0) FROM inventory) AS out_of_stock,
        (SELECT SUM(stock > 0 AND stock <= threshold) FROM inventory) AS low_stock,
-       (SELECT COUNT(*) FROM inventory_batches WHERE quantity > 0 AND expiration_date IS NOT NULL AND expiration_date < CURDATE()) AS expired,
-       (SELECT COUNT(*) FROM inventory_batches WHERE quantity > 0 AND expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)) AS expiring_soon`)
+       (SELECT COUNT(*) FROM inventory_batches WHERE quantity > 0 AND expiration_date IS NOT NULL AND expiration_date < ?) AS expired,
+       (SELECT COUNT(*) FROM inventory_batches WHERE quantity > 0 AND expiration_date BETWEEN ? AND ?) AS expiring_soon`,
+    [clinicToday, clinicToday, clinicNext30])
 
   const [stockActivity] = await db.query(
-    `SELECT DATE_FORMAT(logged_at, '%b %Y') AS month,
-            DATE_FORMAT(logged_at, '%Y-%m') AS ym,
-            SUM(type = 'in') AS stock_in_actions, SUM(type = 'out') AS stock_out_actions,
+    `SELECT DATE_FORMAT(logged_at, '%Y-%m') AS ym,
+            DATE_FORMAT(MIN(logged_at), '%b %Y') AS month,
+            SUM(CASE WHEN type = 'in' THEN 1 ELSE 0 END) AS stock_in_actions,
+            SUM(CASE WHEN type = 'out' THEN 1 ELSE 0 END) AS stock_out_actions,
             COALESCE(SUM(CASE WHEN type = 'in' THEN qty ELSE 0 END), 0) AS stock_in,
             COALESCE(SUM(CASE WHEN type = 'out' THEN qty ELSE 0 END), 0) AS stock_out
      FROM inventory_logs WHERE DATE(logged_at) BETWEEN ? AND ?
-     GROUP BY ym, month ORDER BY ym ASC`, dateParams)
+     GROUP BY DATE_FORMAT(logged_at, '%Y-%m') ORDER BY ym ASC`, dateParams)
 
   const [stockMovementByReason] = await db.query(
-    `SELECT COALESCE(movement_type, CASE WHEN type='in' THEN 'received' ELSE 'adjustment' END) AS movement_type,
+    `SELECT COALESCE(movement_type, CASE WHEN type='in' THEN 'received' ELSE 'adjustment' END) AS movement_reason,
             COUNT(*) AS actions, COALESCE(SUM(qty),0) AS quantity
      FROM inventory_logs WHERE DATE(logged_at) BETWEEN ? AND ?
-     GROUP BY movement_type ORDER BY quantity DESC`, dateParams)
+     GROUP BY COALESCE(movement_type, CASE WHEN type='in' THEN 'received' ELSE 'adjustment' END)
+     ORDER BY quantity DESC`, dateParams)
 
   const [inventoryByCategory] = await db.query(
     `SELECT category, COUNT(*) AS items, COALESCE(SUM(stock), 0) AS total_stock,
@@ -1328,11 +1387,12 @@ const getReports = async (req, res) => {
 
   const [[currentOperations]] = await db.query(
     `SELECT
-       (SELECT COUNT(*) FROM appointments WHERE appointment_date = CURDATE() AND status IN ('pending','confirmed','rescheduled','in-progress')) AS today_remaining,
-       (SELECT COUNT(*) FROM appointments WHERE appointment_date > CURDATE() AND status IN ('pending','confirmed','rescheduled')) AS future_confirmed,
-       (SELECT COUNT(*) FROM appointments WHERE status = 'pending' AND appointment_date >= CURDATE()) AS awaiting_approval,
-       (SELECT COUNT(*) FROM queue WHERE queue_date = CURDATE() AND status IN ('waiting','in-progress')) AS walkin_queue,
-       (SELECT COUNT(*) FROM supply_requests WHERE status = 'pending') AS pending_supply_requests`)
+       (SELECT COUNT(*) FROM appointments WHERE appointment_date = ? AND status IN ('pending','confirmed','rescheduled','in-progress')) AS today_remaining,
+       (SELECT COUNT(*) FROM appointments WHERE appointment_date > ? AND status IN ('pending','confirmed','rescheduled')) AS future_confirmed,
+       (SELECT COUNT(*) FROM appointments WHERE status = 'pending' AND appointment_date >= ?) AS awaiting_approval,
+       (SELECT COUNT(*) FROM queue WHERE queue_date = ? AND status IN ('waiting','in-progress')) AS walkin_queue,
+       (SELECT COUNT(*) FROM supply_requests WHERE status = 'pending') AS pending_supply_requests`,
+    [clinicToday, clinicToday, clinicToday, clinicToday])
 
   const [[supplyRequests]] = await db.query(
     `SELECT SUM(status = 'pending') AS pending, SUM(status = 'approved') AS approved, SUM(status = 'rejected') AS rejected
@@ -1340,12 +1400,13 @@ const getReports = async (req, res) => {
 
   const [[billingSummary]] = await db.query(
     `SELECT
-       COALESCE(SUM(CASE WHEN status NOT IN ('voided') THEN subtotal ELSE 0 END), 0) AS gross_billed,
-       COALESCE(SUM(CASE WHEN status NOT IN ('voided') THEN discount_amount ELSE 0 END), 0) AS discounts,
-       COALESCE(SUM(CASE WHEN status NOT IN ('voided') THEN total_amount ELSE 0 END), 0) AS net_billed,
+       COALESCE(SUM(CASE WHEN status NOT IN ('draft','voided') THEN subtotal ELSE 0 END), 0) AS gross_billed,
+       COALESCE(SUM(CASE WHEN status NOT IN ('draft','voided') THEN discount_amount ELSE 0 END), 0) AS discounts,
+       COALESCE(SUM(CASE WHEN status NOT IN ('draft','voided') THEN total_amount ELSE 0 END), 0) AS net_billed,
        SUM(status = 'paid') AS paid_bills,
        SUM(status = 'partially_paid') AS partially_paid_bills,
-       SUM(status IN ('draft','pending','ready')) AS unpaid_bills,
+       SUM(status IN ('pending','ready')) AS unpaid_bills,
+       SUM(status = 'draft') AS draft_bills,
        SUM(status = 'voided') AS voided_bills
      FROM billing_records
      WHERE DATE(COALESCE(finalized_at, created_at)) BETWEEN ? AND ?`, dateParams)
@@ -1366,7 +1427,7 @@ const getReports = async (req, res) => {
        SELECT billing_id, SUM(CASE WHEN status='completed' THEN amount - COALESCE(refund_amount,0) ELSE 0 END) AS paid_amount
        FROM billing_payments GROUP BY billing_id
      ) p ON p.billing_id = b.id
-     WHERE b.status IN ('draft','pending','ready','partially_paid')`)
+     WHERE b.status IN ('pending','ready','partially_paid')`)
 
   const [paymentsByMethod] = await db.query(
     `SELECT payment_method, COUNT(*) AS transactions,
@@ -1383,7 +1444,7 @@ const getReports = async (req, res) => {
             COALESCE(SUM(bi.quantity), 0) AS quantity,
             COALESCE(SUM(bi.line_total), 0) AS gross_billed_amount
      FROM billing_items bi
-     JOIN billing_records br ON br.id = bi.billing_id AND br.status <> 'voided'
+     JOIN billing_records br ON br.id = bi.billing_id AND br.status NOT IN ('draft','voided')
      WHERE DATE(COALESCE(br.finalized_at, br.created_at)) BETWEEN ? AND ?
      GROUP BY bi.service_name ORDER BY gross_billed_amount DESC LIMIT 10`, dateParams)
 
@@ -1419,7 +1480,7 @@ const getReports = async (req, res) => {
       out_of_stock: Number(inventoryStats?.out_of_stock || 0), low_stock: Number(inventoryStats?.low_stock || 0),
       expired: Number(inventoryStats?.expired || 0), expiring_soon: Number(inventoryStats?.expiring_soon || 0),
     },
-    stockActivity, stockMovementByReason, inventoryByCategory,
+    stockActivity, stockMovementByReason: stockMovementByReason.map(row => ({ ...row, movement_type: row.movement_reason })), inventoryByCategory,
     currentOperations: {
       today_remaining: Number(currentOperations?.today_remaining || 0), future_confirmed: Number(currentOperations?.future_confirmed || 0),
       awaiting_approval: Number(currentOperations?.awaiting_approval || 0), walkin_queue: Number(currentOperations?.walkin_queue || 0),
@@ -1433,7 +1494,7 @@ const getReports = async (req, res) => {
       collected, net_collected: Math.max(0, collected - refunded), refunded,
       outstanding: Number(outstandingSummary?.outstanding || 0), pending_receivables: Number(outstandingSummary?.outstanding || 0),
       paid_bills: Number(billingSummary?.paid_bills || 0), partially_paid_bills: Number(billingSummary?.partially_paid_bills || 0),
-      unpaid_bills: Number(billingSummary?.unpaid_bills || 0), pending_bills: Number(billingSummary?.unpaid_bills || 0), voided_bills: Number(billingSummary?.voided_bills || 0),
+      unpaid_bills: Number(billingSummary?.unpaid_bills || 0), pending_bills: Number(billingSummary?.unpaid_bills || 0), draft_bills: Number(billingSummary?.draft_bills || 0), voided_bills: Number(billingSummary?.voided_bills || 0),
     },
     paymentsByMethod, serviceRevenue, revenueTrend,
   })
@@ -1847,6 +1908,62 @@ const updateClinicSettingsAdmin = async (req,res) => {
   const [rows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1');res.json(rows[0])
 }
 
+
+const getBillingAdjustmentRequestsAdmin = async (req, res) => {
+  const status = String(req.query.status || 'pending').trim()
+  const params = []
+  let where = ''
+  if (status) { where = 'WHERE bar.status = ?'; params.push(status) }
+  const [rows] = await db.query(
+    `SELECT bar.*, s.full_name AS staff_name, dp.label AS discount_label, bsc.service_name,
+            br.patient_id, p.full_name AS patient_name, br.total_amount AS bill_total
+     FROM billing_adjustment_requests bar
+     JOIN staff s ON s.id = bar.staff_id
+     JOIN billing_records br ON br.id = bar.billing_id
+     JOIN patients p ON p.id = br.patient_id
+     LEFT JOIN discount_presets dp ON dp.id = bar.discount_preset_id
+     LEFT JOIN billing_service_catalog bsc ON bsc.id = bar.catalog_service_id
+     ${where}
+     ORDER BY bar.created_at DESC`, params
+  )
+  res.json(rows)
+}
+
+const resolveBillingAdjustmentRequestAdmin = async (req, res) => {
+  const id = Number(req.params.id)
+  const status = String(req.body.status || '').trim()
+  if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ message: 'Status must be approved or rejected.' })
+  const reason = String(req.body.admin_note || '').trim() || null
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query('SELECT * FROM billing_adjustment_requests WHERE id = ? FOR UPDATE', [id])
+    if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Adjustment request not found.' }) }
+    if (rows[0].status !== 'pending') { await conn.rollback(); return res.status(409).json({ message: 'This adjustment request has already been resolved.' }) }
+    await conn.query(
+      `UPDATE billing_adjustment_requests SET status=?, resolved_by_admin_id=?, resolved_at=NOW(), admin_note=? WHERE id=?`,
+      [status, req.user.id, reason, id]
+    )
+    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:`billing.adjustment_${status}`,entityType:'billing_adjustment_request',entityId:id,oldValues:{status:'pending'},newValues:{status,admin_note:reason},ipAddress:req.ip||null }, conn)
+    await conn.commit()
+  } catch (err) { await conn.rollback(); throw err } finally { conn.release() }
+  broadcast(['admin', 'staff'], 'billing_adjustment_resolved', { requestId: id, status })
+  const [updated] = await db.query('SELECT * FROM billing_adjustment_requests WHERE id = ?', [id])
+  res.json(updated[0])
+}
+
+const reopenCashierShiftAdmin = async (req, res) => {
+  const id = Number(req.params.id)
+  const reason = String(req.body.reason || '').trim()
+  if (!reason) return res.status(400).json({ message: 'A reopen reason is required.' })
+  const [rows] = await db.query('SELECT * FROM cashier_closings WHERE id=? LIMIT 1', [id])
+  if (!rows.length) return res.status(404).json({ message: 'Cashier closing not found.' })
+  await db.query('DELETE FROM cashier_closings WHERE id=?', [id])
+  await writeAuditLog({userId:req.user.id,userRole:'admin',action:'cashier.shift_reopened',entityType:'cashier_closing',entityId:id,oldValues:rows[0],newValues:{reopened:true,reason},ipAddress:req.ip||null})
+  res.json({ message: 'Cashier shift reopened. The staff member may close it again.' })
+}
+
+
 // ── Discount presets ──────────────────────────────────────────────────────────
 const getDiscountPresetsAdmin = async (req,res) => {
   const [rows]=await db.query('SELECT * FROM discount_presets ORDER BY sort_order,label');res.json(rows)
@@ -1887,7 +2004,7 @@ const getAuditLogs = async (req,res) => {
 }
 
 module.exports = {
-  login, checkAuth, logout,
+  login, verifyLoginMfa, checkAuth, logout,
   getDashboard,
   getAppointments, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, createAppointment,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
@@ -1900,9 +2017,9 @@ module.exports = {
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
   getPaymentSettingsAdmin, updatePaymentSettingsAdmin,
-  getBillingReconciliation, voidBillingPayment, refundBillingPayment,
+  getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, reopenCashierShiftAdmin, voidBillingPayment, refundBillingPayment,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs,
-  getReports, getInventoryLogs,
+  getReports, recordReportExport, getInventoryLogs,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }

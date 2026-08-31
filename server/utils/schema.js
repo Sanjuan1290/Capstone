@@ -19,6 +19,17 @@ const ensureTable = async (sql) => {
   await db.query(sql)
 }
 
+const ensureIndex = async (table, indexName, columnsSql, { unique = false } = {}) => {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS count FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+    [table, indexName]
+  )
+  if (!Number(rows[0]?.count || 0)) {
+    await db.query(`CREATE ${unique ? 'UNIQUE ' : ''}INDEX ${indexName} ON ${table} (${columnsSql})`)
+  }
+}
+
 const INVENTORY_SEEDS = [
   ['SUP-001', 'Disposable Syringe 3mL', 'Supplies', 'piece', 'piece', 1, 500, 50, 8.00, 'MediSupply PH', '2028-02-28', 'Cabinet S1'],
   ['SUP-002', 'Disposable Syringe 1mL', 'Supplies', 'piece', 'piece', 1, 500, 50, 7.00, 'MediSupply PH', '2028-02-28', 'Cabinet S1'],
@@ -224,6 +235,26 @@ const ensureAppSchema = async () => {
   await ensureColumn('inventory', 'stock_base', "DECIMAL(12,2) NOT NULL DEFAULT 0")
   await ensureColumn('inventory', 'expiration_date', 'DATE NULL')
   await ensureColumn('inventory', 'storage_location', "VARCHAR(120) NULL")
+
+  await ensureColumn('consultations', 'status', "VARCHAR(20) NOT NULL DEFAULT 'draft'").catch(() => {})
+  await ensureColumn('consultations', 'finalized_at', 'DATETIME NULL').catch(() => {})
+  await ensureColumn('consultations', 'finalized_by_doctor_id', 'INT NULL').catch(() => {})
+  await ensureColumn('consultations', 'updated_at', 'DATETIME NULL').catch(() => {})
+  await db.query("UPDATE consultations SET status='finalized', finalized_at=COALESCE(finalized_at, consulted_at), finalized_by_doctor_id=COALESCE(finalized_by_doctor_id, doctor_id) WHERE status IS NULL OR status='' OR (status='draft' AND appointment_id IN (SELECT id FROM appointments WHERE status='completed'))").catch(() => {})
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS consultation_amendments (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      consultation_id INT NOT NULL,
+      doctor_id INT NOT NULL,
+      reason VARCHAR(255) NOT NULL,
+      amendment_text TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_consultation_amendments_consultation (consultation_id, created_at),
+      CONSTRAINT fk_consultation_amendment_consultation FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE,
+      CONSTRAINT fk_consultation_amendment_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE RESTRICT
+    )
+  `)
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS consultation_images (
@@ -582,6 +613,7 @@ const ensureAppSchema = async () => {
   await db.query('ALTER TABLE queue ADD UNIQUE KEY uniq_queue_doctor_day_number (queue_date, doctor_id, queue_number)').catch(() => {})
 
   await ensureColumn('supply_requests', 'destination_location', "VARCHAR(120) NOT NULL DEFAULT 'Doctor / Treatment Room'")
+  await ensureColumn('supply_requests', 'destination_location_id', 'INT NULL')
   await ensureColumn('supply_requests', 'resolved_at', 'DATETIME NULL')
   await ensureColumn('supply_requests', 'resolved_by_admin_id', 'INT NULL')
 
@@ -701,6 +733,16 @@ const ensureAppSchema = async () => {
   `)
   await db.query(`INSERT IGNORE INTO inventory_locations (name, location_type) VALUES ('Main Stockroom', 'stockroom'), ('General Medicine Room', 'room'), ('Dermatology Room', 'room'), ('Dispensing Area', 'dispensing')`)
 
+  await ensureColumn('inventory_locations', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1').catch(() => {})
+  await db.query(
+    `UPDATE supply_requests sr
+     JOIN inventory_locations il ON il.name = sr.destination_location
+     SET sr.destination_location_id = il.id
+     WHERE sr.destination_location_id IS NULL`
+  ).catch(() => {})
+  await db.query('CREATE INDEX idx_supply_request_destination_location ON supply_requests (destination_location_id)').catch(() => {})
+  await db.query('ALTER TABLE supply_requests ADD CONSTRAINT fk_supply_request_destination_location FOREIGN KEY (destination_location_id) REFERENCES inventory_locations(id) ON DELETE SET NULL').catch(() => {})
+
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_location_stock (
       location_id INT NOT NULL,
@@ -802,20 +844,52 @@ const ensureAppSchema = async () => {
   await ensureColumn('patients', 'gender', "ENUM('Male','Female','Other') NULL")
   await ensureColumn('patients', 'receive_promotions', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('patients', 'is_profile_complete', "TINYINT(1) NOT NULL DEFAULT 0")
+  await ensureColumn('patients', 'onboarding_completed_at', "DATETIME NULL")
   await db.query("ALTER TABLE patients MODIFY COLUMN sex ENUM('Male','Female','Other') NULL").catch(() => {})
   await ensureColumn('queue', 'appointment_id', 'INT NULL').catch(() => {})
 
   await ensureColumn('staff', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('staff', 'profile_image_url', "TEXT NULL")
+  await ensureColumn('staff', 'must_change_password', "TINYINT(1) NOT NULL DEFAULT 0")
+  await ensureColumn('staff', 'password_changed_at', "DATETIME NULL")
 
   await ensureColumn('doctors', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('doctors', 'profile_image_url', "TEXT NULL")
+  await ensureColumn('doctors', 'must_change_password', "TINYINT(1) NOT NULL DEFAULT 0")
+  await ensureColumn('doctors', 'password_changed_at', "DATETIME NULL")
 
   await ensureColumn('admins', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('admins', 'profile_image_url', "TEXT NULL")
 
+  await ensureColumn('admins', 'session_version', "INT NOT NULL DEFAULT 1")
+  await ensureColumn('staff', 'session_version', "INT NOT NULL DEFAULT 1")
+  await ensureColumn('doctors', 'session_version', "INT NOT NULL DEFAULT 1")
+  await ensureColumn('patients', 'session_version', "INT NOT NULL DEFAULT 1")
+
   await ensureColumn('inventory_logs', 'staff_id', 'INT NULL').catch(() => {})
   await ensureColumn('inventory_logs', 'admin_id', 'INT NULL').catch(() => {})
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS account_security_codes (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      role VARCHAR(20) NOT NULL,
+      account_id INT NOT NULL,
+      purpose VARCHAR(40) NOT NULL DEFAULT 'password_change',
+      code VARCHAR(128) NOT NULL,
+      payload TEXT NULL,
+      expires_at DATETIME NOT NULL,
+      attempt_count INT NOT NULL DEFAULT 0,
+      last_sent_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_account_security_code (role, account_id),
+      INDEX idx_security_code_lookup (role, account_id, purpose, expires_at)
+    )
+  `)
+  await db.query('ALTER TABLE account_security_codes MODIFY COLUMN code VARCHAR(128) NOT NULL').catch(() => {})
+  await ensureColumn('account_security_codes', 'purpose', "VARCHAR(40) NOT NULL DEFAULT 'password_change'")
+  await ensureColumn('account_security_codes', 'payload', 'TEXT NULL')
+  await ensureColumn('account_security_codes', 'attempt_count', 'INT NOT NULL DEFAULT 0')
+  await ensureColumn('account_security_codes', 'last_sent_at', 'DATETIME NULL')
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS notifications (
@@ -856,7 +930,7 @@ const ensureAppSchema = async () => {
     CREATE TABLE IF NOT EXISTS patient_phone_verifications (
       id INT AUTO_INCREMENT PRIMARY KEY,
       phone VARCHAR(20) NOT NULL,
-      otp_code VARCHAR(6) NOT NULL,
+      otp_code VARCHAR(128) NOT NULL,
       payload JSON NOT NULL,
       expires_at DATETIME NOT NULL,
       verified_at DATETIME NULL,
@@ -865,6 +939,10 @@ const ensureAppSchema = async () => {
       UNIQUE KEY uniq_patient_phone_verifications_phone (phone)
     )
   `)
+
+  await db.query('ALTER TABLE patient_phone_verifications MODIFY COLUMN otp_code VARCHAR(128) NOT NULL').catch(() => {})
+  await ensureColumn('patient_phone_verifications', 'attempt_count', 'INT NOT NULL DEFAULT 0')
+  await ensureColumn('patient_phone_verifications', 'last_sent_at', 'DATETIME NULL')
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS password_resets (
@@ -881,6 +959,43 @@ const ensureAppSchema = async () => {
   await db.query('ALTER TABLE password_resets MODIFY COLUMN email VARCHAR(255) NULL').catch(() => {})
   await ensureColumn('password_resets', 'identifier', 'VARCHAR(120) NULL')
   await ensureColumn('password_resets', 'account_id', 'INT NULL')
+  await ensureColumn('password_resets', 'attempt_count', 'INT NOT NULL DEFAULT 0')
+  await ensureColumn('password_resets', 'last_sent_at', 'DATETIME NULL')
+  await ensureColumn('password_resets', 'verified_at', 'DATETIME NULL')
+  await ensureColumn('billing_payments', 'idempotency_key', 'VARCHAR(100) NULL')
+  await db.query('CREATE UNIQUE INDEX uniq_billing_payment_idempotency ON billing_payments (idempotency_key)').catch(() => {})
+  await ensureColumn('cashier_closings', 'is_locked', 'TINYINT(1) NOT NULL DEFAULT 1')
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS billing_adjustment_requests (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      billing_id INT NOT NULL,
+      staff_id INT NOT NULL,
+      request_type VARCHAR(30) NOT NULL,
+      discount_preset_id INT NULL,
+      catalog_service_id INT NULL,
+      requested_amount DECIMAL(10,2) NULL,
+      requested_price DECIMAL(10,2) NULL,
+      reference_text VARCHAR(160) NULL,
+      reason VARCHAR(255) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      resolved_by_admin_id INT NULL,
+      resolved_at DATETIME NULL,
+      admin_note VARCHAR(255) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_billing_adjustment_bill (billing_id, status),
+      INDEX idx_billing_adjustment_status (status, created_at),
+      CONSTRAINT fk_billing_adjustment_bill FOREIGN KEY (billing_id) REFERENCES billing_records(id) ON DELETE CASCADE,
+      CONSTRAINT fk_billing_adjustment_staff FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE RESTRICT,
+      CONSTRAINT fk_billing_adjustment_admin FOREIGN KEY (resolved_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL
+    )
+  `)
+
+  await ensureIndex('appointments', 'idx_appointments_doctor_date_time_status', 'doctor_id, appointment_date, appointment_time, status').catch(() => {})
+  await ensureIndex('appointments', 'idx_appointments_patient_doctor_status', 'patient_id, doctor_id, status').catch(() => {})
+  await ensureIndex('consultations', 'idx_consultations_doctor_patient', 'doctor_id, patient_id, status').catch(() => {})
+  await ensureIndex('inventory_batches', 'idx_inventory_batches_item_expiry', 'inventory_id, expiration_date, quantity').catch(() => {})
+  await ensureIndex('audit_logs', 'idx_audit_action_created', 'action, created_at').catch(() => {})
 }
 
 module.exports = {

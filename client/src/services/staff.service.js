@@ -117,6 +117,9 @@ export const finalizeBill = (id) =>
 
 export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
+export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
+export const requestBillingAdjustment = (id, payload) => requestJson(`${BASE}/billing/${id}/adjustment-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
 export const closeCashierShift = (payload) => requestJson(`${BASE}/billing/cashier-close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
 export const confirmBillPayment = (id, payload) =>

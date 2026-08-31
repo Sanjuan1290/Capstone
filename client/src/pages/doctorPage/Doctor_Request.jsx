@@ -16,7 +16,7 @@ import {
   MdSchedule,
   MdWarningAmber,
 } from 'react-icons/md'
-import { getInventoryItems, getMyRequests, submitRequest } from '../../services/doctor.service'
+import { getInventoryItems, getInventoryLocations, getMyRequests, submitRequest } from '../../services/doctor.service'
 import { useAuth } from '../../context/AuthContext'
 
 const STATUS_CFG = {
@@ -65,12 +65,13 @@ const formatStock = (item) => {
   return Number.isFinite(amount) ? amount : 0
 }
 
-const NewRequestModal = ({ inventoryItems, defaultDestination, onClose, onSubmit, submitting }) => {
+const NewRequestModal = ({ inventoryItems, locations, defaultDestination, onClose, onSubmit, submitting }) => {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   const [qty, setQty] = useState(1)
   const [reason, setReason] = useState('')
-  const [destinationLocation, setDestinationLocation] = useState(defaultDestination || 'General Medicine Room')
+  const defaultLocation = locations.find((location) => location.name === defaultDestination) || locations[0] || null
+  const [destinationLocationId, setDestinationLocationId] = useState(defaultLocation?.id || '')
 
   const filtered = useMemo(() => inventoryItems.filter((item) => {
     const needle = search.trim().toLowerCase()
@@ -91,7 +92,7 @@ const NewRequestModal = ({ inventoryItems, defaultDestination, onClose, onSubmit
       inventory_id: selected.id,
       qty_requested: qty,
       reason: reason.trim(),
-      destination_location: destinationLocation,
+      destination_location_id: Number(destinationLocationId),
     })
     onClose()
   }
@@ -226,10 +227,8 @@ const NewRequestModal = ({ inventoryItems, defaultDestination, onClose, onSubmit
 
                   <label className="block">
                     <span className="mb-2 block text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Destination</span>
-                    <select value={destinationLocation} onChange={(e) => setDestinationLocation(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-400">
-                      <option value="General Medicine Room">General Medicine Room</option>
-                      <option value="Dermatology Room">Dermatology Room</option>
-                      <option value="Dispensing Area">Dispensing Area</option>
+                    <select value={destinationLocationId} onChange={(e) => setDestinationLocationId(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-400">
+                      {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
                     </select>
                     <p className="mt-1 text-[11px] text-slate-400">Staff/Admin will choose the actual source batches automatically by earliest expiry.</p>
                   </label>
@@ -334,6 +333,7 @@ const Doctor_Request = () => {
   const { user } = useAuth()
   const [inventoryItems, setInventoryItems] = useState([])
   const [requests, setRequests] = useState([])
+  const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [showModal, setShowModal] = useState(false)
@@ -344,9 +344,10 @@ const Doctor_Request = () => {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [items, requestRows] = await Promise.all([getInventoryItems(), getMyRequests()])
+      const [items, requestRows, locationRows] = await Promise.all([getInventoryItems(), getMyRequests(), getInventoryLocations()])
       setInventoryItems(Array.isArray(items) ? items : [])
       setRequests(Array.isArray(requestRows) ? requestRows : [])
+      setLocations(Array.isArray(locationRows) ? locationRows : [])
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Failed to load supply requests.' })
     } finally {
@@ -524,6 +525,7 @@ const Doctor_Request = () => {
       {showModal && (
         <NewRequestModal
           inventoryItems={inventoryItems}
+          locations={locations}
           defaultDestination={String(user?.specialty || '').toLowerCase().includes('derm') ? 'Dermatology Room' : 'General Medicine Room'}
           onClose={() => setShowModal(false)}
           onSubmit={handleSubmit}

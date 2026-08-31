@@ -5,6 +5,7 @@ import Pagination from '../../components/ui/Pagination'
 import { useToast } from '../../components/ui/ToastProvider'
 import {
   getBills, getBillById, getBillingReconciliation, voidBillingPayment, refundBillingPayment,
+  getBillingAdjustmentRequests, resolveBillingAdjustmentRequest,
 } from '../../services/admin.service'
 import { getLocalDateOnly, formatDateOnly } from '../../utils/date'
 
@@ -26,6 +27,8 @@ const Admin_Billing = () => {
   const [reconciliation, setReconciliation] = useState(null)
   const [reconDate, setReconDate] = useState(getLocalDateOnly())
   const [busy, setBusy] = useState(false)
+  const [adjustments, setAdjustments] = useState([])
+  const [adjustmentLoading, setAdjustmentLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -34,12 +37,23 @@ const Admin_Billing = () => {
     finally { setLoading(false) }
   }, [page, search, status, toast])
 
-  useEffect(() => { load() }, [load])
+  const loadAdjustments = useCallback(async () => {
+    setAdjustmentLoading(true)
+    try {
+      const rows = await getBillingAdjustmentRequests({ status: 'pending' })
+      setAdjustments(Array.isArray(rows) ? rows : [])
+    } catch (error) {
+      setAdjustments([])
+      toast.error(error.message || 'Could not load billing approval requests.')
+    } finally { setAdjustmentLoading(false) }
+  }, [toast])
+
+  useEffect(() => { load(); loadAdjustments() }, [load, loadAdjustments])
   useEffect(() => {
-    const refresh = () => load()
+    const refresh = () => { load(); loadAdjustments() }
     window.addEventListener('clinic:refresh', refresh)
     return () => window.removeEventListener('clinic:refresh', refresh)
-  }, [load])
+  }, [load, loadAdjustments])
 
   const openBill = async (id) => {
     try { setSelected(await getBillById(id)) }
@@ -61,6 +75,18 @@ const Admin_Billing = () => {
       toast.success(action === 'void' ? 'Payment voided.' : 'Payment refunded.')
       await load()
     } catch (error) { toast.error(error.message || 'Action failed.') }
+    finally { setBusy(false) }
+  }
+
+  const resolveAdjustment = async (request, nextStatus) => {
+    const note = window.prompt(`${nextStatus === 'approved' ? 'Approval' : 'Rejection'} note (optional):`)
+    if (note === null) return
+    setBusy(true)
+    try {
+      await resolveBillingAdjustmentRequest(request.id, { status: nextStatus, admin_note: note.trim() || null })
+      toast.success(`Billing request ${nextStatus}.`)
+      await Promise.all([loadAdjustments(), load()])
+    } catch (error) { toast.error(error.message || 'Could not resolve billing approval request.') }
     finally { setBusy(false) }
   }
 
@@ -98,6 +124,47 @@ const Admin_Billing = () => {
           </table>
         </div>
         <div className="mt-4"><Pagination page={data.pagination?.page || page} totalPages={data.pagination?.totalPages || 1} onPageChange={setPage} /></div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Pending Billing Approvals</h2>
+            <p className="text-sm text-slate-500">Review Staff requests for protected discounts and clinic-service Patient Price overrides.</p>
+          </div>
+          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">{adjustments.length} pending</span>
+        </div>
+        <div className="mt-4 space-y-3">
+          {adjustmentLoading ? (
+            <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">Loading approval requests…</p>
+          ) : adjustments.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-400">No billing approval requests are waiting.</p>
+          ) : adjustments.map((request) => (
+            <div key={request.id} className="rounded-2xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-violet-700">{String(request.request_type || '').replace('_', ' ')}</span>
+                    <span className="text-xs text-slate-400">Bill #{request.billing_id}</span>
+                  </div>
+                  <p className="mt-2 font-bold text-slate-900">{request.patient_name || 'Patient'}</p>
+                  <p className="text-xs text-slate-500">Requested by {request.staff_name || 'Staff'} · {new Date(request.created_at).toLocaleString('en-PH')}</p>
+                  <p className="mt-2 text-sm text-slate-700">
+                    {request.request_type === 'discount'
+                      ? `${request.discount_label || 'Discount'} · Requested ${peso(request.requested_amount)}`
+                      : `${request.service_name || 'Clinic Service'} · Requested Patient Price ${peso(request.requested_price)}`}
+                  </p>
+                  {request.reference_text && <p className="mt-1 text-xs text-slate-500"><strong>Reference:</strong> {request.reference_text}</p>}
+                  <p className="mt-1 text-xs text-slate-500"><strong>Reason:</strong> {request.reason || '—'}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button disabled={busy} className="button-secondary" onClick={() => resolveAdjustment(request, 'rejected')}>Reject</button>
+                  <button disabled={busy} className="button-primary" onClick={() => resolveAdjustment(request, 'approved')}>Approve</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">

@@ -35,6 +35,15 @@ export const getDoctors = async () => {
   return res.json()
 }
 
+export const getDoctorsAvailability = async ({ clinicType = '', startDate = '', days = 7 } = {}) => {
+  const params = new URLSearchParams()
+  if (clinicType) params.set('clinic_type', clinicType)
+  if (startDate) params.set('start_date', startDate)
+  params.set('days', String(days))
+  const res = await fetch(`${BASE}/doctors/availability?${params.toString()}`, { credentials: 'include' })
+  return parseJson(res)
+}
+
 export const getDoctorSchedule = async (doctorId) => {
   const res = await fetch(`${BASE}/doctors/${doctorId}/schedule`, { credentials: 'include' })
   if (!res.ok) throw new Error('Failed to fetch schedule')

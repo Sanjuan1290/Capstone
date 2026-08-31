@@ -1,16 +1,13 @@
 const db = require('../db/connect')
 const { sendAppointmentReminder } = require('./emailService')
 const { markOverdueAppointments } = require('./appointments')
-const { getTodayDateOnly } = require('./date')
+const { getTodayDateOnly, addDaysDateOnly, getNextClinicRunAt, CLINIC_TIMEZONE } = require('./date')
 
 async function sendTomorrowReminders() {
-  console.log('[Reminder] Running appointment reminder job...')
+  console.log(`[Reminder] Running appointment reminder job (${CLINIC_TIMEZONE})...`)
   try {
     await markOverdueAppointments()
-
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    const tomorrowStr = getTodayDateOnly(tomorrow)
+    const tomorrowStr = addDaysDateOnly(getTodayDateOnly(), 1)
 
     const [appointments] = await db.query(
       `SELECT a.id, a.appointment_date, a.appointment_time, a.clinic_type,
@@ -20,11 +17,12 @@ async function sendTomorrowReminders() {
        JOIN patients p ON a.patient_id = p.id
        JOIN doctors d ON a.doctor_id = d.id
        WHERE a.appointment_date = ?
-         AND a.status IN ('pending', 'confirmed')`,
+         AND a.status = 'confirmed'`,
       [tomorrowStr]
     )
 
     for (const appt of appointments) {
+      if (!appt.patient_email) continue
       try {
         await sendAppointmentReminder({
           to: appt.patient_email,
@@ -43,18 +41,16 @@ async function sendTomorrowReminders() {
   }
 }
 
-function scheduleDaily(fn) {
-  const now = new Date()
-  const next = new Date()
-  next.setHours(8, 0, 0, 0)
-  if (next <= now) next.setDate(next.getDate() + 1)
-
-  const delay = next - now
-
-  setTimeout(() => {
-    fn()
-    setInterval(fn, 24 * 60 * 60 * 1000)
-  }, delay)
+function scheduleDaily(fn, hour = 8, minute = 0) {
+  const scheduleNext = () => {
+    const now = new Date()
+    const next = getNextClinicRunAt(hour, minute, now)
+    const delay = Math.max(1000, next.getTime() - now.getTime())
+    setTimeout(async () => {
+      try { await fn() } finally { scheduleNext() }
+    }, delay)
+  }
+  scheduleNext()
 }
 
 scheduleDaily(sendTomorrowReminders)
@@ -62,6 +58,4 @@ setInterval(() => {
   markOverdueAppointments().catch(err => console.error('[Appointments] Overdue sync error:', err.message))
 }, 15 * 60 * 1000)
 
-module.exports = { sendTomorrowReminders }
-
-
+module.exports = { sendTomorrowReminders, scheduleDaily }

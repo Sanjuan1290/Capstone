@@ -8,15 +8,17 @@ import { useTheme } from "../../context/ThemeContext"
 import logo from "../../assets/logo-removebg.png"
 import NotificationBell from "../NotificationBell"
 import ProfileAvatar from "../ProfileAvatar"
+import PatientOnboardingTour from "../PatientOnboardingTour"
 import { useSSE } from "../../hooks/useSSE"
 import {
   MdDashboard, MdCalendarToday, MdEventAvailable, MdHistory,
   MdChevronLeft, MdLogout, MdPerson, MdMenu, MdClose,
-  MdSettings, MdDarkMode, MdLightMode,
+  MdSettings, MdDarkMode, MdLightMode, MdMedicalServices,
 } from "react-icons/md"
 
 const sideNav = [
   { name: "Dashboard",        path: "/patient",              icon: MdDashboard      },
+  { name: "Doctor Availability", path: "/patient/doctors",      icon: MdMedicalServices },
   { name: "Book Appointment", path: "/patient/book",         icon: MdCalendarToday  },
   { name: "My Appointments",  path: "/patient/appointments", icon: MdEventAvailable },
   { name: "History",          path: "/patient/history",      icon: MdHistory        },
@@ -87,7 +89,9 @@ const PatientLayout = () => {
   )
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <>
+      <PatientOnboardingTour />
+      <div className="flex h-screen bg-slate-50 overflow-hidden">
 
       {/* ── Mobile overlay ──────────────────────────────────────────────────── */}
       {mobileOpen && (
@@ -255,6 +259,7 @@ const PatientLayout = () => {
         </nav>
       </div>
     </div>
+      </>
   )
 }
 

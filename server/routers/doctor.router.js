@@ -3,12 +3,14 @@ const express     = require('express')
 const router      = express.Router()
 const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
+const requirePasswordChangeCompleted = require('../middlewares/passwordChange.middleware')
+const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimit.middleware')
 const {
   login, checkAuth, logout,
   getDashboard, getDailyAppointments, startConsultation,
-  saveConsultation, getConsultation, updateConsultation,
-  getPatientHistory, getBillingCatalog,
-  getInventoryItems, getMyRequests, submitRequest,
+  saveConsultation, getConsultation, updateConsultation, addConsultationAmendment,
+  getPatientHistory, getBillingCatalog, getClinicalUploadSignature,
+  getInventoryItems, getMyRequests, getRequestLocations, submitRequest,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
@@ -16,12 +18,16 @@ const {
 const commonCtrl = require('../controllers/common.controller')
 
 // ── Public ────────────────────────────────────────────────────────────────────
-router.post('/login',     login)
+router.post('/login',     loginLimiter, login)
 router.get('/check-auth', checkAuth)
 router.post('/logout',    logout)
 
 // ── Protected ─────────────────────────────────────────────────────────────────
 router.use(verifyToken('doctor_token'), requireRole('doctor'))
+router.post('/security/password/required', commonCtrl.completeRequiredPasswordChange)
+router.use(requirePasswordChangeCompleted)
+router.post('/security/password/request-code', otpRequestLimiter, commonCtrl.requestMyPasswordCode)
+router.post('/security/password/change', otpVerifyLimiter, commonCtrl.changeMyPassword)
 
 router.get('/notifications',                commonCtrl.listNotifications)
 router.patch('/notifications/read-all',     commonCtrl.readAllNotifications)
@@ -36,11 +42,14 @@ router.patch('/appointments/:id/start',      startConsultation)
 router.post('/consultations/:appointmentId',   saveConsultation)
 router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
+router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
 router.get('/billing/catalog',                 getBillingCatalog)
+router.post('/uploads/clinical/signature',          getClinicalUploadSignature)
 
 router.get('/patients/:id/history',          getPatientHistory)
 router.get('/inventory',                     getInventoryItems)
 router.get('/requests',                      getMyRequests)
+router.get('/inventory/locations',            getRequestLocations)
 router.post('/requests',                     submitRequest)
 
 // ── Doctor Queue Control ───────────────────────────────────────────────────────
