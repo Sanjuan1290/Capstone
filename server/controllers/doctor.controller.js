@@ -16,12 +16,21 @@ const {
   getDoctorUnavailableDate,
   countActiveAppointmentsOnDate,
 } = require('../utils/doctorAvailability')
-const { loadImagesForConsultationIds, syncConsultationImages } = require('../utils/consultationImages')
+const { loadImagesForConsultationIds, authorizeConsultationImages, syncConsultationImages } = require('../utils/consultationImages')
 const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
 const { consumeInventoryFromLocationFEFO, getInventoryLocationById } = require('../utils/inventoryBatches')
 const { writeAuditLog } = require('../utils/audit')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
-const { createClinicalUploadSignature } = require('../utils/cloudinarySecurity')
+const {
+  createClinicalUploadSignature,
+  getPerceptionPointScanStatus,
+  cloudinaryUploadBuffer,
+  issueScanPendingToken,
+  issueBypassAuthorizationToken,
+  issueAcceptedUploadToken,
+  verifyUploadSecurityToken,
+  hashUploadBuffer,
+} = require('../utils/cloudinarySecurity')
 const { loadConsultationAmendments, assertConsultationEditable } = require('../utils/consultationIntegrity')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -203,6 +212,52 @@ const getDashboard = async (req, res) => {
 
 // ── Appointments ──────────────────────────────────────────────────────────────
 
+const getAppointments = async (req, res) => {
+  await markOverdueAppointments()
+  const today = getTodayDateOnly()
+  const scope = String(req.query.scope || 'today').trim().toLowerCase()
+  const requestedDate = String(req.query.date || '').trim()
+
+  let dateClause = 'a.appointment_date = ?'
+  let dateParams = [requestedDate || today]
+  let statuses = ['confirmed', 'in-progress', 'completed', 'rescheduled']
+
+  if (scope === 'upcoming') {
+    dateClause = 'a.appointment_date > ?'
+    dateParams = [today]
+    statuses = ['pending', 'confirmed', 'rescheduled']
+  } else if (scope !== 'today' && scope !== 'date') {
+    return res.status(400).json({ message: 'Unsupported appointment scope.' })
+  }
+
+  if ((scope === 'date' || requestedDate) && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+    return res.status(400).json({ message: 'A valid appointment date is required.' })
+  }
+
+  const placeholders = statuses.map(() => '?').join(',')
+  const [rows] = await db.query(
+    `SELECT a.*, a.appointment_time AS time, a.clinic_type AS type,
+            DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+            p.full_name AS patient_name, p.full_name AS patient,
+            p.birthdate, p.sex AS patient_sex, p.phone AS patient_phone,
+            TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age
+     FROM appointments a
+     JOIN patients p ON a.patient_id = p.id
+     WHERE a.doctor_id = ?
+       AND ${dateClause}
+       AND a.status IN (${placeholders})
+     ORDER BY a.appointment_date ASC, STR_TO_DATE(a.appointment_time, '%h:%i %p') ASC
+     LIMIT 100`,
+    [req.user.id, ...dateParams, ...statuses]
+  )
+
+  const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
+  res.json(rows.map((row) => ({
+    ...row,
+    progress_images: imagesByConsultationId[row.consultation_id] || [],
+  })))
+}
+
 const getDailyAppointments = async (req, res) => {
   await markOverdueAppointments()
   const date = req.query.date || getTodayDateOnly()
@@ -226,10 +281,15 @@ const getDailyAppointments = async (req, res) => {
 
 const startConsultation = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT id, status FROM appointments WHERE id = ? AND doctor_id = ?',
+    `SELECT id, status, DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointment_date
+     FROM appointments
+     WHERE id = ? AND doctor_id = ?`,
     [req.params.id, req.user.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  if (String(rows[0].appointment_date || '').slice(0, 10) !== getTodayDateOnly()) {
+    return res.status(409).json({ code: 'APPOINTMENT_NOT_TODAY', message: 'Consultations can only be started on the appointment date.' })
+  }
   assertAppointmentTransition(rows[0].status, 'in-progress')
   await db.query("UPDATE appointments SET status = 'in-progress' WHERE id = ?", [req.params.id])
   const [queueRows] = await db.query(
@@ -303,7 +363,8 @@ const saveConsultation = async (req, res) => {
     }
 
     if (hasImagesPayload) {
-      await syncConsultationImages(consultationId, images, conn)
+      const authorizedImages = await authorizeConsultationImages({ consultationId, appointmentId, doctorId: req.user.id, images, executor: conn })
+      await syncConsultationImages(consultationId, authorizedImages, conn)
     }
     billing = await upsertDraftBillingForAppointment({
       appointment: appt,
@@ -431,7 +492,8 @@ const updateConsultation = async (req, res) => {
       [diagnosis || null, prescription || null, notes || null, consultation.id]
     )
     if (hasImagesPayload) {
-      await syncConsultationImages(consultation.id, req.body.images, conn)
+      const authorizedImages = await authorizeConsultationImages({ consultationId: consultation.id, appointmentId, doctorId: req.user.id, images: req.body.images, executor: conn })
+      await syncConsultationImages(consultation.id, authorizedImages, conn)
     }
 
     const [apptRows] = await conn.query(
@@ -556,15 +618,176 @@ const getPatientHistory = async (req, res) => {
   res.json(rows.map((row) => ({ ...row, progress_images: imagesByConsultationId[row.consultation_id] || [], amendments: amendmentsByConsultationId[row.consultation_id] || [] })))
 }
 
-const getClinicalUploadSignature = async (req, res) => {
-  const appointmentId = Number(req.body?.appointment_id)
-  if (!appointmentId) return res.status(400).json({ message: 'A valid appointment is required.' })
+const assertClinicalUploadAppointment = async (appointmentId, doctorId) => {
   const [rows] = await db.query(
     `SELECT id FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1`,
-    [appointmentId, req.user.id]
+    [appointmentId, doctorId]
   )
-  if (!rows.length) return res.status(403).json({ message: 'You are not authorized to upload images for this appointment.' })
-  res.json(createClinicalUploadSignature({ doctorId: req.user.id, appointmentId }))
+  return rows.length > 0
+}
+
+const uploadClinicalImage = async (req, res) => {
+  const appointmentId = Number(req.query?.appointment_id)
+  const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
+  if (!appointmentId) return res.status(400).json({ message: 'A valid appointment is required.' })
+  if (!await assertClinicalUploadAppointment(appointmentId, req.user.id)) {
+    return res.status(403).json({ message: 'You are not authorized to upload images for this appointment.' })
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    return res.status(400).json({ message: 'Select a clinical image to upload.' })
+  }
+  const fileHash = hashUploadBuffer(req.body)
+
+  let bypassReason = null
+  if (scanMode === 'bypass') {
+    try {
+      const bypass = verifyUploadSecurityToken(String(req.query?.bypass_token || ''), {
+        stage: 'bypass_authorized',
+        role: 'doctor',
+        user_id: req.user.id,
+        context_type: 'clinical',
+        context_id: appointmentId,
+      })
+      if (!bypass.file_sha256 || bypass.file_sha256 !== fileHash) {
+        return res.status(403).json({ message: 'The scanner-bypass authorization is for a different image. Retry the security scan for this file.' })
+      }
+      bypassReason = bypass.reason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+    } catch (error) {
+      return res.status(error.statusCode || 403).json({ message: error.message || 'A valid scanner-unavailable authorization is required before bypassing the malware scan.' })
+    }
+  }
+
+  let uploaded
+  try {
+    const signed = createClinicalUploadSignature({ doctorId: req.user.id, appointmentId, scanMode })
+    uploaded = await cloudinaryUploadBuffer({
+      buffer: req.body,
+      mimeType: req.get('content-type'),
+      fileName: req.get('x-file-name') || 'clinical-image',
+      signed,
+    })
+  } catch (error) {
+    if (scanMode === 'scan' && error.scannerUnavailable) {
+      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+      return res.json({
+        status: 'unavailable',
+        reason,
+        message: reason === 'usage_limit_reached'
+          ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
+          : 'The malware scanner is currently unavailable. Only continue if this clinical image comes from a trusted source.',
+        bypass_token: issueBypassAuthorizationToken({ role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId, reason, fileHash }),
+      })
+    }
+    return res.status(error.statusCode || 502).json({ message: error.message || 'Clinical image upload failed.' })
+  }
+
+  if (scanMode === 'bypass') {
+    const securityToken = issueAcceptedUploadToken({
+      role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId,
+      status: 'bypassed', assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id,
+    })
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'doctor',
+      action: 'security.clinical_upload_scan_bypassed',
+      entityType: 'appointment',
+      entityId: appointmentId,
+      newValues: { scan_status: 'bypassed', reason: bypassReason, asset_id: uploaded.asset_id },
+      ipAddress: req.ip || null,
+    }).catch(() => {})
+    return res.json({
+      status: 'bypassed',
+      scan_status: 'bypassed',
+      url: uploaded.secure_url,
+      asset_id: uploaded.asset_id,
+      public_id: uploaded.public_id,
+      security_token: securityToken,
+    })
+  }
+
+  return res.json({
+    status: 'pending',
+    url: uploaded.secure_url,
+    asset_id: uploaded.asset_id,
+    public_id: uploaded.public_id,
+    scan_token: issueScanPendingToken({
+      role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId,
+      assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id, fileHash,
+    }),
+  })
+}
+
+const getClinicalUploadScanStatus = async (req, res) => {
+  const appointmentId = Number(req.body?.appointment_id)
+  const assetId = String(req.body?.asset_id || '').trim()
+  const scanToken = String(req.body?.scan_token || '').trim()
+  if (!appointmentId || !assetId || !scanToken) {
+    return res.status(400).json({ message: 'Appointment, Cloudinary asset ID, and scan verification are required.' })
+  }
+  if (!await assertClinicalUploadAppointment(appointmentId, req.user.id)) {
+    return res.status(403).json({ message: 'You are not authorized to check this clinical image.' })
+  }
+
+  let pending
+  try {
+    pending = verifyUploadSecurityToken(scanToken, {
+      stage: 'scan_pending',
+      role: 'doctor',
+      user_id: req.user.id,
+      context_type: 'clinical',
+      context_id: appointmentId,
+      asset_id: assetId,
+    })
+  } catch (error) {
+    return res.status(error.statusCode || 403).json({ message: error.message || 'The scan verification is invalid.' })
+  }
+
+  const unavailable = (reason, message) => res.json({
+    status: 'unavailable',
+    reason,
+    message,
+    bypass_token: issueBypassAuthorizationToken({ role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId, reason, fileHash: pending.file_sha256 }),
+  })
+
+  try {
+    const result = await getPerceptionPointScanStatus(assetId)
+    if (result.secure_url && pending.url && result.secure_url !== pending.url) {
+      return res.status(409).json({ message: 'The scanned Cloudinary asset does not match this upload.' })
+    }
+    if (result.status === 'approved') {
+      return res.json({
+        ...result,
+        security_token: issueAcceptedUploadToken({
+          role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId,
+          status: 'approved', assetId, url: result.secure_url || pending.url, publicId: result.public_id || pending.public_id,
+        }),
+      })
+    }
+    if (result.status === 'rejected') {
+      await writeAuditLog({
+        userId: req.user.id,
+        userRole: 'doctor',
+        action: 'security.clinical_upload_blocked',
+        entityType: 'appointment',
+        entityId: appointmentId,
+        newValues: { scan_status: 'rejected', provider: 'perception_point', asset_id: assetId },
+        ipAddress: req.ip || null,
+      }).catch(() => {})
+      return res.json(result)
+    }
+    if (result.status === 'unavailable') {
+      return unavailable('scanner_unavailable', result.message || 'The malware scanner did not return a usable status.')
+    }
+    return res.json(result)
+  } catch (error) {
+    if (error.scannerUnavailable) {
+      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+      return unavailable(reason, reason === 'usage_limit_reached'
+        ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
+        : 'The malware scanner status is currently unavailable. Only continue if this clinical image comes from a trusted source.')
+    }
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Could not check the security scan.' })
+  }
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
@@ -825,9 +1048,9 @@ const deleteMyUnavailableDate = async (req, res) => {
 
 module.exports = {
   login, checkAuth, logout,
-  getDashboard, getDailyAppointments, startConsultation,
+  getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultation, getConsultation, updateConsultation, addConsultationAmendment,
-  getPatientHistory, getBillingCatalog, getClinicalUploadSignature,
+  getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
   getInventoryItems, getMyRequests, getRequestLocations, submitRequest,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,

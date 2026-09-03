@@ -66,9 +66,7 @@ const computeMaterialPreview = (materials, inventoryMap) => (
     const unitSize = Math.max(1, Number(inventoryItem?.unit_size) || 1)
     const usageUnit = String(material.unit_label || '').toLowerCase()
     const baseUnit = String(inventoryItem?.base_unit || '').toLowerCase()
-    const unitCost = material.unit_cost_override !== '' && material.unit_cost_override !== null && material.unit_cost_override !== undefined
-      ? Number(material.unit_cost_override) || 0
-      : (usageUnit && baseUnit && usageUnit === baseUnit ? packageCost / unitSize : packageCost)
+    const unitCost = usageUnit && baseUnit && usageUnit === baseUnit ? packageCost / unitSize : packageCost
     return sum + roundMoney((Number(material.quantity) || 0) * unitCost)
   }, 0))
 )
@@ -87,7 +85,7 @@ const serviceToForm = (service) => ({
       material_name: material.material_name || material.inventory_name || '',
       quantity: Number(material.quantity) || 1,
       unit_label: material.unit_label || material.inventory_unit || '',
-      unit_cost_override: material.unit_cost_override ?? '',
+      unit_cost_override: '',
       notes: material.notes || '',
     }))
     : [],
@@ -114,13 +112,15 @@ const Admin_BillingCatalog = () => {
   const catalogQuery = useQuery({
     queryKey: catalogQueryKey,
     queryFn: () => getBillingCatalog({ includeInactive: true }),
-    staleTime: 2 * 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   })
 
   const inventoryQuery = useQuery({
     queryKey: inventoryQueryKey,
     queryFn: getInventory,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   })
 
   const services = Array.isArray(catalogQuery.data) ? catalogQuery.data : []
@@ -205,6 +205,7 @@ const Admin_BillingCatalog = () => {
               inventory_id: inventoryId || '',
               material_name: inventoryItem?.name || material.material_name,
               unit_label: inventoryItem?.base_unit || inventoryItem?.unit || material.unit_label,
+              unit_cost_override: '',
             }
           : material
       )),
@@ -276,7 +277,6 @@ const Admin_BillingCatalog = () => {
       payload.materials.forEach((material, index) => {
         if (!material.inventory_id && !material.material_name) errors[`material_name_${index}`] = 'Select an inventory item.'
         if (!(material.quantity > 0)) errors[`material_quantity_${index}`] = 'Quantity must be greater than zero.'
-        if (material.unit_cost_override !== null && material.unit_cost_override < 0) errors[`material_cost_${index}`] = 'Cost cannot be negative.'
       })
     }
     if (step === 3 || step === 4) {
@@ -300,7 +300,7 @@ const Admin_BillingCatalog = () => {
         material_name: String(material.material_name || '').trim(),
         quantity: Number(material.quantity),
         unit_label: String(material.unit_label || '').trim(),
-        unit_cost_override: material.unit_cost_override === '' ? null : Number(material.unit_cost_override),
+        unit_cost_override: null,
         notes: String(material.notes || '').trim(),
         sort_order: index,
       }))
@@ -460,7 +460,7 @@ const Admin_BillingCatalog = () => {
                       </div>
                       <div>
                         <p className="text-[10px] font-bold uppercase text-slate-400">Consumables</p>
-                        <p className="text-xs font-black text-slate-700">{formatMoney(service.materials_cost)}</p>
+                        <p className="text-xs font-black text-slate-700">{formatMoney(computeMaterialPreview(service.materials, inventoryMap))}</p>
                       </div>
                       <div>
                         <p className="text-[10px] font-bold uppercase text-slate-400">Markup</p>
@@ -517,7 +517,7 @@ const Admin_BillingCatalog = () => {
             </div>
 
             <div className="border-b border-slate-100 px-6 py-4">
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
                   [1, 'Details'], [2, 'Consumables'], [3, 'Pricing'], [4, 'Review'],
                 ].map(([step, label]) => (
@@ -598,11 +598,7 @@ const Admin_BillingCatalog = () => {
                                 <label className="form-label">Notes</label>
                                 <input value={material.notes} onChange={(e) => updateMaterial(index, 'notes', e.target.value)} placeholder="Optional usage note" className="form-control mt-1.5" />
                               </div>
-                              {inventoryItem && <div className="sm:col-span-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">{inventoryItem.unit_size || 1} {baseUnit} per {inventoryItem.unit}. Package cost {formatMoney(packageCost)}; estimated base-unit cost {formatMoney(packageCost / unitSize)}.</div>}
-                              <details className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                                <summary className="cursor-pointer text-xs font-bold text-slate-600">Advanced cost override</summary>
-                                <div className="mt-3"><label className="form-label">Cost per {material.unit_label || baseUnit}</label><input type="number" min="0" step="0.01" value={material.unit_cost_override} onChange={(e) => updateMaterial(index, 'unit_cost_override', e.target.value)} placeholder="Leave blank to use inventory cost" className="form-control mt-1.5" /></div>
-                              </details>
+                              {inventoryItem && <div className="sm:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs text-emerald-800"><p className="font-bold">Live Inventory Cost</p><p className="mt-1">{inventoryItem.unit_size || 1} {baseUnit} per {inventoryItem.unit}. Current package cost {formatMoney(packageCost)}; current base-unit cost {formatMoney(packageCost / unitSize)}. If the Inventory cost changes, this consumable cost updates automatically.</p></div>}
                             </div>
                           </div>
                         )
@@ -629,7 +625,7 @@ const Admin_BillingCatalog = () => {
                   <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
                     <label className="text-sm font-bold text-amber-900">Patient Price *</label>
                     <input type="number" min="0" step="0.01" value={form.default_price} onChange={(e) => { setFormErrors((c) => ({ ...c, default_price: '' })); setForm((c) => ({ ...c, default_price: e.target.value })) }} className="form-control mt-2 bg-white text-lg font-black" />
-                    <p className="mt-2 text-sm text-amber-800">This is the standard clinic price Staff will bill. Inventory cost changes will not automatically change it.</p>
+                    <p className="mt-2 text-sm text-amber-800">Consumable costs use the latest Inventory cost. This Patient Price is the standard amount Staff will bill and stays fixed until you manually change it.</p>
                     {formErrors.default_price && <p className="form-error">{formErrors.default_price}</p>}
                   </div>
                 </div>
@@ -645,11 +641,11 @@ const Admin_BillingCatalog = () => {
               )}
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-5">
+            <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
               <div>{editingId && modalStep === 4 && <button onClick={() => handleDelete(editingId)} disabled={deletingId === editingId} className="button-danger"><MdDelete /> Remove Service</button>}</div>
-              <div className="flex gap-2">
-                {modalStep > 1 && <button onClick={() => goToStep(modalStep - 1)} disabled={saving} className="button-secondary">Back</button>}
-                {modalStep < 4 ? <button onClick={() => goToStep(modalStep + 1)} className="button-primary">Next</button> : <button onClick={handleSubmit} disabled={saving} className="button-primary">{saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Service'}</button>}
+              <div className="flex w-full gap-2 sm:w-auto">
+                {modalStep > 1 && <button onClick={() => goToStep(modalStep - 1)} disabled={saving} className="button-secondary flex-1 sm:flex-none">Back</button>}
+                {modalStep < 4 ? <button onClick={() => goToStep(modalStep + 1)} className="button-primary flex-1 sm:flex-none">Next</button> : <button onClick={handleSubmit} disabled={saving} className="button-primary flex-1 sm:flex-none">{saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Service'}</button>}
               </div>
             </div>
           </div>

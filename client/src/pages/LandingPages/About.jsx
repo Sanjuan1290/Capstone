@@ -1,6 +1,6 @@
 const About = () => {
   return (
-    <section id="about" className="py-24 px-10 bg-white scroll-mt-24">
+    <section id="about" className="px-4 py-16 bg-white scroll-mt-24 sm:px-6 sm:py-20 lg:px-10 lg:py-24">
 
       {/* CLINIC INFO */}
       <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-14 items-center">
@@ -23,7 +23,7 @@ const About = () => {
         {/* TEXT CONTENT */}
         <div className="flex flex-col gap-6">
 
-          <h2 className="text-4xl font-bold text-gray-800">
+          <h2 className="text-3xl sm:text-4xl font-bold text-gray-800">
             ABOUT OUR CLINIC
           </h2>
           
@@ -78,11 +78,11 @@ const About = () => {
       {/* TESTIMONIAL SECTION */}
       <div className="mt-24 max-w-7xl mx-auto">
 
-        <div className="grid md:grid-cols-2 items-center gap-10 bg-[#E6F4F1] rounded-2xl shadow-lg p-12">
+        <div className="grid md:grid-cols-2 items-center gap-10 bg-[#E6F4F1] rounded-2xl shadow-lg p-6 sm:p-8 lg:p-12">
 
           {/* TEXT */}
           <div className="flex flex-col gap-4">
-            <h2 className="text-4xl font-semibold text-teal-800">
+            <h2 className="text-3xl sm:text-4xl font-semibold text-teal-800">
               WHAT OUR PATIENTS <br /> SAY ABOUT US
             </h2>
             <p className="text-teal-600 font-medium text-lg">Only the Best</p>

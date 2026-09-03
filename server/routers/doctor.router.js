@@ -7,9 +7,9 @@ const requirePasswordChangeCompleted = require('../middlewares/passwordChange.mi
 const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimit.middleware')
 const {
   login, checkAuth, logout,
-  getDashboard, getDailyAppointments, startConsultation,
+  getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultation, getConsultation, updateConsultation, addConsultationAmendment,
-  getPatientHistory, getBillingCatalog, getClinicalUploadSignature,
+  getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
   getInventoryItems, getMyRequests, getRequestLocations, submitRequest,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
@@ -35,6 +35,7 @@ router.patch('/notifications/:id/read',    commonCtrl.readNotification)
 router.get('/settings',                     commonCtrl.getMySettings)
 router.put('/settings',                     commonCtrl.saveMySettings)
 router.get('/dashboard',                     getDashboard)
+router.get('/appointments',                  getAppointments)
 router.get('/appointments/daily',            getDailyAppointments)
 router.patch('/appointments/:id/start',      startConsultation)
 
@@ -44,7 +45,8 @@ router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
 router.get('/billing/catalog',                 getBillingCatalog)
-router.post('/uploads/clinical/signature',          getClinicalUploadSignature)
+router.post('/uploads/clinical', express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '10mb' }), uploadClinicalImage)
+router.post('/uploads/clinical/status',             getClinicalUploadScanStatus)
 
 router.get('/patients/:id/history',          getPatientHistory)
 router.get('/inventory',                     getInventoryItems)

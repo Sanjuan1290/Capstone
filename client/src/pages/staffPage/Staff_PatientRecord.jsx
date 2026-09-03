@@ -413,7 +413,7 @@ const Staff_PatientRecord = () => {
           </div>
           {patients.length > 0 && (
             <div className="border-t border-slate-100 p-3">
-              <Pagination {...patientPagination} total={patients.length} pageSizeOptions={[5, 10, 20]} />
+              <Pagination compact {...patientPagination} total={patients.length} pageSizeOptions={[5, 10, 20]} />
             </div>
           )}
         </div>

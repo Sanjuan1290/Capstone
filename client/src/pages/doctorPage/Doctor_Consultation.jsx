@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { uploadClinicalImageSigned } from '../../services/portal.service'
+import { uploadClinicalImageSigned, getClinicalImageScanStatus } from '../../services/portal.service'
+import Modal from '../../components/ui/Modal'
 import {
   saveConsultation,
   updateConsultation,
@@ -59,6 +60,8 @@ const getMedicineUnit = (medicineName, inventoryItems = []) => (
 const createBlankProgressImage = () => ({
   image_url: '',
   caption: '',
+  security_scan_status: 'legacy',
+  security_token: '',
 })
 
 const normalizeProgressImages = (images = []) => (
@@ -66,6 +69,10 @@ const normalizeProgressImages = (images = []) => (
     ? images.map((image) => ({
       image_url: String(image?.image_url || image?.url || '').trim(),
       caption: String(image?.caption || image?.notes || '').trim(),
+      security_scan_status: ['approved', 'bypassed', 'legacy'].includes(String(image?.security_scan_status || '').toLowerCase())
+        ? String(image.security_scan_status).toLowerCase()
+        : 'legacy',
+      security_token: String(image?.security_token || '').trim(),
     })).filter((image) => image.image_url || image.caption)
     : []
 )
@@ -127,6 +134,9 @@ const ProgressImageGallery = ({ images = [], emptyText = 'No progress images add
               <p className="mt-1 text-sm text-slate-700">
                 {image.caption || 'No caption provided.'}
               </p>
+              <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${image.security_scan_status === 'approved' ? 'bg-emerald-50 text-emerald-700' : image.security_scan_status === 'bypassed' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
+                {image.security_scan_status === 'approved' ? 'Security scan passed' : image.security_scan_status === 'bypassed' ? 'Not malware scanned' : 'Legacy image'}
+              </span>
             </div>
             <MdOpenInNew className="mt-0.5 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" />
           </div>
@@ -162,6 +172,9 @@ const Doctor_Consultation = () => {
   const [billableServices, setBillableServices] = useState([])
   const [clinicSettings, setClinicSettings] = useState(null)
   const [uploadingIndex, setUploadingIndex] = useState(null)
+  const [imageUploadStatus, setImageUploadStatus] = useState({})
+  const [scanBypassPrompt, setScanBypassPrompt] = useState(null)
+  const [pendingScanPrompt, setPendingScanPrompt] = useState(null)
   const [consultationStatus, setConsultationStatus] = useState('draft')
   const [amendments, setAmendments] = useState([])
   const [amendmentReason, setAmendmentReason] = useState('')
@@ -292,25 +305,104 @@ const Doctor_Consultation = () => {
     setProgressImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index))
   }
 
+  const setClinicalUploadStatus = (index, status) => {
+    setImageUploadStatus((current) => ({ ...current, [index]: status }))
+  }
+
+  const applyClinicalUploadResult = (index, file, result) => {
+    updateProgressImage(index, 'image_url', result.url)
+    updateProgressImage(index, 'security_scan_status', result.scan_status)
+    updateProgressImage(index, 'security_token', result.security_token || '')
+    if (!progressImages[index]?.caption) {
+      updateProgressImage(index, 'caption', file.name.replace(/\.[^.]+$/, ''))
+    }
+  }
+
   const handleUploadProgressImage = async (index, file) => {
     if (!file) return
     if (!String(file.type || '').startsWith('image/')) {
-      alert('Select a valid image file.')
+      setClinicalUploadStatus(index, { tone: 'danger', message: 'Select a valid image file.' })
       return
     }
     if (Number(file.size || 0) > 10 * 1024 * 1024) {
-      alert('Clinical images must be 10 MB or smaller.')
+      setClinicalUploadStatus(index, { tone: 'danger', message: 'Clinical images must be 10 MB or smaller.' })
       return
     }
+    setScanBypassPrompt(null)
+    setPendingScanPrompt(null)
     setUploadingIndex(index)
+    setClinicalUploadStatus(index, { tone: 'info', message: 'Preparing image for security scanning…' })
     try {
-      const imageUrl = await uploadClinicalImageSigned(file, appt?.id)
-      updateProgressImage(index, 'image_url', imageUrl)
-      if (!progressImages[index]?.caption) {
-        updateProgressImage(index, 'caption', file.name.replace(/\.[^.]+$/, ''))
+      const result = await uploadClinicalImageSigned(file, appt?.id, {
+        scanMode: 'scan',
+        onStatus: (status) => setClinicalUploadStatus(index, status),
+      })
+      applyClinicalUploadResult(index, file, result)
+    } catch (err) {
+      if (err.code === 'SCAN_UNAVAILABLE' || err.code === 'SCAN_LIMIT_REACHED') {
+        const limitReached = err.code === 'SCAN_LIMIT_REACHED'
+        setClinicalUploadStatus(index, { tone: 'warning', message: limitReached ? 'Security scanner usage limit reached — confirmation required.' : 'Security scanner unavailable — confirmation required.' })
+        setScanBypassPrompt({ index, file, message: err.message, reason: limitReached ? 'usage_limit_reached' : 'scanner_unavailable', bypass_token: err.bypass_token || '' })
+      } else if (err.code === 'SCAN_REJECTED') {
+        setClinicalUploadStatus(index, { tone: 'danger', message: 'Unsafe image detected — upload blocked.' })
+      } else if (err.code === 'SCAN_PENDING') {
+        setClinicalUploadStatus(index, { tone: 'info', message: 'Security scan is taking longer than expected. The image is still quarantined and has not been attached.' })
+        setPendingScanPrompt({ index, file, asset_id: err.asset_id, url: err.url, public_id: err.public_id, scan_token: err.scan_token })
+      } else {
+        setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Failed to upload image.' })
+      }
+    } finally {
+      setUploadingIndex(null)
+    }
+  }
+
+  const checkPendingClinicalScan = async () => {
+    if (!pendingScanPrompt?.asset_id || !Number.isInteger(pendingScanPrompt?.index)) return
+    const { index, file, asset_id: assetId, url, scan_token: scanToken } = pendingScanPrompt
+    setUploadingIndex(index)
+    setClinicalUploadStatus(index, { tone: 'info', message: 'Checking security scan status…' })
+    try {
+      const result = await getClinicalImageScanStatus(appt?.id, assetId, scanToken)
+      if (result.status === 'approved') {
+        applyClinicalUploadResult(index, file, { url: result.secure_url || url, scan_status: 'approved', asset_id: assetId, security_token: result.security_token })
+        setClinicalUploadStatus(index, { tone: 'success', message: 'Security scan passed.' })
+        setPendingScanPrompt(null)
+      } else if (result.status === 'rejected') {
+        setClinicalUploadStatus(index, { tone: 'danger', message: 'Unsafe image detected — upload blocked.' })
+        setPendingScanPrompt(null)
+      } else if (result.status === 'unavailable') {
+        setPendingScanPrompt(null)
+        setScanBypassPrompt({ index, file, message: result.message, reason: result.reason || 'scanner_unavailable', bypass_token: result.bypass_token || '' })
+        setClinicalUploadStatus(index, { tone: 'warning', message: 'Security scanner unavailable — confirmation required.' })
+      } else {
+        setClinicalUploadStatus(index, { tone: 'info', message: 'Security scan is still in progress. The image remains quarantined.' })
       }
     } catch (err) {
-      alert(err.message || 'Failed to upload image.')
+      setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Could not check the security scan.' })
+    } finally {
+      setUploadingIndex(null)
+    }
+  }
+
+  const continueClinicalUploadWithoutScan = async () => {
+    if (!scanBypassPrompt?.file || !Number.isInteger(scanBypassPrompt?.index)) return
+    const { index, file, bypass_token: bypassToken } = scanBypassPrompt
+    if (!bypassToken) {
+      setClinicalUploadStatus(index, { tone: 'danger', message: 'The server did not authorize an unscanned upload. Retry the security scan.' })
+      return
+    }
+    setScanBypassPrompt(null)
+    setUploadingIndex(index)
+    try {
+      const result = await uploadClinicalImageSigned(file, appt?.id, {
+        scanMode: 'bypass',
+        bypassToken,
+        onStatus: (status) => setClinicalUploadStatus(index, status),
+      })
+      applyClinicalUploadResult(index, file, result)
+      setClinicalUploadStatus(index, { tone: 'warning', message: 'Uploaded without malware scanning.' })
+    } catch (err) {
+      setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Failed to upload image.' })
     } finally {
       setUploadingIndex(null)
     }
@@ -413,9 +505,9 @@ const Doctor_Consultation = () => {
       <div className="flex flex-col items-center justify-center h-[60vh] text-center">
         <MdMedicalServices className="text-5xl text-slate-200 mb-4" />
         <h2 className="text-xl font-bold text-slate-800">No Active Consultation</h2>
-        <p className="text-slate-500 mb-6">Please select a patient from your daily appointments.</p>
+        <p className="text-slate-500 mb-6">Please select a patient from your appointments.</p>
         <NavLink
-          to="/doctor/daily-appointments"
+          to="/doctor/appointments"
           className="bg-violet-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-violet-700 transition-colors"
         >
           Go to Appointments
@@ -626,23 +718,36 @@ const Doctor_Consultation = () => {
                           <div className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2.5">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Secure Clinical Upload</p>
                             <p className="mt-1 text-xs text-violet-700">
-                              {image.image_url ? 'Image uploaded and attached to this consultation.' : 'Choose an image file below. Manual external image URLs are not accepted for clinical records.'}
+                              {image.image_url
+                                ? image.security_scan_status === 'approved'
+                                  ? 'Security scan passed. Image is ready to save with this consultation.'
+                                  : image.security_scan_status === 'bypassed'
+                                    ? 'This image was uploaded without malware scanning after an explicit warning.'
+                                    : 'Legacy image. Malware scan status was not recorded when it was uploaded.'
+                                : 'Choose an image file below. The image is scanned for malware before it is attached.'}
                             </p>
                           </div>
 
                           <div>
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Upload Image</label>
-                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">
+                            <label className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 ${uploadingIndex !== null ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}>
                               <MdUpload className="text-[14px]" />
-                              {uploadingIndex === index ? 'Uploading...' : 'Choose File'}
+                              {uploadingIndex === index ? 'Uploading & scanning...' : image.image_url ? 'Replace Image' : 'Choose File'}
                               <input
                                 type="file"
                                 accept="image/*"
                                 className="hidden"
-                                onChange={(e) => handleUploadProgressImage(index, e.target.files?.[0])}
+                                disabled={uploadingIndex !== null}
+                                onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; handleUploadProgressImage(index, file) }}
                               />
                             </label>
                           </div>
+
+                          {imageUploadStatus[index] && (
+                            <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${imageUploadStatus[index].tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : imageUploadStatus[index].tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800' : imageUploadStatus[index].tone === 'danger' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
+                              {imageUploadStatus[index].message}
+                            </div>
+                          )}
 
                           <div>
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Caption</label>
@@ -920,6 +1025,47 @@ const Doctor_Consultation = () => {
           </div>
         )}
       </div>
+
+      <Modal
+        open={Boolean(pendingScanPrompt)}
+        onClose={() => uploadingIndex === null && setPendingScanPrompt(null)}
+        closeDisabled={uploadingIndex !== null}
+        title="Security scan still in progress"
+        description="The image remains quarantined and has not been attached to the clinical record."
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sm text-sky-900">
+            <p className="font-black">Perception Point is still scanning this image</p>
+            <p className="mt-2 leading-relaxed">You can check the same uploaded image again. This does not create another upload or consume another scan request.</p>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" className="button-secondary" disabled={uploadingIndex !== null} onClick={() => setPendingScanPrompt(null)}>Cancel</button>
+            <button type="button" className="button-primary" disabled={uploadingIndex !== null} onClick={checkPendingClinicalScan}>Check Again</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(scanBypassPrompt)}
+        onClose={() => uploadingIndex === null && setScanBypassPrompt(null)}
+        closeDisabled={uploadingIndex !== null}
+        title={scanBypassPrompt?.reason === 'usage_limit_reached' ? 'Security scanner usage limit reached' : 'Security scanner unavailable'}
+        description="This clinical image could not be verified by the malware scanner."
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-black">Malware scan was not completed</p>
+            <p className="mt-2 leading-relaxed">{scanBypassPrompt?.message || 'The Perception Point scanner may be temporarily unavailable or its usage allowance may have been reached.'}</p>
+            <p className="mt-2 text-xs font-semibold">Only continue if this image comes from a trusted source. The saved clinical image will be marked as not malware scanned.</p>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" className="button-secondary" disabled={uploadingIndex !== null} onClick={() => setScanBypassPrompt(null)}>Cancel Upload</button>
+            <button type="button" className="button-primary" disabled={uploadingIndex !== null} onClick={continueClinicalUploadWithoutScan}>Continue Without Scan</button>
+          </div>
+        </div>
+      </Modal>
 
       <style>{'@media print { body * { visibility: hidden; } #print-area, #print-area * { visibility: visible; } #print-area { position: absolute; left: 0; top: 0; width: 100%; } }'}</style>
     </>

@@ -11,6 +11,14 @@ const requestJson = async (url, options = {}) => {
 export const getDashboard = () =>
   fetch(`${BASE}/dashboard`, { credentials: 'include' }).then(r => r.json())
 
+export const getAppointments = (params = {}) => {
+  const search = new URLSearchParams()
+  if (params.scope) search.set('scope', params.scope)
+  if (params.date) search.set('date', params.date)
+  const query = search.toString()
+  return requestJson(`${BASE}/appointments${query ? `?${query}` : ''}`)
+}
+
 export const getDailyAppointments = (date) =>
   fetch(`${BASE}/appointments/daily${date ? `?date=${date}` : ''}`, { credentials: 'include' }).then(r => r.json())
 

@@ -38,11 +38,17 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
         errors.push('EMAIL_USER and EMAIL_PASS are required when administrator MFA is enabled.')
       }
     }
+    const queueDisplayPin = String(process.env.QUEUE_DISPLAY_PIN || '').trim()
+    if (!/^\d{6,12}$/.test(queueDisplayPin)) {
+      errors.push('QUEUE_DISPLAY_PIN must be a 6-12 digit PIN in production.')
+    } else if (queueDisplayPin === '123456') {
+      errors.push('QUEUE_DISPLAY_PIN must not use the local-development default 123456 in production.')
+    }
     if (String(process.env.SMS_PROVIDER || 'semaphore').toLowerCase() === 'semaphore' && !isNonEmpty(process.env.SEMAPHORE_API_KEY)) {
       warnings.push('SEMAPHORE_API_KEY is empty; patient SMS verification/reminders will not work.')
     }
     if (![process.env.CLOUDINARY_CLOUD_NAME, process.env.CLOUDINARY_API_KEY, process.env.CLOUDINARY_API_SECRET].every(isNonEmpty)) {
-      warnings.push('Cloudinary signed-upload credentials are incomplete; consultation/progress image uploads will be unavailable.')
+      warnings.push('Cloudinary signed-upload credentials are incomplete; clinical and payment QR image uploads will be unavailable.')
     }
   }
 

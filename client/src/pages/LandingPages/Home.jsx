@@ -4,7 +4,7 @@ const Home = () => {
   return (
     <section
       id="home"
-      className="relative min-h-screen flex items-center justify-center px-10 overflow-hidden"
+      className="relative min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-10 overflow-hidden"
     >
       {/* BACKGROUND IMAGE */}
       <img

@@ -8,6 +8,16 @@
 // 6. NEW: deleteInventoryItem (DELETE /inventory/:id) — remove a product
 const { resolveReportRange } = require('../utils/reportRange')
 const { normalizeOptionalImageUrl } = require('../utils/settingsValidation')
+const {
+  createPaymentQrUploadSignature,
+  getPerceptionPointScanStatus,
+  cloudinaryUploadBuffer,
+  issueScanPendingToken,
+  issueBypassAuthorizationToken,
+  issueAcceptedUploadToken,
+  verifyUploadSecurityToken,
+  hashUploadBuffer,
+} = require('../utils/cloudinarySecurity')
 
 const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
@@ -1209,14 +1219,176 @@ const deleteBillingCatalogService = async (req, res) => {
 }
 
 
+const uploadPaymentQrImageAdmin = async (req, res) => {
+  const provider = String(req.query?.provider || '').trim().toLowerCase()
+  const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
+  if (!['gcash', 'maya'].includes(provider)) {
+    return res.status(400).json({ message: 'Payment QR provider must be GCash or Maya.' })
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    return res.status(400).json({ message: 'Select a QR image to upload.' })
+  }
+  const fileHash = hashUploadBuffer(req.body)
+
+  let bypassReason = null
+  if (scanMode === 'bypass') {
+    try {
+      const bypass = verifyUploadSecurityToken(String(req.query?.bypass_token || ''), {
+        stage: 'bypass_authorized',
+        role: 'admin',
+        user_id: req.user.id,
+        context_type: 'payment_qr',
+        context_id: provider,
+      })
+      if (!bypass.file_sha256 || bypass.file_sha256 !== fileHash) {
+        return res.status(403).json({ message: 'The scanner-bypass authorization is for a different image. Retry the security scan for this file.' })
+      }
+      bypassReason = bypass.reason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+    } catch (error) {
+      return res.status(error.statusCode || 403).json({ message: error.message || 'A valid scanner-unavailable authorization is required before bypassing the malware scan.' })
+    }
+  }
+
+  let uploaded
+  try {
+    const signed = createPaymentQrUploadSignature({ adminId: req.user.id, provider, scanMode })
+    uploaded = await cloudinaryUploadBuffer({
+      buffer: req.body,
+      mimeType: req.get('content-type'),
+      fileName: req.get('x-file-name') || `${provider}-qr`,
+      signed,
+    })
+  } catch (error) {
+    if (scanMode === 'scan' && error.scannerUnavailable) {
+      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+      return res.json({
+        status: 'unavailable',
+        reason,
+        message: reason === 'usage_limit_reached'
+          ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
+          : 'The malware scanner is currently unavailable. Only continue if this QR image comes from a trusted source.',
+        bypass_token: issueBypassAuthorizationToken({ role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider, reason, fileHash }),
+      })
+    }
+    return res.status(error.statusCode || 502).json({ message: error.message || 'QR image upload failed.' })
+  }
+
+  if (scanMode === 'bypass') {
+    const securityToken = issueAcceptedUploadToken({
+      role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+      status: 'bypassed', assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id,
+    })
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'admin',
+      action: 'security.payment_qr_scan_bypassed',
+      entityType: 'clinic_payment_settings',
+      entityId: '1',
+      newValues: { provider, scan_status: 'bypassed', reason: bypassReason, asset_id: uploaded.asset_id },
+      ipAddress: req.ip || null,
+    }).catch(() => {})
+    return res.json({
+      status: 'bypassed',
+      scan_status: 'bypassed',
+      url: uploaded.secure_url,
+      asset_id: uploaded.asset_id,
+      public_id: uploaded.public_id,
+      security_token: securityToken,
+    })
+  }
+
+  return res.json({
+    status: 'pending',
+    url: uploaded.secure_url,
+    asset_id: uploaded.asset_id,
+    public_id: uploaded.public_id,
+    scan_token: issueScanPendingToken({
+      role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+      assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id, fileHash,
+    }),
+  })
+}
+
+const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
+  const assetId = String(req.body?.asset_id || '').trim()
+  const provider = String(req.body?.provider || '').trim().toLowerCase()
+  const scanToken = String(req.body?.scan_token || '').trim()
+  if (!assetId || !['gcash', 'maya'].includes(provider) || !scanToken) {
+    return res.status(400).json({ message: 'Payment provider, Cloudinary asset ID, and scan verification are required.' })
+  }
+
+  let pending
+  try {
+    pending = verifyUploadSecurityToken(scanToken, {
+      stage: 'scan_pending',
+      role: 'admin',
+      user_id: req.user.id,
+      context_type: 'payment_qr',
+      context_id: provider,
+      asset_id: assetId,
+    })
+  } catch (error) {
+    return res.status(error.statusCode || 403).json({ message: error.message || 'The scan verification is invalid.' })
+  }
+
+  const unavailable = (reason, message) => res.json({
+    status: 'unavailable',
+    reason,
+    message,
+    bypass_token: issueBypassAuthorizationToken({ role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider, reason, fileHash: pending.file_sha256 }),
+  })
+
+  try {
+    const result = await getPerceptionPointScanStatus(assetId)
+    if (result.secure_url && pending.url && result.secure_url !== pending.url) {
+      return res.status(409).json({ message: 'The scanned Cloudinary asset does not match this upload.' })
+    }
+    if (result.status === 'approved') {
+      return res.json({
+        ...result,
+        security_token: issueAcceptedUploadToken({
+          role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+          status: 'approved', assetId, url: result.secure_url || pending.url, publicId: result.public_id || pending.public_id,
+        }),
+      })
+    }
+    if (result.status === 'rejected') {
+      await writeAuditLog({
+        userId: req.user.id,
+        userRole: 'admin',
+        action: 'security.payment_qr_upload_blocked',
+        entityType: 'clinic_payment_settings',
+        entityId: '1',
+        newValues: { provider, scan_status: 'rejected', asset_id: assetId },
+        ipAddress: req.ip || null,
+      }).catch(() => {})
+      return res.json(result)
+    }
+    if (result.status === 'unavailable') {
+      return unavailable('scanner_unavailable', result.message || 'The malware scanner did not return a usable status.')
+    }
+    return res.json(result)
+  } catch (error) {
+    if (error.scannerUnavailable) {
+      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+      return unavailable(reason, reason === 'usage_limit_reached'
+        ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
+        : 'The malware scanner status is currently unavailable. Only continue if this QR image comes from a trusted source.')
+    }
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Could not check the security scan.' })
+  }
+}
+
 const getPaymentSettingsAdmin = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT gcash_qr_url, maya_qr_url, bank_name, bank_account_name, bank_account_number, updated_at
+    `SELECT gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status, bank_name, bank_account_name, bank_account_number, updated_at
      FROM clinic_payment_settings WHERE id = 1 LIMIT 1`
   )
   res.json(rows[0] || {
     gcash_qr_url: '',
     maya_qr_url: '',
+    gcash_qr_scan_status: 'legacy',
+    maya_qr_scan_status: 'legacy',
     bank_name: '',
     bank_account_name: '',
     bank_account_number: '',
@@ -1237,30 +1409,66 @@ const updatePaymentSettingsAdmin = async (req, res) => {
     return res.status(400).json({ message: 'Maya QR must use an HTTPS URL or an app-relative path.' })
   }
 
-  const payload = {
-    gcash_qr_url: gcashQrUrl,
-    maya_qr_url: mayaQrUrl,
-    bank_name: String(req.body.bank_name || '').trim() || null,
-    bank_account_name: String(req.body.bank_account_name || '').trim() || null,
-    bank_account_number: String(req.body.bank_account_number || '').trim() || null,
-  }
-
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [oldRows] = await conn.query('SELECT * FROM clinic_payment_settings WHERE id = 1 LIMIT 1')
+    const [oldRows] = await conn.query('SELECT * FROM clinic_payment_settings WHERE id = 1 LIMIT 1 FOR UPDATE')
+    const oldSettings = oldRows[0] || {}
+
+    const resolveQr = (provider, newUrl) => {
+      const urlKey = `${provider}_qr_url`
+      const statusKey = `${provider}_qr_scan_status`
+      const tokenKey = `${provider}_qr_security_token`
+      if (!newUrl) return { url: null, status: 'legacy' }
+
+      const oldUrl = String(oldSettings[urlKey] || '').trim()
+      if (oldUrl && oldUrl === newUrl) {
+        const preserved = ['approved', 'bypassed', 'legacy'].includes(String(oldSettings[statusKey] || '').toLowerCase())
+          ? String(oldSettings[statusKey]).toLowerCase()
+          : 'legacy'
+        return { url: newUrl, status: preserved }
+      }
+
+      const verified = verifyUploadSecurityToken(req.body[tokenKey], {
+        stage: 'accepted',
+        role: 'admin',
+        user_id: req.user.id,
+        context_type: 'payment_qr',
+        context_id: provider,
+        url: newUrl,
+      })
+      if (!['approved', 'bypassed'].includes(String(verified.scan_status))) {
+        throw Object.assign(new Error('The new payment QR has not completed the required upload security workflow.'), { statusCode: 400 })
+      }
+      return { url: newUrl, status: verified.scan_status }
+    }
+
+    const gcash = resolveQr('gcash', gcashQrUrl)
+    const maya = resolveQr('maya', mayaQrUrl)
+    const payload = {
+      gcash_qr_url: gcash.url,
+      maya_qr_url: maya.url,
+      gcash_qr_scan_status: gcash.status,
+      maya_qr_scan_status: maya.status,
+      bank_name: String(req.body.bank_name || '').trim() || null,
+      bank_account_name: String(req.body.bank_account_name || '').trim() || null,
+      bank_account_number: String(req.body.bank_account_number || '').trim() || null,
+    }
+
     await conn.query(
       `INSERT INTO clinic_payment_settings
-       (id, gcash_qr_url, maya_qr_url, bank_name, bank_account_name, bank_account_number, updated_by_admin_id)
-       VALUES (1, ?, ?, ?, ?, ?, ?)
+       (id, gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status, bank_name, bank_account_name, bank_account_number, updated_by_admin_id)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          gcash_qr_url = VALUES(gcash_qr_url),
          maya_qr_url = VALUES(maya_qr_url),
+         gcash_qr_scan_status = VALUES(gcash_qr_scan_status),
+         maya_qr_scan_status = VALUES(maya_qr_scan_status),
          bank_name = VALUES(bank_name),
          bank_account_name = VALUES(bank_account_name),
          bank_account_number = VALUES(bank_account_number),
          updated_by_admin_id = VALUES(updated_by_admin_id)`,
-      [payload.gcash_qr_url, payload.maya_qr_url, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
+      [payload.gcash_qr_url, payload.maya_qr_url, payload.gcash_qr_scan_status, payload.maya_qr_scan_status, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
     )
     await writeAuditLog({
       userId: req.user.id,
@@ -1268,13 +1476,14 @@ const updatePaymentSettingsAdmin = async (req, res) => {
       action: 'billing.payment_settings_updated',
       entityType: 'clinic_payment_settings',
       entityId: '1',
-      oldValues: oldRows[0] || null,
+      oldValues: oldSettings || null,
       newValues: payload,
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
   } catch (error) {
     await conn.rollback()
+    if (error.statusCode && !res.headersSent) return res.status(error.statusCode).json({ message: error.message })
     throw error
   } finally {
     conn.release()
@@ -2091,7 +2300,7 @@ module.exports = {
   getDoctorSchedules, saveDaySchedule,
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
-  getPaymentSettingsAdmin, updatePaymentSettingsAdmin,
+  getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, reopenCashierShiftAdmin, voidBillingPayment, refundBillingPayment,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs,
   getReports, recordReportExport, getInventoryLogs,

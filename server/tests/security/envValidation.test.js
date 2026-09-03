@@ -17,6 +17,7 @@ describe('runtime configuration validation', () => {
       JWT_SECRET: 'short',
       CLIENT_URL: 'http://localhost:5173',
       ADMIN_MFA_ENABLED: 'false',
+      QUEUE_DISPLAY_PIN: '123456',
     })
     expect(() => validateRuntimeConfig()).toThrow(/JWT_SECRET|localhost/i)
   })
@@ -31,6 +32,7 @@ describe('runtime configuration validation', () => {
       JWT_SECRET: 'a'.repeat(48),
       CLIENT_URL: 'https://clinic.example.com',
       ADMIN_MFA_ENABLED: 'false',
+      QUEUE_DISPLAY_PIN: '839251',
       SMS_PROVIDER: 'none',
     })
     expect(validateRuntimeConfig()).toHaveProperty('warnings')

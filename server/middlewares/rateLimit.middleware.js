@@ -34,5 +34,6 @@ const accountKey = (req) => {
 const loginLimiter = createRateLimiter({ name: 'login', windowMs: 15 * 60 * 1000, max: 5, keyGenerator: accountKey, message: 'Too many sign-in attempts. Please wait 15 minutes and try again.' })
 const otpRequestLimiter = createRateLimiter({ name: 'otp-request', windowMs: 60 * 60 * 1000, max: 5, keyGenerator: accountKey, message: 'Too many verification-code requests. Please try again later.' })
 const otpVerifyLimiter = createRateLimiter({ name: 'otp-verify', windowMs: 15 * 60 * 1000, max: 10, keyGenerator: accountKey, message: 'Too many verification attempts. Please request a new code.' })
+const queueDisplayLimiter = createRateLimiter({ name: 'queue-display', windowMs: 15 * 60 * 1000, max: 8, keyGenerator: getClientIp, message: 'Too many queue display PIN attempts. Please wait 15 minutes and try again.' })
 
-module.exports = { createRateLimiter, loginLimiter, otpRequestLimiter, otpVerifyLimiter, getClientIp }
+module.exports = { createRateLimiter, loginLimiter, otpRequestLimiter, otpVerifyLimiter, queueDisplayLimiter, getClientIp }

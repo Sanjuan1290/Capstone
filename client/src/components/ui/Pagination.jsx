@@ -9,6 +9,7 @@ const Pagination = ({
   onPageSizeChange,
   pageSizeOptions = [10, 25, 50],
   disabled = false,
+  compact = false,
 }) => {
   const safeTotalPages = Math.max(1, Number(totalPages) || 1)
   const safePage = Math.min(safeTotalPages, Math.max(1, Number(page) || 1))
@@ -21,8 +22,8 @@ const Pagination = ({
   }
 
   return (
-    <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
+    <div className={`flex flex-col gap-3 border-t border-slate-200 px-4 py-3 ${compact ? '' : 'sm:flex-row sm:items-center sm:justify-between'}`}>
+      <div className={`flex text-xs font-semibold text-slate-500 ${compact ? 'flex-col items-start gap-2' : 'flex-wrap items-center gap-3'}`}>
         <span>{total > 0 ? `Showing ${start}-${end} of ${total}` : 'No records'}</span>
         {onPageSizeChange && (
           <label className="flex items-center gap-2">
@@ -39,7 +40,7 @@ const Pagination = ({
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2 sm:justify-end">
+      <div className={`flex flex-wrap items-center justify-between gap-2 ${compact ? '' : 'sm:justify-end'}`}>
         <span className="mr-1 text-xs font-semibold text-slate-500">Page {safePage} of {safeTotalPages}</span>
         <button type="button" className="pagination-button" onClick={() => goTo(1)} disabled={disabled || safePage === 1} aria-label="First page"><MdFirstPage /></button>
         <button type="button" className="pagination-button" onClick={() => goTo(safePage - 1)} disabled={disabled || safePage === 1} aria-label="Previous page"><MdChevronLeft /></button>

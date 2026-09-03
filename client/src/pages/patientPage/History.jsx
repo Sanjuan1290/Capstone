@@ -73,9 +73,14 @@ const ProgressImages = ({ images = [] }) => {
             className="h-36 w-full bg-slate-100 object-cover"
           />
           <div className="flex items-start justify-between gap-2 px-3 py-2.5">
-            <p className="text-xs text-slate-600">
-              {image.caption || 'Progress image'}
-            </p>
+            <div className="min-w-0">
+              <p className="text-xs text-slate-600">
+                {image.caption || 'Progress image'}
+              </p>
+              <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[9px] font-bold ${image.security_scan_status === 'approved' ? 'bg-emerald-50 text-emerald-700' : image.security_scan_status === 'bypassed' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
+                {image.security_scan_status === 'approved' ? 'Security scan passed' : image.security_scan_status === 'bypassed' ? 'Not malware scanned' : 'Legacy image'}
+              </span>
+            </div>
             <MdOpenInNew className="mt-0.5 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" />
           </div>
         </a>
@@ -167,6 +172,9 @@ const VisitCard = ({ visit }) => {
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Recent Progress</p>
               <p className="mt-1 text-xs text-slate-600 truncate">
                 {progressImages[0].caption || `${progressImages.length} saved image${progressImages.length > 1 ? 's' : ''}`}
+              </p>
+              <p className={`mt-1 text-[9px] font-bold ${progressImages[0].security_scan_status === 'approved' ? 'text-emerald-600' : progressImages[0].security_scan_status === 'bypassed' ? 'text-amber-700' : 'text-slate-400'}`}>
+                {progressImages[0].security_scan_status === 'approved' ? 'Security scan passed' : progressImages[0].security_scan_status === 'bypassed' ? 'Not malware scanned' : 'Legacy image'}
               </p>
             </div>
           </div>

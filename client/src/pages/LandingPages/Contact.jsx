@@ -53,12 +53,12 @@ const Contact = ({ contact: contactProp }) => {
     : ['Monday - Saturday: 9:00 AM - 6:00 PM', 'Sunday: Closed']
 
   return (
-    <section id={c.section_id || 'contact'} className="py-24 px-6 md:px-10 bg-white scroll-mt-24">
+    <section id={c.section_id || 'contact'} className="px-4 py-16 bg-white scroll-mt-24 sm:px-6 sm:py-20 lg:px-10 lg:py-24">
       <div className="max-w-7xl mx-auto">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="text-center mb-16">
-          <h2 className="text-4xl font-bold text-gray-800 mb-4">{c.heading}</h2>
+          <h2 className="text-3xl sm:text-4xl font-bold text-gray-800 mb-4">{c.heading}</h2>
           <p className="text-gray-600 text-lg max-w-xl mx-auto">{c.description}</p>
         </div>
 
@@ -142,7 +142,7 @@ const Contact = ({ contact: contactProp }) => {
 
         {/* ── Bottom CTA Banner ────────────────────────────────────────────── */}
         {c.cta_heading && (
-          <div className="mt-16 bg-[#E6F4F1] rounded-2xl shadow-lg p-10 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="mt-16 bg-[#E6F4F1] rounded-2xl shadow-lg p-6 sm:p-8 lg:p-10 flex flex-col md:flex-row items-center justify-between gap-6">
             <div>
               <h3 className="text-2xl font-semibold text-teal-800 mb-1">{c.cta_heading}</h3>
               {c.cta_description && (

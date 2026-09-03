@@ -111,7 +111,7 @@ const Doctor_Dashboard = () => {
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
               <MdRefresh className="text-[18px]" />
             </button>
-            <NavLink to="/doctor/daily-appointments"
+            <NavLink to="/doctor/appointments"
               className="hidden sm:flex items-center gap-2 bg-violet-500 hover:bg-violet-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
               <MdCalendarToday className="text-[15px]" /> View Schedule
             </NavLink>
@@ -121,7 +121,7 @@ const Doctor_Dashboard = () => {
 
       {/* ── Quick action tiles (mobile) ───────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:hidden gap-3">
-        <NavLink to="/doctor/daily-appointments"
+        <NavLink to="/doctor/appointments"
           className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-violet-200 transition-all">
           <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
             <MdCalendarToday className="text-violet-600 text-[20px]" />
@@ -155,13 +155,13 @@ const Doctor_Dashboard = () => {
       </div>
 
       {/* ── Main 2-col grid ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-5">
 
         {/* Today's appointments */}
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <h2 className="text-sm font-bold text-slate-800">Today's Appointments</h2>
-            <NavLink to="/doctor/daily-appointments"
+            <NavLink to="/doctor/appointments"
               className="text-xs font-semibold text-violet-600 hover:text-violet-700 flex items-center gap-0.5">
               See all <MdChevronRight className="text-[14px]" />
             </NavLink>
@@ -246,7 +246,7 @@ const Doctor_Dashboard = () => {
               ))}
             </div>
             <div className="px-4 pb-4">
-              <NavLink to="/doctor/daily-appointments"
+              <NavLink to="/doctor/appointments"
                 className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold
                   text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-xl transition-colors">
                 Manage Queue <MdArrowForward className="text-[13px]" />

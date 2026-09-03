@@ -18,7 +18,7 @@ import { playNotificationSound } from '../../utils/notificationSound'
 
 const sideNav = [
   { name: 'Dashboard',          path: '/doctor',                    icon: MdDashboard,     short: 'Home'     },
-  { name: 'Daily Appointments', path: '/doctor/daily-appointments', icon: MdCalendarToday, short: 'Schedule' },
+  { name: 'Appointments',       path: '/doctor/appointments',       icon: MdCalendarToday, short: 'Appts' },
   { name: 'My Schedule',        path: '/doctor/schedule',           icon: MdSchedule,      short: 'Hours'    },
   { name: 'Supply Requests',    path: '/doctor/request',            icon: MdInventory2,    short: 'Supplies' },
 ]
@@ -194,7 +194,7 @@ const DoctorLayout = () => {
             <MdMenu className="text-[20px]" />
           </button>
 
-          <div className="lg:hidden flex items-center gap-2 ml-2">
+          <div className="hidden items-center gap-2 ml-2 md:flex lg:hidden">
             <img src="/logo.png" alt="Carait" className="w-7 h-7 rounded-lg object-contain bg-violet-50 p-0.5" />
             <p className="text-sm font-bold text-slate-800">Doctor Portal</p>
           </div>
@@ -224,15 +224,15 @@ const DoctorLayout = () => {
         </header>
 
         {/* Content */}
-        <main className="flex-1 min-w-0 overflow-y-auto p-4 pb-20 lg:p-6 lg:pb-6">
+        <main className="flex-1 min-w-0 overflow-y-auto p-4 portal-mobile-content lg:p-6">
           <div className="mx-auto w-full max-w-[1600px]">
             <Outlet />
           </div>
         </main>
 
         {/* Mobile bottom nav */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100
-          flex items-center justify-around px-1 h-16 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 portal-mobile-nav bg-white border-t border-slate-100
+          flex items-center justify-around px-1 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
           {sideNav.map((item) => {
             const IconComponent = item.icon
             return (

@@ -574,14 +574,14 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
           </div>
 
           <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] sm:px-6">
-            <div className="flex items-center justify-between gap-3">
-              <button disabled={saving} onClick={step === 1 ? onClose : () => { setError(''); setStep((current) => current - 1) }} className="min-w-[120px] rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <button disabled={saving} onClick={step === 1 ? onClose : () => { setError(''); setStep((current) => current - 1) }} className="w-full rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50 sm:w-auto sm:min-w-[120px]">
                 {step === 1 ? 'Cancel' : 'Back'}
               </button>
               {step < 3 ? (
-                <button onClick={goNext} className="min-w-[140px] rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white">Next</button>
+                <button onClick={goNext} className="w-full rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white sm:w-auto sm:min-w-[140px]">Next</button>
               ) : (
-                <button onClick={() => handleCreate()} disabled={saving} className="min-w-[180px] rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Creating...' : 'Create Appointment'}</button>
+                <button onClick={() => handleCreate()} disabled={saving} className="w-full rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto sm:min-w-[180px]">{saving ? 'Creating...' : 'Create Appointment'}</button>
               )}
             </div>
           </div>

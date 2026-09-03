@@ -34,11 +34,11 @@ const Services = () => {
   ]
 
   return (
-    <section id="services" className="py-24 px-10 bg-gradient-to-b from-gray-50 to-white">
+    <section id="services" className="px-4 py-16 bg-gradient-to-b from-gray-50 to-white sm:px-6 sm:py-20 lg:px-10 lg:py-24">
 
       {/* TITLE */}
       <div className="text-center mb-16">
-        <h1 className="text-4xl font-bold text-gray-800">OUR SERVICES</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold text-gray-800">OUR SERVICES</h1>
         <p className="text-gray-600 mt-4 max-w-2xl mx-auto text-lg">
           We provide a wide range of medical and dermatological services focused
           on patient wellness, modern treatments, and quality healthcare.
@@ -51,7 +51,7 @@ const Services = () => {
         {services.map((s, i) => (
           <div
             key={i}
-            className={`rounded-2xl p-8 shadow-sm hover:shadow-xl transition duration-300 transform hover:-translate-y-2 ${s.bg}`}
+            className={`rounded-2xl p-6 sm:p-8 shadow-sm hover:shadow-xl transition duration-300 transform hover:-translate-y-2 ${s.bg}`}
           >
 
             {/* IMAGE */}

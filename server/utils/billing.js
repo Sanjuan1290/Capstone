@@ -10,6 +10,17 @@ const getInventoryBaseUnitCost = (item = {}) => {
   return usageUnit && baseUnit && usageUnit === baseUnit ? roundMoney(packageCost / unitSize) : packageCost
 }
 
+const getServiceMaterialUnitCost = (material = {}) => {
+  const linkedInventoryId = Number(material.inventory_id || 0)
+  const hasLiveInventoryPrice = linkedInventoryId > 0
+    && (material.inventory_price !== undefined || material.price !== undefined)
+  if (hasLiveInventoryPrice) return getInventoryBaseUnitCost(material)
+  if (material.unit_cost_override !== null && material.unit_cost_override !== undefined && material.unit_cost_override !== '') {
+    return Math.max(0, Number(material.unit_cost_override) || 0)
+  }
+  return getInventoryBaseUnitCost(material)
+}
+
 const parseJsonSafe = (value, fallback = null) => {
   if (!value) return fallback
   if (typeof value === 'object') return value
@@ -109,9 +120,7 @@ const computeCatalogServicePricing = (service = {}) => {
   const consultationFee = Math.max(0, Number(service.consultation_fee) || 0)
   const materialsCost = roundMoney(materials.reduce((sum, material) => {
     const quantity = Math.max(0, Number(material?.quantity) || 0)
-    const unitCost = material?.unit_cost_override !== null && material?.unit_cost_override !== undefined
-      ? Math.max(0, Number(material.unit_cost_override) || 0)
-      : getInventoryBaseUnitCost(material)
+    const unitCost = getServiceMaterialUnitCost(material)
     return sum + roundMoney(quantity * unitCost)
   }, 0))
   const billableBase = roundMoney(materialsCost + consultationFee)
@@ -310,15 +319,15 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           const unitCostOverride = material?.unit_cost_override === '' || material?.unit_cost_override === null || material?.unit_cost_override === undefined
             ? null
             : Math.max(0, Number(material.unit_cost_override) || 0)
-          const unitCost = unitCostOverride !== null
-            ? unitCostOverride
-            : getInventoryBaseUnitCost({
-                inventory_price: inventoryItem?.price ?? material?.inventory_price,
-                inventory_unit_size: inventoryItem?.unit_size ?? material?.inventory_unit_size,
-                inventory_base_unit: inventoryItem?.base_unit ?? material?.inventory_base_unit,
-                unit_label: unitLabel,
-                inventory_unit: inventoryItem?.unit ?? material?.inventory_unit,
-              })
+          const unitCost = getServiceMaterialUnitCost({
+            inventory_id: inventoryId,
+            unit_cost_override: unitCostOverride,
+            inventory_price: inventoryItem?.price ?? material?.inventory_price,
+            inventory_unit_size: inventoryItem?.unit_size ?? material?.inventory_unit_size,
+            inventory_base_unit: inventoryItem?.base_unit ?? material?.inventory_base_unit,
+            unit_label: unitLabel,
+            inventory_unit: inventoryItem?.unit ?? material?.inventory_unit,
+          })
           return {
             inventory_id: inventoryId,
             material_name: String(material?.material_name || inventoryItem?.name || material?.inventory_name || '').trim(),
@@ -627,6 +636,7 @@ function itemTypeFromRaw(item = {}) {
 module.exports = {
   roundMoney,
   getInventoryBaseUnitCost,
+  getServiceMaterialUnitCost,
   normalizeServiceMaterials,
   computeCatalogServicePricing,
   normalizeBillingItems,

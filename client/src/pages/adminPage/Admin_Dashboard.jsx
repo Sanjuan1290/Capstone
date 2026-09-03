@@ -136,7 +136,7 @@ const Admin_Dashboard = () => {
       </div>
 
       {/* ── Main 2-col ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-5">
 
         {/* Today's appointments */}
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">

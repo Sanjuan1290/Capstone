@@ -262,6 +262,7 @@ const ensureAppSchema = async () => {
       consultation_id INT NOT NULL,
       image_url TEXT NOT NULL,
       caption VARCHAR(255) NULL,
+      security_scan_status VARCHAR(20) NOT NULL DEFAULT 'legacy',
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_consultation_images_consultation (consultation_id, sort_order, created_at),
@@ -269,6 +270,8 @@ const ensureAppSchema = async () => {
         FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE
     )
   `)
+
+  await ensureColumn('consultation_images', 'security_scan_status', "VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER caption")
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS appointment_reason_options (
@@ -554,6 +557,8 @@ const ensureAppSchema = async () => {
       id INT NOT NULL PRIMARY KEY,
       gcash_qr_url TEXT NULL,
       maya_qr_url TEXT NULL,
+      gcash_qr_scan_status VARCHAR(20) NOT NULL DEFAULT 'legacy',
+      maya_qr_scan_status VARCHAR(20) NOT NULL DEFAULT 'legacy',
       bank_name VARCHAR(120) NULL,
       bank_account_name VARCHAR(180) NULL,
       bank_account_number VARCHAR(120) NULL,
@@ -563,6 +568,9 @@ const ensureAppSchema = async () => {
         FOREIGN KEY (updated_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL
     )
   `)
+
+  await ensureColumn('clinic_payment_settings', 'gcash_qr_scan_status', "VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER maya_qr_url")
+  await ensureColumn('clinic_payment_settings', 'maya_qr_scan_status', "VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER gcash_qr_scan_status")
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS audit_logs (

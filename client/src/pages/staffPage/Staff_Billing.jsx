@@ -735,7 +735,7 @@ const Staff_Billing = () => {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <MdPayments className="text-sky-500 text-[22px]" /> Billing
+            <MdPayments className="text-sky-500 text-[22px]" /> Billing & Checkout
           </h1>
           <p className="text-xs lg:text-sm text-slate-500 mt-0.5">
             Review consultation charges, finalize the bill, then collect full or partial payments. Inventory movements are recorded per batch before payment.
@@ -766,7 +766,7 @@ const Staff_Billing = () => {
         ))}
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap gap-2">
@@ -875,6 +875,7 @@ const Staff_Billing = () => {
                 pageSize={pagination.limit}
                 onPageChange={setPage}
                 onPageSizeChange={(nextSize) => { setPageSize(nextSize); setPage(1) }}
+                compact
               />
             )}
           </div>
@@ -937,7 +938,7 @@ const Staff_Billing = () => {
                 })}
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1318,7 +1319,7 @@ const Staff_Billing = () => {
                         />
                       ) : (
                         <p className="mt-3 rounded-xl border border-dashed border-emerald-300 px-3 py-4 text-center text-xs font-semibold text-emerald-700">
-                          No QR image is configured. Ask an administrator to add it in Admin → Service Catalog → Payment Setup.
+                          No QR image is configured. Ask an administrator to add it in Admin → Billing → Payment Settings.
                         </p>
                       )}
                     </div>

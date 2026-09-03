@@ -1,3 +1,4 @@
+import { makeSecurityScanError, waitForSecurityScan } from './cloudinaryScan'
 // client/src/services/admin.service.js
 
 const BASE = '/api/admin'
@@ -120,6 +121,79 @@ export const deleteBillingCatalogService = (id) =>
 
 export const getBillingPaymentSettings = () =>
   requestJson(`${BASE}/billing/payment-settings`)
+
+const uploadPaymentQrToServer = async (file, provider, scanMode = 'scan', bypassToken = '') => {
+  const params = new URLSearchParams({ provider, scan_mode: scanMode })
+  if (bypassToken) params.set('bypass_token', bypassToken)
+  const response = await fetch(`${BASE}/billing/payment-settings/upload?${params}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': file.type,
+      'X-File-Name': file.name || `${provider}-qr`,
+    },
+    body: file,
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.message || 'QR image upload failed.')
+  return data
+}
+
+export const getPaymentQrUploadScanStatus = (provider, assetId, scanToken) =>
+  requestJson(`${BASE}/billing/payment-settings/upload-status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, asset_id: assetId, scan_token: scanToken }),
+  })
+
+export const uploadPaymentQrImage = async (file, provider, { scanMode = 'scan', bypassToken = '', onStatus } = {}) => {
+  if (!file) throw new Error('Select an image to upload.')
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    throw new Error('QR image must be PNG, JPG, or WEBP.')
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('QR image must be 5 MB or smaller.')
+  }
+
+  onStatus?.({ phase: 'uploading', tone: 'info', message: scanMode === 'bypass' ? 'Uploading trusted image without malware scanning…' : 'Uploading image securely…' })
+  const uploaded = await uploadPaymentQrToServer(file, provider, scanMode, bypassToken)
+
+  if (uploaded.status === 'unavailable') {
+    const limitReached = uploaded.reason === 'usage_limit_reached'
+    throw makeSecurityScanError(
+      limitReached ? 'SCAN_LIMIT_REACHED' : 'SCAN_UNAVAILABLE',
+      uploaded.message || 'The malware scanner is currently unavailable.',
+      { reason: uploaded.reason, bypass_token: uploaded.bypass_token }
+    )
+  }
+
+  if (scanMode === 'bypass' || uploaded.status === 'bypassed') {
+    onStatus?.({ phase: 'bypassed', tone: 'warning', message: 'Uploaded without malware scanning.' })
+    return uploaded
+  }
+
+  if (!uploaded.asset_id || !uploaded.scan_token) throw new Error('The server did not return scan verification for this upload.')
+  try {
+    const scan = await waitForSecurityScan(
+      () => getPaymentQrUploadScanStatus(provider, uploaded.asset_id, uploaded.scan_token),
+      { onStatus }
+    )
+    return {
+      url: scan.secure_url || uploaded.url,
+      scan_status: 'approved',
+      asset_id: uploaded.asset_id,
+      public_id: scan.public_id || uploaded.public_id,
+      security_token: scan.security_token,
+      scan_token: uploaded.scan_token,
+    }
+  } catch (error) {
+    error.asset_id = uploaded.asset_id
+    error.public_id = uploaded.public_id
+    error.url = uploaded.url
+    error.scan_token = uploaded.scan_token
+    throw error
+  }
+}
 
 export const updateBillingPaymentSettings = (payload) =>
   requestJson(`${BASE}/billing/payment-settings`, {

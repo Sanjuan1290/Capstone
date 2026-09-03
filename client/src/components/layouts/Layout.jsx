@@ -95,9 +95,9 @@ const Layout = () => {
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-10">
 
             {/* Brand */}
-            <div className="flex min-w-0 items-center gap-3">
-              <img src={logoSrc} alt="logo" className="w-10 h-10 object-contain" />
-              <h3 className="whitespace-nowrap text-xs font-bold tracking-tight text-gray-700 sm:text-sm md:text-[15px]">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+              <img src={logoSrc} alt="logo" className="h-10 w-10 shrink-0 object-contain" />
+              <h3 className="min-w-0 truncate text-xs font-bold tracking-tight text-gray-700 sm:text-sm md:text-[15px]">
                 {header.clinic_name}
               </h3>
             </div>
@@ -142,7 +142,7 @@ const Layout = () => {
             {/* Mobile hamburger */}
             <button
               onClick={() => setMobileOpen(prev => !prev)}
-              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 lg:hidden"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 lg:hidden"
               aria-label="Toggle navigation"
             >
               {mobileOpen ? <MdClose className="text-[20px]" /> : <MdMenu className="text-[20px]" />}

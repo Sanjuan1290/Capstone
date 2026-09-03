@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MdPayments, MdRefresh, MdSearch, MdReceiptLong, MdUndo, MdBlock, MdCalendarToday, MdSettings } from 'react-icons/md'
+import { MdPayments, MdRefresh, MdSearch, MdReceiptLong, MdUndo, MdBlock, MdSettings, MdCloudUpload, MdDeleteOutline } from 'react-icons/md'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
 import { useToast } from '../../components/ui/ToastProvider'
 import {
   getBills, getBillById, getBillingReconciliation, voidBillingPayment, refundBillingPayment,
-  getBillingAdjustmentRequests, resolveBillingAdjustmentRequest, getBillingPaymentSettings, updateBillingPaymentSettings,
+  getBillingAdjustmentRequests, resolveBillingAdjustmentRequest, getBillingPaymentSettings, updateBillingPaymentSettings, uploadPaymentQrImage, getPaymentQrUploadScanStatus,
 } from '../../services/admin.service'
 import { getLocalDateOnly, formatDateOnly } from '../../utils/date'
 
@@ -37,7 +37,11 @@ const Admin_Billing = () => {
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(false)
   const [paymentSetupLoading, setPaymentSetupLoading] = useState(false)
   const [paymentSetupSaving, setPaymentSetupSaving] = useState(false)
-  const [paymentForm, setPaymentForm] = useState({ gcash_qr_url: '', maya_qr_url: '', bank_name: '', bank_account_name: '', bank_account_number: '' })
+  const [qrUploading, setQrUploading] = useState('')
+  const [qrUploadStatus, setQrUploadStatus] = useState({ gcash: null, maya: null })
+  const [qrScanWarning, setQrScanWarning] = useState(null)
+  const [qrPendingScan, setQrPendingScan] = useState(null)
+  const [paymentForm, setPaymentForm] = useState({ gcash_qr_url: '', maya_qr_url: '', gcash_qr_scan_status: 'legacy', maya_qr_scan_status: 'legacy', gcash_qr_security_token: '', maya_qr_security_token: '', bank_name: '', bank_account_name: '', bank_account_number: '' })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -132,11 +136,18 @@ const Admin_Billing = () => {
   const openPaymentSetup = async () => {
     setPaymentSetupOpen(true)
     setPaymentSetupLoading(true)
+    setQrScanWarning(null)
+    setQrPendingScan(null)
+    setQrUploadStatus({ gcash: null, maya: null })
     try {
       const settings = await getBillingPaymentSettings()
       setPaymentForm({
         gcash_qr_url: settings?.gcash_qr_url || '',
         maya_qr_url: settings?.maya_qr_url || '',
+        gcash_qr_scan_status: settings?.gcash_qr_scan_status || 'legacy',
+        maya_qr_scan_status: settings?.maya_qr_scan_status || 'legacy',
+        gcash_qr_security_token: '',
+        maya_qr_security_token: '',
         bank_name: settings?.bank_name || '',
         bank_account_name: settings?.bank_account_name || '',
         bank_account_number: settings?.bank_account_number || '',
@@ -146,6 +157,120 @@ const Admin_Billing = () => {
     } finally { setPaymentSetupLoading(false) }
   }
 
+  const updateQrStatus = (provider, status) => {
+    setQrUploadStatus((current) => ({ ...current, [provider]: status }))
+  }
+
+  const applyQrUploadResult = (provider, result) => {
+    const urlKey = provider === 'gcash' ? 'gcash_qr_url' : 'maya_qr_url'
+    const statusKey = provider === 'gcash' ? 'gcash_qr_scan_status' : 'maya_qr_scan_status'
+    const tokenKey = provider === 'gcash' ? 'gcash_qr_security_token' : 'maya_qr_security_token'
+    setPaymentForm((current) => ({
+      ...current,
+      [urlKey]: result.url,
+      [statusKey]: result.scan_status,
+      [tokenKey]: result.security_token || '',
+    }))
+  }
+
+  const handleQrUpload = async (provider, event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setQrScanWarning(null)
+    setQrPendingScan(null)
+    setQrUploading(provider)
+    updateQrStatus(provider, { phase: 'preparing', tone: 'info', message: 'Preparing image for security scanning…' })
+    try {
+      const result = await uploadPaymentQrImage(file, provider, {
+        scanMode: 'scan',
+        onStatus: (status) => updateQrStatus(provider, status),
+      })
+      applyQrUploadResult(provider, result)
+      toast.success(`${provider === 'gcash' ? 'GCash' : 'Maya'} QR passed the security scan.`)
+    } catch (error) {
+      if (error.code === 'SCAN_UNAVAILABLE' || error.code === 'SCAN_LIMIT_REACHED') {
+        const limitReached = error.code === 'SCAN_LIMIT_REACHED'
+        updateQrStatus(provider, { phase: limitReached ? 'limit' : 'unavailable', tone: 'warning', message: limitReached ? 'Security scanner usage limit reached — confirmation required.' : 'Security scanner unavailable — confirmation required.' })
+        setQrScanWarning({ provider, file, message: error.message, reason: limitReached ? 'usage_limit_reached' : 'scanner_unavailable', bypass_token: error.bypass_token || '' })
+        toast.warning(limitReached ? 'Perception Point scanning usage limit reached. Review the warning before continuing.' : 'Security scanner unavailable. Review the warning before continuing.')
+      } else if (error.code === 'SCAN_REJECTED') {
+        updateQrStatus(provider, { phase: 'rejected', tone: 'danger', message: 'Unsafe image detected — upload blocked.' })
+        toast.error('Security scan failed. The QR image was blocked and was not attached.')
+      } else if (error.code === 'SCAN_PENDING') {
+        updateQrStatus(provider, { phase: 'pending', tone: 'info', message: 'Security scan is taking longer than expected. The image is still quarantined and has not been attached.' })
+        setQrPendingScan({ provider, file, asset_id: error.asset_id, url: error.url, public_id: error.public_id, scan_token: error.scan_token })
+        toast.warning('Security scan is still in progress. You can check the same upload again without consuming another upload.')
+      } else {
+        updateQrStatus(provider, { phase: 'error', tone: 'danger', message: error.message || 'QR image upload failed.' })
+        toast.error(error.message || 'QR image upload failed.')
+      }
+    } finally {
+      setQrUploading('')
+    }
+  }
+
+  const checkPendingQrScan = async () => {
+    if (!qrPendingScan?.asset_id || !qrPendingScan?.provider) return
+    const { provider, asset_id: assetId, url, file, public_id: publicId, scan_token: scanToken } = qrPendingScan
+    setQrUploading(provider)
+    updateQrStatus(provider, { phase: 'scanning', tone: 'info', message: 'Checking security scan status…' })
+    try {
+      const result = await getPaymentQrUploadScanStatus(provider, assetId, scanToken)
+      if (result.status === 'approved') {
+        applyQrUploadResult(provider, { url: result.secure_url || url, scan_status: 'approved', asset_id: assetId, public_id: result.public_id || publicId, security_token: result.security_token })
+        updateQrStatus(provider, { phase: 'approved', tone: 'success', message: 'Security scan passed.' })
+        setQrPendingScan(null)
+        toast.success(`${provider === 'gcash' ? 'GCash' : 'Maya'} QR passed the security scan.`)
+      } else if (result.status === 'rejected') {
+        updateQrStatus(provider, { phase: 'rejected', tone: 'danger', message: 'Unsafe image detected — upload blocked.' })
+        setQrPendingScan(null)
+        toast.error('Security scan failed. The QR image was blocked and was not attached.')
+      } else if (result.status === 'unavailable') {
+        setQrPendingScan(null)
+        setQrScanWarning({ provider, file, message: result.message, reason: result.reason || 'scanner_unavailable', bypass_token: result.bypass_token || '' })
+        updateQrStatus(provider, { phase: 'unavailable', tone: 'warning', message: 'Security scanner unavailable — confirmation required.' })
+      } else {
+        updateQrStatus(provider, { phase: 'pending', tone: 'info', message: 'Security scan is still in progress. The image remains quarantined.' })
+      }
+    } catch (error) {
+      updateQrStatus(provider, { phase: 'error', tone: 'danger', message: error.message || 'Could not check the security scan.' })
+      toast.error(error.message || 'Could not check the security scan.')
+    } finally {
+      setQrUploading('')
+    }
+  }
+
+  const continueQrWithoutScan = async () => {
+    if (!qrScanWarning?.file || !qrScanWarning?.provider) return
+    const { file, provider, bypass_token: bypassToken } = qrScanWarning
+    if (!bypassToken) { toast.error('The server did not authorize an unscanned upload. Retry the security scan.'); return }
+    setQrUploading(provider)
+    setQrScanWarning(null)
+    try {
+      const result = await uploadPaymentQrImage(file, provider, {
+        scanMode: 'bypass',
+        bypassToken,
+        onStatus: (status) => updateQrStatus(provider, status),
+      })
+      applyQrUploadResult(provider, result)
+      toast.warning(`${provider === 'gcash' ? 'GCash' : 'Maya'} QR uploaded without malware scanning.`)
+    } catch (error) {
+      updateQrStatus(provider, { phase: 'error', tone: 'danger', message: error.message || 'QR image upload failed.' })
+      toast.error(error.message || 'QR image upload failed.')
+    } finally {
+      setQrUploading('')
+    }
+  }
+
+  const removeQrImage = (provider) => {
+    const key = provider === 'gcash' ? 'gcash_qr_url' : 'maya_qr_url'
+    const statusKey = provider === 'gcash' ? 'gcash_qr_scan_status' : 'maya_qr_scan_status'
+    const tokenKey = provider === 'gcash' ? 'gcash_qr_security_token' : 'maya_qr_security_token'
+    setPaymentForm((current) => ({ ...current, [key]: '', [statusKey]: 'legacy', [tokenKey]: '' }))
+    updateQrStatus(provider, null)
+  }
+
   const savePaymentSetup = async () => {
     setPaymentSetupSaving(true)
     try {
@@ -153,6 +278,10 @@ const Admin_Billing = () => {
       setPaymentForm({
         gcash_qr_url: saved?.gcash_qr_url || '',
         maya_qr_url: saved?.maya_qr_url || '',
+        gcash_qr_scan_status: saved?.gcash_qr_scan_status || 'legacy',
+        maya_qr_scan_status: saved?.maya_qr_scan_status || 'legacy',
+        gcash_qr_security_token: '',
+        maya_qr_security_token: '',
         bank_name: saved?.bank_name || '',
         bank_account_name: saved?.bank_account_name || '',
         bank_account_number: saved?.bank_account_number || '',
@@ -186,8 +315,8 @@ const Admin_Billing = () => {
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap gap-3">
-          <label className="relative min-w-[260px] flex-1"><MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input className="form-control pl-11" placeholder="Search patient, doctor, bill..." value={search} onChange={(e)=>{setSearch(e.target.value);setPage(1)}} /></label>
-          <select className="form-control max-w-[210px]" value={status} onChange={(e)=>{setStatus(e.target.value);setPage(1)}}><option value="">All statuses</option><option value="draft">Draft</option><option value="ready">Ready for Payment</option><option value="partially_paid">Partially Paid</option><option value="paid">Paid</option><option value="voided">Voided</option><option value="refunded">Refunded</option></select>
+          <label className="relative w-full min-w-0 sm:min-w-[260px] sm:flex-1"><MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input className="form-control pl-11" placeholder="Search patient, doctor, bill..." value={search} onChange={(e)=>{setSearch(e.target.value);setPage(1)}} /></label>
+          <select className="form-control w-full sm:max-w-[210px]" value={status} onChange={(e)=>{setStatus(e.target.value);setPage(1)}}><option value="">All statuses</option><option value="draft">Draft</option><option value="ready">Ready for Payment</option><option value="partially_paid">Partially Paid</option><option value="paid">Paid</option><option value="voided">Voided</option><option value="refunded">Refunded</option></select>
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-left text-sm">
@@ -242,7 +371,7 @@ const Admin_Billing = () => {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Cashier Reconciliation</h2><p className="text-sm text-slate-500">Compare collections, refunds, cash expectations, and closed shifts.</p></div><div className="flex gap-2"><label className="relative"><MdCalendarToday className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input type="date" className="form-control pl-9" value={reconDate} onChange={(e)=>setReconDate(e.target.value)}/></label><button className="button-primary" onClick={loadReconciliation}>Load</button></div></div>
+        <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Cashier Reconciliation</h2><p className="text-sm text-slate-500">Compare collections, refunds, cash expectations, and closed shifts.</p></div><div className="flex gap-2"><label><input type="date" className="form-control" value={reconDate} onChange={(e)=>setReconDate(e.target.value)}/></label><button className="button-primary" onClick={loadReconciliation}>Load</button></div></div>
         {reconciliation && <div className="mt-4 grid gap-3 md:grid-cols-4"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Gross Collected</p><p className="mt-1 text-xl font-bold">{peso(reconciliation.summary?.gross_collected)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Refunded</p><p className="mt-1 text-xl font-bold">{peso(reconciliation.summary?.refunded)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Expected Cash</p><p className="mt-1 text-xl font-bold">{peso(reconciliation.summary?.expected_cash)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Discounts</p><p className="mt-1 text-xl font-bold">{peso(reconciliation.summary?.discounts)}</p></div></div>}
       </section>
 
@@ -297,19 +426,70 @@ const Admin_Billing = () => {
 
       <Modal
         open={paymentSetupOpen}
-        onClose={() => !paymentSetupSaving && setPaymentSetupOpen(false)}
-        closeDisabled={paymentSetupSaving}
+        onClose={() => !paymentSetupSaving && !qrUploading && setPaymentSetupOpen(false)}
+        closeDisabled={paymentSetupSaving || Boolean(qrUploading)}
         title="Payment Settings"
         description="Manage the payment details shown to Staff during checkout."
         size="md"
       >
         {paymentSetupLoading ? <div className="py-10 text-center text-sm text-slate-400">Loading payment settings…</div> : (
-          <div className="space-y-4">
-            <div><label className="form-label">GCash QR Image URL</label><input type="url" value={paymentForm.gcash_qr_url} onChange={(e) => setPaymentForm((current) => ({ ...current, gcash_qr_url: e.target.value }))} placeholder="https://.../gcash-qr.png" className="form-control mt-1.5" /></div>
-            <div><label className="form-label">Maya QR Image URL</label><input type="url" value={paymentForm.maya_qr_url} onChange={(e) => setPaymentForm((current) => ({ ...current, maya_qr_url: e.target.value }))} placeholder="https://.../maya-qr.png" className="form-control mt-1.5" /></div>
+          <div className="space-y-5">
+            {qrPendingScan && (
+              <div className="rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sm text-sky-900">
+                <p className="font-black">Security scan still in progress</p>
+                <p className="mt-1 leading-relaxed">The image is already uploaded in a quarantined state, but Perception Point has not returned a final result yet. It has not been attached to Payment Settings.</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" className="button-secondary" disabled={Boolean(qrUploading)} onClick={() => setQrPendingScan(null)}>Cancel</button>
+                  <button type="button" className="button-primary" disabled={Boolean(qrUploading)} onClick={checkPendingQrScan}>Check Again</button>
+                </div>
+              </div>
+            )}
+            {qrScanWarning && (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                <p className="font-black">{qrScanWarning?.reason === 'usage_limit_reached' ? 'Security scanner usage limit reached' : 'Security scanner unavailable'}</p>
+                <p className="mt-1 leading-relaxed">{qrScanWarning.message || 'This image could not be scanned for malware. The Perception Point service may be unavailable or its usage allowance may have been reached.'}</p>
+                <p className="mt-2 text-xs font-semibold text-amber-800">Continuing will upload this QR image without a malware scan.</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" className="button-secondary" disabled={Boolean(qrUploading)} onClick={() => setQrScanWarning(null)}>Cancel Upload</button>
+                  <button type="button" className="button-primary" disabled={Boolean(qrUploading)} onClick={continueQrWithoutScan}>Continue Without Scan</button>
+                </div>
+              </div>
+            )}
+            {[
+              ['gcash', 'GCash QR', paymentForm.gcash_qr_url, paymentForm.gcash_qr_scan_status],
+              ['maya', 'Maya QR', paymentForm.maya_qr_url, paymentForm.maya_qr_scan_status],
+            ].map(([provider, label, url, storedScanStatus]) => (
+              <div key={provider} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">{label}</p>
+                    <p className="mt-1 text-xs text-slate-500">Upload the QR image Staff will show during checkout.</p>
+                  </div>
+                  {url && <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${storedScanStatus === 'approved' ? 'bg-emerald-50 text-emerald-700' : storedScanStatus === 'bypassed' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{storedScanStatus === 'approved' ? 'Security scan passed' : storedScanStatus === 'bypassed' ? 'Not malware scanned' : 'Legacy image'}</span>}
+                </div>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="flex h-36 w-full items-center justify-center overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-white sm:w-36">
+                    {url ? <img src={url} alt={`${label} preview`} className="h-full w-full object-contain p-2" /> : <span className="px-4 text-center text-xs font-semibold text-slate-400">No QR image uploaded</span>}
+                  </div>
+                  <div className="flex flex-1 flex-wrap gap-2">
+                    <label className={`button-secondary cursor-pointer ${qrUploading ? 'pointer-events-none opacity-60' : ''}`}>
+                      <MdCloudUpload /> {qrUploading === provider ? 'Uploading…' : url ? 'Replace Image' : 'Upload Image'}
+                      <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={Boolean(qrUploading) || paymentSetupSaving} onChange={(event) => handleQrUpload(provider, event)} />
+                    </label>
+                    {url && <button type="button" className="button-secondary text-rose-600" disabled={Boolean(qrUploading) || paymentSetupSaving} onClick={() => removeQrImage(provider)}><MdDeleteOutline /> Remove</button>}
+                    <p className="basis-full text-xs text-slate-400">PNG, JPG, or WEBP · maximum 5 MB.</p>
+                  </div>
+                </div>
+                {qrUploadStatus[provider] && (
+                  <div className={`mt-3 rounded-xl border px-3 py-2 text-xs font-semibold ${qrUploadStatus[provider].tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : qrUploadStatus[provider].tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800' : qrUploadStatus[provider].tone === 'danger' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
+                    {qrUploadStatus[provider].message}
+                  </div>
+                )}
+              </div>
+            ))}
             <div className="grid gap-3 sm:grid-cols-2"><div><label className="form-label">Bank Name</label><input value={paymentForm.bank_name} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_name: e.target.value }))} placeholder="e.g. BPI" className="form-control mt-1.5" /></div><div><label className="form-label">Account Number</label><input value={paymentForm.bank_account_number} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_account_number: e.target.value }))} placeholder="Enter account number" className="form-control mt-1.5" /></div></div>
             <div><label className="form-label">Account Name</label><input value={paymentForm.bank_account_name} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_account_name: e.target.value }))} placeholder="Enter registered account name" className="form-control mt-1.5" /></div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className="button-secondary" disabled={paymentSetupSaving} onClick={() => setPaymentSetupOpen(false)}>Cancel</button><button className="button-primary" disabled={paymentSetupSaving} onClick={savePaymentSetup}>{paymentSetupSaving ? 'Saving...' : 'Save Payment Settings'}</button></div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className="button-secondary" disabled={paymentSetupSaving || Boolean(qrUploading)} onClick={() => setPaymentSetupOpen(false)}>Cancel</button><button className="button-primary" disabled={paymentSetupSaving || Boolean(qrUploading)} onClick={savePaymentSetup}>{paymentSetupSaving ? 'Saving...' : 'Save Payment Settings'}</button></div>
           </div>
         )}
       </Modal>

@@ -15,11 +15,11 @@ const Doctors = () => {
   ];
 
   return (
-    <section id="doctors" className="py-24 px-10 bg-gray-50 scroll-mt-24">
+    <section id="doctors" className="px-4 py-16 bg-gray-50 scroll-mt-24 sm:px-6 sm:py-20 lg:px-10 lg:py-24">
 
       {/* SECTION TITLE */}
       <div className="text-center mb-16">
-        <h1 className="text-4xl font-bold text-gray-800">OUR DOCTORS</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold text-gray-800">OUR DOCTORS</h1>
         <p className="text-gray-600 mt-4 max-w-2xl mx-auto text-lg">
           Meet our team of experienced and compassionate doctors, committed to providing high-quality medical and dermatological care.
         </p>

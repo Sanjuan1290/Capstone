@@ -5,10 +5,10 @@ const { validateRuntimeConfig } = require('../utils/envValidation')
 const REQUIRED_TABLES = [
   'admins', 'staff', 'doctors', 'patients', 'appointments', 'queue', 'consultations',
   'consultation_amendments', 'account_security_codes', 'patient_phone_verifications',
-  'password_resets', 'billing_records', 'billing_items', 'billing_payments',
+  'password_resets', 'consultation_images', 'billing_records', 'billing_items', 'billing_payments',
   'billing_adjustment_requests', 'cashier_closings', 'inventory', 'inventory_batches',
   'inventory_locations', 'inventory_location_batches', 'inventory_location_stock',
-  'supply_requests', 'audit_logs', 'notifications', 'landing_page_content',
+  'supply_requests', 'audit_logs', 'notifications', 'landing_page_content', 'clinic_payment_settings',
 ]
 
 const REQUIRED_COLUMNS = {
@@ -17,6 +17,8 @@ const REQUIRED_COLUMNS = {
   doctors: ['must_change_password', 'password_changed_at', 'session_version'],
   patients: ['onboarding_completed_at', 'session_version'],
   consultations: ['status', 'finalized_at', 'finalized_by_doctor_id', 'updated_at'],
+  consultation_images: ['security_scan_status'],
+  clinic_payment_settings: ['gcash_qr_scan_status', 'maya_qr_scan_status'],
   supply_requests: ['destination_location_id'],
   password_resets: ['attempt_count', 'last_sent_at', 'verified_at'],
   patient_phone_verifications: ['attempt_count', 'last_sent_at'],

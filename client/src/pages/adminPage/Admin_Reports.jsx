@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   MdAssessment,
-  MdBarChart,
   MdCalendarToday,
   MdChecklist,
   MdGroups,
   MdInventory2,
-  MdMedicalServices,
   MdPayments,
   MdPictureAsPdf,
   MdRefresh,
@@ -16,6 +14,7 @@ import {
 import { getReports, recordReportExport } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import { ErrorState, LoadingState } from '../../components/ui/PageState'
+import { ComboChart, GroupedColumnChart, HorizontalBarChart, LineChart } from '../../components/charts/AnalyticsCharts'
 
 const formatMoney = (value) => new Intl.NumberFormat('en-PH', {
   style: 'currency',
@@ -151,13 +150,17 @@ const Admin_Reports = () => {
     const cancelled = Number(appointmentSummary.cancelled || 0)
     const noShow = Number(appointmentSummary.no_show || 0)
     const completionRate = totalAppointments ? (completed / totalAppointments) * 100 : 0
-    const maxAppointments = Math.max(...monthly.map((row) => Number(row.appointments || 0)), 1)
-    const maxRevenue = Math.max(...revenueTrend.map((row) => Number(row.revenue || 0)), 1)
+    const revenueByMonth = new Map(revenueTrend.map((row) => [row.ym, Number(row.revenue || 0)]))
+    const appointmentsByMonth = new Map(monthly.map((row) => [row.ym, Number(row.appointments || 0)]))
+    const monthLabels = new Map([...monthly, ...revenueTrend].map((row) => [row.ym, row.month]))
+    const performanceTrend = Array.from(new Set([...appointmentsByMonth.keys(), ...revenueByMonth.keys()]))
+      .sort()
+      .map((ym) => ({ ym, month: monthLabels.get(ym) || ym, appointments: appointmentsByMonth.get(ym) || 0, revenue: revenueByMonth.get(ym) || 0 }))
 
     return {
       appointmentSummary, billing, inventory, current, monthly, revenueTrend, status, sources,
       doctors, payments, services, stockActivity, stockReasons, categories,
-      totalAppointments, completed, cancelled, noShow, completionRate, maxAppointments, maxRevenue,
+      totalAppointments, completed, cancelled, noShow, completionRate, performanceTrend,
     }
   }, [data])
 
@@ -278,20 +281,27 @@ const Admin_Reports = () => {
         </div>
       </div>
 
-      <Section title="Collection Trend" subtitle="Payments are grouped by payment date; refunds are subtracted from collections.">
-        {report.revenueTrend.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No collection data for this period.</p> : (
-          <div className="flex h-64 items-end gap-3 overflow-x-auto pb-2">
-            {report.revenueTrend.map((row) => (
-              <div key={row.ym} className="flex min-w-[74px] flex-1 flex-col items-center gap-2">
-                <p className="text-[10px] font-bold text-slate-600">{formatMoney(row.revenue)}</p>
-                <div className="flex h-44 w-full items-end rounded-t-xl bg-slate-50 px-2">
-                  <div className="w-full rounded-t-lg bg-emerald-500" style={{ height: `${Math.max(3, (Number(row.revenue || 0) / report.maxRevenue) * 100)}%` }} />
-                </div>
-                <p className="text-[10px] font-semibold text-slate-500">{row.month}</p>
-              </div>
-            ))}
-          </div>
-        )}
+      <Section title="Collection Trend" subtitle="Net collections by month. Refunds are subtracted from completed payments.">
+        <LineChart
+          data={report.revenueTrend}
+          xKey="month"
+          yKey="revenue"
+          valueFormatter={(value) => new Intl.NumberFormat('en-PH', { notation: 'compact', maximumFractionDigits: 1 }).format(Number(value) || 0)}
+          emptyMessage="No collection data for this period."
+        />
+      </Section>
+
+      <Section title="Clinic Performance" subtitle="Appointments are shown as columns while net collections are shown as a line, making volume and revenue easier to compare.">
+        <ComboChart
+          data={report.performanceTrend}
+          xKey="month"
+          columnKey="appointments"
+          lineKey="revenue"
+          columnLabel="Appointments"
+          lineLabel="Net Collections"
+          lineFormatter={(value) => new Intl.NumberFormat('en-PH', { notation: 'compact', maximumFractionDigits: 1 }).format(Number(value) || 0)}
+          emptyMessage="No appointment or collection data for this period."
+        />
       </Section>
 
       <div>
@@ -305,21 +315,16 @@ const Admin_Reports = () => {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        <Section title="Monthly Appointments" subtitle="Medical and dermatology visits during the selected period.">
-          {report.monthly.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No appointment data.</p> : (
-            <div className="flex h-56 items-end gap-2 overflow-x-auto pb-2">
-              {report.monthly.map((row) => (
-                <div key={row.ym} className="flex min-w-[62px] flex-1 flex-col items-center gap-1">
-                  <p className="text-[10px] font-bold text-slate-600">{row.appointments}</p>
-                  <div className="flex h-40 w-full flex-col justify-end overflow-hidden rounded-t-lg bg-slate-50">
-                    <div className="w-full bg-emerald-400" style={{ height: `${(Number(row.derma || 0) / report.maxAppointments) * 100}%` }} />
-                    <div className="w-full bg-sky-500" style={{ height: `${(Number(row.medical || 0) / report.maxAppointments) * 100}%` }} />
-                  </div>
-                  <p className="text-[10px] font-semibold text-slate-500">{row.month}</p>
-                </div>
-              ))}
-            </div>
-          )}
+        <Section title="Monthly Appointments" subtitle="Grouped columns compare General Medicine and Dermatology visits.">
+          <GroupedColumnChart
+            data={report.monthly}
+            xKey="month"
+            series={[
+              { key: 'medical', label: 'General Medicine', badgeClass: 'bg-sky-500', textClass: 'text-sky-500' },
+              { key: 'derma', label: 'Dermatology', badgeClass: 'bg-emerald-500', textClass: 'text-emerald-500' },
+            ]}
+            emptyMessage="No appointment data for this period."
+          />
         </Section>
 
         <Section title="Appointment Source" subtitle="Where each visit originated.">
@@ -348,10 +353,18 @@ const Admin_Reports = () => {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Section title="Payments by Method" subtitle="Completed payments minus refunds in the selected period.">
-          <div className="space-y-3">{report.payments.length === 0 ? <p className="py-8 text-center text-sm text-slate-400">No payments.</p> : report.payments.map((row) => <div key={row.payment_method} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"><div><p className="text-sm font-bold text-slate-800">{titleCase(row.payment_method)}</p><p className="text-xs text-slate-400">{row.transactions} transactions</p></div><p className="font-black text-emerald-700">{formatMoney(row.amount)}</p></div>)}</div>
+          <HorizontalBarChart
+            data={report.payments.map((row) => ({ label: `${titleCase(row.payment_method)} · ${row.transactions} tx`, value: Number(row.amount) || 0 }))}
+            valueFormatter={formatMoney}
+            emptyMessage="No payments for this period."
+          />
         </Section>
         <Section title="Top Services by Gross Billed Amount" subtitle="Before bill-level discounts; historical bill price snapshots are preserved.">
-          <div className="space-y-3">{report.services.length === 0 ? <p className="py-8 text-center text-sm text-slate-400">No billed services.</p> : report.services.map((row) => <div key={row.service_name} className="rounded-2xl bg-slate-50 px-4 py-3"><div className="flex justify-between gap-3"><p className="text-sm font-bold text-slate-800">{row.service_name}</p><p className="font-black text-slate-900">{formatMoney(row.gross_billed_amount)}</p></div><p className="mt-1 text-xs text-slate-400">{row.bills} bills · {row.quantity} units</p></div>)}</div>
+          <HorizontalBarChart
+            data={report.services.slice(0, 8).map((row) => ({ label: row.service_name, value: Number(row.gross_billed_amount) || 0 }))}
+            valueFormatter={formatMoney}
+            emptyMessage="No billed services for this period."
+          />
         </Section>
       </div>
 

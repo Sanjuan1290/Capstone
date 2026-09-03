@@ -250,7 +250,7 @@ const Admin_StaffAccount = () => {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
             <MdPeople className="text-amber-500 text-[22px]" /> Staff Accounts
@@ -259,7 +259,7 @@ const Admin_StaffAccount = () => {
         </div>
         <button onClick={() => setShowAdd(true)}
           className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold
-            px-4 py-2.5 rounded-xl transition-colors shadow-lg shadow-amber-500/20 shrink-0">
+            px-4 py-2.5 rounded-xl transition-colors shadow-lg shadow-amber-500/20 w-full justify-center sm:w-auto shrink-0">
           <MdAdd className="text-[15px]" /> Add Staff
         </button>
       </div>
@@ -323,7 +323,7 @@ const Admin_StaffAccount = () => {
             })}
           </div>
           <div className="border-t border-slate-100 bg-slate-50/50 p-3">
-            <Pagination {...staffPagination} total={filtered.length} pageSizeOptions={[5, 10, 20]} />
+            <Pagination compact {...staffPagination} total={filtered.length} pageSizeOptions={[5, 10, 20]} />
           </div>
         </div>
 

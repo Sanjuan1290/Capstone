@@ -231,7 +231,19 @@ a:focus-visible {
 .toast-card:hover .toast-progress { animation-play-state: paused; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } }
 @keyframes toast-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
-@media (max-width: 639px) { .toast-viewport { right: 0.75rem; bottom: 4.75rem; width: calc(100vw - 1.5rem); } }
+@media (max-width: 639px) { .toast-viewport { right: 0.75rem; bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 1.5rem); } }
+
+/* Mobile device safe-area support (iPhone home indicator / Android gesture area). */
+.portal-mobile-content { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
+.portal-mobile-nav {
+  height: calc(4rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 0px); }
+@media (min-width: 1024px) {
+  .portal-mobile-content { padding-bottom: 1.5rem; }
+}
+
 
 /* Existing pages still use Tailwind utility colours. These fallbacks keep hierarchy while they move to semantic components. */
 .dark .bg-white { background-color: var(--app-surface) !important; }

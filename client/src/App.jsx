@@ -36,7 +36,7 @@ import Staff_SupplyRequests  from './pages/staffPage/Staff_SupplyRequests'
 import DoctorLogin              from './pages/auth/Doctor/DoctorLogin'
 import DoctorLayout             from './components/layouts/DoctorLayout'
 import Doctor_Dashboard         from './pages/doctorPage/Doctor_Dashboard'
-import Doctor_DailyAppointments from './pages/doctorPage/Doctor_DailyAppointments'
+import Doctor_Appointments      from './pages/doctorPage/Doctor_Appointments'
 import Doctor_Consultation      from './pages/doctorPage/Doctor_Consultation'
 import Doctor_Request           from './pages/doctorPage/Doctor_Request'
 import Doctor_Schedule          from './pages/doctorPage/Doctor_Schedule'
@@ -124,7 +124,8 @@ const router = createBrowserRouter(createRoutesFromElements(
       {/* ── Doctor protected ────────────────────────────── */}
       <Route path='/doctor' element={<DoctorRoute><DoctorLayout /></DoctorRoute>}>
         <Route index                     element={<Doctor_Dashboard />} />
-        <Route path='daily-appointments' element={<Doctor_DailyAppointments />} />
+        <Route path='appointments'       element={<Doctor_Appointments />} />
+        <Route path='daily-appointments' element={<Navigate to='/doctor/appointments' replace />} />
         <Route path='consultation'       element={<Doctor_Consultation />} />
         <Route path='request'            element={<Doctor_Request />} />
         <Route path='schedule'           element={<Doctor_Schedule />} />

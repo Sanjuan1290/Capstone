@@ -191,7 +191,7 @@ const PatientLayout = () => {
           </button>
 
           {/* Page title area (mobile) */}
-          <div className="lg:hidden flex items-center gap-2 ml-2">
+          <div className="hidden items-center gap-2 ml-2 md:flex lg:hidden">
             <img src="/logo.png" alt="Carait" className="w-7 h-7 rounded-lg object-contain bg-emerald-50 p-0.5" />
             <p className="text-sm font-bold text-slate-800">Carait Clinic</p>
           </div>
@@ -224,15 +224,15 @@ const PatientLayout = () => {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 min-w-0 overflow-y-auto p-4 pb-20 lg:p-6 lg:pb-6">
+        <main className="flex-1 min-w-0 overflow-y-auto p-4 portal-mobile-content lg:p-6">
           <div className="mx-auto w-full max-w-[1600px]">
             <Outlet />
           </div>
         </main>
 
         {/* ── Mobile Bottom Nav ──────────────────────────────────────────────── */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100 
-          flex items-center justify-around px-2 h-16 safe-area-pb shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 portal-mobile-nav bg-white border-t border-slate-100 
+          flex items-center justify-around px-2 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
           {sideNav.map(({ name, path, icon: Icon }) => (
             <NavLink key={path} to={path} end={path === "/patient"}
               className={({ isActive }) =>

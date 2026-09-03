@@ -90,6 +90,18 @@ const auditPresentation = (row) => {
     case 'security.phone_changed':
       description = `${actor} changed the patient mobile number.`
       break
+    case 'security.clinical_upload_scan_bypass_authorized':
+      description = `${actor} continued a clinical image upload without malware scanning after the scanner became unavailable.`
+      break
+    case 'security.clinical_upload_blocked':
+      description = `The malware scanner blocked an unsafe clinical image uploaded by ${actor}.`
+      break
+    case 'security.payment_qr_scan_bypass_authorized':
+      description = `${actor} continued a ${titleCase(newValues.provider || 'payment')} QR upload without malware scanning after the scanner became unavailable.`
+      break
+    case 'security.payment_qr_upload_blocked':
+      description = `The malware scanner blocked an unsafe ${titleCase(newValues.provider || 'payment')} QR image uploaded by ${actor}.`
+      break
     case 'appointment.created':
       description = `${actor} created an appointment for ${appointmentPatient}.`
       break

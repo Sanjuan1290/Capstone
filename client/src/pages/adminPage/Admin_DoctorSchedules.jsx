@@ -255,7 +255,7 @@ const UnavailableDatesPanel = ({ doctorId, dates, onSaved }) => {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr,1.2fr,auto]">
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1.2fr_auto]">
         <input
           type="date"
           min={getLocalDateOnly()}
