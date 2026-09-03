@@ -4,10 +4,8 @@ import {
   createBillingCatalogService,
   deleteBillingCatalogService,
   getBillingCatalog,
-  getBillingPaymentSettings,
   getInventory,
   updateBillingCatalogService,
-  updateBillingPaymentSettings,
 } from '../../services/admin.service'
 import {
   MdAdd,
@@ -105,8 +103,6 @@ const Admin_BillingCatalog = () => {
   const [selectedService, setSelectedService] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [modalStep, setModalStep] = useState(1)
-  const [paymentSetupOpen, setPaymentSetupOpen] = useState(false)
-  const [paymentForm, setPaymentForm] = useState({ gcash_qr_url: '', maya_qr_url: '', bank_name: '', bank_account_name: '', bank_account_number: '' })
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [page, setPage] = useState(1)
@@ -124,12 +120,6 @@ const Admin_BillingCatalog = () => {
   const inventoryQuery = useQuery({
     queryKey: inventoryQueryKey,
     queryFn: getInventory,
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const paymentSettingsQuery = useQuery({
-    queryKey: ['admin', 'billingPaymentSettings'],
-    queryFn: getBillingPaymentSettings,
     staleTime: 5 * 60 * 1000,
   })
 
@@ -165,17 +155,6 @@ const Admin_BillingCatalog = () => {
   useEffect(() => {
     setPage(1)
   }, [filter, search])
-
-  useEffect(() => {
-    if (!paymentSettingsQuery.data) return
-    setPaymentForm({
-      gcash_qr_url: paymentSettingsQuery.data.gcash_qr_url || '',
-      maya_qr_url: paymentSettingsQuery.data.maya_qr_url || '',
-      bank_name: paymentSettingsQuery.data.bank_name || '',
-      bank_account_name: paymentSettingsQuery.data.bank_account_name || '',
-      bank_account_number: paymentSettingsQuery.data.bank_account_number || '',
-    })
-  }, [paymentSettingsQuery.data])
 
   const openAddModal = () => {
     setEditingId(null)
@@ -249,16 +228,6 @@ const Admin_BillingCatalog = () => {
   const previewProfitAmount = roundMoney(previewBase * ((Number(form.profit_percentage) || 0) / 100))
   const previewSuggestedPrice = roundMoney(previewBase + previewProfitAmount)
   const previewPatientPrice = Math.max(0, Number(form.default_price) || 0)
-
-  const paymentSettingsMutation = useMutation({
-    mutationFn: updateBillingPaymentSettings,
-    onSuccess: (saved) => {
-      queryClient.setQueryData(['admin', 'billingPaymentSettings'], saved)
-      toast.success('Payment setup saved.')
-      setPaymentSetupOpen(false)
-    },
-    onError: (error) => toast.error(error.message || 'Payment setup could not be saved.'),
-  })
 
   const saveMutation = useMutation({
     mutationFn: ({ id, payload }) => id
@@ -389,12 +358,6 @@ const Admin_BillingCatalog = () => {
             className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
           >
             <MdRefresh className="text-[16px]" /> Refresh
-          </button>
-          <button
-            onClick={() => setPaymentSetupOpen(true)}
-            className="button-secondary"
-          >
-            <MdPayments className="text-[16px]" /> Payment Setup
           </button>
           <button
             onClick={openAddModal}
@@ -692,47 +655,6 @@ const Admin_BillingCatalog = () => {
           </div>
         </div>
       )}
-
-      <Modal
-        open={paymentSetupOpen}
-        onClose={() => !paymentSettingsMutation.isPending && setPaymentSetupOpen(false)}
-        closeDisabled={paymentSettingsMutation.isPending}
-        title="Payment Setup"
-        description="Set the QR image URLs and bank details shown to staff during payment."
-        size="md"
-      >
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="gcash-qr-url" className="form-label">GCash QR Image URL</label>
-            <input id="gcash-qr-url" type="url" value={paymentForm.gcash_qr_url} onChange={(e) => setPaymentForm((current) => ({ ...current, gcash_qr_url: e.target.value }))} placeholder="https://.../gcash-qr.png" className="form-control mt-1.5" />
-            <p className="form-helper mt-1">Use an HTTPS image URL or a path from the client public folder.</p>
-          </div>
-          <div>
-            <label htmlFor="maya-qr-url" className="form-label">Maya QR Image URL</label>
-            <input id="maya-qr-url" type="url" value={paymentForm.maya_qr_url} onChange={(e) => setPaymentForm((current) => ({ ...current, maya_qr_url: e.target.value }))} placeholder="https://.../maya-qr.png" className="form-control mt-1.5" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label htmlFor="bank-name" className="form-label">Bank Name</label>
-              <input id="bank-name" value={paymentForm.bank_name} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_name: e.target.value }))} placeholder="e.g. BPI" className="form-control mt-1.5" />
-            </div>
-            <div>
-              <label htmlFor="bank-account-number" className="form-label">Account Number</label>
-              <input id="bank-account-number" value={paymentForm.bank_account_number} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_account_number: e.target.value }))} placeholder="Enter account number" className="form-control mt-1.5" />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="bank-account-name" className="form-label">Account Name</label>
-            <input id="bank-account-name" value={paymentForm.bank_account_name} onChange={(e) => setPaymentForm((current) => ({ ...current, bank_account_name: e.target.value }))} placeholder="Enter registered account name" className="form-control mt-1.5" />
-          </div>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" className="button-secondary" disabled={paymentSettingsMutation.isPending} onClick={() => setPaymentSetupOpen(false)}>Cancel</button>
-            <button type="button" className="button-primary" disabled={paymentSettingsMutation.isPending} onClick={() => paymentSettingsMutation.mutate(paymentForm)}>
-              {paymentSettingsMutation.isPending ? 'Saving...' : 'Save Payment Setup'}
-            </button>
-          </div>
-        </div>
-      </Modal>
 
       <ConfirmDialog
         open={Boolean(deleteCandidate)}

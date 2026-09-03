@@ -996,8 +996,9 @@ const getDoctorSchedules = async (req, res) => {
 const saveDaySchedule = async (req, res) => {
   const { day_of_week, start_time, end_time, slot_duration_mins, is_active } = req.body
   const doctorId = req.params.id
+  const [doctorRows] = await db.query('SELECT full_name FROM doctors WHERE id = ? LIMIT 1', [doctorId])
   const [existing] = await db.query(
-    'SELECT id FROM doctor_schedules WHERE doctor_id = ? AND day_of_week = ?', [doctorId, day_of_week]
+    'SELECT id, start_time, end_time, slot_duration_mins, is_active FROM doctor_schedules WHERE doctor_id = ? AND day_of_week = ?', [doctorId, day_of_week]
   )
   if (existing.length > 0) {
     await db.query(
@@ -1010,6 +1011,12 @@ const saveDaySchedule = async (req, res) => {
       [doctorId, day_of_week, start_time, end_time, slot_duration_mins || 60, is_active ?? 1]
     )
   }
+  await writeAuditLog({
+    userId: req.user.id, userRole: 'admin', action: 'schedule.updated', entityType: 'doctor_schedule', entityId: `${doctorId}:${day_of_week}`,
+    oldValues: existing[0] || null,
+    newValues: { doctor_id: Number(doctorId), doctor_name: doctorRows[0]?.full_name || null, day_of_week, start_time, end_time, slot_duration_mins: slot_duration_mins || 60, is_active: is_active ?? 1 },
+    ipAddress: req.ip || null,
+  }).catch(() => {})
   res.json({ message: 'Schedule saved.' })
 }
 
@@ -1051,6 +1058,11 @@ const saveDoctorUnavailableDateAdmin = async (req, res) => {
        created_by_user_id = VALUES(created_by_user_id)`,
     [doctorId, unavailableDate, reason, req.user.id]
   )
+  const [doctorRows] = await db.query('SELECT full_name FROM doctors WHERE id = ? LIMIT 1', [doctorId])
+  await writeAuditLog({
+    userId: req.user.id, userRole: 'admin', action: 'schedule.unavailable_date_saved', entityType: 'doctor_unavailable_date', entityId: `${doctorId}:${unavailableDate}`,
+    newValues: { doctor_id: Number(doctorId), doctor_name: doctorRows[0]?.full_name || null, unavailable_date: unavailableDate, reason }, ipAddress: req.ip || null,
+  }).catch(() => {})
 
   res.json({ message: 'Unavailable date saved.' })
 }
@@ -1061,10 +1073,15 @@ const deleteDoctorUnavailableDateAdmin = async (req, res) => {
     return res.status(400).json({ message: 'A valid unavailable date is required.' })
   }
 
+  const [doctorRows] = await db.query('SELECT full_name FROM doctors WHERE id = ? LIMIT 1', [req.params.id])
   await db.query(
     'DELETE FROM doctor_unavailable_dates WHERE doctor_id = ? AND unavailable_date = ?',
     [req.params.id, unavailableDate]
   )
+  await writeAuditLog({
+    userId: req.user.id, userRole: 'admin', action: 'schedule.unavailable_date_removed', entityType: 'doctor_unavailable_date', entityId: `${req.params.id}:${unavailableDate}`,
+    newValues: { doctor_id: Number(req.params.id), doctor_name: doctorRows[0]?.full_name || null, unavailable_date: unavailableDate }, ipAddress: req.ip || null,
+  }).catch(() => {})
 
   res.json({ message: 'Unavailable date removed.' })
 }
@@ -1806,6 +1823,7 @@ const resolveSupplyRequest = async (req, res) => {
     actorRole: 'admin',
     actorId: req.user.id,
     ipAddress: req.ip || null,
+    note: req.body.note,
   })
   res.status(result.statusCode).json(result.body)
 }
@@ -2003,23 +2021,59 @@ const saveDiscountPresetAdmin = async (req,res) => {
 // ── System audit log ──────────────────────────────────────────────────────────
 const getAuditLogs = async (req,res) => {
   const page=Math.max(1,Number(req.query.page)||1), limit=Math.min(100,Math.max(1,Number(req.query.limit)||20)), offset=(page-1)*limit
-  const filters=[],params=[]
+  // MFA challenge/verification events stay in the database for security forensics,
+  // but they are intentionally hidden from the normal Admin activity feed.
+  const filters=["al.action NOT IN ('auth.mfa_challenge_sent','auth.mfa_verified')"],params=[]
   if(req.query.start_date){filters.push('DATE(al.created_at)>=?');params.push(String(req.query.start_date))}
   if(req.query.end_date){filters.push('DATE(al.created_at)<=?');params.push(String(req.query.end_date))}
   if(req.query.user_role){filters.push('al.user_role=?');params.push(String(req.query.user_role))}
   if(req.query.entity_type){filters.push('al.entity_type=?');params.push(String(req.query.entity_type))}
+  if(req.query.area){
+    const area=String(req.query.area)
+    const areaTypes={
+      appointments:['appointment'],
+      doctor_schedule:['doctor_schedule','doctor_unavailable_date'],
+      inventory:['inventory_item'],
+      stock_transfers:['supply_request'],
+      billing:['billing_record','billing_payment','billing_adjustment_request','cashier_closing','discount_preset','clinic_payment_settings'],
+      service_catalog:['billing_service'],
+      clinical:['consultation'],
+      reports:['report'],
+      clinic_settings:['clinic_settings'],
+    }[area]
+    if(area==='account_security'){filters.push("(al.action LIKE 'auth.%' OR al.action LIKE 'security.%' OR al.action LIKE 'account.%' OR al.action IN ('password_changed','first_password_change_completed'))")}
+    else if(areaTypes?.length){filters.push(`al.entity_type IN (${areaTypes.map(()=>'?').join(',')})`);params.push(...areaTypes)}
+  }
   if(req.query.action){filters.push('al.action LIKE ?');params.push(`%${String(req.query.action)}%`)}
-  if(req.query.search){filters.push('(al.action LIKE ? OR al.entity_type LIKE ? OR al.entity_id LIKE ?)');const q=`%${String(req.query.search)}%`;params.push(q,q,q)}
-  const where=filters.length?`WHERE ${filters.join(' AND ')}`:''
-  const [[count]]=await db.query(`SELECT COUNT(*) AS total FROM audit_logs al ${where}`,params)
+  if(req.query.search){filters.push("(al.action LIKE ? OR al.entity_type LIKE ? OR al.entity_id LIKE ? OR COALESCE(a.full_name,s.full_name,d.full_name,p.full_name,'System') LIKE ? OR ap.full_name LIKE ? OR ad.full_name LIKE ? OR inv.name LIKE ? OR srp.full_name LIKE ? OR sri.name LIKE ?)");const q=`%${String(req.query.search)}%`;params.push(q,q,q,q,q,q,q,q,q)}
+  const joins=`
+    LEFT JOIN admins a ON al.user_role='admin' AND a.id=al.user_id
+    LEFT JOIN staff s ON al.user_role='staff' AND s.id=al.user_id
+    LEFT JOIN doctors d ON al.user_role='doctor' AND d.id=al.user_id
+    LEFT JOIN patients p ON al.user_role='patient' AND p.id=al.user_id
+    LEFT JOIN appointments apt ON al.entity_type='appointment' AND apt.id=CAST(al.entity_id AS UNSIGNED)
+    LEFT JOIN patients ap ON ap.id=apt.patient_id
+    LEFT JOIN doctors ad ON ad.id=apt.doctor_id
+    LEFT JOIN inventory inv ON al.entity_type='inventory_item' AND inv.id=CAST(al.entity_id AS UNSIGNED)
+    LEFT JOIN supply_requests sr ON al.entity_type='supply_request' AND sr.id=CAST(al.entity_id AS UNSIGNED)
+    LEFT JOIN doctors srp ON srp.id=sr.doctor_id
+    LEFT JOIN inventory sri ON sri.id=sr.inventory_id
+    LEFT JOIN doctors schedule_doctor ON al.entity_type IN ('doctor_schedule','doctor_unavailable_date') AND schedule_doctor.id=CAST(SUBSTRING_INDEX(al.entity_id,':',1) AS UNSIGNED)
+    LEFT JOIN billing_records abr ON al.entity_type='billing_record' AND abr.id=CAST(al.entity_id AS UNSIGNED)
+    LEFT JOIN patients abp ON abp.id=abr.patient_id
+    LEFT JOIN doctors abd ON abd.id=abr.doctor_id`
+  const finalWhere=`WHERE ${filters.join(' AND ')}`
+  const [[count]]=await db.query(`SELECT COUNT(DISTINCT al.id) AS total FROM audit_logs al ${joins} ${finalWhere}`,params)
   const [rows]=await db.query(`SELECT al.*,
-      CASE al.user_role WHEN 'admin' THEN a.full_name WHEN 'staff' THEN s.full_name WHEN 'doctor' THEN d.full_name WHEN 'patient' THEN p.full_name ELSE 'System' END AS performed_by
+      CASE al.user_role WHEN 'admin' THEN a.full_name WHEN 'staff' THEN s.full_name WHEN 'doctor' THEN d.full_name WHEN 'patient' THEN p.full_name ELSE 'System' END AS performed_by,
+      ap.full_name AS appointment_patient_name, ad.full_name AS appointment_doctor_name, apt.appointment_date, apt.appointment_time,
+      inv.name AS inventory_item_name,
+      sri.name AS supply_item_name, srp.full_name AS supply_doctor_name, sr.qty_requested AS supply_quantity, sr.destination_location AS supply_destination, sr.reason AS supply_reason, sr.resolution_note AS supply_resolution_note,
+      schedule_doctor.full_name AS schedule_doctor_name,
+      abp.full_name AS billing_patient_name, abd.full_name AS billing_doctor_name
       FROM audit_logs al
-      LEFT JOIN admins a ON al.user_role='admin' AND a.id=al.user_id
-      LEFT JOIN staff s ON al.user_role='staff' AND s.id=al.user_id
-      LEFT JOIN doctors d ON al.user_role='doctor' AND d.id=al.user_id
-      LEFT JOIN patients p ON al.user_role='patient' AND p.id=al.user_id
-      ${where} ORDER BY al.created_at DESC,al.id DESC LIMIT ? OFFSET ?`,[...params,limit,offset])
+      ${joins}
+      ${finalWhere} ORDER BY al.created_at DESC,al.id DESC LIMIT ? OFFSET ?`,[...params,limit,offset])
   const total=Number(count?.total||0),totalPages=Math.max(1,Math.ceil(total/limit))
   res.json({items:rows,pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages}})
 }

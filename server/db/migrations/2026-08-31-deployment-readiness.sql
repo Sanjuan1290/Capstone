@@ -84,7 +84,8 @@ ALTER TABLE password_resets
 
 -- Supply request destinations are now normalized to inventory_locations.
 ALTER TABLE supply_requests
-  ADD COLUMN destination_location_id INT NULL;
+  ADD COLUMN destination_location_id INT NULL,
+  ADD COLUMN resolution_note TEXT NULL;
 
 UPDATE supply_requests sr
 JOIN inventory_locations il ON il.name = sr.destination_location

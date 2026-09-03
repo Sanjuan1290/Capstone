@@ -286,9 +286,11 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
   const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([])
   const [search, setSearch] = useState('')
   const [mode, setMode] = useState('existing')
+  const [step, setStep] = useState(1)
   const [selectedPatient, setSelectedPatient] = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [noShowWarning, setNoShowWarning] = useState(null)
   const [form, setForm] = useState({
     patient_id: '',
     doctor_id: '',
@@ -314,22 +316,21 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
   }, [services])
 
   useEffect(() => {
-    if (search.trim().length < 2) {
+    if (mode !== 'existing' || search.trim().length < 2 || (selectedPatient?.full_name || selectedPatient?.name) === search) {
       setPatients([])
       return
     }
-
     const timeout = window.setTimeout(() => {
       services.getPatients?.(search).then((rows) => setPatients(Array.isArray(rows) ? rows : [])).catch(() => {})
     }, 300)
-
     return () => window.clearTimeout(timeout)
-  }, [search, services])
+  }, [mode, search, selectedPatient, services])
 
   const filteredDoctors = doctors.filter((doctor) => {
     const specialty = (doctor.specialty || '').toLowerCase()
     return form.clinic_type === 'derma' ? specialty.includes('derm') : !specialty.includes('derm')
   })
+  const selectedDoctor = doctors.find((doctor) => String(doctor.id) === String(form.doctor_id))
 
   useEffect(() => {
     if (!form.doctor_id || !services.getDoctorSchedules) {
@@ -337,7 +338,6 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
       setDoctorUnavailableDates([])
       return
     }
-
     Promise.all([
       services.getDoctorSchedules(form.doctor_id),
       services.getDoctorUnavailableDates?.(form.doctor_id) || Promise.resolve([]),
@@ -354,7 +354,6 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
 
   const takenSlots = useMemo(() => {
     if (!form.doctor_id || !form.appointment_date) return []
-
     return appointments
       .filter((appointment) => (
         String(appointment.doctor_id) === String(form.doctor_id)
@@ -365,21 +364,34 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
       .filter(Boolean)
   }, [appointments, form.appointment_date, form.doctor_id])
 
+  const patientReady = mode === 'existing'
+    ? Boolean(form.patient_id && selectedPatient)
+    : Boolean(patientForm.full_name.trim() && patientForm.birthdate && patientForm.phone.trim() && patientForm.consent_given)
+  const scheduleReady = Boolean(form.doctor_id && form.appointment_date && form.appointment_time && form.reason.trim())
+
+  const goNext = () => {
+    setError('')
+    if (step === 1 && !patientReady) {
+      setError(mode === 'existing' ? 'Select a patient before continuing.' : 'Complete the required patient details and confirm privacy consent.')
+      return
+    }
+    if (step === 2 && !scheduleReady) {
+      setError('Select the doctor, date, time, and appointment reason before continuing.')
+      return
+    }
+    setStep((current) => Math.min(3, current + 1))
+  }
+
   const handleCreate = async (overrideNoShowWarning = false) => {
     setSaving(true)
     setError('')
     try {
       let patientId = form.patient_id
-
       if (mode === 'new') {
         const createdPatient = await services.createWalkInPatient?.(patientForm)
         patientId = createdPatient?.id
       }
-
-      if (!patientId) {
-        throw new Error('Select an existing patient or complete the new patient details first.')
-      }
-
+      if (!patientId) throw new Error('Select an existing patient or complete the new patient details first.')
       await services.createAppointment({
         ...form,
         patient_id: patientId,
@@ -389,190 +401,205 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
       onClose()
     } catch (err) {
       if (err.code === 'NO_SHOW_WARNING') {
-        const lastNoShow = err.last_no_show
-        const detail = lastNoShow
-          ? `Last no-show: ${lastNoShow.appointment_date} at ${lastNoShow.appointment_time} with ${lastNoShow.doctor_name}.`
-          : 'This patient has a previous no-show appointment.'
-        const proceed = window.confirm(`${err.message}\n\n${detail}\n\nPolicy reminder: ${err.policy}\n\nContinue creating this appointment?`)
-        if (proceed) {
-          await handleCreate(true)
-          return
-        }
+        setNoShowWarning({ message: err.message, policy: err.policy, lastNoShow: err.last_no_show })
+      } else {
+        setError(err.message || 'Failed to create appointment.')
       }
-      setError(err.message || 'Failed to create appointment.')
     } finally {
       setSaving(false)
     }
   }
 
+  const patientName = mode === 'existing'
+    ? selectedPatient?.full_name || selectedPatient?.name || '—'
+    : patientForm.full_name || '—'
+
+  const steps = [
+    { number: 1, label: 'Patient' },
+    { number: 2, label: 'Schedule' },
+    { number: 3, label: 'Review' },
+  ]
+
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-50 h-[100dvh] bg-white shadow-2xl sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={saving ? undefined : onClose} />
+      <div className="fixed inset-x-0 bottom-0 z-50 h-[100dvh] bg-white shadow-2xl sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
         <div className="flex h-full flex-col sm:max-h-[92vh]">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
-            <div>
-              <p className="text-sm font-bold text-slate-800">New Appointment</p>
-              <p className="text-xs text-slate-500">Book for an existing patient or register one first.</p>
+          <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-base font-bold text-slate-900">New Appointment</p>
+                <p className="mt-0.5 text-xs text-slate-500">Choose a patient, schedule the visit, then review before creating.</p>
+              </div>
+              <button disabled={saving} onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 disabled:opacity-40"><MdClose /></button>
             </div>
-            <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><MdClose /></button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-4 py-4 pb-6 sm:px-5">
-            <div className="mb-4 grid grid-cols-1 gap-2 rounded-2xl bg-slate-100 p-1 sm:grid-cols-2">
-              {[
-                { key: 'existing', label: 'Existing Patient' },
-                { key: 'new', label: 'Register New Patient' },
-              ].map((option) => (
-                <button
-                  key={option.key}
-                  onClick={() => {
-                    setMode(option.key)
-                    setError('')
-                  }}
-                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
-                    mode === option.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
-                  }`}
-                >
-                  {option.label}
-                </button>
+            <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
+              {steps.map((item) => (
+                <div key={item.number} className={`flex items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-xs font-bold transition ${step === item.number ? 'bg-white text-slate-900 shadow-sm' : step > item.number ? 'text-emerald-700' : 'text-slate-400'}`}>
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${step > item.number ? 'bg-emerald-100 text-emerald-700' : step === item.number ? 'bg-[#0b1a2c] text-white' : 'bg-slate-200 text-slate-500'}`}>
+                    {step > item.number ? <MdCheck /> : item.number}
+                  </span>
+                  {item.label}
+                </div>
               ))}
             </div>
-
-            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
-          {mode === 'existing' ? (
-              <label className="block sm:col-span-2">
-                <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Patient</span>
-                <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Search patient" />
-                {patients.length > 0 && (
-                  <div className="mt-2 max-h-40 overflow-auto rounded-2xl border border-slate-200">
-                    {patients.map((patient) => (
-                      <button
-                        key={patient.id}
-                        onClick={() => {
-                          setForm((prev) => ({ ...prev, patient_id: patient.id }))
-                          setSelectedPatient(patient)
-                          setSearch(patient.full_name || patient.name)
-                          setPatients([])
-                        }}
-                        className="block w-full border-b border-slate-100 px-4 py-2 text-left text-sm text-slate-700 last:border-0 hover:bg-slate-50"
-                      >
-                        {patient.full_name || patient.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {selectedPatient && (
-                  <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 sm:grid-cols-2">
-                    <div><span className="block text-xs text-slate-400">Name</span>{selectedPatient.full_name || selectedPatient.name}</div>
-                    <div><span className="block text-xs text-slate-400">Phone</span>{selectedPatient.phone || '—'}</div>
-                    <div><span className="block text-xs text-slate-400">Email</span>{selectedPatient.email || '—'}</div>
-                    <div><span className="block text-xs text-slate-400">Address</span>{selectedPatient.address || '—'}</div>
-                  </div>
-                )}
-              </label>
-          ) : (
-              <>
-                <label className="block sm:col-span-2">
-                  <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Full Name</span>
-                  <input value={patientForm.full_name} onChange={(e) => setPatientForm((prev) => ({ ...prev, full_name: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Patient full name" />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Birthdate</span>
-                  <input type="date" value={patientForm.birthdate} onChange={(e) => setPatientForm((prev) => ({ ...prev, birthdate: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Sex</span>
-                  <select value={patientForm.sex} onChange={(e) => setPatientForm((prev) => ({ ...prev, sex: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
-                    <option value="Female">Female</option>
-                    <option value="Male">Male</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Civil Status</span>
-                  <select value={patientForm.civil_status} onChange={(e) => setPatientForm((prev) => ({ ...prev, civil_status: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
-                    <option value="Single">Single</option>
-                    <option value="Married">Married</option>
-                    <option value="Widowed">Widowed</option>
-                    <option value="Separated">Separated</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Phone</span>
-                  <input value={patientForm.phone} onChange={(e) => setPatientForm((prev) => ({ ...prev, phone: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="09XXXXXXXXX" />
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Address</span>
-                  <input value={patientForm.address} onChange={(e) => setPatientForm((prev) => ({ ...prev, address: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Street, barangay, city" />
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Email</span>
-                  <input type="email" value={patientForm.email} onChange={(e) => setPatientForm((prev) => ({ ...prev, email: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Optional email" />
-                </label>
-                <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 sm:col-span-2">
-                  <input className="mt-1" type="checkbox" checked={patientForm.consent_given} onChange={(e) => setPatientForm((prev) => ({ ...prev, consent_given: e.target.checked }))} />
-                  <span>Data privacy consent has been obtained during intake.</span>
-                </label>
-              </>
-          )}
-
-          <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic Type</span>
-            <select value={form.clinic_type} onChange={(e) => setForm((prev) => ({ ...prev, clinic_type: e.target.value, doctor_id: '', appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
-              <option value="medical">Medical</option>
-              <option value="derma">Derma</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</span>
-            <select value={form.doctor_id} onChange={(e) => setForm((prev) => ({ ...prev, doctor_id: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400">
-              <option value="">Select doctor</option>
-              {filteredDoctors.map((doctor) => (
-                <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date</span>
-            <input type="date" min={getLocalDateOnly()} value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
-          </label>
-
-          <div className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Time</span>
-            <TimeSlotPicker
-              date={form.appointment_date}
-              value={form.appointment_time}
-              onChange={(slot) => setForm((prev) => ({ ...prev, appointment_time: slot }))}
-              schedules={doctorSchedules}
-              takenSlots={takenSlots}
-              unavailableDates={doctorUnavailableDates}
-              emptyMessage={form.doctor_id ? 'No slots available for this doctor on the selected date.' : 'Select a doctor first to view available time slots.'}
-            />
           </div>
 
-          <label className="block sm:col-span-2">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Reason</span>
-            <input value={form.reason} onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" />
-          </label>
-          <label className="block sm:col-span-2">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Scheduling Notes</span>
-            <textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} rows={3} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400 resize-none" placeholder="Referral notes, symptoms, intake remarks, preferred contact, etc." />
-          </label>
-            </div>
+          <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+            {step === 1 && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+                  {[
+                    { key: 'existing', label: 'Existing Patient' },
+                    { key: 'new', label: 'Register New Patient' },
+                  ].map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => {
+                        setMode(option.key)
+                        setError('')
+                        setSelectedPatient(null)
+                        setForm((prev) => ({ ...prev, patient_id: '' }))
+                        setSearch('')
+                      }}
+                      className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${mode === option.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+
+                {mode === 'existing' ? (
+                  <div>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Patient</span>
+                      <div className="relative">
+                        <MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          value={search}
+                          onChange={(e) => {
+                            setSearch(e.target.value)
+                            if (selectedPatient && e.target.value !== (selectedPatient.full_name || selectedPatient.name)) {
+                              setSelectedPatient(null)
+                              setForm((prev) => ({ ...prev, patient_id: '' }))
+                            }
+                          }}
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400"
+                          placeholder="Search patient by name"
+                        />
+                      </div>
+                    </label>
+                    {patients.length > 0 && (
+                      <div className="mt-2 max-h-48 overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+                        {patients.map((patient) => (
+                          <button
+                            type="button"
+                            key={patient.id}
+                            onClick={() => {
+                              setForm((prev) => ({ ...prev, patient_id: patient.id }))
+                              setSelectedPatient(patient)
+                              setSearch(patient.full_name || patient.name)
+                              setPatients([])
+                            }}
+                            className="block w-full border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50"
+                          >
+                            <p className="text-sm font-bold text-slate-800">{patient.full_name || patient.name}</p>
+                            <p className="mt-0.5 text-xs text-slate-500">{patient.phone || 'No phone'}{patient.email ? ` · ${patient.email}` : ''}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {selectedPatient && (
+                      <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700"><MdCheck /></div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-900">{selectedPatient.full_name || selectedPatient.name}</p>
+                            <p className="mt-1 text-xs text-slate-600">{selectedPatient.phone || 'No phone'}{selectedPatient.email ? ` · ${selectedPatient.email}` : ''}</p>
+                            {selectedPatient.address && <p className="mt-1 text-xs text-slate-500">{selectedPatient.address}</p>}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Full Name *</span><input value={patientForm.full_name} onChange={(e) => setPatientForm((prev) => ({ ...prev, full_name: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Patient full name" /></label>
+                    <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Birthdate *</span><input type="date" value={patientForm.birthdate} onChange={(e) => setPatientForm((prev) => ({ ...prev, birthdate: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" /></label>
+                    <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Phone *</span><input value={patientForm.phone} onChange={(e) => setPatientForm((prev) => ({ ...prev, phone: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="09XXXXXXXXX" /></label>
+                    <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Sex</span><select value={patientForm.sex} onChange={(e) => setPatientForm((prev) => ({ ...prev, sex: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="Female">Female</option><option value="Male">Male</option></select></label>
+                    <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Civil Status</span><select value={patientForm.civil_status} onChange={(e) => setPatientForm((prev) => ({ ...prev, civil_status: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="Single">Single</option><option value="Married">Married</option><option value="Widowed">Widowed</option><option value="Separated">Separated</option></select></label>
+                    <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Address</span><input value={patientForm.address} onChange={(e) => setPatientForm((prev) => ({ ...prev, address: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Street, barangay, city" /></label>
+                    <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Email</span><input type="email" value={patientForm.email} onChange={(e) => setPatientForm((prev) => ({ ...prev, email: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Optional email" /></label>
+                    <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 sm:col-span-2"><input className="mt-1" type="checkbox" checked={patientForm.consent_given} onChange={(e) => setPatientForm((prev) => ({ ...prev, consent_given: e.target.checked }))} /><span>Data privacy consent has been obtained during intake. *</span></label>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic Type</span><select value={form.clinic_type} onChange={(e) => setForm((prev) => ({ ...prev, clinic_type: e.target.value, doctor_id: '', appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="medical">Medical</option><option value="derma">Dermatology</option></select></label>
+                  <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor *</span><select value={form.doctor_id} onChange={(e) => setForm((prev) => ({ ...prev, doctor_id: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="">Select doctor</option>{filteredDoctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>)}</select></label>
+                  <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date *</span><input type="date" min={getLocalDateOnly()} value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" /></label>
+                </div>
+                <div>
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-400">Available Time *</span>
+                  <TimeSlotPicker date={form.appointment_date} value={form.appointment_time} onChange={(slot) => setForm((prev) => ({ ...prev, appointment_time: slot }))} schedules={doctorSchedules} takenSlots={takenSlots} unavailableDates={doctorUnavailableDates} emptyMessage={form.doctor_id ? 'No slots available for this doctor on the selected date.' : 'Select a doctor first to view available time slots.'} />
+                </div>
+                <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Reason *</span><input value={form.reason} onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="e.g. General Consultation" /></label>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Patient</p>
+                  <p className="mt-2 text-lg font-black text-slate-900">{patientName}</p>
+                  <p className="mt-1 text-sm text-slate-500">{mode === 'existing' ? selectedPatient?.phone || 'No phone' : patientForm.phone}</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</p><p className="mt-1 font-bold text-slate-900">{selectedDoctor?.full_name || selectedDoctor?.name || '—'}</p><p className="text-xs text-slate-500">{form.clinic_type === 'derma' ? 'Dermatology' : 'Medical'}</p></div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Schedule</p><p className="mt-1 font-bold text-slate-900">{formatDate(form.appointment_date)}</p><p className="text-xs text-slate-500">{form.appointment_time || '—'}</p></div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Reason</p><p className="mt-1 font-semibold text-slate-800">{form.reason || '—'}</p></div>
+                <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Scheduling Notes</span><textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} rows={3} className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Optional referral notes, symptoms, intake remarks, preferred contact, etc." /></label>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Review the patient and schedule above before creating the appointment.</div>
+              </div>
+            )}
 
             {error && <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
           </div>
 
-          <div className="border-t border-slate-100 bg-white px-4 py-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] sm:px-5 sm:py-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-              <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
-              <button onClick={() => handleCreate()} disabled={saving} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving...' : 'Create'}</button>
+          <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] sm:px-6">
+            <div className="flex items-center justify-between gap-3">
+              <button disabled={saving} onClick={step === 1 ? onClose : () => { setError(''); setStep((current) => current - 1) }} className="min-w-[120px] rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">
+                {step === 1 ? 'Cancel' : 'Back'}
+              </button>
+              {step < 3 ? (
+                <button onClick={goNext} className="min-w-[140px] rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white">Next</button>
+              ) : (
+                <button onClick={() => handleCreate()} disabled={saving} className="min-w-[180px] rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Creating...' : 'Create Appointment'}</button>
+              )}
             </div>
           </div>
         </div>
       </div>
+
+      {noShowWarning && (
+        <>
+          <div className="fixed inset-0 z-[60] bg-black/50" />
+          <div className="fixed left-1/2 top-1/2 z-[70] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-3xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-black text-slate-900">Previous No-Show</h3>
+            <p className="mt-2 text-sm text-slate-600">{noShowWarning.message}</p>
+            {noShowWarning.lastNoShow && <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm text-amber-800">Last no-show: {noShowWarning.lastNoShow.appointment_date} at {noShowWarning.lastNoShow.appointment_time} with {noShowWarning.lastNoShow.doctor_name}.</div>}
+            {noShowWarning.policy && <p className="mt-3 text-xs text-slate-500">Policy reminder: {noShowWarning.policy}</p>}
+            <div className="mt-5 flex gap-3"><button onClick={() => setNoShowWarning(null)} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Go Back</button><button disabled={saving} onClick={async () => { setNoShowWarning(null); await handleCreate(true) }} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-60">Continue Anyway</button></div>
+          </div>
+        </>
+      )}
     </>
   )
 }

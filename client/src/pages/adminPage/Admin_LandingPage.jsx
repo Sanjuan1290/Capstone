@@ -235,7 +235,7 @@ const Admin_LandingPage = () => {
   const previewSite = () => window.open('/', '_blank')
 
   return (
-    <div className="max-w-7xl pb-28">
+    <div className="max-w-7xl pb-6">
       <Toast toasts={toasts} />
 
       <div className="space-y-6">
@@ -786,7 +786,7 @@ const Admin_LandingPage = () => {
         )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-100 bg-white px-4 py-3 shadow-lg pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-0 z-20 mt-6 border-t border-slate-100 bg-white/95 px-4 py-3 shadow-[0_-6px_24px_rgba(15,23,42,0.08)] backdrop-blur pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div className="text-sm font-semibold text-amber-600">
             {isDirty ? 'Unsaved changes' : ''}

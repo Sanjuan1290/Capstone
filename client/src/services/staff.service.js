@@ -187,9 +187,9 @@ export const getDoctorUnavailableDates = (doctorId, params = {}) => {
 export const getSupplyRequests = () =>
   fetch(`${BASE}/supply-requests`, { credentials: 'include' }).then(r => r.json())
 
-export const resolveSupplyRequest = (id, status) =>
-  fetch(`${BASE}/supply-requests/${id}`, {
+export const resolveSupplyRequest = (id, status, note = '') =>
+  requestJson(`${BASE}/supply-requests/${id}`, {
     method: 'PATCH', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  }).then(r => r.json())
+    body: JSON.stringify({ status, note }),
+  })

@@ -1389,6 +1389,7 @@ const resolveSupplyRequest = async (req, res) => {
     actorRole: 'staff',
     actorId: req.user.id,
     ipAddress: req.ip || null,
+    note: req.body.note,
   })
   res.status(result.statusCode).json(result.body)
 }

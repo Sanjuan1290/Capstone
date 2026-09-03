@@ -3,7 +3,7 @@ const { writeAuditLog } = require('./audit')
 const { broadcast } = require('./sse')
 const { transferInventoryBatchesFEFO, MAIN_LOCATION, getInventoryLocationById } = require('./inventoryBatches')
 
-const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ipAddress }) => {
+const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ipAddress, note = '' }) => {
   if (!['approved', 'rejected'].includes(String(status))) {
     return { statusCode: 400, body: { message: 'Status must be approved or rejected.' } }
   }
@@ -34,8 +34,9 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
     }
 
     let batchBreakdown = []
+    let destinationRow = null
     if (status === 'approved') {
-      const destinationRow = request.destination_location_id ? await getInventoryLocationById(request.destination_location_id, conn) : null
+      destinationRow = request.destination_location_id ? await getInventoryLocationById(request.destination_location_id, conn) : null
       const destination = String(destinationRow?.name || request.destination_location_name || request.destination_location || '').trim()
       if (!destinationRow || !['room','dispensing'].includes(String(destinationRow.location_type))) {
         await conn.rollback()
@@ -96,11 +97,12 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
       }
     }
 
+    const resolutionNote = String(note || '').trim() || null
     await conn.query(
       `UPDATE supply_requests
-       SET status = ?, resolved_at = NOW(), resolved_by_admin_id = ?
+       SET status = ?, resolved_at = NOW(), resolved_by_admin_id = ?, resolution_note = ?
        WHERE id = ?`,
-      [status, actorRole === 'admin' ? actorId : null, request.id]
+      [status, actorRole === 'admin' ? actorId : null, resolutionNote, request.id]
     )
 
     await writeAuditLog({
@@ -115,6 +117,7 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
         destination_location_id: request.destination_location_id || null,
         destination_location: destinationRow?.name || request.destination_location,
         transfer_id: request.transfer_id || null,
+        resolution_note: resolutionNote,
         batches: batchBreakdown.map((batch) => ({
           batch_id: batch.batch_id,
           batch_code: batch.batch_code,

@@ -6,6 +6,7 @@ import {
   MdCheckCircle, MdLocationOn, MdCalendarToday, MdFlashOn, MdCameraswitch, MdUploadFile,
 } from 'react-icons/md'
 import { useToast } from '../../components/ui/ToastProvider'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 const CATEGORIES = ['Medicine', 'Derma', 'Supplies']
 const UNIT_OPTIONS = ['box', 'tube', 'bottle', 'pack', 'piece', 'sachet']
@@ -701,6 +702,8 @@ const Inventory = ({ services }) => {
   const [category, setCategory] = useState('All')
   const [showAdd, setShowAdd] = useState(false)
   const [editItem, setEditItem] = useState(null)
+  const [deleteCandidate, setDeleteCandidate] = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const [stockItem, setStockItem] = useState(null)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [feedback, setFeedback] = useState(null)
@@ -764,11 +767,21 @@ const Inventory = ({ services }) => {
     }
   }
 
-  const handleDelete = async (item) => {
-    if (!window.confirm(`Delete ${item.name}?`)) return
-    await deleteInventoryItem(item.id)
-    setItems(prev => prev.filter(entry => entry.id !== item.id))
-    setFeedback({ type: 'success', message: `${item.name} was removed from inventory.` })
+  const handleDelete = (item) => setDeleteCandidate(item)
+
+  const confirmDelete = async () => {
+    if (!deleteCandidate?.id) return
+    setDeleting(true)
+    try {
+      await deleteInventoryItem(deleteCandidate.id)
+      setItems(prev => prev.filter(entry => entry.id !== deleteCandidate.id))
+      setFeedback({ type: 'success', message: `${deleteCandidate.name} was removed from inventory.` })
+      setDeleteCandidate(null)
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to remove inventory item.' })
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const handleStockUpdate = async ({ type, qty, note, movement_reason, expiration_date, batch_code, selected_batches }) => {
@@ -910,7 +923,7 @@ const Inventory = ({ services }) => {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setStockItem(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdInventory2 /> Update Stock</button>
+                <button onClick={() => setStockItem(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdInventory2 /> Stock In / Out</button>
                 <button onClick={() => setEditItem(item)} className="w-11 h-11 rounded-2xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center"><MdEdit className="text-[18px]" /></button>
                 <button onClick={() => handleDelete(item)} className="w-11 h-11 rounded-2xl border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center"><MdDelete className="text-[18px]" /></button>
               </div>
@@ -954,6 +967,15 @@ const Inventory = ({ services }) => {
       {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
       {stockItem && <StockModal item={stockItem} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} onOpenScanner={() => setScannerOpen(true)} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
+      <ConfirmDialog
+        open={Boolean(deleteCandidate)}
+        title="Remove inventory item?"
+        message={deleteCandidate ? `Remove ${deleteCandidate.name} from inventory? Items with remaining batch stock cannot be deleted.` : ''}
+        confirmLabel="Remove Item"
+        loading={deleting}
+        onCancel={() => !deleting && setDeleteCandidate(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

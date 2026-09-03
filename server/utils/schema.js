@@ -616,6 +616,7 @@ const ensureAppSchema = async () => {
   await ensureColumn('supply_requests', 'destination_location_id', 'INT NULL')
   await ensureColumn('supply_requests', 'resolved_at', 'DATETIME NULL')
   await ensureColumn('supply_requests', 'resolved_by_admin_id', 'INT NULL')
+  await ensureColumn('supply_requests', 'resolution_note', 'TEXT NULL')
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS clinic_settings (

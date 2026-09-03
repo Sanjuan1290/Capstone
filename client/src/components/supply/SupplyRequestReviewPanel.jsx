@@ -15,6 +15,7 @@ import {
   MdOutlinePendingActions,
   MdOutlineInventory2,
 } from 'react-icons/md'
+import Modal from '../ui/Modal'
 
 const STATUS_CFG = {
   pending: {
@@ -81,6 +82,8 @@ const SupplyRequestReviewPanel = ({
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [resolving, setResolving] = useState(null)
+  const [decision, setDecision] = useState(null)
+  const [resolutionNote, setResolutionNote] = useState('')
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [feedback, setFeedback] = useState(null)
@@ -116,17 +119,36 @@ const SupplyRequestReviewPanel = ({
     setPage(1)
   }, [filter, search])
 
-  const handleResolve = async (id, status) => {
-    setResolving(id)
+  const openDecision = (request, status) => {
+    setDecision({ request, status })
+    setResolutionNote('')
+  }
+
+  const closeDecision = () => {
+    if (resolving) return
+    setDecision(null)
+    setResolutionNote('')
+  }
+
+  const handleResolve = async () => {
+    if (!decision?.request?.id) return
+    if (decision.status === 'rejected' && !resolutionNote.trim()) {
+      setFeedback({ type: 'error', message: 'Enter a rejection reason before rejecting this request.' })
+      return
+    }
+    const { request, status } = decision
+    setResolving(request.id)
     try {
-      const result = await resolveRequest(id, status)
-      setRequests((prev) => prev.map((request) => (
-        request.id === id ? { ...request, status } : request
+      const result = await resolveRequest(request.id, status, resolutionNote.trim())
+      setRequests((prev) => prev.map((entry) => (
+        entry.id === request.id ? { ...entry, status, resolution_note: resolutionNote.trim() || null } : entry
       )))
       setFeedback({
         type: 'success',
         message: result?.message || `Request ${status === 'approved' ? 'approved and transferred per batch' : 'rejected'} successfully.`,
       })
+      setDecision(null)
+      setResolutionNote('')
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Failed to resolve request.' })
     } finally {
@@ -316,7 +338,7 @@ const SupplyRequestReviewPanel = ({
                   {request.status === 'pending' ? (
                     <div className="mt-4 grid gap-2 sm:grid-cols-2">
                       <button
-                        onClick={() => handleResolve(request.id, 'approved')}
+                        onClick={() => openDecision(request, 'approved')}
                         disabled={isResolving}
                         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
                       >
@@ -324,7 +346,7 @@ const SupplyRequestReviewPanel = ({
                         Approve & Transfer
                       </button>
                       <button
-                        onClick={() => handleResolve(request.id, 'rejected')}
+                        onClick={() => openDecision(request, 'rejected')}
                         disabled={isResolving}
                         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
                       >
@@ -333,9 +355,10 @@ const SupplyRequestReviewPanel = ({
                       </button>
                     </div>
                   ) : (
-                    <p className="mt-4 text-right text-xs font-medium text-slate-400">
-                      Status updated: {status.label}
-                    </p>
+                    <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-right">
+                      <p className="text-xs font-medium text-slate-400">Status updated: {status.label}</p>
+                      {request.resolution_note && <p className="mt-1 text-xs text-slate-500">Note: {request.resolution_note}</p>}
+                    </div>
                   )}
                 </div>
               </article>
@@ -370,6 +393,52 @@ const SupplyRequestReviewPanel = ({
           </div>
         </div>
       )}
+
+      <Modal
+        open={Boolean(decision)}
+        onClose={closeDecision}
+        closeDisabled={Boolean(resolving)}
+        title={decision?.status === 'approved' ? 'Approve Stock Transfer?' : 'Reject Stock Transfer?'}
+        description={decision?.status === 'approved' ? 'Confirm the requested stock movement before inventory locations are updated.' : 'The request will remain in the audit history with your rejection reason.'}
+        size="md"
+      >
+        {decision?.request && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="grid gap-3 text-sm sm:grid-cols-2">
+                <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Item</p><p className="mt-1 font-bold text-slate-900">{decision.request.item_name}</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Quantity</p><p className="mt-1 font-bold text-slate-900">{decision.request.qty_requested} {decision.request.unit}(s)</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Requested By</p><p className="mt-1 font-bold text-slate-900">{decision.request.doctor_name || 'Doctor'}</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Destination</p><p className="mt-1 font-bold text-slate-900">{decision.request.destination_location || 'Doctor / Treatment Room'}</p></div>
+              </div>
+              {decision.status === 'approved' && <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Stock will be transferred from Main Stockroom using FEFO while preserving the exact source batches.</p>}
+            </div>
+
+            <label className="block">
+              <span className="form-label">{decision.status === 'rejected' ? 'Rejection Reason *' : 'Resolution Note (optional)'}</span>
+              <textarea
+                rows={3}
+                value={resolutionNote}
+                onChange={(event) => setResolutionNote(event.target.value)}
+                className="form-control mt-1.5 resize-none"
+                placeholder={decision.status === 'rejected' ? 'Explain why this stock transfer is being rejected.' : 'Optional note for the transfer record.'}
+              />
+            </label>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" className="button-secondary" disabled={Boolean(resolving)} onClick={closeDecision}>Cancel</button>
+              <button
+                type="button"
+                className={decision.status === 'approved' ? 'button-primary' : 'button-danger'}
+                disabled={Boolean(resolving) || (decision.status === 'rejected' && !resolutionNote.trim())}
+                onClick={handleResolve}
+              >
+                {resolving ? 'Working...' : decision.status === 'approved' ? 'Approve & Transfer' : 'Reject Request'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </section>
   )
 }
