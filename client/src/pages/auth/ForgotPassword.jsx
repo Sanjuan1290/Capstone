@@ -8,6 +8,8 @@ import {
   MdCheck, MdArrowBack, MdRefresh, MdArrowForward,
   MdLockReset, MdPhone,
 } from 'react-icons/md'
+import PasswordRequirements from '../../components/PasswordRequirements'
+import { getPasswordValidationError, isPasswordValid } from '../../utils/passwordPolicy'
 
 const ROLE_CFG = {
   patient: { accent: '#10b981', light: '#ecfdf5', border: 'focus:border-emerald-400', ring: 'focus:ring-emerald-400/10', badge: 'Patient',  btnClass: 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25' },
@@ -161,7 +163,8 @@ const ForgotPassword = ({ role }) => {
   // Step 3
   const handleReset = async e => {
     e.preventDefault()
-    if (password.length < 6) { setError('Password must be at least 6 characters.'); return }
+    const passwordError = getPasswordValidationError(password)
+    if (passwordError) { setError(passwordError); return }
     if (password !== confirm) { setError('Passwords do not match.'); return }
     setError(''); setLoading(true)
     try {
@@ -317,9 +320,9 @@ const ForgotPassword = ({ role }) => {
                   <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">New Password</label>
                   <div className="relative">
                     <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                    <input type={showPass ? 'text' : 'password'} required minLength={6}
+                    <input type={showPass ? 'text' : 'password'} required minLength={8} maxLength={128}
                       value={password} onChange={e => { setPass(e.target.value); setError('') }}
-                      placeholder="Min 6 characters"
+                      placeholder="8+ characters"
                       className={`${inpClass} pl-10 pr-11`} />
                     <button type="button" onClick={() => setShowPass(s => !s)}
                       className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
@@ -327,11 +330,12 @@ const ForgotPassword = ({ role }) => {
                     </button>
                   </div>
                 </div>
+                <PasswordRequirements password={password} />
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Confirm Password</label>
                   <div className="relative">
                     <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                    <input type={showPass ? 'text' : 'password'} required
+                    <input type={showPass ? 'text' : 'password'} required minLength={8} maxLength={128}
                       value={confirm} onChange={e => { setConfirm(e.target.value); setError('') }}
                       placeholder="Repeat password"
                       className={`${inpClass} pl-10`} />
@@ -340,7 +344,7 @@ const ForgotPassword = ({ role }) => {
                     <p className="text-xs text-red-500 mt-1">Passwords do not match.</p>
                   )}
                 </div>
-                <button type="submit" disabled={loading || (confirm.length > 0 && password !== confirm)}
+                <button type="submit" disabled={loading || !isPasswordValid(password) || !confirm || password !== confirm}
                   className={`w-full flex items-center justify-center gap-2 py-3.5 text-white font-bold text-sm
                     rounded-xl transition-colors shadow-lg disabled:opacity-60 ${cfg.btnClass}`}>
                   {loading

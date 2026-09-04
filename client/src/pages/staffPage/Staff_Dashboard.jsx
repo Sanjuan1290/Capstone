@@ -64,7 +64,7 @@ const Staff_Dashboard = () => {
   )
 
   return (
-    <div className="space-y-5 max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl space-y-5">
 
       {/* ── Hero banner ──────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a2c] via-[#0a2040] to-[#0b1a2c] px-6 py-6">

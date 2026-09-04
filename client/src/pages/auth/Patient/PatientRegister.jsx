@@ -11,6 +11,8 @@ import {
   MdVisibilityOff,
 } from 'react-icons/md'
 import { useAuth } from '../../../context/AuthContext'
+import PasswordRequirements from '../../../components/PasswordRequirements'
+import { getPasswordValidationError, isPasswordValid } from '../../../utils/passwordPolicy'
 
 const INPUT_CLASS = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 text-sm
   text-slate-800 placeholder-slate-300 transition-all focus:border-emerald-400 focus:bg-white
@@ -30,6 +32,8 @@ const PasswordInput = ({ name, value, onChange, placeholder }) => {
         value={value}
         onChange={onChange}
         required
+        minLength={8}
+        maxLength={128}
         placeholder={placeholder}
         className={`${INPUT_CLASS} pl-10 pr-11`}
       />
@@ -123,12 +127,13 @@ const RegistrationForm = ({ onSuccess }) => {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    if (form.password !== form.confirmPassword) {
-      setError('Passwords do not match.')
+    const passwordError = getPasswordValidationError(form.password)
+    if (passwordError) {
+      setError(passwordError)
       return
     }
-    if (form.password.length < 6) {
-      setError('Password must be at least 6 characters.')
+    if (form.password !== form.confirmPassword) {
+      setError('Passwords do not match.')
       return
     }
 
@@ -226,7 +231,7 @@ const RegistrationForm = ({ onSuccess }) => {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={LABEL_CLASS}>Password</label>
-                <PasswordInput name="password" value={form.password} onChange={updateField} placeholder="Min 6 characters" />
+                <PasswordInput name="password" value={form.password} onChange={updateField} placeholder="8+ characters" />
               </div>
               <div>
                 <label className={LABEL_CLASS}>Confirm Password</label>
@@ -236,6 +241,8 @@ const RegistrationForm = ({ onSuccess }) => {
                 )}
               </div>
             </div>
+
+            <PasswordRequirements password={form.password} />
 
             <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
               <input
@@ -266,7 +273,7 @@ const RegistrationForm = ({ onSuccess }) => {
 
             <button
               type="submit"
-              disabled={loading || !consentGiven}
+              disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword}
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 transition-colors hover:bg-emerald-600 disabled:opacity-60"
             >
               {loading ? (
