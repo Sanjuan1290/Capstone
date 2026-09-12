@@ -34,7 +34,7 @@ const Admin_BillingCatalog = () => {
     setLoading(true); setError('')
     try {
       const [catalog, pending] = await Promise.all([getBillingCatalog({ includeInactive: true }), getBillingAdjustmentRequests({ status: 'pending' })])
-      setServices(Array.isArray(catalog) ? catalog : []); setPendingCount(Array.isArray(pending) ? pending.length : 0)
+      setServices(Array.isArray(catalog) ? catalog : []); setPendingCount(Number(pending?.pagination?.total ?? pending?.items?.length ?? pending?.length ?? 0))
     } catch (err) { const message = err.message || 'Billing services could not be loaded.'; setError(message); toast.error(message) }
     finally { setLoading(false) }
   }

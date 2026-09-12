@@ -12,9 +12,10 @@ const loadDiscountPreset = async (presetId, executor = db) => {
   return rows[0] || null
 }
 
-const getApprovedAdjustment = async ({ billingId, requestType, discountPresetId = null, catalogServiceId = null, requestedPrice = null }, executor = db) => {
+const getApprovedAdjustment = async ({ billingId, billVersion = null, requestType, discountPresetId = null, catalogServiceId = null, requestedPrice = null }, executor = db) => {
   const params = [billingId, requestType]
   const filters = ['billing_id = ?', 'request_type = ?', "status = 'approved'"]
+  if (billVersion !== null && billVersion !== undefined) { filters.push('bill_version = ?'); params.push(Number(billVersion)) }
   if (discountPresetId) { filters.push('discount_preset_id = ?'); params.push(Number(discountPresetId)) }
   if (catalogServiceId) { filters.push('catalog_service_id = ?'); params.push(Number(catalogServiceId)) }
   if (requestedPrice !== null && requestedPrice !== undefined) { filters.push('ABS(requested_price - ?) < 0.001'); params.push(Number(requestedPrice)) }
@@ -25,7 +26,7 @@ const getApprovedAdjustment = async ({ billingId, requestType, discountPresetId 
   return rows[0] || null
 }
 
-const resolveDiscountForDraft = async ({ billingId, subtotal, presetId, reference, requestedAmount }, executor = db) => {
+const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal, presetId, reference, requestedAmount }, executor = db) => {
   if (!presetId) return { type: 'none', label: null, amount: 0, preset: null }
   const preset = await loadDiscountPreset(presetId, executor)
   if (!preset || Number(preset.is_active) === 0) throw Object.assign(new Error('Selected discount is unavailable.'), { statusCode: 400 })
@@ -39,7 +40,7 @@ const resolveDiscountForDraft = async ({ billingId, subtotal, presetId, referenc
 
   const requiresApproval = Number(preset.requires_admin_approval) === 1 || (preset.discount_type === 'fixed' && Number(preset.value || 0) <= 0)
   if (requiresApproval) {
-    const approval = await getApprovedAdjustment({ billingId, requestType: 'discount', discountPresetId: preset.id }, executor)
+    const approval = await getApprovedAdjustment({ billingId, billVersion, requestType: 'discount', discountPresetId: preset.id }, executor)
     if (!approval) {
       const err = new Error(`${preset.label} discount requires administrator approval.`)
       err.statusCode = 403
@@ -57,7 +58,7 @@ const resolveDiscountForDraft = async ({ billingId, subtotal, presetId, referenc
   }
 }
 
-const applyApprovedPriceOverrides = async (billingId, items = [], executor = db) => {
+const applyApprovedPriceOverrides = async (billingId, items = [], executor = db, billVersion = null) => {
   const result = []
   for (const item of Array.isArray(items) ? items : []) {
     if (item?.item_type !== 'service' || !item?.price_overridden) {
@@ -67,6 +68,7 @@ const applyApprovedPriceOverrides = async (billingId, items = [], executor = db)
     const requestedPrice = Math.max(0, Number(item.unit_price) || 0)
     const approval = await getApprovedAdjustment({
       billingId,
+      billVersion,
       requestType: 'price_override',
       catalogServiceId: item.catalog_service_id,
       requestedPrice,

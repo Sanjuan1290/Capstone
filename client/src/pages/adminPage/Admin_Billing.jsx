@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MdPayments, MdRefresh, MdArrowForward, MdWarningAmber, MdReceiptLong, MdApproval, MdAccountBalanceWallet } from 'react-icons/md'
-import { getBills, getBillingAdjustmentRequests, getBillingReconciliation } from '../../services/admin.service'
+import { MdPayments, MdRefresh, MdArrowForward, MdWarningAmber, MdReceiptLong, MdApproval, MdSettings, MdCheckCircle } from 'react-icons/md'
+import { getBills, getBillingAdjustmentRequests, getBillingReconciliation, getBillingPaymentSettings, getBillingCatalog, getInventory, getClinicSettings } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/PageState'
 import AdminBillingNav from '../../components/billing/AdminBillingNav'
@@ -12,8 +12,9 @@ import { getLocalDateOnly, formatDateOnly } from '../../utils/date'
 const Admin_Billing = () => {
   const toast = useToast()
   const [data, setData] = useState({ items: [], summary: {}, pagination: {} })
-  const [adjustments, setAdjustments] = useState([])
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0)
   const [reconciliation, setReconciliation] = useState(null)
+  const [setup, setSetup] = useState({ payment: {}, catalog: [], inventory: [], clinic: {} })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -21,14 +22,24 @@ const Admin_Billing = () => {
     setLoading(true)
     setError('')
     try {
-      const [bills, pending, recon] = await Promise.all([
+      const [bills, pending, recon, payment, catalog, inventory, clinic] = await Promise.all([
         getBills({ page: 1, limit: 6 }),
-        getBillingAdjustmentRequests({ status: 'pending' }),
+        getBillingAdjustmentRequests({ status: 'pending', page: 1, limit: 1 }),
         getBillingReconciliation(getLocalDateOnly()),
+        getBillingPaymentSettings(),
+        getBillingCatalog({ includeInactive: true }),
+        getInventory(),
+        getClinicSettings(),
       ])
       setData(bills || { items: [], summary: {}, pagination: {} })
-      setAdjustments(Array.isArray(pending) ? pending : [])
+      setPendingApprovalCount(Number(pending?.pagination?.total ?? (Array.isArray(pending) ? pending.length : 0)))
       setReconciliation(recon || null)
+      setSetup({
+        payment: payment || {},
+        catalog: Array.isArray(catalog) ? catalog : [],
+        inventory: Array.isArray(inventory) ? inventory : [],
+        clinic: clinic || {},
+      })
     } catch (err) {
       const message = err.message || 'Could not load billing overview.'
       setError(message)
@@ -48,12 +59,49 @@ const Admin_Billing = () => {
   const summary = data.summary || {}
   const partial = Number(summary.partially_paid || 0)
   const ready = Number(summary.ready || 0)
-  const collectedToday = Number(reconciliation?.summary?.gross_collected || 0) - Number(reconciliation?.summary?.refunded || 0)
+  const collectedToday = Number(reconciliation?.summary?.net_collected ?? (Number(reconciliation?.summary?.gross_collected || 0) - Number(reconciliation?.summary?.refunded || 0)))
   const attention = useMemo(() => [
-    { label: 'Billing approvals', value: adjustments.length, to: '/admin/billing/approvals', icon: MdApproval, tone: 'amber' },
+    { label: 'Billing approvals', value: pendingApprovalCount, to: '/admin/billing/approvals', icon: MdApproval, tone: 'amber' },
     { label: 'Partial balances', value: partial, to: '/admin/billing/transactions?status=partially_paid', icon: MdWarningAmber, tone: 'sky' },
     { label: 'Ready for payment', value: ready, to: '/admin/billing/transactions?status=ready', icon: MdReceiptLong, tone: 'slate' },
-  ], [adjustments.length, partial, ready])
+  ], [pendingApprovalCount, partial, ready])
+
+  const setupIssues = useMemo(() => {
+    const payment = setup.payment || {}
+    const catalog = Array.isArray(setup.catalog) ? setup.catalog : []
+    const inventory = Array.isArray(setup.inventory) ? setup.inventory : []
+    const clinic = setup.clinic || {}
+    const issues = []
+    const enabled = [payment.cash_enabled, payment.gcash_enabled, payment.maya_enabled, payment.bank_transfer_enabled].filter(Boolean).length
+    if (!enabled) issues.push({ severity: 'critical', label: 'No payment method is enabled.', to: '/admin/billing/setup/payment-methods' })
+    if (payment.bank_transfer_enabled && (!payment.bank_name || !payment.bank_account_name || !payment.bank_account_number)) {
+      issues.push({ severity: 'critical', label: 'Bank Transfer is enabled but bank account details are incomplete.', to: '/admin/billing/setup/payment-methods' })
+    }
+    if (payment.gcash_enabled && (payment.gcash_qr_mode || 'uploaded') === 'uploaded' && !payment.gcash_qr_url) {
+      issues.push({ severity: 'critical', label: 'GCash is enabled for an uploaded QR, but no QR image is configured.', to: '/admin/billing/setup/payment-methods' })
+    }
+    if (payment.maya_enabled && (payment.maya_qr_mode || 'uploaded') === 'uploaded' && !payment.maya_qr_url) {
+      issues.push({ severity: 'critical', label: 'Maya is enabled for an uploaded QR, but no QR image is configured.', to: '/admin/billing/setup/payment-methods' })
+    }
+    const active = catalog.filter((service) => Number(service.is_active) === 1)
+    if (!active.length) issues.push({ severity: 'warning', label: 'No active billing services are configured.', to: '/admin/billing/setup/services' })
+    const freeCount = active.filter((service) => Number(service.default_price ?? service.patient_price ?? 0) <= 0).length
+    if (freeCount) issues.push({ severity: 'warning', label: `${freeCount} active service${freeCount === 1 ? '' : 's'} ${freeCount === 1 ? 'has' : 'have'} a ₱0 patient price.`, to: '/admin/billing/setup/services' })
+    const belowCost = active.filter((service) => {
+      const patient = Number(service.default_price ?? service.patient_price ?? 0)
+      const cost = Number(service.materials_cost || 0) + Number(service.consultation_fee || 0)
+      return patient > 0 && cost > 0 && patient < cost
+    }).length
+    if (belowCost) issues.push({ severity: 'warning', label: `${belowCost} active service${belowCost === 1 ? '' : 's'} ${belowCost === 1 ? 'is' : 'are'} priced below estimated cost.`, to: '/admin/billing/setup/services' })
+    const inventoryIds = new Set(inventory.map((item) => Number(item.id)))
+    const missingLinks = active.reduce((count, service) => count + (Array.isArray(service.materials) ? service.materials.filter((m) => m.inventory_id && !inventoryIds.has(Number(m.inventory_id))).length : 0), 0)
+    if (missingLinks) issues.push({ severity: 'warning', label: `${missingLinks} service consumable link${missingLinks === 1 ? '' : 's'} point${missingLinks === 1 ? 's' : ''} to missing inventory records.`, to: '/admin/billing/setup/services' })
+    const unpricedInventory = inventory.filter((item) => item.selling_price === null || item.selling_price === undefined || item.selling_price === '').length
+    if (unpricedInventory) issues.push({ severity: 'warning', label: `${unpricedInventory} inventory item${unpricedInventory === 1 ? '' : 's'} ${unpricedInventory === 1 ? 'has' : 'have'} no patient selling price for direct Checkout billing.`, to: '/admin/inventory' })
+    if (!String(clinic.receipt_title || '').trim()) issues.push({ severity: 'warning', label: 'Receipt title is not configured.', to: '/admin/billing/setup/receipt' })
+    if (!String(clinic.clinic_name || '').trim()) issues.push({ severity: 'critical', label: 'Clinic identity is incomplete for receipts.', to: '/admin/clinic-settings' })
+    return issues
+  }, [setup])
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
@@ -65,7 +113,7 @@ const Admin_Billing = () => {
         <button type="button" onClick={load} className="button-secondary"><MdRefresh /> Refresh</button>
       </div>
 
-      <AdminBillingNav pendingApprovals={adjustments.length} />
+      <AdminBillingNav pendingApprovals={pendingApprovalCount} />
 
       {loading ? <LoadingState label="Loading billing overview..." /> : error ? <ErrorState message={error} onRetry={load} /> : (
         <>
@@ -82,6 +130,32 @@ const Admin_Billing = () => {
               </div>
             ))}
           </section>
+
+          {setupIssues.length > 0 ? (
+            <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-xl text-amber-700"><MdWarningAmber /></div>
+                  <div><h2 className="font-black text-amber-950">Billing Setup needs attention</h2><p className="mt-1 text-sm text-amber-800">Fix these items before they interrupt Staff during patient checkout.</p></div>
+                </div>
+                <Link to="/admin/billing/setup" className="button-secondary"><MdSettings /> Review Billing Setup</Link>
+              </div>
+              <div className="mt-4 grid gap-2 lg:grid-cols-2">
+                {setupIssues.slice(0, 6).map((issue, index) => (
+                  <Link key={`${issue.label}-${index}`} to={issue.to} className={`flex items-start gap-2 rounded-2xl border px-3 py-3 text-sm font-semibold ${issue.severity === 'critical' ? 'border-rose-200 bg-white text-rose-800' : 'border-amber-200 bg-white text-amber-900'}`}>
+                    <MdWarningAmber className="mt-0.5 shrink-0" />
+                    <span>{issue.label}</span>
+                  </Link>
+                ))}
+              </div>
+              {setupIssues.length > 6 && <p className="mt-3 text-xs font-semibold text-amber-800">+ {setupIssues.length - 6} more setup issue{setupIssues.length - 6 === 1 ? '' : 's'}.</p>}
+            </section>
+          ) : (
+            <section className="flex items-center justify-between gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+              <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-xl text-emerald-700"><MdCheckCircle /></div><div><h2 className="font-black text-emerald-950">Billing Setup looks ready</h2><p className="mt-1 text-sm text-emerald-800">No blocking configuration issues were detected.</p></div></div>
+              <Link to="/admin/billing/setup" className="text-sm font-black text-emerald-800">Review Setup</Link>
+            </section>
+          )}
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
             <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">

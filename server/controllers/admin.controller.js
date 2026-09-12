@@ -77,6 +77,7 @@ const normalizeInventoryPayload = (body = {}) => ({
   stock: Math.max(0, Number(body.stock) || 0),
   threshold: Math.max(0, Number(body.threshold) || 0),
   price: Math.max(0, Number(body.price) || 0),
+  selling_price: body.selling_price === '' || body.selling_price === null || body.selling_price === undefined ? null : Math.max(0, Number(body.selling_price) || 0),
   supplier: body.supplier?.trim() || null,
   expiration_date: body.expiration_date || null,
   batch_code: String(body.batch_code || '').trim() || null,
@@ -1211,11 +1212,13 @@ const deleteBillingCatalogService = async (req, res) => {
   )
   if (Number(usage?.count || 0) > 0) {
     await db.query('UPDATE billing_service_catalog SET is_active = 0 WHERE id = ?', [req.params.serviceId])
-    return res.json({ message: 'Billing service archived because it is already used by a bill.', archived: true })
+    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.service_archived',entityType:'billing_service',entityId:req.params.serviceId,oldValues:{service_name:rows[0].service_name,is_active:1},newValues:{is_active:0,historical_usage:Number(usage.count)},ipAddress:req.ip||null }).catch(() => {})
+    return res.json({ message: 'Service archived. Historical bills were preserved.', archived: true })
   }
 
   await db.query('DELETE FROM billing_service_catalog WHERE id = ?', [req.params.serviceId])
-  res.json({ message: 'Billing service removed.', archived: false })
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.service_deleted',entityType:'billing_service',entityId:req.params.serviceId,oldValues:rows[0],newValues:null,ipAddress:req.ip||null }).catch(() => {})
+  res.json({ message: 'Service deleted.', archived: false })
 }
 
 
@@ -1381,18 +1384,23 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
 
 const getPaymentSettingsAdmin = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled, gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status, bank_name, bank_account_name, bank_account_number, updated_at
+    `SELECT cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled,
+            gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status,
+            gcash_qr_mode, maya_qr_mode,
+            bank_name, bank_account_name, bank_account_number, updated_at
      FROM clinic_payment_settings WHERE id = 1 LIMIT 1`
   )
   res.json(rows[0] || {
     cash_enabled: 1,
-    gcash_enabled: 1,
-    maya_enabled: 1,
-    bank_transfer_enabled: 1,
+    gcash_enabled: 0,
+    maya_enabled: 0,
+    bank_transfer_enabled: 0,
     gcash_qr_url: '',
     maya_qr_url: '',
     gcash_qr_scan_status: 'legacy',
     maya_qr_scan_status: 'legacy',
+    gcash_qr_mode: 'uploaded',
+    maya_qr_mode: 'uploaded',
     bank_name: '',
     bank_account_name: '',
     bank_account_number: '',
@@ -1413,16 +1421,41 @@ const updatePaymentSettingsAdmin = async (req, res) => {
     return res.status(400).json({ message: 'Maya QR must use an HTTPS URL or an app-relative path.' })
   }
 
+  const enabledValue = (value) => (value === false || value === 0 || value === '0' ? 0 : 1)
+  const cashEnabled = enabledValue(req.body.cash_enabled)
+  const gcashEnabled = enabledValue(req.body.gcash_enabled)
+  const mayaEnabled = enabledValue(req.body.maya_enabled)
+  const bankEnabled = enabledValue(req.body.bank_transfer_enabled)
+  const gcashQrMode = String(req.body.gcash_qr_mode || 'uploaded').toLowerCase() === 'external' ? 'external' : 'uploaded'
+  const mayaQrMode = String(req.body.maya_qr_mode || 'uploaded').toLowerCase() === 'external' ? 'external' : 'uploaded'
+  const bankName = String(req.body.bank_name || '').trim() || null
+  const bankAccountName = String(req.body.bank_account_name || '').trim() || null
+  const bankAccountNumber = String(req.body.bank_account_number || '').trim() || null
+
+  if (![cashEnabled, gcashEnabled, mayaEnabled, bankEnabled].some(Boolean)) {
+    return res.status(400).json({ code: 'PAYMENT_METHOD_REQUIRED', message: 'At least one payment method must remain enabled.' })
+  }
+  if (bankEnabled && (!bankName || !bankAccountName || !bankAccountNumber)) {
+    return res.status(400).json({ code: 'BANK_DETAILS_REQUIRED', message: 'Complete the bank name, account name, and account number before enabling Bank Transfer.' })
+  }
+  if (gcashEnabled && gcashQrMode === 'uploaded' && !gcashQrUrl) {
+    return res.status(400).json({ code: 'GCASH_QR_REQUIRED', message: 'Upload a GCash QR image or choose the physical/external QR option before enabling GCash.' })
+  }
+  if (mayaEnabled && mayaQrMode === 'uploaded' && !mayaQrUrl) {
+    return res.status(400).json({ code: 'MAYA_QR_REQUIRED', message: 'Upload a Maya QR image or choose the physical/external QR option before enabling Maya.' })
+  }
+
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
     const [oldRows] = await conn.query('SELECT * FROM clinic_payment_settings WHERE id = 1 LIMIT 1 FOR UPDATE')
     const oldSettings = oldRows[0] || {}
 
-    const resolveQr = (provider, newUrl) => {
+    const resolveQr = (provider, newUrl, qrMode) => {
       const urlKey = `${provider}_qr_url`
       const statusKey = `${provider}_qr_scan_status`
       const tokenKey = `${provider}_qr_security_token`
+      if (qrMode === 'external') return { url: newUrl || null, status: newUrl ? String(oldSettings[statusKey] || 'legacy') : 'legacy' }
       if (!newUrl) return { url: null, status: 'legacy' }
 
       const oldUrl = String(oldSettings[urlKey] || '').trim()
@@ -1447,27 +1480,30 @@ const updatePaymentSettingsAdmin = async (req, res) => {
       return { url: newUrl, status: verified.scan_status }
     }
 
-    const gcash = resolveQr('gcash', gcashQrUrl)
-    const maya = resolveQr('maya', mayaQrUrl)
-    const enabledValue = (value) => (value === false || value === 0 || value === '0' ? 0 : 1)
+    const gcash = resolveQr('gcash', gcashQrUrl, gcashQrMode)
+    const maya = resolveQr('maya', mayaQrUrl, mayaQrMode)
     const payload = {
-      cash_enabled: enabledValue(req.body.cash_enabled),
-      gcash_enabled: enabledValue(req.body.gcash_enabled),
-      maya_enabled: enabledValue(req.body.maya_enabled),
-      bank_transfer_enabled: enabledValue(req.body.bank_transfer_enabled),
+      cash_enabled: cashEnabled,
+      gcash_enabled: gcashEnabled,
+      maya_enabled: mayaEnabled,
+      bank_transfer_enabled: bankEnabled,
       gcash_qr_url: gcash.url,
       maya_qr_url: maya.url,
       gcash_qr_scan_status: gcash.status,
       maya_qr_scan_status: maya.status,
-      bank_name: String(req.body.bank_name || '').trim() || null,
-      bank_account_name: String(req.body.bank_account_name || '').trim() || null,
-      bank_account_number: String(req.body.bank_account_number || '').trim() || null,
+      gcash_qr_mode: gcashQrMode,
+      maya_qr_mode: mayaQrMode,
+      bank_name: bankName,
+      bank_account_name: bankAccountName,
+      bank_account_number: bankAccountNumber,
     }
 
     await conn.query(
       `INSERT INTO clinic_payment_settings
-       (id, cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled, gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status, bank_name, bank_account_name, bank_account_number, updated_by_admin_id)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (id, cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled,
+        gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status,
+        gcash_qr_mode, maya_qr_mode, bank_name, bank_account_name, bank_account_number, updated_by_admin_id)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          cash_enabled = VALUES(cash_enabled),
          gcash_enabled = VALUES(gcash_enabled),
@@ -1477,11 +1513,15 @@ const updatePaymentSettingsAdmin = async (req, res) => {
          maya_qr_url = VALUES(maya_qr_url),
          gcash_qr_scan_status = VALUES(gcash_qr_scan_status),
          maya_qr_scan_status = VALUES(maya_qr_scan_status),
+         gcash_qr_mode = VALUES(gcash_qr_mode),
+         maya_qr_mode = VALUES(maya_qr_mode),
          bank_name = VALUES(bank_name),
          bank_account_name = VALUES(bank_account_name),
          bank_account_number = VALUES(bank_account_number),
          updated_by_admin_id = VALUES(updated_by_admin_id)`,
-      [payload.cash_enabled, payload.gcash_enabled, payload.maya_enabled, payload.bank_transfer_enabled, payload.gcash_qr_url, payload.maya_qr_url, payload.gcash_qr_scan_status, payload.maya_qr_scan_status, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
+      [payload.cash_enabled, payload.gcash_enabled, payload.maya_enabled, payload.bank_transfer_enabled,
+       payload.gcash_qr_url, payload.maya_qr_url, payload.gcash_qr_scan_status, payload.maya_qr_scan_status,
+       payload.gcash_qr_mode, payload.maya_qr_mode, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
     )
     await writeAuditLog({
       userId: req.user.id,
@@ -1496,7 +1536,7 @@ const updatePaymentSettingsAdmin = async (req, res) => {
     await conn.commit()
   } catch (error) {
     await conn.rollback()
-    if (error.statusCode && !res.headersSent) return res.status(error.statusCode).json({ message: error.message })
+    if (error.statusCode && !res.headersSent) return res.status(error.statusCode).json({ message: error.message, code: error.code })
     throw error
   } finally {
     conn.release()
@@ -1815,7 +1855,7 @@ const getInventory = async (req, res) => {
 
 const addInventoryItem = async (req, res) => {
   const {
-    barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier,
+    barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier,
     expiration_date, batch_code, storage_location,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
@@ -1825,9 +1865,9 @@ const addInventoryItem = async (req, res) => {
     await conn.beginTransaction()
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, unit, base_unit, unit_size, 0, threshold, price, supplier, null, storage_location]
+       (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, expiration_date, storage_location)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, unit, base_unit, unit_size, 0, threshold, price, selling_price, supplier, null, storage_location]
     )
     let openingBatchId = null
     if (stock > 0) {
@@ -1858,7 +1898,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, barcode, stock_unit: unit, dispensing_unit: base_unit, units_per_package: unit_size, opening_stock: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
+      newValues: { name, category, barcode, stock_unit: unit, dispensing_unit: base_unit, units_per_package: unit_size, unit_cost: price, patient_selling_price: selling_price, opening_stock: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -1878,7 +1918,7 @@ const addInventoryItem = async (req, res) => {
 // FIX 5: Edit an existing inventory item
 const updateInventoryItem = async (req, res) => {
   const {
-    barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier,
+    barcode, name, category, unit, base_unit, unit_size, threshold, price, selling_price, supplier,
     storage_location,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
@@ -1895,9 +1935,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, supplier=?, storage_location=?
+       SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, selling_price=?, supplier=?, storage_location=?
        WHERE id=?`,
-      [barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier, storage_location, req.params.id]
+      [barcode, name, category, unit, base_unit, unit_size, threshold, price, selling_price, supplier, storage_location, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -2056,17 +2096,20 @@ const assertPaymentCashierShiftOpen = async (payment, executor) => {
   const paymentDate = String(payment?.paid_at || '').slice(0, 10)
   if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) return
 
-  // Serialize against staff payment/closing operations and preserve a closed day's totals.
   await executor.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [staffId])
   const [closedRows] = await executor.query(
-    'SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? AND COALESCE(is_locked,1) = 1 LIMIT 1',
+    `SELECT id FROM cashier_closings
+     WHERE staff_id = ? AND closing_date = ?
+       AND COALESCE(status,'closed') = 'closed'
+       AND COALESCE(is_locked,1) = 1
+     LIMIT 1`,
     [staffId, paymentDate]
   )
   if (closedRows.length) {
-    throw Object.assign(
-      new Error('The cashier shift for this payment is closed. Reopen that cashier shift before voiding or refunding the payment.'),
-      { statusCode: 409 }
-    )
+    const error = new Error('The cashier shift for this payment is closed. Reopen that cashier shift before voiding or refunding the payment.')
+    error.statusCode = 409
+    error.code = 'CASHIER_SHIFT_CLOSED'
+    throw error
   }
 }
 
@@ -2082,6 +2125,7 @@ const getBillingReconciliation = async (req, res) => {
     `SELECT COUNT(*) AS transactions,
             COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) AS gross_collected,
             COALESCE(SUM(CASE WHEN status='completed' THEN COALESCE(refund_amount,0) ELSE 0 END),0) AS refunded,
+            COALESCE(SUM(CASE WHEN status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS net_collected,
             COALESCE(SUM(CASE WHEN status='voided' THEN 1 ELSE 0 END),0) AS voided_transactions,
             COALESCE(SUM(CASE WHEN payment_method='cash' AND status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
      FROM billing_payments WHERE DATE(paid_at)=?`, [date])
@@ -2089,9 +2133,39 @@ const getBillingReconciliation = async (req, res) => {
     `SELECT COALESCE(SUM(discount_amount),0) AS discounts FROM billing_records
      WHERE DATE(COALESCE(finalized_at,created_at))=? AND status <> 'voided'`, [date])
   const [closings] = await db.query(
-    `SELECT cc.*, s.full_name AS staff_name FROM cashier_closings cc JOIN staff s ON s.id=cc.staff_id
-     WHERE cc.closing_date=? ORDER BY cc.closed_at DESC`, [date])
-  res.json({ date, methods, summary: { ...summary, discounts: Number(discounts?.discounts || 0) }, closings })
+    `SELECT cc.*, s.full_name AS staff_name
+     FROM cashier_closings cc JOIN staff s ON s.id=cc.staff_id
+     WHERE cc.closing_date=? ORDER BY cc.closed_at DESC, cc.id DESC`, [date])
+  const [openShifts] = await db.query(
+    `SELECT bp.received_by_staff_id AS staff_id, s.full_name AS staff_name,
+            COUNT(*) AS payment_count,
+            COALESCE(SUM(CASE WHEN bp.payment_method='cash' AND bp.status='completed' THEN bp.amount-COALESCE(bp.refund_amount,0) ELSE 0 END),0) AS expected_cash,
+            COALESCE(cc.status,'open') AS status, cc.id AS closing_id, cc.reopened_at, cc.reopen_reason
+     FROM billing_payments bp
+     JOIN staff s ON s.id=bp.received_by_staff_id
+     LEFT JOIN cashier_closings cc ON cc.staff_id=bp.received_by_staff_id AND cc.closing_date=DATE(bp.paid_at)
+     WHERE DATE(bp.paid_at)=?
+       AND NOT (COALESCE(cc.status,'')='closed' AND COALESCE(cc.is_locked,1)=1)
+     GROUP BY bp.received_by_staff_id, s.full_name, cc.status, cc.id, cc.reopened_at, cc.reopen_reason
+     ORDER BY s.full_name`, [date])
+  const [events] = await db.query(
+    `SELECT cce.*, s.full_name AS staff_name,
+            CASE WHEN cce.actor_role='admin' THEN a.full_name WHEN cce.actor_role='staff' THEN st.full_name ELSE NULL END AS actor_name
+     FROM cashier_closing_events cce
+     JOIN cashier_closings cc ON cc.id=cce.cashier_closing_id
+     JOIN staff s ON s.id=cc.staff_id
+     LEFT JOIN admins a ON cce.actor_role='admin' AND a.id=cce.actor_id
+     LEFT JOIN staff st ON cce.actor_role='staff' AND st.id=cce.actor_id
+     WHERE cc.closing_date=?
+     ORDER BY cce.created_at DESC`, [date])
+  res.json({
+    date,
+    methods,
+    summary: { ...summary, discounts: Number(discounts?.discounts || 0) },
+    closings,
+    open_shifts: openShifts,
+    closing_events: events,
+  })
 }
 
 const voidBillingPayment = async (req, res) => {
@@ -2106,6 +2180,10 @@ const voidBillingPayment = async (req, res) => {
     if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Payment not found.' }) }
     const payment = rows[0]; billingId = payment.billing_id
     if (payment.status !== 'completed') { await conn.rollback(); return res.status(400).json({ message: 'Only completed payments can be voided.' }) }
+    if (Number(payment.refund_amount || 0) > 0) {
+      await conn.rollback()
+      return res.status(409).json({ code: 'PAYMENT_ALREADY_REFUNDED', message: 'This payment already has a refund and can no longer be voided. Refund the remaining refundable amount instead.' })
+    }
     await assertPaymentCashierShiftOpen(payment, conn)
     await conn.query(`UPDATE billing_payments SET status='voided', voided_at=NOW(), void_reason=? WHERE id=?`, [reason, paymentId])
     const bill = await getBillingRecordWithItems(billingId, conn)
@@ -2115,7 +2193,12 @@ const voidBillingPayment = async (req, res) => {
     await conn.query(`UPDATE billing_records SET status=?, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`, [nextStatus, nextStatus, billingId])
     await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.payment_voided',entityType:'billing_payment',entityId:paymentId,oldValues:{status:'completed',amount:payment.amount},newValues:{status:'voided',reason,billing_status:nextStatus},ipAddress:req.ip||null },conn)
     await conn.commit()
-  } catch(e){ await conn.rollback(); throw e } finally { conn.release() }
+  } catch(e){
+    await conn.rollback()
+    if (e.statusCode && !res.headersSent) return res.status(e.statusCode).json({ message: e.message, code: e.code })
+    throw e
+  } finally { conn.release() }
+  broadcast(['admin','staff'], 'billing_payment_changed', { billingId, paymentId, action: 'voided' })
   res.json(await getBillingRecordWithItems(billingId))
 }
 
@@ -2132,39 +2215,49 @@ const refundBillingPayment = async (req, res) => {
     if(payment.status!=='completed'){ await conn.rollback(); return res.status(400).json({message:'Only completed payments can be refunded.'}) }
     await assertPaymentCashierShiftOpen(payment, conn)
     const available=Math.max(0,Number(payment.amount||0)-Number(payment.refund_amount||0))
-    const amount=req.body.amount===undefined||req.body.amount===null||req.body.amount===''?available:Math.max(0,Number(req.body.amount)||0)
-    if(amount<=0||amount>available+0.001){ await conn.rollback(); return res.status(400).json({message:'Refund amount must be greater than zero and cannot exceed the refundable amount.'}) }
+    const amount=req.body.amount===undefined||req.body.amount===null||req.body.amount===''?available:Number(req.body.amount)
+    if(!Number.isFinite(amount)||amount<=0||amount>available+0.001){
+      await conn.rollback()
+      return res.status(400).json({code:'INVALID_REFUND_AMOUNT',message:`Refund amount must be greater than zero and cannot exceed the refundable amount of ₱${available.toFixed(2)}.`,max_refundable:available})
+    }
     const nextRefund=Math.round((Number(payment.refund_amount||0)+amount)*100)/100
     await conn.query(`UPDATE billing_payments SET refund_amount=?, refunded_at=NOW(), refund_reason=?, refunded_by_admin_id=? WHERE id=?`,[nextRefund,reason,req.user.id,paymentId])
     const bill=await getBillingRecordWithItems(billingId,conn)
     const paidAfter=Math.max(0,Number(bill.paid_amount||0))
     const balanceAfter=Math.max(0,Number(bill.total_amount||0)-paidAfter)
-    const nextStatus=paidAfter<=0?'refunded':balanceAfter<=0?'paid':'partially_paid'
-    await conn.query(`UPDATE billing_records SET status=?, refunded_at=CASE WHEN ?='refunded' THEN NOW() ELSE refunded_at END, refund_reason=CASE WHEN ?='refunded' THEN ? ELSE refund_reason END, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`,[nextStatus,nextStatus,nextStatus,reason,nextStatus,billingId])
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:amount,reason,billing_status:nextStatus},ipAddress:req.ip||null},conn)
+    const nextStatus=paidAfter<=0?'ready':balanceAfter<=0?'paid':'partially_paid'
+    await conn.query(`UPDATE billing_records SET status=?, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`,[nextStatus,nextStatus,billingId])
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:amount,reason,billing_status:nextStatus,balance_after:balanceAfter},ipAddress:req.ip||null},conn)
     await conn.commit()
-  }catch(e){await conn.rollback();throw e}finally{conn.release()}
+  }catch(e){
+    await conn.rollback()
+    if (e.statusCode && !res.headersSent) return res.status(e.statusCode).json({ message: e.message, code: e.code })
+    throw e
+  }finally{conn.release()}
+  broadcast(['admin','staff'], 'billing_payment_changed', { billingId, paymentId, action: 'refunded' })
   res.json(await getBillingRecordWithItems(billingId))
 }
 
-// ── Clinic settings ───────────────────────────────────────────────────────────
 const getClinicSettingsAdmin = async (req,res) => {
   const [rows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1')
   res.json(rows[0]||{})
 }
 const updateClinicSettingsAdmin = async (req,res) => {
+  const [oldRows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1')
+  const current = oldRows[0] || {}
+  const receiptTitle = req.body.receipt_title === undefined ? current.receipt_title : req.body.receipt_title
   const payload={
     clinic_name:String(req.body.clinic_name||'CARAIT MEDICAL AND DERMATOLOGY CLINIC').trim(),
     address:String(req.body.address||'').trim()||null, phone:String(req.body.phone||'').trim()||null,
     email:String(req.body.email||'').trim()||null, report_footer:String(req.body.report_footer||'').trim()||null,
+    receipt_title:String(receiptTitle||'PAYMENT RECEIPT').trim()||'PAYMENT RECEIPT',
     receipt_footer:String(req.body.receipt_footer||'').trim()||null,
   }
   if(!payload.clinic_name)return res.status(400).json({message:'Clinic name is required.'})
-  const [oldRows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1')
-  await db.query(`INSERT INTO clinic_settings (id,clinic_name,address,phone,email,report_footer,receipt_footer,updated_by_admin_id)
-                  VALUES (1,?,?,?,?,?,?,?)
-                  ON DUPLICATE KEY UPDATE clinic_name=VALUES(clinic_name),address=VALUES(address),phone=VALUES(phone),email=VALUES(email),report_footer=VALUES(report_footer),receipt_footer=VALUES(receipt_footer),updated_by_admin_id=VALUES(updated_by_admin_id)`,
-                 [payload.clinic_name,payload.address,payload.phone,payload.email,payload.report_footer,payload.receipt_footer,req.user.id])
+  await db.query(`INSERT INTO clinic_settings (id,clinic_name,address,phone,email,report_footer,receipt_title,receipt_footer,updated_by_admin_id)
+                  VALUES (1,?,?,?,?,?,?,?,?)
+                  ON DUPLICATE KEY UPDATE clinic_name=VALUES(clinic_name),address=VALUES(address),phone=VALUES(phone),email=VALUES(email),report_footer=VALUES(report_footer),receipt_title=VALUES(receipt_title),receipt_footer=VALUES(receipt_footer),updated_by_admin_id=VALUES(updated_by_admin_id)`,
+                 [payload.clinic_name,payload.address,payload.phone,payload.email,payload.report_footer,payload.receipt_title,payload.receipt_footer,req.user.id])
   await writeAuditLog({userId:req.user.id,userRole:'admin',action:'settings.clinic_updated',entityType:'clinic_settings',entityId:'1',oldValues:oldRows[0]||null,newValues:payload,ipAddress:req.ip||null})
   const [rows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1');res.json(rows[0])
 }
@@ -2173,11 +2266,39 @@ const updateClinicSettingsAdmin = async (req,res) => {
 const getBillingAdjustmentRequestsAdmin = async (req, res) => {
   const status = String(req.query.status || 'pending').trim()
   const params = []
-  let where = ''
-  if (status) { where = 'WHERE bar.status = ?'; params.push(status) }
+  const filters = []
+  if (status) { filters.push('bar.status = ?'); params.push(status) }
+  if (req.query.request_type) { filters.push('bar.request_type = ?'); params.push(String(req.query.request_type)) }
+  if (req.query.date_from) { filters.push('DATE(bar.created_at) >= ?'); params.push(String(req.query.date_from)) }
+  if (req.query.date_to) { filters.push('DATE(bar.created_at) <= ?'); params.push(String(req.query.date_to)) }
+  if (req.query.requested_by) { filters.push('bar.staff_id = ?'); params.push(Number(req.query.requested_by)) }
+  if (req.query.search) {
+    const q = `%${String(req.query.search).trim()}%`
+    filters.push('(p.full_name LIKE ? OR s.full_name LIKE ? OR COALESCE(bsc.service_name,dp.label,\'\') LIKE ?)')
+    params.push(q,q,q)
+  }
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : ''
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25))
+  const offset = (page - 1) * limit
+  const [[countRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM billing_adjustment_requests bar
+     JOIN staff s ON s.id = bar.staff_id
+     JOIN billing_records br ON br.id = bar.billing_id
+     JOIN patients p ON p.id = br.patient_id
+     LEFT JOIN discount_presets dp ON dp.id = bar.discount_preset_id
+     LEFT JOIN billing_service_catalog bsc ON bsc.id = bar.catalog_service_id
+     ${where}`, params
+  )
   const [rows] = await db.query(
-    `SELECT bar.*, s.full_name AS staff_name, dp.label AS discount_label, bsc.service_name,
-            br.patient_id, p.full_name AS patient_name, br.total_amount AS bill_total
+    `SELECT bar.*, s.full_name AS staff_name, dp.label AS discount_label, dp.discount_type, dp.value AS discount_preset_value,
+            bsc.service_name, br.patient_id, p.full_name AS patient_name,
+            br.subtotal AS bill_subtotal, br.discount_amount AS bill_discount_amount, br.total_amount AS bill_total,
+            br.version AS current_bill_version, br.status AS bill_status,
+            (SELECT bi.unit_price FROM billing_items bi
+             WHERE bi.billing_id=bar.billing_id AND bi.catalog_service_id=bar.catalog_service_id AND bi.source_type='consultation'
+             ORDER BY bi.id LIMIT 1) AS current_price
      FROM billing_adjustment_requests bar
      JOIN staff s ON s.id = bar.staff_id
      JOIN billing_records br ON br.id = bar.billing_id
@@ -2185,9 +2306,10 @@ const getBillingAdjustmentRequestsAdmin = async (req, res) => {
      LEFT JOIN discount_presets dp ON dp.id = bar.discount_preset_id
      LEFT JOIN billing_service_catalog bsc ON bsc.id = bar.catalog_service_id
      ${where}
-     ORDER BY bar.created_at DESC`, params
+     ORDER BY bar.created_at DESC
+     LIMIT ? OFFSET ?`, [...params, limit, offset]
   )
-  res.json(rows)
+  res.json({ items: rows, pagination: { page, limit, total: Number(countRow?.total || 0), total_pages: Math.max(1, Math.ceil(Number(countRow?.total || 0) / limit)) } })
 }
 
 const resolveBillingAdjustmentRequestAdmin = async (req, res) => {
@@ -2195,17 +2317,30 @@ const resolveBillingAdjustmentRequestAdmin = async (req, res) => {
   const status = String(req.body.status || '').trim()
   if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ message: 'Status must be approved or rejected.' })
   const reason = String(req.body.admin_note || '').trim() || null
+  if (status === 'rejected' && !reason) return res.status(400).json({ code:'REJECTION_REASON_REQUIRED', message:'A rejection reason is required.' })
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
     const [rows] = await conn.query('SELECT * FROM billing_adjustment_requests WHERE id = ? FOR UPDATE', [id])
     if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Adjustment request not found.' }) }
-    if (rows[0].status !== 'pending') { await conn.rollback(); return res.status(409).json({ message: 'This adjustment request has already been resolved.' }) }
+    const request = rows[0]
+    if (request.status !== 'pending') { await conn.rollback(); return res.status(409).json({ message: 'This adjustment request has already been resolved.' }) }
+    const [billRows] = await conn.query('SELECT id,status,version FROM billing_records WHERE id=? FOR UPDATE', [request.billing_id])
+    if (!billRows.length || !['draft','pending'].includes(String(billRows[0].status))) {
+      await conn.query(`UPDATE billing_adjustment_requests SET status='expired', resolved_at=NOW(), admin_note=COALESCE(admin_note,'Bill is no longer editable.') WHERE id=?`, [id])
+      await conn.commit()
+      return res.status(409).json({ code:'ADJUSTMENT_EXPIRED', message:'This request expired because the bill is no longer editable.' })
+    }
+    if (Number(request.bill_version || 1) !== Number(billRows[0].version || 1)) {
+      await conn.query(`UPDATE billing_adjustment_requests SET status='expired', resolved_at=NOW(), admin_note=COALESCE(admin_note,'Bill changed after request submission.') WHERE id=?`, [id])
+      await conn.commit()
+      return res.status(409).json({ code:'ADJUSTMENT_EXPIRED', message:'This request expired because the bill changed after it was submitted.' })
+    }
     await conn.query(
       `UPDATE billing_adjustment_requests SET status=?, resolved_by_admin_id=?, resolved_at=NOW(), admin_note=? WHERE id=?`,
       [status, req.user.id, reason, id]
     )
-    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:`billing.adjustment_${status}`,entityType:'billing_adjustment_request',entityId:id,oldValues:{status:'pending'},newValues:{status,admin_note:reason},ipAddress:req.ip||null }, conn)
+    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:`billing.adjustment_${status}`,entityType:'billing_adjustment_request',entityId:id,oldValues:{status:'pending'},newValues:{status,admin_note:reason,bill_version:request.bill_version},ipAddress:req.ip||null }, conn)
     await conn.commit()
   } catch (err) { await conn.rollback(); throw err } finally { conn.release() }
   broadcast(['admin', 'staff'], 'billing_adjustment_resolved', { requestId: id, status })
@@ -2217,22 +2352,50 @@ const reopenCashierShiftAdmin = async (req, res) => {
   const id = Number(req.params.id)
   const reason = String(req.body.reason || '').trim()
   if (!reason) return res.status(400).json({ message: 'A reopen reason is required.' })
-  const [rows] = await db.query('SELECT * FROM cashier_closings WHERE id=? LIMIT 1', [id])
-  if (!rows.length) return res.status(404).json({ message: 'Cashier closing not found.' })
-  await db.query('DELETE FROM cashier_closings WHERE id=?', [id])
-  await writeAuditLog({userId:req.user.id,userRole:'admin',action:'cashier.shift_reopened',entityType:'cashier_closing',entityId:id,oldValues:rows[0],newValues:{reopened:true,reason},ipAddress:req.ip||null})
-  res.json({ message: 'Cashier shift reopened. The staff member may close it again.' })
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query('SELECT * FROM cashier_closings WHERE id=? FOR UPDATE', [id])
+    if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Cashier closing not found.' }) }
+    const closing = rows[0]
+    if (String(closing.status || 'closed') !== 'closed' || Number(closing.is_locked ?? 1) !== 1) {
+      await conn.rollback()
+      return res.status(409).json({ message: 'This cashier shift is already open or reopened.' })
+    }
+    await conn.query(
+      `UPDATE cashier_closings
+       SET status='reopened', is_locked=0, reopened_at=NOW(), reopened_by_admin_id=?, reopen_reason=?
+       WHERE id=?`, [req.user.id, reason, id]
+    )
+    await conn.query(
+      `INSERT INTO cashier_closing_events (cashier_closing_id,event_type,actor_role,actor_id,expected_cash,actual_cash,variance,reason)
+       VALUES (?,'reopened','admin',?,?,?,?,?)`,
+      [id, req.user.id, closing.expected_cash, closing.actual_cash, closing.variance, reason]
+    )
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'cashier.shift_reopened',entityType:'cashier_closing',entityId:id,oldValues:closing,newValues:{status:'reopened',reason},ipAddress:req.ip||null}, conn)
+    await conn.commit()
+  } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
+  broadcast(['admin','staff'], 'cashier_shift_reopened', { closingId:id })
+  res.json({ message: 'Cashier shift reopened. The staff member may accept payments and close it again.' })
 }
 
 
 // ── Discount presets ──────────────────────────────────────────────────────────
+
 const getDiscountPresetsAdmin = async (req,res) => {
   const [rows]=await db.query('SELECT * FROM discount_presets ORDER BY sort_order,label');res.json(rows)
 }
 const saveDiscountPresetAdmin = async (req,res) => {
   const id=Number(req.params.id)||0
-  const payload={label:String(req.body.label||'').trim(),discount_type:['percentage','fixed'].includes(req.body.discount_type)?req.body.discount_type:'fixed',value:Math.max(0,Number(req.body.value)||0),requires_reference:req.body.requires_reference?1:0,requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===0?0:1,sort_order:Number(req.body.sort_order)||0}
+  const discountType=['percentage','fixed'].includes(req.body.discount_type)?req.body.discount_type:'fixed'
+  const value=Math.max(0,Number(req.body.value)||0)
+  if(discountType==='percentage' && value>100) return res.status(400).json({code:'INVALID_DISCOUNT_PERCENTAGE',message:'Percentage discount cannot exceed 100%.'})
+  const payload={label:String(req.body.label||'').trim(),discount_type:discountType,value,requires_reference:req.body.requires_reference?1:0,requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===0||req.body.is_active===false?0:1,sort_order:Number(req.body.sort_order)||0}
   if(!payload.label)return res.status(400).json({message:'Discount label is required.'})
+  if(id && !payload.is_active){
+    const [[pending]]=await db.query(`SELECT COUNT(*) AS total FROM billing_adjustment_requests WHERE discount_preset_id=? AND status='pending'`,[id])
+    if(Number(pending?.total||0)>0) return res.status(409).json({code:'PENDING_DISCOUNT_REQUESTS',message:`Resolve ${Number(pending.total)} pending billing request${Number(pending.total)===1?'':'s'} before deactivating this discount.`,pending_count:Number(pending.total)})
+  }
   let targetId=id
   if(id){ await db.query(`UPDATE discount_presets SET label=?,discount_type=?,value=?,requires_reference=?,requires_admin_approval=?,is_active=?,sort_order=? WHERE id=?`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active,payload.sort_order,id]) }
   else { const [r]=await db.query(`INSERT INTO discount_presets (label,discount_type,value,requires_reference,requires_admin_approval,is_active,sort_order) VALUES (?,?,?,?,?,?,?)`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active,payload.sort_order]); targetId=r.insertId }

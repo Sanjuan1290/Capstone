@@ -89,10 +89,9 @@ export const getPatientRecord = (id) =>
 export const getBills = (params = {}) => {
   const normalized = typeof params === 'string' ? { status: params } : params
   const search = new URLSearchParams()
-  if (normalized.status) search.set('status', normalized.status)
-  if (normalized.search) search.set('search', normalized.search)
-  if (normalized.page) search.set('page', normalized.page)
-  if (normalized.limit) search.set('limit', normalized.limit)
+  Object.entries(normalized || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') search.set(key, value)
+  })
   const query = search.toString()
   return requestJson(`${BASE}/billing${query ? `?${query}` : ''}`)
 }
@@ -112,14 +111,23 @@ export const updateBill = (id, payload) =>
     body: JSON.stringify(payload),
   })
 
-export const finalizeBill = (id) =>
-  requestJson(`${BASE}/billing/${id}/finalize`, { method: 'POST' })
+export const getFinalizePreview = (id) =>
+  requestJson(`${BASE}/billing/${id}/finalize-preview`)
+
+export const finalizeBill = (id, expectedVersion) =>
+  requestJson(`${BASE}/billing/${id}/finalize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expected_version: expectedVersion }),
+  })
 
 export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
 export const requestBillingAdjustment = (id, payload) => requestJson(`${BASE}/billing/${id}/adjustment-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const cancelBillingAdjustmentRequest = (id, requestId) => requestJson(`${BASE}/billing/${id}/adjustment-requests/${requestId}/cancel`, { method: 'PATCH' })
 
+export const getCashierShiftStatus = () => requestJson(`${BASE}/billing/cashier-shift`)
 export const closeCashierShift = (payload) => requestJson(`${BASE}/billing/cashier-close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
 export const confirmBillPayment = (id, payload) =>

@@ -304,7 +304,7 @@ const CameraScanner = ({ onDetected, onClose }) => {
   )
 }
 
-const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
+const ItemFormModal = ({ title, initialItem, onClose, onSubmit, canManageSellingPrice = false }) => {
   const isEditing = Boolean(initialItem?.id)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState({
@@ -317,6 +317,7 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
     stock: String(initialItem?.stock ?? 0),
     threshold: String(initialItem?.threshold ?? 5),
     price: String(initialItem?.price ?? 0),
+    selling_price: initialItem?.selling_price === null || initialItem?.selling_price === undefined ? '' : String(initialItem.selling_price),
     supplier: initialItem?.supplier || '',
     expiration_date: initialItem?.expiration_date ? String(initialItem.expiration_date).slice(0, 10) : '',
     batch_code: '',
@@ -337,6 +338,7 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
       stock: Math.max(0, parseFloat(form.stock) || 0),
       threshold: Math.max(0, parseFloat(form.threshold) || 0),
       price: Math.max(0, parseFloat(form.price) || 0),
+      ...(canManageSellingPrice ? { selling_price: form.selling_price === '' ? null : Math.max(0, parseFloat(form.selling_price) || 0) } : {}),
     })
     onClose()
   }
@@ -380,6 +382,7 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit }) => {
               <Field label="Units per Package"><input type="number" min="1" step="0.01" value={form.unit_size} onChange={update('unit_size')} className={inputClass} /></Field>
               <Field label="Low Stock Alert"><input type="number" min="0" step="0.01" value={form.threshold} onChange={update('threshold')} className={inputClass} /></Field>
               <Field label="Cost per Stock Unit"><input type="number" min="0" step="0.01" value={form.price} onChange={update('price')} className={inputClass} /></Field>
+              {canManageSellingPrice ? <Field label="Patient Selling Price"><input type="number" min="0" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={inputClass} placeholder="Required for direct Checkout billing" /></Field> : <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"><span className="font-semibold">Patient Selling Price:</span> {initialItem?.selling_price === null || initialItem?.selling_price === undefined ? 'Not configured by Admin' : `PHP ${Number(initialItem.selling_price).toFixed(2)}`}</div>}
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 Example: <strong>1 box = 100 pieces</strong>. Choose “box” as Stock Unit, “piece” as Dispensing Unit, and 100 as Units per Package.
               </div>
@@ -693,7 +696,7 @@ const Field = ({ label, children }) => (
 
 const inputClass = 'w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none focus:border-sky-400'
 
-const Inventory = ({ services }) => {
+const Inventory = ({ services, canManageSellingPrice = false }) => {
   const toast = useToast()
   const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem } = services
   const [items, setItems] = useState([])
@@ -895,7 +898,7 @@ const Inventory = ({ services }) => {
                 <p className="text-sm text-slate-600">
                   <strong>{getPackageCount(item)}</strong> {item.unit}s in stock - {Number(item.unit_size || 1)} {item.base_unit || item.unit} per {item.unit}
                 </p>
-                <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.unit}s - PHP {Number(item.price || 0).toFixed(2)} per {item.unit}</p>
+                <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.unit}s · Cost PHP {Number(item.price || 0).toFixed(2)} per {item.unit} · Patient price {item.selling_price === null || item.selling_price === undefined ? 'not configured' : `PHP ${Number(item.selling_price).toFixed(2)}`}</p>
                 <div className="flex flex-wrap gap-3 pt-1 text-xs">
                   <span className="inline-flex items-center gap-1 text-slate-500">
                     <MdLocationOn className="text-[14px]" /> {item.storage_location || 'No location assigned'}
@@ -963,8 +966,8 @@ const Inventory = ({ services }) => {
         </div>
       )}
 
-      {showAdd && <ItemFormModal title="Add Item" onClose={() => setShowAdd(false)} onSubmit={handleAdd} />}
-      {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
+      {showAdd && <ItemFormModal title="Add Item" canManageSellingPrice={canManageSellingPrice} onClose={() => setShowAdd(false)} onSubmit={handleAdd} />}
+      {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
       {stockItem && <StockModal item={stockItem} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} onOpenScanner={() => setScannerOpen(true)} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
       <ConfirmDialog

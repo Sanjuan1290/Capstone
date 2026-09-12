@@ -27,7 +27,7 @@ const Admin_BillingReconciliation = () => {
         getBillingAdjustmentRequests({ status: 'pending' }),
       ])
       setData(result || null)
-      setPendingCount(Array.isArray(pending) ? pending.length : 0)
+      setPendingCount(Number(pending?.pagination?.total ?? pending?.items?.length ?? pending?.length ?? 0))
     } catch (err) {
       const message = err.message || 'Could not load cashier reconciliation.'
       setError(message); toast.error(message)
@@ -49,10 +49,10 @@ const Admin_BillingReconciliation = () => {
 
   const summary = data?.summary || {}
   const cards = [
+    ['Net Collected', formatMoney(summary.net_collected)],
     ['Gross Collected', formatMoney(summary.gross_collected)],
-    ['Expected Cash', formatMoney(summary.expected_cash)],
     ['Refunded', formatMoney(summary.refunded)],
-    ['Discounts', formatMoney(summary.discounts)],
+    ['Expected Cash', formatMoney(summary.expected_cash)],
   ]
 
   return (
@@ -67,15 +67,25 @@ const Admin_BillingReconciliation = () => {
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value]) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-2 text-2xl font-black text-slate-900">{value}</p></div>)}</section>
 
         <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-base font-black text-slate-900">Collection by Method</h2>
-            <p className="mt-1 text-sm text-slate-500">Net amounts collected on {data?.date || date}.</p>
-            <div className="mt-4 space-y-2">{Array.isArray(data?.methods) && data.methods.length ? data.methods.map((method) => <div key={method.payment_method} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-4"><div><p className="font-bold text-slate-800">{paymentMethodLabel(method.payment_method)}</p><p className="mt-1 text-xs text-slate-500">{method.transactions} transaction{Number(method.transactions) === 1 ? '' : 's'}</p></div><p className="text-lg font-black text-slate-900">{formatMoney(method.net)}</p></div>{Number(method.refunded || 0) > 0 && <p className="mt-2 text-xs font-bold text-rose-600">Refunded: {formatMoney(method.refunded)}</p>}</div>) : <EmptyState title="No collections" description="No payments were recorded for this date." />}</div>
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-base font-black text-slate-900">Collection by Method</h2>
+              <p className="mt-1 text-sm text-slate-500">Net amounts collected on {data?.date || date}.</p>
+              <div className="mt-4 space-y-2">{Array.isArray(data?.methods) && data.methods.length ? data.methods.map((method) => <div key={method.payment_method} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-4"><div><p className="font-bold text-slate-800">{paymentMethodLabel(method.payment_method)}</p><p className="mt-1 text-xs text-slate-500">{method.transactions} transaction{Number(method.transactions) === 1 ? '' : 's'}</p></div><p className="text-lg font-black text-slate-900">{formatMoney(method.net)}</p></div>{Number(method.refunded || 0) > 0 && <p className="mt-2 text-xs font-bold text-rose-600">Refunded: {formatMoney(method.refunded)}</p>}</div>) : <EmptyState title="No collections" description="No payments were recorded for this date." />}</div>
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-base font-black text-slate-900">Open / Reopened Shifts</h2>
+              <p className="mt-1 text-sm text-slate-500">Cashiers with payments today whose shift is still able to accept payments.</p>
+              <div className="mt-4 space-y-2">{Array.isArray(data?.open_shifts) && data.open_shifts.length ? data.open_shifts.map((shift) => <div key={shift.staff_id} className={`rounded-2xl border p-4 ${shift.status === 'reopened' ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black text-slate-900">{shift.staff_name}</p><p className="mt-1 text-xs text-slate-600">{shift.payment_count} payment(s) · Expected cash {formatMoney(shift.expected_cash)}</p>{shift.status === 'reopened' && <p className="mt-1 text-xs font-bold text-amber-800">REOPENED{shift.reopen_reason ? ` · ${shift.reopen_reason}` : ''}</p>}</div><span className={`rounded-full px-2.5 py-1 text-xs font-black ${shift.status === 'reopened' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-800'}`}>{String(shift.status || 'open').toUpperCase()}</span></div></div>) : <p className="text-sm text-slate-500">No open cashier shifts with payments for this date.</p>}</div>
+            </div>
           </div>
 
-          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 p-5"><h2 className="text-base font-black text-slate-900">Cashier Closings</h2><p className="mt-1 text-sm text-slate-500">Closed shifts can be reopened only when a correction is required.</p></div>
-            {!Array.isArray(data?.closings) || data.closings.length === 0 ? <div className="p-5"><EmptyState title="No closed shifts" description="Cashier shift closings for this date will appear here." /></div> : <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Cashier</th><th className="px-5 py-3">Expected</th><th className="px-5 py-3">Actual</th><th className="px-5 py-3">Variance</th><th className="px-5 py-3">Closed</th><th className="px-5 py-3 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{data.closings.map((closing) => <tr key={closing.id}><td className="px-5 py-4 font-bold text-slate-800">{closing.staff_name || `Staff #${closing.staff_id}`}</td><td className="px-5 py-4">{formatMoney(closing.expected_cash)}</td><td className="px-5 py-4">{formatMoney(closing.actual_cash)}</td><td className={`px-5 py-4 font-bold ${Math.abs(Number(closing.variance || 0)) > 0.009 ? 'text-rose-600' : 'text-emerald-600'}`}>{formatMoney(closing.variance)}</td><td className="px-5 py-4 text-slate-500">{closing.closed_at || '—'}</td><td className="px-5 py-4 text-right"><button className="button-secondary" onClick={() => { setReopen(closing); setReason('') }}><MdLockOpen /> Reopen</button></td></tr>)}</tbody></table></div>}
+          <div className="space-y-5">
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 p-5"><h2 className="text-base font-black text-slate-900">Cashier Closings</h2><p className="mt-1 text-sm text-slate-500">Closing records remain visible after reopening so the financial history is preserved.</p></div>
+              {!Array.isArray(data?.closings) || data.closings.length === 0 ? <div className="p-5"><EmptyState title="No closing records" description="Cashier shift closings for this date will appear here." /></div> : <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Cashier</th><th className="px-5 py-3">Expected</th><th className="px-5 py-3">Actual</th><th className="px-5 py-3">Variance</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{data.closings.map((closing) => <tr key={closing.id}><td className="px-5 py-4 font-bold text-slate-800">{closing.staff_name || `Staff #${closing.staff_id}`}<p className="mt-1 text-xs font-normal text-slate-400">{closing.closed_at || '—'}</p></td><td className="px-5 py-4">{formatMoney(closing.expected_cash)}</td><td className="px-5 py-4">{formatMoney(closing.actual_cash)}</td><td className={`px-5 py-4 font-bold ${Math.abs(Number(closing.variance || 0)) > 0.009 ? 'text-rose-600' : 'text-emerald-600'}`}>{formatMoney(closing.variance)}</td><td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${closing.status === 'reopened' ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-700'}`}>{String(closing.status || 'closed').toUpperCase()}</span></td><td className="px-5 py-4 text-right">{String(closing.status || 'closed') === 'closed' && Number(closing.is_locked ?? 1) === 1 ? <button className="button-secondary" onClick={() => { setReopen(closing); setReason('') }}><MdLockOpen /> Reopen</button> : <span className="text-xs text-slate-400">Awaiting re-close</span>}</td></tr>)}</tbody></table></div>}
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-base font-black text-slate-900">Closing History</h2><p className="mt-1 text-sm text-slate-500">Append-only events for closing, reopening, and re-closing.</p><div className="mt-4 space-y-2">{Array.isArray(data?.closing_events) && data.closing_events.length ? data.closing_events.map((event) => <div key={event.id} className="rounded-xl bg-slate-50 p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><strong>{event.staff_name} · {String(event.event_type || '').replace(/_/g, ' ').toUpperCase()}</strong><span className="text-xs text-slate-400">{event.created_at}</span></div><p className="mt-1 text-xs text-slate-600">Actor: {event.actor_name || `${event.actor_role} #${event.actor_id}`}{event.reason ? ` · ${event.reason}` : ''}</p></div>) : <p className="text-sm text-slate-500">No closing events for this date.</p>}</div></div>
           </div>
         </section>
       </>}

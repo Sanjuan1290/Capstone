@@ -99,7 +99,7 @@ const AdminInventory = () => {
 
   return (
     <div className="space-y-6">
-      <Inventory services={adminServices} />
+      <Inventory services={adminServices} canManageSellingPrice />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">

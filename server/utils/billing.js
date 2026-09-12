@@ -277,7 +277,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
   const inventoryMap = new Map()
   if (requestedInventoryIds.length > 0) {
     const [inventoryRows] = await executor.query(
-      `SELECT id, name, category, unit, base_unit, unit_size, price
+      `SELECT id, name, category, unit, base_unit, unit_size, price, selling_price
        FROM inventory
        WHERE id IN (${requestedInventoryIds.map(() => '?').join(', ')})`,
       requestedInventoryIds
@@ -292,6 +292,9 @@ const normalizeBillingItems = async (items = [], executor = db) => {
       if (quantity <= 0) return null
 
       const base = {
+        id: Number(item?.id) || null,
+        source_type: String(item?.source_type || '').trim() || null,
+        source_reference_id: Number(item?.source_reference_id) || null,
         notes: String(item?.notes || '').trim() || null,
         sort_order: Number.isFinite(Number(item?.sort_order)) ? Number(item.sort_order) : index,
       }
@@ -366,6 +369,8 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         return {
           ...base,
           item_type: 'service',
+          source_type: base.source_type || 'consultation',
+          source_reference_id: base.source_reference_id,
           catalog_service_id: service?.id || (serviceId > 0 ? serviceId : null),
           source_inventory_id: null,
           category: String(service?.category || item?.category || '').trim() || null,
@@ -385,11 +390,19 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         const name = String(item?.service_name || item?.name || inventoryItem?.name || '').trim()
         if (!name) return null
 
+        if (!inventoryItem) {
+          const err = new Error(`Inventory item for ${name || 'this supply'} is no longer available.`)
+          err.statusCode = 400
+          throw err
+        }
+        if (inventoryItem.selling_price === null || inventoryItem.selling_price === undefined || inventoryItem.selling_price === '') {
+          const err = new Error(`${inventoryItem.name} does not have a patient selling price. Ask an administrator to configure it in Inventory before adding it to a bill.`)
+          err.statusCode = 400
+          err.code = 'SELLING_PRICE_REQUIRED'
+          throw err
+        }
         const unitLabel = String(item?.unit_label || inventoryItem?.unit || '').trim() || null
-        const calculatedInventoryCost = getInventoryBaseUnitCost({
-          price: inventoryItem?.price, unit_size: inventoryItem?.unit_size, base_unit: inventoryItem?.base_unit, unit_label: unitLabel, unit: inventoryItem?.unit,
-        })
-        const unitPrice = Math.max(0, Number(item?.unit_price ?? calculatedInventoryCost) || 0)
+        const unitPrice = Math.max(0, Number(inventoryItem.selling_price) || 0)
         const details = {
           source: 'inventory',
           inventory_id: inventoryId || null,
@@ -400,6 +413,8 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         return {
           ...base,
           item_type: 'supply',
+          source_type: base.source_type || 'staff_supply',
+          source_reference_id: base.source_reference_id,
           catalog_service_id: null,
           source_inventory_id: inventoryId || null,
           category: String(item?.category || inventoryItem?.category || 'Medicine / Supply').trim() || 'Medicine / Supply',
@@ -425,6 +440,8 @@ const normalizeBillingItems = async (items = [], executor = db) => {
       return {
         ...base,
         item_type: 'custom',
+        source_type: base.source_type || 'staff_custom',
+        source_reference_id: base.source_reference_id,
         catalog_service_id: item?.catalog_service_id ? Number(item.catalog_service_id) : null,
         source_inventory_id: item?.source_inventory_id ? Number(item.source_inventory_id) : null,
         category: String(item?.category || '').trim() || null,
@@ -471,6 +488,8 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
        billing_id,
        catalog_service_id,
        item_type,
+       source_type,
+       source_reference_id,
        source_inventory_id,
        category,
        service_name,
@@ -550,12 +569,58 @@ const saveBillingItems = async (billingId, items, executor = db) => {
   for (const item of items) {
     await executor.query(
       `INSERT INTO billing_items
-       (billing_id, catalog_service_id, item_type, source_inventory_id, category, service_name, quantity, base_amount, markup_percentage, unit_price, line_total, details_json, notes, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (billing_id, catalog_service_id, item_type, source_type, source_reference_id, source_inventory_id, category, service_name, quantity, base_amount, markup_percentage, unit_price, line_total, details_json, notes, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         billingId,
         item.catalog_service_id || null,
         item.item_type || 'custom',
+        item.source_type || (item.item_type === 'supply' ? 'staff_supply' : item.item_type === 'service' ? 'consultation' : 'staff_custom'),
+        item.source_reference_id || null,
+        item.source_inventory_id || null,
+        item.category,
+        item.service_name,
+        item.quantity,
+        item.base_amount || 0,
+        item.markup_percentage || 0,
+        item.unit_price,
+        item.line_total,
+        item.details_json || null,
+        item.notes,
+        item.sort_order,
+      ]
+    )
+  }
+}
+
+const replaceStaffBillingItems = async (billingId, consultationItems = [], staffItems = [], executor = db) => {
+  for (const item of consultationItems) {
+    const [updated] = await executor.query(
+      `UPDATE billing_items
+       SET unit_price = ?, line_total = ?, details_json = ?, notes = ?, sort_order = ?
+       WHERE id = ? AND billing_id = ? AND source_type = 'consultation'`,
+      [item.unit_price, item.line_total, item.details_json || null, item.notes || null, item.sort_order || 0, item.id, billingId]
+    )
+    if (Number(updated.affectedRows || 0) !== 1) {
+      const err = new Error('A protected consultation charge changed while this bill was being edited. Reload the latest bill and try again.')
+      err.statusCode = 409
+      err.code = 'BILL_VERSION_CONFLICT'
+      throw err
+    }
+  }
+
+  await executor.query("DELETE FROM billing_items WHERE billing_id = ? AND source_type <> 'consultation'", [billingId])
+  for (const item of staffItems) {
+    await executor.query(
+      `INSERT INTO billing_items
+       (billing_id, catalog_service_id, item_type, source_type, source_reference_id, source_inventory_id, category, service_name, quantity, base_amount, markup_percentage, unit_price, line_total, details_json, notes, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        billingId,
+        item.catalog_service_id || null,
+        item.item_type || 'custom',
+        item.source_type || (item.item_type === 'supply' ? 'staff_supply' : 'staff_custom'),
+        item.source_reference_id || null,
         item.source_inventory_id || null,
         item.category,
         item.service_name,
@@ -577,7 +642,12 @@ const upsertDraftBillingForAppointment = async ({
   consultationId = null,
   items = [],
 }, executor = db) => {
-  const normalizedItems = await normalizeBillingItems(items, executor)
+  const consultationItems = (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    source_type: 'consultation',
+    source_reference_id: consultationId || null,
+  }))
+  const normalizedItems = await normalizeBillingItems(consultationItems, executor)
   const totals = computeBillingTotals({ items: normalizedItems, discount_amount: 0 })
 
   const [existingRows] = await executor.query(
@@ -647,6 +717,7 @@ module.exports = {
   getBillingRecordWithItems,
   getBillingByAppointmentId,
   saveBillingItems,
+  replaceStaffBillingItems,
   upsertDraftBillingForAppointment,
 }
 

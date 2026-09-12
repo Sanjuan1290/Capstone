@@ -33,6 +33,7 @@ const {
   listBillingCatalog,
   normalizeBillingItems,
   saveBillingItems,
+  replaceStaffBillingItems,
 } = require('../utils/billing')
 const {
   getActiveAppointmentConflict,
@@ -671,22 +672,43 @@ const getBills = async (req, res) => {
   const paymentMethod = String(req.query.payment_method || '').trim().toLowerCase()
   const dateFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date_from || '')) ? String(req.query.date_from) : ''
   const dateTo = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date_to || '')) ? String(req.query.date_to) : ''
+  const dateBasis = ['visit','payment','finalized'].includes(String(req.query.date_basis || '').toLowerCase()) ? String(req.query.date_basis).toLowerCase() : 'visit'
   const page = Math.max(1, Number(req.query.page) || 1)
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10))
   const offset = (page - 1) * limit
-  const conditions = []
-  const params = []
 
-  if (statuses.length === 1) { conditions.push('b.status = ?'); params.push(statuses[0]) }
-  else if (statuses.length > 1) { conditions.push(`b.status IN (${statuses.map(() => '?').join(',')})`); params.push(...statuses) }
-  if (paymentMethod) { conditions.push('b.payment_method = ?'); params.push(paymentMethod) }
-  if (dateFrom) { conditions.push('a.appointment_date >= ?'); params.push(dateFrom) }
-  if (dateTo) { conditions.push('a.appointment_date <= ?'); params.push(dateTo) }
-  if (search) {
-    const like = `%${search}%`
-    conditions.push(`(p.full_name LIKE ? OR d.full_name LIKE ? OR a.reason LIKE ? OR b.payment_method LIKE ? OR CAST(b.id AS CHAR) LIKE ?)`)
-    params.push(like, like, like, like, like)
+  const buildFilters = ({ includeStatus = true } = {}) => {
+    const conditions = []
+    const params = []
+    if (includeStatus) {
+      if (statuses.length === 1) { conditions.push('b.status = ?'); params.push(statuses[0]) }
+      else if (statuses.length > 1) { conditions.push(`b.status IN (${statuses.map(() => '?').join(',')})`); params.push(...statuses) }
+    }
+    if (dateBasis === 'payment' && (paymentMethod || dateFrom || dateTo)) {
+      const paymentFilters = ["bpf.billing_id=b.id", "bpf.status='completed'"]
+      if (paymentMethod) { paymentFilters.push('bpf.payment_method=?'); params.push(paymentMethod) }
+      if (dateFrom) { paymentFilters.push('DATE(bpf.paid_at)>=?'); params.push(dateFrom) }
+      if (dateTo) { paymentFilters.push('DATE(bpf.paid_at)<=?'); params.push(dateTo) }
+      conditions.push(`EXISTS (SELECT 1 FROM billing_payments bpf WHERE ${paymentFilters.join(' AND ')})`)
+    } else {
+      if (paymentMethod) {
+        conditions.push(`EXISTS (SELECT 1 FROM billing_payments bpm WHERE bpm.billing_id=b.id AND bpm.payment_method=? AND bpm.status='completed')`)
+        params.push(paymentMethod)
+      }
+      const dateSql = dateBasis === 'finalized' ? (op) => `DATE(b.finalized_at) ${op} ?` : (op) => `a.appointment_date ${op} ?`
+      if (dateFrom) { conditions.push(dateSql('>=')); params.push(dateFrom) }
+      if (dateTo) { conditions.push(dateSql('<=')); params.push(dateTo) }
+    }
+    if (search) {
+      const like = `%${search}%`
+      conditions.push(`(p.full_name LIKE ? OR d.full_name LIKE ? OR a.reason LIKE ? OR CAST(b.id AS CHAR) LIKE ?
+        OR EXISTS (SELECT 1 FROM billing_payments bps WHERE bps.billing_id=b.id AND (bps.payment_method LIKE ? OR COALESCE(bps.reference_number,'') LIKE ? OR COALESCE(bps.receipt_number,'') LIKE ?)))`)
+      params.push(like, like, like, like, like, like, like)
+    }
+    return { conditions, params }
   }
+
+  const { conditions, params } = buildFilters({ includeStatus: true })
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const baseJoin = `
     FROM billing_records b
@@ -696,7 +718,9 @@ const getBills = async (req, res) => {
     LEFT JOIN staff s ON s.id = b.confirmed_by_staff_id
     LEFT JOIN (
       SELECT billing_id,
-             COALESCE(SUM(CASE WHEN status = 'completed' THEN amount - COALESCE(refund_amount, 0) ELSE 0 END), 0) AS paid_amount
+             COALESCE(SUM(CASE WHEN status = 'completed' THEN amount - COALESCE(refund_amount, 0) ELSE 0 END), 0) AS paid_amount,
+             GROUP_CONCAT(DISTINCT CASE WHEN status='completed' THEN payment_method END ORDER BY payment_method SEPARATOR ',') AS payment_methods,
+             MAX(CASE WHEN status='completed' THEN paid_at END) AS latest_payment_at
       FROM billing_payments
       GROUP BY billing_id
     ) pay ON pay.billing_id = b.id
@@ -705,9 +729,11 @@ const getBills = async (req, res) => {
   const [[countRow]] = await db.query(`SELECT COUNT(*) AS total ${baseJoin} ${whereClause}`, params)
   const [rows] = await db.query(
     `SELECT b.id, b.appointment_id, b.status, b.subtotal, b.discount_type, b.discount_label, b.discount_amount,
-            b.total_amount, b.payment_method, b.payment_notes, b.paid_at, b.finalized_at, b.created_at, b.updated_at,
+            b.total_amount, b.payment_method, b.payment_notes, b.paid_at, b.finalized_at, b.created_at, b.updated_at, b.version,
             COALESCE(pay.paid_amount, 0) AS paid_amount,
             GREATEST(0, b.total_amount - COALESCE(pay.paid_amount, 0)) AS balance_amount,
+            COALESCE(pay.payment_methods,'') AS payment_methods,
+            pay.latest_payment_at,
             DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
             a.appointment_time, a.reason AS appointment_reason, a.clinic_type, a.appointment_source,
             p.full_name AS patient_name, p.phone AS patient_phone,
@@ -720,17 +746,8 @@ const getBills = async (req, res) => {
     [...params, limit, offset]
   )
 
-  const summaryConditions = []
-  const summaryParams = []
-  if (paymentMethod) { summaryConditions.push('b.payment_method = ?'); summaryParams.push(paymentMethod) }
-  if (dateFrom) { summaryConditions.push('a.appointment_date >= ?'); summaryParams.push(dateFrom) }
-  if (dateTo) { summaryConditions.push('a.appointment_date <= ?'); summaryParams.push(dateTo) }
-  if (search) {
-    const like = `%${search}%`
-    summaryConditions.push(`(p.full_name LIKE ? OR d.full_name LIKE ? OR a.reason LIKE ? OR b.payment_method LIKE ? OR CAST(b.id AS CHAR) LIKE ?)`)
-    summaryParams.push(like, like, like, like, like)
-  }
-  const summaryWhere = summaryConditions.length ? `WHERE ${summaryConditions.join(' AND ')}` : ''
+  const summaryFilter = buildFilters({ includeStatus: false })
+  const summaryWhere = summaryFilter.conditions.length ? `WHERE ${summaryFilter.conditions.join(' AND ')}` : ''
   const [[summary]] = await db.query(
     `SELECT COUNT(*) AS total,
             SUM(b.status IN ('draft','pending')) AS draft,
@@ -741,13 +758,18 @@ const getBills = async (req, res) => {
             COALESCE(SUM(COALESCE(pay.paid_amount, 0)), 0) AS collected
      ${baseJoin}
      ${summaryWhere}`,
-    summaryParams
+    summaryFilter.params
   )
 
   const total = Number(countRow?.total || 0)
   const totalPages = Math.max(1, Math.ceil(total / limit))
   res.json({
-    items: rows.map((row) => ({ ...row, paid_amount: Number(row.paid_amount || 0), balance_amount: Number(row.balance_amount || 0) })),
+    items: rows.map((row) => ({
+      ...row,
+      paid_amount: Number(row.paid_amount || 0),
+      balance_amount: Number(row.balance_amount || 0),
+      payment_methods: String(row.payment_methods || '').split(',').filter(Boolean),
+    })),
     pagination: { page, limit, total, totalPages, hasPrev: page > 1, hasNext: page < totalPages },
     summary: {
       total: Number(summary?.total || 0),
@@ -776,45 +798,145 @@ const getBillById = async (req, res) => {
 }
 
 const updateBill = async (req, res) => {
-  const bill = await getBillingRecordWithItems(req.params.id)
-  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
-  if (!['draft', 'pending'].includes(bill.status)) return res.status(400).json({ message: 'Only draft bills can be edited. Finalized or paid bills are locked.' })
-  if (Number(bill.paid_amount || 0) > 0) return res.status(400).json({ message: 'A bill with recorded payments can no longer be edited.' })
+  const billingId = Number(req.params.id)
+  const expectedVersion = Number(req.body.expected_version)
+  if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    return res.status(400).json({ message: 'Reload this bill before saving. A valid bill version is required.', code: 'BILL_VERSION_REQUIRED' })
+  }
 
   const paymentNotes = String(req.body.payment_notes || '').trim() || null
-  const securedRawItems = await applyApprovedPriceOverrides(Number(req.params.id), req.body.items, db)
-  const items = await normalizeBillingItems(securedRawItems, db)
-  if (!items.length) return res.status(400).json({ message: 'Add at least one bill item.' })
-
-  const subtotalOnly = computeBillingTotals({ items, discount_amount: 0 })
-  const discount = await resolveDiscountForDraft({
-    billingId: Number(req.params.id),
-    subtotal: subtotalOnly.subtotal,
-    presetId: req.body.discount_preset_id,
-    reference: req.body.discount_reference,
-    requestedAmount: req.body.discount_amount,
-  }, db)
-  const totals = computeBillingTotals({ items, discount_amount: discount.amount })
-
-  const writer = await db.getConnection()
+  const rawItems = Array.isArray(req.body.items) ? req.body.items : []
+  const conn = await db.getConnection()
   try {
-    await writer.beginTransaction()
-    await saveBillingItems(req.params.id, items, writer)
-    await writer.query(
+    await conn.beginTransaction()
+    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE', [billingId])
+    if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
+    const locked = lockedRows[0]
+    if (!['draft', 'pending'].includes(locked.status)) { await conn.rollback(); return res.status(400).json({ message: 'Only draft bills can be edited. Finalized or paid bills are locked.' }) }
+    if (Number(locked.version || 1) !== expectedVersion) {
+      await conn.rollback()
+      return res.status(409).json({ message: 'This bill was updated by another user while you were working on it. Review the latest version before saving.', code: 'BILL_VERSION_CONFLICT', current_version: Number(locked.version || 1) })
+    }
+
+    const currentBill = await getBillingRecordWithItems(billingId, conn)
+    if (Number(currentBill.paid_amount || 0) > 0) { await conn.rollback(); return res.status(400).json({ message: 'A bill with recorded payments can no longer be edited.' }) }
+
+    // Consultation-owned lines are clinical facts. Staff may only apply an Admin-approved
+    // price override; the service identity, quantity and clinical snapshot remain immutable.
+    const consultationItems = (currentBill.items || []).filter((item) => item.source_type === 'consultation')
+    const incomingById = new Map(rawItems.filter((item) => Number(item?.id) > 0).map((item) => [Number(item.id), item]))
+    const protectedIds = new Set(consultationItems.map((item) => Number(item.id)))
+    const securedConsultationItems = []
+
+    for (const existing of consultationItems) {
+      const incoming = incomingById.get(Number(existing.id))
+      if (!incoming) {
+        await conn.rollback()
+        return res.status(409).json({ message: `${existing.service_name} was recorded during consultation and cannot be removed at Checkout. Ask the Doctor to correct the consultation or request an administrative correction.`, code: 'CONSULTATION_CHARGE_LOCKED' })
+      }
+      if (String(incoming.item_type || 'service') !== 'service'
+        || Number(incoming.catalog_service_id || 0) !== Number(existing.catalog_service_id || 0)
+        || Math.abs(Number(incoming.quantity || 0) - Number(existing.quantity || 0)) > 0.0001) {
+        await conn.rollback()
+        return res.status(409).json({ message: `${existing.service_name} is a protected consultation charge. Its service and quantity cannot be changed by Staff.`, code: 'CONSULTATION_CHARGE_LOCKED' })
+      }
+
+      const candidate = {
+        ...existing,
+        item_type: 'service',
+        price_overridden: Boolean(incoming.price_overridden),
+        unit_price: Boolean(incoming.price_overridden) ? Math.max(0, Number(incoming.unit_price) || 0) : Number(existing.unit_price || 0),
+        override_reason: incoming.override_reason || '',
+      }
+      const [secured] = await applyApprovedPriceOverrides(billingId, [candidate], conn, expectedVersion)
+      const details = existing.details && typeof existing.details === 'object' ? JSON.parse(JSON.stringify(existing.details)) : {}
+      details.pricing = {
+        ...(details.pricing || {}),
+        price_overridden: Boolean(secured.price_overridden),
+        original_price: Number(details?.pricing?.original_price ?? existing.unit_price ?? 0),
+        override_reason: secured.override_reason || null,
+      }
+      securedConsultationItems.push({
+        ...existing,
+        id: Number(existing.id),
+        source_type: 'consultation',
+        source_reference_id: existing.source_reference_id || currentBill.consultation_id || null,
+        unit_price: Number(secured.unit_price || 0),
+        line_total: Math.round(Number(existing.quantity || 0) * Number(secured.unit_price || 0) * 100) / 100,
+        details,
+        details_json: JSON.stringify(details),
+      })
+    }
+
+    const staffRawItems = rawItems.filter((item) => !protectedIds.has(Number(item?.id || 0)))
+    if (staffRawItems.some((item) => String(item?.item_type || '').toLowerCase() === 'service' || Number(item?.catalog_service_id || 0) > 0)) {
+      await conn.rollback()
+      return res.status(400).json({ message: 'Clinic services must come from the Doctor consultation. Staff can add only Medicine / Supply or Custom Charge items at Checkout.', code: 'STAFF_SERVICE_NOT_ALLOWED' })
+    }
+    for (const item of staffRawItems) {
+      if (String(item?.item_type || '').toLowerCase() === 'custom' && !String(item?.notes || '').trim()) {
+        await conn.rollback()
+        return res.status(400).json({ message: 'Every custom charge requires a reason or note for the audit trail.', code: 'CUSTOM_CHARGE_REASON_REQUIRED' })
+      }
+    }
+    const normalizedStaffItems = await normalizeBillingItems(staffRawItems.map((item) => ({
+      ...item,
+      source_type: String(item?.item_type || '').toLowerCase() === 'supply' ? 'staff_supply' : 'staff_custom',
+      source_reference_id: null,
+    })), conn)
+
+    const allItems = [...securedConsultationItems, ...normalizedStaffItems]
+    if (!allItems.length) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item.' }) }
+
+    const subtotalOnly = computeBillingTotals({ items: allItems, discount_amount: 0 })
+    const discount = await resolveDiscountForDraft({
+      billingId,
+      billVersion: expectedVersion,
+      subtotal: subtotalOnly.subtotal,
+      presetId: req.body.discount_preset_id,
+      reference: req.body.discount_reference,
+      requestedAmount: req.body.discount_amount,
+    }, conn)
+    const totals = computeBillingTotals({ items: allItems, discount_amount: discount.amount })
+    const nextVersion = expectedVersion + 1
+
+    await replaceStaffBillingItems(billingId, securedConsultationItems, normalizedStaffItems, conn)
+    const [billUpdate] = await conn.query(
       `UPDATE billing_records
-       SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_amount = ?, total_amount = ?, payment_notes = ?
-       WHERE id = ?`,
-      [totals.subtotal, discount.type, discount.label, totals.discount_amount, totals.total_amount, paymentNotes, req.params.id]
+       SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_reference = ?, discount_amount = ?, total_amount = ?, payment_notes = ?, version = ?
+       WHERE id = ? AND version = ?`,
+      [totals.subtotal, discount.type, discount.label, discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, totals.discount_amount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
     )
+    if (Number(billUpdate.affectedRows || 0) !== 1) {
+      const err = new Error('This bill changed while it was being saved. Reload the latest version and try again.')
+      err.statusCode = 409; err.code = 'BILL_VERSION_CONFLICT'; throw err
+    }
+
+    // Pending requests for the old revision are no longer safe after a material save.
+    await conn.query(
+      `UPDATE billing_adjustment_requests
+       SET status = 'expired', resolved_at = NOW(), admin_note = COALESCE(admin_note, 'Bill changed after this request was submitted.')
+       WHERE billing_id = ? AND bill_version = ? AND status = 'pending'`,
+      [billingId, expectedVersion]
+    )
+
+    // Approved adjustments are intentionally not carried to the next bill version.
+    // They authorize this save/finalization only; any later material edit requires a fresh approval.
+
     await writeAuditLog({
-      userId: req.user.id, userRole: 'staff', action: 'billing.draft_updated', entityType: 'billing_record', entityId: req.params.id,
-      oldValues: { subtotal: bill.subtotal, discount_amount: bill.discount_amount, total_amount: bill.total_amount },
-      newValues: { subtotal: totals.subtotal, discount_type: discount.type, discount_label: discount.label, discount_amount: totals.discount_amount, total_amount: totals.total_amount },
+      userId: req.user.id, userRole: 'staff', action: 'billing.draft_updated', entityType: 'billing_record', entityId: billingId,
+      oldValues: { version: expectedVersion, subtotal: currentBill.subtotal, discount_amount: currentBill.discount_amount, total_amount: currentBill.total_amount },
+      newValues: { version: nextVersion, subtotal: totals.subtotal, discount_type: discount.type, discount_label: discount.label, discount_amount: totals.discount_amount, total_amount: totals.total_amount },
       ipAddress: req.ip || null,
-    }, writer)
-    await writer.commit()
-  } catch (err) { await writer.rollback(); throw err } finally { writer.release() }
-  res.json(await getBillingRecordWithItems(req.params.id))
+    }, conn)
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || undefined, current_version: err.current_version })
+    throw err
+  } finally { conn.release() }
+  res.json(await getBillingRecordWithItems(billingId))
 }
 
 const getBillingAdjustmentRequests = async (req, res) => {
@@ -835,122 +957,176 @@ const requestBillingAdjustment = async (req, res) => {
   const bill = await getBillingRecordWithItems(billingId)
   if (!bill || !['draft', 'pending'].includes(bill.status)) return res.status(400).json({ message: 'Only draft bills can request adjustments.' })
 
+  const currentVersion = Number(bill.version || 1)
+  await db.query(
+    `UPDATE billing_adjustment_requests SET status='expired', resolved_at=NOW(), admin_note=COALESCE(admin_note,'Bill changed after this request was submitted.')
+     WHERE billing_id=? AND status='pending' AND bill_version<>?`,
+    [billingId, currentVersion]
+  )
+
   let discountPresetId = null, catalogServiceId = null, requestedAmount = null, requestedPrice = null
   if (type === 'discount') {
     discountPresetId = Number(req.body.discount_preset_id) || null
     const preset = await loadDiscountPreset(discountPresetId)
     if (!preset || Number(preset.is_active) === 0) return res.status(400).json({ message: 'Select a valid discount preset.' })
     requestedAmount = Math.max(0, Number(req.body.requested_amount) || 0) || null
+    if (requestedAmount && requestedAmount > Number(bill.subtotal || 0) + 0.001) return res.status(400).json({ message: 'Requested discount cannot exceed the bill subtotal.' })
   } else {
     catalogServiceId = Number(req.body.catalog_service_id) || null
     requestedPrice = Math.max(0, Number(req.body.requested_price) || 0)
-    if (!catalogServiceId) return res.status(400).json({ message: 'Select a clinic service for the price override.' })
+    const line = (bill.items || []).find((item) => item.source_type === 'consultation' && Number(item.catalog_service_id) === catalogServiceId)
+    if (!catalogServiceId || !line) return res.status(400).json({ message: 'Price overrides can only be requested for a consultation service on this bill.' })
   }
   const reason = String(req.body.reason || '').trim()
   const reference = String(req.body.reference || '').trim() || null
   if (!reason) return res.status(400).json({ message: 'A reason is required for administrator approval.' })
 
   const [existing] = await db.query(
-    `SELECT id FROM billing_adjustment_requests WHERE billing_id=? AND staff_id=? AND request_type=? AND status='pending'
+    `SELECT id FROM billing_adjustment_requests WHERE billing_id=? AND bill_version=? AND staff_id=? AND request_type=? AND status='pending'
      AND COALESCE(discount_preset_id,0)=COALESCE(?,0) AND COALESCE(catalog_service_id,0)=COALESCE(?,0) LIMIT 1`,
-    [billingId, req.user.id, type, discountPresetId, catalogServiceId]
+    [billingId, currentVersion, req.user.id, type, discountPresetId, catalogServiceId]
   )
   if (existing.length) return res.status(409).json({ message: 'A matching approval request is already pending.' })
 
   const [result] = await db.query(
     `INSERT INTO billing_adjustment_requests
-     (billing_id, staff_id, request_type, discount_preset_id, catalog_service_id, requested_amount, requested_price, reference_text, reason, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-    [billingId, req.user.id, type, discountPresetId, catalogServiceId, requestedAmount, requestedPrice, reference, reason]
+     (billing_id, bill_version, staff_id, request_type, discount_preset_id, catalog_service_id, requested_amount, requested_price, reference_text, reason, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [billingId, currentVersion, req.user.id, type, discountPresetId, catalogServiceId, requestedAmount, requestedPrice, reference, reason]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:'staff',action:`billing.${type}_approval_requested`,entityType:'billing_adjustment_request',entityId:result.insertId,newValues:{billing_id:billingId,discount_preset_id:discountPresetId,catalog_service_id:catalogServiceId,requested_amount:requestedAmount,requested_price:requestedPrice,reason},ipAddress:req.ip||null })
+  await writeAuditLog({ userId:req.user.id,userRole:'staff',action:`billing.${type}_approval_requested`,entityType:'billing_adjustment_request',entityId:result.insertId,newValues:{billing_id:billingId,bill_version:currentVersion,discount_preset_id:discountPresetId,catalog_service_id:catalogServiceId,requested_amount:requestedAmount,requested_price:requestedPrice,reason},ipAddress:req.ip||null })
   broadcast(['admin'], 'billing_adjustment_requested', { requestId: result.insertId, billingId })
-  res.status(201).json({ message: 'Administrator approval requested.', id: result.insertId })
+  res.status(201).json({ message: 'Administrator approval requested.', id: result.insertId, bill_version: currentVersion })
+}
+
+const cancelBillingAdjustmentRequest = async (req, res) => {
+  const billingId = Number(req.params.id)
+  const requestId = Number(req.params.requestId)
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query(
+      `SELECT * FROM billing_adjustment_requests WHERE id=? AND billing_id=? AND staff_id=? LIMIT 1 FOR UPDATE`,
+      [requestId, billingId, req.user.id]
+    )
+    if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Approval request not found.' }) }
+    if (rows[0].status !== 'pending') { await conn.rollback(); return res.status(409).json({ message: 'Only a pending approval request can be cancelled.' }) }
+    await conn.query("UPDATE billing_adjustment_requests SET status='cancelled', resolved_at=NOW(), admin_note='Cancelled by requesting staff.' WHERE id=?", [requestId])
+    await writeAuditLog({ userId:req.user.id,userRole:'staff',action:'billing.adjustment_cancelled',entityType:'billing_adjustment_request',entityId:requestId,oldValues:{status:'pending'},newValues:{status:'cancelled'},ipAddress:req.ip||null }, conn)
+    await conn.commit()
+  } catch (err) { await conn.rollback(); throw err } finally { conn.release() }
+  broadcast(['admin'], 'billing_adjustment_cancelled', { requestId, billingId })
+  res.json({ message: 'Approval request cancelled.' })
+}
+
+const getFinalizePreview = async (req, res) => {
+  const billingId = Number(req.params.id)
+  const bill = await getBillingRecordWithItems(billingId)
+  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
+  if (!['draft','pending'].includes(bill.status)) return res.status(400).json({ message: 'Only a draft bill can be reviewed for confirmation.' })
+  const supplies = []
+  for (const item of (bill.items || []).filter((row) => row.item_type === 'supply' && row.source_type === 'staff_supply' && Number(row.source_inventory_id) > 0)) {
+    const [[inventoryItem]] = await db.query('SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? LIMIT 1', [item.source_inventory_id])
+    if (!inventoryItem) {
+      supplies.push({ billing_item_id:item.id, name:item.service_name, requested:Number(item.quantity||0), available:0, sufficient:false, warning:'Inventory item is no longer available.' })
+      continue
+    }
+    const details = item.details || {}
+    const usageUnit = String(details?.unit || inventoryItem.unit || '').trim().toLowerCase()
+    const baseUnit = String(inventoryItem.base_unit || '').trim().toLowerCase()
+    const unitSize = Math.max(1, Number(inventoryItem.unit_size) || 1)
+    const [[stock]] = await db.query(
+      `SELECT COALESCE(SUM(ilb.quantity),0) AS package_available
+       FROM inventory_location_batches ilb
+       JOIN inventory_locations il ON il.id=ilb.location_id
+       JOIN inventory_batches ib ON ib.id=ilb.batch_id
+       WHERE ilb.inventory_id=? AND il.name IN ('Dispensing Area','Main Stockroom')
+         AND ilb.quantity>0 AND ib.quantity>0 AND (ib.expiration_date IS NULL OR ib.expiration_date >= CURDATE())`,
+      [inventoryItem.id]
+    )
+    const packageAvailable = Number(stock?.package_available || 0)
+    const available = usageUnit && baseUnit && usageUnit === baseUnit ? packageAvailable * unitSize : packageAvailable
+    const requested = Math.max(0, Number(item.quantity || 0))
+    supplies.push({ billing_item_id:item.id, inventory_id:inventoryItem.id, name:inventoryItem.name, requested, available, unit:details?.unit || inventoryItem.unit || '', sufficient: available + 0.0001 >= requested })
+  }
+  res.json({
+    billing_id: billingId,
+    version: Number(bill.version || 1),
+    total_amount: Number(bill.total_amount || 0),
+    charge_count: (bill.items || []).length,
+    supply_count: supplies.length,
+    supplies,
+    can_finalize: supplies.every((item) => item.sufficient),
+  })
 }
 
 const finalizeBill = async (req, res) => {
-  const bill = await getBillingRecordWithItems(req.params.id)
-  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
-  if (!['draft', 'pending'].includes(bill.status)) return res.status(400).json({ message: 'Only draft bills can be finalized.' })
-  if (!Array.isArray(bill.items) || bill.items.length === 0) return res.status(400).json({ message: 'Add at least one bill item before finalizing.' })
+  const billingId = Number(req.params.id)
+  const expectedVersion = Number(req.body.expected_version)
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) return res.status(400).json({ message: 'Reload this bill before confirming it. A valid bill version is required.', code: 'BILL_VERSION_REQUIRED' })
 
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id=? LIMIT 1 FOR UPDATE', [billingId])
+    if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
+    const locked = lockedRows[0]
+    if (!['draft','pending'].includes(locked.status)) { await conn.rollback(); return res.status(400).json({ message: 'Only draft bills can be confirmed.' }) }
+    if (Number(locked.version || 1) !== expectedVersion) { await conn.rollback(); return res.status(409).json({ message: 'This bill changed before it could be confirmed. Review the latest version.', code: 'BILL_VERSION_CONFLICT', current_version:Number(locked.version||1) }) }
+    const [[pendingApproval]] = await conn.query("SELECT COUNT(*) AS count FROM billing_adjustment_requests WHERE billing_id=? AND bill_version=? AND status='pending'", [billingId, expectedVersion])
+    if (Number(pendingApproval?.count || 0) > 0) { await conn.rollback(); return res.status(409).json({ message: 'This bill still has a pending administrator approval. Resolve or cancel it before confirming the bill.', code: 'PENDING_BILLING_APPROVAL' }) }
 
-    // Direct Medicine / Supply lines represent items that are physically dispensed
-    // by the cashier/front desk. Service consumables are already deducted when the
-    // doctor completes the consultation, so only direct supply lines are handled here.
-    const directSupplies = bill.items.filter((item) => item.item_type === 'supply' && Number(item.source_inventory_id) > 0)
+    const bill = await getBillingRecordWithItems(billingId, conn)
+    if (!Array.isArray(bill.items) || bill.items.length === 0) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item before confirming.' }) }
+
+    const directSupplies = bill.items.filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id) > 0)
     for (const item of directSupplies) {
-      const [inventoryRows] = await conn.query(
-        'SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? LIMIT 1 FOR UPDATE',
-        [item.source_inventory_id]
-      )
-      if (!inventoryRows.length) throw new Error(`Inventory item for ${item.service_name} is no longer available.`)
+      const [inventoryRows] = await conn.query('SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? LIMIT 1 FOR UPDATE', [item.source_inventory_id])
+      if (!inventoryRows.length) throw Object.assign(new Error(`Inventory item for ${item.service_name} is no longer available.`), { statusCode:400 })
       const inventoryItem = inventoryRows[0]
-      let details = {}
-      try { details = typeof item.details_json === 'string' ? JSON.parse(item.details_json) : (item.details_json || {}) } catch { details = {} }
+      const details = item.details || {}
       const usageUnit = String(details?.unit || inventoryItem.unit || '').trim().toLowerCase()
       const baseUnit = String(inventoryItem.base_unit || '').trim().toLowerCase()
       const unitSize = Math.max(1, Number(inventoryItem.unit_size) || 1)
       const requestedQty = Math.max(0, Number(item.quantity) || 0)
-      const packageQty = usageUnit && baseUnit && usageUnit === baseUnit
-        ? requestedQty / unitSize
-        : requestedQty
-      const consumption = await consumeInventoryFromLocationFEFO(
-        inventoryItem.id,
-        packageQty,
-        'Dispensing Area',
-        conn,
-        { fallbackLocation: 'Main Stockroom' }
-      )
-      if (!consumption.ok) {
-        await conn.rollback()
-        return res.status(400).json({ message: `Not enough stock for ${inventoryItem.name}. ${consumption.message}` })
-      }
+      const packageQty = usageUnit && baseUnit && usageUnit === baseUnit ? requestedQty / unitSize : requestedQty
+      const consumption = await consumeInventoryFromLocationFEFO(inventoryItem.id, packageQty, 'Dispensing Area', conn, { fallbackLocation: 'Main Stockroom' })
+      if (!consumption.ok) { await conn.rollback(); return res.status(400).json({ message: `Not enough stock for ${inventoryItem.name}. ${consumption.message}`, code:'INSUFFICIENT_STOCK' }) }
 
       let remainingUsageQty = requestedQty
       for (const batch of consumption.consumed) {
-        const batchUsageQty = usageUnit && baseUnit && usageUnit === baseUnit
-          ? Number(batch.quantity || 0) * unitSize
-          : Number(batch.quantity || 0)
-        const allocatedUsage = Math.min(remainingUsageQty, batchUsageQty)
-        remainingUsageQty = Math.max(0, remainingUsageQty - allocatedUsage)
+        const batchUsageQty = usageUnit && baseUnit && usageUnit === baseUnit ? Number(batch.quantity || 0) * unitSize : Number(batch.quantity || 0)
+        const allocatedUsage = Math.min(remainingUsageQty, batchUsageQty); remainingUsageQty = Math.max(0, remainingUsageQty - allocatedUsage)
         const batchLabel = batch.batch_code || `Batch #${batch.batch_id}`
-
         await conn.query(
-          `INSERT INTO billing_item_batch_usage
-           (billing_id, billing_item_id, inventory_id, batch_id, package_quantity, usage_quantity, usage_unit_label, movement_type, source_location)
+          `INSERT INTO billing_item_batch_usage (billing_id, billing_item_id, inventory_id, batch_id, package_quantity, usage_quantity, usage_unit_label, movement_type, source_location)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'dispensed', ?)`,
           [bill.id, item.id || null, inventoryItem.id, batch.batch_id, Number(batch.quantity || 0), allocatedUsage, details?.unit || inventoryItem.unit, batch.location || 'Dispensing Area']
         )
         await conn.query(
-          `INSERT INTO inventory_logs
-           (inventory_id, staff_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
+          `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
            VALUES (?, ?, 'out', ?, ?, 'dispensed', 'billing_record', ?, ?, ?)`,
           [inventoryItem.id, req.user.id, Number(batch.quantity || 0), `${batchLabel} dispensed for billing record ${bill.id}: ${item.service_name}`, String(bill.id), batch.batch_id, batch.location || 'Dispensing Area']
         )
       }
     }
 
-    await conn.query(
-      `UPDATE billing_records SET status = 'ready', finalized_at = NOW(), finalized_by_staff_id = ? WHERE id = ?`,
-      [req.user.id, req.params.id]
+    const nextVersion = expectedVersion + 1
+    const [updated] = await conn.query(
+      `UPDATE billing_records SET status='ready', finalized_at=NOW(), finalized_by_staff_id=?, version=? WHERE id=? AND version=?`,
+      [req.user.id, nextVersion, billingId, expectedVersion]
     )
-    await writeAuditLog({
-      userId: req.user.id, userRole: 'staff', action: 'billing.finalized', entityType: 'billing_record', entityId: req.params.id,
-      oldValues: { status: bill.status }, newValues: { status: 'ready', total_amount: bill.total_amount, dispensed_items: directSupplies.length }, ipAddress: req.ip || null,
-    }, conn)
+    if (Number(updated.affectedRows || 0) !== 1) throw Object.assign(new Error('This bill changed while it was being confirmed. Reload and try again.'), { statusCode:409, code:'BILL_VERSION_CONFLICT' })
+    await conn.query("UPDATE billing_adjustment_requests SET status='expired', resolved_at=NOW(), admin_note=COALESCE(admin_note,'Bill was finalized before this request was used.') WHERE billing_id=? AND status='pending'", [billingId])
+    await writeAuditLog({ userId:req.user.id,userRole:'staff',action:'billing.finalized',entityType:'billing_record',entityId:billingId,oldValues:{status:locked.status,version:expectedVersion},newValues:{status:'ready',version:nextVersion,total_amount:bill.total_amount,dispensed_items:directSupplies.length},ipAddress:req.ip||null }, conn)
     await conn.commit()
   } catch (err) {
     await conn.rollback()
+    if (err.statusCode) return res.status(err.statusCode).json({ message:err.message, code:err.code || undefined })
     throw err
-  } finally {
-    conn.release()
-  }
-  broadcast(['admin', 'staff'], 'billing_finalized', { billingId: Number(req.params.id) })
-  res.json(await getBillingRecordWithItems(req.params.id))
+  } finally { conn.release() }
+  broadcast(['admin','staff'], 'billing_finalized', { billingId })
+  res.json(await getBillingRecordWithItems(billingId))
 }
 
 const payBill = async (req, res) => {
@@ -980,12 +1156,29 @@ const payBill = async (req, res) => {
       return res.json(await getBillingRecordWithItems(existingId))
     }
 
+    if (requiresPaymentReference(paymentMethod) && referenceNumber) {
+      const [duplicateRefs] = await conn.query(
+        `SELECT id, billing_id, receipt_number FROM billing_payments
+         WHERE payment_method = ? AND reference_number = ? AND status = 'completed' LIMIT 1 FOR UPDATE`,
+        [paymentMethod, referenceNumber]
+      )
+      if (duplicateRefs.length) {
+        await conn.rollback()
+        return res.status(409).json({
+          message: `This ${paymentMethod.replace('_', ' ')} reference was already recorded on receipt ${duplicateRefs[0].receipt_number}. Review the existing payment before continuing.`,
+          code: 'DUPLICATE_PAYMENT_REFERENCE',
+          existing_billing_id: duplicateRefs[0].billing_id,
+          existing_receipt_number: duplicateRefs[0].receipt_number,
+        })
+      }
+    }
+
     // Serialize payment and cashier-close operations for this staff member so a payment
     // cannot slip in while the day's closing total is being finalized.
     await conn.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [req.user.id])
     const paymentDate = getTodayDateOnly()
     const [closedShift] = await conn.query(
-      'SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? AND COALESCE(is_locked,1) = 1 LIMIT 1',
+      "SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? AND COALESCE(is_locked,1) = 1 AND COALESCE(status,'closed') = 'closed' LIMIT 1",
       [req.user.id, paymentDate]
     )
     if (closedShift.length) {
@@ -1060,6 +1253,32 @@ const getDiscountPresets = async (req, res) => {
   res.json(rows)
 }
 
+const getCashierShiftStatus = async (req, res) => {
+  const date = String(req.query.date || getTodayDateOnly()).slice(0, 10)
+  if (!isValidDateOnly(date)) return res.status(400).json({ message: 'A valid cashier date is required.' })
+  const [[summary]] = await db.query(
+    `SELECT
+       COUNT(*) AS payment_count,
+       SUM(payment_method='cash' AND status='completed') AS cash_payment_count,
+       COALESCE(SUM(CASE WHEN payment_method='cash' AND status='completed' THEN amount - COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
+     FROM billing_payments WHERE received_by_staff_id=? AND DATE(paid_at)=?`,
+    [req.user.id, date]
+  )
+  const [[closing]] = await db.query(
+    `SELECT id, closing_date, expected_cash, actual_cash, variance, notes, status, is_locked, closed_at, reopened_at, reopen_reason
+     FROM cashier_closings WHERE staff_id=? AND closing_date=? LIMIT 1`,
+    [req.user.id, date]
+  )
+  res.json({
+    date,
+    status: closing && Number(closing.is_locked) === 1 && String(closing.status || 'closed') === 'closed' ? 'closed' : closing?.status === 'reopened' ? 'reopened' : 'open',
+    payment_count: Number(summary?.payment_count || 0),
+    cash_payment_count: Number(summary?.cash_payment_count || 0),
+    expected_cash: Number(summary?.expected_cash || 0),
+    closing: closing || null,
+  })
+}
+
 const closeCashierShift = async (req, res) => {
   const today = getTodayDateOnly()
   const closingDate = String(req.body.closing_date || today).slice(0, 10)
@@ -1067,22 +1286,12 @@ const closeCashierShift = async (req, res) => {
   if (closingDate > today) return res.status(400).json({ message: 'A cashier shift cannot be closed for a future date.' })
   const actualCashInput = Number(req.body.actual_cash)
   if (!Number.isFinite(actualCashInput) || actualCashInput < 0) return res.status(400).json({ message: 'Actual cash must be a valid non-negative amount.' })
+  const notes = String(req.body.notes || '').trim() || null
 
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    // Use the same row lock as payBill so closing and payment cannot race each other.
     await conn.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [req.user.id])
-
-    const [closed] = await conn.query(
-      'SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? LIMIT 1',
-      [req.user.id, closingDate]
-    )
-    if (closed.length) {
-      await conn.rollback()
-      return res.status(409).json({ message: 'This cashier shift is already closed. An administrator must reopen it before changes can be made.' })
-    }
-
     const [[summary]] = await conn.query(
       `SELECT COALESCE(SUM(CASE WHEN payment_method = 'cash' AND status = 'completed' THEN amount - COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
        FROM billing_payments WHERE received_by_staff_id = ? AND DATE(paid_at) = ?`,
@@ -1091,39 +1300,63 @@ const closeCashierShift = async (req, res) => {
     const expectedCash = Number(summary?.expected_cash || 0)
     const actualCash = Math.round(actualCashInput * 100) / 100
     const variance = Math.round((actualCash - expectedCash) * 100) / 100
+    if (Math.abs(variance) > 0.009 && !notes) {
+      await conn.rollback()
+      return res.status(400).json({ message: 'A note is required when the actual cash does not match the expected cash.', code: 'CASH_VARIANCE_NOTE_REQUIRED' })
+    }
 
-    await conn.query(
-      `INSERT INTO cashier_closings (staff_id, closing_date, expected_cash, actual_cash, variance, notes, is_locked)
-       VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [req.user.id, closingDate, expectedCash, actualCash, variance, String(req.body.notes || '').trim() || null]
+    const [existingRows] = await conn.query(
+      'SELECT * FROM cashier_closings WHERE staff_id=? AND closing_date=? LIMIT 1 FOR UPDATE',
+      [req.user.id, closingDate]
     )
-    await writeAuditLog({ userId: req.user.id, userRole: 'staff', action: 'cashier.shift_closed', entityType: 'cashier_closing', entityId: closingDate, newValues: { expected_cash: expectedCash, actual_cash: actualCash, variance }, ipAddress: req.ip || null }, conn)
+    let closingId
+    let eventType = 'closed'
+    if (existingRows.length) {
+      const existing = existingRows[0]
+      if (Number(existing.is_locked) === 1 && String(existing.status || 'closed') === 'closed') {
+        await conn.rollback()
+        return res.status(409).json({ message: 'This cashier shift is already closed. An administrator must reopen it before changes can be made.' })
+      }
+      eventType = 'reclosed'
+      closingId = existing.id
+      await conn.query(
+        `UPDATE cashier_closings
+         SET expected_cash=?, actual_cash=?, variance=?, notes=?, status='closed', is_locked=1, closed_at=NOW()
+         WHERE id=?`,
+        [expectedCash, actualCash, variance, notes, closingId]
+      )
+    } else {
+      const [result] = await conn.query(
+        `INSERT INTO cashier_closings (staff_id, closing_date, expected_cash, actual_cash, variance, notes, status, is_locked)
+         VALUES (?, ?, ?, ?, ?, ?, 'closed', 1)`,
+        [req.user.id, closingDate, expectedCash, actualCash, variance, notes]
+      )
+      closingId = result.insertId
+    }
+    await conn.query(
+      `INSERT INTO cashier_closing_events
+       (cashier_closing_id, event_type, actor_role, actor_id, expected_cash, actual_cash, variance, reason)
+       VALUES (?, ?, 'staff', ?, ?, ?, ?, ?)`,
+      [closingId, eventType, req.user.id, expectedCash, actualCash, variance, notes]
+    )
+    await writeAuditLog({ userId:req.user.id,userRole:'staff',action:eventType === 'reclosed' ? 'cashier.shift_reclosed' : 'cashier.shift_closed',entityType:'cashier_closing',entityId:closingId,newValues:{closing_date:closingDate,expected_cash:expectedCash,actual_cash:actualCash,variance,notes},ipAddress:req.ip||null }, conn)
     await conn.commit()
-    return res.json({ closing_date: closingDate, expected_cash: expectedCash, actual_cash: actualCash, variance })
-  } catch (err) {
-    await conn.rollback()
-    throw err
-  } finally {
-    conn.release()
-  }
+    broadcast(['admin','staff'], 'cashier_shift_changed', { closingId, closingDate, status:'closed' })
+    return res.json({ id:closingId, closing_date:closingDate, expected_cash:expectedCash, actual_cash:actualCash, variance, status:'closed' })
+  } catch (err) { await conn.rollback(); throw err } finally { conn.release() }
 }
 
 const getPaymentSettingsForStaff = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled, gcash_qr_url, maya_qr_url, bank_name, bank_account_name, bank_account_number, updated_at
+    `SELECT cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled,
+            gcash_qr_url, maya_qr_url, gcash_qr_mode, maya_qr_mode,
+            bank_name, bank_account_name, bank_account_number, updated_at
      FROM clinic_payment_settings WHERE id = 1 LIMIT 1`
   )
   res.json(rows[0] || {
-    cash_enabled: 1,
-    gcash_enabled: 1,
-    maya_enabled: 1,
-    bank_transfer_enabled: 1,
-    gcash_qr_url: '',
-    maya_qr_url: '',
-    bank_name: '',
-    bank_account_name: '',
-    bank_account_number: '',
-    updated_at: null,
+    cash_enabled: 1, gcash_enabled: 1, maya_enabled: 1, bank_transfer_enabled: 1,
+    gcash_qr_url: '', maya_qr_url: '', gcash_qr_mode: 'uploaded', maya_qr_mode: 'uploaded',
+    bank_name: '', bank_account_name: '', bank_account_number: '', updated_at: null,
   })
 }
 
@@ -1418,7 +1651,7 @@ module.exports = {
   getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
-  getBills, getBillingCatalogForStaff, getBillById, updateBill, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, closeCashierShift, getPaymentSettingsForStaff,
+  getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getCashierShiftStatus, closeCashierShift, getPaymentSettingsForStaff,
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,

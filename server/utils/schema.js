@@ -403,9 +403,11 @@ const ensureAppSchema = async () => {
       patient_id INT NOT NULL,
       doctor_id INT NOT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      version INT NOT NULL DEFAULT 1,
       subtotal DECIMAL(10,2) NOT NULL DEFAULT 0.00,
       discount_type VARCHAR(30) NOT NULL DEFAULT 'none',
       discount_label VARCHAR(80) NULL,
+      discount_reference VARCHAR(160) NULL,
       discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
       total_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
       payment_method VARCHAR(30) NULL,
@@ -436,6 +438,8 @@ const ensureAppSchema = async () => {
       billing_id INT NOT NULL,
       catalog_service_id INT NULL,
       item_type VARCHAR(20) NOT NULL DEFAULT 'custom',
+      source_type VARCHAR(30) NOT NULL DEFAULT 'staff_custom',
+      source_reference_id INT NULL,
       source_inventory_id INT NULL,
       category VARCHAR(120) NULL,
       service_name VARCHAR(180) NOT NULL,
@@ -456,7 +460,10 @@ const ensureAppSchema = async () => {
     )
   `)
 
+  await ensureColumn('billing_records', 'version', 'INT NOT NULL DEFAULT 1')
   await ensureColumn('billing_items', 'item_type', "VARCHAR(20) NOT NULL DEFAULT 'custom'")
+  await ensureColumn('billing_items', 'source_type', "VARCHAR(30) NOT NULL DEFAULT 'staff_custom'")
+  await ensureColumn('billing_items', 'source_reference_id', 'INT NULL')
   await ensureColumn('billing_items', 'source_inventory_id', 'INT NULL')
   await ensureColumn('billing_items', 'base_amount', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00')
   await ensureColumn('billing_items', 'markup_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 0.00')
@@ -556,11 +563,13 @@ const ensureAppSchema = async () => {
     CREATE TABLE IF NOT EXISTS clinic_payment_settings (
       id INT NOT NULL PRIMARY KEY,
       cash_enabled TINYINT(1) NOT NULL DEFAULT 1,
-      gcash_enabled TINYINT(1) NOT NULL DEFAULT 1,
-      maya_enabled TINYINT(1) NOT NULL DEFAULT 1,
-      bank_transfer_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      gcash_enabled TINYINT(1) NOT NULL DEFAULT 0,
+      maya_enabled TINYINT(1) NOT NULL DEFAULT 0,
+      bank_transfer_enabled TINYINT(1) NOT NULL DEFAULT 0,
       gcash_qr_url TEXT NULL,
       maya_qr_url TEXT NULL,
+      gcash_qr_mode VARCHAR(20) NOT NULL DEFAULT 'uploaded',
+      maya_qr_mode VARCHAR(20) NOT NULL DEFAULT 'uploaded',
       gcash_qr_scan_status VARCHAR(20) NOT NULL DEFAULT 'legacy',
       maya_qr_scan_status VARCHAR(20) NOT NULL DEFAULT 'legacy',
       bank_name VARCHAR(120) NULL,
@@ -574,9 +583,11 @@ const ensureAppSchema = async () => {
   `)
 
   await ensureColumn('clinic_payment_settings', 'cash_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER id')
-  await ensureColumn('clinic_payment_settings', 'gcash_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER cash_enabled')
-  await ensureColumn('clinic_payment_settings', 'maya_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER gcash_enabled')
-  await ensureColumn('clinic_payment_settings', 'bank_transfer_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER maya_enabled')
+  await ensureColumn('clinic_payment_settings', 'gcash_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER cash_enabled')
+  await ensureColumn('clinic_payment_settings', 'maya_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER gcash_enabled')
+  await ensureColumn('clinic_payment_settings', 'bank_transfer_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER maya_enabled')
+  await ensureColumn('clinic_payment_settings', 'gcash_qr_mode', "VARCHAR(20) NOT NULL DEFAULT 'uploaded' AFTER maya_qr_url")
+  await ensureColumn('clinic_payment_settings', 'maya_qr_mode', "VARCHAR(20) NOT NULL DEFAULT 'uploaded' AFTER gcash_qr_mode")
   await ensureColumn('clinic_payment_settings', 'gcash_qr_scan_status', "VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER maya_qr_url")
   await ensureColumn('clinic_payment_settings', 'maya_qr_scan_status', "VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER gcash_qr_scan_status")
 
@@ -606,6 +617,8 @@ const ensureAppSchema = async () => {
   await ensureColumn('patients', 'consent_recorded_by_staff_id', 'INT NULL')
 
   await db.query("ALTER TABLE billing_records MODIFY COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'").catch(() => {})
+  await ensureColumn('inventory', 'selling_price', 'DECIMAL(10,2) NULL')
+  await ensureColumn('billing_records', 'discount_reference', 'VARCHAR(160) NULL')
   await ensureColumn('billing_records', 'finalized_at', 'DATETIME NULL')
   await ensureColumn('billing_records', 'finalized_by_staff_id', 'INT NULL')
   await ensureColumn('billing_records', 'clinical_inventory_consumed_at', 'DATETIME NULL')
@@ -642,11 +655,14 @@ const ensureAppSchema = async () => {
       phone VARCHAR(80) NULL,
       email VARCHAR(160) NULL,
       report_footer VARCHAR(255) NULL,
+      receipt_title VARCHAR(120) NOT NULL DEFAULT 'PAYMENT RECEIPT',
       receipt_footer VARCHAR(255) NULL,
       updated_by_admin_id INT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `)
+  await ensureColumn('clinic_settings', 'receipt_title', "VARCHAR(120) NOT NULL DEFAULT 'PAYMENT RECEIPT'")
+
   await db.query(
     `INSERT IGNORE INTO clinic_settings
      (id, clinic_name, address, phone, email, report_footer, receipt_footer)
@@ -848,6 +864,10 @@ const ensureAppSchema = async () => {
       actual_cash DECIMAL(10,2) NOT NULL DEFAULT 0.00,
       variance DECIMAL(10,2) NOT NULL DEFAULT 0.00,
       notes TEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'closed',
+      reopened_at DATETIME NULL,
+      reopened_by_admin_id INT NULL,
+      reopen_reason TEXT NULL,
       closed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_cashier_closing (staff_id, closing_date)
     )
@@ -982,11 +1002,32 @@ const ensureAppSchema = async () => {
   await ensureColumn('billing_payments', 'idempotency_key', 'VARCHAR(100) NULL')
   await db.query('CREATE UNIQUE INDEX uniq_billing_payment_idempotency ON billing_payments (idempotency_key)').catch(() => {})
   await ensureColumn('cashier_closings', 'is_locked', 'TINYINT(1) NOT NULL DEFAULT 1')
+  await ensureColumn('cashier_closings', 'status', "VARCHAR(20) NOT NULL DEFAULT 'closed'")
+  await ensureColumn('cashier_closings', 'reopened_at', 'DATETIME NULL')
+  await ensureColumn('cashier_closings', 'reopened_by_admin_id', 'INT NULL')
+  await ensureColumn('cashier_closings', 'reopen_reason', 'TEXT NULL')
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS cashier_closing_events (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      cashier_closing_id BIGINT NOT NULL,
+      event_type VARCHAR(20) NOT NULL,
+      actor_role VARCHAR(20) NOT NULL,
+      actor_id INT NULL,
+      expected_cash DECIMAL(10,2) NULL,
+      actual_cash DECIMAL(10,2) NULL,
+      variance DECIMAL(10,2) NULL,
+      reason TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_cashier_closing_events_closing (cashier_closing_id, created_at),
+      CONSTRAINT fk_cashier_closing_events_closing FOREIGN KEY (cashier_closing_id) REFERENCES cashier_closings(id) ON DELETE CASCADE
+    )
+  `)
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS billing_adjustment_requests (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
       billing_id INT NOT NULL,
+      bill_version INT NOT NULL DEFAULT 1,
       staff_id INT NOT NULL,
       request_type VARCHAR(30) NOT NULL,
       discount_preset_id INT NULL,
@@ -1007,6 +1048,9 @@ const ensureAppSchema = async () => {
       CONSTRAINT fk_billing_adjustment_admin FOREIGN KEY (resolved_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL
     )
   `)
+  await ensureColumn('billing_adjustment_requests', 'bill_version', 'INT NOT NULL DEFAULT 1 AFTER billing_id')
+  await db.query("ALTER TABLE billing_adjustment_requests MODIFY COLUMN status VARCHAR(20) NOT NULL DEFAULT 'pending'").catch(() => {})
+  await ensureIndex('billing_payments', 'idx_billing_payment_reference', 'payment_method, reference_number').catch(() => {})
 
   await ensureIndex('appointments', 'idx_appointments_doctor_date_time_status', 'doctor_id, appointment_date, appointment_time, status').catch(() => {})
   await ensureIndex('appointments', 'idx_appointments_patient_doctor_status', 'patient_id, doctor_id, status').catch(() => {})
