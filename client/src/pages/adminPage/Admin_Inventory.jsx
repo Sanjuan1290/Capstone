@@ -230,3 +230,6 @@ const AdminInventory = () => {
 }
 
 export default AdminInventory
+
+
+

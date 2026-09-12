@@ -10,3 +10,6 @@ ALTER TABLE clinic_payment_settings
   ADD COLUMN maya_qr_scan_status VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER gcash_qr_scan_status;
 
 -- Existing images/QRs predate malware-scan tracking and remain marked `legacy`.
+
+
+

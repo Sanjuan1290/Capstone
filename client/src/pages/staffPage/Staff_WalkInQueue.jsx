@@ -444,3 +444,6 @@ const StaffWalkInQueue = () => {
     {showModal&&<WalkInModal doctors={doctors} onClose={()=>setShowModal(false)} onSuccess={onSuccess}/>} {success&&<SuccessModal entry={success} onClose={()=>setSuccess(null)}/>} </div>
 }
 export default StaffWalkInQueue
+
+
+

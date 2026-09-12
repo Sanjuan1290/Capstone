@@ -27,6 +27,7 @@ import StaffLayout           from './components/layouts/StaffLayout'
 import Staff_Dashboard       from './pages/staffPage/Staff_Dashboard'
 import Staff_Appointments    from './pages/staffPage/Staff_Appointments'
 import Staff_Billing         from './pages/staffPage/Staff_Billing'
+import Staff_CheckoutDetail  from './pages/staffPage/Staff_CheckoutDetail'
 import Staff_WalkInQueue     from './pages/staffPage/Staff_WalkInQueue'
 import Staff_PatientRecord   from './pages/staffPage/Staff_PatientRecord'
 import StaffLogin            from './pages/auth/Staff/StaffLogin'
@@ -52,6 +53,14 @@ import Admin_Appointments    from './pages/adminPage/Admin_Appointments'
 import Admin_PatientBooking  from './pages/adminPage/Admin_PatientBooking'
 import Admin_BillingCatalog  from './pages/adminPage/Admin_BillingCatalog'
 import Admin_Billing         from './pages/adminPage/Admin_Billing'
+import Admin_BillingTransactions from './pages/adminPage/Admin_BillingTransactions'
+import Admin_BillingTransactionDetail from './pages/adminPage/Admin_BillingTransactionDetail'
+import Admin_BillingApprovals from './pages/adminPage/Admin_BillingApprovals'
+import Admin_BillingReconciliation from './pages/adminPage/Admin_BillingReconciliation'
+import Admin_BillingPaymentMethods from './pages/adminPage/Admin_BillingPaymentMethods'
+import Admin_BillingDiscounts from './pages/adminPage/Admin_BillingDiscounts'
+import Admin_BillingReceiptSettings from './pages/adminPage/Admin_BillingReceiptSettings'
+import Admin_BillingServiceForm from './pages/adminPage/Admin_BillingServiceForm'
 import Admin_AuditLogs       from './pages/adminPage/Admin_AuditLogs'
 import Admin_ClinicSettings  from './pages/adminPage/Admin_ClinicSettings'
 import Admin_Inventory       from './pages/adminPage/Admin_Inventory'
@@ -107,7 +116,9 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/staff' element={<StaffRoute><StaffLayout /></StaffRoute>}>
         <Route index                  element={<Staff_Dashboard />} />
         <Route path='appointments'    element={<Staff_Appointments />} />
-        <Route path='billing'         element={<Staff_Billing />} />
+        <Route path='checkout'        element={<Staff_Billing />} />
+        <Route path='checkout/:billingId' element={<Staff_CheckoutDetail />} />
+        <Route path='billing'         element={<Navigate to='/staff/checkout' replace />} />
         <Route path='walkin'          element={<Staff_WalkInQueue />} />
         <Route path='inventory'       element={<Staff_Inventory />} />
         <Route path='patient-records' element={<Staff_PatientRecord />} />
@@ -147,8 +158,19 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='appointments'     element={<Admin_Appointments />} />
         <Route path='patient-booking'  element={<Admin_PatientBooking />} />
         <Route path='billing'          element={<Admin_Billing />} />
-        <Route path='service-catalog'  element={<Admin_BillingCatalog />} />
-        <Route path='billing-catalog'  element={<Navigate to='/admin/service-catalog' replace />} />
+        <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
+        <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
+        <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
+        <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
+        <Route path='billing/setup' element={<Navigate to='/admin/billing/setup/services' replace />} />
+        <Route path='billing/setup/services' element={<Admin_BillingCatalog />} />
+        <Route path='billing/setup/services/new' element={<Admin_BillingServiceForm />} />
+        <Route path='billing/setup/services/:serviceId/edit' element={<Admin_BillingServiceForm />} />
+        <Route path='billing/setup/payment-methods' element={<Admin_BillingPaymentMethods />} />
+        <Route path='billing/setup/discounts' element={<Admin_BillingDiscounts />} />
+        <Route path='billing/setup/receipt' element={<Admin_BillingReceiptSettings />} />
+        <Route path='service-catalog'  element={<Navigate to='/admin/billing/setup/services' replace />} />
+        <Route path='billing-catalog'  element={<Navigate to='/admin/billing/setup/services' replace />} />
         <Route path='inventory'        element={<Admin_Inventory />} />
         <Route path='supply-requests'  element={<Admin_SupplyRequests />} />
         <Route path='landingpage'      element={<Admin_LandingPage />} />
@@ -173,3 +195,6 @@ const App = () => (
 )
 
 export default App
+
+
+

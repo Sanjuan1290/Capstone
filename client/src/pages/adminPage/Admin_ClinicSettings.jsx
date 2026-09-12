@@ -41,3 +41,6 @@ const Admin_ClinicSettings = () => {
 }
 
 export default Admin_ClinicSettings
+
+
+

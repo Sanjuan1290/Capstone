@@ -75,7 +75,7 @@ const Admin_Dashboard = () => {
   const quickLinks = [
     { label: 'Reports',         path: '/admin/reports',          icon: MdBarChart,       color: 'text-amber-600',   bg: 'bg-amber-50'   },
     { label: 'Patient Booking', path: '/admin/patient-booking',  icon: MdEdit,           color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Service Catalog', path: '/admin/service-catalog',  icon: MdPayments,       color: 'text-sky-600',     bg: 'bg-sky-50'     },
+    { label: 'Billing Setup',   path: '/admin/billing/setup/services',  icon: MdPayments,       color: 'text-sky-600',     bg: 'bg-sky-50'     },
     { label: 'Staff Accounts',  path: '/admin/staff-accounts',   icon: MdPeople,         color: 'text-sky-600',     bg: 'bg-sky-50'     },
     { label: 'Doctor Accounts', path: '/admin/doctor-accounts',  icon: MdMedicalServices,color: 'text-violet-600',  bg: 'bg-violet-50'  },
     { label: 'Schedules',       path: '/admin/doctor-schedules', icon: MdCalendarToday,  color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -248,3 +248,6 @@ const Admin_Dashboard = () => {
 }
 
 export default Admin_Dashboard
+
+
+

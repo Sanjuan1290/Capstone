@@ -38,3 +38,6 @@ describe('runtime configuration validation', () => {
     expect(validateRuntimeConfig()).toHaveProperty('warnings')
   })
 })
+
+
+

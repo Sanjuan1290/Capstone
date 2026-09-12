@@ -7,3 +7,6 @@ describe('payment settings', () => {
     expect(normalizeOptionalImageUrl('javascript:alert(1)')).toBeNull()
   })
 })
+
+
+

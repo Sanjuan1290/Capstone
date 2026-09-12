@@ -18,3 +18,6 @@ const staffServices = {
 const Staff_Inventory = () => <Inventory services={staffServices} />
 
 export default Staff_Inventory
+
+
+

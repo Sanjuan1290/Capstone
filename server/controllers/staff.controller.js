@@ -665,18 +665,23 @@ const getPatientRecord = async (req, res) => {
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 const getBills = async (req, res) => {
-  const status = String(req.query.status || '').trim()
+  const rawStatus = String(req.query.status || '').trim()
+  const statuses = rawStatus.split(',').map((value) => value.trim()).filter(Boolean)
   const search = String(req.query.search || '').trim()
+  const paymentMethod = String(req.query.payment_method || '').trim().toLowerCase()
+  const dateFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date_from || '')) ? String(req.query.date_from) : ''
+  const dateTo = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date_to || '')) ? String(req.query.date_to) : ''
   const page = Math.max(1, Number(req.query.page) || 1)
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10))
   const offset = (page - 1) * limit
   const conditions = []
   const params = []
 
-  if (status) {
-    conditions.push('b.status = ?')
-    params.push(status)
-  }
+  if (statuses.length === 1) { conditions.push('b.status = ?'); params.push(statuses[0]) }
+  else if (statuses.length > 1) { conditions.push(`b.status IN (${statuses.map(() => '?').join(',')})`); params.push(...statuses) }
+  if (paymentMethod) { conditions.push('b.payment_method = ?'); params.push(paymentMethod) }
+  if (dateFrom) { conditions.push('a.appointment_date >= ?'); params.push(dateFrom) }
+  if (dateTo) { conditions.push('a.appointment_date <= ?'); params.push(dateTo) }
   if (search) {
     const like = `%${search}%`
     conditions.push(`(p.full_name LIKE ? OR d.full_name LIKE ? OR a.reason LIKE ? OR b.payment_method LIKE ? OR CAST(b.id AS CHAR) LIKE ?)`)
@@ -717,6 +722,9 @@ const getBills = async (req, res) => {
 
   const summaryConditions = []
   const summaryParams = []
+  if (paymentMethod) { summaryConditions.push('b.payment_method = ?'); summaryParams.push(paymentMethod) }
+  if (dateFrom) { summaryConditions.push('a.appointment_date >= ?'); summaryParams.push(dateFrom) }
+  if (dateTo) { summaryConditions.push('a.appointment_date <= ?'); summaryParams.push(dateTo) }
   if (search) {
     const like = `%${search}%`
     summaryConditions.push(`(p.full_name LIKE ? OR d.full_name LIKE ? OR a.reason LIKE ? OR b.payment_method LIKE ? OR CAST(b.id AS CHAR) LIKE ?)`)
@@ -954,6 +962,12 @@ const payBill = async (req, res) => {
   if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
   if (!idempotencyKey || idempotencyKey.length > 100) return res.status(400).json({ message: 'A valid payment request key is required.' })
   if (!isValidPaymentMethod(paymentMethod)) return res.status(400).json({ message: 'Select a valid payment method.' })
+  const paymentMethodColumns = { cash: 'cash_enabled', gcash: 'gcash_enabled', maya: 'maya_enabled', bank_transfer: 'bank_transfer_enabled' }
+  const enabledColumn = paymentMethodColumns[paymentMethod]
+  const [paymentSettingsRows] = await db.query(`SELECT ${enabledColumn} AS is_enabled FROM clinic_payment_settings WHERE id = 1 LIMIT 1`)
+  if (paymentSettingsRows.length && Number(paymentSettingsRows[0].is_enabled) === 0) {
+    return res.status(400).json({ message: `${paymentMethod.replace('_', ' ')} is currently disabled by an administrator.` })
+  }
   if (requiresPaymentReference(paymentMethod) && !referenceNumber) return res.status(400).json({ message: 'Enter the payment reference number.' })
 
   const conn = await db.getConnection()
@@ -1096,10 +1110,14 @@ const closeCashierShift = async (req, res) => {
 
 const getPaymentSettingsForStaff = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT gcash_qr_url, maya_qr_url, bank_name, bank_account_name, bank_account_number, updated_at
+    `SELECT cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled, gcash_qr_url, maya_qr_url, bank_name, bank_account_name, bank_account_number, updated_at
      FROM clinic_payment_settings WHERE id = 1 LIMIT 1`
   )
   res.json(rows[0] || {
+    cash_enabled: 1,
+    gcash_enabled: 1,
+    maya_enabled: 1,
+    bank_transfer_enabled: 1,
     gcash_qr_url: '',
     maya_qr_url: '',
     bank_name: '',
@@ -1405,3 +1423,6 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
+
+

@@ -79,6 +79,7 @@ export const getBills = (params = {}) => {
 
 export const getBillById = (id) => requestJson(`${BASE}/billing/${id}`)
 export const getBillingReconciliation = (date = '') => requestJson(`${BASE}/billing/reconciliation${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+export const reopenCashierShift = (id, reason) => requestJson(`${BASE}/billing/cashier-closings/${id}/reopen`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) })
 export const voidBillingPayment = (paymentId, reason) => requestJson(`${BASE}/billing/payments/${paymentId}/void`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) })
 export const refundBillingPayment = (paymentId, payload) => requestJson(`${BASE}/billing/payments/${paymentId}/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 export const getBillingAdjustmentRequests = (params = {}) => {
@@ -368,3 +369,6 @@ export const updateQueueStatus = (id, status) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   }).then(r => r.json())
+
+
+

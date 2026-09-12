@@ -48,7 +48,7 @@ const Staff_Dashboard = () => {
 
   const quickLinks = [
     { label: "Appointments",    path: "/staff/appointments",    icon: MdEventAvailable, color: "text-sky-600",     bg: "bg-sky-50"     },
-    { label: "Billing",         path: "/staff/billing",         icon: MdPayments,       color: "text-emerald-600", bg: "bg-emerald-50" },
+    { label: "Checkout",        path: "/staff/checkout",         icon: MdPayments,       color: "text-emerald-600", bg: "bg-emerald-50" },
     { label: "Walk-in Queue",   path: "/staff/walkin",          icon: MdQueuePlayNext,  color: "text-emerald-600", bg: "bg-emerald-50" },
     { label: "Patient Records", path: "/staff/patient-records", icon: MdPeople,         color: "text-violet-600",  bg: "bg-violet-50"  },
     { label: "Inventory",       path: "/staff/inventory",       icon: MdInventory2,     color: "text-amber-600",   bg: "bg-amber-50"   },
@@ -194,3 +194,6 @@ const Staff_Dashboard = () => {
 }
 
 export default Staff_Dashboard
+
+
+

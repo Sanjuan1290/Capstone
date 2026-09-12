@@ -10,7 +10,7 @@ import { getDashboard } from '../../services/admin.service'
 import {
   MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
   MdBarChart, MdChevronLeft, MdLogout, MdAdminPanelSettings, MdMenu, MdClose, MdSettings,
-  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory, MdBusiness, MdViewList,
+  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory, MdBusiness,
 } from 'react-icons/md'
 
 const GROUPS = [
@@ -21,7 +21,6 @@ const GROUPS = [
   ] },
   { label: 'Billing & Stock', items: [
     { name: 'Billing', path: '/admin/billing', icon: MdPayments, short: 'Billing' },
-    { name: 'Service Catalog', path: '/admin/service-catalog', icon: MdViewList, short: 'Services' },
     { name: 'Inventory', path: '/admin/inventory', icon: MdInventory2, short: 'Stock' },
     { name: 'Stock Transfers', path: '/admin/supply-requests', icon: MdInventory2, short: 'Transfer' },
   ] },
@@ -75,7 +74,7 @@ const AdminLayout = () => {
     </NavLink>
   }
 
-  const mobileNav = useMemo(() => [GROUPS[0].items[0], GROUPS[1].items[0], GROUPS[2].items[0], GROUPS[2].items[2], GROUPS[4].items[0]], [])
+  const mobileNav = useMemo(() => [GROUPS[0].items[0], GROUPS[1].items[0], GROUPS[2].items[0], GROUPS[2].items[1], GROUPS[4].items[0]], [])
 
   return <div className="flex h-screen overflow-hidden bg-slate-50">
     {mobileOpen && <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} />}
@@ -94,3 +93,6 @@ const AdminLayout = () => {
 }
 
 export default AdminLayout
+
+
+

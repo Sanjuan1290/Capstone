@@ -18,7 +18,7 @@ const REQUIRED_COLUMNS = {
   patients: ['onboarding_completed_at', 'session_version'],
   consultations: ['status', 'finalized_at', 'finalized_by_doctor_id', 'updated_at'],
   consultation_images: ['security_scan_status'],
-  clinic_payment_settings: ['gcash_qr_scan_status', 'maya_qr_scan_status'],
+  clinic_payment_settings: ['cash_enabled', 'gcash_enabled', 'maya_enabled', 'bank_transfer_enabled', 'gcash_qr_scan_status', 'maya_qr_scan_status'],
   supply_requests: ['destination_location_id'],
   password_resets: ['attempt_count', 'last_sent_at', 'verified_at'],
   patient_phone_verifications: ['attempt_count', 'last_sent_at'],
@@ -66,3 +66,6 @@ const run = async () => {
 }
 
 run()
+
+
+

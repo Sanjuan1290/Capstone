@@ -18,3 +18,6 @@ describe('billing payments', () => {
     expect(makeReceiptNumber(42, new Date('2026-07-21T00:00:00.000Z'), 'a1b2c3')).toBe('OR-20260721-42-A1B2C3')
   })
 })
+
+
+

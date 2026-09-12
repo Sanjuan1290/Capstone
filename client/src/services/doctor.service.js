@@ -120,3 +120,6 @@ export const callNextPatient = () =>
 // NEW: mark a specific queue entry as done
 export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
+
+
+

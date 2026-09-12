@@ -16,3 +16,6 @@ describe('session revocation', () => {
     await expect(verifySessionToken(token, 'staff', executor)).resolves.toMatchObject({ id: 4, role: 'staff', session_version: 2 })
   })
 })
+
+
+

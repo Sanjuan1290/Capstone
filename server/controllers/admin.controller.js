@@ -1381,10 +1381,14 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
 
 const getPaymentSettingsAdmin = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status, bank_name, bank_account_name, bank_account_number, updated_at
+    `SELECT cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled, gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status, bank_name, bank_account_name, bank_account_number, updated_at
      FROM clinic_payment_settings WHERE id = 1 LIMIT 1`
   )
   res.json(rows[0] || {
+    cash_enabled: 1,
+    gcash_enabled: 1,
+    maya_enabled: 1,
+    bank_transfer_enabled: 1,
     gcash_qr_url: '',
     maya_qr_url: '',
     gcash_qr_scan_status: 'legacy',
@@ -1445,7 +1449,12 @@ const updatePaymentSettingsAdmin = async (req, res) => {
 
     const gcash = resolveQr('gcash', gcashQrUrl)
     const maya = resolveQr('maya', mayaQrUrl)
+    const enabledValue = (value) => (value === false || value === 0 || value === '0' ? 0 : 1)
     const payload = {
+      cash_enabled: enabledValue(req.body.cash_enabled),
+      gcash_enabled: enabledValue(req.body.gcash_enabled),
+      maya_enabled: enabledValue(req.body.maya_enabled),
+      bank_transfer_enabled: enabledValue(req.body.bank_transfer_enabled),
       gcash_qr_url: gcash.url,
       maya_qr_url: maya.url,
       gcash_qr_scan_status: gcash.status,
@@ -1457,9 +1466,13 @@ const updatePaymentSettingsAdmin = async (req, res) => {
 
     await conn.query(
       `INSERT INTO clinic_payment_settings
-       (id, gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status, bank_name, bank_account_name, bank_account_number, updated_by_admin_id)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+       (id, cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled, gcash_qr_url, maya_qr_url, gcash_qr_scan_status, maya_qr_scan_status, bank_name, bank_account_name, bank_account_number, updated_by_admin_id)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
+         cash_enabled = VALUES(cash_enabled),
+         gcash_enabled = VALUES(gcash_enabled),
+         maya_enabled = VALUES(maya_enabled),
+         bank_transfer_enabled = VALUES(bank_transfer_enabled),
          gcash_qr_url = VALUES(gcash_qr_url),
          maya_qr_url = VALUES(maya_qr_url),
          gcash_qr_scan_status = VALUES(gcash_qr_scan_status),
@@ -1468,7 +1481,7 @@ const updatePaymentSettingsAdmin = async (req, res) => {
          bank_account_name = VALUES(bank_account_name),
          bank_account_number = VALUES(bank_account_number),
          updated_by_admin_id = VALUES(updated_by_admin_id)`,
-      [payload.gcash_qr_url, payload.maya_qr_url, payload.gcash_qr_scan_status, payload.maya_qr_scan_status, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
+      [payload.cash_enabled, payload.gcash_enabled, payload.maya_enabled, payload.bank_transfer_enabled, payload.gcash_qr_url, payload.maya_qr_url, payload.gcash_qr_scan_status, payload.maya_qr_scan_status, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
     )
     await writeAuditLog({
       userId: req.user.id,
@@ -2307,3 +2320,6 @@ module.exports = {
   getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }
+
+
+

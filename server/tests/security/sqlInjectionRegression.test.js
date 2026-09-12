@@ -28,3 +28,6 @@ describe('SQL injection regression guard', () => {
     expect(offenders).toEqual([])
   })
 })
+
+
+

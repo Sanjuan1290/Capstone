@@ -332,3 +332,6 @@ restore-media-assets.sh    # macOS/Linux
 ```
 
 Run the appropriate helper on a network-enabled machine to restore the exact original public images before final production deployment, or copy those images from your existing local CAPSTONE project. The restoration scripts intentionally do not replace the new `client/public/logo.png`.
+
+
+

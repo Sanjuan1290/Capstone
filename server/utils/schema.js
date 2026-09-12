@@ -555,6 +555,10 @@ const ensureAppSchema = async () => {
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS clinic_payment_settings (
       id INT NOT NULL PRIMARY KEY,
+      cash_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      gcash_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      maya_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      bank_transfer_enabled TINYINT(1) NOT NULL DEFAULT 1,
       gcash_qr_url TEXT NULL,
       maya_qr_url TEXT NULL,
       gcash_qr_scan_status VARCHAR(20) NOT NULL DEFAULT 'legacy',
@@ -569,6 +573,10 @@ const ensureAppSchema = async () => {
     )
   `)
 
+  await ensureColumn('clinic_payment_settings', 'cash_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER id')
+  await ensureColumn('clinic_payment_settings', 'gcash_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER cash_enabled')
+  await ensureColumn('clinic_payment_settings', 'maya_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER gcash_enabled')
+  await ensureColumn('clinic_payment_settings', 'bank_transfer_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER maya_enabled')
   await ensureColumn('clinic_payment_settings', 'gcash_qr_scan_status', "VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER maya_qr_url")
   await ensureColumn('clinic_payment_settings', 'maya_qr_scan_status', "VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER gcash_qr_scan_status")
 
@@ -1010,3 +1018,6 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
+
+
+
