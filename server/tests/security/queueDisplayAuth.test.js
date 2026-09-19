@@ -25,6 +25,3 @@ describe('queue display access control', () => {
     expect(cookies.some((cookie) => /queue_display_token=/i.test(cookie) && /HttpOnly/i.test(cookie))).toBe(true)
   })
 })
-
-
-

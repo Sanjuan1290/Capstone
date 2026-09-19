@@ -236,6 +236,3 @@ module.exports = {
   resolveWalkInDoctor,
   addWalkInVisit,
 }
-
-
-

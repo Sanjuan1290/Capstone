@@ -9,7 +9,7 @@ import {
 } from '../../services/admin.service'
 import {
   MdCalendarToday, MdCheck, MdEdit, MdFace, MdMedicalServices,
-  MdSave, MdClose, MdToggleOn, MdToggleOff, MdExpandMore, MdSchedule, MdEventBusy,
+  MdSave, MdClose, MdToggleOn, MdToggleOff, MdExpandMore, MdSchedule, MdEventBusy, MdSearch, MdWarningAmber,
 } from 'react-icons/md'
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 
@@ -213,6 +213,8 @@ const UnavailableDatesPanel = ({ doctorId, dates, onSaved }) => {
   const [form, setForm] = useState({ unavailable_date: '', reason: '' })
   const [saving, setSaving] = useState(false)
   const [removingDate, setRemovingDate] = useState('')
+  const [conflict, setConflict] = useState(null)
+  const [cancellationMessage, setCancellationMessage] = useState('')
 
   const handleSave = async () => {
     if (!doctorId || !form.unavailable_date) return
@@ -222,10 +224,28 @@ const UnavailableDatesPanel = ({ doctorId, dates, onSaved }) => {
       setForm({ unavailable_date: '', reason: '' })
       onSaved()
     } catch (err) {
-      alert(err.message || 'Failed to save unavailable date.')
+      if (err.code === 'ACTIVE_APPOINTMENTS_ON_UNAVAILABLE_DATE') {
+        setConflict({ date: form.unavailable_date, reason: form.reason, appointments: err.appointments || [] })
+        setCancellationMessage(`Dr. ${err.doctor_name || 'the doctor'} will be unavailable on this date. Please contact the clinic if you need help rescheduling.`)
+      } else alert(err.message || 'Failed to save unavailable date.')
     } finally {
       setSaving(false)
     }
+  }
+
+  const confirmBlockAndCancel = async () => {
+    if (!conflict || !cancellationMessage.trim()) return
+    setSaving(true)
+    try {
+      await saveDoctorUnavailableDate(doctorId, {
+        unavailable_date: conflict.date,
+        reason: conflict.reason,
+        cancel_conflicts: true,
+        cancellation_message: cancellationMessage.trim(),
+      })
+      setConflict(null); setCancellationMessage(''); setForm({ unavailable_date: '', reason: '' }); onSaved()
+    } catch (err) { alert(err.message || 'Failed to block date and notify patients.') }
+    finally { setSaving(false) }
   }
 
   const handleRemove = async (date) => {
@@ -280,6 +300,15 @@ const UnavailableDatesPanel = ({ doctorId, dates, onSaved }) => {
         </button>
       </div>
 
+      {conflict && (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-start gap-3"><MdWarningAmber className="mt-0.5 text-xl text-amber-600"/><div className="flex-1"><p className="font-bold text-amber-900">Appointments scheduled on this date</p><p className="mt-1 text-xs text-amber-800">{conflict.appointments.length} pending/confirmed appointment{conflict.appointments.length===1?'':'s'} must be cancelled or rescheduled before the date is blocked.</p></div></div>
+          <div className="mt-3 max-h-40 space-y-2 overflow-y-auto">{conflict.appointments.map((a)=><div key={a.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs"><span className="font-bold text-slate-800">{a.appointment_time}</span> · {a.patient_name} · <span className="capitalize">{a.status}</span></div>)}</div>
+          <label className="mt-4 block"><span className="form-label">Cancellation Message *</span><textarea rows={3} value={cancellationMessage} onChange={(e)=>setCancellationMessage(e.target.value)} className="form-control mt-1.5" placeholder="Message sent by email and SMS"/></label>
+          <div className="mt-3 flex justify-end gap-2"><button className="button-secondary" onClick={()=>setConflict(null)}>Go Back</button><button className="button-danger" disabled={saving||!cancellationMessage.trim()} onClick={confirmBlockAndCancel}>Cancel Appointments, Notify & Block Date</button></div>
+        </div>
+      )}
+
       <div className="mt-4 space-y-2">
         {dates.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-400">
@@ -315,6 +344,7 @@ const Admin_DoctorSchedules = () => {
   const [loading, setLoading] = useState(true)
   const [schedLoading, setSchedLoading] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
+  const [doctorSearch, setDoctorSearch] = useState('')
 
   useEffect(() => {
     getDoctors()
@@ -345,6 +375,7 @@ const Admin_DoctorSchedules = () => {
   const getForDay = (day) => schedules.find((schedule) => schedule.day_of_week === day)
   const activeDays = DAYS.filter((day) => getForDay(day)?.is_active)
   const inactiveDays = DAYS.filter((day) => !getForDay(day)?.is_active)
+  const filteredDoctors = doctors.filter((doctor) => { const q=doctorSearch.trim().toLowerCase(); return !q || String(doctor.full_name||doctor.name||'').toLowerCase().includes(q) || String(doctor.specialty||'').toLowerCase().includes(q) })
 
   if (loading) {
     return (
@@ -364,6 +395,7 @@ const Admin_DoctorSchedules = () => {
       </div>
 
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Search Doctor</p><div className="relative mt-2"><MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Search by name or specialty..." className="form-control pl-9"/></div></div>
         <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Select Doctor</p>
 
         <div className="relative sm:hidden">
@@ -384,7 +416,7 @@ const Admin_DoctorSchedules = () => {
           </button>
           {showPicker && (
             <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-              {doctors.map((doctor) => (
+              {filteredDoctors.map((doctor) => (
                 <button
                   key={doctor.id}
                   type="button"
@@ -404,7 +436,7 @@ const Admin_DoctorSchedules = () => {
         </div>
 
         <div className="hidden flex-wrap gap-2 sm:flex">
-          {doctors.map((doctor) => {
+          {filteredDoctors.map((doctor) => {
             const isDerma = (doctor.specialty || '').toLowerCase().includes('derm')
             const chosen = selected?.id === doctor.id
             const Icon = isDerma ? MdFace : MdMedicalServices
@@ -495,6 +527,3 @@ const Admin_DoctorSchedules = () => {
 }
 
 export default Admin_DoctorSchedules
-
-
-

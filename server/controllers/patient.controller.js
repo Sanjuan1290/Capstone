@@ -20,6 +20,7 @@ const {
   getPatientProfileStatus,
   toDateOnly,
   isValidDateOnly,
+  validateBirthdate,
 } = require('../utils/patientProfile')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
 const { writeAuditLog } = require('../utils/audit')
@@ -86,7 +87,6 @@ const getProfileResponse = (patient) => ({
   email: patient.email,
   birthdate: patient.birthdate ? toDateOnly(patient.birthdate) : null,
   gender: patient.gender || patient.sex || null,
-  civil_status: patient.civil_status,
   address: patient.address,
   receive_promotions: Boolean(patient.receive_promotions),
   is_profile_complete: Boolean(patient.is_profile_complete),
@@ -130,16 +130,29 @@ const findPatientsByPhone = async (phone, columns = '*') => {
 const register = async (req, res) => {
   const {
     full_name,
+    email,
     phone,
+    birthdate,
+    gender,
+    address,
     password,
     confirmPassword,
     consent_given,
     receive_promotions,
   } = req.body
 
-  if (!full_name || !phone || !password) {
-    return res.status(400).json({ message: 'Full name, phone number, and password are required.' })
+  if (!full_name || !email || !phone || !birthdate || !gender || !address || !password) {
+    return res.status(400).json({ message: 'Full name, email, mobile number, birthdate, gender, address, and password are required.' })
   }
+
+  const birthdateError = validateBirthdate(birthdate)
+  if (birthdateError) return res.status(400).json({ message: birthdateError })
+  const normalizedProfile = normalizePatientProfileInput({ email, birthdate, gender, address, receive_promotions })
+  if (!normalizedProfile.email || !normalizedProfile.birthdate || !normalizedProfile.gender || !normalizedProfile.address) {
+    return res.status(400).json({ message: 'Complete all required patient information.' })
+  }
+  const [existingEmail] = await db.query('SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1', [normalizedProfile.email])
+  if (existingEmail.length) return res.status(409).json({ message: 'That email address is already linked to another patient account.' })
 
   const normalizedPhone = normalizePhilippinePhone(phone)
   if (!normalizedPhone) {
@@ -171,7 +184,11 @@ const register = async (req, res) => {
   const code = makeNumericCode()
   const payload = JSON.stringify({
     full_name: String(full_name).trim(),
+    email: normalizedProfile.email,
     phone: normalizedPhone,
+    birthdate: normalizedProfile.birthdate,
+    gender: normalizedProfile.gender,
+    address: normalizedProfile.address,
     password: hashedPassword,
     consent_given: true,
     receive_promotions: receive_promotions ? 1 : 0,
@@ -262,16 +279,13 @@ const verifyRegistration = async (req, res) => {
   if (existing.length === 1) {
     await db.query(
       `UPDATE patients
-       SET full_name = ?, phone = ?, password = ?, consent_given = ?, consent_given_at = ?, receive_promotions = ?
+       SET full_name = ?, email = ?, phone = ?, birthdate = ?, gender = ?, sex = ?, address = ?, password = ?,
+           civil_status = NULL, consent_given = ?, consent_given_at = ?, receive_promotions = ?, is_profile_complete = 1
        WHERE id = ?`,
       [
-        payload.full_name,
-        normalizedPhone,
-        payload.password,
-        payload.consent_given ? 1 : 0,
-        payload.consent_given ? new Date() : null,
-        payload.receive_promotions ? 1 : 0,
-        existing[0].id,
+        payload.full_name, payload.email, normalizedPhone, payload.birthdate, payload.gender, payload.gender, payload.address,
+        payload.password, payload.consent_given ? 1 : 0, payload.consent_given ? new Date() : null,
+        payload.receive_promotions ? 1 : 0, existing[0].id,
       ]
     )
     patientId = existing[0].id
@@ -279,13 +293,10 @@ const verifyRegistration = async (req, res) => {
     const [result] = await db.query(
       `INSERT INTO patients
         (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, consent_given, consent_given_at, receive_promotions, is_profile_complete)
-       VALUES (?, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?, ?, 0)`,
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
-        payload.full_name,
-        normalizedPhone,
-        payload.password,
-        payload.consent_given ? 1 : 0,
-        payload.consent_given ? new Date() : null,
+        payload.full_name, payload.birthdate, payload.gender, payload.gender, normalizedPhone, payload.address, payload.email,
+        payload.password, payload.consent_given ? 1 : 0, payload.consent_given ? new Date() : null,
         payload.receive_promotions ? 1 : 0,
       ]
     )
@@ -397,9 +408,11 @@ const updateProfile = async (req, res) => {
   if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
 
   const normalized = normalizePatientProfileInput(req.body)
-  if (!normalized.birthdate || !normalized.gender || !normalized.address) {
+  const birthdateError = validateBirthdate(req.body?.birthdate)
+  if (birthdateError) return res.status(400).json({ message: birthdateError })
+  if (!normalized.birthdate || !normalized.gender || !normalized.address || !normalized.email) {
     return res.status(400).json({
-      message: 'Birthdate, gender, and address are required to complete your patient profile.',
+      message: 'Birthdate, gender, address, and email are required.',
     })
   }
 
@@ -419,13 +432,12 @@ const updateProfile = async (req, res) => {
 
   await db.query(
     `UPDATE patients
-     SET birthdate = ?, gender = ?, sex = ?, civil_status = ?, address = ?, email = ?, receive_promotions = ?
+     SET birthdate = ?, gender = ?, sex = ?, civil_status = NULL, address = ?, email = ?, receive_promotions = ?
      WHERE id = ?`,
     [
       normalized.birthdate,
       normalized.gender,
       normalized.sex,
-      normalized.civil_status,
       normalized.address,
       normalized.email,
       receivePromotions ? 1 : 0,
@@ -587,18 +599,8 @@ const createAppointment = async (req, res) => {
     reference_id: result.insertId,
   })
 
-  await createNotification({
-    target_role: 'doctor',
-    target_user_id: appointment.doctor_id,
-    type: 'appointment_booked',
-    title: 'New appointment booked',
-    message: `${appointment.patient_name} booked an appointment on ${normalizedDate} at ${appointment_time}.`,
-    reference_type: 'appointment',
-    reference_id: result.insertId,
-  })
-
   await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId, newValues: { doctor_id: Number(doctor_id), clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'online' }, ipAddress: req.ip || null }).catch(() => {})
-  broadcast(['admin', 'staff', `doctor_${appointment.doctor_id}`, `patient_${req.user.id}`], 'appointment_updated', {
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', {
     appointmentId: result.insertId,
     status: 'pending',
   })
@@ -828,6 +830,3 @@ module.exports = {
   getDoctorUnavailableDatesController,
   getDoctorTakenSlots,
 }
-
-
-

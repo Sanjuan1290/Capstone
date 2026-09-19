@@ -125,6 +125,3 @@ const DoctorAvailability = () => {
 }
 
 export default DoctorAvailability
-
-
-

@@ -41,6 +41,3 @@ const originGuard = (req, res, next) => {
 }
 
 module.exports = { securityHeaders, originGuard, getAllowedOrigins }
-
-
-

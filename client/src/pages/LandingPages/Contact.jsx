@@ -166,6 +166,3 @@ const Contact = ({ contact: contactProp }) => {
 }
 
 export default Contact
-
-
-

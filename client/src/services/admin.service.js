@@ -370,5 +370,6 @@ export const updateQueueStatus = (id, status) =>
     body: JSON.stringify({ status }),
   }).then(r => r.json())
 
-
-
+export const getInventoryMasterData = (category = '') => requestJson(`${BASE}/inventory/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`)
+export const createInventoryLocation = (payload) => requestJson(`${BASE}/inventory/locations`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const createInventorySupplier = (payload) => requestJson(`${BASE}/inventory/suppliers`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })

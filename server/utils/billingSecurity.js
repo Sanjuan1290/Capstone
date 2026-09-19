@@ -85,6 +85,3 @@ const applyApprovedPriceOverrides = async (billingId, items = [], executor = db,
 }
 
 module.exports = { loadDiscountPreset, getApprovedAdjustment, resolveDiscountForDraft, applyApprovedPriceOverrides }
-
-
-

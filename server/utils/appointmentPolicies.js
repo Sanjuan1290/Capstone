@@ -90,6 +90,3 @@ module.exports = {
   getLastNoShowAppointment,
   makeNoShowWarningResponse,
 }
-
-
-

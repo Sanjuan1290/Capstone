@@ -17,6 +17,3 @@ const run = async () => {
 }
 
 run()
-
-
-

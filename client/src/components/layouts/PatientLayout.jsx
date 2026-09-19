@@ -16,11 +16,11 @@ import {
 } from "react-icons/md"
 
 const sideNav = [
-  { name: "Dashboard",        path: "/patient",              icon: MdDashboard      },
-  { name: "Doctor Availability", path: "/patient/doctors",      icon: MdMedicalServices },
-  { name: "Book Appointment", path: "/patient/book",         icon: MdCalendarToday  },
-  { name: "My Appointments",  path: "/patient/appointments", icon: MdEventAvailable },
-  { name: "History",          path: "/patient/history",      icon: MdHistory        },
+  { name: "Dashboard", path: "/patient", icon: MdDashboard, tour: 'dashboard-home' },
+  { name: "Doctor Availability", path: "/patient/doctors", icon: MdMedicalServices, tour: 'doctor-availability' },
+  { name: "Book Appointment", path: "/patient/book", icon: MdCalendarToday, tour: 'book-appointment' },
+  { name: "My Appointments", path: "/patient/appointments", icon: MdEventAvailable, tour: 'my-appointments' },
+  { name: "History", path: "/patient/history", icon: MdHistory },
 ]
 
 const PatientLayout = () => {
@@ -53,8 +53,9 @@ const PatientLayout = () => {
     }
   }
 
-  const NavItem = ({ name, path, icon: Icon }) => (
+  const NavItem = ({ name, path, icon: Icon, tour }) => (
     <NavLink
+      data-tour={tour}
       to={path}
       end={path === "/patient"}
       onClick={() => setMobileOpen(false)}
@@ -160,7 +161,7 @@ const PatientLayout = () => {
           )}
           <button onClick={handleLogout} disabled={loggingOut}
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full
-              text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors
+              bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300 transition-colors
               disabled:opacity-50 disabled:cursor-not-allowed">
             <MdLogout className={`shrink-0 text-[18px] ${loggingOut ? "animate-spin" : ""}`} />
             <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
@@ -205,7 +206,7 @@ const PatientLayout = () => {
             <button onClick={toggleTheme} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
               {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
             </button>
-            <NavLink to="/patient/settings" className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
+            <NavLink data-tour="patient-settings" to="/patient/settings" className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
               <MdSettings className="text-[18px]" />
             </NavLink>
             <div className="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-100">
@@ -233,8 +234,8 @@ const PatientLayout = () => {
         {/* ── Mobile Bottom Nav ──────────────────────────────────────────────── */}
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 portal-mobile-nav bg-white border-t border-slate-100 
           flex items-center justify-around px-2 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-          {sideNav.map(({ name, path, icon: Icon }) => (
-            <NavLink key={path} to={path} end={path === "/patient"}
+          {sideNav.map(({ name, path, icon: Icon, tour }) => (
+            <NavLink key={path} data-tour={tour} to={path} end={path === "/patient"}
               className={({ isActive }) =>
                 `flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-xl
                  transition-all duration-150 min-w-[56px]
@@ -263,6 +264,3 @@ const PatientLayout = () => {
 }
 
 export default PatientLayout
-
-
-

@@ -176,7 +176,7 @@ const getDashboard = async (req, res) => {
     [req.user.id, today]
   )
   const [[{ pending }]]         = await db.query(
-    "SELECT COUNT(*) AS pending FROM appointments WHERE doctor_id = ? AND status = 'pending'",
+    "SELECT COUNT(*) AS pending FROM appointments WHERE doctor_id = ? AND status = 'confirmed'",
     [req.user.id]
   )
   const [[{ pendingRequests }]] = await db.query(
@@ -202,7 +202,7 @@ const getDashboard = async (req, res) => {
      FROM appointments a
      JOIN patients p ON p.id = a.patient_id
      WHERE a.doctor_id = ? AND a.appointment_date > ?
-       AND a.status IN ('pending','confirmed','rescheduled')
+       AND a.status IN ('confirmed','rescheduled')
      ORDER BY a.appointment_date ASC, a.appointment_time ASC
      LIMIT 8`,
     [req.user.id, today]
@@ -225,7 +225,7 @@ const getAppointments = async (req, res) => {
   if (scope === 'upcoming') {
     dateClause = 'a.appointment_date > ?'
     dateParams = [today]
-    statuses = ['pending', 'confirmed', 'rescheduled']
+    statuses = ['confirmed', 'rescheduled']
   } else if (scope !== 'today' && scope !== 'date') {
     return res.status(400).json({ message: 'Unsupported appointment scope.' })
   }
@@ -618,19 +618,20 @@ const getPatientHistory = async (req, res) => {
   res.json(rows.map((row) => ({ ...row, progress_images: imagesByConsultationId[row.consultation_id] || [], amendments: amendmentsByConsultationId[row.consultation_id] || [] })))
 }
 
-const assertClinicalUploadAppointment = async (appointmentId, doctorId) => {
+const getClinicalUploadAppointment = async (appointmentId, doctorId) => {
   const [rows] = await db.query(
-    `SELECT id FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1`,
+    `SELECT id, patient_id, clinic_type FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1`,
     [appointmentId, doctorId]
   )
-  return rows.length > 0
+  return rows[0] || null
 }
 
 const uploadClinicalImage = async (req, res) => {
   const appointmentId = Number(req.query?.appointment_id)
   const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
   if (!appointmentId) return res.status(400).json({ message: 'A valid appointment is required.' })
-  if (!await assertClinicalUploadAppointment(appointmentId, req.user.id)) {
+  const uploadAppointment = await getClinicalUploadAppointment(appointmentId, req.user.id)
+  if (!uploadAppointment) {
     return res.status(403).json({ message: 'You are not authorized to upload images for this appointment.' })
   }
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
@@ -659,7 +660,7 @@ const uploadClinicalImage = async (req, res) => {
 
   let uploaded
   try {
-    const signed = createClinicalUploadSignature({ doctorId: req.user.id, appointmentId, scanMode })
+    const signed = createClinicalUploadSignature({ doctorId: req.user.id, appointmentId, patientId: uploadAppointment.patient_id, clinicType: uploadAppointment.clinic_type, scanMode })
     uploaded = await cloudinaryUploadBuffer({
       buffer: req.body,
       mimeType: req.get('content-type'),
@@ -801,7 +802,7 @@ const getBillingCatalog = async (req, res) => {
 
 const getInventoryItems = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT id, name, category, unit, base_unit, unit_size, stock, stock_base, threshold, price FROM inventory WHERE stock > 0 ORDER BY category, name'
+    `SELECT id, name, category, COALESCE(item_type, 'medicine') AS item_type, COALESCE(uom, base_unit, unit, 'piece') AS uom, COALESCE(uom, base_unit, unit, 'piece') AS unit, dosage_form, strength, stock, stock_base, threshold, price FROM inventory WHERE stock > 0 ORDER BY category, name`
   )
   res.json(rows)
 }
@@ -1056,6 +1057,3 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
-
-
-

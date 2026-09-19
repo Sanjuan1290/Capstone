@@ -11,6 +11,9 @@ import {
   deleteInventoryItem,
   getInventory,
   getInventoryLogs,
+  getInventoryMasterData,
+  createInventoryLocation,
+  createInventorySupplier,
   updateInventoryItem,
   updateStock,
 } from '../../services/admin.service'
@@ -21,6 +24,9 @@ const adminServices = {
   addInventoryItem,
   updateInventoryItem,
   deleteInventoryItem,
+  getInventoryMasterData,
+  createInventoryLocation,
+  createInventorySupplier,
 }
 
 const DEFAULT_PAGINATION = {
@@ -230,6 +236,3 @@ const AdminInventory = () => {
 }
 
 export default AdminInventory
-
-
-

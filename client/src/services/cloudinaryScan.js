@@ -40,6 +40,3 @@ export const waitForSecurityScan = async (checkStatus, { onStatus, attempts = 10
     'The security scan is taking longer than expected. The image has not been attached yet. Please check the same upload again shortly.'
   )
 }
-
-
-

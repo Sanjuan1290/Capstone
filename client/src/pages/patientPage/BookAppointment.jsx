@@ -243,7 +243,7 @@ const StepDetails = ({ reason, notes, reasonOptions, loadingReasons, onReasonCha
   <div className="space-y-4">
     <div>
       <h2 className="text-lg font-bold text-slate-800">Visit Details</h2>
-      <p className="text-sm text-slate-500 mt-0.5">Tell us why you're visiting.</p>
+      <p className="text-sm text-slate-500 mt-0.5">Choose a visit reason. Use Additional Notes for any extra details.</p>
     </div>
     <div>
       <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
@@ -261,13 +261,6 @@ const StepDetails = ({ reason, notes, reasonOptions, loadingReasons, onReasonCha
       {loadingReasons && (
         <p className="mt-2 text-xs text-slate-400">Loading reason options…</p>
       )}
-      <input
-        type="text"
-        value={reason}
-        onChange={(e) => onReasonChange(e.target.value)}
-        placeholder="Or type a custom reason"
-        className="mt-3 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 placeholder-slate-300 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 transition-all"
-      />
     </div>
     <div>
       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
@@ -589,6 +582,3 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
-
-
-

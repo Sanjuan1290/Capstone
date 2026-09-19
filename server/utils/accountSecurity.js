@@ -14,7 +14,7 @@ const MAX_ATTEMPTS = 5
 const getAccount = async (role, id, executor = db) => {
   const table = ROLE_TABLE[role]
   if (!table) return null
-  const fields = role === 'patient' ? 'id, full_name, email, phone' : 'id, full_name, email'
+  const fields = role === 'patient' ? 'id, full_name, email, phone, password' : 'id, full_name, email, password'
   const [rows] = await executor.query(`SELECT ${fields} FROM ${table} WHERE id = ? LIMIT 1`, [id])
   return rows[0] || null
 }
@@ -78,26 +78,33 @@ const verifySecurityCode = async ({ role, accountId, purpose, code, consume = tr
   return { ...row, payload }
 }
 
-const requestCode = async (role, id) => {
+const requestPasswordChangeCode = async (role, id, currentPassword, newPassword) => {
   const account = await getAccount(role, id)
   if (!account) throw new Error('Account not found.')
-  const code = await createSecurityCode({ role, accountId: id, purpose: 'password_change' })
-  if (role === 'patient') {
-    await sendPatientPasswordResetOtp({ phone: account.phone, code, fullName: account.full_name })
-    return { channel: 'sms', destination: account.phone }
-  }
+  if (!account.email) throw new Error('An email address is required before changing your password.')
+  if (!currentPassword) throw new Error('Current password is required.')
+  const match = await bcrypt.compare(String(currentPassword), account.password)
+  if (!match) throw new Error('Current password is incorrect.')
+  const error = validatePassword(newPassword)
+  if (error) throw new Error(error)
+  const newPasswordHash = await bcrypt.hash(String(newPassword), 10)
+  const code = await createSecurityCode({
+    role,
+    accountId: id,
+    purpose: 'password_change',
+    payload: { new_password_hash: newPasswordHash },
+  })
   await sendAccountSecurityOtp(account.email, account.full_name, code)
   return { channel: 'email', destination: account.email }
 }
 
-const changeWithCode = async (role, id, code, newPassword, res = null) => {
-  const error = validatePassword(newPassword)
-  if (error) throw new Error(error)
-  await verifySecurityCode({ role, accountId: id, purpose: 'password_change', code })
+const changeWithCode = async (role, id, code, res = null) => {
+  const verified = await verifySecurityCode({ role, accountId: id, purpose: 'password_change', code })
+  const newPasswordHash = String(verified.payload?.new_password_hash || '')
+  if (!newPasswordHash.startsWith('$2')) throw new Error('Password change session is invalid. Start again.')
   const table = ROLE_TABLE[role]
-  const hashed = await bcrypt.hash(newPassword, 10)
   const extra = ['staff', 'doctor'].includes(role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
-  await db.query(`UPDATE ${table} SET password = ?${extra} WHERE id = ?`, [hashed, id])
+  await db.query(`UPDATE ${table} SET password = ?${extra} WHERE id = ?`, [newPasswordHash, id])
   await revokeSessions(role, id)
   if (res) await issueSession(res, role, id)
 }
@@ -156,7 +163,7 @@ const requestAdminMfa = async (admin) => {
 const verifyAdminMfa = async (adminId, code) => verifySecurityCode({ role: 'admin', accountId: adminId, purpose: 'admin_mfa', code })
 
 module.exports = {
-  requestCode,
+  requestPasswordChangeCode,
   changeWithCode,
   completeRequiredChange,
   validatePassword,
@@ -167,6 +174,3 @@ module.exports = {
   requestAdminMfa,
   verifyAdminMfa,
 }
-
-
-

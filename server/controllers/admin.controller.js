@@ -39,6 +39,7 @@ const {
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel, addDaysDateOnly } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
+const { validateBirthdate } = require('../utils/patientProfile')
 const { sendPatientAppointmentStatusSms } = require('../utils/smsService')
 const {
   getDoctorUnavailableDate,
@@ -67,22 +68,33 @@ const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 const DOCTOR_SPECIALTIES = new Set(['Dermatologist', 'General Medicine'])
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
-const normalizeInventoryPayload = (body = {}) => ({
-  barcode: body.barcode?.trim() || null,
-  name: body.name?.trim() || '',
-  category: body.category?.trim() || '',
-  unit: body.unit?.trim() || 'box',
-  base_unit: body.base_unit?.trim() || body.unit?.trim() || 'box',
-  unit_size: Math.max(1, Number(body.unit_size) || 1),
-  stock: Math.max(0, Number(body.stock) || 0),
-  threshold: Math.max(0, Number(body.threshold) || 0),
-  price: Math.max(0, Number(body.price) || 0),
-  selling_price: body.selling_price === '' || body.selling_price === null || body.selling_price === undefined ? null : Math.max(0, Number(body.selling_price) || 0),
-  supplier: body.supplier?.trim() || null,
-  expiration_date: body.expiration_date || null,
-  batch_code: String(body.batch_code || '').trim() || null,
-  storage_location: body.storage_location?.trim() || null,
-})
+const normalizeInventoryPayload = (body = {}) => {
+  const category = ['medical','derma'].includes(String(body.category || '').trim()) ? String(body.category).trim() : 'medical'
+  const itemType = ['medicine','supplies'].includes(String(body.item_type || '').trim()) ? String(body.item_type).trim() : 'supplies'
+  const uom = String(body.uom || body.base_unit || body.unit || 'piece').trim().toLowerCase()
+  return {
+    barcode: body.barcode?.trim() || null,
+    name: body.name?.trim() || '',
+    category,
+    item_type: itemType,
+    uom,
+    dosage_form: itemType === 'medicine' ? String(body.dosage_form || '').trim() || null : null,
+    strength: itemType === 'medicine' ? String(body.strength || '').trim() || null : null,
+    unit: uom,
+    base_unit: uom,
+    unit_size: 1,
+    stock: Math.max(0, Number(body.stock) || 0),
+    threshold: Math.max(0, Number(body.threshold) || 0),
+    price: Math.max(0, Number(body.price) || 0),
+    selling_price: body.selling_price === '' || body.selling_price === null || body.selling_price === undefined ? null : Math.max(0, Number(body.selling_price) || 0),
+    supplier: body.supplier?.trim() || null,
+    supplier_id: Number(body.supplier_id) || null,
+    expiration_date: body.expiration_date || null,
+    batch_code: String(body.batch_code || '').trim() || null,
+    storage_location_id: Number(body.storage_location_id) || null,
+    storage_location: body.storage_location?.trim() || null,
+  }
+}
 
 const normalizeBillingCatalogPayload = (body = {}) => ({
   category: String(body.category || '').trim(),
@@ -356,7 +368,7 @@ const getAppointments = async (req, res) => {
              JOIN doctors  d ON a.doctor_id  = d.id`
   const params = []
   if (date) { sql += ' WHERE a.appointment_date = ?'; params.push(date) }
-  sql += ' ORDER BY a.appointment_date ASC, a.appointment_time ASC'
+  sql += ` ORDER BY CASE WHEN a.status IN ('pending','confirmed','rescheduled','in-progress') AND a.appointment_date >= CURDATE() THEN 0 ELSE 1 END ASC, CASE WHEN a.status IN ('pending','confirmed','rescheduled','in-progress') AND a.appointment_date >= CURDATE() THEN a.appointment_date END ASC, CASE WHEN a.status IN ('pending','confirmed','rescheduled','in-progress') AND a.appointment_date >= CURDATE() THEN STR_TO_DATE(a.appointment_time, '%h:%i %p') END ASC, CASE WHEN NOT (a.status IN ('pending','confirmed','rescheduled','in-progress') AND a.appointment_date >= CURDATE()) THEN a.appointment_date END DESC, a.id DESC`
   const [rows] = await db.query(sql, params)
   res.json(rows)
 }
@@ -366,7 +378,7 @@ const confirmAppointment = async (req, res) => {
   const [rows] = await db.query(
     `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
-            d.full_name AS doctor_name
+            d.id AS doctor_id, d.full_name AS doctor_name
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
      JOIN doctors d ON a.doctor_id = d.id
@@ -387,6 +399,15 @@ const confirmAppointment = async (req, res) => {
     type: 'appointment_confirmed',
     title: 'Appointment confirmed',
     message: `Your appointment with ${rows[0].doctor_name} has been confirmed.`,
+    reference_type: 'appointment',
+    reference_id: id,
+  })
+  await createNotification({
+    target_role: 'doctor',
+    target_user_id: rows[0].doctor_id,
+    type: 'appointment_confirmed',
+    title: 'Confirmed appointment',
+    message: `${rows[0].patient_name} has a confirmed appointment on ${rows[0].appointment_date} at ${rows[0].appointment_time}.`,
     reference_type: 'appointment',
     reference_id: id,
   })
@@ -420,7 +441,7 @@ const confirmAppointment = async (req, res) => {
       reference_id: id,
     })
   }
-  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(id), status: 'confirmed' })
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(id), status: 'confirmed' })
   res.json({ message: 'Appointment confirmed.' })
 }
 
@@ -625,16 +646,7 @@ const createAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
-  await createNotification({
-    target_role: 'doctor',
-    target_user_id: rows[0].doctor_id,
-    type: 'appointment_booked',
-    title: 'New appointment booked',
-    message: `${rows[0].patient_name} booked an appointment on ${normalizedDate} at ${appointment_time}.`,
-    reference_type: 'appointment',
-    reference_id: result.insertId,
-  })
-  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
+  broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
   res.status(201).json({ message: 'Appointment created.', id: result.insertId })
 }
 
@@ -758,7 +770,9 @@ const createWalkInPatient = async (req, res) => {
     if (existingEmail.length) return res.status(409).json({ message: 'A patient with that email already exists.' })
   }
   const normalizedSex = ['Male','Female','Other'].includes(String(sex || '')) ? String(sex) : null
-  const normalizedBirthdate = /^\d{4}-\d{2}-\d{2}$/.test(String(birthdate || '')) ? String(birthdate) : null
+  const birthdateError = birthdate ? validateBirthdate(String(birthdate)) : null
+  if (birthdateError) return res.status(400).json({ message: birthdateError })
+  const normalizedBirthdate = birthdate ? String(birthdate).slice(0,10) : null
   const tempPassword = makeTempPassword()
   const hashedPassword = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
@@ -1053,11 +1067,60 @@ const saveDoctorUnavailableDateAdmin = async (req, res) => {
     return res.status(400).json({ message: 'Cannot block a past date.' })
   }
 
-  const activeCount = await countActiveAppointmentsOnDate(doctorId, unavailableDate)
-  if (activeCount > 0) {
+  const [[doctorRowsForUnavailable]] = await db.query('SELECT full_name FROM doctors WHERE id=? LIMIT 1',[doctorId])
+  const [conflicts] = await db.query(
+    `SELECT a.id, a.patient_id, a.status, a.appointment_time, a.clinic_type, p.full_name AS patient_name, p.email AS patient_email, p.phone AS patient_phone
+     FROM appointments a JOIN patients p ON p.id = a.patient_id
+     WHERE a.doctor_id = ? AND a.appointment_date = ? AND a.status IN ('pending','confirmed')
+     ORDER BY STR_TO_DATE(a.appointment_time, '%h:%i %p') ASC`,
+    [doctorId, unavailableDate]
+  )
+  if (conflicts.length > 0 && !req.body?.cancel_conflicts) {
     return res.status(409).json({
-      message: 'This date already has active appointments. Reschedule or cancel them first.',
+      code: 'ACTIVE_APPOINTMENTS_ON_UNAVAILABLE_DATE',
+      message: 'This date has pending or confirmed appointments. Review them before blocking the date.',
+      appointment_count: conflicts.length,
+      doctor_name: doctorRowsForUnavailable?.full_name || null,
+      appointments: conflicts,
     })
+  }
+  if (conflicts.length > 0 && req.body?.cancel_conflicts) {
+    const cancellationMessage = String(req.body?.cancellation_message || '').trim()
+    if (!cancellationMessage) {
+      return res.status(400).json({ message: 'Cancellation message is required when cancelling appointments on a blocked date.' })
+    }
+    for (const appointment of conflicts) {
+      await db.query("UPDATE appointments SET status='cancelled' WHERE id=?", [appointment.id])
+      await createNotification({
+        target_role: 'patient',
+        target_user_id: appointment.patient_id,
+        type: 'appointment_cancelled',
+        title: 'Appointment cancelled',
+        message: cancellationMessage,
+        reference_type: 'appointment',
+        reference_id: appointment.id,
+      }).catch(() => {})
+      await sendAppointmentStatusEmail({
+        to: appointment.patient_email,
+        patient_name: appointment.patient_name,
+        doctor_name: doctorRowsForUnavailable?.full_name || 'your doctor',
+        appointment_date: unavailableDate,
+        appointment_time: appointment.appointment_time,
+        clinic_type: appointment.clinic_type || 'medical',
+        status: 'cancelled',
+        notes: cancellationMessage,
+      }).catch(() => {})
+      await sendPatientAppointmentStatusSms({
+        patientPhone: appointment.patient_phone,
+        patientName: appointment.patient_name,
+        doctorName: doctorRowsForUnavailable?.full_name || 'your doctor',
+        appointmentDate: unavailableDate,
+        appointmentTime: appointment.appointment_time,
+        status: 'cancelled',
+        notes: cancellationMessage,
+      }).catch(() => {})
+      broadcast(['admin','staff',`patient_${appointment.patient_id}`], 'appointment_updated', { appointmentId: Number(appointment.id), status: 'cancelled' })
+    }
   }
 
   await db.query(
@@ -1848,47 +1911,110 @@ const getInventoryLogs = async (req, res) => {
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
+const nextInventoryBarcode = async (category, conn = db) => {
+  const normalized = category === 'derma' ? 'derma' : 'medical'
+  const prefix = normalized === 'derma' ? 'DRM' : 'GMED'
+  await conn.query('INSERT IGNORE INTO inventory_barcode_sequences (category,last_number) VALUES (?,0)', [normalized])
+  await conn.query('UPDATE inventory_barcode_sequences SET last_number = LAST_INSERT_ID(last_number + 1) WHERE category = ?', [normalized])
+  const [[row]] = await conn.query('SELECT last_number FROM inventory_barcode_sequences WHERE category = ?', [normalized])
+  const number = Number(row?.last_number || 1)
+  return `${prefix}-${String(number).padStart(5, '0')}`
+}
+
+const getInventoryMasterData = async (req, res) => {
+  const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
+  const [uoms] = await db.query('SELECT id,name,abbreviation FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
+  const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 ${category ? 'AND category=?' : ''} ORDER BY category,name`, category ? [category] : [])
+  const [locations] = await db.query("SELECT id,name,location_type FROM inventory_locations WHERE is_active=1 ORDER BY FIELD(location_type,'stockroom','room','dispensing'),name")
+  res.json({ uoms, suppliers, locations })
+}
+
+const createInventoryLocation = async (req, res) => {
+  const name = String(req.body?.name || '').trim()
+  const type = ['stockroom','room','dispensing','storage'].includes(String(req.body?.location_type || '')) ? String(req.body.location_type) : 'storage'
+  if (!name) return res.status(400).json({ message: 'Location name is required.' })
+  try {
+    const [result] = await db.query('INSERT INTO inventory_locations (name,location_type,is_active) VALUES (?,?,1)', [name,type])
+    res.status(201).json({ id: result.insertId, name, location_type: type, is_active: 1 })
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That storage location already exists.' })
+    throw err
+  }
+}
+
+const createInventorySupplier = async (req, res) => {
+  const name = String(req.body?.name || '').trim()
+  const category = ['medical','derma'].includes(String(req.body?.category || '')) ? String(req.body.category) : null
+  if (!name || !category) return res.status(400).json({ message: 'Supplier name and category are required.' })
+  try {
+    const [result] = await db.query('INSERT INTO inventory_suppliers (name,category,is_active) VALUES (?,?,1)', [name,category])
+    res.status(201).json({ id: result.insertId, name, category, is_active: 1 })
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      const [[row]] = await db.query('SELECT id,name,category,is_active FROM inventory_suppliers WHERE category=? AND name=? LIMIT 1',[category,name])
+      return res.json(row)
+    }
+    throw err
+  }
+}
+
 const getInventory = async (req, res) => {
   const rows = await loadInventoryRows()
   res.json(rows)
 }
 
 const addInventoryItem = async (req, res) => {
-  const {
-    barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier,
-    expiration_date, batch_code, storage_location,
+  let {
+    barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id,
+    expiration_date, batch_code, storage_location, storage_location_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    if (!barcode) barcode = await nextInventoryBarcode(category, conn)
+    if (!supplier && supplier_id) {
+      const [[supplierRow]] = await conn.query('SELECT name FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
+      supplier = supplierRow?.name || null
+    }
+    if (!storage_location && storage_location_id) {
+      const [[locationRow]] = await conn.query('SELECT name FROM inventory_locations WHERE id=? AND is_active=1 LIMIT 1',[storage_location_id])
+      storage_location = locationRow?.name || null
+    }
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, expiration_date, storage_location)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, unit, base_unit, unit_size, 0, threshold, price, selling_price, supplier, null, storage_location]
+       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, 0, threshold, price, selling_price, supplier, supplier_id, null, storage_location]
     )
     let openingBatchId = null
     if (stock > 0) {
+      const openingCode = batch_code || `${barcode}-B001`
       openingBatchId = await addInventoryBatch(result.insertId, {
         quantity: stock,
         expiration_date,
-        batch_code,
+        batch_code: openingCode,
         note: 'Opening stock',
       }, conn)
+      batch_code = openingCode
+      if (storage_location_id) {
+        await conn.query(`INSERT INTO inventory_location_batches (location_id,inventory_id,batch_id,quantity) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+VALUES(quantity)`,[storage_location_id,result.insertId,openingBatchId,stock])
+        await conn.query(`INSERT INTO inventory_location_stock (location_id,inventory_id,quantity) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+VALUES(quantity)`,[storage_location_id,result.insertId,stock])
+      }
     }
     await syncInventorySnapshot(result.insertId, conn)
     if (stock > 0 && openingBatchId) {
       await conn.query(
         `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, to_location)
-         VALUES (?, ?, 'in', ?, ?, 'received', ?, 'Main Stockroom')`,
+         VALUES (?, ?, 'in', ?, ?, 'received', ?, ?)`,
         [
           result.insertId,
           req.user.id,
           stock,
           `Opening stock · ${batch_code || `Batch #${openingBatchId}`}${expiration_date ? ` · expires ${expiration_date}` : ''}`,
           openingBatchId,
+          storage_location || 'Main Stockroom',
         ]
       )
     }
@@ -1898,7 +2024,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, barcode, stock_unit: unit, dispensing_unit: base_unit, units_per_package: unit_size, unit_cost: price, patient_selling_price: selling_price, opening_stock: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, dosage_form, strength, unit_cost: price, patient_selling_price: selling_price, supplier_id, storage_location_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -1918,8 +2044,8 @@ const addInventoryItem = async (req, res) => {
 // FIX 5: Edit an existing inventory item
 const updateInventoryItem = async (req, res) => {
   const {
-    barcode, name, category, unit, base_unit, unit_size, threshold, price, selling_price, supplier,
-    storage_location,
+    barcode, name, category, item_type, uom, dosage_form, strength, threshold, price, selling_price, supplier, supplier_id,
+    storage_location, storage_location_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1935,9 +2061,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, selling_price=?, supplier=?, storage_location=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?
        WHERE id=?`,
-      [barcode, name, category, unit, base_unit, unit_size, threshold, price, selling_price, supplier, storage_location, req.params.id]
+      [barcode, name, category, item_type, uom, dosage_form, strength, uom, uom, threshold, price, selling_price, supplier, supplier_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -2480,9 +2606,6 @@ module.exports = {
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, reopenCashierShiftAdmin, voidBillingPayment, refundBillingPayment,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs,
   getReports, recordReportExport, getInventoryLogs,
-  getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
+  getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }
-
-
-

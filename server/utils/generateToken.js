@@ -5,6 +5,3 @@ function generateToken(payload) {
 }
 
 module.exports = generateToken
-
-
-

@@ -5,6 +5,9 @@ import { MdAdd, MdCheck, MdClose, MdMedicalServices, MdPrint, MdQueuePlayNext, M
 import { addToQueue, createWalkInPatient, getPatients, getDoctors, getQueue, getQueuePrecheck, updateQueueStatus } from '../../services/staff.service'
 import { printWalkInIntakeForm } from '../../utils/printWalkInIntakeForm'
 
+const maxPatientBirthdate = () => new Date().toISOString().slice(0,10)
+const minPatientBirthdate = () => { const d = new Date(); d.setFullYear(d.getFullYear()-100); return d.toISOString().slice(0,10) }
+
 const REASONS = ['General Consultation', 'Follow-up', 'Skin Concern', 'Rash / Allergy', 'Medication Concern', 'Vaccination', 'Animal Bite', 'Other']
 
 const QueueCard = ({ entry, onCall, onDone, onRemove }) => {
@@ -341,7 +344,7 @@ const WalkInModal = ({ doctors, onClose, onSuccess }) => {
                 </label>
                 <label>
                   <span className="form-label">Birthdate *</span>
-                  <input type="date" className="form-control mt-1.5" value={form.birthdate} onChange={(event) => update('birthdate', event.target.value)} />
+                  <input type="date" min={minPatientBirthdate()} max={maxPatientBirthdate()} className="form-control mt-1.5" value={form.birthdate} onChange={(event) => update('birthdate', event.target.value)} />
                 </label>
                 <label>
                   <span className="form-label">Sex</span>
@@ -444,6 +447,3 @@ const StaffWalkInQueue = () => {
     {showModal&&<WalkInModal doctors={doctors} onClose={()=>setShowModal(false)} onSuccess={onSuccess}/>} {success&&<SuccessModal entry={success} onClose={()=>setSuccess(null)}/>} </div>
 }
 export default StaffWalkInQueue
-
-
-

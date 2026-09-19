@@ -106,6 +106,3 @@ module.exports = {
   authorizeConsultationImages,
   syncConsultationImages,
 }
-
-
-

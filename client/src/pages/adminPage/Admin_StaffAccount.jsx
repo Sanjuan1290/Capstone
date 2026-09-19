@@ -11,6 +11,14 @@ import {
   MdPeople, MdCalendarToday, MdEdit,
 } from 'react-icons/md'
 
+
+const toLocalPhone = (value = '') => {
+  let digits = String(value || '').replace(/\D/g, '')
+  if (digits.startsWith('63')) digits = digits.slice(2)
+  if (digits.startsWith('0')) digits = digits.slice(1)
+  return digits ? `0${digits.slice(0, 10)}` : ''
+}
+
 // ── Add Modal ──────────────────────────────────────────────────────────────────
 const AddModal = ({ onClose, onAdd }) => {
   const [form,     setForm]     = useState({ full_name: '', email: '', phone: '' })
@@ -78,7 +86,7 @@ const EditModal = ({ account, onClose, onSave }) => {
   const [form, setForm] = useState({
     full_name: account?.full_name || '',
     email: account?.email || '',
-    phone: account?.phone || '',
+    phone: toLocalPhone(account?.phone || ''),
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -170,7 +178,7 @@ const DetailPanel = ({ staff, onClose, onToggle, onEdit }) => {
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Account Info</p>
           {[
             { icon: MdEmail,        label: 'Email',  value: staff.email                    },
-            { icon: MdPhone,        label: 'Phone',  value: staff.phone || 'Not added'     },
+            { icon: MdPhone,        label: 'Phone',  value: staff.phone ? toLocalPhone(staff.phone) : 'Not added'     },
             { icon: MdCalendarToday,label: 'Joined', value: joined                         },
           ].map((meta) => (
             <div key={meta.label} className="flex items-center gap-3">
@@ -355,6 +363,3 @@ const Admin_StaffAccount = () => {
 }
 
 export default Admin_StaffAccount
-
-
-

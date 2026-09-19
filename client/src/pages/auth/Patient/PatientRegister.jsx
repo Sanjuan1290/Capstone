@@ -4,6 +4,8 @@ import {
   MdArrowBack,
   MdArrowForward,
   MdCheckCircle,
+  MdEmail,
+  MdHome,
   MdLock,
   MdPerson,
   MdPhone,
@@ -12,17 +14,35 @@ import {
 } from 'react-icons/md'
 import { useAuth } from '../../../context/AuthContext'
 import PasswordRequirements from '../../../components/PasswordRequirements'
+import PhilippinePhoneInput from '../../../components/ui/PhilippinePhoneInput'
 import { getPasswordValidationError, isPasswordValid } from '../../../utils/passwordPolicy'
 
 const INPUT_CLASS = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 text-sm
   text-slate-800 placeholder-slate-300 transition-all focus:border-emerald-400 focus:bg-white
   focus:outline-none focus:ring-2 focus:ring-emerald-400/10`
-
 const LABEL_CLASS = 'mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500'
+const GENDER_OPTIONS = ['Male', 'Female', 'Other']
 
-const PasswordInput = ({ name, value, onChange, placeholder }) => {
+const maxBirthdate = () => new Date().toISOString().slice(0, 10)
+const minBirthdate = () => {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() - 100)
+  return d.toISOString().slice(0, 10)
+}
+
+const validateBirthdate = (value) => {
+  if (!value) return 'Birthdate is required.'
+  if (value > maxBirthdate()) return 'Birthdate cannot be in the future.'
+  if (value < minBirthdate()) return 'Patient age cannot exceed 100 years.'
+  return ''
+}
+
+const PasswordInput = ({ name, value, onChange, placeholder, preventPaste = false }) => {
   const [show, setShow] = useState(false)
-
+  const stopPaste = (event) => {
+    if (!preventPaste) return
+    event.preventDefault()
+  }
   return (
     <div className="relative">
       <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
@@ -31,17 +51,18 @@ const PasswordInput = ({ name, value, onChange, placeholder }) => {
         name={name}
         value={value}
         onChange={onChange}
+        onPaste={stopPaste}
+        onDrop={stopPaste}
         required
         minLength={8}
         maxLength={128}
+        autoComplete={name === 'password' ? 'new-password' : 'off'}
         placeholder={placeholder}
         className={`${INPUT_CLASS} pl-10 pr-11`}
       />
-      <button
-        type="button"
-        onClick={() => setShow((current) => !current)}
+      <button type="button" onClick={() => setShow((current) => !current)}
         className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-      >
+        aria-label={show ? 'Hide password' : 'Show password'}>
         {show ? <MdVisibilityOff className="text-[17px]" /> : <MdVisibility className="text-[17px]" />}
       </button>
     </div>
@@ -51,19 +72,16 @@ const PasswordInput = ({ name, value, onChange, placeholder }) => {
 const OtpBoxes = ({ value, onChange }) => {
   const refs = useRef([])
   const digits = value.split('')
-
   const writeDigit = (index, digit) => {
     const next = Array.from({ length: 6 }, (_, i) => digits[i] || '')
     next[index] = digit
     onChange(next.join('').slice(0, 6))
   }
-
   const handleInput = (index, event) => {
     const numeric = event.target.value.replace(/\D/g, '').slice(-1)
     writeDigit(index, numeric)
     if (numeric && index < 5) refs.current[index + 1]?.focus()
   }
-
   const handleKey = (index, event) => {
     if (event.key === 'Backspace') {
       if (digits[index]) writeDigit(index, '')
@@ -73,7 +91,6 @@ const OtpBoxes = ({ value, onChange }) => {
     if (event.key === 'ArrowLeft' && index > 0) refs.current[index - 1]?.focus()
     if (event.key === 'ArrowRight' && index < 5) refs.current[index + 1]?.focus()
   }
-
   const handlePaste = (event) => {
     const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
     if (pasted) {
@@ -82,224 +99,79 @@ const OtpBoxes = ({ value, onChange }) => {
     }
     event.preventDefault()
   }
-
-  return (
-    <div className="flex justify-center gap-1 px-1 sm:gap-3">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <input
-          key={index}
-          ref={(element) => { refs.current[index] = element }}
-          type="text"
-          inputMode="numeric"
-          maxLength={1}
-          value={digits[index] || ''}
-          onChange={(event) => handleInput(index, event)}
-          onKeyDown={(event) => handleKey(index, event)}
-          onPaste={handlePaste}
-          className={`h-14 w-11 select-none rounded-2xl border-2 text-center text-2xl font-black outline-none transition-all sm:h-16 sm:w-14 ${
-            digits[index]
-              ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-              : 'border-slate-200 bg-slate-50 text-slate-800'
-          } focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-400/20`}
-        />
-      ))}
-    </div>
-  )
+  return <div className="flex justify-center gap-1 px-1 sm:gap-3">{Array.from({ length: 6 }).map((_, index) => (
+    <input key={index} ref={(element) => { refs.current[index] = element }} type="text" inputMode="numeric" maxLength={1}
+      value={digits[index] || ''} onChange={(event) => handleInput(index, event)} onKeyDown={(event) => handleKey(index, event)} onPaste={handlePaste}
+      className={`h-14 w-11 select-none rounded-2xl border-2 text-center text-2xl font-black outline-none transition-all sm:h-16 sm:w-14 ${digits[index] ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-800'} focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-400/20`} />
+  ))}</div>
 }
 
 const RegistrationForm = ({ onSuccess }) => {
   const [form, setForm] = useState({
-    full_name: '',
-    phone: '',
-    password: '',
-    confirmPassword: '',
-    receive_promotions: false,
+    full_name: '', email: '', phone: '', birthdate: '', gender: '', address: '',
+    password: '', confirmPassword: '', receive_promotions: false,
   })
   const [consentGiven, setConsentGiven] = useState(false)
   const [error, setError] = useState('')
+  const [birthdateError, setBirthdateError] = useState('')
   const [loading, setLoading] = useState(false)
 
   const updateField = (event) => {
     const { name, type, checked, value } = event.target
     setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
+    if (name === 'birthdate') setBirthdateError(validateBirthdate(value))
     setError('')
   }
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const birthdayError = validateBirthdate(form.birthdate)
+    if (birthdayError) { setBirthdateError(birthdayError); return }
     const passwordError = getPasswordValidationError(form.password)
-    if (passwordError) {
-      setError(passwordError)
-      return
-    }
-    if (form.password !== form.confirmPassword) {
-      setError('Passwords do not match.')
-      return
-    }
+    if (passwordError) return setError(passwordError)
+    if (form.password !== form.confirmPassword) return setError('Passwords do not match.')
+    if (!form.email.trim()) return setError('Email address is required.')
+    if (!form.gender) return setError('Gender is required.')
+    if (!form.address.trim()) return setError('Address is required.')
 
     setLoading(true)
     try {
       const res = await fetch('/api/patient/register', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, consent_given: consentGiven }),
       })
       const data = await res.json()
-      if (!res.ok) {
-        setError(data.message || 'Registration failed.')
-        return
-      }
+      if (!res.ok) return setError(data.message || 'Registration failed.')
       onSuccess({ phone: data.phone || form.phone, devOtp: data.dev_otp || null })
-    } catch {
-      setError('Cannot connect to server.')
-    } finally {
-      setLoading(false)
-    }
+    } catch { setError('Cannot connect to server.') }
+    finally { setLoading(false) }
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c] p-4 py-10">
-      <div className="fixed right-0 top-0 h-96 w-96 rounded-full bg-emerald-500/5 blur-3xl pointer-events-none" />
-      <div className="fixed bottom-0 left-0 h-72 w-72 rounded-full bg-sky-500/5 blur-3xl pointer-events-none" />
-
-      <div className="relative w-full max-w-xl">
-        <div className="mb-6 flex flex-col items-center">
-          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-            <img src="/logo.png" alt="Carait" className="h-10 w-10 object-contain" />
-          </div>
-          <h1 className="text-xl font-black tracking-tight text-white">Carait Clinic</h1>
-          <p className="mt-0.5 text-sm text-slate-400">Create your patient account</p>
-        </div>
-
+      <div className="relative w-full max-w-2xl">
+        <div className="mb-6 flex flex-col items-center"><img src="/logo.png" alt="Carait" className="mb-3 h-14 w-14 rounded-2xl bg-white/10 object-contain p-2"/><h1 className="text-xl font-black text-white">Carait Clinic</h1><p className="mt-0.5 text-sm text-slate-400">Create your patient account</p></div>
         <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
-          <div className="h-1 bg-slate-100">
-            <div className="h-1 w-1/2 bg-emerald-500 transition-all" />
-          </div>
-
-          <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5">
-            <div className="mb-1 flex items-center gap-2 text-xs text-white/60">
-              <span className="rounded-full bg-white/20 px-2 py-0.5 font-bold">Step 1 of 2</span>
-            </div>
-            <h2 className="text-lg font-bold text-white">Fast Registration</h2>
-            <p className="mt-0.5 text-sm text-emerald-100">We only need your name, mobile number, and password.</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4 px-5 py-6 sm:px-8">
-            {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                {error}
-              </div>
-            )}
-
-            <div>
-              <label className={LABEL_CLASS}>Full Name</label>
-              <div className="relative">
-                <MdPerson className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
-                <input
-                  type="text"
-                  name="full_name"
-                  value={form.full_name}
-                  onChange={updateField}
-                  required
-                  placeholder="e.g. Juan dela Cruz"
-                  className={`${INPUT_CLASS} pl-10`}
-                />
-              </div>
+          <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5"><span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold text-white/70">Step 1 of 2</span><h2 className="mt-1 text-lg font-bold text-white">Patient Information</h2><p className="mt-0.5 text-sm text-emerald-100">Complete your profile now so you can book immediately after verification.</p></div>
+          <form onSubmit={handleSubmit} className="space-y-5 px-5 py-6 sm:px-8">
+            {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2"><label className={LABEL_CLASS}>Full Name *</label><div className="relative"><MdPerson className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input name="full_name" value={form.full_name} onChange={updateField} required placeholder="e.g. Juan dela Cruz" className={`${INPUT_CLASS} pl-10`}/></div></div>
+              <div><label className={LABEL_CLASS}>Email Address *</label><div className="relative"><MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input type="email" name="email" value={form.email} onChange={updateField} required placeholder="juan@email.com" className={`${INPUT_CLASS} pl-10`}/></div></div>
+              <div><label className={LABEL_CLASS}>Mobile Number *</label><div className="relative"><MdPhone className="pointer-events-none absolute left-3.5 top-1/2 z-10 -translate-y-1/2 text-slate-400"/><PhilippinePhoneInput value={form.phone} onChange={(e) => updateField({ target: { name: 'phone', type: 'text', value: e.target.value } })} className="pl-7"/></div><p className="mt-1 text-[11px] text-slate-400">Enter a Philippine number in 09xx format.</p></div>
+              <div><label className={LABEL_CLASS}>Birthdate *</label><input type="date" name="birthdate" value={form.birthdate} min={minBirthdate()} max={maxBirthdate()} onChange={updateField} required className={INPUT_CLASS}/>{birthdateError && <p className="mt-1 text-xs font-semibold text-red-500">{birthdateError}</p>}</div>
+              <div><label className={LABEL_CLASS}>Gender *</label><select name="gender" value={form.gender} onChange={updateField} required className={INPUT_CLASS}><option value="">Select gender</option>{GENDER_OPTIONS.map((option)=><option key={option}>{option}</option>)}</select></div>
+              <div className="sm:col-span-2"><label className={LABEL_CLASS}>Address *</label><div className="relative"><MdHome className="absolute left-3.5 top-3.5 text-slate-400"/><textarea name="address" value={form.address} onChange={updateField} required rows={2} placeholder="House / Street / Barangay / City / Province" className={`${INPUT_CLASS} pl-10`}/></div></div>
             </div>
 
-            <div>
-              <label className={LABEL_CLASS}>Phone Number</label>
-              <div className="relative">
-                <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
-                <input
-                  type="tel"
-                  name="phone"
-                  value={form.phone}
-                  onChange={updateField}
-                  required
-                  placeholder="09XXXXXXXXX or +639XXXXXXXXX"
-                  className={`${INPUT_CLASS} pl-10`}
-                />
-              </div>
-            </div>
-
-            <div className="border-t border-slate-100 pt-1">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Security</p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className={LABEL_CLASS}>Password</label>
-                <PasswordInput name="password" value={form.password} onChange={updateField} placeholder="8+ characters" />
-              </div>
-              <div>
-                <label className={LABEL_CLASS}>Confirm Password</label>
-                <PasswordInput name="confirmPassword" value={form.confirmPassword} onChange={updateField} placeholder="Repeat password" />
-                {form.confirmPassword && form.password !== form.confirmPassword && (
-                  <p className="mt-1 text-xs text-red-500">Passwords do not match.</p>
-                )}
-              </div>
-            </div>
-
-            <PasswordRequirements password={form.password} />
-
-            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                name="receive_promotions"
-                checked={form.receive_promotions}
-                onChange={updateField}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600"
-              />
-              <span>I want to receive promotions and clinic updates by email.</span>
-            </label>
-
-            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                checked={consentGiven}
-                onChange={(event) => setConsentGiven(event.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600"
-              />
-              <span>
-                I have read and agree to the{' '}
-                <NavLink to="/privacy-policy" className="font-bold text-emerald-600 hover:text-emerald-700">
-                  Privacy Policy
-                </NavLink>
-                . I consent to the collection and processing of my personal data in accordance with Republic Act 10173 (Data Privacy Act of 2012).
-              </span>
-            </label>
-
-            <button
-              type="submit"
-              disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 transition-colors hover:bg-emerald-600 disabled:opacity-60"
-            >
-              {loading ? (
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              ) : (
-                <>
-                  Send SMS Verification Code
-                  <MdArrowForward className="text-[16px]" />
-                </>
-              )}
-            </button>
-
-            <p className="text-center text-sm text-slate-400">
-              Already have an account?{' '}
-              <NavLink to="/patient/login" className="font-bold text-emerald-600 hover:text-emerald-700">
-                Sign in
-              </NavLink>
-            </p>
+            <div className="border-t border-slate-100 pt-4"><p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Security</p><div className="grid gap-4 sm:grid-cols-2"><div><label className={LABEL_CLASS}>Password *</label><PasswordInput name="password" value={form.password} onChange={updateField} placeholder="8+ characters"/></div><div><label className={LABEL_CLASS}>Confirm Password *</label><PasswordInput name="confirmPassword" value={form.confirmPassword} onChange={updateField} placeholder="Retype password" preventPaste/>{form.confirmPassword && form.password !== form.confirmPassword && <p className="mt-1 text-xs text-red-500">Passwords do not match.</p>}<p className="mt-1 text-[11px] text-slate-400">Paste is disabled for confirmation.</p></div></div></div>
+            <PasswordRequirements password={form.password}/>
+            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600"><input type="checkbox" name="receive_promotions" checked={form.receive_promotions} onChange={updateField} className="mt-1 h-4 w-4"/><span>I want to receive promotions and clinic updates by email.</span></label>
+            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600"><input type="checkbox" checked={consentGiven} onChange={(e)=>setConsentGiven(e.target.checked)} className="mt-1 h-4 w-4"/><span>I have read and agree to the <NavLink to="/privacy-policy" className="font-bold text-emerald-600">Privacy Policy</NavLink> and consent to processing of my personal data.</span></label>
+            <button type="submit" disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword || Boolean(birthdateError)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-50">{loading ? 'Sending...' : <>Send SMS Verification Code <MdArrowForward/></>}</button>
+            <p className="text-center text-sm text-slate-400">Already have an account? <NavLink to="/patient/login" className="font-bold text-emerald-600">Sign in</NavLink></p>
           </form>
         </div>
-
-        <p className="mt-4 text-center">
-          <NavLink to="/" className="text-xs text-slate-500 transition-colors hover:text-white">
-            {'<-'} Back to home
-          </NavLink>
-        </p>
       </div>
     </div>
   )
@@ -434,6 +306,3 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
-
-
-

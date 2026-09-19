@@ -209,6 +209,3 @@ module.exports = {
   updateLandingPageContent,
   normalizeLandingPageContent,
 }
-
-
-

@@ -16,6 +16,3 @@ describe('doctor appointment workflow security', () => {
     expect(controller).toContain("scope !== 'today' && scope !== 'date'")
   })
 })
-
-
-

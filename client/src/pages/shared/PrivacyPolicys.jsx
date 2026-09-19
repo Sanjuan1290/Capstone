@@ -215,6 +215,3 @@ const PrivacyPolicys = () => {
 }
 
 export default PrivacyPolicys
-
-
-

@@ -108,7 +108,7 @@ const NewRequestModal = ({ inventoryItems, locations, defaultDestination, onClos
 
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-6 py-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.24em] text-violet-500">New Request</p>
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-violet-500">Stock Transfer</p>
             <h2 className="mt-1 text-lg font-bold text-slate-900">Request stock transfer</h2>
             <p className="mt-1 text-sm text-slate-500">Request stock for your treatment room. Approved requests are transferred from the stockroom per batch using FEFO; they are not counted as clinical consumption yet.</p>
           </div>
@@ -421,7 +421,7 @@ const Doctor_Request = () => {
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.24em] text-violet-600">
               <MdInventory2 className="text-sm" />
-              Doctor Supply Desk
+              Doctor Stock Desk
             </div>
             <h1 className="mt-3 text-2xl font-bold text-slate-900">Stock Transfer Requests</h1>
             <p className="mt-2 text-sm text-slate-600">
@@ -537,6 +537,3 @@ const Doctor_Request = () => {
 }
 
 export default Doctor_Request
-
-
-

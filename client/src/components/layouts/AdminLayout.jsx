@@ -10,14 +10,14 @@ import { getDashboard } from '../../services/admin.service'
 import {
   MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
   MdBarChart, MdChevronLeft, MdLogout, MdAdminPanelSettings, MdMenu, MdClose, MdSettings,
-  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory, MdBusiness,
+  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory,
 } from 'react-icons/md'
 
 const GROUPS = [
   { label: 'Overview', items: [{ name: 'Dashboard', path: '/admin', icon: MdDashboard, short: 'Home' }] },
   { label: 'Clinic Operations', items: [
     { name: 'Appointments', path: '/admin/appointments', icon: MdEventAvailable, short: 'Appts', badge: 'pending' },
-    { name: 'Patient Booking', path: '/admin/patient-booking', icon: MdEdit, short: 'Booking' },
+    { name: 'Patient Visit Details', path: '/admin/patient-visit-details', icon: MdEdit, short: 'Visit' },
   ] },
   { label: 'Billing & Stock', items: [
     { name: 'Billing', path: '/admin/billing', icon: MdPayments, short: 'Billing' },
@@ -32,7 +32,6 @@ const GROUPS = [
   { label: 'Insights & System', items: [
     { name: 'Reports', path: '/admin/reports', icon: MdBarChart, short: 'Reports' },
     { name: 'Audit Logs', path: '/admin/audit-logs', icon: MdHistory, short: 'Audit' },
-    { name: 'Clinic Settings', path: '/admin/clinic-settings', icon: MdBusiness, short: 'Clinic' },
     { name: 'Landing Page', path: '/admin/landingpage', icon: MdLanguage, short: 'Site' },
   ] },
 ]
@@ -82,7 +81,7 @@ const AdminLayout = () => {
       <div className="flex h-16 shrink-0 items-center gap-3 overflow-hidden border-b border-white/5 px-4"><img src="/logo.png" alt="Carait Clinic" className="h-9 w-9 shrink-0 rounded-xl bg-white/10 object-contain p-1" /><div className={`overflow-hidden whitespace-nowrap leading-tight transition-all ${collapsed ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100'}`}><p className="text-[15px] font-bold text-white">Carait Clinic</p><span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-amber-400">Admin Portal</span></div><button onClick={() => setMobileOpen(false)} className="ml-auto text-slate-400 lg:hidden"><MdClose className="text-xl" /></button></div>
       <div className={`mx-3 mt-4 rounded-xl border border-white/5 bg-white/5 p-3 ${collapsed ? 'hidden' : ''}`}><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/20"><MdAdminPanelSettings className="text-lg text-amber-400" /></div><div className="min-w-0"><p className="truncate text-sm font-bold text-white">{user?.full_name || 'Admin'}</p><p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400">Administrator</p></div></div></div>
       <nav className="flex-1 overflow-y-auto px-3 pb-4 pt-2">{GROUPS.map((group) => <div key={group.label} className="mb-3"><p className={`mb-1 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 ${collapsed ? 'sr-only' : ''}`}>{group.label}</p><div className="space-y-0.5">{group.items.map((item) => <NavItem key={item.path} item={item} />)}</div></div>)}</nav>
-      <div className="shrink-0 border-t border-white/5 px-3 py-4">{logoutError && !collapsed && <p className="px-3 pb-2 text-[10px] text-red-400">{logoutError}</p>}<button onClick={handleLogout} disabled={loggingOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-400 hover:bg-red-500/10 hover:text-red-400"><MdLogout className="text-lg" /><span className={collapsed ? 'hidden' : ''}>{loggingOut ? 'Logging out…' : 'Logout'}</span></button></div>
+      <div className="shrink-0 border-t border-white/5 px-3 py-4">{logoutError && !collapsed && <p className="px-3 pb-2 text-[10px] text-red-400">{logoutError}</p>}<button onClick={handleLogout} disabled={loggingOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300"><MdLogout className="text-lg" /><span className={collapsed ? 'hidden' : ''}>{loggingOut ? 'Logging out…' : 'Logout'}</span></button></div>
       <button onClick={() => setCollapsed((v) => !v)} aria-label="Toggle sidebar" className="absolute -right-3 top-[72px] hidden h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#0b1a2c] text-slate-400 shadow-md lg:flex"><MdChevronLeft className={`text-sm transition-transform ${collapsed ? 'rotate-180' : ''}`} /></button>
     </aside>
     <div className="flex min-h-0 min-w-0 flex-1 flex-col"><header className="z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4 lg:h-16 lg:px-6"><button onClick={() => setMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 lg:hidden"><MdMenu className="text-xl" /></button><div className="hidden lg:block" /><div className="flex items-center gap-3"><NotificationBell role="admin" /><button onClick={toggleTheme} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500">{theme === 'dark' ? <MdLightMode /> : <MdDarkMode />}</button><NavLink to="/admin/settings" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><MdSettings /></NavLink><div className="hidden items-center gap-2.5 border-l border-slate-100 pl-3 lg:flex"><ProfileAvatar user={user} size="sm" /><div><p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Admin'}</p><p className="text-[10px] text-slate-400">Administrator</p></div></div></div></header>
@@ -93,6 +92,3 @@ const AdminLayout = () => {
 }
 
 export default AdminLayout
-
-
-

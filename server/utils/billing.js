@@ -3,11 +3,8 @@ const db = require('../db/connect')
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100
 
 const getInventoryBaseUnitCost = (item = {}) => {
-  const packageCost = Math.max(0, Number(item.inventory_price ?? item.price) || 0)
-  const unitSize = Math.max(1, Number(item.inventory_unit_size ?? item.unit_size) || 1)
-  const baseUnit = String(item.inventory_base_unit ?? item.base_unit ?? '').trim().toLowerCase()
-  const usageUnit = String(item.unit_label ?? item.inventory_unit ?? item.unit ?? '').trim().toLowerCase()
-  return usageUnit && baseUnit && usageUnit === baseUnit ? roundMoney(packageCost / unitSize) : packageCost
+  // Inventory now stores cost directly in the item's single unit of measure.
+  return roundMoney(Math.max(0, Number(item.inventory_price ?? item.price) || 0))
 }
 
 const getServiceMaterialUnitCost = (material = {}) => {
@@ -158,8 +155,8 @@ const hydrateBillingCatalogRows = async (serviceRows = [], executor = db) => {
        i.name AS inventory_name,
        i.category AS inventory_category,
        i.unit AS inventory_unit,
-       i.base_unit AS inventory_base_unit,
-       i.unit_size AS inventory_unit_size,
+       COALESCE(i.uom, i.base_unit, i.unit) AS inventory_base_unit,
+       1 AS inventory_unit_size,
        i.price AS inventory_price,
        i.stock AS inventory_stock
      FROM billing_service_materials m
@@ -277,7 +274,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
   const inventoryMap = new Map()
   if (requestedInventoryIds.length > 0) {
     const [inventoryRows] = await executor.query(
-      `SELECT id, name, category, unit, base_unit, unit_size, price, selling_price
+      `SELECT id, name, category, unit, base_unit, unit_size, uom, price, selling_price
        FROM inventory
        WHERE id IN (${requestedInventoryIds.map(() => '?').join(', ')})`,
       requestedInventoryIds
@@ -314,6 +311,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           const quantityUsed = Math.max(0, Number(material?.quantity) || 0)
           const unitLabel = String(
             material?.unit_label
+            || inventoryItem?.uom
             || inventoryItem?.base_unit
             || material?.inventory_base_unit
             || material?.inventory_unit
@@ -326,8 +324,8 @@ const normalizeBillingItems = async (items = [], executor = db) => {
             inventory_id: inventoryId,
             unit_cost_override: unitCostOverride,
             inventory_price: inventoryItem?.price ?? material?.inventory_price,
-            inventory_unit_size: inventoryItem?.unit_size ?? material?.inventory_unit_size,
-            inventory_base_unit: inventoryItem?.base_unit ?? material?.inventory_base_unit,
+            inventory_unit_size: 1,
+            inventory_base_unit: inventoryItem?.uom ?? inventoryItem?.base_unit ?? material?.inventory_base_unit,
             unit_label: unitLabel,
             inventory_unit: inventoryItem?.unit ?? material?.inventory_unit,
           })
@@ -720,6 +718,3 @@ module.exports = {
   replaceStaffBillingItems,
   upsertDraftBillingForAppointment,
 }
-
-
-

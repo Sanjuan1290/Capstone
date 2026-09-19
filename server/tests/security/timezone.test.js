@@ -13,6 +13,3 @@ describe('clinic timezone handling', () => {
     expect(isClinicOpenDate('2026-08-30')).toBe(false) // Sunday
   })
 })
-
-
-

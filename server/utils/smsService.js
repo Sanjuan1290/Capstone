@@ -131,6 +131,7 @@ const sendPatientAppointmentStatusSms = async ({
   appointmentDate,
   appointmentTime,
   status,
+  notes,
 }) => {
   const normalized = normalizePhilippinePhone(patientPhone)
   if (!normalized) return { skipped: true }
@@ -144,9 +145,11 @@ const sendPatientAppointmentStatusSms = async ({
     no_show: `Carait Clinic: Your appointment on ${appointmentDate} at ${appointmentTime} was marked no-show. Please contact the clinic before booking again.`,
   }
 
+  const baseMessage = statusMessages[status] || `Carait Clinic appointment update: ${appointmentDate} at ${appointmentTime}.`
+  const message = notes ? `${baseMessage} Message: ${String(notes).trim()}` : baseMessage
   return sendSemaphore('/messages', {
     number: normalized,
-    message: statusMessages[status] || `Carait Clinic appointment update: ${appointmentDate} at ${appointmentTime}.`,
+    message,
   }, `Patient appointment ${status || 'update'} for ${patientLabel} (${normalized})`)
 }
 
@@ -166,6 +169,3 @@ module.exports = {
   sendDoctorAppointmentSms,
   sendPatientAppointmentStatusSms,
 }
-
-
-

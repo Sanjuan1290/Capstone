@@ -119,6 +119,3 @@ const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days
 }
 
 module.exports = { buildDoctorAvailabilitySummary, formatSlotLabel }
-
-
-

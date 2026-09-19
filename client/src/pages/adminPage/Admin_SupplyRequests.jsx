@@ -23,6 +23,3 @@ const Admin_SupplyRequests = () => (
 )
 
 export default Admin_SupplyRequests
-
-
-

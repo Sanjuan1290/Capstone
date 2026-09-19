@@ -290,7 +290,7 @@ const Doctor_Consultation = () => {
     )))
   )
 
-  const addRx = () => setPrescriptions((prev) => [...prev, { medicine: '', dosage: '', frequency: '', duration: '', notes: '' }])
+  const addRx = () => setPrescriptions((prev) => [...prev, { inventory_id: '', medicine: '', dosage: '', frequency: '', duration: '', notes: '' }])
   const removeRx = (index) => setPrescriptions((prev) => prev.filter((_, rxIndex) => rxIndex !== index))
 
   const addProgressImage = () => setProgressImages((prev) => [...prev, createBlankProgressImage()])
@@ -302,6 +302,7 @@ const Doctor_Consultation = () => {
   }
 
   const removeProgressImage = (index) => {
+    if (!window.confirm('Remove this progress image from the consultation? This change will be permanent once the consultation is saved.')) return
     setProgressImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index))
   }
 
@@ -518,6 +519,7 @@ const Doctor_Consultation = () => {
 
   const typeLabel = currentPatient?.type === 'derma' ? 'Dermatology' : 'General Medicine'
   const TypeIcon = currentPatient?.type === 'derma' ? MdFace : MdMedicalServices
+  const medicineItems = inventoryItems.filter((item) => String(item.item_type || 'medicine').toLowerCase() === 'medicine')
   const latestProgressImage = normalizeProgressImages(progressImages).filter((image) => image.image_url).slice(-1)[0]
 
   return (
@@ -553,6 +555,12 @@ const Doctor_Consultation = () => {
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">{date}</p>
           </div>
+          {consultationStatus === 'finalized' && <button
+            onClick={() => document.getElementById('consultation-amendments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-violet-700 border border-violet-200 bg-violet-50 rounded-xl hover:bg-violet-100 transition-colors"
+          >
+            <MdEdit className="text-[14px]" /> Edit / Amend Record
+          </button>}
           <button
             onClick={() => window.print()}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
@@ -799,13 +807,7 @@ const Doctor_Consultation = () => {
                 </button>
               </div>
 
-              <datalist id="medicine-list-consult">
-                {inventoryItems.map((item) => (
-                  <option key={item.id} value={item.name}>
-                    {item.category} · {item.stock} {item.unit}(s) in stock
-                  </option>
-                ))}
-              </datalist>
+
 
               <div className="space-y-4">
                 {prescriptions.map((rx, index) => (
@@ -825,24 +827,35 @@ const Doctor_Consultation = () => {
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Medicine</label>
-                      <input
-                        type="text"
-                        list="medicine-list-consult"
-                        value={rx.medicine}
-                        onChange={(e) => updateRx(index, 'medicine', e.target.value)}
-                        placeholder="Type or select from inventory..."
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Medicine *</label>
+                      <select
+                        value={rx.inventory_id || (medicineItems.find((item) => item.name?.trim().toLowerCase() === String(rx.medicine || '').trim().toLowerCase())?.id ?? (rx.medicine ? '__other__' : ''))}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (value === '__other__') {
+                            setPrescriptions((prev) => prev.map((entry, rxIndex) => rxIndex === index ? { ...entry, inventory_id: '__other__', medicine: '' } : entry))
+                            return
+                          }
+                          const selected = medicineItems.find((item) => String(item.id) === String(value))
+                          setPrescriptions((prev) => prev.map((entry, rxIndex) => rxIndex === index ? { ...entry, inventory_id: value, medicine: selected?.name || '' } : entry))
+                        }}
                         className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400 transition-colors"
-                      />
-                      {rx.medicine && (() => {
-                        const found = inventoryItems.find((item) => item.name.toLowerCase() === rx.medicine.toLowerCase())
-                        return found ? (
-                          <p className={`text-[10px] mt-1 flex items-center gap-1 font-medium ${found.stock <= (found.threshold || 5) ? 'text-red-500' : 'text-emerald-600'}`}>
-                            <MdInventory2 className="text-[11px]" />
-                            {found.stock} {found.unit}(s) in stock
-                            {found.stock <= (found.threshold || 5) && ' - Low stock!'}
-                          </p>
-                        ) : null
+                      >
+                        <option value="">Select medicine from inventory...</option>
+                        <optgroup label="General Medicine">
+                          {medicineItems.filter((item) => item.category === 'medical').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.stock} {item.uom || item.unit}</option>)}
+                        </optgroup>
+                        <optgroup label="Dermatology">
+                          {medicineItems.filter((item) => item.category === 'derma').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.stock} {item.uom || item.unit}</option>)}
+                        </optgroup>
+                        <option value="__other__">Other / Not in Inventory</option>
+                      </select>
+                      {(rx.inventory_id === '__other__' || (!rx.inventory_id && rx.medicine && !medicineItems.some((item) => item.name?.trim().toLowerCase() === String(rx.medicine).trim().toLowerCase()))) && (
+                        <div className="mt-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Medicine Name *</label><input type="text" value={rx.medicine} onChange={(e) => updateRx(index, 'medicine', e.target.value)} placeholder="Enter medicine name..." className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400" /></div>
+                      )}
+                      {rx.inventory_id && (() => {
+                        const found = medicineItems.find((item) => String(item.id) === String(rx.inventory_id))
+                        return found ? <p className={`text-[10px] mt-1 flex items-center gap-1 font-medium ${found.stock <= (found.threshold || 5) ? 'text-red-500' : 'text-emerald-600'}`}><MdInventory2 className="text-[11px]" />{found.stock} {found.uom || found.unit} in stock{found.stock <= (found.threshold || 5) && ' - Low stock!'}</p> : null
                       })()}
                     </div>
 
@@ -912,7 +925,7 @@ const Doctor_Consultation = () => {
             </fieldset>
 
             {consultationStatus === 'finalized' ? (
-              <div className="rounded-2xl border border-violet-200 bg-white p-6 space-y-4">
+              <div id="consultation-amendments" className="rounded-2xl border border-violet-200 bg-white p-6 space-y-4 scroll-mt-6">
                 <div>
                   <h2 className="text-sm font-bold text-slate-800">Medical Record Amendments</h2>
                   <p className="mt-1 text-xs text-slate-500">Amendments preserve the original finalized record and create a dated correction/addition trail.</p>
@@ -1073,6 +1086,3 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
-
-
-

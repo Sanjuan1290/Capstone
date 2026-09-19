@@ -7,6 +7,3 @@ describe('SSE access control', () => {
     expect(response.status).toBe(401)
   })
 })
-
-
-

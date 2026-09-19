@@ -75,6 +75,7 @@ import AdminRoute  from './components/AdminRoute'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import SettingsPage   from './pages/shared/SettingsPage'
 import RequiredPasswordChange from './pages/shared/RequiredPasswordChange'
+import ChangePassword from './pages/shared/ChangePassword'
 import DoctorAvailability from './pages/patientPage/DoctorAvailability'
 import PrivacyPolicys from './pages/shared/PrivacyPolicys'
 import TermsOfService from './pages/shared/TermsOfService'   // NEW
@@ -104,6 +105,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='reschedule-appointment' element={<RescheduleAppointment />} />
         <Route path='history'                element={<History />} />
         <Route path='settings'               element={<SettingsPage />} />
+        <Route path='change-password'        element={<ChangePassword />} />
       </Route>
 
       {/* ── Staff auth ──────────────────────────────────── */}
@@ -124,6 +126,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='patient-records' element={<Staff_PatientRecord />} />
         <Route path='supply-requests' element={<Staff_SupplyRequests />} />
         <Route path='settings'        element={<SettingsPage />} />
+        <Route path='change-password' element={<ChangePassword />} />
       </Route>
 
       {/* ── Doctor auth ─────────────────────────────────── */}
@@ -141,6 +144,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='request'            element={<Doctor_Request />} />
         <Route path='schedule'           element={<Doctor_Schedule />} />
         <Route path='settings'           element={<SettingsPage />} />
+        <Route path='change-password'    element={<ChangePassword />} />
       </Route>
 
       {/* ── Admin auth ──────────────────────────────────── */}
@@ -151,12 +155,13 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route index                   element={<Admin_Dashboard />} />
         <Route path='reports'          element={<Admin_Reports />} />
         <Route path='audit-logs'       element={<Admin_AuditLogs />} />
-        <Route path='clinic-settings'  element={<Admin_ClinicSettings />} />
+        <Route path='clinic-settings'  element={<Navigate to='/admin/settings' replace />} />
         <Route path='staff-accounts'   element={<Admin_StaffAccount />} />
         <Route path='doctor-accounts'  element={<Admin_DoctorAccount />} />
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='appointments'     element={<Admin_Appointments />} />
-        <Route path='patient-booking'  element={<Admin_PatientBooking />} />
+        <Route path='patient-booking' element={<Navigate to='/admin/patient-visit-details' replace />} />
+        <Route path='patient-visit-details' element={<Admin_PatientBooking />} />
         <Route path='billing'          element={<Admin_Billing />} />
         <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
         <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
@@ -175,6 +180,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='supply-requests'  element={<Admin_SupplyRequests />} />
         <Route path='landingpage'      element={<Admin_LandingPage />} />
         <Route path='settings'         element={<SettingsPage />} />
+        <Route path='change-password'  element={<ChangePassword />} />
       </Route>
 
       {/* ── Public TV queue display ─────────────────────── */}
@@ -195,6 +201,3 @@ const App = () => (
 )
 
 export default App
-
-
-

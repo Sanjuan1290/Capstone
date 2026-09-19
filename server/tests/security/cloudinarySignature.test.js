@@ -29,7 +29,7 @@ describe('signed Cloudinary uploads', () => {
     const result = createClinicalUploadSignature({ doctorId: 4, appointmentId: 19 })
     expect(result.cloud_name).toBe('test-cloud')
     expect(result.api_key).toBe('test-key')
-    expect(result.folder).toContain('doctor-4/appointment-19')
+    expect(result.folder).toBe('carait-clinic/clinical/medical/doctor_4/appointment_19')
     expect(result.moderation).toBe('perception_point')
     expect(result.scan_mode).toBe('scan')
     expect(result.signature).toMatch(/^[a-f0-9]{40}$/)
@@ -132,6 +132,3 @@ describe('signed Cloudinary uploads', () => {
   })
 
 })
-
-
-

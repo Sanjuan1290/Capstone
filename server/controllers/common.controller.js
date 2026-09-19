@@ -2,7 +2,7 @@ const { getNotifications, markNotificationRead } = require('../utils/notificatio
 const { getSettings, updateSettings } = require('../utils/accountSettings')
 const { getLandingPageContent, updateLandingPageContent } = require('../utils/landingPageContent')
 const db = require('../db/connect')
-const { requestCode, changeWithCode, completeRequiredChange, requestPatientPhoneChange, confirmPatientPhoneChange } = require('../utils/accountSecurity')
+const { requestPasswordChangeCode, changeWithCode, completeRequiredChange, requestPatientPhoneChange, confirmPatientPhoneChange } = require('../utils/accountSecurity')
 const { writeAuditLog } = require('../utils/audit')
 
 const listNotifications = async (req, res) => {
@@ -69,14 +69,19 @@ const saveAdminLandingPage = async (req, res) => {
 
 const requestMyPasswordCode = async (req, res) => {
   try {
-    const result = await requestCode(req.user.role, req.user.id)
+    const result = await requestPasswordChangeCode(
+      req.user.role,
+      req.user.id,
+      req.body?.current_password,
+      req.body?.new_password,
+    )
     res.json({ message: `Verification code sent by ${result.channel}.`, channel: result.channel })
-  } catch (err) { res.status(400).json({ message: err.message }) }
+  } catch (err) { res.status(err.statusCode || 400).json({ message: err.message }) }
 }
 
 const changeMyPassword = async (req, res) => {
   try {
-    await changeWithCode(req.user.role, req.user.id, req.body?.code, req.body?.new_password, res)
+    await changeWithCode(req.user.role, req.user.id, req.body?.code, res)
     await writeAuditLog({ userId: req.user.id, userRole: req.user.role, action: 'password_changed', entityType: req.user.role, entityId: req.user.id, ipAddress: req.ip || null }).catch(() => {})
     res.json({ message: 'Password changed successfully.' })
   } catch (err) { res.status(400).json({ message: err.message }) }
@@ -131,6 +136,3 @@ module.exports = {
   getAdminLandingPage,
   saveAdminLandingPage,
 }
-
-
-

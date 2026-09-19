@@ -12,6 +12,3 @@ const ConfirmDialog = ({ open, title, message, confirmLabel = 'Confirm', cancelL
 )
 
 export default ConfirmDialog
-
-
-

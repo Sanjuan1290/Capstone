@@ -12,7 +12,7 @@ const selectFieldsByRole = {
   admin: 'id, full_name, email, theme_preference, profile_image_url',
   staff: 'id, full_name, email, phone, theme_preference, profile_image_url',
   doctor: 'id, full_name, email, phone, specialty, theme_preference, profile_image_url',
-  patient: 'id, full_name, email, phone, address, civil_status, COALESCE(gender, sex) AS gender, COALESCE(gender, sex) AS sex, DATE_FORMAT(birthdate, "%Y-%m-%d") AS birthdate, receive_promotions, is_profile_complete, theme_preference, profile_image_url',
+  patient: 'id, full_name, email, phone, address, COALESCE(gender, sex) AS gender, COALESCE(gender, sex) AS sex, DATE_FORMAT(birthdate, "%Y-%m-%d") AS birthdate, receive_promotions, is_profile_complete, theme_preference, profile_image_url',
 }
 
 const getSettings = async (role, id) => {
@@ -28,7 +28,7 @@ const updateSettings = async (role, id, payload) => {
     admin: ['full_name', 'theme_preference', 'profile_image_url'],
     staff: ['full_name', 'phone', 'theme_preference', 'profile_image_url'],
     doctor: ['full_name', 'phone', 'specialty', 'theme_preference', 'profile_image_url'],
-    patient: ['full_name', 'address', 'civil_status', 'gender', 'birthdate', 'theme_preference', 'profile_image_url', 'email', 'receive_promotions'],
+    patient: ['full_name', 'address', 'gender', 'birthdate', 'theme_preference', 'profile_image_url', 'email', 'receive_promotions'],
   }
 
   if (role === 'patient') {
@@ -40,7 +40,6 @@ const updateSettings = async (role, id, payload) => {
       full_name: payload.full_name === undefined ? current.full_name : (payload.full_name || '').trim() || current.full_name,
       phone: current.phone,
       address: payload.address === undefined ? current.address : normalized.address,
-      civil_status: payload.civil_status === undefined ? current.civil_status : normalized.civil_status,
       gender: payload.gender === undefined ? current.gender : normalized.gender,
       birthdate: payload.birthdate === undefined ? current.birthdate : normalized.birthdate,
       email: payload.email === undefined ? current.email : normalized.email,
@@ -63,18 +62,18 @@ const updateSettings = async (role, id, payload) => {
       birthdate: nextValues.birthdate,
       gender: nextValues.gender,
       address: nextValues.address,
+      email: nextValues.email,
     })
 
     await db.query(
       `UPDATE patients
-       SET full_name = ?, phone = ?, address = ?, civil_status = ?, gender = ?, sex = ?, birthdate = ?, email = ?,
+       SET full_name = ?, phone = ?, address = ?, civil_status = NULL, gender = ?, sex = ?, birthdate = ?, email = ?,
            receive_promotions = ?, is_profile_complete = ?, theme_preference = ?, profile_image_url = ?
        WHERE id = ?`,
       [
         nextValues.full_name,
         nextValues.phone,
         nextValues.address,
-        nextValues.civil_status,
         nextValues.gender,
         nextValues.gender,
         nextValues.birthdate,
@@ -105,6 +104,3 @@ module.exports = {
   getSettings,
   updateSettings,
 }
-
-
-

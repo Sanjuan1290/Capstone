@@ -24,9 +24,7 @@ describe('billing catalog pricing', () => {
   it('uses the latest linked inventory cost instead of an old material override', () => {
     const unitCost = getServiceMaterialUnitCost({
       inventory_id: 7,
-      inventory_price: 600,
-      inventory_unit_size: 12,
-      inventory_base_unit: 'piece',
+      inventory_price: 50,
       unit_label: 'piece',
       unit_cost_override: 25,
     })
@@ -39,9 +37,7 @@ describe('billing catalog pricing', () => {
       materials: [{
         inventory_id: 7,
         quantity: 2,
-        inventory_price: 600,
-        inventory_unit_size: 12,
-        inventory_base_unit: 'piece',
+        inventory_price: 50,
         unit_label: 'piece',
         unit_cost_override: 25,
       }],
@@ -52,6 +48,3 @@ describe('billing catalog pricing', () => {
     expect(result.patient_price).toBe(750)
   })
 })
-
-
-

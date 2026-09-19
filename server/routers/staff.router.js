@@ -79,6 +79,3 @@ router.get('/supply-requests',       ...auth, staffCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, staffCtrl.resolveSupplyRequest)
 
 module.exports = router
-
-
-

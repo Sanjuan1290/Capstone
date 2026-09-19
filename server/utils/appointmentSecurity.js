@@ -90,6 +90,3 @@ const assertAppointmentTransition = (from, to) => {
 }
 
 module.exports = { ACTIVE_SLOT_STATUSES, parseTimeToMinutes, validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition }
-
-
-

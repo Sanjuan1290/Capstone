@@ -8,9 +8,9 @@ import {
 import { useToast } from '../../components/ui/ToastProvider'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
-const CATEGORIES = ['Medicine', 'Derma', 'Supplies']
-const UNIT_OPTIONS = ['box', 'tube', 'bottle', 'pack', 'piece', 'sachet']
-const BASE_UNITS = ['piece', 'tablet', 'capsule', 'ml', 'gram', 'sachet']
+const CATEGORIES = [{ value: 'medical', label: 'General Medicine' }, { value: 'derma', label: 'Dermatology' }]
+const ITEM_TYPES = [{ value: 'medicine', label: 'Medicine' }, { value: 'supplies', label: 'Supplies' }]
+const FALLBACK_UOMS = ['piece', 'tablet', 'capsule', 'bottle', 'tube', 'sachet', 'vial', 'ampule', 'ml', 'gram', 'roll', 'pack', 'box']
 const ITEMS_PER_PAGE = 5
 const BATCHES_PER_PAGE = 4
 
@@ -304,37 +304,56 @@ const CameraScanner = ({ onDetected, onClose }) => {
   )
 }
 
-const ItemFormModal = ({ title, initialItem, onClose, onSubmit, canManageSellingPrice = false }) => {
+const ItemFormModal = ({ title, initialItem, onClose, onSubmit, canManageSellingPrice = false, masterData = {}, onCreateSupplier }) => {
   const isEditing = Boolean(initialItem?.id)
   const [step, setStep] = useState(1)
+  const [supplierChoice, setSupplierChoice] = useState(initialItem?.supplier_id ? String(initialItem.supplier_id) : '')
+  const [otherSupplier, setOtherSupplier] = useState('')
   const [form, setForm] = useState({
     barcode: initialItem?.barcode || '',
     name: initialItem?.name || '',
-    category: initialItem?.category || 'Medicine',
-    unit: initialItem?.unit || 'box',
-    base_unit: initialItem?.base_unit || 'piece',
-    unit_size: String(initialItem?.unit_size ?? 1),
-    stock: String(initialItem?.stock ?? 0),
+    category: ['medical','derma'].includes(initialItem?.category) ? initialItem.category : (String(initialItem?.category || '').toLowerCase().includes('derm') ? 'derma' : 'medical'),
+    item_type: initialItem?.item_type || (String(initialItem?.category || '').toLowerCase() === 'supplies' ? 'supplies' : 'medicine'),
+    uom: initialItem?.uom || initialItem?.base_unit || initialItem?.unit || 'piece',
+    dosage_form: initialItem?.dosage_form || '',
+    strength: initialItem?.strength || '',
+    stock: String(isEditing ? 0 : (initialItem?.stock ?? 0)),
     threshold: String(initialItem?.threshold ?? 5),
     price: String(initialItem?.price ?? 0),
     selling_price: initialItem?.selling_price === null || initialItem?.selling_price === undefined ? '' : String(initialItem.selling_price),
     supplier: initialItem?.supplier || '',
+    supplier_id: initialItem?.supplier_id || '',
     expiration_date: initialItem?.expiration_date ? String(initialItem.expiration_date).slice(0, 10) : '',
     batch_code: '',
-    storage_location: initialItem?.storage_location || '',
+    storage_location_id: '',
   })
 
+  const categorySuppliers = (masterData.suppliers || []).filter((entry) => entry.category === form.category)
+  const locations = masterData.locations || []
+  const uoms = (masterData.uoms || []).map((entry) => String(entry.name || '').toLowerCase()).filter(Boolean)
+  const uomOptions = uoms.length ? uoms : FALLBACK_UOMS
   const update = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
-  const goNext = () => {
-    if (!form.name.trim()) return
-    setStep(2)
-  }
+  const goNext = () => { if (!form.name.trim() || !form.category || !form.item_type || !form.uom) return; setStep(2) }
 
   const handleSubmit = async () => {
     if (!form.name.trim()) return
+    let supplierId = supplierChoice && supplierChoice !== 'other' ? Number(supplierChoice) : null
+    let supplierName = categorySuppliers.find((x) => Number(x.id) === supplierId)?.name || form.supplier || ''
+    if (supplierChoice === 'other') {
+      if (!otherSupplier.trim()) return
+      if (onCreateSupplier) {
+        const created = await onCreateSupplier({ name: otherSupplier.trim(), category: form.category })
+        supplierId = created?.id || null
+        supplierName = created?.name || otherSupplier.trim()
+      } else supplierName = otherSupplier.trim()
+    }
     await onSubmit({
       ...form,
-      unit_size: Math.max(1, parseFloat(form.unit_size) || 1),
+      supplier_id: supplierId,
+      supplier: supplierName,
+      unit: form.uom,
+      base_unit: form.uom,
+      unit_size: 1,
       stock: Math.max(0, parseFloat(form.stock) || 0),
       threshold: Math.max(0, parseFloat(form.threshold) || 0),
       price: Math.max(0, parseFloat(form.price) || 0),
@@ -343,83 +362,39 @@ const ItemFormModal = ({ title, initialItem, onClose, onSubmit, canManageSelling
     onClose()
   }
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
-      <div className="w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <div>
-            <p className="text-base font-bold text-slate-900">{title}</p>
-            <p className="mt-0.5 text-sm text-slate-500">
-              {isEditing ? 'Update the product definition. Stock is managed separately per batch.' : 'Create the item first, then define packaging and the opening batch.'}
-            </p>
-          </div>
-          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100"><MdClose /></button>
-        </div>
-
-        <div className="px-6 pt-5">
-          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 text-sm font-semibold">
-            <div className={`rounded-xl px-3 py-2 text-center ${step === 1 ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>1. Item Details</div>
-            <div className={`rounded-xl px-3 py-2 text-center ${step === 2 ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>2. Stock & Packaging</div>
-          </div>
-        </div>
-
-        <div className="max-h-[66vh] overflow-y-auto p-6">
-          {step === 1 ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="md:col-span-2"><Field label="Item Name *"><input value={form.name} onChange={update('name')} className={inputClass} placeholder="e.g. Sterile Gauze Pad" /></Field></div>
-              <Field label="Category"><select value={form.category} onChange={update('category')} className={inputClass}>{CATEGORIES.map(option => <option key={option}>{option}</option>)}</select></Field>
-              <Field label="Barcode"><input value={form.barcode} onChange={update('barcode')} className={inputClass} placeholder="Optional" /></Field>
-              <Field label="Supplier"><input value={form.supplier} onChange={update('supplier')} className={inputClass} placeholder="Optional" /></Field>
-              <Field label="Storage Location"><input value={form.storage_location} onChange={update('storage_location')} className={inputClass} placeholder="e.g. Shelf A2 / Cold storage" /></Field>
-              <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                Stock is tracked <strong>per batch</strong>. Each delivery can have its own lot number, expiry date, quantity, and room/location balance.
-              </div>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Stock Unit"><select value={form.unit} onChange={update('unit')} className={inputClass}>{UNIT_OPTIONS.map(option => <option key={option}>{option}</option>)}</select></Field>
-              <Field label="Dispensing Unit"><select value={form.base_unit} onChange={update('base_unit')} className={inputClass}>{BASE_UNITS.map(option => <option key={option}>{option}</option>)}</select></Field>
-              <Field label="Units per Package"><input type="number" min="1" step="0.01" value={form.unit_size} onChange={update('unit_size')} className={inputClass} /></Field>
-              <Field label="Low Stock Alert"><input type="number" min="0" step="0.01" value={form.threshold} onChange={update('threshold')} className={inputClass} /></Field>
-              <Field label="Cost per Stock Unit"><input type="number" min="0" step="0.01" value={form.price} onChange={update('price')} className={inputClass} /></Field>
-              {canManageSellingPrice ? <Field label="Patient Selling Price"><input type="number" min="0" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={inputClass} placeholder="Required for direct Checkout billing" /></Field> : <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"><span className="font-semibold">Patient Selling Price:</span> {initialItem?.selling_price === null || initialItem?.selling_price === undefined ? 'Not configured by Admin' : `PHP ${Number(initialItem.selling_price).toFixed(2)}`}</div>}
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                Example: <strong>1 box = 100 pieces</strong>. Choose “box” as Stock Unit, “piece” as Dispensing Unit, and 100 as Units per Package.
-              </div>
-
-              {!isEditing && (
-                <>
-                  <Field label="Opening Stock"><input type="number" min="0" step="0.01" value={form.stock} onChange={update('stock')} className={inputClass} /></Field>
-                  <Field label="Opening Batch / Lot No."><input value={form.batch_code} onChange={update('batch_code')} className={inputClass} placeholder="e.g. LOT-2026-081" /></Field>
-                  <Field label="Opening Batch Expiry"><input type="date" value={form.expiration_date} onChange={update('expiration_date')} className={inputClass} /></Field>
-                </>
-              )}
-
-              {isEditing && (
-                <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-                  Existing quantities keep their own batch records. Use <strong>Update Stock</strong> for each new delivery or stock-out.
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-3 border-t border-slate-100 px-6 py-5">
-          {step === 1 ? (
-            <>
-              <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
-              <button onClick={goNext} disabled={!form.name.trim()} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50">Next</button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => setStep(1)} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Back</button>
-              <button onClick={handleSubmit} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white flex items-center justify-center gap-2"><MdSave /> {isEditing ? 'Save Changes' : 'Add Item'}</button>
-            </>
-          )}
-        </div>
-      </div>
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+    <div className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={e=>e.stopPropagation()}>
+      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4"><div><p className="text-base font-bold text-slate-900">{title}</p><p className="mt-0.5 text-sm text-slate-500">{isEditing ? 'Update the item definition. Stock remains managed by batch.' : 'Create the item first, then add its initial stock and batch.'}</p></div><button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100"><MdClose/></button></div>
+      <div className="px-6 pt-5"><div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 text-sm font-semibold"><div className={`rounded-xl px-3 py-2 text-center ${step===1?'bg-white text-slate-900 shadow-sm':'text-slate-500'}`}>1. Item Details</div><div className={`rounded-xl px-3 py-2 text-center ${step===2?'bg-white text-slate-900 shadow-sm':'text-slate-500'}`}>2. Initial Stock & Batch</div></div></div>
+      <div className="max-h-[68vh] overflow-y-auto p-6">{step===1 ? <div className="grid gap-4 md:grid-cols-2">
+        <div className="md:col-span-2"><Field label="Item Name *"><input value={form.name} onChange={update('name')} className={inputClass} placeholder={form.item_type==='medicine'?'e.g. Amoxicillin 500mg':'e.g. Sterile Gauze Pad'}/></Field></div>
+        <Field label="Category *"><select value={form.category} onChange={(e)=>{setForm(p=>({...p,category:e.target.value}));setSupplierChoice('');setOtherSupplier('')}} className={inputClass}>{CATEGORIES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
+        <Field label="Type *"><select value={form.item_type} onChange={update('item_type')} className={inputClass}>{ITEM_TYPES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
+        <Field label="Barcode"><input value={form.barcode} readOnly={!isEditing} onChange={update('barcode')} className={`${inputClass} ${!isEditing?'bg-slate-100 text-slate-500':''}`} placeholder={isEditing?'':'Auto-generated (GMED/DRM)'}/></Field>
+        <Field label="Unit of Measure *"><select value={form.uom} onChange={update('uom')} className={inputClass}>{uomOptions.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
+        {form.item_type==='medicine' && <><Field label="Strength"><input value={form.strength} onChange={update('strength')} className={inputClass} placeholder="e.g. 500 mg"/></Field><Field label="Dosage Form"><input value={form.dosage_form} onChange={update('dosage_form')} className={inputClass} placeholder="e.g. Capsule, Cream, Syrup"/></Field></>}
+        <Field label="Supplier"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={inputClass}><option value="">Select supplier (optional)</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}<option value="other">Other</option></select></Field>
+        {supplierChoice==='other' && <Field label="Other Supplier *"><input value={otherSupplier} onChange={(e)=>setOtherSupplier(e.target.value)} className={inputClass} placeholder="Enter supplier name"/></Field>}
+        <Field label="Low Stock Alert"><input type="number" min="0" step="0.01" value={form.threshold} onChange={update('threshold')} className={inputClass}/></Field>
+        <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800"><strong>Category</strong> is the clinic area (General Medicine / Dermatology). <strong>Type</strong> is Medicine or Supplies. Stock uses one Unit of Measure.</div>
+      </div> : <div className="grid gap-4 md:grid-cols-2">
+        <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"><strong>{form.name}</strong><div className="mt-1 text-xs text-slate-500">{CATEGORIES.find(x=>x.value===form.category)?.label} · {ITEM_TYPES.find(x=>x.value===form.item_type)?.label} · Unit: {form.uom}</div></div>
+        {!isEditing && <><Field label="Initial Quantity"><input type="number" min="0" step="0.01" value={form.stock} onChange={update('stock')} className={inputClass}/></Field><Field label="Storage Location *"><select value={form.storage_location_id} onChange={update('storage_location_id')} className={inputClass}><option value="">Select location</option>{locations.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field label="Batch / Lot No."><input value={form.batch_code} onChange={update('batch_code')} className={inputClass} placeholder="Leave blank to auto-generate"/></Field><Field label="Batch Expiry"><input type="date" value={form.expiration_date} onChange={update('expiration_date')} className={inputClass}/></Field></>}
+        <Field label="Unit Cost"><input type="number" min="0" step="0.01" value={form.price} onChange={update('price')} className={inputClass}/></Field>
+        {canManageSellingPrice ? <Field label="Selling Price per Unit"><input type="number" min="0" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={inputClass} placeholder="Optional"/></Field> : <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"><span className="font-semibold">Selling Price per Unit:</span> {initialItem?.selling_price == null?'Not configured by Admin':`PHP ${Number(initialItem.selling_price).toFixed(2)}`}</div>}
+        {isEditing && <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">Use <strong>Update Stock</strong> for new deliveries and stock-outs. Existing batch history is preserved.</div>}
+      </div>}</div>
+      <div className="flex gap-3 border-t border-slate-100 px-6 py-5">{step===1?<><button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button><button onClick={goNext} disabled={!form.name.trim()||!form.category||!form.item_type||!form.uom} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50">Next</button></>:<><button onClick={()=>setStep(1)} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Back</button><button onClick={handleSubmit} disabled={!isEditing && Number(form.stock||0)>0 && locations.length>0 && !form.storage_location_id} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-50"><MdSave/> {isEditing?'Save Changes':'Add Item'}</button></>}</div>
     </div>
-  )
+  </div>
+}
+
+const StorageLocationModal = ({ onClose, onCreate }) => {
+  const [name,setName]=useState('')
+  const [locationType,setLocationType]=useState('storage')
+  const [busy,setBusy]=useState(false)
+  const save=async()=>{if(!name.trim())return;setBusy(true);try{await onCreate({name:name.trim(),location_type:locationType});onClose()}finally{setBusy(false)}}
+  return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4" onClick={onClose}><div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl" onClick={e=>e.stopPropagation()}><div className="flex justify-between"><div><h3 className="font-bold text-slate-900">Add Storage Location</h3><p className="mt-1 text-xs text-slate-500">Create a reusable inventory location.</p></div><button onClick={onClose}><MdClose/></button></div><div className="mt-5 grid gap-4"><Field label="Location Name *"><input className={inputClass} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Dermatology Cabinet A"/></Field><Field label="Location Type"><select className={inputClass} value={locationType} onChange={e=>setLocationType(e.target.value)}><option value="stockroom">Main Stockroom</option><option value="room">Treatment Room</option><option value="dispensing">Dispensing Area</option><option value="storage">General Storage</option></select></Field><div className="flex justify-end gap-2"><button className="button-secondary" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy||!name.trim()} onClick={save}>{busy?'Saving...':'Add Location'}</button></div></div></div></div>
 }
 
 const StockModal = ({ item, onClose, onSubmit, onOpenScanner }) => {
@@ -698,12 +673,14 @@ const inputClass = 'w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 
 
 const Inventory = ({ services, canManageSellingPrice = false }) => {
   const toast = useToast()
-  const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem } = services
+  const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, createInventoryLocation, createInventorySupplier } = services
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
   const [showAdd, setShowAdd] = useState(false)
+  const [showLocation, setShowLocation] = useState(false)
+  const [masterData, setMasterData] = useState({ uoms: [], suppliers: [], locations: [] })
   const [editItem, setEditItem] = useState(null)
   const [deleteCandidate, setDeleteCandidate] = useState(null)
   const [deleting, setDeleting] = useState(false)
@@ -715,12 +692,16 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await getInventory()
+      const [data, masters] = await Promise.all([
+        getInventory(),
+        getInventoryMasterData ? getInventoryMasterData().catch(() => null) : Promise.resolve(null),
+      ])
       setItems(Array.isArray(data) ? data : data?.items || [])
+      if (masters) setMasterData({ uoms: masters.uoms || [], suppliers: masters.suppliers || [], locations: masters.locations || [] })
     } finally {
       setLoading(false)
     }
-  }, [getInventory])
+  }, [getInventory, getInventoryMasterData])
 
   useEffect(() => { load() }, [load])
 
@@ -837,12 +818,12 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
-          <p className="text-sm text-slate-500 mt-1">Package-aware inventory with barcode scanning, batch expiry tracking, and flexible stock deductions.</p>
+          <p className="text-sm text-slate-500 mt-1">Batch-aware inventory with category/type classification, generated barcodes, storage locations, and single-unit stock tracking.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center"><MdRefresh className="text-[18px]" /></button>
           <button onClick={() => setScannerOpen(true)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 flex items-center gap-2"><MdQrCodeScanner /> Scan Barcode</button>
-          <button onClick={() => setShowAdd(true)} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2"><MdAdd /> Add Item</button>
+          {createInventoryLocation && <button onClick={() => setShowLocation(true)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 flex items-center gap-2"><MdLocationOn /> Add Storage Location</button>}<button onClick={() => setShowAdd(true)} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2"><MdAdd /> Add Item</button>
         </div>
       </div>
 
@@ -877,9 +858,9 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
           <input aria-label="Search inventory" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Search item, barcode, or supplier" />
         </div>
         <div className="flex gap-2 overflow-x-auto">
-          {['All', ...CATEGORIES].map(option => (
+          {['All', ...CATEGORIES.map(x => x.value)].map(option => (
             <button key={option} onClick={() => setCategory(option)} className={`rounded-2xl px-4 py-3 text-sm font-semibold ${category === option ? 'bg-[#0b1a2c] text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>
-              {option}
+              {option === 'All' ? 'All' : (CATEGORIES.find(x => x.value === option)?.label || option)}
             </button>
           ))}
         </div>
@@ -894,11 +875,11 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
                   <p className="text-lg font-bold text-slate-800">{item.name}</p>
                   <span className={`text-xs font-bold border px-2 py-1 rounded-full ${getStockBadge(item)}`}>{getPackageCount(item) === 0 ? 'Out' : getPackageCount(item) <= Number(item.threshold || 0) ? 'Low' : 'OK'}</span>
                 </div>
-                <p className="text-sm text-slate-500">{item.category} - {item.barcode || 'No barcode'} - {item.supplier || 'No supplier'}</p>
+                <p className="text-sm text-slate-500">{CATEGORIES.find(x=>x.value===item.category)?.label || item.category} · {(ITEM_TYPES.find(x=>x.value===item.item_type)?.label || item.item_type || 'Supplies')} · {item.barcode || 'No barcode'} · {item.supplier || 'No supplier'}</p>
                 <p className="text-sm text-slate-600">
-                  <strong>{getPackageCount(item)}</strong> {item.unit}s in stock - {Number(item.unit_size || 1)} {item.base_unit || item.unit} per {item.unit}
+                  <strong>{Number(item.stock ?? item.stock_base ?? 0)}</strong> {item.uom || item.base_unit || item.unit} in stock
                 </p>
-                <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.unit}s · Cost PHP {Number(item.price || 0).toFixed(2)} per {item.unit} · Patient price {item.selling_price === null || item.selling_price === undefined ? 'not configured' : `PHP ${Number(item.selling_price).toFixed(2)}`}</p>
+                <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.uom || item.unit} · Unit cost PHP {Number(item.price || 0).toFixed(2)} · Patient price {item.selling_price === null || item.selling_price === undefined ? 'not configured' : `PHP ${Number(item.selling_price).toFixed(2)}`}</p>
                 <div className="flex flex-wrap gap-3 pt-1 text-xs">
                   <span className="inline-flex items-center gap-1 text-slate-500">
                     <MdLocationOn className="text-[14px]" /> {item.storage_location || 'No location assigned'}
@@ -966,8 +947,9 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         </div>
       )}
 
-      {showAdd && <ItemFormModal title="Add Item" canManageSellingPrice={canManageSellingPrice} onClose={() => setShowAdd(false)} onSubmit={handleAdd} />}
-      {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
+      {showLocation && createInventoryLocation && <StorageLocationModal onClose={() => setShowLocation(false)} onCreate={async (payload) => { const created = await createInventoryLocation(payload); setMasterData(prev => ({ ...prev, locations: [...prev.locations, created] })); setFeedback({ type: 'success', message: `${created.name} storage location added.` }) }} />}
+      {showAdd && <ItemFormModal title="Add Item" canManageSellingPrice={canManageSellingPrice} masterData={masterData} onCreateSupplier={async (payload) => { if (!createInventorySupplier) return payload; const created = await createInventorySupplier(payload); setMasterData(prev => ({ ...prev, suppliers: [...prev.suppliers.filter(x => Number(x.id)!==Number(created.id)), created] })); return created }} onClose={() => setShowAdd(false)} onSubmit={handleAdd} />}
+      {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} masterData={masterData} onCreateSupplier={async (payload) => { if (!createInventorySupplier) return payload; const created = await createInventorySupplier(payload); setMasterData(prev => ({ ...prev, suppliers: [...prev.suppliers.filter(x => Number(x.id)!==Number(created.id)), created] })); return created }} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
       {stockItem && <StockModal item={stockItem} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} onOpenScanner={() => setScannerOpen(true)} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
       <ConfirmDialog
@@ -984,6 +966,3 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
-
-
-

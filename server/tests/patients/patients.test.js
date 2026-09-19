@@ -12,9 +12,6 @@ describe('patient input rules', () => {
     const normalized = normalizePatientProfileInput({ gender: 'Unknown', birthdate: 'bad', address: '' })
     expect(normalized.gender).toBeNull()
     expect(normalized.birthdate).toBeNull()
-    expect(getPatientProfileStatus(normalized).missing_fields).toEqual(['birthdate', 'gender', 'address'])
+    expect(getPatientProfileStatus(normalized).missing_fields).toEqual(['birthdate', 'gender', 'address', 'email'])
   })
 })
-
-
-

@@ -1,26 +1,32 @@
 // client/src/pages/auth/ForgotPassword.jsx
-// REDESIGNED: Modern 4-step flow, role-aware accent colours, mobile-first, animated step transitions
+// 4-step password recovery. Patient recovery defaults to email, with SMS as an alternate method.
 
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
-  MdEmail, MdLock, MdVisibility, MdVisibilityOff,
-  MdCheck, MdArrowBack, MdRefresh, MdArrowForward,
-  MdLockReset, MdPhone,
+  MdArrowBack,
+  MdArrowForward,
+  MdCheck,
+  MdEmail,
+  MdLock,
+  MdLockReset,
+  MdPhone,
+  MdRefresh,
+  MdVisibility,
+  MdVisibilityOff,
 } from 'react-icons/md'
 import PasswordRequirements from '../../components/PasswordRequirements'
 import { getPasswordValidationError, isPasswordValid } from '../../utils/passwordPolicy'
 
 const ROLE_CFG = {
-  patient: { accent: '#10b981', light: '#ecfdf5', border: 'focus:border-emerald-400', ring: 'focus:ring-emerald-400/10', badge: 'Patient',  btnClass: 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25' },
-  doctor:  { accent: '#7c3aed', light: '#f5f3ff', border: 'focus:border-violet-400',  ring: 'focus:ring-violet-400/10',  badge: 'Doctor',   btnClass: 'bg-violet-600  hover:bg-violet-700  shadow-violet-500/25'  },
-  staff:   { accent: '#0ea5e9', light: '#f0f9ff', border: 'focus:border-sky-400',     ring: 'focus:ring-sky-400/10',     badge: 'Staff',    btnClass: 'bg-sky-500    hover:bg-sky-600    shadow-sky-500/25'      },
+  patient: { accent: '#10b981', light: '#ecfdf5', border: 'focus:border-emerald-400', ring: 'focus:ring-emerald-400/10', badge: 'Patient', btnClass: 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25' },
+  doctor:  { accent: '#7c3aed', light: '#f5f3ff', border: 'focus:border-violet-400', ring: 'focus:ring-violet-400/10', badge: 'Doctor', btnClass: 'bg-violet-600 hover:bg-violet-700 shadow-violet-500/25' },
+  staff:   { accent: '#0ea5e9', light: '#f0f9ff', border: 'focus:border-sky-400', ring: 'focus:ring-sky-400/10', badge: 'Staff', btnClass: 'bg-sky-500 hover:bg-sky-600 shadow-sky-500/25' },
 }
 
-// ── OTP digit boxes ───────────────────────────────────────────────────────────
 const OtpInput = ({ value, onChange, accent, light }) => {
   const inputs = useRef([])
-  const digits  = value.split('')
+  const digits = value.split('')
 
   const writeDigit = (index, digit) => {
     const next = Array.from({ length: 6 }, (_, idx) => digits[idx] || '')
@@ -34,37 +40,43 @@ const OtpInput = ({ value, onChange, accent, light }) => {
     if (numeric && index < 5) inputs.current[index + 1]?.focus()
   }
 
-  const handleKey = (i, e) => {
-    if (e.key === 'Backspace') {
-      if (digits[i]) writeDigit(i, '')
-      else if (i > 0) inputs.current[i - 1]?.focus()
+  const handleKey = (index, event) => {
+    if (event.key === 'Backspace') {
+      if (digits[index]) writeDigit(index, '')
+      else if (index > 0) inputs.current[index - 1]?.focus()
       return
     }
-    if (e.key === 'ArrowLeft' && i > 0) inputs.current[i - 1]?.focus()
-    if (e.key === 'ArrowRight' && i < 5) inputs.current[i + 1]?.focus()
+    if (event.key === 'ArrowLeft' && index > 0) inputs.current[index - 1]?.focus()
+    if (event.key === 'ArrowRight' && index < 5) inputs.current[index + 1]?.focus()
   }
 
-  const handlePaste = e => {
-    const p = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
-    if (p) { onChange(p); inputs.current[Math.min(p.length, 5)]?.focus() }
-    e.preventDefault()
+  const handlePaste = (event) => {
+    const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
+    if (pasted) {
+      onChange(pasted)
+      inputs.current[Math.min(pasted.length, 5)]?.focus()
+    }
+    event.preventDefault()
   }
 
   return (
-    <div className="flex gap-2 sm:gap-3 justify-center">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <input key={i} ref={el => inputs.current[i] = el}
-          type="text" inputMode="numeric" maxLength={1}
-          value={digits[i] || ''} onChange={e => handleInput(i, e)}
-          onKeyDown={e => handleKey(i, e)} onPaste={handlePaste}
-          className={`w-11 h-14 sm:w-12 sm:h-14 text-center text-2xl font-black border-2 rounded-2xl
-            text-slate-800 outline-none transition-all
-            ${digits[i] ? `border-opacity-100 bg-opacity-10` : 'border-slate-200 bg-slate-50'}
-            focus:ring-2`}
+    <div className="flex justify-center gap-2 sm:gap-3">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <input
+          key={index}
+          ref={(element) => { inputs.current[index] = element }}
+          type="text"
+          inputMode="numeric"
+          maxLength={1}
+          value={digits[index] || ''}
+          onChange={(event) => handleInput(index, event)}
+          onKeyDown={(event) => handleKey(index, event)}
+          onPaste={handlePaste}
+          className={`h-14 w-11 rounded-2xl border-2 text-center text-2xl font-black text-slate-800 outline-none transition-all sm:w-12 ${digits[index] ? 'border-opacity-100 bg-opacity-10' : 'border-slate-200 bg-slate-50'} focus:ring-2`}
           style={{
-            borderColor: digits[i] ? accent : undefined,
-            backgroundColor: digits[i] ? light : undefined,
-            color: digits[i] ? '#0f172a' : undefined,
+            borderColor: digits[index] ? accent : undefined,
+            backgroundColor: digits[index] ? light : undefined,
+            color: digits[index] ? '#0f172a' : undefined,
           }}
         />
       ))}
@@ -72,21 +84,23 @@ const OtpInput = ({ value, onChange, accent, light }) => {
   )
 }
 
-// ── Step indicators ───────────────────────────────────────────────────────────
 const Steps = ({ current, cfg }) => {
   const steps = ['Recover', 'Verify', 'New Password', 'Done']
   return (
-    <div className="flex items-center justify-center gap-1 mb-6">
-      {steps.map((s, i) => (
-        <div key={s} className="flex items-center">
-          <div className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold transition-all
-            ${i < current ? 'text-white' : i === current ? 'text-white' : 'bg-slate-100 text-slate-400'}`}
-            style={{ background: i <= current ? cfg.accent : undefined }}>
-            {i < current ? <MdCheck className="text-[13px]" /> : i + 1}
+    <div className="mb-6 flex items-center justify-center gap-1">
+      {steps.map((label, index) => (
+        <div key={label} className="flex items-center">
+          <div
+            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all ${index <= current ? 'text-white' : 'bg-slate-100 text-slate-400'}`}
+            style={{ background: index <= current ? cfg.accent : undefined }}
+          >
+            {index < current ? <MdCheck className="text-[13px]" /> : index + 1}
           </div>
-          {i < steps.length - 1 && (
-            <div className="w-8 h-0.5 mx-1 rounded-full transition-all"
-              style={{ background: i < current ? cfg.accent : '#e2e8f0' }} />
+          {index < steps.length - 1 && (
+            <div
+              className="mx-1 h-0.5 w-8 rounded-full transition-all"
+              style={{ background: index < current ? cfg.accent : '#e2e8f0' }}
+            />
           )}
         </div>
       ))}
@@ -94,171 +108,253 @@ const Steps = ({ current, cfg }) => {
   )
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
 const ForgotPassword = ({ role }) => {
   const cfg = ROLE_CFG[role] || ROLE_CFG.patient
   const isPatient = role === 'patient'
 
-  const [step,       setStep]      = useState('request') // request | otp | reset | done
-  const [email,      setEmail]     = useState('')
-  const [phone,      setPhone]     = useState('')
-  const [otp,        setOtp]       = useState('')
-  const [devOtp,     setDevOtp]    = useState('')
-  const [resetToken, setToken]     = useState('')
-  const [password,   setPass]      = useState('')
-  const [confirm,    setConfirm]   = useState('')
-  const [showPass,   setShowPass]  = useState(false)
-  const [error,      setError]     = useState('')
-  const [loading,    setLoading]   = useState(false)
-  const [countdown,  setCountdown] = useState(0)
+  const [step, setStep] = useState('request')
+  const [deliveryMethod, setDeliveryMethod] = useState('email')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [maskedDestination, setMaskedDestination] = useState('')
+  const [otp, setOtp] = useState('')
+  const [devOtp, setDevOtp] = useState('')
+  const [resetToken, setToken] = useState('')
+  const [password, setPass] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [countdown, setCountdown] = useState(0)
 
   useEffect(() => {
-    if (countdown <= 0) return
-    const t = setTimeout(() => setCountdown(c => c - 1), 1000)
-    return () => clearTimeout(t)
+    if (countdown <= 0) return undefined
+    const timer = setTimeout(() => setCountdown((current) => current - 1), 1000)
+    return () => clearTimeout(timer)
   }, [countdown])
 
+  const effectiveMethod = isPatient ? deliveryMethod : 'email'
   const stepNum = { request: 0, otp: 1, reset: 2, done: 3 }[step]
   const loginPath = `/${role}/login`
-  const recoveryLabel = isPatient ? 'phone number' : 'email'
-  const recoveryValue = isPatient ? phone : email
+  const recoveryLabel = effectiveMethod === 'sms' ? 'mobile number' : 'email address'
+  const recoveryValue = effectiveMethod === 'sms' ? phone : email
+  const alternateLabel = effectiveMethod === 'sms' ? 'Use email instead' : 'Use mobile number instead'
 
-  const inpClass = `w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 text-sm
-    text-slate-700 placeholder-slate-300 outline-none transition-all ${cfg.border} ${cfg.ring}
-    focus:ring-2 focus:bg-white`
+  const inpClass = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 placeholder-slate-300 outline-none transition-all ${cfg.border} ${cfg.ring} focus:bg-white focus:ring-2`
 
-  // Step 1
-  const handleRequest = async e => {
-    e?.preventDefault()
-    setError(''); setLoading(true)
+  const resetToRequest = ({ alternate = false } = {}) => {
+    if (alternate && isPatient) setDeliveryMethod((current) => current === 'email' ? 'sms' : 'email')
+    setStep('request')
+    setError('')
+    setOtp('')
+    setDevOtp('')
+    setMaskedDestination('')
+    setCountdown(0)
+  }
+
+  const handleRequest = async (event) => {
+    event?.preventDefault()
+    setError('')
+    setLoading(true)
+
     try {
-      const res  = await fetch('/api/auth/forgot-password', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, phone, role }),
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          phone,
+          role,
+          delivery_method: effectiveMethod,
+        }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.message || 'Request failed.'); return }
+      if (!res.ok) {
+        setError(data.message || 'Password recovery could not be started.')
+        return
+      }
+
       setDevOtp(data.dev_otp || '')
-      setStep('otp'); setCountdown(60); setOtp('')
-    } catch { setError('Cannot connect to server.') }
-    finally  { setLoading(false) }
+      setMaskedDestination(data.masked_destination || recoveryValue)
+      setStep('otp')
+      setCountdown(60)
+      setOtp('')
+    } catch {
+      setError('Cannot connect to server.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  // Step 2
   const handleVerify = async () => {
-    if (otp.length !== 6) { setError('Enter the complete 6-digit code.'); return }
-    setError(''); setLoading(true)
+    if (otp.length !== 6) {
+      setError('Enter the complete 6-digit code.')
+      return
+    }
+
+    setError('')
+    setLoading(true)
     try {
-      const res  = await fetch('/api/auth/verify-otp', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, phone, role, otp }),
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          phone,
+          role,
+          otp,
+          delivery_method: effectiveMethod,
+        }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.message || 'Invalid code.'); return }
-      setToken(data.resetToken); setStep('reset')
-    } catch { setError('Cannot connect to server.') }
-    finally  { setLoading(false) }
+      if (!res.ok) {
+        setError(data.message || 'Invalid code.')
+        return
+      }
+      setToken(data.resetToken)
+      setStep('reset')
+    } catch {
+      setError('Cannot connect to server.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  // Step 3
-  const handleReset = async e => {
-    e.preventDefault()
+  const handleReset = async (event) => {
+    event.preventDefault()
     const passwordError = getPasswordValidationError(password)
-    if (passwordError) { setError(passwordError); return }
-    if (password !== confirm) { setError('Passwords do not match.'); return }
-    setError(''); setLoading(true)
+    if (passwordError) {
+      setError(passwordError)
+      return
+    }
+    if (password !== confirm) {
+      setError('Passwords do not match.')
+      return
+    }
+
+    setError('')
+    setLoading(true)
     try {
-      const res  = await fetch('/api/auth/reset-password', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resetToken, password }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.message || 'Reset failed.'); return }
+      if (!res.ok) {
+        setError(data.message || 'Reset failed.')
+        return
+      }
       setStep('done')
-    } catch { setError('Cannot connect to server.') }
-    finally  { setLoading(false) }
+    } catch {
+      setError('Cannot connect to server.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c]
-      flex items-center justify-center p-4">
+  const preventPaste = (event) => event.preventDefault()
 
-      <div className="fixed top-0 right-0 w-80 h-80 rounded-full blur-3xl pointer-events-none opacity-50"
-        style={{ background: `${cfg.accent}15` }} />
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c] flex items-center justify-center p-4">
+      <div
+        className="pointer-events-none fixed right-0 top-0 h-80 w-80 rounded-full opacity-50 blur-3xl"
+        style={{ background: `${cfg.accent}15` }}
+      />
 
       <div className="w-full max-w-sm">
-
-        {/* Brand */}
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center mb-3">
-            <img src="/logo.png" alt="Carait" className="w-10 h-10 object-contain" />
+        <div className="mb-6 flex flex-col items-center">
+          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10">
+            <img src="/logo.png" alt="Carait" className="h-10 w-10 object-contain" />
           </div>
-          <h1 className="text-white text-xl font-black">Carait Clinic</h1>
-          <span className="text-xs font-bold px-3 py-0.5 rounded-full mt-1.5 text-white/70"
-            style={{ background: `${cfg.accent}30` }}>
+          <h1 className="text-xl font-black text-white">Carait Clinic</h1>
+          <span className="mt-1.5 rounded-full px-3 py-0.5 text-xs font-bold text-white/70" style={{ background: `${cfg.accent}30` }}>
             {cfg.badge} Portal
           </span>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-
-          {/* Progress bar */}
+        <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
           <div className="h-1.5 bg-slate-100">
-            <div className="h-1.5 rounded-full transition-all duration-500"
-              style={{ width: `${(stepNum / 3) * 100}%`, background: cfg.accent }} />
+            <div
+              className="h-1.5 rounded-full transition-all duration-500"
+              style={{ width: `${(stepNum / 3) * 100}%`, background: cfg.accent }}
+            />
           </div>
 
-          <div className="px-6 py-6 space-y-5">
-
-            {/* Header */}
+          <div className="space-y-5 px-6 py-6">
             <div className="text-center">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3"
-                style={{ background: `${cfg.accent}15` }}>
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: `${cfg.accent}15` }}>
                 <MdLockReset className="text-[26px]" style={{ color: cfg.accent }} />
               </div>
               <h2 className="text-lg font-black text-slate-800">Reset Password</h2>
               <Steps current={stepNum} cfg={cfg} />
             </div>
 
-            {/* Error */}
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3 text-center">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-600">
                 {error}
               </div>
             )}
 
-            {/* ── Step 1: Enter email ── */}
             {step === 'request' && (
               <form onSubmit={handleRequest} className="space-y-4">
-                <p className="text-sm text-slate-500 text-center">
+                <p className="text-center text-sm text-slate-500">
                   Enter your {cfg.badge.toLowerCase()} {recoveryLabel} and we'll send a verification code.
                 </p>
+
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">{isPatient ? 'Phone Number' : 'Email Address'}</label>
+                  <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                    {effectiveMethod === 'sms' ? 'Mobile Number' : 'Email Address'}
+                  </label>
                   <div className="relative">
-                    {isPatient ? (
-                      <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
+                    {effectiveMethod === 'sms' ? (
+                      <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
                     ) : (
-                      <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
+                      <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
                     )}
-                    <input type={isPatient ? 'tel' : 'email'} required value={recoveryValue}
-                      onChange={e => {
-                        if (isPatient) setPhone(e.target.value)
-                        else setEmail(e.target.value)
+                    <input
+                      type={effectiveMethod === 'sms' ? 'tel' : 'email'}
+                      required
+                      value={recoveryValue}
+                      onChange={(event) => {
+                        if (effectiveMethod === 'sms') setPhone(event.target.value)
+                        else setEmail(event.target.value)
                         setError('')
                       }}
-                      placeholder={isPatient ? '09XXXXXXXXX or +639XXXXXXXXX' : 'your@email.com'}
-                      className={`${inpClass} pl-10`} />
+                      placeholder={effectiveMethod === 'sms' ? '09XXXXXXXXX' : 'your@email.com'}
+                      className={`${inpClass} pl-10`}
+                    />
                   </div>
                 </div>
-                <button type="submit" disabled={loading}
-                  className={`w-full flex items-center justify-center gap-2 py-3.5 text-white font-bold text-sm
-                    rounded-xl transition-colors shadow-lg disabled:opacity-60 ${cfg.btnClass}`}>
-                  {loading
-                    ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    : <>Send Code <MdArrowForward className="text-[16px]" /></>}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white shadow-lg transition-colors disabled:opacity-60 ${cfg.btnClass}`}
+                >
+                  {loading ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ) : (
+                    <>Send Code <MdArrowForward className="text-[16px]" /></>
+                  )}
                 </button>
+
+                {isPatient && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeliveryMethod((current) => current === 'email' ? 'sms' : 'email')
+                      setError('')
+                    }}
+                    className="flex w-full items-center justify-center gap-1 text-xs font-semibold hover:underline"
+                    style={{ color: cfg.accent }}
+                  >
+                    {effectiveMethod === 'sms' ? <MdEmail /> : <MdPhone />}
+                    Try another way · {alternateLabel}
+                  </button>
+                )}
+
                 <p className="text-center text-sm text-slate-500">
                   Remember it?{' '}
                   <NavLink to={loginPath} className="font-bold hover:underline" style={{ color: cfg.accent }}>
@@ -268,127 +364,189 @@ const ForgotPassword = ({ role }) => {
               </form>
             )}
 
-            {/* ── Step 2: OTP ── */}
             {step === 'otp' && (
               <div className="space-y-5">
                 <div className="text-center">
                   <p className="text-sm text-slate-600">
-                    Code sent to <strong className="text-slate-800">{recoveryValue}</strong>
+                    Code sent by {effectiveMethod === 'sms' ? 'SMS' : 'email'} to{' '}
+                    <strong className="text-slate-800">{maskedDestination || recoveryValue}</strong>
                   </p>
-                  <p className="text-xs text-slate-400 mt-1">Expires in 10 minutes</p>
+                  <p className="mt-1 text-xs text-slate-400">Expires in 10 minutes</p>
                 </div>
+
                 {devOtp && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-700">
                     Dev OTP: <strong>{devOtp}</strong>
                   </div>
                 )}
-                <OtpInput value={otp} onChange={v => { setOtp(v); setError('') }} accent={cfg.accent} light={cfg.light} />
-                <button onClick={handleVerify} disabled={loading || otp.length !== 6}
-                  className={`w-full flex items-center justify-center gap-2 py-3.5 text-white font-bold text-sm
-                    rounded-xl transition-colors shadow-lg disabled:opacity-60 ${cfg.btnClass}`}>
-                  {loading
-                    ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    : <><MdCheck className="text-[16px]" /> Verify Code</>}
+
+                <OtpInput
+                  value={otp}
+                  onChange={(value) => { setOtp(value); setError('') }}
+                  accent={cfg.accent}
+                  light={cfg.light}
+                />
+
+                <button
+                  onClick={handleVerify}
+                  disabled={loading || otp.length !== 6}
+                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white shadow-lg transition-colors disabled:opacity-60 ${cfg.btnClass}`}
+                >
+                  {loading ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ) : (
+                    <><MdCheck className="text-[16px]" /> Verify Code</>
+                  )}
                 </button>
-                <div className="flex items-center justify-center gap-4">
+
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
                   {countdown > 0 ? (
                     <p className="text-xs text-slate-400">Resend in <strong>{countdown}s</strong></p>
                   ) : (
-                    <button onClick={handleRequest} disabled={loading}
+                    <button
+                      onClick={handleRequest}
+                      disabled={loading}
                       className="flex items-center gap-1 text-xs font-semibold hover:underline disabled:opacity-50"
-                      style={{ color: cfg.accent }}>
+                      style={{ color: cfg.accent }}
+                    >
                       <MdRefresh className="text-[13px]" /> Resend Code
                     </button>
                   )}
+
                   <span className="text-slate-200">|</span>
-                  <button onClick={() => { setStep('request'); setError(''); setOtp(''); setDevOtp('') }}
-                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors">
+
+                  <button
+                    onClick={() => resetToRequest()}
+                    className="flex items-center gap-1 text-xs text-slate-400 transition-colors hover:text-slate-600"
+                  >
                     <MdArrowBack className="text-[13px]" /> Change {recoveryLabel}
                   </button>
+
+                  {isPatient && (
+                    <>
+                      <span className="text-slate-200">|</span>
+                      <button
+                        onClick={() => resetToRequest({ alternate: true })}
+                        className="flex items-center gap-1 text-xs font-semibold hover:underline"
+                        style={{ color: cfg.accent }}
+                      >
+                        Try another way
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* ── Step 3: New password ── */}
             {step === 'reset' && (
               <form onSubmit={handleReset} className="space-y-4">
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center gap-2">
-                  <MdCheck className="text-emerald-500 text-[16px] shrink-0" />
+                <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <MdCheck className="shrink-0 text-[16px] text-emerald-500" />
                   <p className="text-xs text-emerald-700">Code verified! Choose your new password.</p>
                 </div>
+
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">New Password</label>
+                  <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">New Password</label>
                   <div className="relative">
-                    <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                    <input type={showPass ? 'text' : 'password'} required minLength={8} maxLength={128}
-                      value={password} onChange={e => { setPass(e.target.value); setError('') }}
+                    <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      minLength={8}
+                      maxLength={128}
+                      value={password}
+                      onChange={(event) => { setPass(event.target.value); setError('') }}
                       placeholder="8+ characters"
-                      className={`${inpClass} pl-10 pr-11`} />
-                    <button type="button" onClick={() => setShowPass(s => !s)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                      {showPass ? <MdVisibilityOff className="text-[17px]" /> : <MdVisibility className="text-[17px]" />}
+                      autoComplete="new-password"
+                      className={`${inpClass} pl-10 pr-11`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <MdVisibilityOff className="text-[17px]" /> : <MdVisibility className="text-[17px]" />}
                     </button>
                   </div>
                 </div>
+
                 <PasswordRequirements password={password} />
+
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Confirm Password</label>
+                  <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">Confirm Password</label>
                   <div className="relative">
-                    <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[17px]" />
-                    <input type={showPass ? 'text' : 'password'} required minLength={8} maxLength={128}
-                      value={confirm} onChange={e => { setConfirm(e.target.value); setError('') }}
+                    <MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
+                    <input
+                      type={showConfirm ? 'text' : 'password'}
+                      required
+                      minLength={8}
+                      maxLength={128}
+                      value={confirm}
+                      onChange={(event) => { setConfirm(event.target.value); setError('') }}
+                      onPaste={preventPaste}
+                      onDrop={preventPaste}
                       placeholder="Repeat password"
-                      className={`${inpClass} pl-10`} />
+                      autoComplete="off"
+                      className={`${inpClass} pl-10 pr-11`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm((current) => !current)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      aria-label={showConfirm ? 'Hide password' : 'Show password'}
+                    >
+                      {showConfirm ? <MdVisibilityOff className="text-[17px]" /> : <MdVisibility className="text-[17px]" />}
+                    </button>
                   </div>
+                  <p className="mt-1 text-[11px] text-slate-400">Paste is disabled for confirmation.</p>
                   {confirm && password !== confirm && (
-                    <p className="text-xs text-red-500 mt-1">Passwords do not match.</p>
+                    <p className="mt-1 text-xs text-red-500">Passwords do not match.</p>
                   )}
                 </div>
-                <button type="submit" disabled={loading || !isPasswordValid(password) || !confirm || password !== confirm}
-                  className={`w-full flex items-center justify-center gap-2 py-3.5 text-white font-bold text-sm
-                    rounded-xl transition-colors shadow-lg disabled:opacity-60 ${cfg.btnClass}`}>
-                  {loading
-                    ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    : <><MdLockReset className="text-[16px]" /> Reset Password</>}
+
+                <button
+                  type="submit"
+                  disabled={loading || !isPasswordValid(password) || !confirm || password !== confirm}
+                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white shadow-lg transition-colors disabled:opacity-60 ${cfg.btnClass}`}
+                >
+                  {loading ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ) : (
+                    <><MdLockReset className="text-[16px]" /> Reset Password</>
+                  )}
                 </button>
               </form>
             )}
 
-            {/* ── Step 4: Done ── */}
             {step === 'done' && (
-              <div className="text-center space-y-4 py-2">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto"
-                  style={{ background: `${cfg.accent}15` }}>
-                  <MdCheck className="text-[32px]" style={{ color: cfg.accent }} />
+              <div className="space-y-4 py-2 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full" style={{ background: cfg.light }}>
+                  <MdCheck className="text-[28px]" style={{ color: cfg.accent }} />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-lg">Password Reset!</h3>
-                  <p className="text-sm text-slate-500 mt-1">
-                    Your password has been updated. You can now sign in.
-                  </p>
+                  <h3 className="text-lg font-black text-slate-800">Password Updated</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-500">Your password has been reset successfully. You can now sign in.</p>
                 </div>
-                <NavLink to={loginPath}
-                  className={`block w-full py-3.5 rounded-xl text-white font-bold text-sm text-center
-                    transition-colors shadow-lg ${cfg.btnClass}`}>
-                  Go to Login
+                <NavLink
+                  to={loginPath}
+                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white shadow-lg transition-colors ${cfg.btnClass}`}
+                >
+                  Back to Login <MdArrowForward className="text-[16px]" />
                 </NavLink>
               </div>
             )}
-
           </div>
         </div>
 
-        <p className="text-center mt-4">
-          <NavLink to="/" className="text-slate-500 hover:text-white text-xs transition-colors">
+        <div className="mt-5 text-center">
+          <NavLink to="/" className="text-xs text-slate-500 transition-colors hover:text-white">
             ← Back to home
           </NavLink>
-        </p>
+        </div>
       </div>
     </div>
   )
 }
 
 export default ForgotPassword
-
-
-

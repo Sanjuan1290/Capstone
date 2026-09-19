@@ -145,7 +145,7 @@ const Admin_PatientBooking = () => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <MdPeople className="text-amber-500 text-[22px]" /> Patient Booking Settings
+            <MdPeople className="text-amber-500 text-[22px]" /> Patient Visit Details
           </h1>
           <p className="text-xs lg:text-sm text-slate-500 mt-0.5">
             Manage the reason options patients see in Book Appointment.
@@ -378,6 +378,3 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
-
-
-

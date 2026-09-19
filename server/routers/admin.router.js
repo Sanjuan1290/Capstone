@@ -96,6 +96,9 @@ router.put('/clinic-settings', ...auth, adminCtrl.updateClinicSettingsAdmin)
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 router.get('/inventory',              ...auth, adminCtrl.getInventory)
+router.get('/inventory/master-data',  ...auth, adminCtrl.getInventoryMasterData)
+router.post('/inventory/locations',    ...auth, adminCtrl.createInventoryLocation)
+router.post('/inventory/suppliers',    ...auth, adminCtrl.createInventorySupplier)
 router.get('/inventory/logs',         ...auth, adminCtrl.getInventoryLogs)
 router.post('/inventory',             ...auth, adminCtrl.addInventoryItem)
 router.patch('/inventory/:id/stock',  ...auth, adminCtrl.updateStock)
@@ -108,6 +111,3 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
-
-
-

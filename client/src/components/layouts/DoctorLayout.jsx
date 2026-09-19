@@ -20,7 +20,7 @@ const sideNav = [
   { name: 'Dashboard',          path: '/doctor',                    icon: MdDashboard,     short: 'Home'     },
   { name: 'Appointments',       path: '/doctor/appointments',       icon: MdCalendarToday, short: 'Appts' },
   { name: 'My Schedule',        path: '/doctor/schedule',           icon: MdSchedule,      short: 'Hours'    },
-  { name: 'Supply Requests',    path: '/doctor/request',            icon: MdInventory2,    short: 'Supplies' },
+  { name: 'Stock Transfers',    path: '/doctor/request',            icon: MdInventory2,    short: 'Transfer' },
 ]
 
 const DoctorLayout = () => {
@@ -165,7 +165,7 @@ const DoctorLayout = () => {
           )}
           <button onClick={handleLogout} disabled={loggingOut}
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full
-              text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors
+              bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300 transition-colors
               disabled:opacity-50 disabled:cursor-not-allowed">
             <MdLogout className={`shrink-0 text-[18px] ${loggingOut ? 'animate-spin' : ''}`} />
             <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
@@ -261,6 +261,3 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
-
-
-

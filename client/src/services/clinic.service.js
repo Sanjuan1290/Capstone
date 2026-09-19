@@ -4,6 +4,3 @@ export const getClinicSettings = async () => {
   if (!res.ok) throw new Error(data.message || 'Failed to load clinic settings.')
   return data
 }
-
-
-

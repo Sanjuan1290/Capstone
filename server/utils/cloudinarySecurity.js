@@ -37,11 +37,13 @@ const withScanModeration = (params, scanMode) => {
   return params
 }
 
-const createClinicalUploadSignature = ({ doctorId, appointmentId, scanMode = 'scan' }) => {
+const createClinicalUploadSignature = ({ doctorId, appointmentId, patientId, clinicType, scanMode = 'scan' }) => {
   const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
   const timestamp = Math.floor(Date.now() / 1000)
   const baseFolder = String(process.env.CLOUDINARY_CLINICAL_FOLDER || 'carait-clinic/clinical').replace(/^\/+|\/+$/g, '')
-  const folder = `${baseFolder}/doctor-${Number(doctorId)}/appointment-${Number(appointmentId)}`
+  const clinicFolder = String(clinicType || 'medical').toLowerCase() === 'derma' ? 'derma' : 'medical'
+  const patientFolder = patientId ? `patient_${Number(patientId)}` : `doctor_${Number(doctorId)}`
+  const folder = `${baseFolder}/${clinicFolder}/${patientFolder}/appointment_${Number(appointmentId)}`
   const normalizedScanMode = normalizeScanMode(scanMode)
   const params = withScanModeration({ folder, timestamp }, normalizedScanMode)
   return {
@@ -192,16 +194,27 @@ const hasValidImageSignature = (buffer, mimeType) => {
   return false
 }
 
+const detectImageMime = (buffer) => {
+  for (const mime of ['image/png','image/jpeg','image/webp']) {
+    if (hasValidImageSignature(buffer, mime)) return mime
+  }
+  return null
+}
+
 const cloudinaryUploadBuffer = async ({ buffer, mimeType, fileName, signed }) => {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw Object.assign(new Error('Select an image to upload.'), { statusCode: 400 })
   }
-  const safeMime = String(mimeType || '').toLowerCase()
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(safeMime)) {
-    throw Object.assign(new Error('Image must be PNG, JPG, or WEBP.'), { statusCode: 400 })
+  const declaredMime = String(mimeType || '').toLowerCase().split(';')[0].trim()
+  const detectedMime = detectImageMime(buffer)
+  if (!detectedMime) {
+    throw Object.assign(new Error('The selected file is not a valid PNG, JPG, or WEBP image.'), { statusCode: 400 })
   }
-  if (!hasValidImageSignature(buffer, safeMime)) {
-    throw Object.assign(new Error('The uploaded file content does not match a valid PNG, JPG, or WEBP image.'), { statusCode: 400 })
+  // Trust the file signature over the browser-provided MIME type. Some browsers/devices
+  // report a valid PNG/JPEG/WebP with a generic or mismatched content-type.
+  const safeMime = detectedMime
+  if (declaredMime && !['image/png','image/jpeg','image/webp','application/octet-stream'].includes(declaredMime)) {
+    throw Object.assign(new Error('Image must be PNG, JPG, or WEBP.'), { statusCode: 400 })
   }
 
   const formData = new FormData()
@@ -331,7 +344,5 @@ module.exports = {
   verifyUploadSecurityToken,
   hashUploadBuffer,
   hasValidImageSignature,
+  detectImageMime,
 }
-
-
-

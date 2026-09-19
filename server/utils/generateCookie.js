@@ -15,6 +15,3 @@ function generateCookie(res, token, role) {
 }
 
 module.exports = generateCookie
-
-
-

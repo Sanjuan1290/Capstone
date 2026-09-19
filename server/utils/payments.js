@@ -36,6 +36,3 @@ module.exports = {
   makeReceiptNumber,
   calculatePaymentAmounts,
 }
-
-
-

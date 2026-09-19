@@ -23,6 +23,7 @@ const {
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel, getClinicDateTimeSql } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
+const { validateBirthdate } = require('../utils/patientProfile')
 const { sendPatientAppointmentStatusSms } = require('../utils/smsService')
 const { getDoctorUnavailableDate, getDoctorUnavailableDates } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds } = require('../utils/consultationImages')
@@ -53,21 +54,39 @@ const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
-const normalizeInventoryPayload = (body = {}) => ({
-  barcode: body.barcode?.trim() || null,
-  name: body.name?.trim() || '',
-  category: body.category?.trim() || '',
-  unit: body.unit?.trim() || 'box',
-  base_unit: body.base_unit?.trim() || body.unit?.trim() || 'box',
-  unit_size: Math.max(1, Number(body.unit_size) || 1),
-  stock: Math.max(0, Number(body.stock) || 0),
-  threshold: Math.max(0, Number(body.threshold) || 0),
-  price: Math.max(0, Number(body.price) || 0),
-  supplier: body.supplier?.trim() || null,
-  expiration_date: body.expiration_date || null,
-  batch_code: String(body.batch_code || '').trim() || null,
-  storage_location: body.storage_location?.trim() || null,
-})
+const normalizeInventoryPayload = (body = {}) => {
+  const category = ['medical','derma'].includes(String(body.category || '').trim()) ? String(body.category).trim() : 'medical'
+  const itemType = ['medicine','supplies'].includes(String(body.item_type || '').trim()) ? String(body.item_type).trim() : 'supplies'
+  const uom = String(body.uom || body.base_unit || body.unit || 'piece').trim().toLowerCase()
+  return {
+    barcode: body.barcode?.trim() || null,
+    name: body.name?.trim() || '',
+    category,
+    item_type: itemType,
+    uom,
+    dosage_form: itemType === 'medicine' ? String(body.dosage_form || '').trim() || null : null,
+    strength: itemType === 'medicine' ? String(body.strength || '').trim() || null : null,
+    unit: uom,
+    base_unit: uom,
+    unit_size: 1,
+    stock: Math.max(0, Number(body.stock) || 0),
+    threshold: Math.max(0, Number(body.threshold) || 0),
+    price: Math.max(0, Number(body.price) || 0),
+    supplier: body.supplier?.trim() || null,
+    expiration_date: body.expiration_date || null,
+    batch_code: String(body.batch_code || '').trim() || null,
+    storage_location: body.storage_location?.trim() || null,
+  }
+}
+
+const nextInventoryBarcode = async (category, conn = db) => {
+  const normalized = category === 'derma' ? 'derma' : 'medical'
+  const prefix = normalized === 'derma' ? 'DRM' : 'GMED'
+  await conn.query('INSERT IGNORE INTO inventory_barcode_sequences (category,last_number) VALUES (?,0)', [normalized])
+  await conn.query('UPDATE inventory_barcode_sequences SET last_number = LAST_INSERT_ID(last_number + 1) WHERE category = ?', [normalized])
+  const [[row]] = await conn.query('SELECT last_number FROM inventory_barcode_sequences WHERE category = ?', [normalized])
+  return `${prefix}-${String(Number(row?.last_number || 1)).padStart(5, '0')}`
+}
 
 const buildPhoneSearchTerms = (value = '') => {
   const trimmed = String(value || '').trim()
@@ -277,16 +296,7 @@ const createAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: result.insertId,
   })
-  await createNotification({
-    target_role: 'doctor',
-    target_user_id: rows[0].doctor_id,
-    type: 'appointment_booked',
-    title: 'New appointment booked',
-    message: `${rows[0].patient_name} booked an appointment on ${normalizedDate} at ${appointment_time}.`,
-    reference_type: 'appointment',
-    reference_id: result.insertId,
-  })
-  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
+  broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
   res.status(201).json({ message: 'Appointment created.', id: result.insertId })
 }
 
@@ -294,7 +304,7 @@ const confirmAppointment = async (req, res) => {
   const [rows] = await db.query(
     `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
-            d.full_name AS doctor_name
+            d.id AS doctor_id, d.full_name AS doctor_name
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
      JOIN doctors d ON a.doctor_id = d.id
@@ -315,6 +325,15 @@ const confirmAppointment = async (req, res) => {
     type: 'appointment_confirmed',
     title: 'Appointment confirmed',
     message: `Your appointment with ${rows[0].doctor_name} has been confirmed.`,
+    reference_type: 'appointment',
+    reference_id: req.params.id,
+  })
+  await createNotification({
+    target_role: 'doctor',
+    target_user_id: rows[0].doctor_id,
+    type: 'appointment_confirmed',
+    title: 'Confirmed appointment',
+    message: `${rows[0].patient_name} has a confirmed appointment on ${rows[0].appointment_date} at ${rows[0].appointment_time}.`,
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
@@ -348,7 +367,7 @@ const confirmAppointment = async (req, res) => {
       reference_id: req.params.id,
     })
   }
-  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
   res.json({ message: 'Appointment confirmed.' })
 }
 
@@ -570,7 +589,9 @@ const createWalkInPatient = async (req, res) => {
     return res.status(400).json({ message: 'Patient data privacy consent is required before registration.' })
 
   const normalizedSex = ['Male', 'Female', 'Other'].includes(String(sex || '')) ? String(sex) : null
-  const normalizedBirthdate = /^\d{4}-\d{2}-\d{2}$/.test(String(birthdate || '')) ? String(birthdate) : null
+  const birthdateError = birthdate ? validateBirthdate(String(birthdate)) : null
+  if (birthdateError) return res.status(400).json({ message: birthdateError })
+  const normalizedBirthdate = birthdate ? String(birthdate).slice(0,10) : null
   const { normalizedPhone, existing } = await findExistingPatientByPhone(phone)
   if (!normalizedPhone)
     return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
@@ -1366,8 +1387,8 @@ const getInventory = async (req, res) => {
 }
 
 const addInventoryItem = async (req, res) => {
-  const {
-    barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier,
+  let {
+    barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier,
     expiration_date, batch_code, storage_location,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
@@ -1382,18 +1403,19 @@ const addInventoryItem = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    if (!barcode) barcode = await nextInventoryBarcode(category, conn)
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, unit, base_unit, unit_size, 0, threshold, price, supplier, null, storage_location]
+       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, 1, 0, threshold, price, supplier, null, storage_location]
     )
     let openingBatchId = null
     if (stock > 0) {
       openingBatchId = await addInventoryBatch(result.insertId, {
         quantity: stock,
         expiration_date,
-        batch_code,
+        batch_code: batch_code || `${barcode}-B001`,
         note: 'Opening stock',
       }, conn)
     }
@@ -1437,7 +1459,7 @@ const addInventoryItem = async (req, res) => {
 // FIX 2: Edit inventory item (name, barcode, category, unit, threshold, price, supplier)
 const updateInventoryItem = async (req, res) => {
   const {
-    barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier,
+    barcode, name, category, item_type, uom, dosage_form, strength, threshold, price, supplier,
     storage_location,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
@@ -1454,9 +1476,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, unit=?, base_unit=?, unit_size=?, threshold=?, price=?, supplier=?, storage_location=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, supplier=?
        WHERE id=?`,
-      [barcode, name, category, unit, base_unit, unit_size, threshold, price, supplier, storage_location, req.params.id]
+      [barcode, name, category, item_type, uom, dosage_form, strength, uom, uom, threshold, price, supplier, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -1656,6 +1678,3 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
-
-
-

@@ -61,6 +61,3 @@ module.exports = {
   sanitizeAuditValue,
   writeAuditLog,
 }
-
-
-
