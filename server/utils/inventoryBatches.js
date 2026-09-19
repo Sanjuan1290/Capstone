@@ -120,7 +120,7 @@ const syncInventorySnapshot = async (inventoryId, executor = db) => {
 
 const addInventoryBatch = async (
   inventoryId,
-  { quantity, expiration_date, note = null, batch_code = null, location = MAIN_LOCATION },
+  { quantity, expiration_date, note = null, batch_code = null, location = MAIN_LOCATION, location_id = null },
   executor = db
 ) => {
   const batchQty = toPositiveNumber(quantity)
@@ -135,7 +135,8 @@ const addInventoryBatch = async (
   // Location tables are created later during first schema migration. Ignore only that
   // bootstrap case; normal runtime stock-in always receives a per-batch location balance.
   try {
-    const locationId = await getLocationId(location, executor)
+    const explicitLocation = location_id ? await getInventoryLocationById(location_id, executor) : null
+    const locationId = explicitLocation?.id || await getLocationId(location, executor)
     await executor.query(
       `INSERT INTO inventory_location_batches (location_id, inventory_id, batch_id, quantity)
        VALUES (?, ?, ?, ?)`,
@@ -147,6 +148,126 @@ const addInventoryBatch = async (
   }
 
   return result.insertId
+}
+
+
+const generateNextBatchCode = async (inventoryId, executor = db) => {
+  const [[item]] = await executor.query(
+    'SELECT id, barcode FROM inventory WHERE id = ? FOR UPDATE',
+    [inventoryId]
+  )
+  if (!item) throw Object.assign(new Error('Inventory item not found.'), { statusCode: 404 })
+
+  const prefix = String(item.barcode || `ITEM-${item.id}`).trim()
+  const [rows] = await executor.query(
+    'SELECT batch_code FROM inventory_batches WHERE inventory_id = ? AND batch_code IS NOT NULL',
+    [inventoryId]
+  )
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`^${escapedPrefix}-B(\\d+)$`, 'i')
+  let maxSequence = 0
+  for (const row of rows) {
+    const match = String(row.batch_code || '').match(pattern)
+    if (match) maxSequence = Math.max(maxSequence, Number(match[1]) || 0)
+  }
+  return `${prefix}-B${String(maxSequence + 1).padStart(3, '0')}`
+}
+
+const receiveInventoryBatch = async (
+  inventoryId,
+  {
+    quantity,
+    existing_batch_id = null,
+    batch_code = null,
+    expiration_date = null,
+    note = null,
+    location = MAIN_LOCATION,
+    location_id = null,
+  },
+  executor = db
+) => {
+  const batchQty = toPositiveNumber(quantity)
+  if (batchQty <= 0) throw Object.assign(new Error('Quantity must be greater than zero.'), { statusCode: 400 })
+
+  const explicitLocation = location_id ? await getInventoryLocationById(location_id, executor) : null
+  if (location_id && !explicitLocation) throw Object.assign(new Error('Selected storage location is unavailable.'), { statusCode: 400 })
+  const locationName = explicitLocation?.name || String(location || MAIN_LOCATION).trim() || MAIN_LOCATION
+  const locationId = explicitLocation?.id || await getLocationId(locationName, executor)
+
+  const existingBatchId = Number(existing_batch_id)
+  if (existingBatchId > 0) {
+    const [[batch]] = await executor.query(
+      `SELECT id, inventory_id, batch_code, quantity, expiration_date
+       FROM inventory_batches
+       WHERE id = ? AND inventory_id = ?
+       FOR UPDATE`,
+      [existingBatchId, inventoryId]
+    )
+    if (!batch) throw Object.assign(new Error('The selected batch no longer exists for this item.'), { statusCode: 404 })
+
+    const [batchUpdate] = await executor.query(
+      'UPDATE inventory_batches SET quantity = quantity + ? WHERE id = ? AND inventory_id = ?',
+      [batchQty, existingBatchId, inventoryId]
+    )
+    if (Number(batchUpdate.affectedRows || 0) !== 1) {
+      throw Object.assign(new Error('The selected batch changed while receiving stock. Please retry.'), { statusCode: 409 })
+    }
+
+    await executor.query(
+      `INSERT INTO inventory_location_batches (location_id, inventory_id, batch_id, quantity)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`,
+      [locationId, inventoryId, existingBatchId, batchQty]
+    )
+    await syncLocationSnapshot(inventoryId, executor)
+
+    return {
+      batch_id: existingBatchId,
+      batch_code: batch.batch_code || null,
+      expiration_date: batch.expiration_date || null,
+      quantity_added: batchQty,
+      previous_quantity: Number(batch.quantity || 0),
+      new_quantity: Number(batch.quantity || 0) + batchQty,
+      existing: true,
+      location: locationName,
+    }
+  }
+
+  const resolvedBatchCode = normalizeBatchCode(batch_code) || await generateNextBatchCode(inventoryId, executor)
+  const [[duplicate]] = await executor.query(
+    `SELECT id, batch_code, expiration_date, quantity
+     FROM inventory_batches
+     WHERE inventory_id = ? AND batch_code = ?
+     LIMIT 1
+     FOR UPDATE`,
+    [inventoryId, resolvedBatchCode]
+  )
+  if (duplicate) {
+    throw Object.assign(
+      new Error(`Batch ${resolvedBatchCode} already exists for this item. Select the existing batch instead of creating a new one.`),
+      { statusCode: 409, code: 'BATCH_ALREADY_EXISTS', existingBatchId: duplicate.id }
+    )
+  }
+
+  const batchId = await addInventoryBatch(inventoryId, {
+    quantity: batchQty,
+    expiration_date,
+    batch_code: resolvedBatchCode,
+    note,
+    location: locationName,
+    location_id: locationId,
+  }, executor)
+
+  return {
+    batch_id: batchId,
+    batch_code: resolvedBatchCode,
+    expiration_date: normalizeExpiryDate(expiration_date),
+    quantity_added: batchQty,
+    previous_quantity: 0,
+    new_quantity: batchQty,
+    existing: false,
+    location: locationName,
+  }
 }
 
 const loadLocationBatches = async (inventoryId, locationName, executor = db) => {
@@ -356,7 +477,6 @@ const attachBatchesToInventory = async (items, executor = db) => {
      LEFT JOIN inventory_location_batches ilb ON ilb.batch_id = b.id AND ilb.quantity > 0
      LEFT JOIN inventory_locations il ON il.id = ilb.location_id
      WHERE b.inventory_id IN (${placeholders})
-       AND b.quantity > 0
      ORDER BY
        b.inventory_id ASC,
        CASE WHEN b.expiration_date IS NULL THEN 1 ELSE 0 END,
@@ -370,7 +490,7 @@ const attachBatchesToInventory = async (items, executor = db) => {
       `SELECT id, inventory_id, NULL AS batch_code, quantity, expiration_date, received_at, note,
               NULL AS location_name, NULL AS location_quantity
        FROM inventory_batches
-       WHERE inventory_id IN (${placeholders}) AND quantity > 0
+       WHERE inventory_id IN (${placeholders})
        ORDER BY inventory_id ASC, CASE WHEN expiration_date IS NULL THEN 1 ELSE 0 END, expiration_date ASC, received_at ASC, id ASC`,
       ids
     )
@@ -419,6 +539,8 @@ module.exports = {
   syncLocationSnapshot,
   ensureInventoryLocationAllocations,
   addInventoryBatch,
+  generateNextBatchCode,
+  receiveInventoryBatch,
   consumeInventoryFEFO,
   consumeInventoryByBatches,
   consumeInventoryFromLocationFEFO,

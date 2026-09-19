@@ -1,6 +1,7 @@
 import Inventory from '../shared/Inventory'
 import {
   getInventory,
+  getInventoryMasterData,
   updateStock,
   addInventoryItem,
   updateInventoryItem,
@@ -9,6 +10,7 @@ import {
 
 const staffServices = {
   getInventory,
+  getInventoryMasterData,
   updateStock,
   addInventoryItem,
   updateInventoryItem,

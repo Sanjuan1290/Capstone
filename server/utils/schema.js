@@ -491,6 +491,7 @@ const ensureAppSchema = async () => {
   `)
   await ensureColumn('inventory_batches', 'batch_code', 'VARCHAR(80) NULL')
   await db.query('ALTER TABLE inventory_batches ADD INDEX idx_inventory_batches_code (inventory_id, batch_code)').catch(() => {})
+  await db.query('ALTER TABLE inventory_batches ADD UNIQUE KEY uniq_inventory_batch_code (inventory_id, batch_code)').catch(() => {})
 
   await db.query(`
     INSERT INTO inventory_batches (inventory_id, quantity, expiration_date, note, received_at)

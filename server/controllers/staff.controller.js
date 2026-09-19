@@ -13,7 +13,7 @@ const { sendAppointmentStatusEmail } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const {
-  addInventoryBatch,
+  receiveInventoryBatch,
   attachBatchesToInventory,
   consumeInventoryFEFO,
   consumeInventoryByBatches,
@@ -64,8 +64,8 @@ const normalizeInventoryPayload = (body = {}) => {
     category,
     item_type: itemType,
     uom,
-    dosage_form: itemType === 'medicine' ? String(body.dosage_form || '').trim() || null : null,
-    strength: itemType === 'medicine' ? String(body.strength || '').trim() || null : null,
+    dosage_form: null,
+    strength: null,
     unit: uom,
     base_unit: uom,
     unit_size: 1,
@@ -73,8 +73,10 @@ const normalizeInventoryPayload = (body = {}) => {
     threshold: Math.max(0, Number(body.threshold) || 0),
     price: Math.max(0, Number(body.price) || 0),
     supplier: body.supplier?.trim() || null,
+    supplier_id: Number(body.supplier_id) || null,
     expiration_date: body.expiration_date || null,
     batch_code: String(body.batch_code || '').trim() || null,
+    storage_location_id: Number(body.storage_location_id) || null,
     storage_location: body.storage_location?.trim() || null,
   }
 }
@@ -1381,6 +1383,14 @@ const getPaymentSettingsForStaff = async (req, res) => {
   })
 }
 
+const getInventoryMasterData = async (req, res) => {
+  const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
+  const [uoms] = await db.query('SELECT id,name,abbreviation FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
+  const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 ${category ? 'AND category=?' : ''} ORDER BY category,name`, category ? [category] : [])
+  const [locations] = await db.query("SELECT id,name,location_type FROM inventory_locations WHERE is_active=1 ORDER BY FIELD(location_type,'stockroom','room','dispensing'),name")
+  res.json({ uoms, suppliers, locations })
+}
+
 const getInventory = async (req, res) => {
   const items = await loadInventoryRows()
   res.json(items)
@@ -1388,8 +1398,8 @@ const getInventory = async (req, res) => {
 
 const addInventoryItem = async (req, res) => {
   let {
-    barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier,
-    expiration_date, batch_code, storage_location,
+    barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier, supplier_id,
+    expiration_date, batch_code, storage_location, storage_location_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1404,32 +1414,47 @@ const addInventoryItem = async (req, res) => {
   try {
     await conn.beginTransaction()
     if (!barcode) barcode = await nextInventoryBarcode(category, conn)
+    if (!supplier && supplier_id) {
+      const [[supplierRow]] = await conn.query('SELECT name FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
+      supplier = supplierRow?.name || null
+    }
+    if (!storage_location && storage_location_id) {
+      const [[locationRow]] = await conn.query('SELECT name FROM inventory_locations WHERE id=? AND is_active=1 LIMIT 1',[storage_location_id])
+      storage_location = locationRow?.name || null
+    }
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier, expiration_date, storage_location)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, 1, 0, threshold, price, supplier, null, storage_location]
+       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier, supplier_id, expiration_date, storage_location)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, 1, 0, threshold, price, supplier, supplier_id, null, storage_location]
     )
     let openingBatchId = null
     if (stock > 0) {
-      openingBatchId = await addInventoryBatch(result.insertId, {
+      const received = await receiveInventoryBatch(result.insertId, {
         quantity: stock,
         expiration_date,
-        batch_code: batch_code || `${barcode}-B001`,
+        batch_code,
         note: 'Opening stock',
+        location: storage_location || 'Main Stockroom',
+        location_id: storage_location_id,
       }, conn)
+      openingBatchId = received.batch_id
+      batch_code = received.batch_code
+      expiration_date = received.expiration_date
+      storage_location = received.location
     }
     await syncInventorySnapshot(result.insertId, conn)
     if (stock > 0 && openingBatchId) {
       await conn.query(
         `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, batch_id, to_location)
-         VALUES (?, ?, 'in', ?, ?, 'received', ?, 'Main Stockroom')`,
+         VALUES (?, ?, 'in', ?, ?, 'received', ?, ?)`,
         [
           result.insertId,
           req.user.id,
           stock,
           `Opening stock · ${batch_code || `Batch #${openingBatchId}`}${expiration_date ? ` · expires ${expiration_date}` : ''}`,
           openingBatchId,
+          storage_location || 'Main Stockroom',
         ]
       )
     }
@@ -1439,7 +1464,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, barcode, stock_unit: unit, dispensing_unit: base_unit, units_per_package: unit_size, opening_stock: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, supplier_id, storage_location_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -1459,8 +1484,8 @@ const addInventoryItem = async (req, res) => {
 // FIX 2: Edit inventory item (name, barcode, category, unit, threshold, price, supplier)
 const updateInventoryItem = async (req, res) => {
   const {
-    barcode, name, category, item_type, uom, dosage_form, strength, threshold, price, supplier,
-    storage_location,
+    barcode, name, category, item_type, uom, dosage_form, strength, threshold, price, supplier, supplier_id,
+    storage_location, storage_location_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1476,9 +1501,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, supplier=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, supplier=?, supplier_id=?
        WHERE id=?`,
-      [barcode, name, category, item_type, uom, dosage_form, strength, uom, uom, threshold, price, supplier, req.params.id]
+      [barcode, name, category, item_type, uom, dosage_form, strength, uom, uom, threshold, price, supplier, supplier_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -1528,7 +1553,7 @@ const deleteInventoryItem = async (req, res) => {
 }
 
 const updateStock = async (req, res) => {
-  const { type, qty, note, movement_reason, expiration_date, batch_code, selected_batches } = req.body
+  const { type, qty, note, movement_reason, expiration_date, batch_code, selected_batches, existing_batch_id, storage_location_id } = req.body
   if (!['in', 'out'].includes(type) || !qty)
     return res.status(400).json({ message: 'type and qty are required.' })
   const movementType = normalizeStockMovementType(type, movement_reason)
@@ -1555,19 +1580,28 @@ const updateStock = async (req, res) => {
     let auditValues = null
 
     if (type === 'in') {
-      const newBatchId = await addInventoryBatch(req.params.id, {
+      const received = await receiveInventoryBatch(req.params.id, {
         quantity: qty,
+        existing_batch_id,
         expiration_date,
         batch_code,
         note: note || 'Manual stock-in',
+        location_id: storage_location_id,
       }, conn)
       await syncInventorySnapshot(req.params.id, conn)
+      const batchLabel = received.batch_code || `Batch #${received.batch_id}`
       await conn.query(
         `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, batch_id, to_location)
-         VALUES (?, ?, 'in', ?, ?, ?, ?, 'Main Stockroom')`,
-        [req.params.id, req.user.id, qty, `${note || 'Stock received'} · ${batch_code || `Batch #${newBatchId}`}${expiration_date ? ` · expires ${expiration_date}` : ''}`, movementType, newBatchId]
+         VALUES (?, ?, 'in', ?, ?, ?, ?, ?)`,
+        [req.params.id, req.user.id, qty, `${note || 'Stock received'} · ${batchLabel}${received.expiration_date ? ` · expires ${received.expiration_date}` : ''}`, movementType, received.batch_id, received.location]
       )
-      auditValues = { type: 'in', movement_type: movementType, quantity: Number(qty), batch_id: newBatchId, batch_code: batch_code || null, expiration_date: expiration_date || null, location: 'Main Stockroom', note: note || null }
+      auditValues = {
+        type: 'in', movement_type: movementType, quantity: Number(qty),
+        batch_id: received.batch_id, batch_code: received.batch_code || null,
+        expiration_date: received.expiration_date || null, location: received.location,
+        existing_batch: received.existing, previous_batch_quantity: received.previous_quantity,
+        new_batch_quantity: received.new_quantity, note: note || null,
+      }
     } else {
       const consumption = Array.isArray(selected_batches) && selected_batches.length > 0
         ? await consumeInventoryByBatches(req.params.id, selected_batches, conn)
@@ -1600,6 +1634,7 @@ const updateStock = async (req, res) => {
     res.json(updated[0])
   } catch (err) {
     await conn.rollback()
+    if (err?.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || null, existing_batch_id: err.existingBatchId || null })
     throw err
   } finally {
     conn.release()
@@ -1674,7 +1709,7 @@ module.exports = {
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
   getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getCashierShiftStatus, closeCashierShift, getPaymentSettingsForStaff,
-  getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
+  getInventory, getInventoryMasterData, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }

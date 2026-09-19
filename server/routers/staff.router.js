@@ -63,6 +63,7 @@ router.get('/billing-payment-settings', ...auth, staffCtrl.getPaymentSettingsFor
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 router.get('/inventory',              ...auth, staffCtrl.getInventory)
+router.get('/inventory/master-data',  ...auth, staffCtrl.getInventoryMasterData)
 router.post('/inventory',             ...auth, staffCtrl.addInventoryItem)
 router.patch('/inventory/:id/stock',  ...auth, staffCtrl.updateStock)
 // FIX 2: Edit and Delete inventory items

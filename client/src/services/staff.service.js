@@ -150,6 +150,9 @@ export const getBillingPaymentSettings = () =>
 export const getInventory = () =>
   fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
 
+export const getInventoryMasterData = (category = '') =>
+  requestJson(`${BASE}/inventory/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`)
+
 export const updateStock = (id, payload) =>
   requestJson(`${BASE}/inventory/${id}/stock`, {
     method: 'PATCH', credentials: 'include',
