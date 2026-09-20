@@ -142,7 +142,7 @@ const RegistrationForm = ({ onSuccess }) => {
       })
       const data = await res.json()
       if (!res.ok) return setError(data.message || 'Registration failed.')
-      onSuccess({ phone: data.phone || form.phone, devOtp: data.dev_otp || null })
+      onSuccess({ phone: data.phone || form.phone, email: data.email || form.email, method: data.verification_method || 'sms', devOtp: data.dev_otp || null })
     } catch { setError('Cannot connect to server.') }
     finally { setLoading(false) }
   }
@@ -177,110 +177,78 @@ const RegistrationForm = ({ onSuccess }) => {
   )
 }
 
-const VerificationForm = ({ pendingPhone, devOtp, onBack }) => {
+const maskEmail = (email = '') => {
+  const [name = '', domain = ''] = String(email).split('@')
+  if (!domain) return email
+  return `${name.slice(0, 2)}${'•'.repeat(Math.max(3, name.length - 2))}@${domain}`
+}
+const maskPhone = (phone = '') => {
+  const digits = String(phone).replace(/\D/g, '')
+  if (digits.length < 4) return phone
+  return `${digits.slice(0, 2)}${'•'.repeat(Math.max(5, digits.length - 6))}${digits.slice(-4)}`
+}
+
+const VerificationForm = ({ pendingPhone, pendingEmail, initialMethod = 'sms', devOtp, onBack }) => {
   const [code, setCode] = useState(devOtp || '')
+  const [method, setMethod] = useState(initialMethod)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [switching, setSwitching] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
 
+  const destination = method === 'email' ? maskEmail(pendingEmail) : maskPhone(pendingPhone)
+
+  const sendBy = async (nextMethod) => {
+    setSwitching(true); setError(''); setCode('')
+    try {
+      const res = await fetch('/api/patient/register/resend', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: pendingPhone, method: nextMethod }),
+      })
+      const data = await res.json()
+      if (!res.ok) return setError(data.message || 'Could not send another code.')
+      setMethod(nextMethod)
+      if (data.dev_otp) setCode(data.dev_otp)
+    } catch { setError('Cannot connect to server.') }
+    finally { setSwitching(false) }
+  }
+
   const handleVerify = async (event) => {
     event.preventDefault()
-    if (code.length < 6) {
-      setError('Please enter the complete 6-digit code.')
-      return
-    }
-
-    setError('')
-    setLoading(true)
+    if (code.length < 6) return setError('Please enter the complete 6-digit code.')
+    setError(''); setLoading(true)
     try {
       const res = await fetch('/api/patient/register/verify', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: pendingPhone, code }),
       })
       const data = await res.json()
-      if (!res.ok) {
-        setError(data.message || 'Verification failed.')
-        return
-      }
-      login(data.user, 'patient')
-      navigate('/patient')
-    } catch {
-      setError('Cannot connect to server.')
-    } finally {
-      setLoading(false)
-    }
+      if (!res.ok) return setError(data.message || 'Verification failed.')
+      login(data.user, 'patient'); navigate('/patient')
+    } catch { setError('Cannot connect to server.') }
+    finally { setLoading(false) }
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c] p-4">
-      <div className="w-full max-w-fit">
-        <div className="mb-6 flex flex-col items-center">
-          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10">
-            <img src="/logo.png" alt="Carait" className="h-10 w-10 object-contain" />
-          </div>
-          <h1 className="text-xl font-black text-white">Carait Clinic</h1>
-        </div>
-
+      <div className="w-full max-w-md">
+        <div className="mb-6 flex flex-col items-center"><div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10"><img src="/logo.png" alt="Carait" className="h-10 w-10 object-contain" /></div><h1 className="text-xl font-black text-white">Carait Clinic</h1></div>
         <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
-          <div className="h-1 bg-slate-100">
-            <div className="h-1 w-full bg-emerald-500 transition-all" />
-          </div>
-
           <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5 text-center">
-            <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold text-white/60">Step 2 of 2</span>
-            <h2 className="mt-1 text-lg font-bold text-white">Verify Your Phone</h2>
-            <p className="mt-0.5 text-sm text-emerald-100">Code sent to</p>
-            <p className="text-sm font-bold text-white">{pendingPhone}</p>
+            <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold text-white/70">Step 2 of 2</span>
+            <h2 className="mt-1 text-lg font-bold text-white">Verify Your {method === 'email' ? 'Email' : 'Mobile Number'}</h2>
+            <p className="mt-1 text-sm text-emerald-100">Code sent by {method === 'email' ? 'email' : 'SMS'} to</p>
+            <p className="text-sm font-bold text-white">{destination}</p>
           </div>
-
           <form onSubmit={handleVerify} className="space-y-5 px-6 py-6">
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
-              <p className="text-xs text-amber-700">
-                Check your SMS inbox. The code expires in 10 minutes.
-                {devOtp ? ` Dev OTP: ${devOtp}` : ''}
-              </p>
-            </div>
-
-            {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-600">
-                {error}
-              </div>
-            )}
-
-            <div>
-              <label className="mb-3 block text-center text-[11px] font-bold uppercase tracking-widest text-slate-500">
-                6-Digit Verification Code
-              </label>
-              <OtpBoxes value={code} onChange={(next) => { setCode(next); setError('') }} />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || code.length < 6}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white transition-colors hover:bg-emerald-600 disabled:opacity-60"
-            >
-              {loading ? (
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              ) : (
-                <>
-                  <MdCheckCircle className="text-[16px]" />
-                  Verify and Create Account
-                </>
-              )}
-            </button>
-
-            <div className="flex items-center justify-center gap-4 text-xs">
-              <button
-                type="button"
-                onClick={onBack}
-                className="flex items-center gap-1 text-slate-400 transition-colors hover:text-slate-600"
-              >
-                <MdArrowBack className="text-[13px]" />
-                Change phone number
-              </button>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-center"><p className="text-xs text-amber-700">The verification code expires in 10 minutes.{devOtp ? ` Dev OTP: ${devOtp}` : ''}</p></div>
+            {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-600">{error}</div>}
+            <div><label className="mb-3 block text-center text-xs font-bold uppercase tracking-wider text-slate-500">6-Digit Verification Code</label><OtpBoxes value={code} onChange={(next) => { setCode(next); setError('') }} /></div>
+            <button type="submit" disabled={loading || switching || code.length < 6} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60">{loading ? 'Verifying…' : <><MdCheckCircle /> Verify and Create Account</>}</button>
+            <div className="space-y-2 text-center text-sm">
+              <button type="button" disabled={switching} onClick={() => sendBy(method === 'sms' ? 'email' : 'sms')} className="font-bold text-emerald-600 hover:text-emerald-700 disabled:opacity-50">{switching ? 'Sending…' : `Try another way — use ${method === 'sms' ? 'email' : 'SMS'}`}</button>
+              <div><button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600"><MdArrowBack /> Change registration details</button></div>
             </div>
           </form>
         </div>
@@ -288,7 +256,6 @@ const VerificationForm = ({ pendingPhone, devOtp, onBack }) => {
     </div>
   )
 }
-
 const PatientRegister = () => {
   const [pendingRegistration, setPendingRegistration] = useState(null)
 
@@ -296,6 +263,8 @@ const PatientRegister = () => {
     return (
       <VerificationForm
         pendingPhone={pendingRegistration.phone}
+        pendingEmail={pendingRegistration.email}
+        initialMethod={pendingRegistration.method}
         devOtp={pendingRegistration.devOtp}
         onBack={() => setPendingRegistration(null)}
       />

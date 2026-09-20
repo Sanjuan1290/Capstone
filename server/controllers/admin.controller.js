@@ -2539,12 +2539,176 @@ const saveDiscountPresetAdmin = async (req,res) => {
   const [rows]=await db.query('SELECT * FROM discount_presets WHERE id=?',[targetId]);res.status(id?200:201).json(rows[0])
 }
 
+// ── System setup / inventory reference data ──────────────────────────────────
+const getSystemSetup = async (req, res) => {
+  const [visitReasons, uoms, suppliers, locationTypes] = await Promise.all([
+    db.query('SELECT id,label,clinic_type,is_active,sort_order FROM appointment_reason_options ORDER BY sort_order,label'),
+    db.query('SELECT id,name,abbreviation,is_active,sort_order FROM inventory_uoms ORDER BY sort_order,name'),
+    db.query('SELECT id,name,category,is_active FROM inventory_suppliers ORDER BY category,name'),
+    db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY sort_order,name'),
+  ])
+  res.json({ visit_reasons: visitReasons[0], uoms: uoms[0], suppliers: suppliers[0], location_types: locationTypes[0] })
+}
+
+const saveInventoryUom = async (req, res) => {
+  const id = Number(req.params.id || 0)
+  const name = String(req.body?.name || '').trim()
+  const abbreviation = String(req.body?.abbreviation || '').trim() || null
+  const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
+  const sortOrder = Number(req.body?.sort_order || 0)
+  if (!name) return res.status(400).json({ message: 'Unit of Measure name is required.' })
+  try {
+    let targetId = id
+    if (id) {
+      await db.query('UPDATE inventory_uoms SET name=?,abbreviation=?,is_active=?,sort_order=? WHERE id=?', [name,abbreviation,isActive,sortOrder,id])
+    } else {
+      const [result] = await db.query('INSERT INTO inventory_uoms (name,abbreviation,is_active,sort_order) VALUES (?,?,?,?)', [name,abbreviation,isActive,sortOrder])
+      targetId = result.insertId
+    }
+    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:id?'system.uom_updated':'system.uom_created',entityType:'inventory_uom',entityId:targetId,newValues:{name,abbreviation,is_active:isActive},ipAddress:req.ip||null })
+    const [[row]] = await db.query('SELECT id,name,abbreviation,is_active,sort_order FROM inventory_uoms WHERE id=?',[targetId])
+    res.status(id ? 200 : 201).json(row)
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That Unit of Measure already exists.' })
+    throw err
+  }
+}
+
+const saveInventorySupplier = async (req, res) => {
+  const id = Number(req.params.id || 0)
+  const name = String(req.body?.name || '').trim()
+  const category = ['medical','derma'].includes(String(req.body?.category || '')) ? String(req.body.category) : null
+  const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
+  if (!name || !category) return res.status(400).json({ message: 'Supplier name and category are required.' })
+  try {
+    let targetId=id
+    if (id) await db.query('UPDATE inventory_suppliers SET name=?,category=?,is_active=? WHERE id=?',[name,category,isActive,id])
+    else { const [result]=await db.query('INSERT INTO inventory_suppliers (name,category,is_active) VALUES (?,?,?)',[name,category,isActive]); targetId=result.insertId }
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'system.supplier_updated':'system.supplier_created',entityType:'inventory_supplier',entityId:targetId,newValues:{name,category,is_active:isActive},ipAddress:req.ip||null})
+    const [[row]]=await db.query('SELECT id,name,category,is_active FROM inventory_suppliers WHERE id=?',[targetId])
+    res.status(id?200:201).json(row)
+  } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That supplier already exists for this category.'}); throw err }
+}
+
+const saveInventoryLocationType = async (req,res) => {
+  const id=Number(req.params.id||0)
+  const name=String(req.body?.name||'').trim()
+  const requestedCode=String(req.body?.code||'').trim().toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'')
+  const code=requestedCode || name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')
+  const isActive=req.body?.is_active===false||Number(req.body?.is_active)===0?0:1
+  const sortOrder=Number(req.body?.sort_order||0)
+  if(!name||!code) return res.status(400).json({message:'Location Type name is required.'})
+  try{
+    let targetId=id
+    if(id){
+      const [[existing]]=await db.query('SELECT code FROM inventory_location_types WHERE id=?',[id])
+      if(!existing) return res.status(404).json({message:'Location Type not found.'})
+      const [[inUse]]=await db.query('SELECT COUNT(*) AS total FROM inventory_locations WHERE location_type=?',[existing.code])
+      if(existing.code!==code && Number(inUse?.total||0)>0) return res.status(409).json({message:'This Location Type is already used by storage locations. Keep its internal code and rename only the display name.'})
+      await db.query('UPDATE inventory_location_types SET name=?,code=?,is_active=?,sort_order=? WHERE id=?',[name,code,isActive,sortOrder,id])
+    } else { const [result]=await db.query('INSERT INTO inventory_location_types (name,code,is_active,sort_order) VALUES (?,?,?,?)',[name,code,isActive,sortOrder]); targetId=result.insertId }
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'system.location_type_updated':'system.location_type_created',entityType:'inventory_location_type',entityId:targetId,newValues:{name,code,is_active:isActive},ipAddress:req.ip||null})
+    const [[row]]=await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE id=?',[targetId])
+    res.status(id?200:201).json(row)
+  } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That Location Type already exists.'}); throw err }
+}
+
+const getInventoryLocationsAdmin = async (req,res) => {
+  const [rows]=await db.query(`SELECT l.id,l.name,l.location_type,l.is_active,l.created_at,
+      COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.inventory_id END) AS item_count,
+      COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.batch_id END) AS batch_count,
+      COALESCE(SUM(CASE WHEN ilb.quantity>0 THEN ilb.quantity ELSE 0 END),0) AS total_quantity
+    FROM inventory_locations l
+    LEFT JOIN inventory_location_batches ilb ON ilb.location_id=l.id
+    GROUP BY l.id
+    ORDER BY l.is_active DESC,l.name`)
+  res.json(rows)
+}
+
+const updateInventoryLocation = async (req,res) => {
+  const id=Number(req.params.id)
+  const name=String(req.body?.name||'').trim()
+  const locationType=String(req.body?.location_type||'').trim()
+  const isActive=req.body?.is_active===false||Number(req.body?.is_active)===0?0:1
+  if(!id||!name||!locationType) return res.status(400).json({message:'Location name and type are required.'})
+  const [[current]]=await db.query('SELECT * FROM inventory_locations WHERE id=?',[id])
+  if(!current) return res.status(404).json({message:'Storage location not found.'})
+  if(!isActive){
+    const [[stock]]=await db.query('SELECT COALESCE(SUM(quantity),0) AS qty FROM inventory_location_batches WHERE location_id=? AND quantity>0',[id])
+    if(Number(stock?.qty||0)>0) return res.status(409).json({message:'Move all remaining stock out of this location before deactivating it.',code:'LOCATION_HAS_STOCK'})
+  }
+  try{
+    await db.query('UPDATE inventory_locations SET name=?,location_type=?,is_active=? WHERE id=?',[name,locationType,isActive,id])
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,oldValues:current,newValues:{name,location_type:locationType,is_active:isActive},ipAddress:req.ip||null})
+    const [[row]]=await db.query('SELECT * FROM inventory_locations WHERE id=?',[id]);res.json(row)
+  }catch(err){if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That storage location name already exists.'});throw err}
+}
+
+const deleteInventoryLocation = async (req,res) => {
+  const id=Number(req.params.id)
+  const [[current]]=await db.query('SELECT * FROM inventory_locations WHERE id=?',[id])
+  if(!current) return res.status(404).json({message:'Storage location not found.'})
+  const [[usage]]=await db.query(`SELECT
+    (SELECT COUNT(*) FROM inventory_location_batches WHERE location_id=?) +
+    (SELECT COUNT(*) FROM inventory_location_stock WHERE location_id=?) +
+    (SELECT COUNT(*) FROM supply_requests WHERE destination_location_id=?) AS total`,[id,id,id])
+  if(Number(usage?.total||0)>0) return res.status(409).json({message:'This location has inventory or transaction history and cannot be deleted. Deactivate it instead.',code:'LOCATION_REFERENCED'})
+  await db.query('DELETE FROM inventory_locations WHERE id=?',[id])
+  await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.location_deleted',entityType:'inventory_location',entityId:id,oldValues:current,ipAddress:req.ip||null})
+  res.json({message:'Storage location deleted.'})
+}
+
+// ── Audit archive ─────────────────────────────────────────────────────────────
+const getAuditArchiveBatches = async (req,res) => {
+  const page=Math.max(1,Number(req.query.page)||1),limit=Math.min(50,Math.max(1,Number(req.query.limit)||10)),offset=(page-1)*limit
+  const [[count]]=await db.query('SELECT COUNT(*) AS total FROM audit_log_archives')
+  const [items]=await db.query(`SELECT aa.*,a.full_name AS archived_by FROM audit_log_archives aa LEFT JOIN admins a ON a.id=aa.archived_by_admin_id ORDER BY aa.archived_at DESC LIMIT ? OFFSET ?`,[limit,offset])
+  const total=Number(count?.total||0);res.json({items,pagination:{page,limit,total,totalPages:Math.max(1,Math.ceil(total/limit))}})
+}
+
+const getAuditArchiveDetail = async (req,res) => {
+  const id=Number(req.params.archiveId),page=Math.max(1,Number(req.query.page)||1),limit=Math.min(100,Math.max(1,Number(req.query.limit)||20)),offset=(page-1)*limit
+  const [[archive]]=await db.query('SELECT * FROM audit_log_archives WHERE id=?',[id]);if(!archive)return res.status(404).json({message:'Archive not found.'})
+  const [[count]]=await db.query('SELECT COUNT(*) AS total FROM audit_logs WHERE archive_id=?',[id])
+  const [items]=await db.query('SELECT * FROM audit_logs WHERE archive_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?',[id,limit,offset])
+  const total=Number(count?.total||0);res.json({archive,items,pagination:{page,limit,total,totalPages:Math.max(1,Math.ceil(total/limit))}})
+}
+
+const archiveAuditLogs = async (req,res) => {
+  const cutoff=new Date();cutoff.setFullYear(cutoff.getFullYear()-1)
+  const cutoffSql=cutoff.toISOString().slice(0,19).replace('T',' ')
+  const conn=await db.getConnection()
+  try{
+    await conn.beginTransaction()
+    const [[eligible]]=await conn.query('SELECT COUNT(*) AS total,MIN(created_at) AS oldest,MAX(created_at) AS newest FROM audit_logs WHERE archive_id IS NULL AND created_at <= ?',[cutoffSql])
+    if(Number(eligible?.total||0)===0){await conn.rollback();return res.status(409).json({message:'No audit logs are old enough to archive. Logs must be at least 1 year old.',code:'NO_ELIGIBLE_AUDIT_LOGS'})}
+    const code=`ARC-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-6)}`
+    const [result]=await conn.query('INSERT INTO audit_log_archives (archive_code,cutoff_at,log_count,archived_by_admin_id) VALUES (?,?,?,?)',[code,cutoffSql,Number(eligible.total),req.user.id])
+    await conn.query('UPDATE audit_logs SET archive_id=?,archived_at=NOW() WHERE archive_id IS NULL AND created_at <= ?',[result.insertId,cutoffSql])
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'audit.archive_created',entityType:'audit_archive',entityId:result.insertId,newValues:{archive_code:code,log_count:Number(eligible.total),cutoff_at:cutoffSql},ipAddress:req.ip||null},conn)
+    await conn.commit();res.status(201).json({id:result.insertId,archive_code:code,log_count:Number(eligible.total),cutoff_at:cutoffSql})
+  }catch(err){await conn.rollback();throw err}finally{conn.release()}
+}
+
+const deleteAuditArchive = async (req,res) => {
+  const id=Number(req.params.archiveId),reason=String(req.body?.reason||'').trim(),confirmation=String(req.body?.confirmation||'').trim()
+  if(confirmation!=='DELETE') return res.status(400).json({message:'Type DELETE to confirm permanent archive deletion.'})
+  if(!reason) return res.status(400).json({message:'A deletion reason is required.'})
+  const conn=await db.getConnection()
+  try{
+    await conn.beginTransaction();const [[archive]]=await conn.query('SELECT * FROM audit_log_archives WHERE id=? FOR UPDATE',[id]);if(!archive){await conn.rollback();return res.status(404).json({message:'Archive not found.'})}
+    await conn.query('DELETE FROM audit_logs WHERE archive_id=?',[id]);await conn.query('DELETE FROM audit_log_archives WHERE id=?',[id])
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'audit.archive_deleted',entityType:'audit_archive',entityId:id,oldValues:{archive_code:archive.archive_code,log_count:archive.log_count},newValues:{reason},ipAddress:req.ip||null},conn)
+    await conn.commit();res.json({message:'Archived audit log batch permanently deleted.'})
+  }catch(err){await conn.rollback();throw err}finally{conn.release()}
+}
+
 // ── System audit log ──────────────────────────────────────────────────────────
 const getAuditLogs = async (req,res) => {
   const page=Math.max(1,Number(req.query.page)||1), limit=Math.min(100,Math.max(1,Number(req.query.limit)||20)), offset=(page-1)*limit
   // MFA challenge/verification events stay in the database for security forensics,
   // but they are intentionally hidden from the normal Admin activity feed.
-  const filters=["al.action NOT IN ('auth.mfa_challenge_sent','auth.mfa_verified')"],params=[]
+  const filters=["al.archive_id IS NULL", "al.action NOT IN ('auth.mfa_challenge_sent','auth.mfa_verified')"],params=[]
   if(req.query.start_date){filters.push('DATE(al.created_at)>=?');params.push(String(req.query.start_date))}
   if(req.query.end_date){filters.push('DATE(al.created_at)<=?');params.push(String(req.query.end_date))}
   if(req.query.user_role){filters.push('al.user_role=?');params.push(String(req.query.user_role))}
@@ -2614,7 +2778,8 @@ module.exports = {
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
   getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, reopenCashierShiftAdmin, voidBillingPayment, refundBillingPayment,
-  getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs,
+  getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
+  getSystemSetup, saveInventoryUom, saveInventorySupplier, saveInventoryLocationType, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
   getReports, recordReportExport, getInventoryLogs,
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,

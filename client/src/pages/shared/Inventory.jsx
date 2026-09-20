@@ -508,6 +508,33 @@ const StorageLocationModal = ({ onClose, onCreate }) => {
   return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4"><div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><div className="flex justify-between"><div><h3 className="font-bold text-slate-900">Add Storage Location</h3><p className="mt-1 text-xs text-slate-500">Create a reusable inventory location.</p></div><button onClick={onClose}><MdClose/></button></div><div className="mt-5 grid gap-4"><Field label="Location Name *"><input className={inputClass} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Dermatology Cabinet A"/></Field><Field label="Location Type"><select className={inputClass} value={locationType} onChange={e=>setLocationType(e.target.value)}><option value="stockroom">Main Stockroom</option><option value="room">Treatment Room</option><option value="dispensing">Dispensing Area</option><option value="storage">General Storage</option></select></Field><div className="flex justify-end gap-2"><button className="button-secondary" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy||!name.trim()} onClick={save}>{busy?'Saving...':'Add Location'}</button></div></div></div></div>
 }
 
+
+const StorageLocationsSection = ({ locations = [], items = [], onAdd, onEdit, onDelete }) => {
+  const [search, setSearch] = useState('')
+  const [edit, setEdit] = useState(null)
+  const [form, setForm] = useState({ name: '', location_type: 'storage', is_active: 1 })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const visible = locations.filter((location) => String(location.name || '').toLowerCase().includes(search.toLowerCase()))
+  const usageFor = (location) => {
+    const inventoryIds = new Set(); const batchIds = new Set()
+    items.forEach((item) => (item.batches || []).forEach((batch) => (batch.locations || []).forEach((entry) => {
+      if ((Number(entry.location_id) === Number(location.id) || entry.name === location.name) && Number(entry.quantity || 0) > 0) { inventoryIds.add(item.id); batchIds.add(batch.id) }
+    })))
+    return { items: Number(location.item_count ?? inventoryIds.size), batches: Number(location.batch_count ?? batchIds.size) }
+  }
+  const openEdit = (location) => { setEdit(location); setForm({ name: location.name || '', location_type: location.location_type || 'storage', is_active: Number(location.is_active ?? 1) }); setError('') }
+  const save = async () => { if (!onEdit || !form.name.trim()) return; setBusy(true); setError(''); try { await onEdit(edit.id, form); setEdit(null) } catch (e) { setError(e.message || 'Could not update location.') } finally { setBusy(false) } }
+  const remove = async (location) => { if (!onDelete) return; if (!window.confirm(`Delete ${location.name}? Only unused locations can be permanently deleted.`)) return; try { await onDelete(location.id) } catch (e) { alert(e.message || 'Could not delete location.') } }
+  return <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-800">Storage Locations</h2><p className="mt-1 text-sm text-slate-500">Manage the actual rooms, cabinets, stockrooms, and dispensing areas where batches are stored.</p></div>{onAdd && <button type="button" onClick={onAdd} className="button-primary"><MdAdd/> Add Storage Location</button>}</div>
+    <div className="mt-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><MdSearch className="text-slate-400"/><input className="w-full bg-transparent text-sm outline-none" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search storage locations..."/></div>
+    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visible.map((location)=>{const usage=usageFor(location);return <div key={location.id} className={`rounded-2xl border p-4 ${Number(location.is_active ?? 1) ? 'border-slate-200' : 'border-slate-200 bg-slate-50 opacity-70'}`}><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-slate-800">{location.name}</p><p className="mt-1 text-xs text-slate-500">{String(location.location_type || 'storage').replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${Number(location.is_active ?? 1)?'bg-emerald-50 text-emerald-700':'bg-slate-200 text-slate-600'}`}>{Number(location.is_active ?? 1)?'ACTIVE':'INACTIVE'}</span></div><p className="mt-4 text-sm text-slate-600"><strong>{usage.items}</strong> items · <strong>{usage.batches}</strong> active batches</p><div className="mt-4 flex justify-end gap-2">{onEdit&&<button type="button" className="button-secondary" onClick={()=>openEdit(location)}><MdEdit/> Edit</button>}{onDelete&&<button type="button" className="button-secondary text-red-600" onClick={()=>remove(location)}><MdDelete/> Delete</button>}</div></div>})}</div>
+    {!visible.length && <div className="mt-4 rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-400">No storage locations found.</div>}
+    {edit && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-4"><div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><div className="flex items-start justify-between"><div><h3 className="font-bold text-slate-900">Edit Storage Location</h3><p className="mt-1 text-xs text-slate-500">Location history is preserved even when the location is renamed.</p></div><button type="button" onClick={()=>!busy&&setEdit(null)}><MdClose/></button></div><div className="mt-5 space-y-4"><Field label="Location Name *"><input className={inputClass} value={form.name} onChange={(e)=>setForm(p=>({...p,name:e.target.value}))}/></Field><Field label="Location Type *"><select className={inputClass} value={form.location_type} onChange={(e)=>setForm(p=>({...p,location_type:e.target.value}))}><option value="stockroom">Main Stockroom</option><option value="room">Treatment Room</option><option value="dispensing">Dispensing Area</option><option value="storage">General Storage</option></select></Field>{onDelete && <Field label="Status"><select className={inputClass} value={form.is_active} onChange={(e)=>setForm(p=>({...p,is_active:Number(e.target.value)}))}><option value={1}>Active</option><option value={0}>Inactive</option></select></Field>}{error&&<p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}<div className="flex justify-end gap-2"><button type="button" className="button-secondary" disabled={busy} onClick={()=>setEdit(null)}>Cancel</button><button type="button" className="button-primary" disabled={busy||!form.name.trim()} onClick={save}>{busy?'Saving...':'Save Changes'}</button></div></div></div></div>}
+  </section>
+}
+
 const StockModal = ({ item, onClose, onSubmit, locations = [] }) => {
   const [type, setType] = useState('in')
   const [qty, setQty] = useState('1')
@@ -718,7 +745,7 @@ const inputClass = 'w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 
 
 const Inventory = ({ services, canManageSellingPrice = false }) => {
   const toast = useToast()
-  const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, createInventoryLocation, createInventorySupplier } = services
+  const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, getInventoryLocations, createInventoryLocation, updateInventoryLocation, deleteInventoryLocation, createInventorySupplier } = services
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -738,16 +765,17 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [data, masters] = await Promise.all([
+      const [data, masters, locationRows] = await Promise.all([
         getInventory(),
         getInventoryMasterData ? getInventoryMasterData().catch(() => null) : Promise.resolve(null),
+        getInventoryLocations ? getInventoryLocations().catch(() => null) : Promise.resolve(null),
       ])
       setItems(Array.isArray(data) ? data : data?.items || [])
-      if (masters) setMasterData({ uoms: masters.uoms || [], suppliers: masters.suppliers || [], locations: masters.locations || [] })
+      if (masters || locationRows) setMasterData({ uoms: masters?.uoms || [], suppliers: masters?.suppliers || [], locations: Array.isArray(locationRows) ? locationRows : (masters?.locations || []) })
     } finally {
       setLoading(false)
     }
-  }, [getInventory, getInventoryMasterData])
+  }, [getInventory, getInventoryMasterData, getInventoryLocations])
 
   useEffect(() => { load() }, [load])
 
@@ -996,6 +1024,14 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
           </div>
         </div>
       )}
+
+      <StorageLocationsSection
+        locations={masterData.locations || []}
+        items={items}
+        onAdd={createInventoryLocation ? () => setShowLocation(true) : null}
+        onEdit={updateInventoryLocation ? async (id,payload) => { const updated=await updateInventoryLocation(id,payload); setMasterData(prev=>({...prev,locations:prev.locations.map(x=>Number(x.id)===Number(id)?{...x,...updated}:x)})); setFeedback({type:'success',message:'Storage location updated.'}) } : null}
+        onDelete={deleteInventoryLocation ? async (id) => { await deleteInventoryLocation(id); setMasterData(prev=>({...prev,locations:prev.locations.filter(x=>Number(x.id)!==Number(id))})); setFeedback({type:'success',message:'Unused storage location deleted.'}) } : null}
+      />
 
       {showLocation && createInventoryLocation && <StorageLocationModal onClose={() => setShowLocation(false)} onCreate={async (payload) => { const created = await createInventoryLocation(payload); setMasterData(prev => ({ ...prev, locations: [...prev.locations, created] })); setFeedback({ type: 'success', message: `${created.name} storage location added.` }) }} />}
       {showAdd && <ItemFormModal title="Add Item" initialBarcode={newItemBarcode} canManageSellingPrice={canManageSellingPrice} masterData={masterData} existingItems={items} onCreateSupplier={async (payload) => { if (!createInventorySupplier) return payload; const created = await createInventorySupplier(payload); setMasterData(prev => ({ ...prev, suppliers: [...prev.suppliers.filter(x => Number(x.id)!==Number(created.id)), created] })); return created }} onClose={() => { setShowAdd(false); setNewItemBarcode('') }} onSubmit={handleAdd} />}

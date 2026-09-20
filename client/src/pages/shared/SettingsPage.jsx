@@ -39,6 +39,11 @@ const SettingsPage = () => {
   const [clinicOriginal, setClinicOriginal] = useState(CLINIC_EMPTY)
   const [clinicEditing, setClinicEditing] = useState(false)
   const [clinicSaving, setClinicSaving] = useState(false)
+  const [adminVerifyOpen, setAdminVerifyOpen] = useState(false)
+  const [adminVerifyStage, setAdminVerifyStage] = useState('current_email')
+  const [adminVerifyCode, setAdminVerifyCode] = useState('')
+  const [adminPendingProfile, setAdminPendingProfile] = useState(null)
+  const [adminVerifyMessage, setAdminVerifyMessage] = useState('')
 
   const loadSettings = async () => {
     if (!role) return
@@ -100,6 +105,18 @@ const SettingsPage = () => {
       if (!form.gender) return setError('Gender is required.')
       if (!String(form.address || '').trim()) return setError('Address is required.')
     }
+    if (role === 'admin') {
+      setSaving(true); setError('')
+      const payload = { full_name: form.full_name, email: form.email, profile_image_url: form.profile_image_url }
+      try {
+        const response = await fetch('/api/admin/settings/verification/request', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.message || 'Could not send verification code.')
+        setAdminPendingProfile(payload); setAdminVerifyStage('current_email'); setAdminVerifyCode(''); setAdminVerifyMessage(data.message || 'Verification code sent.'); setAdminVerifyOpen(true)
+      } catch (err) { setError(err.message) }
+      finally { setSaving(false) }
+      return
+    }
     setSaving(true); setError('')
     try {
       const payload = { ...form }
@@ -108,6 +125,25 @@ const SettingsPage = () => {
       setForm(saved); setOriginal(saved); setEditing(false)
       setUser((prev) => prev ? { ...prev, ...saved, role } : prev)
     } catch (err) { setError(err.message) }
+    finally { setSaving(false) }
+  }
+
+  const confirmAdminProfile = async () => {
+    if (adminVerifyCode.length !== 6) return setAdminVerifyMessage('Enter the 6-digit verification code.')
+    setSaving(true); setAdminVerifyMessage('')
+    try {
+      const response = await fetch('/api/admin/settings/verification/confirm', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage: adminVerifyStage, code: adminVerifyCode }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || 'Verification failed.')
+      if (data.requires_new_email) {
+        setAdminVerifyStage('new_email'); setAdminVerifyCode(''); setAdminVerifyMessage(data.message)
+        return
+      }
+      const saved = data.settings || adminPendingProfile
+      setForm((prev) => ({ ...prev, ...saved })); setOriginal((prev) => ({ ...prev, ...saved })); setEditing(false)
+      setUser((prev) => prev ? { ...prev, ...saved, role: 'admin' } : prev)
+      setAdminVerifyOpen(false); setAdminPendingProfile(null); setAdminVerifyCode(''); setAdminVerifyMessage('')
+    } catch (err) { setAdminVerifyMessage(err.message || 'Verification failed.') }
     finally { setSaving(false) }
   }
 
@@ -153,7 +189,7 @@ const SettingsPage = () => {
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1.5"><span className="form-label">Full Name *</span><input value={form.full_name || ''} onChange={onChange('full_name')} className="form-control"/></label>
-              {'email' in form && <label className="space-y-1.5"><span className="form-label">Email {role === 'patient' ? '*' : ''}</span><input type="email" required={role === 'patient'} value={form.email || ''} onChange={onChange('email')} className="form-control"/></label>}
+              {'email' in form && <label className="space-y-1.5"><span className="form-label">Email {['patient','admin'].includes(role) ? '*' : ''}</span><input type="email" required={['patient','admin'].includes(role)} value={form.email || ''} onChange={onChange('email')} className="form-control"/>{role === 'admin' && <span className="form-helper">Saving personal information requires verification. Email changes are verified at both your current and new email addresses.</span>}</label>}
               {'phone' in form && role !== 'patient' && <label className="space-y-1.5"><span className="form-label">Phone</span><PhilippinePhoneInput value={form.phone || ''} onChange={onChange('phone')}/></label>}
               {role === 'patient' && <div className="space-y-1.5"><span className="form-label">Mobile Number *</span><PhilippinePhoneInput value={form.phone || ''} disabled/><button type="button" onClick={openPhoneChange} className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700"><MdPhoneAndroid/> Change mobile number securely</button></div>}
               {role === 'doctor' && <label className="space-y-1.5 md:col-span-2"><span className="form-label">Specialty</span><input value={form.specialty || ''} onChange={onChange('specialty')} className="form-control"/></label>}
@@ -174,6 +210,14 @@ const SettingsPage = () => {
       </section>}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="font-bold text-slate-900">Account Security</h2><p className="mt-1 text-sm text-slate-500">Change your password using current-password verification followed by an email code.</p></div><button type="button" className="button-secondary" onClick={() => navigate(`/${role}/change-password`)}>Change Password</button></div></section>
+
+      <Modal open={adminVerifyOpen} onClose={() => !saving && setAdminVerifyOpen(false)} title="Verify Personal Information" description={adminVerifyStage === 'current_email' ? 'Enter the code sent to your current administrator email.' : 'Enter the second code sent to your new email address.'} size="md">
+        <div className="space-y-4">
+          <label className="block"><span className="form-label">6-Digit Verification Code</span><input value={adminVerifyCode} onChange={(e)=>setAdminVerifyCode(e.target.value.replace(/\D/g,'').slice(0,6))} inputMode="numeric" maxLength={6} className="form-control mt-1.5 text-center text-xl font-black tracking-[.35em]" /></label>
+          {adminVerifyMessage && <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{adminVerifyMessage}</p>}
+          <div className="flex justify-end gap-2"><button type="button" className="button-secondary" disabled={saving} onClick={()=>setAdminVerifyOpen(false)}>Cancel</button><button type="button" className="button-primary" disabled={saving || adminVerifyCode.length !== 6} onClick={confirmAdminProfile}>{saving ? 'Verifying...' : adminVerifyStage === 'current_email' ? 'Verify Current Email' : 'Verify New Email & Save'}</button></div>
+        </div>
+      </Modal>
 
       <Modal open={phoneModalOpen} onClose={() => !phoneBusy && setPhoneModalOpen(false)} title="Change Mobile Number" description="The new mobile number must be verified before it replaces your current number." size="md">
         <div className="space-y-4">{phoneStep === 'number' ? <><div><label className="form-label">New Mobile Number</label><PhilippinePhoneInput value={newPhone} onChange={(e)=>setNewPhone(e.target.value)}/><p className="mt-2 text-xs text-slate-500">We will send a 6-digit verification code to this number.</p></div><button type="button" onClick={sendPhoneCode} disabled={phoneBusy} className="button-primary w-full justify-center"><MdVerifiedUser/> {phoneBusy?'Sending...':'Send Verification Code'}</button></> : <><div><label className="form-label">Verification Code</label><input value={phoneCode} onChange={(e)=>setPhoneCode(e.target.value.replace(/\D/g,'').slice(0,6))} inputMode="numeric" maxLength={6} className="form-control text-center text-lg font-black tracking-[.35em]"/></div><div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setPhoneStep('number')} className="button-secondary justify-center">Back</button><button type="button" onClick={confirmPhoneCode} disabled={phoneBusy} className="button-primary justify-center">{phoneBusy?'Verifying...':'Verify & Change'}</button></div></>}{phoneMessage && <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{phoneMessage}</p>}</div>

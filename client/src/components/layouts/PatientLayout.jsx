@@ -41,6 +41,7 @@ const PatientLayout = () => {
   useSSE('patient', user?.id, handleSSEMessage)
 
   const handleLogout = async () => {
+    if (!window.confirm('Are you sure you want to log out of Carait Clinic?')) return
     setLoggingOut(true)
     setLogoutError("")
     try {

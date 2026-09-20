@@ -13,7 +13,6 @@ import {
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const TIME_OPTIONS = Array.from({length: 29}, (_, i) => { const mins=6*60+i*30; const h=Math.floor(mins/60), m=mins%60; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}` })
 
 const DAY_CFG = {
   Monday: { abbr: 'Mon', color: 'bg-sky-500', light: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', ring: 'focus:border-sky-400' },
@@ -70,6 +69,10 @@ const DayCard = ({ day, schedule, onSaved }) => {
   }
 
   const handleSave = async () => {
+    if (!form.start_time || !form.end_time || form.start_time >= form.end_time) {
+      alert('End time must be later than start time. Use separate day blocks for overnight schedules.')
+      return
+    }
     setSaving(true)
     try {
       await saveMyScheduleDay({ day_of_week: day, ...form })
@@ -134,7 +137,7 @@ const DayCard = ({ day, schedule, onSaved }) => {
                   { label: 'Slot', value: `${form.slot_duration_mins}m` },
                 ].map(({ label, value }) => (
                   <div key={label} className={`${cfg.light} ${cfg.border} rounded-xl border px-3 py-2.5 text-center`}>
-                    <p className="mb-0.5 text-[9px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+                    <p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p>
                     <p className={`text-base font-black leading-5 ${cfg.text}`}>{schedule ? value : '-'}</p>
                   </div>
                 ))}
@@ -151,16 +154,16 @@ const DayCard = ({ day, schedule, onSaved }) => {
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-widest text-slate-500">Start</label>
-                  <select value={form.start_time} onChange={(e) => setForm((current) => ({ ...current, start_time: e.target.value }))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-base font-bold outline-none transition-all ${cfg.ring}`}>{TIME_OPTIONS.map(t=><option key={t} value={t}>{fmtTime(t)}</option>)}</select>
+                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Start</label>
+                  <input type="time" step="60" value={form.start_time} onChange={(e) => setForm((current) => ({ ...current, start_time: e.target.value }))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-base font-bold outline-none transition-all ${cfg.ring}`} />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-widest text-slate-500">End</label>
-                  <select value={form.end_time} onChange={(e) => setForm((current) => ({ ...current, end_time: e.target.value }))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-base font-bold outline-none transition-all ${cfg.ring}`}>{TIME_OPTIONS.map(t=><option key={t} value={t}>{fmtTime(t)}</option>)}</select>
+                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">End</label>
+                  <input type="time" step="60" value={form.end_time} onChange={(e) => setForm((current) => ({ ...current, end_time: e.target.value }))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-base font-bold outline-none transition-all ${cfg.ring}`} />
                 </div>
               </div>
               <div>
-                <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-widest text-slate-500">Slot Duration</label>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Slot Duration</label>
                 <select
                   value={form.slot_duration_mins}
                   onChange={(e) => setForm((current) => ({ ...current, slot_duration_mins: Number(e.target.value) }))}

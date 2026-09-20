@@ -4,12 +4,12 @@ import { MdDashboard, MdReceiptLong, MdApproval, MdAccountBalanceWallet, MdSetti
 const ITEMS = [
   { label: 'Overview', path: '/admin/billing', icon: MdDashboard, exact: true },
   { label: 'Transactions', path: '/admin/billing/transactions', icon: MdReceiptLong },
-  { label: 'Approvals', path: '/admin/billing/approvals', icon: MdApproval },
+  { label: 'Adjustments', path: '/admin/billing/adjustments', icon: MdApproval },
   { label: 'Reconciliation', path: '/admin/billing/reconciliation', icon: MdAccountBalanceWallet },
   { label: 'Setup', path: '/admin/billing/setup/services', icon: MdSettings, setup: true },
 ]
 
-const AdminBillingNav = ({ pendingApprovals = 0 }) => {
+const AdminBillingNav = ({ pendingAdjustments = 0 }) => {
   const location = useLocation()
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
@@ -29,8 +29,8 @@ const AdminBillingNav = ({ pendingApprovals = 0 }) => {
             >
               <Icon className="text-lg" />
               <span>{item.label}</span>
-              {item.label === 'Approvals' && Number(pendingApprovals) > 0 && (
-                <span className="min-w-5 rounded-full bg-amber-400 px-1.5 py-0.5 text-center text-[10px] font-black text-[#0b1a2c]">{pendingApprovals > 99 ? '99+' : pendingApprovals}</span>
+              {item.label === 'Adjustments' && Number(pendingAdjustments) > 0 && (
+                <span className="min-w-5 rounded-full bg-amber-400 px-1.5 py-0.5 text-center text-[10px] font-black text-[#0b1a2c]">{pendingAdjustments > 99 ? '99+' : pendingAdjustments}</span>
               )}
             </NavLink>
           )

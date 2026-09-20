@@ -7,7 +7,7 @@ const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
 const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimit.middleware')
 const {
-  register, verifyRegistration, login, checkAuth, logout,
+  register, verifyRegistration, resendRegistrationVerification, login, checkAuth, logout,
   getProfileStatus, updateProfile,
   getAppointments, getHistory,
   createAppointment, cancelAppointment, rescheduleAppointment,
@@ -17,7 +17,8 @@ const commonCtrl = require('../controllers/common.controller')
 
 // Public
 router.post('/register',        otpRequestLimiter, register)
-router.post('/register/verify', otpVerifyLimiter, verifyRegistration)  // FIX #3 — new verification step
+router.post('/register/verify', otpVerifyLimiter, verifyRegistration)
+router.post('/register/resend', otpRequestLimiter, resendRegistrationVerification)  // FIX #3 — new verification step
 router.post('/login',           loginLimiter, login)
 router.get('/check-auth',       checkAuth)           // FIXED ROUTE
 router.post('/logout',          logout)

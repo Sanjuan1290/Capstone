@@ -5,7 +5,7 @@ const generateCookie = require('../utils/generateCookie')
 const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
 const { validatePassword } = require('../utils/accountSecurity')
 const { makeNumericCode, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')
-const { sendAppointmentStatusEmail } = require('../utils/emailService')
+const { sendAppointmentStatusEmail, sendVerificationCode } = require('../utils/emailService')
 const { notifyRoles, createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
@@ -180,6 +180,12 @@ const register = async (req, res) => {
     return res.status(409).json({ message: 'An account with that phone number already exists.' })
   }
 
+  const [emailRows] = await db.query(
+    'SELECT id FROM patients WHERE LOWER(email) = LOWER(?) AND COALESCE(is_walk_in, 0) = 0 LIMIT 1',
+    [normalizedProfile.email]
+  )
+  if (emailRows.length) return res.status(409).json({ message: 'An account with that email address already exists.' })
+
   const hashedPassword = await bcrypt.hash(password, 10)
   const code = makeNumericCode()
   const payload = JSON.stringify({
@@ -228,6 +234,39 @@ const register = async (req, res) => {
   res.status(200).json({
     message: 'Verification code sent by SMS.',
     phone: normalizedPhone,
+    email: normalizedProfile.email,
+    verification_method: 'sms',
+  })
+}
+
+const resendRegistrationVerification = async (req, res) => {
+  const normalizedPhone = normalizePhilippinePhone(req.body.phone)
+  const method = String(req.body.method || 'sms').toLowerCase()
+  if (!normalizedPhone || !['sms', 'email'].includes(method)) {
+    return res.status(400).json({ message: 'A valid phone number and verification method are required.' })
+  }
+  const [rows] = await db.query('SELECT * FROM patient_phone_verifications WHERE phone = ? LIMIT 1', [normalizedPhone])
+  if (!rows.length) return res.status(404).json({ message: 'No pending registration was found. Please register again.' })
+  const pending = rows[0]
+  let payload
+  try { payload = parseVerificationPayload(pending.payload) } catch { return res.status(400).json({ message: 'Registration data is no longer valid. Please register again.' }) }
+  const code = makeNumericCode()
+  await db.query(
+    'UPDATE patient_phone_verifications SET otp_code = ?, expires_at = ?, attempt_count = 0, last_sent_at = NOW() WHERE id = ?',
+    [hashSecret(code), new Date(Date.now() + OTP_EXPIRY_MS), pending.id]
+  )
+  if (method === 'email') {
+    if (!payload.email) return res.status(400).json({ message: 'No email address is attached to this registration.' })
+    await sendVerificationCode(payload.email, payload.full_name, code)
+  } else {
+    await sendPatientRegistrationOtp({ phone: normalizedPhone, code, fullName: payload.full_name })
+  }
+  return res.json({
+    message: `Verification code sent by ${method === 'email' ? 'email' : 'SMS'}.`,
+    method,
+    phone: normalizedPhone,
+    email: payload.email || null,
+    ...(process.env.NODE_ENV === 'development' ? { dev_otp: code } : {}),
   })
 }
 
@@ -813,6 +852,7 @@ const getDoctorTakenSlots = async (req, res) => {
 module.exports = {
   register,
   verifyRegistration,
+  resendRegistrationVerification,
   login,
   checkAuth,
   logout,

@@ -373,3 +373,32 @@ export const updateQueueStatus = (id, status) =>
 export const getInventoryMasterData = (category = '') => requestJson(`${BASE}/inventory/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`)
 export const createInventoryLocation = (payload) => requestJson(`${BASE}/inventory/locations`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const createInventorySupplier = (payload) => requestJson(`${BASE}/inventory/suppliers`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+
+export const getSystemSetup = () => requestJson(`${BASE}/system-setup`)
+export const saveInventoryUom = (payload, id = null) => requestJson(`${BASE}/system-setup/uoms${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const saveInventorySupplier = (payload, id = null) => requestJson(`${BASE}/system-setup/suppliers${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const saveInventoryLocationType = (payload, id = null) => requestJson(`${BASE}/system-setup/location-types${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
+export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const deleteInventoryLocation = (id) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'DELETE' })
+export const getAuditArchives = (params = {}) => { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='')q.set(k,v)});return requestJson(`${BASE}/audit-logs/archive${q.toString()?`?${q}`:''}`) }
+export const createAuditArchive = () => requestJson(`${BASE}/audit-logs/archive`, { method:'POST' })
+export const getAuditArchiveDetail = (id,params={}) => { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='')q.set(k,v)});return requestJson(`${BASE}/audit-logs/archive/${id}${q.toString()?`?${q}`:''}`) }
+export const deleteAuditArchive = (id,payload) => requestJson(`${BASE}/audit-logs/archive/${id}`, { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+
+
+// Admin Checkout uses the same protected billing lifecycle as Staff, with direct Admin authority.
+export const getAdminCheckoutBills = (params = {}) => {
+  const search = new URLSearchParams()
+  Object.entries(params || {}).forEach(([key,value]) => { if(value !== undefined && value !== null && value !== '') search.set(key,value) })
+  return requestJson(`${BASE}/billing${search.toString() ? `?${search}` : ''}`)
+}
+export const getAdminCheckoutBill = (id) => requestJson(`${BASE}/billing/${id}`)
+export const updateAdminCheckoutBill = (id,payload) => requestJson(`${BASE}/billing/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const getAdminFinalizePreview = (id) => requestJson(`${BASE}/billing/${id}/finalize-preview`)
+export const finalizeAdminCheckoutBill = (id,expectedVersion) => requestJson(`${BASE}/billing/${id}/finalize`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
+export const payAdminCheckoutBill = (id,payload) => requestJson(`${BASE}/billing/${id}/pay`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const getAdminBillAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
+export const getAdminDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
+
+export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ clinicType })

@@ -236,6 +236,68 @@ const ensureAppSchema = async () => {
   await ensureColumn('inventory', 'expiration_date', 'DATE NULL')
   await ensureColumn('inventory', 'storage_location', "VARCHAR(120) NULL")
 
+  // Single-UOM inventory model. Legacy unit/base_unit/unit_size columns remain only
+  // for backwards compatibility; new workflows use item_type + uom directly.
+  await ensureColumn('inventory', 'item_type', "VARCHAR(20) NOT NULL DEFAULT 'supplies'").catch(() => {})
+  await ensureColumn('inventory', 'uom', 'VARCHAR(50) NULL').catch(() => {})
+  await ensureColumn('inventory', 'supplier_id', 'INT NULL').catch(() => {})
+  await ensureColumn('inventory', 'selling_price', 'DECIMAL(10,2) NULL').catch(() => {})
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_uoms (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(80) NOT NULL,
+      abbreviation VARCHAR(30) NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_inventory_uom_name (name)
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_suppliers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(160) NOT NULL,
+      category VARCHAR(20) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_inventory_supplier_category_name (category, name),
+      INDEX idx_inventory_suppliers_active (category, is_active, name)
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_barcode_sequences (
+      category VARCHAR(20) PRIMARY KEY,
+      last_number INT NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_location_types (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(80) NOT NULL,
+      code VARCHAR(40) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_inventory_location_type_name (name),
+      UNIQUE KEY uniq_inventory_location_type_code (code)
+    )
+  `)
+  await db.query(`INSERT IGNORE INTO inventory_location_types (name,code,sort_order) VALUES
+    ('Main Stockroom','stockroom',10),
+    ('Treatment Room','room',20),
+    ('Dispensing Area','dispensing',30),
+    ('General Storage','storage',40)`).catch(() => {})
+
+  await db.query(`INSERT IGNORE INTO inventory_barcode_sequences (category,last_number) VALUES ('medical',0),('derma',0)`).catch(() => {})
+
   await ensureColumn('consultations', 'status', "VARCHAR(20) NOT NULL DEFAULT 'draft'").catch(() => {})
   await ensureColumn('consultations', 'finalized_at', 'DATETIME NULL').catch(() => {})
   await ensureColumn('consultations', 'finalized_by_doctor_id', 'INT NULL').catch(() => {})
@@ -395,6 +457,9 @@ const ensureAppSchema = async () => {
     )
   `)
 
+  await ensureColumn('billing_service_materials', 'bundled_in_service_price', 'TINYINT(1) NOT NULL DEFAULT 1').catch(() => {})
+  await ensureColumn('billing_service_materials', 'cost_snapshot', 'DECIMAL(10,2) NULL').catch(() => {})
+
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS billing_records (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -468,6 +533,8 @@ const ensureAppSchema = async () => {
   await ensureColumn('billing_items', 'base_amount', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00')
   await ensureColumn('billing_items', 'markup_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 0.00')
   await ensureColumn('billing_items', 'details_json', 'LONGTEXT NULL')
+  await ensureColumn('billing_items', 'unit_cost_snapshot', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch(() => {})
+  await ensureColumn('billing_items', 'cost_total_snapshot', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch(() => {})
   await db.query(`
     ALTER TABLE billing_items
     ADD CONSTRAINT fk_billing_items_inventory
@@ -490,6 +557,7 @@ const ensureAppSchema = async () => {
     )
   `)
   await ensureColumn('inventory_batches', 'batch_code', 'VARCHAR(80) NULL')
+  await ensureColumn('inventory_batches', 'unit_cost', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch(() => {})
   await db.query('ALTER TABLE inventory_batches ADD INDEX idx_inventory_batches_code (inventory_id, batch_code)').catch(() => {})
   await db.query('ALTER TABLE inventory_batches ADD UNIQUE KEY uniq_inventory_batch_code (inventory_id, batch_code)').catch(() => {})
 
@@ -622,12 +690,15 @@ const ensureAppSchema = async () => {
   await ensureColumn('billing_records', 'discount_reference', 'VARCHAR(160) NULL')
   await ensureColumn('billing_records', 'finalized_at', 'DATETIME NULL')
   await ensureColumn('billing_records', 'finalized_by_staff_id', 'INT NULL')
+  await ensureColumn('billing_records', 'finalized_by_admin_id', 'INT NULL')
+  await ensureColumn('billing_records', 'confirmed_by_admin_id', 'INT NULL')
   await ensureColumn('billing_records', 'clinical_inventory_consumed_at', 'DATETIME NULL')
   await ensureColumn('billing_records', 'voided_at', 'DATETIME NULL')
   await ensureColumn('billing_records', 'void_reason', 'TEXT NULL')
   await ensureColumn('billing_records', 'refunded_at', 'DATETIME NULL')
   await ensureColumn('billing_records', 'refund_reason', 'TEXT NULL')
 
+  await ensureColumn('billing_payments', 'received_by_admin_id', 'INT NULL')
   await ensureColumn('billing_payments', 'refunded_at', 'DATETIME NULL')
   await ensureColumn('billing_payments', 'refund_amount', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00')
   await ensureColumn('billing_payments', 'refund_reason', 'TEXT NULL')
@@ -647,6 +718,23 @@ const ensureAppSchema = async () => {
   await ensureColumn('supply_requests', 'resolved_at', 'DATETIME NULL')
   await ensureColumn('supply_requests', 'resolved_by_admin_id', 'INT NULL')
   await ensureColumn('supply_requests', 'resolution_note', 'TEXT NULL')
+
+  await ensureColumn('audit_logs', 'archive_id', 'BIGINT NULL').catch(() => {})
+  await ensureColumn('audit_logs', 'archived_at', 'DATETIME NULL').catch(() => {})
+  await ensureIndex('audit_logs', 'idx_audit_archive_created', 'archive_id, created_at').catch(() => {})
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS audit_log_archives (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      archive_code VARCHAR(40) NOT NULL,
+      cutoff_at DATETIME NOT NULL,
+      log_count INT NOT NULL DEFAULT 0,
+      archived_by_admin_id INT NULL,
+      archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      delete_reason VARCHAR(255) NULL,
+      UNIQUE KEY uniq_audit_archive_code (archive_code),
+      INDEX idx_audit_archive_created (archived_at)
+    )
+  `)
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS clinic_settings (

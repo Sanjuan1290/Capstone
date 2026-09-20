@@ -1,11 +1,21 @@
 import { useEffect } from 'react'
 import { MdClose } from 'react-icons/md'
 
-const Modal = ({ open, onClose, title, description, children, size = 'lg', closeDisabled = false }) => {
+const Modal = ({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  size = 'lg',
+  closeDisabled = false,
+  closeOnBackdrop = false,
+  closeOnEscape = false,
+}) => {
   useEffect(() => {
     if (!open) return undefined
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape' && !closeDisabled) onClose?.()
+      if (event.key === 'Escape' && closeOnEscape && !closeDisabled) onClose?.()
     }
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -14,14 +24,20 @@ const Modal = ({ open, onClose, title, description, children, size = 'lg', close
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [closeDisabled, onClose, open])
+  }, [closeDisabled, closeOnEscape, onClose, open])
 
   if (!open) return null
   const widthClass = size === 'xl' ? 'max-w-6xl' : size === 'md' ? 'max-w-2xl' : 'max-w-5xl'
 
   return (
     <div className="modal-root" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <button type="button" className="modal-backdrop" onClick={() => !closeDisabled && onClose?.()} aria-label="Close modal" />
+      <button
+        type="button"
+        className="modal-backdrop"
+        onClick={() => closeOnBackdrop && !closeDisabled && onClose?.()}
+        aria-label="Modal backdrop"
+        tabIndex={-1}
+      />
       <section className={`modal-panel ${widthClass}`}>
         <header className="modal-header">
           <div className="min-w-0">

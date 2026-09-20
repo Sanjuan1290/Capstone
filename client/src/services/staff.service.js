@@ -204,3 +204,8 @@ export const resolveSupplyRequest = (id, status, note = '') =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status, note }),
   })
+
+export const createInventoryLocation = (payload) => requestJson(`${BASE}/inventory/locations`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+
+export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)

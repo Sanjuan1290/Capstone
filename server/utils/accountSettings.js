@@ -25,7 +25,7 @@ const getSettings = async (role, id) => {
 const updateSettings = async (role, id, payload) => {
   const table = TABLE_MAP[role]
   const allowedByRole = {
-    admin: ['full_name', 'theme_preference', 'profile_image_url'],
+    admin: ['full_name', 'email', 'theme_preference', 'profile_image_url'],
     staff: ['full_name', 'phone', 'theme_preference', 'profile_image_url'],
     doctor: ['full_name', 'phone', 'specialty', 'theme_preference', 'profile_image_url'],
     patient: ['full_name', 'address', 'gender', 'birthdate', 'theme_preference', 'profile_image_url', 'email', 'receive_promotions'],

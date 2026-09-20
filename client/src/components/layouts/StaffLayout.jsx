@@ -7,7 +7,7 @@ import ProfileAvatar from '../ProfileAvatar'
 import { useSSE } from '../../hooks/useSSE'
 import { playNotificationSound } from '../../utils/notificationSound'
 import { getDashboard } from '../../services/staff.service'
-import { MdDashboard, MdEventAvailable, MdQueuePlayNext, MdPeople, MdInventory2, MdChevronLeft, MdLogout, MdPerson, MdMenu, MdClose, MdSettings, MdDarkMode, MdLightMode, MdPayments } from 'react-icons/md'
+import { MdDashboard, MdEventAvailable, MdQueuePlayNext, MdPeople, MdInventory2, MdChevronLeft, MdLogout, MdPerson, MdMenu, MdClose, MdSettings, MdDarkMode, MdLightMode, MdPayments, MdCalendarToday } from 'react-icons/md'
 
 const GROUPS = [
   { label: 'Overview', items: [{ name: 'Dashboard', path: '/staff', icon: MdDashboard, short: 'Home' }] },
@@ -15,6 +15,7 @@ const GROUPS = [
     { name: 'Appointments', path: '/staff/appointments', icon: MdEventAvailable, short: 'Appts', badge: 'pending' },
     { name: 'Walk-in Queue', path: '/staff/walkin', icon: MdQueuePlayNext, short: 'Queue' },
     { name: 'Patient Records', path: '/staff/patient-records', icon: MdPeople, short: 'Patients' },
+    { name: 'Doctor Schedules', path: '/staff/doctor-schedules', icon: MdCalendarToday, short: 'Doctors' },
     { name: 'Checkout', path: '/staff/checkout', icon: MdPayments, short: 'Checkout' },
   ] },
   { label: 'Inventory', items: [
@@ -30,7 +31,7 @@ const StaffLayout = () => {
   useEffect(()=>{loadCounts()},[loadCounts])
   const onEvent=useCallback((eventName)=>{if(eventName==='notification_created')playNotificationSound();if(['notification_created','appointment_updated','queue_updated','consultation_saved','supply_request_resolved','billing_finalized','billing_paid'].includes(eventName)){window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'));window.dispatchEvent(new CustomEvent('clinic:refresh',{detail:{eventName}}));if(eventName==='appointment_updated')loadCounts()}},[loadCounts])
   useSSE('staff',user?.id,onEvent)
-  const logout=async()=>{setLoggingOut(true);try{await fetch('/api/staff/logout',{method:'POST',credentials:'include'});clearAuth();navigate('/staff/login')}catch{setLoggingOut(false)}}
+  const logout=async()=>{if(!window.confirm('Are you sure you want to log out of Carait Clinic?'))return;setLoggingOut(true);try{await fetch('/api/staff/logout',{method:'POST',credentials:'include'});clearAuth();navigate('/staff/login')}catch{setLoggingOut(false)}}
   const badgeFor=(i)=>i.badge==='pending'?pending:0
   const Item=({item})=>{const Icon=item.icon,b=badgeFor(item);return <NavLink to={item.path} end={item.path==='/staff'} onClick={()=>setMobileOpen(false)} className={({isActive})=>`relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${isActive?'bg-sky-500/15 text-sky-400':'text-slate-400 hover:bg-white/5 hover:text-white'}`}>{({isActive})=><>{isActive&&<span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-sky-400"/>}<Icon className="shrink-0 text-[19px]"/><span className={`min-w-0 flex-1 whitespace-nowrap ${collapsed?'hidden':''}`}>{item.name}</span>{b>0&&<span className={`min-w-6 rounded-full bg-sky-400 px-1.5 py-0.5 text-center text-[10px] font-black text-[#0b1a2c] ${collapsed?'absolute -right-1 -top-1':''}`}>{b>99?'99+':b}</span>}</>}</NavLink>}
   const mobileNav=useMemo(()=>[GROUPS[0].items[0],GROUPS[1].items[0],GROUPS[1].items[1],GROUPS[1].items[3],GROUPS[2].items[0]],[])

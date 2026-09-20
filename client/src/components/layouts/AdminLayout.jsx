@@ -10,24 +10,24 @@ import { getDashboard } from '../../services/admin.service'
 import {
   MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
   MdBarChart, MdChevronLeft, MdLogout, MdAdminPanelSettings, MdMenu, MdClose, MdSettings,
-  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory,
+  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory, MdTune,
 } from 'react-icons/md'
 
 const GROUPS = [
   { label: 'Overview', items: [{ name: 'Dashboard', path: '/admin', icon: MdDashboard, short: 'Home' }] },
   { label: 'Clinic Operations', items: [
     { name: 'Appointments', path: '/admin/appointments', icon: MdEventAvailable, short: 'Appts', badge: 'pending' },
-    { name: 'Patient Visit Details', path: '/admin/patient-visit-details', icon: MdEdit, short: 'Visit' },
+    { name: 'Doctor Schedules', path: '/admin/doctor-schedules', icon: MdCalendarToday, short: 'Schedule' },
   ] },
   { label: 'Billing & Stock', items: [
+    { name: 'Checkout', path: '/admin/checkout', icon: MdPayments, short: 'Checkout' },
     { name: 'Billing', path: '/admin/billing', icon: MdPayments, short: 'Billing' },
     { name: 'Inventory', path: '/admin/inventory', icon: MdInventory2, short: 'Stock' },
     { name: 'Stock Transfers', path: '/admin/supply-requests', icon: MdInventory2, short: 'Transfer' },
   ] },
-  { label: 'People', items: [
-    { name: 'Staff Accounts', path: '/admin/staff-accounts', icon: MdPeople, short: 'Staff' },
-    { name: 'Doctor Accounts', path: '/admin/doctor-accounts', icon: MdMedicalServices, short: 'Doctors' },
-    { name: 'Doctor Schedules', path: '/admin/doctor-schedules', icon: MdCalendarToday, short: 'Schedule' },
+  { label: 'People & Setup', items: [
+    { name: 'Accounts', path: '/admin/accounts', icon: MdPeople, short: 'Accounts' },
+    { name: 'System Setup', path: '/admin/system-setup', icon: MdTune, short: 'Setup' },
   ] },
   { label: 'Insights & System', items: [
     { name: 'Reports', path: '/admin/reports', icon: MdBarChart, short: 'Reports' },
@@ -60,6 +60,7 @@ const AdminLayout = () => {
   useSSE('admin', user?.id, handleSSEMessage)
 
   const handleLogout = async () => {
+    if (!window.confirm('Are you sure you want to log out of Carait Clinic?')) return
     setLoggingOut(true); setLogoutError('')
     try { await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' }); clearAuth(); navigate('/admin/login') }
     catch { setLogoutError('Could not log out. Try again.'); setLoggingOut(false) }

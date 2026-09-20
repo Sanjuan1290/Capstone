@@ -11,7 +11,7 @@ import { formatMoney } from '../../utils/billingUi'
 
 const TABS = [['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['expired', 'Expired'], ['cancelled', 'Cancelled']]
 
-const Admin_BillingApprovals = () => {
+const Admin_BillingAdjustments = () => {
   const toast = useToast()
   const [tab, setTab] = useState('pending')
   const [rows, setRows] = useState([])
@@ -69,8 +69,8 @@ const Admin_BillingApprovals = () => {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdApproval className="text-amber-500" /> Billing Approvals</h1><p className="mt-1 text-sm text-slate-500">Review financial exceptions with the bill context that existed when Staff requested them.</p></div><button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
-      <AdminBillingNav pendingApprovals={pendingCount} />
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdApproval className="text-amber-500" /> Adjustment Requests</h1><p className="mt-1 text-sm text-slate-500">Review financial exceptions with the bill context that existed when Staff requested them.</p></div><button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
+      <AdminBillingNav pendingAdjustments={pendingCount} />
       <div className="flex gap-2 overflow-x-auto">{TABS.map(([value, label]) => <button key={value} type="button" onClick={() => { setTab(value); setPage(1) }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${tab === value ? 'bg-[#0b1a2c] text-amber-400' : 'border border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}`}>{label}{value === 'pending' && pendingCount > 0 ? ` (${pendingCount})` : ''}</button>)}</div>
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -103,4 +103,4 @@ const Admin_BillingApprovals = () => {
   )
 }
 
-export default Admin_BillingApprovals
+export default Admin_BillingAdjustments

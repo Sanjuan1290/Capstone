@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { MdHistory, MdRefresh, MdSearch, MdVisibility, MdEventAvailable, MdInventory2, MdSwapHoriz, MdCalendarMonth, MdPayments, MdSettings, MdSecurity } from 'react-icons/md'
-import { getAuditLogs } from '../../services/admin.service'
+import { MdArchive, MdHistory, MdRefresh, MdSearch, MdVisibility, MdEventAvailable, MdInventory2, MdSwapHoriz, MdCalendarMonth, MdPayments, MdSettings, MdSecurity } from 'react-icons/md'
+import { createAuditArchive, getAuditLogs } from '../../services/admin.service'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
 import { useToast } from '../../components/ui/ToastProvider'
+import { Link } from 'react-router-dom'
 
 const formatDateTime = (value) => value ? new Date(value).toLocaleString('en-PH', {
   month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
@@ -266,6 +267,14 @@ const Admin_AuditLogs = () => {
 
   const update = (key, value) => { setPage(1); setFilters((prev) => ({ ...prev, [key]: value })) }
   const selectedPresentation = selected ? auditPresentation(selected) : null
+  const [archiving, setArchiving] = useState(false)
+  const archiveEligible = async () => {
+    if (!window.confirm('Archive all audit logs that are at least 1 year old? Newer logs will remain in the active Audit Logs page.')) return
+    setArchiving(true)
+    try { const result = await createAuditArchive(); toast.success(`${Number(result?.log_count || 0).toLocaleString()} audit logs archived.`); await load() }
+    catch (error) { toast.warning(error.message || 'Only audit logs at least 1 year old can be archived.') }
+    finally { setArchiving(false) }
+  }
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
@@ -274,7 +283,7 @@ const Admin_AuditLogs = () => {
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdHistory className="text-amber-500" /> Audit Logs</h1>
           <p className="mt-1 text-sm text-slate-500">A clear history of important clinic actions. Technical MFA handshake events are kept securely but hidden from this activity feed.</p>
         </div>
-        <button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>
+        <div className="flex flex-wrap gap-2"><Link className="button-secondary" to="/admin/audit-logs/archive"><MdArchive /> View Archive</Link><button type="button" className="button-secondary" disabled={archiving} onClick={archiveEligible}><MdArchive /> {archiving ? 'Archiving…' : 'Archive 1+ Year Logs'}</button><button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">

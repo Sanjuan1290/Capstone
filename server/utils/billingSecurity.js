@@ -26,7 +26,7 @@ const getApprovedAdjustment = async ({ billingId, billVersion = null, requestTyp
   return rows[0] || null
 }
 
-const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal, presetId, reference, requestedAmount }, executor = db) => {
+const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal, presetId, reference, requestedAmount }, executor = db, options = {}) => {
   if (!presetId) return { type: 'none', label: null, amount: 0, preset: null }
   const preset = await loadDiscountPreset(presetId, executor)
   if (!preset || Number(preset.is_active) === 0) throw Object.assign(new Error('Selected discount is unavailable.'), { statusCode: 400 })
@@ -39,7 +39,7 @@ const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal
     : Math.max(0, roundMoney(Number(preset.value || 0)))
 
   const requiresApproval = Number(preset.requires_admin_approval) === 1 || (preset.discount_type === 'fixed' && Number(preset.value || 0) <= 0)
-  if (requiresApproval) {
+  if (requiresApproval && !options.allowDirectAdmin) {
     const approval = await getApprovedAdjustment({ billingId, billVersion, requestType: 'discount', discountPresetId: preset.id }, executor)
     if (!approval) {
       const err = new Error(`${preset.label} discount requires administrator approval.`)
@@ -50,6 +50,10 @@ const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal
     amount = Math.max(0, roundMoney(Number(approval.requested_amount || requestedAmount || amount) || 0))
   }
 
+  if (requiresApproval && options.allowDirectAdmin && requestedAmount !== undefined && requestedAmount !== null) {
+    amount = Math.max(0, roundMoney(Number(requestedAmount) || 0))
+  }
+
   return {
     type: preset.discount_type,
     label: preset.label,
@@ -58,7 +62,7 @@ const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal
   }
 }
 
-const applyApprovedPriceOverrides = async (billingId, items = [], executor = db, billVersion = null) => {
+const applyApprovedPriceOverrides = async (billingId, items = [], executor = db, billVersion = null, options = {}) => {
   const result = []
   for (const item of Array.isArray(items) ? items : []) {
     if (item?.item_type !== 'service' || !item?.price_overridden) {
@@ -66,6 +70,10 @@ const applyApprovedPriceOverrides = async (billingId, items = [], executor = db,
       continue
     }
     const requestedPrice = Math.max(0, Number(item.unit_price) || 0)
+    if (options.allowDirectAdmin) {
+      result.push({ ...item, price_overridden: true, override_reason: item.override_reason || 'Administrator direct override' })
+      continue
+    }
     const approval = await getApprovedAdjustment({
       billingId,
       billVersion,

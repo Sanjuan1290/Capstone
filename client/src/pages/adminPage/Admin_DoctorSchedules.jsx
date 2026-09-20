@@ -70,6 +70,10 @@ const DayCard = ({ day, schedule, doctorId, onSaved }) => {
   }
 
   const handleSave = async () => {
+    if (!form.start_time || !form.end_time || form.start_time >= form.end_time) {
+      alert('End time must be later than start time. Use separate day blocks for overnight schedules.')
+      return
+    }
     setSaving(true)
     try {
       await saveDaySchedule(doctorId, { day_of_week: day, ...form })
@@ -95,7 +99,7 @@ const DayCard = ({ day, schedule, doctorId, onSaved }) => {
             <div className="min-w-0">
               <p className={`text-sm font-bold ${isActive ? 'text-slate-800' : 'text-slate-400'}`}>{day}</p>
               {isActive && schedule && (
-                <p className="break-words text-[10px] leading-4 text-slate-500">
+                <p className="break-words text-xs leading-5 text-slate-500">
                   {fmtTime(form.start_time)} - {fmtTime(form.end_time)}
                 </p>
               )}
@@ -132,7 +136,7 @@ const DayCard = ({ day, schedule, doctorId, onSaved }) => {
                   { label: 'Slot', value: `${form.slot_duration_mins}m` },
                 ].map(({ label, value }) => (
                   <div key={label} className={`${cfg.light} ${cfg.border} rounded-xl border px-2 py-2.5 text-center`}>
-                    <p className="mb-0.5 text-[9px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+                    <p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p>
                     <p className={`text-xs font-black ${cfg.text}`}>{schedule ? value : '-'}</p>
                   </div>
                 ))}
@@ -153,7 +157,7 @@ const DayCard = ({ day, schedule, doctorId, onSaved }) => {
                   { label: 'End', key: 'end_time' },
                 ].map(({ label, key }) => (
                   <div key={key}>
-                    <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-500">{label}</label>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">{label}</label>
                     <input
                       type="time"
                       value={form[key]}
@@ -164,7 +168,7 @@ const DayCard = ({ day, schedule, doctorId, onSaved }) => {
                 ))}
               </div>
               <div>
-                <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-500">Slot Duration</label>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-500">Slot Duration</label>
                 <select
                   value={form.slot_duration_mins}
                   onChange={(e) => setForm((current) => ({ ...current, slot_duration_mins: Number(e.target.value) }))}

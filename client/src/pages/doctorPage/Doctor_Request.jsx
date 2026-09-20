@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Pagination from '../../components/ui/Pagination'
 import useClientPagination from '../../hooks/useClientPagination'
 import {
@@ -336,7 +337,6 @@ const Doctor_Request = () => {
   const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [showModal, setShowModal] = useState(false)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [feedback, setFeedback] = useState(null)
@@ -436,13 +436,11 @@ const Doctor_Request = () => {
             >
               <MdRefresh className="text-lg" />
             </button>
-            <button
-              onClick={() => setShowModal(true)}
-              className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-violet-600/20 hover:bg-violet-700"
+            <Link to="/doctor/request/stock-transfer" className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-violet-600/20 hover:bg-violet-700"
             >
               <MdAdd className="text-lg" />
-              New Request
-            </button>
+              Request Stock Transfer
+            </Link>
           </div>
         </div>
 
@@ -522,16 +520,7 @@ const Doctor_Request = () => {
       )}
       {filtered.length > 0 && <Pagination {...requestPagination} total={filtered.length} />}
 
-      {showModal && (
-        <NewRequestModal
-          inventoryItems={inventoryItems}
-          locations={locations}
-          defaultDestination={String(user?.specialty || '').toLowerCase().includes('derm') ? 'Dermatology Room' : 'General Medicine Room'}
-          onClose={() => setShowModal(false)}
-          onSubmit={handleSubmit}
-          submitting={submitting}
-        />
-      )}
+
     </div>
   )
 }
