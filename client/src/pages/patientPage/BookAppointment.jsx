@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
-  getAppointmentReasons, getDoctorsAvailability, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, bookAppointment,
+  getAppointmentReasons, getBookingServices, getDoctorsAvailability, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
@@ -25,7 +25,7 @@ const CLINIC_TYPES = [
 ]
 const MONTHS  = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAYS    = ['Su','Mo','Tu','We','Th','Fr','Sa']
-const STEPS   = ['Clinic','Doctor','Schedule','Details','Confirm']
+const STEPS   = ['Clinic','Service','Doctor','Schedule','Details','Confirm']
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getDaysInMonth(y, m) { return new Date(y, m+1, 0).getDate() }
@@ -86,7 +86,34 @@ const StepClinicType = ({ value, onChange }) => (
   </div>
 )
 
-// ── Step 2: Doctor ────────────────────────────────────────────────────────────
+// ── Step 2: Service ───────────────────────────────────────────────────────────
+const StepService = ({ value, onChange, services, loading, error, onRetry }) => (
+  <div className="space-y-3">
+    <div>
+      <h2 className="text-lg font-bold text-slate-800">Choose a Service</h2>
+      <p className="text-sm text-slate-500 mt-0.5">Select the service you would like to book. Final charges may change if additional services, medicines, or supplies are used during your visit.</p>
+    </div>
+    {loading && <div className="py-10 text-center text-sm text-slate-400">Loading clinic services…</div>}
+    {!loading && error && <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-center text-sm text-red-600">We couldn't load services.<button onClick={onRetry} className="ml-2 font-bold">Try again</button></div>}
+    {!loading && !error && services.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-700">No online-bookable services are configured for this clinic.</p><p className="mt-1 text-xs text-slate-400">Please contact the clinic or choose another clinic type.</p></div>}
+    {!loading && !error && services.map((service) => (
+      <button key={service.id} onClick={() => onChange(service)} className={`w-full rounded-2xl border-2 p-4 text-left transition-all ${Number(value?.id)===Number(service.id) ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-slate-800">{service.service_name}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{service.category || 'Clinic service'}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Standard Price</p>
+            <p className="text-sm font-black text-emerald-700">₱{Number(service.default_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+        </div>
+      </button>
+    ))}
+  </div>
+)
+
+// ── Step 3: Doctor ────────────────────────────────────────────────────────────
 const fmtScheduleTime=(t)=>{if(!t)return'';const [h,m]=String(t).split(':').map(Number);return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`}
 const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, doctorError, onRetry }) => {
   const list = doctorList[clinicType] || []
@@ -124,7 +151,7 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, d
   )
 }
 
-// ── Step 3: Schedule ──────────────────────────────────────────────────────────
+// ── Step 4: Schedule ──────────────────────────────────────────────────────────
 const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules, unavailableDates }) => {
   const today = new Date()
   const [viewYear,  setViewYear]  = useState(today.getFullYear())
@@ -238,7 +265,7 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
   )
 }
 
-// ── Step 4: Details ───────────────────────────────────────────────────────────
+// ── Step 5: Details ───────────────────────────────────────────────────────────
 const StepDetails = ({ reason, notes, reasonOptions, loadingReasons, onReasonChange, onNotesChange }) => (
   <div className="space-y-4">
     <div>
@@ -275,7 +302,7 @@ const StepDetails = ({ reason, notes, reasonOptions, loadingReasons, onReasonCha
   </div>
 )
 
-// ── Step 5: Confirm ───────────────────────────────────────────────────────────
+// ── Step 6: Confirm ───────────────────────────────────────────────────────────
 const StepConfirm = ({ form, policyAccepted, onPolicyAcceptedChange }) => {
   const ct   = CLINIC_TYPES.find(c => c.id === form.clinicType)
   const Icon = ct?.Icon || MdMedicalServices
@@ -300,6 +327,7 @@ const StepConfirm = ({ form, policyAccepted, onPolicyAcceptedChange }) => {
           </div>
         </div>
         {[
+          { label: 'Service', value: form.service?.service_name, icon: MdMedicalServices },
           { label: 'Date',   value: dateLabel,   icon: MdCalendarToday },
           { label: 'Time',   value: form.time,   icon: MdAccessTime    },
           { label: 'Reason', value: form.reason, icon: MdPerson        },
@@ -313,6 +341,16 @@ const StepConfirm = ({ form, policyAccepted, onPolicyAcceptedChange }) => {
           </div>
         ))}
       </div>
+
+      {form.service && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Requested Service</p><p className="mt-1 text-sm font-bold text-emerald-900">{form.service.service_name}</p></div>
+            <p className="text-sm font-black text-emerald-800">₱{Number(form.service.default_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-emerald-700">This is the standard clinic price. Final charges may change if additional services, medicines, or supplies are used during your visit.</p>
+        </div>
+      )}
 
       {form.notes && (
         <div className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-200">
@@ -364,7 +402,7 @@ const BookAppointment = () => {
   const [step, setStep] = useState(0)
   const [done, setDone] = useState(false)
   const [form, setForm] = useState({
-    clinicType: '', doctor: null, date: null, time: '', reason: '', notes: '',
+    clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', notes: '',
   })
   const [policyAccepted, setPolicyAccepted] = useState(false)
   const [doctorList,      setDoctorList]      = useState({ medical: [], derma: [] })
@@ -376,14 +414,18 @@ const BookAppointment = () => {
   const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([])
   const [reasonOptions, setReasonOptions] = useState([])
   const [loadingReasons, setLoadingReasons] = useState(false)
+  const [services, setServices] = useState([])
+  const [loadingServices, setLoadingServices] = useState(false)
+  const [serviceError, setServiceError] = useState('')
 
   const loadDoctors = async () => {
     setLoadingDoctors(true); setDoctorError('')
     try {
       const summary = await getDoctorsAvailability({ startDate: getLocalDateOnly(), days: 7 })
       const enriched = Array.isArray(summary?.doctors) ? summary.doctors : []
-      const derma = enriched.filter(d => String(d.specialty || '').toLowerCase().includes('derm') && d.weekly_schedule.some(x => Number(x.is_active)!==0))
-      const medical = enriched.filter(d => !String(d.specialty || '').toLowerCase().includes('derm') && d.weekly_schedule.some(x => Number(x.is_active)!==0))
+      const doctorClinic = (d) => d.clinic_type || (String(d.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')
+      const derma = enriched.filter(d => doctorClinic(d) === 'derma' && d.weekly_schedule.some(x => Number(x.is_active)!==0))
+      const medical = enriched.filter(d => doctorClinic(d) === 'medical' && d.weekly_schedule.some(x => Number(x.is_active)!==0))
       setDoctorList({ medical, derma })
       const preDoctor = Number(searchParams.get('doctor')); const preClinic = searchParams.get('clinic')
       if (preDoctor && ['medical','derma'].includes(preClinic)) {
@@ -394,6 +436,25 @@ const BookAppointment = () => {
     finally { setLoadingDoctors(false) }
   }
   useEffect(() => { loadDoctors() }, [])
+
+  const loadServices = async () => {
+    if (!form.clinicType) { setServices([]); return }
+    setLoadingServices(true); setServiceError('')
+    try {
+      const rows = await getBookingServices(form.clinicType)
+      setServices(Array.isArray(rows) ? rows : [])
+    } catch (err) {
+      setServices([])
+      setServiceError(err.message || 'Failed to load clinic services.')
+    } finally {
+      setLoadingServices(false)
+    }
+  }
+
+  useEffect(() => {
+    setForm((current) => ({ ...current, service: null }))
+    loadServices()
+  }, [form.clinicType])
 
   useEffect(() => {
     if (!form.clinicType) {
@@ -462,15 +523,16 @@ const BookAppointment = () => {
 
   const canNext = () => {
     if (step===0) return !!form.clinicType
-    if (step===1) return !!form.doctor
-    if (step===2) return !!form.date && !!form.time
-    if (step===3) return !!form.reason
-    if (step===4) return policyAccepted
+    if (step===1) return !!form.service
+    if (step===2) return !!form.doctor
+    if (step===3) return !!form.date && !!form.time
+    if (step===4) return !!form.reason
+    if (step===5) return policyAccepted
     return true
   }
 
   const handleNext = () => {
-    if (step < 4) setStep(s => s+1)
+    if (step < 5) setStep(s => s+1)
     else handleConfirm()
   }
 
@@ -479,6 +541,7 @@ const BookAppointment = () => {
       await bookAppointment({
         doctor_id:        form.doctor.id,
         clinic_type:      form.clinicType,
+        requested_service_id: form.service.id,
         reason:           form.reason,
         appointment_date: form.date,
         appointment_time: form.time,
@@ -494,7 +557,7 @@ const BookAppointment = () => {
     setStep(0); setDone(false)
     setTimeSlots([]); setDoctorSchedules([])
     setPolicyAccepted(false)
-    setForm({ clinicType:'', doctor:null, date:null, time:'', reason:'', notes:'' })
+    setForm({ clinicType:'', service:null, doctor:null, date:null, time:'', reason:'', notes:'' })
   }
 
   return (
@@ -524,7 +587,7 @@ const BookAppointment = () => {
         {/* Progress strip */}
         <div className="h-1 bg-slate-100">
           <div className="h-1 bg-emerald-500 transition-all duration-500 rounded-full"
-            style={{ width: `${(step/4)*100}%` }} />
+            style={{ width: `${(step/5)*100}%` }} />
         </div>
 
         <div className="p-5 sm:p-8">
@@ -534,9 +597,10 @@ const BookAppointment = () => {
             <SuccessScreen onReset={handleReset} />
           ) : (
             <>
-              {step===0 && <StepClinicType value={form.clinicType} onChange={set('clinicType')} />}
-              {step===1 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={set('doctor')} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
-              {step===2 && (
+              {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: null, date: null, time: '' }))} />}
+              {step===1 && <StepService value={form.service} onChange={set('service')} services={services} loading={loadingServices} error={serviceError} onRetry={loadServices} />}
+              {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={set('doctor')} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
+              {step===3 && (
                 <StepSchedule
                   date={form.date} time={form.time}
                   onDateChange={set('date')} onTimeChange={set('time')}
@@ -545,7 +609,7 @@ const BookAppointment = () => {
                   unavailableDates={doctorUnavailableDates}
                 />
               )}
-              {step===3 && (
+              {step===4 && (
                 <StepDetails
                   reason={form.reason}
                   notes={form.notes}
@@ -555,7 +619,7 @@ const BookAppointment = () => {
                   onNotesChange={set('notes')}
                 />
               )}
-              {step===4 && <StepConfirm form={form} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}
+              {step===5 && <StepConfirm form={form} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}
 
               {/* Nav */}
               <div className="flex items-center justify-between mt-8 pt-5 border-t border-slate-100">
@@ -569,8 +633,8 @@ const BookAppointment = () => {
                   className="flex items-center gap-1.5 px-5 py-2.5 text-sm font-bold text-white
                     bg-emerald-500 hover:bg-emerald-600 rounded-xl disabled:opacity-30 transition-all
                     shadow-lg shadow-emerald-500/20">
-                  {step===4 ? 'Confirm Booking' : 'Next'}
-                  {step<4 && <MdArrowForward className="text-[15px]" />}
+                  {step===5 ? 'Confirm Booking' : 'Next'}
+                  {step<5 && <MdArrowForward className="text-[15px]" />}
                 </button>
               </div>
             </>

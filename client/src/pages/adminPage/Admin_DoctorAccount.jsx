@@ -11,22 +11,18 @@ import {
   MdMedicalServices, MdFace, MdScience, MdMailOutline, MdCalendarToday, MdEdit,
 } from 'react-icons/md'
 
-const SPECIALTIES = ['Dermatologist', 'General Medicine']
+const CLINIC_ASSIGNMENTS = [
+  { value: 'medical', label: 'General Medicine' },
+  { value: 'derma', label: 'Dermatology' },
+]
 
 // ── Add Modal ──────────────────────────────────────────────────────────────────
 const AddModal = ({ onClose, onAdd }) => {
-  const [form,    setForm]    = useState({ full_name: '', specialty: 'Dermatologist', type: 'derma', email: '', phone: '', prc_license: '' })
+  const [form,    setForm]    = useState({ full_name: '', specialty: '', clinic_type: 'medical', email: '', phone: '', prc_license: '' })
   const [sub,     setSub]     = useState(false)
   const [error,   setError]   = useState('')
   const valid = form.full_name.trim() && form.email.trim() && form.phone.trim() && form.prc_license.trim()
-  const set   = k => e => {
-    const nextValue = e.target.value
-    setForm(f => ({
-      ...f,
-      [k]: nextValue,
-      ...(k === 'specialty' ? { type: nextValue === 'Dermatologist' ? 'derma' : 'medical' } : {}),
-    }))
-  }
+  const set = k => e => setForm((current) => ({ ...current, [k]: e.target.value }))
 
   const handleSubmit = async () => {
     setSub(true); setError('')
@@ -75,24 +71,19 @@ const AddModal = ({ onClose, onAdd }) => {
           ))}
 
           <div>
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Specialty</label>
-            <select value={form.specialty} onChange={set('specialty')}
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinic Assignment <span className="text-red-400">*</span></label>
+            <select value={form.clinic_type} onChange={set('clinic_type')}
               className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400">
-              {SPECIALTIES.map(s => <option key={s}>{s}</option>)}
+              {CLINIC_ASSIGNMENTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
+            <p className="mt-1 text-xs text-slate-400">Determines which clinic appointments and walk-ins this doctor can receive.</p>
           </div>
 
           <div>
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinic Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              {[{ v: 'derma', l: 'Dermatology' }, { v: 'medical', l: 'General Medicine' }].map(({ v, l }) => (
-                <button key={v} onClick={() => setForm(f => ({ ...f, type: v, specialty: v === 'derma' ? 'Dermatologist' : 'General Medicine' }))}
-                  className={`py-2.5 rounded-xl text-xs font-bold border-2 transition-all
-                    ${form.type === v ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                  {l}
-                </button>
-              ))}
-            </div>
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinical Specialty <span className="text-slate-300 normal-case font-normal">(optional)</span></label>
+            <input value={form.specialty} onChange={set('specialty')} placeholder="e.g. Family Medicine, Dermatology"
+              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400" />
+            <p className="mt-1 text-xs text-slate-400">Shown on the doctor profile. It no longer controls routing.</p>
           </div>
 
           {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>}
@@ -115,7 +106,8 @@ const EditModal = ({ doctor, onClose, onSave }) => {
     full_name: doctor?.full_name || '',
     email: doctor?.email || '',
     phone: doctor?.phone || '',
-    specialty: doctor?.specialty || 'Dermatologist',
+    specialty: doctor?.specialty || '',
+    clinic_type: doctor?.clinic_type || doctor?.type || (String(doctor?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical'),
     prc_license: doctor?.prc_license || '',
   })
   const [submitting, setSubmitting] = useState(false)
@@ -165,11 +157,16 @@ const EditModal = ({ doctor, onClose, onSave }) => {
             </div>
           ))}
           <div>
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Specialty</label>
-            <select value={form.specialty} onChange={e => setForm(prev => ({ ...prev, specialty: e.target.value }))}
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinic Assignment</label>
+            <select value={form.clinic_type} onChange={e => setForm(prev => ({ ...prev, clinic_type: e.target.value }))}
               className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400">
-              {SPECIALTIES.map(s => <option key={s}>{s}</option>)}
+              {CLINIC_ASSIGNMENTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinical Specialty</label>
+            <input value={form.specialty} onChange={e => setForm(prev => ({ ...prev, specialty: e.target.value }))} placeholder="e.g. Family Medicine"
+              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400" />
           </div>
           {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>}
         </div>
@@ -187,7 +184,7 @@ const EditModal = ({ doctor, onClose, onSave }) => {
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 const DetailPanel = ({ doctor, onClose, onToggle, onEdit }) => {
   if (!doctor) return null
-  const isDerma  = (doctor.type === 'derma') || (doctor.specialty || '').toLowerCase().includes('derm')
+  const isDerma = (doctor.clinic_type || doctor.type || (String(doctor.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')) === 'derma'
   const Icon     = isDerma ? MdFace : MdMedicalServices
   const isActive = doctor.is_active === 1
   const joined   = doctor.created_at ? new Date(doctor.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'
@@ -203,7 +200,7 @@ const DetailPanel = ({ doctor, onClose, onToggle, onEdit }) => {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-slate-800 truncate">{doctor.full_name}</p>
-          <p className="text-xs text-slate-500">{doctor.specialty} · <span className="font-mono">#{doctor.id}</span></p>
+          <p className="text-xs text-slate-500">{doctor.clinic_type === 'derma' ? 'Dermatology' : 'General Medicine'}{doctor.specialty ? ` · ${doctor.specialty}` : ''} · <span className="font-mono">#{doctor.id}</span></p>
         </div>
         <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0
           ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
@@ -336,7 +333,7 @@ const Admin_DoctorAccount = () => {
             ) : filtered.length === 0 ? (
               <div className="py-16 text-center text-sm text-slate-400 px-6">No doctors found.</div>
             ) : doctorPagination.pageItems.map(doc => {
-              const isDerma  = (doc.type === 'derma') || (doc.specialty || '').toLowerCase().includes('derm')
+              const isDerma = (doc.clinic_type || doc.type || (String(doc.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')) === 'derma'
               const DIcon    = isDerma ? MdFace : MdMedicalServices
               const isActive = doc.is_active === 1
               return (

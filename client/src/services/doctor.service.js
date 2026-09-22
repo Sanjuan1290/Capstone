@@ -25,12 +25,23 @@ export const getDailyAppointments = (date) =>
 export const startConsultation = (id) =>
   requestJson(`${BASE}/appointments/${id}/start`, { method: 'PATCH' })
 
-export const saveConsultation = (appointmentId, payload) =>
-  requestJson(`${BASE}/consultations/${appointmentId}`, {
+export const saveConsultationDraft = (appointmentId, payload) =>
+  requestJson(`${BASE}/consultations/${appointmentId}/draft`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const finalizeConsultation = (appointmentId, payload) =>
+  requestJson(`${BASE}/consultations/${appointmentId}/finalize`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+
+// Backwards-compatible alias for older callers. New code should use
+// saveConsultationDraft() and finalizeConsultation() explicitly.
+export const saveConsultation = finalizeConsultation
 
 // NEW: fetch a saved consultation (works even after status = completed)
 export const getConsultation = (appointmentId) =>

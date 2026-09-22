@@ -1,4 +1,4 @@
-const QUEUE_STATUSES = new Set(['waiting', 'in-progress', 'done', 'removed'])
+const QUEUE_STATUSES = new Set(['waiting', 'called', 'in_consultation', 'done', 'removed', 'in-progress'])
 const SUPPLY_REQUEST_RESOLUTIONS = new Set(['approved', 'rejected'])
 const STOCK_IN_MOVEMENT_TYPES = new Set(['received', 'returned', 'correction_in'])
 const STOCK_OUT_MOVEMENT_TYPES = new Set(['adjustment_out', 'expired', 'damaged', 'wastage', 'returned_to_supplier'])

@@ -45,6 +45,7 @@ const { isValidPaymentMethod, requiresPaymentReference, makeReceiptNumber, calcu
 const { isValidQueueStatus, isValidSupplyRequestResolution, normalizeStockMovementType } = require('../utils/workflowValidation')
 const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
 const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
+const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
 const { resolveDiscountForDraft, applyApprovedPriceOverrides, loadDiscountPreset } = require('../utils/billingSecurity')
@@ -203,7 +204,7 @@ const getDashboard = async (req, res) => {
     "SELECT COUNT(*) AS pendingCount FROM appointments WHERE status = 'pending'"
   )
   const [[{ queueCount }]]    = await db.query(
-    "SELECT COUNT(*) AS queueCount FROM queue WHERE queue_date = ? AND status IN ('waiting','in-progress')", [today]
+    "SELECT COUNT(*) AS queueCount FROM queue WHERE queue_date = ? AND status IN ('waiting','called','in_consultation')", [today]
   )
   const [[{ lowStock }]]      = await db.query(
     'SELECT COUNT(*) AS lowStock FROM inventory WHERE stock <= threshold'
@@ -215,8 +216,11 @@ const getDashboard = async (req, res) => {
 // ── Appointments ──────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
-  await markOverdueAppointments()
   const { date } = req.query
+  const requestedSort = String(req.query.sort || '')
+  const sort = ['visit_time', 'created_at', 'updated_at'].includes(requestedSort) ? requestedSort : (date ? 'visit_time' : 'created_at')
+  const requestedDirection = String(req.query.direction || '').toLowerCase()
+  const direction = requestedDirection === 'asc' ? 'ASC' : requestedDirection === 'desc' ? 'DESC' : (sort === 'visit_time' ? 'ASC' : 'DESC')
   let sql = `SELECT
                a.*,
                DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
@@ -236,7 +240,9 @@ const getAppointments = async (req, res) => {
              JOIN doctors  d ON a.doctor_id  = d.id`
   const params = []
   if (date) { sql += ' WHERE a.appointment_date = ?'; params.push(date) }
-  sql += ' ORDER BY a.appointment_date ASC, a.appointment_time ASC'
+  if (sort === 'created_at') sql += ` ORDER BY a.created_at ${direction}, a.id ${direction}`
+  else if (sort === 'updated_at') sql += ` ORDER BY a.updated_at ${direction}, a.id ${direction}`
+  else sql += ` ORDER BY a.appointment_date ${direction}, STR_TO_DATE(a.appointment_time, '%h:%i %p') ${direction}, a.id ${direction}`
   const [rows] = await db.query(sql, params)
   res.json(rows)
 }
@@ -250,7 +256,6 @@ const createAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Invalid appointment date.' })
   if (normalizedDate < getTodayDateOnly())
     return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
-  await markOverdueAppointments()
 
   const lastNoShow = await getLastNoShowAppointment(patient_id)
   if (lastNoShow && !req.body?.override_no_show_warning) {
@@ -460,7 +465,6 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Invalid appointment date.' })
   if (normalizedDate < getTodayDateOnly())
     return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
-  await markOverdueAppointments()
   const [rows] = await db.query(
     `SELECT a.id, a.doctor_id, a.status, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
@@ -554,14 +558,24 @@ const addToQueue = async (req, res) => {
 }
 
 const updateQueueStatus = async (req, res) => {
-  const { status } = req.body
-  if (!isValidQueueStatus(status))
-    return res.status(400).json({ message: 'Invalid status.' })
-  const [rows] = await db.query('SELECT id, doctor_id FROM queue WHERE id = ?', [req.params.id])
-  if (rows.length === 0) return res.status(404).json({ message: 'Queue entry not found.' })
-  await db.query('UPDATE queue SET status=? WHERE id=?', [status, req.params.id])
-  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'queue_updated', { queueId: Number(req.params.id), status, doctorId: rows[0].doctor_id })
-  res.json({ message: 'Queue updated.' })
+  const requestedStatus = String(req.body.status || '').trim()
+  const target = requestedStatus === 'in-progress' ? 'called' : requestedStatus
+  if (!isValidQueueStatus(requestedStatus) && !['called','in_consultation'].includes(target)) {
+    return res.status(400).json({ message: 'Invalid queue status.' })
+  }
+  try {
+    const row = await setQueueState({
+      queueId: req.params.id,
+      nextStatus: target,
+      actorRole: 'staff',
+      actorId: req.user.id,
+      ipAddress: req.ip || null,
+    })
+    res.json({ message: target === 'called' ? 'Patient called.' : 'Queue updated.', queue: row })
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ code: error.code, message: error.message })
+    throw error
+  }
 }
 
 // ── Patients ──────────────────────────────────────────────────────────────────
@@ -1700,7 +1714,7 @@ const getDoctors = async (req, res) => {
        full_name,
        specialty,
        is_active,
-       CASE WHEN specialty LIKE '%erm%' THEN 'derma' ELSE 'medical' END AS type
+       COALESCE(clinic_type, CASE WHEN specialty LIKE '%erm%' THEN 'derma' ELSE 'medical' END) AS type
      FROM doctors
      WHERE is_active = 1
      ORDER BY full_name`

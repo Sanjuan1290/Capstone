@@ -54,10 +54,11 @@ const {
   getBillingRecordWithItems,
 } = require('../utils/billing')
 const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
+const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
 const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
-const { normalizeStockMovementType } = require('../utils/workflowValidation')
+const { isValidQueueStatus, normalizeStockMovementType } = require('../utils/workflowValidation')
 const {
   getActiveAppointmentConflict,
   getLastNoShowAppointment,
@@ -65,7 +66,7 @@ const {
 } = require('../utils/appointmentPolicies')
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
 const isValidDateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
-const DOCTOR_SPECIALTIES = new Set(['Dermatologist', 'General Medicine'])
+const DOCTOR_CLINIC_TYPES = new Set(['medical', 'derma'])
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
 const normalizeInventoryPayload = (body = {}) => {
@@ -295,7 +296,7 @@ const getDashboard = async (req, res) => {
   const [[{ pendingApprovals }]] = await db.query("SELECT COUNT(*) AS pendingApprovals FROM appointments WHERE status = 'pending'")
   const [[{ lowStockCount }]]    = await db.query('SELECT COUNT(*) AS lowStockCount FROM inventory WHERE stock <= threshold')
   const [[{ activeQueue }]]      = await db.query(
-    "SELECT COUNT(*) AS activeQueue FROM queue WHERE queue_date = ? AND status IN ('waiting','in-progress')", [today]
+    "SELECT COUNT(*) AS activeQueue FROM queue WHERE queue_date = ? AND status IN ('waiting','called','in_consultation')", [today]
   )
   const [[{ totalStaff }]]   = await db.query("SELECT COUNT(*) AS totalStaff FROM staff WHERE status='active'")
   const [[{ totalDoctors }]] = await db.query("SELECT COUNT(*) AS totalDoctors FROM doctors WHERE is_active=1")
@@ -347,8 +348,11 @@ const getDashboard = async (req, res) => {
 // ── Appointments ──────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
-  await markOverdueAppointments()
   const { date } = req.query
+  const requestedSort = String(req.query.sort || '')
+  const sort = ['visit_time', 'created_at', 'updated_at'].includes(requestedSort) ? requestedSort : (date ? 'visit_time' : 'created_at')
+  const requestedDirection = String(req.query.direction || '').toLowerCase()
+  const direction = requestedDirection === 'asc' ? 'ASC' : requestedDirection === 'desc' ? 'DESC' : (sort === 'visit_time' ? 'ASC' : 'DESC')
   let sql = `SELECT
                a.*,
                DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS date,
@@ -368,7 +372,9 @@ const getAppointments = async (req, res) => {
              JOIN doctors  d ON a.doctor_id  = d.id`
   const params = []
   if (date) { sql += ' WHERE a.appointment_date = ?'; params.push(date) }
-  sql += ` ORDER BY CASE WHEN a.status IN ('pending','confirmed','rescheduled','in-progress') AND a.appointment_date >= CURDATE() THEN 0 ELSE 1 END ASC, CASE WHEN a.status IN ('pending','confirmed','rescheduled','in-progress') AND a.appointment_date >= CURDATE() THEN a.appointment_date END ASC, CASE WHEN a.status IN ('pending','confirmed','rescheduled','in-progress') AND a.appointment_date >= CURDATE() THEN STR_TO_DATE(a.appointment_time, '%h:%i %p') END ASC, CASE WHEN NOT (a.status IN ('pending','confirmed','rescheduled','in-progress') AND a.appointment_date >= CURDATE()) THEN a.appointment_date END DESC, a.id DESC`
+  if (sort === 'created_at') sql += ` ORDER BY a.created_at ${direction}, a.id ${direction}`
+  else if (sort === 'updated_at') sql += ` ORDER BY a.updated_at ${direction}, a.id ${direction}`
+  else sql += ` ORDER BY a.appointment_date ${direction}, STR_TO_DATE(a.appointment_time, '%h:%i %p') ${direction}, a.id ${direction}`
   const [rows] = await db.query(sql, params)
   res.json(rows)
 }
@@ -532,7 +538,6 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Invalid appointment date.' })
   if (normalizedDate < getTodayDateOnly())
     return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
-  await markOverdueAppointments()
   const [rows] = await db.query(
     `SELECT a.id, a.doctor_id, a.status, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
@@ -598,7 +603,6 @@ const createAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Invalid appointment date.' })
   if (normalizedDate < getTodayDateOnly())
     return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
-  await markOverdueAppointments()
 
   const lastNoShow = await getLastNoShowAppointment(patient_id)
   if (lastNoShow && !req.body?.override_no_show_warning) {
@@ -686,14 +690,24 @@ const addToQueue = async (req, res) => {
 }
 
 const updateQueueStatus = async (req, res) => {
-  const { status } = req.body
-  if (!['waiting','in-progress','done','removed'].includes(status))
-    return res.status(400).json({ message: 'Invalid status.' })
-  const [rows] = await db.query('SELECT id, doctor_id FROM queue WHERE id = ?', [req.params.id])
-  if (rows.length === 0) return res.status(404).json({ message: 'Queue entry not found.' })
-  await db.query('UPDATE queue SET status=? WHERE id=?', [status, req.params.id])
-  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`], 'queue_updated', { queueId: Number(req.params.id), status, doctorId: rows[0].doctor_id })
-  res.json({ message: 'Queue updated.' })
+  const requestedStatus = String(req.body.status || '').trim()
+  const target = requestedStatus === 'in-progress' ? 'called' : requestedStatus
+  if (!isValidQueueStatus(requestedStatus) && !['called','in_consultation'].includes(target)) {
+    return res.status(400).json({ message: 'Invalid queue status.' })
+  }
+  try {
+    const row = await setQueueState({
+      queueId: req.params.id,
+      nextStatus: target,
+      actorRole: 'admin',
+      actorId: req.user.id,
+      ipAddress: req.ip || null,
+    })
+    res.json({ message: target === 'called' ? 'Patient called.' : 'Queue updated.', queue: row })
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ code: error.code, message: error.message })
+    throw error
+  }
 }
 
 // ── Patients ──────────────────────────────────────────────────────────────────
@@ -859,22 +873,21 @@ const updateStaff = async (req, res) => {
 const getDoctors = async (req, res) => {
   const [rows] = await db.query(
     // FIX 3: return prc_license (requires migration_add_prc_license.sql)
-    `SELECT id, full_name AS name, full_name, email, phone, specialty, prc_license, is_active, created_at,
-            CASE WHEN specialty LIKE '%erm%' THEN 'derma' ELSE 'medical' END AS type
+    `SELECT id, full_name AS name, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at
      FROM doctors ORDER BY full_name`
   )
   res.json(rows)
 }
 
 const createDoctor = async (req, res) => {
-  const { full_name, email, phone, specialty, prc_license } = req.body
+  const { full_name, email, phone, specialty, clinic_type, prc_license } = req.body
   if (!full_name || !email || !phone)
     return res.status(400).json({ message: 'Name, email, and phone number are required.' })
   const normalizedPhone = normalizePhilippinePhone(phone)
   if (!normalizedPhone)
     return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
-  if (!DOCTOR_SPECIALTIES.has(specialty))
-    return res.status(400).json({ message: 'Specialty must be Dermatologist or General Medicine.' })
+  if (!DOCTOR_CLINIC_TYPES.has(String(clinic_type || '')))
+    return res.status(400).json({ message: 'Clinic assignment must be General Medicine or Dermatology.' })
   const [existing] = await db.query('SELECT id FROM doctors WHERE email = ?', [email])
   if (existing.length > 0)
     return res.status(409).json({ message: 'Email already exists.' })
@@ -882,13 +895,13 @@ const createDoctor = async (req, res) => {
   const hashed = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
     // FIX 3: save prc_license (requires migration_add_prc_license.sql)
-    'INSERT INTO doctors (full_name, email, phone, specialty, prc_license, password, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
-    [full_name, email, normalizedPhone, specialty || null, prc_license || null, hashed]
+    'INSERT INTO doctors (full_name, email, phone, specialty, clinic_type, prc_license, password, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+    [full_name, email, normalizedPhone, specialty?.trim() || null, clinic_type, prc_license || null, hashed]
   )
   const [rows] = await db.query(
-    'SELECT id, full_name, email, phone, specialty, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
+    'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,specialty,prc_license,is_active:true,must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,specialty,clinic_type,prc_license,is_active:true,must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/doctor/login`
     await sendTempPassword(email, full_name, 'Doctor', tempPassword, loginUrl)
@@ -908,14 +921,14 @@ const toggleDoctor = async (req, res) => {
 }
 
 const updateDoctor = async (req, res) => {
-  const { full_name, email, phone, specialty, prc_license } = req.body
+  const { full_name, email, phone, specialty, clinic_type, prc_license } = req.body
   if (!full_name || !email || !phone)
     return res.status(400).json({ message: 'Name, email, and phone number are required.' })
   const normalizedPhone = normalizePhilippinePhone(phone)
   if (!normalizedPhone)
     return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
-  if (!DOCTOR_SPECIALTIES.has(specialty))
-    return res.status(400).json({ message: 'Specialty must be Dermatologist or General Medicine.' })
+  if (!DOCTOR_CLINIC_TYPES.has(String(clinic_type || '')))
+    return res.status(400).json({ message: 'Clinic assignment must be General Medicine or Dermatology.' })
 
   const [rows] = await db.query('SELECT id FROM doctors WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Doctor account not found.' })
@@ -925,14 +938,14 @@ const updateDoctor = async (req, res) => {
     return res.status(409).json({ message: 'That email is already in use by another doctor account.' })
 
   await db.query(
-    'UPDATE doctors SET full_name = ?, email = ?, phone = ?, specialty = ?, prc_license = ? WHERE id = ?',
-    [full_name.trim(), email.trim(), normalizedPhone, specialty?.trim() || null, prc_license?.trim() || null, req.params.id]
+    'UPDATE doctors SET full_name = ?, email = ?, phone = ?, specialty = ?, clinic_type = ?, prc_license = ? WHERE id = ?',
+    [full_name.trim(), email.trim(), normalizedPhone, specialty?.trim() || null, clinic_type, prc_license?.trim() || null, req.params.id]
   )
   const [updated] = await db.query(
-    'SELECT id, full_name, email, phone, specialty, prc_license, is_active, created_at FROM doctors WHERE id = ?',
+    'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?',
     [req.params.id]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,specialty,prc_license},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,specialty,clinic_type,prc_license},ipAddress:req.ip||null }).catch(() => {})
   res.json(updated[0])
 }
 
@@ -1732,7 +1745,7 @@ const getReports = async (req, res) => {
        (SELECT COUNT(*) FROM appointments WHERE appointment_date = ? AND status IN ('pending','confirmed','rescheduled','in-progress')) AS today_remaining,
        (SELECT COUNT(*) FROM appointments WHERE appointment_date > ? AND status IN ('pending','confirmed','rescheduled')) AS future_confirmed,
        (SELECT COUNT(*) FROM appointments WHERE status = 'pending' AND appointment_date >= ?) AS awaiting_approval,
-       (SELECT COUNT(*) FROM queue WHERE queue_date = ? AND status IN ('waiting','in-progress')) AS walkin_queue,
+       (SELECT COUNT(*) FROM queue WHERE queue_date = ? AND status IN ('waiting','called','in_consultation')) AS walkin_queue,
        (SELECT COUNT(*) FROM supply_requests WHERE status = 'pending') AS pending_supply_requests`,
     [clinicToday, clinicToday, clinicToday, clinicToday])
 
@@ -2706,6 +2719,7 @@ const deleteAuditArchive = async (req,res) => {
 // ── System audit log ──────────────────────────────────────────────────────────
 const getAuditLogs = async (req,res) => {
   const page=Math.max(1,Number(req.query.page)||1), limit=Math.min(100,Math.max(1,Number(req.query.limit)||20)), offset=(page-1)*limit
+  const sortDirection = String(req.query.direction || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC'
   // MFA challenge/verification events stay in the database for security forensics,
   // but they are intentionally hidden from the normal Admin activity feed.
   const filters=["al.archive_id IS NULL", "al.action NOT IN ('auth.mfa_challenge_sent','auth.mfa_verified')"],params=[]
@@ -2758,7 +2772,7 @@ const getAuditLogs = async (req,res) => {
       abp.full_name AS billing_patient_name, abd.full_name AS billing_doctor_name
       FROM audit_logs al
       ${joins}
-      ${finalWhere} ORDER BY al.created_at DESC,al.id DESC LIMIT ? OFFSET ?`,[...params,limit,offset])
+      ${finalWhere} ORDER BY al.created_at ${sortDirection},al.id ${sortDirection} LIMIT ? OFFSET ?`,[...params,limit,offset])
   const total=Number(count?.total||0),totalPages=Math.max(1,Math.ceil(total/limit))
   res.json({items:rows,pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages}})
 }

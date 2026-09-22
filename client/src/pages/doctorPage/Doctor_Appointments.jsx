@@ -1,7 +1,7 @@
 // client/src/pages/doctorPage/Doctor_Appointments.jsx
 // IMPROVEMENTS:
 // 1. Enhanced appointment cards — age, gender, reason, appointment type badge
-// 2. Walk-in queue panel with "Call Next" and "Mark Done" buttons
+// 2. Walk-in queue panel with explicit Called → In Consultation workflow
 // 3. Read-only clinical record viewer for completed appointments
 // 4. Status indicators and quick actions on every row
 
@@ -11,7 +11,7 @@ import useClientPagination from '../../hooks/useClientPagination'
 import { useNavigate } from 'react-router-dom'
 import {
   getAppointments, startConsultation,
-  getMyQueue, callNextPatient, markQueueEntryDone,
+  getMyQueue, callNextPatient,
   getConsultation,
 } from '../../services/doctor.service'
 import usePolling from '../../hooks/usePolling'
@@ -35,8 +35,9 @@ const STATUS_CONFIG = {
 }
 
 const QUEUE_STATUS = {
-  waiting:     { label: 'Waiting',     badge: 'bg-amber-50   text-amber-700  border-amber-200'  },
-  'in-progress':{ label: 'In Progress',badge: 'bg-violet-50  text-violet-700 border-violet-200' },
+  waiting: { label: 'Waiting', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+  called: { label: 'Called', badge: 'bg-sky-50 text-sky-700 border-sky-200' },
+  in_consultation: { label: 'In Consultation', badge: 'bg-violet-50 text-violet-700 border-violet-200' },
 }
 
 function calcAge(birthdate) {
@@ -323,14 +324,14 @@ const DetailPanel = ({ appt, onClose, onStart, onViewPrescription, allowStart = 
 }
 
 // ── Walk-in Queue Panel ───────────────────────────────────────────────────────
-const WalkInPanel = ({ queue, onCallNext, onMarkDone, onConsultWalkIn, calling }) => (
+const WalkInPanel = ({ queue, onCallNext, onConsultWalkIn, calling }) => (
   <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
     <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
       <div>
         <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
           <MdQueuePlayNext className="text-amber-500" /> Walk-in Queue
         </h2>
-        <p className="text-xs text-slate-400 mt-0.5">{queue.length} patient{queue.length !== 1 ? 's' : ''} waiting</p>
+        <p className="text-xs text-slate-400 mt-0.5">{queue.filter((entry) => entry.status === 'waiting').length} waiting · {queue.filter((entry) => entry.status === 'called').length} called</p>
       </div>
       <button
         onClick={onCallNext}
@@ -351,9 +352,9 @@ const WalkInPanel = ({ queue, onCallNext, onMarkDone, onConsultWalkIn, calling }
       ) : queue.map((q, idx) => {
         const qcfg = QUEUE_STATUS[q.status] || QUEUE_STATUS.waiting
         return (
-          <div key={q.id} className={`flex items-center gap-3 px-4 py-3 ${q.status === 'in-progress' ? 'bg-violet-50/50' : ''}`}>
+          <div key={q.id} className={`flex items-center gap-3 px-4 py-3 ${q.status === 'called' ? 'bg-sky-50/50' : q.status === 'in_consultation' ? 'bg-violet-50/50' : ''}`}>
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0
-              ${q.status === 'in-progress' ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'}`}>
+              ${q.status === 'called' ? 'bg-sky-100 text-sky-700' : q.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'}`}>
               {q.queue_number}
             </div>
             <div className="flex-1 min-w-0">
@@ -365,21 +366,14 @@ const WalkInPanel = ({ queue, onCallNext, onMarkDone, onConsultWalkIn, calling }
                 <span className="text-[10px] text-slate-400">{q.arrivedAt || ''}</span>
               </div>
             </div>
-            {q.status === 'in-progress' && (
-              <div className="flex items-center gap-2 shrink-0">
-                {q.appointment_id && (
-                  <button onClick={() => onConsultWalkIn(q)}
-                    className="text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-200
-                      px-2.5 py-1 rounded-lg hover:bg-violet-100 transition-colors">
-                    Consult
-                  </button>
-                )}
-                <button onClick={() => onMarkDone(q.id)}
-                  className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200
-                    px-2.5 py-1 rounded-lg hover:bg-emerald-100 transition-colors">
-                  Done
-                </button>
-              </div>
+            {q.status === 'called' && q.appointment_id && (
+              <button onClick={() => onConsultWalkIn(q)}
+                className="shrink-0 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700 hover:bg-violet-100 transition-colors">
+                Start Consultation
+              </button>
+            )}
+            {q.status === 'in_consultation' && (
+              <span className="shrink-0 rounded-lg bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-700">In Consultation</span>
             )}
             {q.status === 'waiting' && idx === 0 && (
               <span className="text-[10px] font-bold text-amber-600 shrink-0">Up next</span>
@@ -480,14 +474,6 @@ const Doctor_Appointments = () => {
     }
   }
 
-  const handleMarkDone = async (id) => {
-    try {
-      await markQueueEntryDone(id)
-      loadQueue()
-    } catch (err) {
-      console.error('Mark done failed', err)
-    }
-  }
 
   const handleViewPrescription = (appt) => {
     setPrescModal({ id: appt.id, patientName: appt.patient_name || appt.patient })
@@ -686,7 +672,6 @@ const Doctor_Appointments = () => {
                 <WalkInPanel
                   queue={walkInPagination.pageItems}
                   onCallNext={handleCallNext}
-                  onMarkDone={handleMarkDone}
                   onConsultWalkIn={handleConsultWalkIn}
                   calling={calling}
                 />

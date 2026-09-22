@@ -5,7 +5,7 @@ const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
 const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
-const { createNotification } = require('../utils/notifications')
+const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly } = require('../utils/date')
@@ -20,6 +20,7 @@ const { loadImagesForConsultationIds, authorizeConsultationImages, syncConsultat
 const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
 const { consumeInventoryFromLocationFEFO, getInventoryLocationById } = require('../utils/inventoryBatches')
 const { writeAuditLog } = require('../utils/audit')
+const { startQueueConsultationByAppointment, callNextQueuePatient, setQueueState } = require('../utils/queueWorkflow')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
 const {
   createClinicalUploadSignature,
@@ -54,7 +55,7 @@ const login = async (req, res) => {
   await writeAuditLog({ userId: doctor.id, userRole: 'doctor', action: 'auth.login_success', entityType: 'doctor', entityId: doctor.id, ipAddress: req.ip || null }).catch(() => {})
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, prc_license: doctor.prc_license, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url, must_change_password: Boolean(doctor.must_change_password) },
+    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, clinic_type: doctor.clinic_type, prc_license: doctor.prc_license, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url, must_change_password: Boolean(doctor.must_change_password) },
   })
 }
 
@@ -64,7 +65,7 @@ const checkAuth = async (req, res) => {
   try {
     const decoded = await verifySessionToken(token, 'doctor')
     const [rows] = await db.query(
-      'SELECT id, full_name, email, specialty, prc_license, theme_preference, profile_image_url, must_change_password, password_changed_at FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
+      'SELECT id, full_name, email, specialty, clinic_type, prc_license, theme_preference, profile_image_url, must_change_password, password_changed_at FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'doctor' } })
@@ -165,7 +166,6 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 const getDashboard = async (req, res) => {
-  await markOverdueAppointments()
   const today = getTodayDateOnly()
   const [[{ totalToday }]]      = await db.query(
     'SELECT COUNT(*) AS totalToday FROM appointments WHERE doctor_id = ? AND appointment_date = ?',
@@ -187,7 +187,7 @@ const getDashboard = async (req, res) => {
     `SELECT q.id, q.queue_number AS queueNo, q.patient_name AS patient,
             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt, q.type, q.status
      FROM queue q
-     WHERE q.doctor_id = ? AND q.queue_date = ? AND q.status IN ('waiting','in-progress')
+     WHERE q.doctor_id = ? AND q.queue_date = ? AND q.status IN ('waiting','called','in_consultation')
      ORDER BY q.queue_number ASC`,
     [req.user.id, today]
   )
@@ -213,7 +213,6 @@ const getDashboard = async (req, res) => {
 // ── Appointments ──────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
-  await markOverdueAppointments()
   const today = getTodayDateOnly()
   const scope = String(req.query.scope || 'today').trim().toLowerCase()
   const requestedDate = String(req.query.date || '').trim()
@@ -259,7 +258,6 @@ const getAppointments = async (req, res) => {
 }
 
 const getDailyAppointments = async (req, res) => {
-  await markOverdueAppointments()
   const date = req.query.date || getTodayDateOnly()
   const [rows] = await db.query(
     `SELECT a.*, a.appointment_time AS time, a.clinic_type AS type,
@@ -280,39 +278,149 @@ const getDailyAppointments = async (req, res) => {
 }
 
 const startConsultation = async (req, res) => {
-  const [rows] = await db.query(
-    `SELECT id, status, DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointment_date
-     FROM appointments
-     WHERE id = ? AND doctor_id = ?`,
-    [req.params.id, req.user.id]
-  )
-  if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
-  if (String(rows[0].appointment_date || '').slice(0, 10) !== getTodayDateOnly()) {
-    return res.status(409).json({ code: 'APPOINTMENT_NOT_TODAY', message: 'Consultations can only be started on the appointment date.' })
+  const conn = await db.getConnection()
+  let appointment
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query(
+      `SELECT id, patient_id, doctor_id, status, DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointment_date
+       FROM appointments
+       WHERE id = ? AND doctor_id = ?
+       FOR UPDATE`,
+      [req.params.id, req.user.id]
+    )
+    if (rows.length === 0) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Appointment not found.' })
+    }
+    appointment = rows[0]
+    if (String(appointment.appointment_date || '').slice(0, 10) !== getTodayDateOnly()) {
+      await conn.rollback()
+      return res.status(409).json({ code: 'APPOINTMENT_NOT_TODAY', message: 'Consultations can only be started on the appointment date.' })
+    }
+    if (appointment.status !== 'in-progress') {
+      assertAppointmentTransition(appointment.status, 'in-progress')
+      await conn.query("UPDATE appointments SET status = 'in-progress' WHERE id = ?", [req.params.id])
+    }
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    throw error
+  } finally {
+    conn.release()
   }
-  assertAppointmentTransition(rows[0].status, 'in-progress')
-  await db.query("UPDATE appointments SET status = 'in-progress' WHERE id = ?", [req.params.id])
-  const [queueRows] = await db.query(
-    `SELECT id
-     FROM queue
-     WHERE appointment_id = ? AND doctor_id = ? AND status IN ('waiting','in-progress')
-     ORDER BY id DESC
-     LIMIT 1`,
-    [req.params.id, req.user.id]
-  )
-  if (queueRows.length > 0) {
-    await db.query("UPDATE queue SET status = 'in-progress' WHERE id = ?", [queueRows[0].id])
-    broadcast(['admin', 'staff', `doctor_${req.user.id}`], 'queue_updated', {
-      queueId: queueRows[0].id,
-      status: 'in-progress',
-      doctorId: req.user.id,
-    })
-  }
-  broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'in-progress' })
-  res.json({ message: 'Consultation started.' })
+
+  const queueEntry = await startQueueConsultationByAppointment({
+    appointmentId: Number(req.params.id),
+    doctorId: req.user.id,
+    actorId: req.user.id,
+    ipAddress: req.ip || null,
+  }).catch((error) => {
+    // Scheduled appointments are allowed to start even if no queue row exists.
+    if (error?.statusCode === 404) return null
+    throw error
+  })
+
+  broadcast(['admin', 'staff', `patient_${appointment.patient_id}`], 'appointment_updated', {
+    appointmentId: Number(req.params.id),
+    status: 'in-progress',
+  })
+  res.json({ message: 'Consultation started.', queue: queueEntry })
 }
 
-const saveConsultation = async (req, res) => {
+const buildConsultationPayload = (req) => ({
+  diagnosis: req.body.diagnosis || null,
+  prescription: req.body.prescription || null,
+  notes: req.body.notes || null,
+  images: Object.prototype.hasOwnProperty.call(req.body, 'images') ? req.body.images : null,
+  billableServices: Object.prototype.hasOwnProperty.call(req.body, 'billable_services') ? req.body.billable_services : null,
+})
+
+const saveConsultationDraft = async (req, res) => {
+  const { appointmentId } = req.params
+  const payload = buildConsultationPayload(req)
+  const conn = await db.getConnection()
+  let consultationId
+  let billing = null
+  let appt
+
+  try {
+    await conn.beginTransaction()
+    const [apptRows] = await conn.query(
+      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? FOR UPDATE',
+      [appointmentId, req.user.id]
+    )
+    if (apptRows.length === 0) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Appointment not found.' })
+    }
+    appt = apptRows[0]
+    if (!['confirmed', 'rescheduled', 'in-progress'].includes(String(appt.status || ''))) {
+      await conn.rollback()
+      return res.status(409).json({ code: 'CONSULTATION_NOT_EDITABLE', message: 'This appointment is not in an editable consultation state.' })
+    }
+
+    const [existing] = await conn.query(
+      'SELECT id, status, version FROM consultations WHERE appointment_id = ? FOR UPDATE',
+      [appointmentId]
+    )
+    if (existing[0] && String(existing[0].status || 'draft') === 'finalized') {
+      await conn.rollback()
+      return res.status(409).json({ code: 'CONSULTATION_FINALIZED', message: 'This consultation is already finalized. Add an amendment instead.' })
+    }
+
+    if (existing[0]) {
+      consultationId = existing[0].id
+      await conn.query(
+        `UPDATE consultations
+         SET diagnosis=?, prescription=?, notes=?, status='draft', updated_at=NOW(), version=COALESCE(version,1)+1
+         WHERE id=?`,
+        [payload.diagnosis, payload.prescription, payload.notes, consultationId]
+      )
+    } else {
+      const [inserted] = await conn.query(
+        `INSERT INTO consultations
+         (appointment_id, doctor_id, patient_id, diagnosis, prescription, notes, status, updated_at, version)
+         VALUES (?,?,?,?,?,?,'draft',NOW(),1)`,
+        [appointmentId, req.user.id, appt.patient_id, payload.diagnosis, payload.prescription, payload.notes]
+      )
+      consultationId = inserted.insertId
+    }
+
+    if (payload.images !== null) {
+      const authorizedImages = await authorizeConsultationImages({ consultationId, appointmentId, doctorId: req.user.id, images: payload.images, executor: conn })
+      await syncConsultationImages(consultationId, authorizedImages, conn)
+    }
+    if (payload.billableServices !== null) {
+      billing = await upsertDraftBillingForAppointment({ appointment: appt, consultationId, items: payload.billableServices }, conn)
+    } else {
+      billing = await getBillingByAppointmentId(appointmentId, conn)
+    }
+
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'doctor',
+      action: 'clinical.consultation_draft_saved',
+      entityType: 'consultation',
+      entityId: consultationId,
+      newValues: { appointment_id: Number(appointmentId), status: 'draft' },
+      ipAddress: req.ip || null,
+    }, conn)
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    throw error
+  } finally {
+    conn.release()
+  }
+
+  broadcast([`doctor_${req.user.id}`], 'consultation_draft_saved', {
+    appointmentId: Number(appointmentId), consultationId,
+  })
+  res.json({ message: 'Draft saved.', consultation_id: consultationId, status: 'draft', billing })
+}
+
+const finalizeConsultation = async (req, res) => {
   const { diagnosis, prescription, notes } = req.body
   const hasImagesPayload = Object.prototype.hasOwnProperty.call(req.body, 'images')
   const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
@@ -390,7 +498,7 @@ const saveConsultation = async (req, res) => {
     const [queueRows] = await conn.query(
       `SELECT id
        FROM queue
-       WHERE appointment_id = ? AND doctor_id = ? AND status IN ('waiting','in-progress')
+       WHERE appointment_id = ? AND doctor_id = ? AND status IN ('waiting','called','in-progress','in_consultation')
        ORDER BY id DESC
        LIMIT 1`,
       [appointmentId, req.user.id]
@@ -425,7 +533,29 @@ const saveConsultation = async (req, res) => {
     patientId: appt.patient_id,
     doctorId: req.user.id,
   })
-  res.json({ message: 'Consultation saved.', consultation_id: consultationId, billing })
+  if (billing?.id) {
+    await Promise.all([
+      createNotification({
+        target_role: 'staff',
+        type: 'billing_ready_for_review',
+        title: 'Bill ready for review',
+        message: `Consultation completed. Billing #${billing.id} is ready for review and checkout.`,
+        reference_type: 'billing_record',
+        reference_id: billing.id,
+        link: `/staff/checkout/${billing.id}`,
+      }),
+      createNotification({
+        target_role: 'admin',
+        type: 'billing_ready_for_review',
+        title: 'Bill ready for review',
+        message: `Consultation completed. Billing #${billing.id} is ready for review and checkout.`,
+        reference_type: 'billing_record',
+        reference_id: billing.id,
+        link: `/admin/checkout/${billing.id}`,
+      }),
+    ]).catch(() => {})
+  }
+  res.json({ message: 'Consultation completed.', consultation_id: consultationId, status: 'finalized', billing })
 }
 
 // ── NEW: Get a single consultation (for viewing/editing after completion) ─────
@@ -433,6 +563,7 @@ const getConsultation = async (req, res) => {
   const { appointmentId } = req.params
   const [rows] = await db.query(
     `SELECT c.*, a.clinic_type AS type, a.reason, a.appointment_time AS time,
+            a.requested_service_id, a.requested_service_name_snapshot, a.requested_service_price_snapshot,
             p.full_name AS patient_name,
             TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age,
             p.sex AS patient_sex, p.phone AS patient_phone
@@ -841,8 +972,8 @@ const submitRequest = async (req, res) => {
 
   let destination = await getInventoryLocationById(req.body.destination_location_id)
   if (!destination) {
-    const [[doctorRow]] = await db.query('SELECT specialty FROM doctors WHERE id = ? LIMIT 1', [req.user.id])
-    const defaultDestination = String(doctorRow?.specialty || '').toLowerCase().includes('derm') ? 'Dermatology Room' : 'General Medicine Room'
+    const [[doctorRow]] = await db.query('SELECT specialty, clinic_type FROM doctors WHERE id = ? LIMIT 1', [req.user.id])
+    const defaultDestination = (doctorRow?.clinic_type || (String(doctorRow?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')) === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
     const [[defaultRow]] = await db.query(
       `SELECT id, name, location_type FROM inventory_locations
        WHERE name = ? AND COALESCE(is_active,1)=1 LIMIT 1`,
@@ -895,7 +1026,7 @@ const getMyQueue = async (req, res) => {
      LEFT JOIN appointments a ON a.id = q.appointment_id
      LEFT JOIN patients p ON p.id = q.patient_id
      WHERE q.doctor_id = ? AND q.queue_date = ?
-       AND q.status IN ('waiting','in-progress')
+       AND q.status IN ('waiting','called','in_consultation')
      ORDER BY q.queue_number ASC`,
     [req.user.id, today]
   )
@@ -904,50 +1035,30 @@ const getMyQueue = async (req, res) => {
 
 // PATCH /queue/call-next — mark current in-progress as done, set next waiting as in-progress
 const callNext = async (req, res) => {
-  const today = getTodayDateOnly()
-  const doctorId = req.user.id
-
-  // Mark current in-progress patient as done
-  const [currentRows] = await db.query(
-    `SELECT id FROM queue WHERE doctor_id=? AND queue_date=? AND status='in-progress'`,
-    [doctorId, today]
-  )
-  await db.query(
-    `UPDATE queue SET status='done' WHERE doctor_id=? AND queue_date=? AND status='in-progress'`,
-    [doctorId, today]
-  )
-  if (currentRows[0]?.id) {
-    broadcast(['admin', 'staff', `doctor_${doctorId}`], 'queue_updated', { queueId: currentRows[0].id, status: 'done', doctorId })
-  }
-
-  // Get the next waiting patient
-  const [nextRows] = await db.query(
-    `SELECT id, queue_number, patient_name, type FROM queue
-     WHERE doctor_id=? AND queue_date=? AND status='waiting'
-     ORDER BY queue_number ASC LIMIT 1`,
-    [doctorId, today]
-  )
-
-  if (nextRows.length === 0) {
-    return res.json({ message: 'No more patients in queue.', nextPatient: null })
-  }
-
-  const next = nextRows[0]
-  await db.query(`UPDATE queue SET status='in-progress' WHERE id=?`, [next.id])
-  broadcast(['admin', 'staff', `doctor_${doctorId}`], 'queue_updated', { queueId: next.id, status: 'call-next', doctorId })
-  res.json({ message: 'Next patient called.', nextPatient: next })
+  const result = await callNextQueuePatient({
+    doctorId: req.user.id,
+    actorRole: 'doctor',
+    actorId: req.user.id,
+    ipAddress: req.ip || null,
+  })
+  res.json(result)
 }
 
-// PATCH /queue/:id/done — mark a specific queue entry as done
+// PATCH /queue/:id/done — reconciliation-only action. Normal completion happens
+// when the consultation is finalized, so clinical and queue state cannot diverge.
 const markQueueDone = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT id FROM queue WHERE id=? AND doctor_id=?',
+    `SELECT q.id, q.appointment_id, a.status AS appointment_status
+     FROM queue q LEFT JOIN appointments a ON a.id=q.appointment_id
+     WHERE q.id=? AND q.doctor_id=?`,
     [req.params.id, req.user.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Queue entry not found.' })
-  await db.query(`UPDATE queue SET status='done' WHERE id=?`, [req.params.id])
-  broadcast(['admin', 'staff', `doctor_${req.user.id}`], 'queue_updated', { queueId: Number(req.params.id), status: 'done', doctorId: req.user.id })
-  res.json({ message: 'Marked as done.' })
+  if (rows[0].appointment_id && rows[0].appointment_status !== 'completed') {
+    return res.status(409).json({ message: 'Complete the consultation before marking this queue entry done.' })
+  }
+  await setQueueState({ queueId: req.params.id, nextStatus: 'done', actorRole: 'doctor', actorId: req.user.id, ipAddress: req.ip || null })
+  res.json({ message: 'Queue entry completed.' })
 }
 
 // ── Doctor's Own Schedule ─────────────────────────────────────────────────────
@@ -1050,7 +1161,7 @@ const deleteMyUnavailableDate = async (req, res) => {
 module.exports = {
   login, checkAuth, logout,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
-  saveConsultation, getConsultation, updateConsultation, addConsultationAmendment,
+  saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
   getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
   getInventoryItems, getMyRequests, getRequestLocations, submitRequest,
   getMyQueue, callNext, markQueueDone,

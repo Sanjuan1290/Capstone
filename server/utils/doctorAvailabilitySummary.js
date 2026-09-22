@@ -11,9 +11,11 @@ const formatSlotLabel = (minutes) => {
   return `${hours % 12 || 12}:${String(mins).padStart(2, '0')} ${period}`
 }
 
-const clinicMatchesDoctor = (clinicType, specialty) => {
+const clinicMatchesDoctor = (clinicType, doctor) => {
   if (!clinicType) return true
-  const isDerma = String(specialty || '').toLowerCase().includes('derm')
+  const explicit = String(doctor?.clinic_type || '').trim()
+  if (['medical','derma'].includes(explicit)) return clinicType === explicit
+  const isDerma = String(doctor?.specialty || '').toLowerCase().includes('derm')
   return clinicType === 'derma' ? isDerma : clinicType === 'medical' ? !isDerma : false
 }
 
@@ -23,12 +25,12 @@ const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days
   const end = addDaysDateOnly(start, safeDays - 1)
 
   const [doctorRows] = await executor.query(
-    `SELECT id, full_name, specialty
+    `SELECT id, full_name, specialty, clinic_type
      FROM doctors
      WHERE is_active = 1
      ORDER BY full_name`
   )
-  const doctors = doctorRows.filter((doctor) => clinicMatchesDoctor(clinicType, doctor.specialty))
+  const doctors = doctorRows.filter((doctor) => clinicMatchesDoctor(clinicType, doctor))
   if (!doctors.length) return { start_date: start, end_date: end, days: safeDays, doctors: [] }
 
   const doctorIds = doctors.map((doctor) => Number(doctor.id))

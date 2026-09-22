@@ -25,6 +25,7 @@ const QueueDisplay = () => {
   const [isMonitoring, setIsMonitoring] = useState(false)
   const audioContextRef = useRef(null)
   const previousWaitingLengthRef = useRef(0)
+  const previousServingKeyRef = useRef('')
   const now = useCurrentTime()
 
   useEffect(() => {
@@ -100,9 +101,11 @@ const QueueDisplay = () => {
       setQueue(data)
       setConnected(true)
 
-      if (!initial && isMonitoring && data.waiting?.length > previousWaitingLengthRef.current) {
+      const servingKey = data.serving ? `${data.serving.doctor || ''}:${data.serving.queueNo || ''}` : ''
+      if (!initial && isMonitoring && servingKey && servingKey !== previousServingKeyRef.current) {
         playChime()
       }
+      previousServingKeyRef.current = servingKey
       previousWaitingLengthRef.current = data.waiting?.length || 0
       return true
     } catch {
@@ -151,6 +154,7 @@ const QueueDisplay = () => {
     setIsMonitoring(false)
     setQueue({ serving: null, waiting: [], clinicOpen: true })
     previousWaitingLengthRef.current = 0
+    previousServingKeyRef.current = ''
   }
 
   if (checkingSession) {
@@ -216,7 +220,7 @@ const QueueDisplay = () => {
     <div className="min-h-screen bg-[#0b1a2c] px-4 py-6 text-white md:px-8">
       {!isMonitoring && (
         <div className="mx-auto mb-4 flex max-w-6xl items-center justify-between gap-4 rounded-2xl border border-sky-400/20 bg-sky-500/10 px-4 py-3">
-          <p className="text-sm text-sky-100">Queue display is unlocked. Enable sound to hear a chime when the waiting queue grows.</p>
+          <p className="text-sm text-sky-100">Queue display is unlocked. Enable sound to hear a chime when a queue number is called.</p>
           <button onClick={enableAudio} className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-sky-700">
             <MdVolumeUp /> Enable Sound
           </button>
@@ -244,7 +248,7 @@ const QueueDisplay = () => {
 
       <main className="mx-auto mt-6 grid max-w-6xl gap-6 lg:grid-cols-[1.4fr_1fr]">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-6">
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-sky-300">Now Serving</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-sky-300">Now Calling</p>
           {queue.serving ? (
             <div className="py-4 text-center">
               <div className="mx-auto mb-5 flex h-32 w-32 items-center justify-center rounded-[32px] bg-sky-500/15 text-5xl font-black text-sky-300">
@@ -254,7 +258,7 @@ const QueueDisplay = () => {
               <p className="mt-2 text-sm text-slate-300">{queue.serving.doctor}</p>
             </div>
           ) : (
-            <div className="py-16 text-center text-slate-400">No patient is currently being served.</div>
+            <div className="py-16 text-center text-slate-400">No queue number is currently being called.</div>
           )}
         </section>
 

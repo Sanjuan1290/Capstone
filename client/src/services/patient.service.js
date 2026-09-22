@@ -22,6 +22,14 @@ export const getMyHistory = async () => {
   return res.json()
 }
 
+
+export const getBookingServices = async (clinicType = '') => {
+  const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
+  const res = await fetch(`${BASE}/booking-services${query}`, { credentials: 'include' })
+  if (!res.ok) throw new Error('Failed to fetch clinic services')
+  return res.json()
+}
+
 export const getAppointmentReasons = async (clinicType = '') => {
   const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
   const res = await fetch(`${BASE}/appointment-reasons${query}`, { credentials: 'include' })

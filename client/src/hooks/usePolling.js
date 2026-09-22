@@ -41,9 +41,16 @@ const usePolling = (fn, intervalMs = 30_000, skip = false) => {
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
 
+    // SSE/layout components dispatch this event after workflow mutations. Pages
+    // using polling therefore refresh immediately, while the interval remains a
+    // resilience fallback if a live event is missed.
+    const onClinicRefresh = () => run()
+    window.addEventListener('clinic:refresh', onClinicRefresh)
+
     return () => {
       clearInterval(timerId.current)
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('clinic:refresh', onClinicRefresh)
     }
   }, [run, intervalMs, skip])
 }

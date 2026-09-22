@@ -14,9 +14,11 @@ const REQUIRED_TABLES = [
 const REQUIRED_COLUMNS = {
   admins: ['session_version'],
   staff: ['must_change_password', 'password_changed_at', 'session_version'],
-  doctors: ['must_change_password', 'password_changed_at', 'session_version'],
+  doctors: ['must_change_password', 'password_changed_at', 'session_version', 'clinic_type'],
   patients: ['onboarding_completed_at', 'session_version'],
-  consultations: ['status', 'finalized_at', 'finalized_by_doctor_id', 'updated_at'],
+  appointments: ['appointment_source', 'checked_in_at', 'requested_service_id', 'requested_service_name_snapshot', 'requested_service_price_snapshot'],
+  queue: ['appointment_id', 'called_at', 'consultation_started_at', 'completed_at'],
+  consultations: ['status', 'finalized_at', 'finalized_by_doctor_id', 'updated_at', 'version'],
   consultation_images: ['security_scan_status'],
   clinic_payment_settings: ['cash_enabled', 'gcash_enabled', 'maya_enabled', 'bank_transfer_enabled', 'gcash_qr_scan_status', 'maya_qr_scan_status'],
   supply_requests: ['destination_location_id'],
@@ -56,7 +58,23 @@ const run = async () => {
       throw new Error('Database schema is not deployment-ready. Run `npm run migrate` and verify again.')
     }
 
-    console.log('Deployment verification passed: runtime configuration, database connection, and critical schema are ready.')
+    const [[legacyQueue]] = await db.query("SELECT COUNT(*) AS count FROM queue WHERE status='in-progress'")
+    if (Number(legacyQueue?.count || 0) > 0) {
+      throw new Error('Legacy queue status `in-progress` still exists. Complete the 2026-09-22 workflow migration.')
+    }
+
+    const [[duplicateConsultations]] = await db.query(
+      `SELECT COUNT(*) AS count FROM (
+         SELECT appointment_id FROM consultations
+         WHERE appointment_id IS NOT NULL
+         GROUP BY appointment_id HAVING COUNT(*) > 1
+       ) duplicates`
+    )
+    if (Number(duplicateConsultations?.count || 0) > 0) {
+      throw new Error('Duplicate consultation rows exist for one or more appointments. Resolve them before deployment.')
+    }
+
+    console.log('Deployment verification passed: runtime configuration, database connection, workflow schema, and critical integrity checks are ready.')
   } catch (error) {
     console.error('Deployment verification failed:', error.message)
     process.exitCode = 1

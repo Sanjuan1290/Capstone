@@ -9,12 +9,14 @@ const createNotification = async ({
   message,
   reference_type = null,
   reference_id = null,
+  body = null,
+  link = null,
 }) => {
   const [result] = await db.query(
     `INSERT INTO notifications
-      (target_role, target_user_id, type, title, message, reference_type, reference_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [target_role, target_user_id, type, title, message, reference_type, reference_id]
+      (target_role, target_user_id, type, title, message, reference_type, reference_id, body, link)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [target_role, target_user_id, type, title, message, reference_type, reference_id, body, link]
   )
 
   const notification = {
@@ -26,6 +28,8 @@ const createNotification = async ({
     message,
     reference_type,
     reference_id,
+    body,
+    link,
   }
   broadcast(target_user_id ? [target_role, `${target_role}_${target_user_id}`] : target_role, 'notification_created', notification)
   return notification

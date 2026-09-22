@@ -8,7 +8,7 @@ const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middle
 const {
   login, checkAuth, logout,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
-  saveConsultation, getConsultation, updateConsultation, addConsultationAmendment,
+  saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
   getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
   getInventoryItems, getMyRequests, getRequestLocations, submitRequest,
   getMyQueue, callNext, markQueueDone,
@@ -39,8 +39,11 @@ router.get('/appointments',                  getAppointments)
 router.get('/appointments/daily',            getDailyAppointments)
 router.patch('/appointments/:id/start',      startConsultation)
 
-// Consultation — save (new) or get/update (existing/completed)
-router.post('/consultations/:appointmentId',   saveConsultation)
+// Consultation — draft and finalization are intentionally separate.
+router.put('/consultations/:appointmentId/draft', saveConsultationDraft)
+router.post('/consultations/:appointmentId/finalize', finalizeConsultation)
+// Backward-compatible finalization endpoint for older clients.
+router.post('/consultations/:appointmentId', finalizeConsultation)
 router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)

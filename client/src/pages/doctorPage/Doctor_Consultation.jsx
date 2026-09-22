@@ -4,7 +4,8 @@ import { useAuth } from '../../context/AuthContext'
 import { uploadClinicalImageSigned, getClinicalImageScanStatus } from '../../services/portal.service'
 import Modal from '../../components/ui/Modal'
 import {
-  saveConsultation,
+  saveConsultationDraft,
+  finalizeConsultation,
   updateConsultation,
   getConsultation,
   getPatientHistory,
@@ -176,6 +177,8 @@ const Doctor_Consultation = () => {
   const [scanBypassPrompt, setScanBypassPrompt] = useState(null)
   const [pendingScanPrompt, setPendingScanPrompt] = useState(null)
   const [consultationStatus, setConsultationStatus] = useState('draft')
+  const [lastSavedAt, setLastSavedAt] = useState(null)
+  const [autoSaveError, setAutoSaveError] = useState('')
   const [amendments, setAmendments] = useState([])
   const [amendmentReason, setAmendmentReason] = useState('')
   const [amendmentText, setAmendmentText] = useState('')
@@ -194,7 +197,9 @@ const Doctor_Consultation = () => {
   }
 
   const applyConsultationData = (consult) => {
-    setConsultationStatus(consult.status || 'finalized')
+    const nextStatus = consult.status || 'finalized'
+    setConsultationStatus(nextStatus)
+    setIsEditMode(nextStatus === 'finalized')
     setAmendments(Array.isArray(consult.amendments) ? consult.amendments : [])
     setDiagnosis(consult.diagnosis || '')
     setNotes(consult.notes || '')
@@ -233,23 +238,28 @@ const Doctor_Consultation = () => {
           patient_sex: consult.patient_sex,
           patient_phone: consult.patient_phone,
           reason: consult.reason,
+          requested_service_id: consult.requested_service_id,
+          requested_service_name_snapshot: consult.requested_service_name_snapshot,
+          requested_service_price_snapshot: consult.requested_service_price_snapshot,
           time: consult.time,
           type: consult.type,
-          status: 'completed',
+          status: (consult.status || 'finalized') === 'finalized' ? 'completed' : 'in-progress',
         })
         applyConsultationData(consult)
-        setIsEditMode(true)
+        setIsEditMode((consult.status || 'finalized') === 'finalized')
       })
       .catch(() => {})
       .finally(() => setInitLoading(false))
   }, [apptIdParam, apptFromState])
 
   useEffect(() => {
-    if (!apptFromState || apptFromState.status !== 'completed') return
-    setIsEditMode(true)
+    if (!apptFromState?.id) return
     getConsultation(apptFromState.id)
       .then((consult) => applyConsultationData(consult))
-      .catch(() => {})
+      .catch(() => {
+        // A consultation does not exist until the doctor saves the first draft.
+        if (apptFromState.status === 'completed') setIsEditMode(true)
+      })
   }, [apptFromState])
 
   useEffect(() => {
@@ -270,8 +280,27 @@ const Doctor_Consultation = () => {
   useEffect(() => {
     const clinicType = appt?.type || appt?.clinic_type || ''
     if (!clinicType) return
-    getBillingCatalog(clinicType).then((rows) => setBillingCatalog(Array.isArray(rows) ? rows : [])).catch(() => setBillingCatalog([]))
-  }, [appt?.type, appt?.clinic_type])
+    getBillingCatalog(clinicType).then((rows) => {
+      const catalog = Array.isArray(rows) ? rows : []
+      setBillingCatalog(catalog)
+      if (consultationStatus !== 'finalized' && appt?.requested_service_id) {
+        const requested = catalog.find((service) => Number(service.id) === Number(appt.requested_service_id))
+        if (requested) {
+          setBillableServices((current) => current.length > 0 ? current : [{
+            catalog_service_id: requested.id,
+            service_name: requested.service_name,
+            quantity: 1,
+            materials: (requested.materials || []).map((material) => ({
+              inventory_id: material.inventory_id,
+              material_name: material.material_name || material.inventory_name,
+              quantity: Number(material.quantity || 0),
+              unit_label: material.inventory_base_unit || material.unit_label || material.inventory_unit || '',
+            })),
+          }])
+        }
+      }
+    }).catch(() => setBillingCatalog([]))
+  }, [appt?.type, appt?.clinic_type, appt?.requested_service_id, consultationStatus])
 
   const currentPatient = appt ? {
     id: appt.patient_id,
@@ -453,45 +482,73 @@ const Doctor_Consultation = () => {
     }
   }
 
-  const handleSave = async () => {
-    if (!appt) return
-    if (consultationStatus === 'finalized') {
-      alert('This medical record is finalized. Add an amendment instead of editing the original record.')
-      return
-    }
-    setSaving(true)
+  const buildPayload = () => ({
+    diagnosis,
+    notes,
+    prescription: JSON.stringify(prescriptions),
+    images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
+    billable_services: billableServices,
+  })
 
-    const payload = {
-      diagnosis,
-      notes,
-      prescription: JSON.stringify(prescriptions),
-      images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
-      ...(isEditMode ? {} : { billable_services: billableServices }),
-    }
-
+  const handleSave = async ({ silent = false } = {}) => {
+    if (!appt || consultationStatus === 'finalized' || uploadingIndex !== null) return false
+    if (!silent) setSaving(true)
     try {
-      if (isEditMode) {
-        await updateConsultation(appt.id, payload)
-      } else {
-        await saveConsultation(appt.id, payload)
-      }
-
+      await saveConsultationDraft(appt.id, buildPayload())
+      setConsultationStatus('draft')
+      setIsEditMode(false)
       setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-
-      if (!isEditMode) {
-        setIsEditMode(true)
-        setConsultationStatus('finalized')
-        setAppt((prev) => (prev ? { ...prev, status: 'completed' } : prev))
-      }
-
+      setLastSavedAt(new Date())
+      setAutoSaveError('')
+      if (!silent) setTimeout(() => setSaved(false), 2000)
       await loadHistory(appt.patient_id)
-    } catch {
-      alert('Failed to save consultation. Please try again.')
+      return true
+    } catch (err) {
+      setAutoSaveError(err.message || 'Draft could not be saved.')
+      if (!silent) alert(err.message || 'Failed to save draft. Your changes are still on this page.')
+      return false
+    } finally {
+      if (!silent) setSaving(false)
+    }
+  }
+
+  const handleFinalize = async () => {
+    if (!appt || consultationStatus === 'finalized') return
+    if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct recorded medicines and consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
+    setSaving(true)
+    try {
+      await finalizeConsultation(appt.id, buildPayload())
+      setConsultationStatus('finalized')
+      setIsEditMode(true)
+      setSaved(true)
+      setLastSavedAt(new Date())
+      setAutoSaveError('')
+      setAppt((prev) => (prev ? { ...prev, status: 'completed' } : prev))
+      await loadHistory(appt.patient_id)
+    } catch (err) {
+      alert(err.message || 'Failed to complete consultation. The record has not been finalized.')
     } finally {
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    if (!appt?.id || consultationStatus === 'finalized') return undefined
+    const timer = window.setInterval(() => {
+      handleSave({ silent: true })
+    }, 25000)
+    return () => window.clearInterval(timer)
+  }, [appt?.id, consultationStatus, diagnosis, notes, prescriptions, progressImages, billableServices, uploadingIndex])
+
+  useEffect(() => {
+    if (consultationStatus === 'finalized') return undefined
+    const beforeUnload = (event) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => window.removeEventListener('beforeunload', beforeUnload)
+  }, [consultationStatus])
 
   if (initLoading) {
     return (
@@ -952,11 +1009,23 @@ const Doctor_Consultation = () => {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-end gap-3">
-                <button onClick={() => navigate(-1)} className="px-5 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">Cancel</button>
-                <button onClick={handleSave} disabled={saving || uploadingIndex !== null} className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold rounded-xl transition-colors ${saved ? 'bg-emerald-500 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50'}`}>
-                  {saved ? <><MdCheck className="text-[15px]" /> Saved!</> : saving ? 'Saving...' : <><MdSave className="text-[15px]" /> Save & Complete</>}
-                </button>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div>
+                    {lastSavedAt ? <span className="font-semibold text-emerald-700">Draft saved at {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span> : <span className="text-slate-400">Draft autosaves every 25 seconds.</span>}
+                    {autoSaveError && <span className="ml-2 font-semibold text-rose-600">{autoSaveError}</span>}
+                  </div>
+                  <span className="text-slate-400">Saving a draft does not complete the visit or deduct inventory.</span>
+                </div>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                  <button onClick={async () => { const ok = await handleSave(); if (ok) navigate(-1) }} className="px-5 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">Save Draft & Exit</button>
+                  <button onClick={() => handleSave()} disabled={saving || uploadingIndex !== null} className={`flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold rounded-xl transition-colors ${saved ? 'bg-emerald-500 text-white' : 'bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-50'}`}>
+                    {saved ? <><MdCheck className="text-[15px]" /> Draft Saved</> : saving ? 'Saving...' : <><MdSave className="text-[15px]" /> Save Draft</>}
+                  </button>
+                  <button onClick={handleFinalize} disabled={saving || uploadingIndex !== null} className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
+                    <MdCheck className="text-[15px]" /> Complete Consultation
+                  </button>
+                </div>
               </div>
             )}
           </div>

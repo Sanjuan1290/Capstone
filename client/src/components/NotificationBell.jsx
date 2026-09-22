@@ -78,6 +78,8 @@ const NotificationBell = ({ role }) => {
     <div className="relative">
       <button
         onClick={() => setOpen((prev) => !prev)}
+        aria-label={`Notifications${unread > 0 ? `, ${unread} unread` : ''}`}
+        aria-expanded={open}
         className="relative h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
       >
         <MdNotifications className="mx-auto text-[18px]" />
@@ -115,6 +117,10 @@ const NotificationBell = ({ role }) => {
               items.map((item) => (
                 <div
                   key={item.id}
+                  role={item.link ? 'button' : undefined}
+                  tabIndex={item.link ? 0 : undefined}
+                  onClick={() => { if (item.link) { if (!item.is_read) markReadMutation.mutate(item.id); window.location.assign(item.link) } }}
+                  onKeyDown={(e) => { if (item.link && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); if (!item.is_read) markReadMutation.mutate(item.id); window.location.assign(item.link) } }}
                   className={`border-b border-slate-100 px-4 py-3 last:border-0 ${item.is_read ? 'bg-white' : 'bg-sky-50/60'}`}
                 >
                   <div className="flex items-start gap-3">
@@ -127,7 +133,7 @@ const NotificationBell = ({ role }) => {
                     </div>
                     {!item.is_read && (
                       <button
-                        onClick={() => markReadMutation.mutate(item.id)}
+                        onClick={(e) => { e.stopPropagation(); markReadMutation.mutate(item.id) }}
                         className="h-8 w-8 rounded-lg border border-slate-200 text-slate-400 hover:border-sky-200 hover:text-sky-600"
                       >
                         <MdDone className="mx-auto text-[16px]" />

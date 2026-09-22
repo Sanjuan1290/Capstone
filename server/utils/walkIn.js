@@ -25,7 +25,7 @@ const getWalkInPrecheck = async (patientId, executor = db) => {
     `SELECT q.id, q.queue_number, q.status, q.doctor_id, q.patient_name, d.full_name AS doctor_name
      FROM queue q
      JOIN doctors d ON d.id = q.doctor_id
-     WHERE q.patient_id = ? AND q.queue_date = ? AND q.status IN ('waiting','in-progress')
+     WHERE q.patient_id = ? AND q.queue_date = ? AND q.status IN ('waiting','called','in_consultation')
      ORDER BY q.id DESC LIMIT 1`,
     [id, today]
   )
@@ -56,8 +56,8 @@ const resolveWalkInDoctor = async ({ doctorId, clinicType }, executor = db) => {
   const today = getTodayDateOnly()
   const normalizedType = String(clinicType || '').toLowerCase()
   const specialtyCondition = normalizedType === 'derma'
-    ? "LOWER(d.specialty) LIKE '%derm%'"
-    : "LOWER(d.specialty) NOT LIKE '%derm%'"
+    ? "COALESCE(d.clinic_type, CASE WHEN LOWER(COALESCE(d.specialty,'')) LIKE '%derm%' THEN 'derma' ELSE 'medical' END) = 'derma'"
+    : "COALESCE(d.clinic_type, CASE WHEN LOWER(COALESCE(d.specialty,'')) LIKE '%derm%' THEN 'derma' ELSE 'medical' END) = 'medical'"
 
   const baseWhere = `d.is_active = 1
     AND ${specialtyCondition}
@@ -68,7 +68,7 @@ const resolveWalkInDoctor = async ({ doctorId, clinicType }, executor = db) => {
 
   if (doctorId && doctorId !== 'first_available') {
     const [rows] = await executor.query(
-      `SELECT d.id, d.full_name, d.specialty,
+      `SELECT d.id, d.full_name, d.specialty, d.clinic_type,
               EXISTS(
                 SELECT 1 FROM doctor_schedules ds
                 WHERE ds.doctor_id = d.id AND ds.day_of_week = DAYNAME(?) AND ds.is_active = 1
@@ -85,8 +85,8 @@ const resolveWalkInDoctor = async ({ doctorId, clinicType }, executor = db) => {
   }
 
   const [rows] = await executor.query(
-    `SELECT d.id, d.full_name, d.specialty,
-            COUNT(CASE WHEN q.status IN ('waiting','in-progress') THEN 1 END) AS active_queue_count
+    `SELECT d.id, d.full_name, d.specialty, d.clinic_type,
+            COUNT(CASE WHEN q.status IN ('waiting','called','in_consultation') THEN 1 END) AS active_queue_count
      FROM doctors d
      JOIN doctor_schedules ds
        ON ds.doctor_id = d.id
@@ -95,7 +95,7 @@ const resolveWalkInDoctor = async ({ doctorId, clinicType }, executor = db) => {
       AND CURTIME() BETWEEN ds.start_time AND ds.end_time
      LEFT JOIN queue q ON q.doctor_id = d.id AND q.queue_date = ?
      WHERE ${baseWhere}
-     GROUP BY d.id, d.full_name, d.specialty
+     GROUP BY d.id, d.full_name, d.specialty, d.clinic_type
      ORDER BY active_queue_count ASC, d.full_name ASC
      LIMIT 1`,
     [today, today, today]

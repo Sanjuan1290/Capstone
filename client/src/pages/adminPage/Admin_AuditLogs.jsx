@@ -254,7 +254,7 @@ const Admin_AuditLogs = () => {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
-  const [filters, setFilters] = useState({ search: '', start_date: '', end_date: '', user_role: '', area: '', action: '' })
+  const [filters, setFilters] = useState({ search: '', start_date: '', end_date: '', user_role: '', area: '', action: '', direction: 'desc' })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -287,13 +287,15 @@ const Admin_AuditLogs = () => {
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <label className="relative md:col-span-2"><MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input className="form-control pl-11" placeholder="Search activity, person, item, or reference…" value={filters.search} onChange={(e) => update('search', e.target.value)} /></label>
-          <input type="date" className="form-control" value={filters.start_date} onChange={(e) => update('start_date', e.target.value)} aria-label="Start date" />
-          <input type="date" className="form-control" value={filters.end_date} onChange={(e) => update('end_date', e.target.value)} aria-label="End date" />
-          <select className="form-control" value={filters.user_role} onChange={(e) => update('user_role', e.target.value)}><option value="">All roles</option><option value="admin">Admin</option><option value="staff">Staff</option><option value="doctor">Doctor</option><option value="patient">Patient</option><option value="system">System</option></select>
-          <select className="form-control" value={filters.area} onChange={(e) => update('area', e.target.value)}><option value="">All areas</option>{AREA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <label className="relative md:col-span-2"><span className="sr-only">Search audit logs</span><MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input className="form-control pl-11" placeholder="Search activity, person, item, or reference…" value={filters.search} onChange={(e) => update('search', e.target.value)} /></label>
+          <label><span className="form-label">From date</span><input type="date" className="form-control mt-1.5" value={filters.start_date} onChange={(e) => update('start_date', e.target.value)} /></label>
+          <label><span className="form-label">To date</span><input type="date" className="form-control mt-1.5" value={filters.end_date} onChange={(e) => update('end_date', e.target.value)} /></label>
+          <label><span className="form-label">Role</span><select className="form-control mt-1.5" value={filters.user_role} onChange={(e) => update('user_role', e.target.value)}><option value="">All roles</option><option value="admin">Admin</option><option value="staff">Staff</option><option value="doctor">Doctor</option><option value="patient">Patient</option><option value="system">System</option></select></label>
+          <label><span className="form-label">Area</span><select className="form-control mt-1.5" value={filters.area} onChange={(e) => update('area', e.target.value)}><option value="">All areas</option>{AREA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label><span className="form-label">Sort</span><select className="form-control mt-1.5" value={filters.direction} onChange={(e) => update('direction', e.target.value)}><option value="desc">Newest activity first</option><option value="asc">Oldest activity first</option></select></label>
         </div>
+        <div className="mt-3 flex justify-end"><button type="button" className="button-secondary" onClick={() => { setPage(1); setFilters({ search: '', start_date: '', end_date: '', user_role: '', area: '', action: '', direction: 'desc' }) }}>Reset Filters</button></div>
 
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-left text-sm">

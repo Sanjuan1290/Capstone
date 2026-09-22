@@ -19,8 +19,10 @@ const parseTimeToMinutes = (value) => {
   return hour * 60 + minute
 }
 
-const clinicMatchesDoctor = (clinicType, specialty) => {
-  const isDerma = String(specialty || '').toLowerCase().includes('derm')
+const clinicMatchesDoctor = (clinicType, doctor) => {
+  const explicit = String(doctor?.clinic_type || '').trim()
+  if (['medical','derma'].includes(explicit)) return clinicType === explicit
+  const isDerma = String(doctor?.specialty || '').toLowerCase().includes('derm')
   return clinicType === 'derma' ? isDerma : clinicType === 'medical' ? !isDerma : false
 }
 
@@ -30,10 +32,10 @@ const validateAppointmentSlot = async ({ doctorId, clinicType, date, time, exclu
   if (!['medical', 'derma'].includes(clinicType)) throw Object.assign(new Error('Select a valid clinic type.'), { statusCode: 400 })
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw Object.assign(new Error('Select a valid appointment date.'), { statusCode: 400 })
 
-  const [doctorRows] = await executor.query('SELECT id, full_name, specialty FROM doctors WHERE id = ? AND is_active = 1 LIMIT 1', [id])
+  const [doctorRows] = await executor.query('SELECT id, full_name, specialty, clinic_type FROM doctors WHERE id = ? AND is_active = 1 LIMIT 1', [id])
   const doctor = doctorRows[0]
   if (!doctor) throw Object.assign(new Error('The selected doctor is unavailable.'), { statusCode: 409 })
-  if (!clinicMatchesDoctor(clinicType, doctor.specialty)) throw Object.assign(new Error('The selected doctor does not accept this clinic type.'), { statusCode: 409 })
+  if (!clinicMatchesDoctor(clinicType, doctor)) throw Object.assign(new Error('The selected doctor does not accept this clinic type.'), { statusCode: 409 })
 
   const blocked = await getDoctorUnavailableDate(id, date, executor)
   if (blocked) throw Object.assign(new Error(blocked.reason || 'The doctor is unavailable on the selected date.'), { statusCode: 409 })

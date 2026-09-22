@@ -24,6 +24,7 @@ const {
 } = require('../utils/patientProfile')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
 const { writeAuditLog } = require('../utils/audit')
+const { listBillingCatalog } = require('../utils/billing')
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
@@ -495,7 +496,6 @@ const updateProfile = async (req, res) => {
 }
 
 const getAppointments = async (req, res) => {
-  await markOverdueAppointments()
   const [rows] = await db.query(
     `SELECT
        a.*,
@@ -529,7 +529,6 @@ const getAppointments = async (req, res) => {
 }
 
 const getHistory = async (req, res) => {
-  await markOverdueAppointments()
   const [rows] = await db.query(
     `SELECT
        a.*,
@@ -564,9 +563,24 @@ const getHistory = async (req, res) => {
   })))
 }
 
+const getBookingServices = async (req, res) => {
+  const clinicType = String(req.query.clinic_type || '').trim()
+  if (clinicType && !['medical', 'derma'].includes(clinicType)) {
+    return res.status(400).json({ message: 'Invalid clinic type.' })
+  }
+  const rows = await listBillingCatalog({ clinicType: clinicType || undefined })
+  res.json(rows.map((service) => ({
+    id: service.id,
+    category: service.category,
+    service_name: service.service_name,
+    clinic_type: service.clinic_type,
+    default_price: Number(service.default_price || 0),
+  })))
+}
+
 const createAppointment = async (req, res) => {
-  const { doctor_id, clinic_type, reason, appointment_date, appointment_time, notes } = req.body
-  if (!doctor_id || !clinic_type || !appointment_date || !appointment_time) {
+  const { doctor_id, clinic_type, requested_service_id, reason, appointment_date, appointment_time, notes } = req.body
+  if (!doctor_id || !clinic_type || !requested_service_id || !appointment_date || !appointment_time) {
     return res.status(400).json({ message: 'Missing required fields.' })
   }
 
@@ -578,13 +592,26 @@ const createAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
   }
 
-  await markOverdueAppointments()
 
   const patient = await loadPatientById(req.user.id)
   if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
   const profileStatus = await syncPatientProfileStatus(patient)
   if (!profileStatus.is_profile_complete) {
     return res.status(428).json({ code: 'PROFILE_REQUIRED', message: 'Complete your patient profile before booking an appointment.' })
+  }
+
+  const [serviceRows] = await db.query(
+    `SELECT id, service_name, clinic_type, default_price, is_active
+     FROM billing_service_catalog
+     WHERE id = ? LIMIT 1`,
+    [requested_service_id]
+  )
+  const requestedService = serviceRows[0]
+  if (!requestedService || Number(requestedService.is_active) !== 1) {
+    return res.status(409).json({ message: 'The selected service is no longer available. Please choose another service.' })
+  }
+  if (![clinic_type, 'all'].includes(String(requestedService.clinic_type || ''))) {
+    return res.status(409).json({ message: 'The selected service does not belong to this clinic.' })
   }
 
   const [activeWithDoctor] = await db.query(
@@ -598,9 +625,9 @@ const createAppointment = async (req, res) => {
     await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time })
     const [inserted] = await db.query(
       `INSERT INTO appointments
-       (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.id, doctor_id, clinic_type, reason, normalizedDate, appointment_time, notes || null]
+       (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot, reason, appointment_date, appointment_time, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, doctor_id, clinic_type, requestedService.id, requestedService.service_name, requestedService.default_price, reason, normalizedDate, appointment_time, notes || null]
     )
     return inserted
   })
@@ -638,7 +665,7 @@ const createAppointment = async (req, res) => {
     reference_id: result.insertId,
   })
 
-  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId, newValues: { doctor_id: Number(doctor_id), clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'online' }, ipAddress: req.ip || null }).catch(() => {})
+  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId, newValues: { doctor_id: Number(doctor_id), clinic_type, requested_service_id: Number(requestedService.id), requested_service_name: requestedService.service_name, appointment_date: normalizedDate, appointment_time, appointment_source: 'online' }, ipAddress: req.ip || null }).catch(() => {})
   broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', {
     appointmentId: result.insertId,
     status: 'pending',
@@ -690,7 +717,6 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
   }
 
-  await markOverdueAppointments()
   const [rows] = await db.query(
     'SELECT id, doctor_id, status FROM appointments WHERE id = ? AND patient_id = ?',
     [req.params.id, req.user.id]
@@ -764,7 +790,7 @@ const rescheduleAppointment = async (req, res) => {
 
 const getDoctors = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT id, full_name AS name, full_name, specialty FROM doctors WHERE is_active = 1 ORDER BY full_name'
+    'SELECT id, full_name AS name, full_name, specialty, clinic_type FROM doctors WHERE is_active = 1 ORDER BY full_name'
   )
   res.json(rows)
 }
@@ -864,6 +890,7 @@ module.exports = {
   cancelAppointment,
   rescheduleAppointment,
   getAppointmentReasons,
+  getBookingServices,
   getDoctors,
   getDoctorsAvailability,
   getDoctorSchedule,

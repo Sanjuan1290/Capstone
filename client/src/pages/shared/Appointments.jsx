@@ -316,7 +316,7 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
 
   useEffect(() => {
     services.getDoctors?.().then((rows) => setDoctors(Array.isArray(rows) ? rows : [])).catch(() => {})
-  }, [services])
+  }, [services, sort, direction])
 
   useEffect(() => {
     if (mode !== 'existing' || search.trim().length < 2 || (selectedPatient?.full_name || selectedPatient?.name) === search) {
@@ -614,6 +614,8 @@ const Appointments = ({ services }) => {
   const [query, setQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [sort, setSort] = useState('created_at')
+  const [direction, setDirection] = useState('desc')
   const [page, setPage] = useState(1)
   const [busyId, setBusyId] = useState(null)
   const [viewAppointment, setViewAppointment] = useState(null)
@@ -623,7 +625,8 @@ const Appointments = ({ services }) => {
   const loadAppointments = useCallback(async () => {
     setLoading(true)
     try {
-      const rows = await services.getAppointments('')
+      const params = new URLSearchParams({ sort, direction })
+      const rows = await services.getAppointments(`?${params.toString()}`)
       setAppointments(Array.isArray(rows) ? rows : [])
     } finally {
       setLoading(false)
@@ -661,7 +664,7 @@ const Appointments = ({ services }) => {
 
   useEffect(() => {
     setPage(1)
-  }, [tab, query, dateFrom, dateTo])
+  }, [tab, query, dateFrom, dateTo, sort, direction])
 
   const runAction = async (appointment, action) => {
     setBusyId(appointment.id)
@@ -739,18 +742,33 @@ const Appointments = ({ services }) => {
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-4">
-        <label className="relative md:col-span-2">
+      <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-2 xl:grid-cols-6">
+        <label className="relative md:col-span-2 xl:col-span-2">
           <MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" placeholder="Search patient or reason" />
         </label>
         <label className="relative">
           <MdCalendarToday className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" />
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label="From date" className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" />
         </label>
         <label className="relative">
           <MdSchedule className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="To date" className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" />
+        </label>
+        <label>
+          <span className="sr-only">Sort appointments</span>
+          <select value={sort} onChange={(e) => setSort(e.target.value)} className="form-control h-full">
+            <option value="created_at">Request received</option>
+            <option value="visit_time">Visit time</option>
+            <option value="updated_at">Last updated</option>
+          </select>
+        </label>
+        <label>
+          <span className="sr-only">Sort direction</span>
+          <select value={direction} onChange={(e) => setDirection(e.target.value)} className="form-control h-full">
+            <option value="desc">Newest / latest first</option>
+            <option value="asc">Oldest / earliest first</option>
+          </select>
         </label>
       </div>
 
@@ -775,6 +793,7 @@ const Appointments = ({ services }) => {
                 <div className="grid grid-cols-2 gap-3 text-sm text-slate-600">
                   <div><span className="block text-xs text-slate-400">Date</span>{formatDate(appointment.appointment_date || appointment.date)}</div>
                   <div><span className="block text-xs text-slate-400">Time</span>{appointment.appointment_time || appointment.time || '—'}</div>
+                  <div><span className="block text-xs text-slate-400">Requested Service</span>{appointment.requested_service_name_snapshot || '—'}</div>
                   <div><span className="block text-xs text-slate-400">Reason</span>{appointment.reason || '—'}</div>
                 </div>
                 <div className="mt-4">
@@ -800,6 +819,7 @@ const Appointments = ({ services }) => {
                   <th className="px-5 py-4">Doctor</th>
                   <th className="px-5 py-4">Date</th>
                   <th className="px-5 py-4">Time</th>
+                  <th className="px-5 py-4">Requested Service</th>
                   <th className="px-5 py-4">Reason</th>
                   <th className="px-5 py-4">Status</th>
                   <th className="px-5 py-4">Actions</th>
@@ -808,7 +828,7 @@ const Appointments = ({ services }) => {
               <tbody>
                 {paginatedAppointments.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="px-5 py-12 text-center text-sm text-slate-400">No appointments found.</td>
+                    <td colSpan="8" className="px-5 py-12 text-center text-sm text-slate-400">No appointments found.</td>
                   </tr>
                 ) : paginatedAppointments.map((appointment) => (
                   <tr key={appointment.id} className="border-t border-slate-100 align-top">
@@ -818,6 +838,7 @@ const Appointments = ({ services }) => {
                     <td className="px-5 py-4 text-sm text-slate-600">{appointment.doctor}</td>
                     <td className="px-5 py-4 text-sm text-slate-600">{formatDate(appointment.appointment_date || appointment.date)}</td>
                     <td className="px-5 py-4 text-sm text-slate-600">{appointment.appointment_time || appointment.time || '—'}</td>
+                    <td className="px-5 py-4 text-sm text-slate-600">{appointment.requested_service_name_snapshot || '—'}</td>
                     <td className="px-5 py-4 text-sm text-slate-600">{appointment.reason || '—'}</td>
                     <td className="px-5 py-4"><StatusBadge status={appointment.status} /></td>
                     <td className="px-5 py-4">

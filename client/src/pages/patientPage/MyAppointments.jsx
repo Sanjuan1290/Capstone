@@ -107,6 +107,7 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
               <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
                 <MdPerson className="text-[11px]" /> Reason for Visit
               </p>
+              {appt.requested_service_name_snapshot && <p className="mb-2 text-sm font-bold text-sky-700">{appt.requested_service_name_snapshot}</p>}
               <p className="text-sm font-semibold text-slate-800">{appt.reason || '—'}</p>
             </div>
             <div>
@@ -294,6 +295,7 @@ const MyAppointments = () => {
     const matchSearch = !search ||
       doctorName.toLowerCase().includes(search.toLowerCase()) ||
       (a.reason || '').toLowerCase().includes(search.toLowerCase()) ||
+      (a.requested_service_name_snapshot || '').toLowerCase().includes(search.toLowerCase()) ||
       String(a.id).includes(search)
     return matchTab && matchSearch
   })
@@ -353,7 +355,7 @@ const MyAppointments = () => {
           flex-1 min-w-52 max-w-72 focus-within:border-slate-300 transition-colors">
           <MdSearch className="text-slate-400 text-[15px] shrink-0" />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search doctor, reason, ID…"
+            placeholder="Search doctor, service, reason, ID…"
             className="text-sm text-slate-700 placeholder-slate-300 bg-transparent outline-none w-full" />
           {search && (
             <button onClick={() => setSearch('')} className="text-slate-300 hover:text-slate-500">

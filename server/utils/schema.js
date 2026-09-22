@@ -681,6 +681,26 @@ const ensureAppSchema = async () => {
   // ── 2026 clinic workflow upgrades ───────────────────────────────────────────
   await ensureColumn('appointments', 'appointment_source', "VARCHAR(30) NOT NULL DEFAULT 'online'")
   await ensureColumn('appointments', 'checked_in_at', 'DATETIME NULL')
+  await ensureColumn('appointments', 'requested_service_id', 'INT NULL').catch(() => {})
+  await ensureColumn('appointments', 'requested_service_name_snapshot', 'VARCHAR(180) NULL').catch(() => {})
+  await ensureColumn('appointments', 'requested_service_price_snapshot', 'DECIMAL(10,2) NULL').catch(() => {})
+
+  await ensureColumn('queue', 'called_at', 'DATETIME NULL').catch(() => {})
+  await ensureColumn('queue', 'consultation_started_at', 'DATETIME NULL').catch(() => {})
+  await ensureColumn('queue', 'completed_at', 'DATETIME NULL').catch(() => {})
+  await db.query("ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','called','in-progress','in_consultation','done','removed') NOT NULL DEFAULT 'waiting'").catch(() => {})
+  await db.query("UPDATE queue q LEFT JOIN appointments a ON a.id=q.appointment_id SET q.status=CASE WHEN q.status='in-progress' AND a.status='in-progress' THEN 'in_consultation' WHEN q.status='in-progress' THEN 'called' ELSE q.status END").catch(() => {})
+  await db.query("ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','called','in_consultation','done','removed') NOT NULL DEFAULT 'waiting'").catch(() => {})
+
+  await ensureColumn('consultations', 'version', 'INT NOT NULL DEFAULT 1').catch(() => {})
+  await ensureIndex('consultations', 'uniq_consultation_appointment', 'appointment_id', { unique: true }).catch(() => {})
+
+  await ensureColumn('doctors', 'clinic_type', "ENUM('medical','derma') NULL").catch(() => {})
+  await db.query("UPDATE doctors SET clinic_type = CASE WHEN LOWER(COALESCE(specialty,'')) LIKE '%derm%' THEN 'derma' ELSE 'medical' END WHERE clinic_type IS NULL").catch(() => {})
+  await db.query("ALTER TABLE doctors MODIFY COLUMN clinic_type ENUM('medical','derma') NOT NULL").catch(() => {})
+
+  await db.query('ALTER TABLE appointments ADD CONSTRAINT fk_appointments_requested_service FOREIGN KEY (requested_service_id) REFERENCES billing_service_catalog(id) ON DELETE SET NULL').catch(() => {})
+  await db.query('ALTER TABLE queue ADD CONSTRAINT fk_queue_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL').catch(() => {})
 
   await ensureColumn('patients', 'consent_method', 'VARCHAR(40) NULL')
   await ensureColumn('patients', 'consent_recorded_by_staff_id', 'INT NULL')
@@ -1143,6 +1163,9 @@ const ensureAppSchema = async () => {
 
   await ensureIndex('appointments', 'idx_appointments_doctor_date_time_status', 'doctor_id, appointment_date, appointment_time, status').catch(() => {})
   await ensureIndex('appointments', 'idx_appointments_patient_doctor_status', 'patient_id, doctor_id, status').catch(() => {})
+  await ensureIndex('appointments', 'idx_appointments_created_at', 'created_at, id').catch(() => {})
+  await ensureIndex('appointments', 'idx_appointments_requested_service', 'requested_service_id').catch(() => {})
+  await ensureIndex('queue', 'idx_queue_appointment', 'appointment_id').catch(() => {})
   await ensureIndex('consultations', 'idx_consultations_doctor_patient', 'doctor_id, patient_id, status').catch(() => {})
   await ensureIndex('inventory_batches', 'idx_inventory_batches_item_expiry', 'inventory_id, expiration_date, quantity').catch(() => {})
   await ensureIndex('audit_logs', 'idx_audit_action_created', 'action, created_at').catch(() => {})

@@ -93,10 +93,11 @@ router.get('/live', requireDisplaySession, async (req, res) => {
     `SELECT q.queue_number AS queueNo,
             q.type,
             d.full_name AS doctor,
+            TIME_FORMAT(q.called_at, '%h:%i %p') AS calledAt,
             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt
      FROM queue q
      JOIN doctors d ON q.doctor_id = d.id
-     WHERE q.queue_date = ? AND q.status = 'in-progress'
+     WHERE q.queue_date = ? AND q.status = 'called'
      ORDER BY q.queue_number ASC
      LIMIT 1`,
     [today]
