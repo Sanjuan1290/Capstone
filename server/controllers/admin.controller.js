@@ -32,8 +32,6 @@ const { markOverdueAppointments } = require('../utils/appointments')
 const {
   receiveInventoryBatch,
   attachBatchesToInventory,
-  consumeInventoryFEFO,
-  consumeInventoryByBatches,
   syncInventorySnapshot,
 } = require('../utils/inventoryBatches')
 const { broadcast } = require('../utils/sse')
@@ -57,8 +55,10 @@ const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
 const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
+const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
-const { isValidQueueStatus, normalizeStockMovementType } = require('../utils/workflowValidation')
+const { applyManualInventoryMovement } = require('../utils/manualInventoryMovement')
+const { isValidQueueStatus } = require('../utils/workflowValidation')
 const {
   getActiveAppointmentConflict,
   getLastNoShowAppointment,
@@ -98,6 +98,7 @@ const normalizeInventoryPayload = (body = {}) => {
 }
 
 const normalizeBillingCatalogPayload = (body = {}) => ({
+  category_id: Number(body.category_id) || null,
   category: String(body.category || '').trim(),
   service_name: String(body.service_name || '').trim(),
   clinic_type: ['all', 'medical', 'derma'].includes(body.clinic_type) ? body.clinic_type : 'all',
@@ -109,6 +110,46 @@ const normalizeBillingCatalogPayload = (body = {}) => ({
   pricing_notes: String(body.pricing_notes || '').trim() || null,
   materials: normalizeServiceMaterials(body.materials),
 })
+
+const resolveBillingServiceCategory = async (payload, executor = db, { allowInactiveId = null } = {}) => {
+  if (!['medical', 'derma'].includes(payload.clinic_type)) {
+    const error = new Error('Select a valid clinic before choosing a service category.')
+    error.statusCode = 400
+    throw error
+  }
+
+  let rows = []
+  if (payload.category_id) {
+    ;[rows] = await executor.query(
+      `SELECT id,name,clinic_type,is_active,sort_order
+       FROM billing_service_categories
+       WHERE id=? AND clinic_type=? LIMIT 1`,
+      [payload.category_id, payload.clinic_type]
+    )
+  } else if (payload.category) {
+    ;[rows] = await executor.query(
+      `SELECT id,name,clinic_type,is_active,sort_order
+       FROM billing_service_categories
+       WHERE name=? AND clinic_type=? LIMIT 1`,
+      [payload.category, payload.clinic_type]
+    )
+  }
+
+  const category = rows[0]
+  if (!category) {
+    const error = new Error('Select a valid service category from System Setup.')
+    error.statusCode = 400
+    error.code = 'SERVICE_CATEGORY_REQUIRED'
+    throw error
+  }
+  if (Number(category.is_active) !== 1 && Number(category.id) !== Number(allowInactiveId || 0)) {
+    const error = new Error('That service category is inactive. Choose an active category in System Setup.')
+    error.statusCode = 409
+    error.code = 'SERVICE_CATEGORY_INACTIVE'
+    throw error
+  }
+  return category
+}
 
 const saveBillingServiceMaterials = async (serviceId, materials, executor = db) => {
   await executor.query('DELETE FROM billing_service_materials WHERE billing_service_id = ?', [serviceId])
@@ -1032,30 +1073,27 @@ const getDoctorSchedules = async (req, res) => {
 }
 
 const saveDaySchedule = async (req, res) => {
-  const { day_of_week, start_time, end_time, slot_duration_mins, is_active } = req.body
-  const doctorId = req.params.id
-  const [doctorRows] = await db.query('SELECT full_name FROM doctors WHERE id = ? LIMIT 1', [doctorId])
-  const [existing] = await db.query(
-    'SELECT id, start_time, end_time, slot_duration_mins, is_active FROM doctor_schedules WHERE doctor_id = ? AND day_of_week = ?', [doctorId, day_of_week]
-  )
-  if (existing.length > 0) {
-    await db.query(
-      'UPDATE doctor_schedules SET start_time=?, end_time=?, slot_duration_mins=?, is_active=? WHERE doctor_id=? AND day_of_week=?',
-      [start_time, end_time, slot_duration_mins || 60, is_active ?? 1, doctorId, day_of_week]
-    )
-  } else {
-    await db.query(
-      'INSERT INTO doctor_schedules (doctor_id, day_of_week, start_time, end_time, slot_duration_mins, is_active) VALUES (?,?,?,?,?,?)',
-      [doctorId, day_of_week, start_time, end_time, slot_duration_mins || 60, is_active ?? 1]
-    )
+  try {
+    const result = await saveDoctorScheduleDay({
+      doctorId: req.params.id,
+      body: req.body,
+      actorRole: 'admin',
+      actorId: req.user.id,
+      ipAddress: req.ip,
+    })
+    res.json(result)
+  } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({
+        message: error.message,
+        code: error.code || null,
+        conflict_count: error.conflict_count || 0,
+        conflicts: error.conflicts || [],
+        doctor_name: error.doctor_name || null,
+      })
+    }
+    throw error
   }
-  await writeAuditLog({
-    userId: req.user.id, userRole: 'admin', action: 'schedule.updated', entityType: 'doctor_schedule', entityId: `${doctorId}:${day_of_week}`,
-    oldValues: existing[0] || null,
-    newValues: { doctor_id: Number(doctorId), doctor_name: doctorRows[0]?.full_name || null, day_of_week, start_time, end_time, slot_duration_mins: slot_duration_mins || 60, is_active: is_active ?? 1 },
-    ipAddress: req.ip || null,
-  }).catch(() => {})
-  res.json({ message: 'Schedule saved.' })
 }
 
 // ── Reports ───────────────────────────────────────────────────────────────────
@@ -1183,18 +1221,23 @@ const getBillingCatalogAdmin = async (req, res) => {
 
 const createBillingCatalogService = async (req, res) => {
   const payload = normalizeBillingCatalogPayload(req.body)
-  if (!payload.category || !payload.service_name) {
-    return res.status(400).json({ message: 'Category and service name are required.' })
+  if (!payload.service_name) {
+    return res.status(400).json({ message: 'Service name is required.' })
   }
 
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    const category = await resolveBillingServiceCategory(payload, conn)
+    payload.category_id = category.id
+    payload.category = category.name
+
     const [result] = await conn.query(
       `INSERT INTO billing_service_catalog
-       (category, service_name, clinic_type, default_price, consultation_fee, profit_percentage, is_active, sort_order, pricing_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (category_id, category, service_name, clinic_type, default_price, consultation_fee, profit_percentage, is_active, sort_order, pricing_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        payload.category_id,
         payload.category,
         payload.service_name,
         payload.clinic_type,
@@ -1225,15 +1268,15 @@ const createBillingCatalogService = async (req, res) => {
 
 const updateBillingCatalogService = async (req, res) => {
   const payload = normalizeBillingCatalogPayload(req.body)
-  if (!payload.category || !payload.service_name) {
-    return res.status(400).json({ message: 'Category and service name are required.' })
+  if (!payload.service_name) {
+    return res.status(400).json({ message: 'Service name is required.' })
   }
 
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
     const [existingRows] = await conn.query(
-      'SELECT id FROM billing_service_catalog WHERE id = ? LIMIT 1',
+      'SELECT id,category_id FROM billing_service_catalog WHERE id = ? LIMIT 1',
       [req.params.serviceId]
     )
     if (existingRows.length === 0) {
@@ -1241,11 +1284,16 @@ const updateBillingCatalogService = async (req, res) => {
       return res.status(404).json({ message: 'Billing service not found.' })
     }
 
+    const category = await resolveBillingServiceCategory(payload, conn, { allowInactiveId: existingRows[0].category_id })
+    payload.category_id = category.id
+    payload.category = category.name
+
     await conn.query(
       `UPDATE billing_service_catalog
-       SET category = ?, service_name = ?, clinic_type = ?, default_price = ?, consultation_fee = ?, profit_percentage = ?, is_active = ?, sort_order = ?, pricing_notes = ?
+       SET category_id = ?, category = ?, service_name = ?, clinic_type = ?, default_price = ?, consultation_fee = ?, profit_percentage = ?, is_active = ?, sort_order = ?, pricing_notes = ?
        WHERE id = ?`,
       [
+        payload.category_id,
         payload.category,
         payload.service_name,
         payload.clinic_type,
@@ -1689,12 +1737,12 @@ const getReports = async (req, res) => {
      GROUP BY COALESCE(appointment_source, 'online') ORDER BY value DESC`, dateParams)
 
   const [topDoctors] = await db.query(
-    `SELECT d.full_name AS name, d.specialty, d.specialty LIKE '%erm%' AS is_derma,
+    `SELECT d.full_name AS name, d.specialty, d.clinic_type, (d.clinic_type = 'derma') AS is_derma,
             COUNT(*) AS appointments, COUNT(DISTINCT a.patient_id) AS patients,
             SUM(a.status = 'completed') AS completed
      FROM appointments a JOIN doctors d ON a.doctor_id = d.id
      WHERE a.appointment_date BETWEEN ? AND ?
-     GROUP BY d.id, d.full_name, d.specialty
+     GROUP BY d.id, d.full_name, d.specialty, d.clinic_type
      ORDER BY appointments DESC, patients DESC LIMIT 10`, dateParams)
 
   const [[newReturning]] = await db.query(
@@ -2126,82 +2174,17 @@ const deleteInventoryItem = async (req, res) => {
 }
 
 const updateStock = async (req, res) => {
-  const { type, qty, note, movement_reason, expiration_date, batch_code, selected_batches, existing_batch_id, storage_location_id } = req.body
-  if (!['in', 'out'].includes(type) || !qty)
-    return res.status(400).json({ message: 'type and qty required.' })
-  const movementType = normalizeStockMovementType(type, movement_reason)
-  const exactBatchRequired = type === 'out' && ['expired', 'damaged', 'wastage', 'returned_to_supplier'].includes(movementType)
-  if (exactBatchRequired && (!Array.isArray(selected_batches) || selected_batches.length === 0)) {
-    return res.status(400).json({ message: 'Select the exact batch/lot for expired, damaged, wastage, or supplier-return stock-out.' })
-  }
-  if (type === 'out' && Array.isArray(selected_batches) && selected_batches.length > 0) {
-    const selectedQty = selected_batches.reduce((sum, entry) => sum + Number(entry?.quantity || 0), 0)
-    if (selectedQty !== Number(qty)) {
-      return res.status(400).json({ message: 'Selected batch quantities must equal the stock-out quantity.' })
-    }
-  }
-
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query('SELECT id, name FROM inventory WHERE id = ?', [req.params.id])
-    if (rows.length === 0) {
-      await conn.rollback()
-      return res.status(404).json({ message: 'Item not found.' })
-    }
-
-    let auditValues = null
-
-    if (type === 'in') {
-      const received = await receiveInventoryBatch(req.params.id, {
-        quantity: qty,
-        existing_batch_id,
-        expiration_date,
-        batch_code,
-        note: note || 'Manual stock-in',
-        location_id: storage_location_id,
-      }, conn)
-      await syncInventorySnapshot(req.params.id, conn)
-      const batchLabel = received.batch_code || `Batch #${received.batch_id}`
-      await conn.query(
-        `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, to_location)
-         VALUES (?, ?, 'in', ?, ?, ?, ?, ?)`,
-        [req.params.id, req.user.id, qty, `${note || 'Stock received'} · ${batchLabel}${received.expiration_date ? ` · expires ${received.expiration_date}` : ''}`, movementType, received.batch_id, received.location]
-      )
-      auditValues = {
-        type: 'in', movement_type: movementType, quantity: Number(qty),
-        batch_id: received.batch_id, batch_code: received.batch_code || null,
-        expiration_date: received.expiration_date || null, location: received.location,
-        existing_batch: received.existing, previous_batch_quantity: received.previous_quantity,
-        new_batch_quantity: received.new_quantity, note: note || null,
-      }
-    } else {
-      const consumption = Array.isArray(selected_batches) && selected_batches.length > 0
-        ? await consumeInventoryByBatches(req.params.id, selected_batches, conn)
-        : await consumeInventoryFEFO(req.params.id, qty, conn)
-      if (!consumption.ok) {
-        await conn.rollback()
-        return res.status(400).json({ message: consumption.message })
-      }
-      for (const batch of consumption.consumed) {
-        const batchLabel = batch.batch_code || `Batch #${batch.batch_id || batch.id}`
-        await conn.query(
-          `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, from_location)
-           VALUES (?, ?, 'out', ?, ?, ?, ?, ?)`,
-          [req.params.id, req.user.id, batch.quantity, `${note || 'Manual stock-out'} · ${batchLabel}${batch.expiration_date ? ` · expires ${batch.expiration_date}` : ''}`, movementType, batch.batch_id || batch.id, batch.location || 'Main Stockroom']
-        )
-      }
-      auditValues = { type: 'out', movement_type: movementType, quantity: Number(qty), batches: consumption.consumed.map((batch) => ({ batch_id: batch.batch_id || batch.id, batch_code: batch.batch_code || null, quantity: Number(batch.quantity || 0), expiration_date: batch.expiration_date || null, location: batch.location || 'Main Stockroom' })), note: note || null }
-    }
-    await writeAuditLog({
-      userId: req.user.id,
-      userRole: 'admin',
-      action: 'inventory.stock_moved',
-      entityType: 'inventory_item',
-      entityId: req.params.id,
-      newValues: { item_name: rows[0].name, ...auditValues },
-      ipAddress: req.ip || null,
-    }, conn)
+    await applyManualInventoryMovement({
+      inventoryId: req.params.id,
+      body: req.body,
+      actorRole: 'admin',
+      actorId: req.user.id,
+      ipAddress: req.ip,
+      executor: conn,
+    })
     await conn.commit()
     const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
     res.json(updated[0])
@@ -2554,13 +2537,103 @@ const saveDiscountPresetAdmin = async (req,res) => {
 
 // ── System setup / inventory reference data ──────────────────────────────────
 const getSystemSetup = async (req, res) => {
-  const [visitReasons, uoms, suppliers, locationTypes] = await Promise.all([
+  const [visitReasons, serviceCategories, uoms, suppliers, locationTypes] = await Promise.all([
     db.query('SELECT id,label,clinic_type,is_active,sort_order FROM appointment_reason_options ORDER BY sort_order,label'),
+    db.query(`SELECT c.id,c.name,c.clinic_type,c.is_active,c.sort_order,COUNT(s.id) AS service_count FROM billing_service_categories c LEFT JOIN billing_service_catalog s ON s.category_id=c.id GROUP BY c.id,c.name,c.clinic_type,c.is_active,c.sort_order ORDER BY FIELD(c.clinic_type,"medical","derma"),c.sort_order,c.name`),
     db.query('SELECT id,name,abbreviation,is_active,sort_order FROM inventory_uoms ORDER BY sort_order,name'),
     db.query('SELECT id,name,category,is_active FROM inventory_suppliers ORDER BY category,name'),
     db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY sort_order,name'),
   ])
-  res.json({ visit_reasons: visitReasons[0], uoms: uoms[0], suppliers: suppliers[0], location_types: locationTypes[0] })
+  res.json({
+    visit_reasons: visitReasons[0],
+    service_categories: serviceCategories[0],
+    uoms: uoms[0],
+    suppliers: suppliers[0],
+    location_types: locationTypes[0],
+  })
+}
+
+const saveBillingServiceCategory = async (req, res) => {
+  const id = Number(req.params.id || 0)
+  const name = String(req.body?.name || '').trim()
+  const clinicType = ['medical','derma'].includes(String(req.body?.clinic_type || '')) ? String(req.body.clinic_type) : null
+  const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
+  const sortOrder = Number.isFinite(Number(req.body?.sort_order)) ? Math.max(0, Number(req.body.sort_order)) : 0
+  if (!name || !clinicType) return res.status(400).json({ message: 'Service Category name and clinic are required.' })
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    let targetId = id
+    let oldValues = null
+
+    if (id) {
+      const [[existing]] = await conn.query(
+        'SELECT id,name,clinic_type,is_active,sort_order FROM billing_service_categories WHERE id=? FOR UPDATE',
+        [id]
+      )
+      if (!existing) {
+        await conn.rollback()
+        return res.status(404).json({ message: 'Service Category not found.' })
+      }
+      oldValues = existing
+
+      const [[usage]] = await conn.query(
+        'SELECT COUNT(*) AS total FROM billing_service_catalog WHERE category_id=?',
+        [id]
+      )
+      if (existing.clinic_type !== clinicType && Number(usage?.total || 0) > 0) {
+        await conn.rollback()
+        return res.status(409).json({
+          message: 'This Service Category is already used by services. Keep its clinic assignment and edit only its name, status, or order.',
+          code: 'SERVICE_CATEGORY_CLINIC_IN_USE',
+        })
+      }
+
+      await conn.query(
+        'UPDATE billing_service_categories SET name=?,clinic_type=?,is_active=?,sort_order=? WHERE id=?',
+        [name,clinicType,isActive,sortOrder,id]
+      )
+
+      // Keep the legacy category text synchronized for reports/billing snapshots
+      // that still read billing_service_catalog.category directly.
+      await conn.query(
+        'UPDATE billing_service_catalog SET category=? WHERE category_id=?',
+        [name,id]
+      )
+    } else {
+      const [result] = await conn.query(
+        'INSERT INTO billing_service_categories (name,clinic_type,is_active,sort_order) VALUES (?,?,?,?)',
+        [name,clinicType,isActive,sortOrder]
+      )
+      targetId = result.insertId
+    }
+
+    const [[row]] = await conn.query(
+      'SELECT id,name,clinic_type,is_active,sort_order FROM billing_service_categories WHERE id=?',
+      [targetId]
+    )
+    await writeAuditLog({
+      userId:req.user.id,
+      userRole:'admin',
+      action:id?'system.service_category_updated':'system.service_category_created',
+      entityType:'billing_service_category',
+      entityId:targetId,
+      oldValues,
+      newValues:row,
+      ipAddress:req.ip||null,
+    }, conn)
+    await conn.commit()
+    res.status(id ? 200 : 201).json(row)
+  } catch (err) {
+    await conn.rollback()
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'That Service Category already exists for this clinic.' })
+    }
+    throw err
+  } finally {
+    conn.release()
+  }
 }
 
 const saveInventoryUom = async (req, res) => {
@@ -2735,7 +2808,7 @@ const getAuditLogs = async (req,res) => {
       inventory:['inventory_item'],
       stock_transfers:['supply_request'],
       billing:['billing_record','billing_payment','billing_adjustment_request','cashier_closing','discount_preset','clinic_payment_settings'],
-      service_catalog:['billing_service'],
+      service_catalog:['billing_service','billing_service_category'],
       clinical:['consultation'],
       reports:['report'],
       clinic_settings:['clinic_settings'],
@@ -2793,8 +2866,9 @@ module.exports = {
   getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, reopenCashierShiftAdmin, voidBillingPayment, refundBillingPayment,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
-  getSystemSetup, saveInventoryUom, saveInventorySupplier, saveInventoryLocationType, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
+  getSystemSetup, saveBillingServiceCategory, saveInventoryUom, saveInventorySupplier, saveInventoryLocationType, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
   getReports, recordReportExport, getInventoryLogs,
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }
+

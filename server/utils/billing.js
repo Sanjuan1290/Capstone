@@ -203,25 +203,37 @@ const listBillingCatalog = async (options = {}, executor = db) => {
   const params = []
 
   if (!options.includeInactive) {
-    filters.push('is_active = 1')
+    filters.push('bsc.is_active = 1')
   }
 
   if (options.clinicType) {
-    filters.push('(clinic_type = ? OR clinic_type = "all")')
+    filters.push('(bsc.clinic_type = ? OR bsc.clinic_type = "all")')
     params.push(options.clinicType)
   }
 
   if (Array.isArray(options.ids) && options.ids.length > 0) {
-    filters.push(`id IN (${options.ids.map(() => '?').join(', ')})`)
+    filters.push(`bsc.id IN (${options.ids.map(() => '?').join(', ')})`)
     params.push(...options.ids)
   }
 
   const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : ''
   const [rows] = await executor.query(
-    `SELECT id, category, service_name, clinic_type, default_price, consultation_fee, profit_percentage, is_active, sort_order
-     FROM billing_service_catalog
+    `SELECT
+       bsc.id,
+       bsc.category_id,
+       COALESCE(bcat.name, bsc.category) AS category,
+       bcat.is_active AS category_is_active,
+       bsc.service_name,
+       bsc.clinic_type,
+       bsc.default_price,
+       bsc.consultation_fee,
+       bsc.profit_percentage,
+       bsc.is_active,
+       bsc.sort_order
+     FROM billing_service_catalog bsc
+     LEFT JOIN billing_service_categories bcat ON bcat.id = bsc.category_id
      ${whereClause}
-     ORDER BY sort_order ASC, category ASC, service_name ASC`,
+     ORDER BY bsc.sort_order ASC, COALESCE(bcat.sort_order, 9999) ASC, COALESCE(bcat.name, bsc.category) ASC, bsc.service_name ASC`,
     params
   )
 
@@ -718,3 +730,4 @@ module.exports = {
   replaceStaffBillingItems,
   upsertDraftBillingForAppointment,
 }
+

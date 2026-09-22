@@ -30,6 +30,19 @@ const ensureIndex = async (table, indexName, columnsSql, { unique = false } = {}
   }
 }
 
+const ensureForeignKey = async (table, constraintName, alterSql) => {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.TABLE_CONSTRAINTS
+     WHERE CONSTRAINT_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND CONSTRAINT_NAME = ?
+       AND CONSTRAINT_TYPE = 'FOREIGN KEY'`,
+    [table, constraintName]
+  )
+  if (!Number(rows[0]?.count || 0)) await db.query(alterSql)
+}
+
 const INVENTORY_SEEDS = [
   ['SUP-001', 'Disposable Syringe 3mL', 'Supplies', 'piece', 'piece', 1, 500, 50, 8.00, 'MediSupply PH', '2028-02-28', 'Cabinet S1'],
   ['SUP-002', 'Disposable Syringe 1mL', 'Supplies', 'piece', 'piece', 1, 500, 50, 7.00, 'MediSupply PH', '2028-02-28', 'Cabinet S1'],
@@ -230,6 +243,12 @@ const ensureAppSchema = async () => {
   await ensureColumn('appointments', 'status', "VARCHAR(32) NOT NULL DEFAULT 'pending'")
     .catch(() => {})
 
+  // Doctor schedules support normal same-day hours, overnight shifts, and a full
+  // 24-hour calendar day. These flags keep the meaning explicit instead of
+  // overloading start_time/end_time comparisons.
+  await ensureColumn('doctor_schedules', 'spans_next_day', 'TINYINT(1) NOT NULL DEFAULT 0').catch(() => {})
+  await ensureColumn('doctor_schedules', 'is_24_hours', 'TINYINT(1) NOT NULL DEFAULT 0').catch(() => {})
+
   await ensureColumn('inventory', 'base_unit', "VARCHAR(50) NULL")
   await ensureColumn('inventory', 'unit_size', "DECIMAL(10,2) NOT NULL DEFAULT 1")
   await ensureColumn('inventory', 'stock_base', "DECIMAL(12,2) NOT NULL DEFAULT 0")
@@ -290,6 +309,38 @@ const ensureAppSchema = async () => {
       UNIQUE KEY uniq_inventory_location_type_code (code)
     )
   `)
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS billing_service_categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      clinic_type ENUM('medical','derma') NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_billing_service_category (clinic_type, name),
+      INDEX idx_billing_service_category_active (clinic_type, is_active, sort_order, name)
+    )
+  `)
+
+  // Seed the categories that were previously hard-coded in the Add Service UI.
+  // They live in the database now and can be renamed/deactivated/reordered in
+  // Admin > System Setup > Service Categories.
+  await db.query(`
+    INSERT IGNORE INTO billing_service_categories (name, clinic_type, sort_order)
+    VALUES
+      ('Consultation', 'medical', 10),
+      ('Vaccination & Immunization', 'medical', 20),
+      ('Minor Procedures', 'medical', 30),
+      ('Diagnostic / Assessment', 'medical', 40),
+      ('Other Medical Services', 'medical', 50),
+      ('Dermatology Consultation', 'derma', 10),
+      ('Dermatologic Procedures', 'derma', 20),
+      ('Laser & Light Treatments', 'derma', 30),
+      ('Aesthetic Treatments', 'derma', 40),
+      ('Skin Tests / Biopsy', 'derma', 50)
+  `).catch(() => {})
   await db.query(`INSERT IGNORE INTO inventory_location_types (name,code,sort_order) VALUES
     ('Main Stockroom','stockroom',10),
     ('Treatment Room','room',20),
@@ -401,8 +452,35 @@ const ensureAppSchema = async () => {
 
   await ensureColumn('billing_service_catalog', 'profit_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 20.00')
   await ensureColumn('billing_service_catalog', 'consultation_fee', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER default_price')
+  await ensureColumn('billing_service_catalog', 'category_id', 'INT NULL AFTER id')
   // default_price is the clinic's explicit patient-facing selling price.
   await ensureColumn('billing_service_catalog', 'pricing_notes', 'VARCHAR(255) NULL')
+
+  // Preserve every category already used by an existing service, including data
+  // that predates the editable category manager.
+  await db.query(`
+    INSERT IGNORE INTO billing_service_categories (name, clinic_type, sort_order)
+    SELECT DISTINCT TRIM(category), clinic_type, 100
+    FROM billing_service_catalog
+    WHERE TRIM(COALESCE(category,'')) <> ''
+      AND clinic_type IN ('medical','derma')
+  `).catch(() => {})
+
+  await db.query(`
+    UPDATE billing_service_catalog bsc
+    JOIN billing_service_categories bcat
+      ON bcat.clinic_type = bsc.clinic_type
+     AND bcat.name = bsc.category
+    SET bsc.category_id = bcat.id
+    WHERE bsc.category_id IS NULL
+  `).catch(() => {})
+
+  await ensureIndex('billing_service_catalog', 'idx_billing_service_category_id', 'category_id').catch(() => {})
+  await ensureForeignKey(
+    'billing_service_catalog',
+    'fk_billing_service_category',
+    'ALTER TABLE billing_service_catalog ADD CONSTRAINT fk_billing_service_category FOREIGN KEY (category_id) REFERENCES billing_service_categories(id) ON DELETE SET NULL'
+  ).catch(() => {})
 
   if (process.env.SEED_DEMO_DATA === 'true') {
     await db.query(`
@@ -435,6 +513,24 @@ const ensureAppSchema = async () => {
       ('Animal Bite Center', 'Immunoglobulin', 'medical', 0.00, 20.00, 1, 250)
     `)
   }
+
+  // Reconcile again after optional demo-service seeding so a fresh database has
+  // category references populated during the same migration run.
+  await db.query(`
+    INSERT IGNORE INTO billing_service_categories (name, clinic_type, sort_order)
+    SELECT DISTINCT TRIM(category), clinic_type, 100
+    FROM billing_service_catalog
+    WHERE TRIM(COALESCE(category,'')) <> ''
+      AND clinic_type IN ('medical','derma')
+  `).catch(() => {})
+  await db.query(`
+    UPDATE billing_service_catalog bsc
+    JOIN billing_service_categories bcat
+      ON bcat.clinic_type = bsc.clinic_type
+     AND bcat.name = bsc.category
+    SET bsc.category_id = bcat.id
+    WHERE bsc.category_id IS NULL
+  `).catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS billing_service_materials (
@@ -681,26 +777,26 @@ const ensureAppSchema = async () => {
   // ── 2026 clinic workflow upgrades ───────────────────────────────────────────
   await ensureColumn('appointments', 'appointment_source', "VARCHAR(30) NOT NULL DEFAULT 'online'")
   await ensureColumn('appointments', 'checked_in_at', 'DATETIME NULL')
-  await ensureColumn('appointments', 'requested_service_id', 'INT NULL').catch(() => {})
-  await ensureColumn('appointments', 'requested_service_name_snapshot', 'VARCHAR(180) NULL').catch(() => {})
-  await ensureColumn('appointments', 'requested_service_price_snapshot', 'DECIMAL(10,2) NULL').catch(() => {})
+  await ensureColumn('appointments', 'requested_service_id', 'INT NULL')
+  await ensureColumn('appointments', 'requested_service_name_snapshot', 'VARCHAR(180) NULL')
+  await ensureColumn('appointments', 'requested_service_price_snapshot', 'DECIMAL(10,2) NULL')
 
-  await ensureColumn('queue', 'called_at', 'DATETIME NULL').catch(() => {})
-  await ensureColumn('queue', 'consultation_started_at', 'DATETIME NULL').catch(() => {})
-  await ensureColumn('queue', 'completed_at', 'DATETIME NULL').catch(() => {})
-  await db.query("ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','called','in-progress','in_consultation','done','removed') NOT NULL DEFAULT 'waiting'").catch(() => {})
-  await db.query("UPDATE queue q LEFT JOIN appointments a ON a.id=q.appointment_id SET q.status=CASE WHEN q.status='in-progress' AND a.status='in-progress' THEN 'in_consultation' WHEN q.status='in-progress' THEN 'called' ELSE q.status END").catch(() => {})
-  await db.query("ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','called','in_consultation','done','removed') NOT NULL DEFAULT 'waiting'").catch(() => {})
+  await ensureColumn('queue', 'called_at', 'DATETIME NULL')
+  await ensureColumn('queue', 'consultation_started_at', 'DATETIME NULL')
+  await ensureColumn('queue', 'completed_at', 'DATETIME NULL')
+  await db.query("ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','called','in-progress','in_consultation','done','removed') NOT NULL DEFAULT 'waiting'")
+  await db.query("UPDATE queue q LEFT JOIN appointments a ON a.id=q.appointment_id SET q.status=CASE WHEN q.status='in-progress' AND a.status='in-progress' THEN 'in_consultation' WHEN q.status='in-progress' THEN 'called' ELSE q.status END")
+  await db.query("ALTER TABLE queue MODIFY COLUMN status ENUM('waiting','called','in_consultation','done','removed') NOT NULL DEFAULT 'waiting'")
 
-  await ensureColumn('consultations', 'version', 'INT NOT NULL DEFAULT 1').catch(() => {})
-  await ensureIndex('consultations', 'uniq_consultation_appointment', 'appointment_id', { unique: true }).catch(() => {})
+  await ensureColumn('consultations', 'version', 'INT NOT NULL DEFAULT 1')
+  await ensureIndex('consultations', 'uniq_consultation_appointment', 'appointment_id', { unique: true })
 
-  await ensureColumn('doctors', 'clinic_type', "ENUM('medical','derma') NULL").catch(() => {})
-  await db.query("UPDATE doctors SET clinic_type = CASE WHEN LOWER(COALESCE(specialty,'')) LIKE '%derm%' THEN 'derma' ELSE 'medical' END WHERE clinic_type IS NULL").catch(() => {})
-  await db.query("ALTER TABLE doctors MODIFY COLUMN clinic_type ENUM('medical','derma') NOT NULL").catch(() => {})
+  await ensureColumn('doctors', 'clinic_type', "ENUM('medical','derma') NULL")
+  await db.query("UPDATE doctors SET clinic_type = CASE WHEN LOWER(COALESCE(specialty,'')) LIKE '%derm%' THEN 'derma' ELSE 'medical' END WHERE clinic_type IS NULL")
+  await db.query("ALTER TABLE doctors MODIFY COLUMN clinic_type ENUM('medical','derma') NOT NULL")
 
-  await db.query('ALTER TABLE appointments ADD CONSTRAINT fk_appointments_requested_service FOREIGN KEY (requested_service_id) REFERENCES billing_service_catalog(id) ON DELETE SET NULL').catch(() => {})
-  await db.query('ALTER TABLE queue ADD CONSTRAINT fk_queue_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL').catch(() => {})
+  await ensureForeignKey('appointments', 'fk_appointments_requested_service', 'ALTER TABLE appointments ADD CONSTRAINT fk_appointments_requested_service FOREIGN KEY (requested_service_id) REFERENCES billing_service_catalog(id) ON DELETE SET NULL')
+  await ensureForeignKey('queue', 'fk_queue_appointment', 'ALTER TABLE queue ADD CONSTRAINT fk_queue_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL')
 
   await ensureColumn('patients', 'consent_method', 'VARCHAR(40) NULL')
   await ensureColumn('patients', 'consent_recorded_by_staff_id', 'INT NULL')
@@ -1174,3 +1270,4 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
+

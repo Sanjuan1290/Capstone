@@ -7,18 +7,17 @@ const requestJson = async (url, options = {}) => {
   const res = await fetch(url, { credentials: 'include', ...options })
   const data = await res.json()
   if (!res.ok) {
-    const err = new Error(data.message || 'Request failed.')
+    const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
+    const err = new Error(`${data.message || 'Request failed.'}${reference}`)
     Object.assign(err, data)
     throw err
   }
   return data
 }
 
-export const getDashboard = () =>
-  fetch(`${BASE}/dashboard`, { credentials: 'include' }).then(r => r.json())
+export const getDashboard = () => requestJson(`${BASE}/dashboard`)
 
-export const getAppointments = (params = '') =>
-  fetch(`${BASE}/appointments${params}`, { credentials: 'include' }).then(r => r.json())
+export const getAppointments = (params = '') => requestJson(`${BASE}/appointments${params}`)
 
 export const confirmAppointment = (id, payload = {}) =>
   requestJson(`${BASE}/appointments/${id}/confirm`, {
@@ -28,18 +27,16 @@ export const confirmAppointment = (id, payload = {}) =>
     body: JSON.stringify(payload),
   })
 
-export const cancelAppointment = (id) =>
-  fetch(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+export const cancelAppointment = (id) => requestJson(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH' })
 
-export const markAppointmentNoShow = (id) =>
-  fetch(`${BASE}/appointments/${id}/no-show`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+export const markAppointmentNoShow = (id) => requestJson(`${BASE}/appointments/${id}/no-show`, { method: 'PATCH' })
 
 export const rescheduleAppointment = (id, payload) =>
-  fetch(`${BASE}/appointments/${id}/reschedule`, {
-    method: 'PATCH', credentials: 'include',
+  requestJson(`${BASE}/appointments/${id}/reschedule`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 export const createAppointment = (payload) =>
   requestJson(`${BASE}/appointments`, {
@@ -244,14 +241,14 @@ export const toggleDoctor = (id) =>
   fetch(`${BASE}/doctors/${id}/toggle`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
 
 export const getDoctorSchedules = (doctorId) =>
-  fetch(`${BASE}/doctors/${doctorId}/schedules`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/doctors/${doctorId}/schedules`)
 
 export const saveDaySchedule = (doctorId, payload) =>
-  fetch(`${BASE}/doctors/${doctorId}/schedules`, {
-    method: 'PUT', credentials: 'include',
+  requestJson(`${BASE}/doctors/${doctorId}/schedules`, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 export const getDoctorUnavailableDates = (doctorId, params = {}) => {
   const search = new URLSearchParams()
@@ -273,7 +270,7 @@ export const deleteDoctorUnavailableDate = (doctorId, date) =>
     method: 'DELETE',
   })
 
-export const getAuditLogs = (params = {}) => { const search = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== '') search.set(k,v) }); const q=search.toString(); return requestJson(`${BASE}/audit-logs${q ? `?${q}` : ''}`) }
+export const getAuditLogs = (params = {}, options = {}) => { const search = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== '') search.set(k,v) }); const q=search.toString(); return requestJson(`${BASE}/audit-logs${q ? `?${q}` : ''}`, options) }
 export const getClinicSettings = () => requestJson(`${BASE}/clinic-settings`)
 export const updateClinicSettings = (payload) => requestJson(`${BASE}/clinic-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
@@ -364,17 +361,18 @@ export const addToQueue = (payload) =>
   })
 
 export const updateQueueStatus = (id, status) =>
-  fetch(`${BASE}/queue/${id}/status`, {
-    method: 'PATCH', credentials: 'include',
+  requestJson(`${BASE}/queue/${id}/status`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
-  }).then(r => r.json())
+  })
 
 export const getInventoryMasterData = (category = '') => requestJson(`${BASE}/inventory/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`)
 export const createInventoryLocation = (payload) => requestJson(`${BASE}/inventory/locations`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const createInventorySupplier = (payload) => requestJson(`${BASE}/inventory/suppliers`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 export const getSystemSetup = () => requestJson(`${BASE}/system-setup`)
+export const saveBillingServiceCategory = (payload, id = null) => requestJson(`${BASE}/system-setup/service-categories${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const saveInventoryUom = (payload, id = null) => requestJson(`${BASE}/system-setup/uoms${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const saveInventorySupplier = (payload, id = null) => requestJson(`${BASE}/system-setup/suppliers${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const saveInventoryLocationType = (payload, id = null) => requestJson(`${BASE}/system-setup/location-types${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
@@ -402,3 +400,4 @@ export const getAdminBillAdjustmentRequests = (id) => requestJson(`${BASE}/billi
 export const getAdminDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ clinicType })
+

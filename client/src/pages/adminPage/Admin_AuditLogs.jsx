@@ -33,7 +33,7 @@ const moduleMeta = (type, action = '') => {
   if (type === 'inventory_item') return { label: 'Inventory', Icon: MdInventory2 }
   if (type === 'supply_request') return { label: 'Stock Transfers', Icon: MdSwapHoriz }
   if (String(type).startsWith('billing') || type === 'cashier_closing' || type === 'discount_preset' || type === 'clinic_payment_settings') return { label: 'Billing', Icon: MdPayments }
-  if (type === 'billing_service') return { label: 'Service Catalog', Icon: MdPayments }
+  if (['billing_service', 'billing_service_category'].includes(type)) return { label: 'Service Catalog', Icon: MdPayments }
   if (type === 'clinic_settings') return { label: 'Clinic Settings', Icon: MdSettings }
   if (type === 'report') return { label: 'Reports', Icon: MdHistory }
   if (type === 'consultation') return { label: 'Clinical Records', Icon: MdEventAvailable }
@@ -179,6 +179,12 @@ const auditPresentation = (row) => {
     case 'catalog.service_updated':
       description = `${actor} updated ${newValues.service_name || 'a Service Catalog item'}.`
       break
+    case 'system.service_category_created':
+      description = `${actor} added ${newValues.name || 'a category'} to Service Categories.`
+      break
+    case 'system.service_category_updated':
+      description = `${actor} updated the Service Category ${newValues.name || row.entity_id}.`
+      break
     case 'billing.payment_settings_updated':
       description = `${actor} updated Billing payment settings.`
       break
@@ -218,7 +224,7 @@ const auditPresentation = (row) => {
   if (action === 'schedule.updated') {
     details.push(['Doctor', scheduleDoctor])
     details.push(['Day', newValues.day_of_week || '—'])
-    details.push(['Availability', Number(newValues.is_active) === 0 ? 'Unavailable' : `${newValues.start_time || '—'} – ${newValues.end_time || '—'}`])
+    details.push(['Availability', Number(newValues.is_active) === 0 ? 'Unavailable' : Number(newValues.is_24_hours) === 1 ? 'Available 24 hours' : `${newValues.start_time || '—'} – ${newValues.end_time || '—'}${Number(newValues.spans_next_day) === 1 ? ' (ends next day)' : ''}`])
   }
   if (action.startsWith('schedule.unavailable_date')) {
     details.push(['Doctor', scheduleDoctor])
@@ -230,7 +236,10 @@ const auditPresentation = (row) => {
     details.push(['Item', itemName])
     details.push(['Movement', newValues.type === 'in' ? 'Stock In' : newValues.type === 'out' ? 'Stock Out' : titleCase(newValues.movement_type || 'Stock Update')])
     details.push(['Quantity', quantityLabel(newValues.quantity ?? newValues.qty) || '—'])
-    if (newValues.movement_type) details.push(['Reason', titleCase(newValues.movement_type)])
+    if (newValues.batch_code || newValues.batch_id) details.push(['Batch / Lot', newValues.batch_code || `Batch #${newValues.batch_id}`])
+    if (newValues.expiration_date) details.push(['Batch Expiry', formatDate(newValues.expiration_date)])
+    if (newValues.location) details.push(['Location', newValues.location])
+    if (newValues.type === 'in' && newValues.movement_type) details.push(['Stock-in Type', titleCase(newValues.movement_type)])
     if (newValues.note) details.push(['Note', newValues.note])
   }
 
@@ -256,14 +265,22 @@ const Admin_AuditLogs = () => {
   const [selected, setSelected] = useState(null)
   const [filters, setFilters] = useState({ search: '', start_date: '', end_date: '', user_role: '', area: '', action: '', direction: 'desc' })
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ signal } = {}) => {
     setLoading(true)
-    try { setData(await getAuditLogs({ ...filters, page, limit: 20 })) }
-    catch (error) { toast.error(error.message || 'Could not load audit logs.') }
-    finally { setLoading(false) }
+    try {
+      setData(await getAuditLogs({ ...filters, page, limit: 20 }, signal ? { signal } : {}))
+    } catch (error) {
+      if (error?.name !== 'AbortError') toast.error(error.message || 'Could not load audit logs.')
+    } finally {
+      if (!signal?.aborted) setLoading(false)
+    }
   }, [filters, page, toast])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const controller = new AbortController()
+    load({ signal: controller.signal })
+    return () => controller.abort()
+  }, [load])
 
   const update = (key, value) => { setPage(1); setFilters((prev) => ({ ...prev, [key]: value })) }
   const selectedPresentation = selected ? auditPresentation(selected) : null
@@ -362,3 +379,4 @@ const Admin_AuditLogs = () => {
 }
 
 export default Admin_AuditLogs
+
