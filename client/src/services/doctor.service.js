@@ -4,12 +4,16 @@ const BASE = '/api/doctor'
 const requestJson = async (url, options = {}) => {
   const res = await fetch(url, { credentials: 'include', ...options })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.message || 'Request failed.')
+  if (!res.ok) {
+    const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
+    const err = new Error(`${data.message || 'Request failed.'}${reference}`)
+    Object.assign(err, data)
+    throw err
+  }
   return data
 }
 
-export const getDashboard = () =>
-  fetch(`${BASE}/dashboard`, { credentials: 'include' }).then(r => r.json())
+export const getDashboard = () => requestJson(`${BASE}/dashboard`)
 
 export const getAppointments = (params = {}) => {
   const search = new URLSearchParams()
@@ -19,8 +23,7 @@ export const getAppointments = (params = {}) => {
   return requestJson(`${BASE}/appointments${query ? `?${query}` : ''}`)
 }
 
-export const getDailyAppointments = (date) =>
-  fetch(`${BASE}/appointments/daily${date ? `?date=${date}` : ''}`, { credentials: 'include' }).then(r => r.json())
+export const getDailyAppointments = (date) => requestJson(`${BASE}/appointments/daily${date ? `?date=${date}` : ''}`)
 
 export const startConsultation = (id) =>
   requestJson(`${BASE}/appointments/${id}/start`, { method: 'PATCH' })
@@ -65,8 +68,7 @@ export const addConsultationAmendment = (appointmentId, payload) =>
 export const getBillingCatalog = (clinicType = '') =>
   requestJson(`${BASE}/billing/catalog${clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''}`)
 
-export const getPatientHistory = (patientId) =>
-  fetch(`${BASE}/patients/${patientId}/history`, { credentials: 'include' }).then(r => r.json())
+export const getPatientHistory = (patientId) => requestJson(`${BASE}/patients/${patientId}/history`)
 
 export const getInventoryItems = () =>
   fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
@@ -91,14 +93,14 @@ export const getMySchedule = () =>
   fetch(`${BASE}/schedule`, { credentials: 'include' }).then(r => r.json())
 
 export const getMyScheduleAll = () =>
-  fetch(`${BASE}/schedule/all`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/schedule/all`)
 
 export const saveMyScheduleDay = (payload) =>
-  fetch(`${BASE}/schedule`, {
-    method: 'PUT', credentials: 'include',
+  requestJson(`${BASE}/schedule`, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 export const getMyUnavailableDates = (params = {}) => {
   const search = new URLSearchParams()
@@ -131,3 +133,4 @@ export const callNextPatient = () =>
 // NEW: mark a specific queue entry as done
 export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
+

@@ -260,6 +260,9 @@ const ensureAppSchema = async () => {
   await ensureColumn('inventory', 'item_type', "VARCHAR(20) NOT NULL DEFAULT 'supplies'").catch(() => {})
   await ensureColumn('inventory', 'uom', 'VARCHAR(50) NULL').catch(() => {})
   await ensureColumn('inventory', 'supplier_id', 'INT NULL').catch(() => {})
+  await ensureColumn('inventory_suppliers', 'contact_person', 'VARCHAR(160) NULL').catch(() => {})
+  await ensureColumn('inventory_suppliers', 'contact_number', 'VARCHAR(80) NULL').catch(() => {})
+  await ensureColumn('inventory_suppliers', 'address', 'VARCHAR(255) NULL').catch(() => {})
   await ensureColumn('inventory', 'selling_price', 'DECIMAL(10,2) NULL').catch(() => {})
 
   await ensureTable(`
@@ -279,6 +282,9 @@ const ensureAppSchema = async () => {
     CREATE TABLE IF NOT EXISTS inventory_suppliers (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(160) NOT NULL,
+      contact_person VARCHAR(160) NULL,
+      contact_number VARCHAR(80) NULL,
+      address VARCHAR(255) NULL,
       category VARCHAR(20) NOT NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1017,6 +1023,55 @@ const ensureAppSchema = async () => {
     WHERE b.quantity > 0
       AND NOT EXISTS (SELECT 1 FROM inventory_location_batches ilb WHERE ilb.batch_id = b.id)
   `)
+  // Repair a legacy allocation bug conservatively. Older builds could duplicate an
+  // opening batch into Main Stockroom even when the opening-stock audit record says
+  // that the entire batch was received into another location. Only repair when the
+  // batch is over-allocated, all recorded receipt destinations agree on one location,
+  // and the batch has never participated in a recorded transfer.
+  try {
+    const [legacyOverallocations] = await db.query(`
+      SELECT b.id AS batch_id, b.inventory_id, b.quantity,
+             alloc.allocated_quantity,
+             dest.target_location_id
+      FROM inventory_batches b
+      JOIN (
+        SELECT batch_id, SUM(quantity) AS allocated_quantity
+        FROM inventory_location_batches
+        GROUP BY batch_id
+      ) alloc ON alloc.batch_id = b.id
+      JOIN (
+        SELECT l.batch_id,
+               MIN(il.id) AS target_location_id,
+               COUNT(DISTINCT il.id) AS destination_count
+        FROM inventory_logs l
+        JOIN inventory_locations il ON il.name = l.to_location
+        WHERE l.type = 'in'
+          AND l.batch_id IS NOT NULL
+          AND l.to_location IS NOT NULL
+        GROUP BY l.batch_id
+      ) dest ON dest.batch_id = b.id AND dest.destination_count = 1
+      LEFT JOIN (
+        SELECT batch_id, COUNT(*) AS transfer_count
+        FROM inventory_transfer_batches
+        GROUP BY batch_id
+      ) transferred ON transferred.batch_id = b.id
+      WHERE alloc.allocated_quantity > b.quantity + 0.0001
+        AND COALESCE(transferred.transfer_count, 0) = 0
+    `)
+    for (const row of legacyOverallocations) {
+      await db.query(
+        `UPDATE inventory_location_batches
+         SET quantity = CASE WHEN location_id = ? THEN ? ELSE 0 END
+         WHERE batch_id = ?`,
+        [row.target_location_id, row.quantity, row.batch_id]
+      )
+      await db.query('DELETE FROM inventory_location_batches WHERE batch_id = ? AND quantity <= 0', [row.batch_id])
+    }
+  } catch (error) {
+    // Compatibility only: older databases may not yet have transfer tracking.
+    if (error.code !== 'ER_NO_SUCH_TABLE' && error.code !== 'ER_BAD_FIELD_ERROR') throw error
+  }
+
   await db.query(`
     DELETE FROM inventory_location_stock
   `)

@@ -3,16 +3,9 @@ import { NavLink } from 'react-router-dom'
 import { MdCalendarToday, MdEventBusy, MdRefresh } from 'react-icons/md'
 import { getDoctorsAvailability } from '../../services/patient.service'
 import { getLocalDateOnly } from '../../utils/date'
+import { scheduleSummary } from '../../utils/schedule'
 
 const fmtDate = (date) => new Date(`${date}T00:00:00`).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })
-const fmtTime = (value) => {
-  if (!value) return ''
-  if (/\b(?:AM|PM)\b/i.test(String(value))) return String(value)
-  const [hour, minute] = String(value).split(':').map(Number)
-  const period = hour >= 12 ? 'PM' : 'AM'
-  return `${hour % 12 || 12}:${String(minute || 0).padStart(2, '0')} ${period}`
-}
-
 const DoctorAvailability = () => {
   const [doctors, setDoctors] = useState([])
   const [loading, setLoading] = useState(true)
@@ -64,7 +57,7 @@ const DoctorAvailability = () => {
       {doctors.map((doctor) => {
         const active = Array.isArray(doctor.weekly_schedule) ? doctor.weekly_schedule : []
         const isOpen = expanded === doctor.id
-        const clinicType = String(doctor.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical'
+        const clinicType = doctor.clinic_type || (String(doctor.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')
         return (
           <div key={doctor.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
@@ -77,7 +70,7 @@ const DoctorAvailability = () => {
                 <div className="mt-2 flex flex-wrap gap-2">
                   {active.length > 0 ? active.map((schedule) => (
                     <span key={schedule.day_of_week} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                      {schedule.day_of_week.slice(0, 3)} {fmtTime(schedule.start_time)}–{fmtTime(schedule.end_time)}
+                      {schedule.day_of_week.slice(0, 3)} · {scheduleSummary(schedule)}
                     </span>
                   )) : <span className="text-xs font-semibold text-amber-600">No active online schedule</span>}
                 </div>
@@ -125,3 +118,4 @@ const DoctorAvailability = () => {
 }
 
 export default DoctorAvailability
+

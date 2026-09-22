@@ -1985,7 +1985,7 @@ const nextInventoryBarcode = async (category, conn = db) => {
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
   const [uoms] = await db.query('SELECT id,name,abbreviation FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
-  const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 ${category ? 'AND category=?' : ''} ORDER BY category,name`, category ? [category] : [])
+  const [suppliers] = await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 ${category ? 'AND category=?' : ''} ORDER BY name ASC`, category ? [category] : [])
   const [locations] = await db.query("SELECT id,name,location_type FROM inventory_locations WHERE is_active=1 ORDER BY FIELD(location_type,'stockroom','room','dispensing'),name")
   res.json({ uoms, suppliers, locations })
 }
@@ -2005,14 +2005,20 @@ const createInventoryLocation = async (req, res) => {
 
 const createInventorySupplier = async (req, res) => {
   const name = String(req.body?.name || '').trim()
+  const contactPerson = String(req.body?.contact_person || '').trim() || null
+  const contactNumber = String(req.body?.contact_number || '').trim() || null
+  const address = String(req.body?.address || '').trim() || null
   const category = ['medical','derma'].includes(String(req.body?.category || '')) ? String(req.body.category) : null
-  if (!name || !category) return res.status(400).json({ message: 'Supplier name and category are required.' })
+  if (!name || !category) return res.status(400).json({ message: 'Company / Supplier Name and clinic are required.' })
   try {
-    const [result] = await db.query('INSERT INTO inventory_suppliers (name,category,is_active) VALUES (?,?,1)', [name,category])
-    res.status(201).json({ id: result.insertId, name, category, is_active: 1 })
+    const [result] = await db.query(
+      'INSERT INTO inventory_suppliers (name,contact_person,contact_number,address,category,is_active) VALUES (?,?,?,?,?,1)',
+      [name,contactPerson,contactNumber,address,category]
+    )
+    res.status(201).json({ id: result.insertId, name, contact_person:contactPerson, contact_number:contactNumber, address, category, is_active: 1 })
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
-      const [[row]] = await db.query('SELECT id,name,category,is_active FROM inventory_suppliers WHERE category=? AND name=? LIMIT 1',[category,name])
+      const [[row]] = await db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers WHERE category=? AND name=? LIMIT 1',[category,name])
       return res.json(row)
     }
     throw err
@@ -2222,29 +2228,7 @@ const resolveSupplyRequest = async (req, res) => {
   res.status(result.statusCode).json(result.body)
 }
 
-// ── Billing oversight / refunds / reconciliation ─────────────────────────────
-const assertPaymentCashierShiftOpen = async (payment, executor) => {
-  const staffId = Number(payment?.received_by_staff_id || 0)
-  const paymentDate = String(payment?.paid_at || '').slice(0, 10)
-  if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) return
-
-  await executor.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [staffId])
-  const [closedRows] = await executor.query(
-    `SELECT id FROM cashier_closings
-     WHERE staff_id = ? AND closing_date = ?
-       AND COALESCE(status,'closed') = 'closed'
-       AND COALESCE(is_locked,1) = 1
-     LIMIT 1`,
-    [staffId, paymentDate]
-  )
-  if (closedRows.length) {
-    const error = new Error('The cashier shift for this payment is closed. Reopen that cashier shift before voiding or refunding the payment.')
-    error.statusCode = 409
-    error.code = 'CASHIER_SHIFT_CLOSED'
-    throw error
-  }
-}
-
+// ── Billing oversight / refunds / collection summary ─────────────────────────
 const getBillingReconciliation = async (req, res) => {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : getTodayDateOnly()
   const [methods] = await db.query(
@@ -2259,44 +2243,16 @@ const getBillingReconciliation = async (req, res) => {
             COALESCE(SUM(CASE WHEN status='completed' THEN COALESCE(refund_amount,0) ELSE 0 END),0) AS refunded,
             COALESCE(SUM(CASE WHEN status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS net_collected,
             COALESCE(SUM(CASE WHEN status='voided' THEN 1 ELSE 0 END),0) AS voided_transactions,
-            COALESCE(SUM(CASE WHEN payment_method='cash' AND status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
+            COALESCE(SUM(CASE WHEN payment_method='cash' AND status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS cash_collected
      FROM billing_payments WHERE DATE(paid_at)=?`, [date])
   const [[discounts]] = await db.query(
     `SELECT COALESCE(SUM(discount_amount),0) AS discounts FROM billing_records
      WHERE DATE(COALESCE(finalized_at,created_at))=? AND status <> 'voided'`, [date])
-  const [closings] = await db.query(
-    `SELECT cc.*, s.full_name AS staff_name
-     FROM cashier_closings cc JOIN staff s ON s.id=cc.staff_id
-     WHERE cc.closing_date=? ORDER BY cc.closed_at DESC, cc.id DESC`, [date])
-  const [openShifts] = await db.query(
-    `SELECT bp.received_by_staff_id AS staff_id, s.full_name AS staff_name,
-            COUNT(*) AS payment_count,
-            COALESCE(SUM(CASE WHEN bp.payment_method='cash' AND bp.status='completed' THEN bp.amount-COALESCE(bp.refund_amount,0) ELSE 0 END),0) AS expected_cash,
-            COALESCE(cc.status,'open') AS status, cc.id AS closing_id, cc.reopened_at, cc.reopen_reason
-     FROM billing_payments bp
-     JOIN staff s ON s.id=bp.received_by_staff_id
-     LEFT JOIN cashier_closings cc ON cc.staff_id=bp.received_by_staff_id AND cc.closing_date=DATE(bp.paid_at)
-     WHERE DATE(bp.paid_at)=?
-       AND NOT (COALESCE(cc.status,'')='closed' AND COALESCE(cc.is_locked,1)=1)
-     GROUP BY bp.received_by_staff_id, s.full_name, cc.status, cc.id, cc.reopened_at, cc.reopen_reason
-     ORDER BY s.full_name`, [date])
-  const [events] = await db.query(
-    `SELECT cce.*, s.full_name AS staff_name,
-            CASE WHEN cce.actor_role='admin' THEN a.full_name WHEN cce.actor_role='staff' THEN st.full_name ELSE NULL END AS actor_name
-     FROM cashier_closing_events cce
-     JOIN cashier_closings cc ON cc.id=cce.cashier_closing_id
-     JOIN staff s ON s.id=cc.staff_id
-     LEFT JOIN admins a ON cce.actor_role='admin' AND a.id=cce.actor_id
-     LEFT JOIN staff st ON cce.actor_role='staff' AND st.id=cce.actor_id
-     WHERE cc.closing_date=?
-     ORDER BY cce.created_at DESC`, [date])
+
   res.json({
     date,
     methods,
     summary: { ...summary, discounts: Number(discounts?.discounts || 0) },
-    closings,
-    open_shifts: openShifts,
-    closing_events: events,
   })
 }
 
@@ -2316,7 +2272,6 @@ const voidBillingPayment = async (req, res) => {
       await conn.rollback()
       return res.status(409).json({ code: 'PAYMENT_ALREADY_REFUNDED', message: 'This payment already has a refund and can no longer be voided. Refund the remaining refundable amount instead.' })
     }
-    await assertPaymentCashierShiftOpen(payment, conn)
     await conn.query(`UPDATE billing_payments SET status='voided', voided_at=NOW(), void_reason=? WHERE id=?`, [reason, paymentId])
     const bill = await getBillingRecordWithItems(billingId, conn)
     const paidAfter = Math.max(0, Number(bill.paid_amount || 0))
@@ -2345,7 +2300,6 @@ const refundBillingPayment = async (req, res) => {
     if (!rows.length){ await conn.rollback(); return res.status(404).json({message:'Payment not found.'}) }
     const payment=rows[0]; billingId=payment.billing_id
     if(payment.status!=='completed'){ await conn.rollback(); return res.status(400).json({message:'Only completed payments can be refunded.'}) }
-    await assertPaymentCashierShiftOpen(payment, conn)
     const available=Math.max(0,Number(payment.amount||0)-Number(payment.refund_amount||0))
     const amount=req.body.amount===undefined||req.body.amount===null||req.body.amount===''?available:Number(req.body.amount)
     if(!Number.isFinite(amount)||amount<=0||amount>available+0.001){
@@ -2480,38 +2434,6 @@ const resolveBillingAdjustmentRequestAdmin = async (req, res) => {
   res.json(updated[0])
 }
 
-const reopenCashierShiftAdmin = async (req, res) => {
-  const id = Number(req.params.id)
-  const reason = String(req.body.reason || '').trim()
-  if (!reason) return res.status(400).json({ message: 'A reopen reason is required.' })
-  const conn = await db.getConnection()
-  try {
-    await conn.beginTransaction()
-    const [rows] = await conn.query('SELECT * FROM cashier_closings WHERE id=? FOR UPDATE', [id])
-    if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Cashier closing not found.' }) }
-    const closing = rows[0]
-    if (String(closing.status || 'closed') !== 'closed' || Number(closing.is_locked ?? 1) !== 1) {
-      await conn.rollback()
-      return res.status(409).json({ message: 'This cashier shift is already open or reopened.' })
-    }
-    await conn.query(
-      `UPDATE cashier_closings
-       SET status='reopened', is_locked=0, reopened_at=NOW(), reopened_by_admin_id=?, reopen_reason=?
-       WHERE id=?`, [req.user.id, reason, id]
-    )
-    await conn.query(
-      `INSERT INTO cashier_closing_events (cashier_closing_id,event_type,actor_role,actor_id,expected_cash,actual_cash,variance,reason)
-       VALUES (?,'reopened','admin',?,?,?,?,?)`,
-      [id, req.user.id, closing.expected_cash, closing.actual_cash, closing.variance, reason]
-    )
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'cashier.shift_reopened',entityType:'cashier_closing',entityId:id,oldValues:closing,newValues:{status:'reopened',reason},ipAddress:req.ip||null}, conn)
-    await conn.commit()
-  } catch (error) { await conn.rollback(); throw error } finally { conn.release() }
-  broadcast(['admin','staff'], 'cashier_shift_reopened', { closingId:id })
-  res.json({ message: 'Cashier shift reopened. The staff member may accept payments and close it again.' })
-}
-
-
 // ── Discount presets ──────────────────────────────────────────────────────────
 
 const getDiscountPresetsAdmin = async (req,res) => {
@@ -2539,9 +2461,13 @@ const saveDiscountPresetAdmin = async (req,res) => {
 const getSystemSetup = async (req, res) => {
   const [visitReasons, serviceCategories, uoms, suppliers, locationTypes] = await Promise.all([
     db.query('SELECT id,label,clinic_type,is_active,sort_order FROM appointment_reason_options ORDER BY sort_order,label'),
-    db.query(`SELECT c.id,c.name,c.clinic_type,c.is_active,c.sort_order,COUNT(s.id) AS service_count FROM billing_service_categories c LEFT JOIN billing_service_catalog s ON s.category_id=c.id GROUP BY c.id,c.name,c.clinic_type,c.is_active,c.sort_order ORDER BY FIELD(c.clinic_type,"medical","derma"),c.sort_order,c.name`),
+    db.query(`SELECT c.id,c.name,c.clinic_type,c.is_active,COUNT(s.id) AS service_count
+              FROM billing_service_categories c
+              LEFT JOIN billing_service_catalog s ON s.category_id=c.id
+              GROUP BY c.id,c.name,c.clinic_type,c.is_active
+              ORDER BY c.name ASC`),
     db.query('SELECT id,name,abbreviation,is_active,sort_order FROM inventory_uoms ORDER BY sort_order,name'),
-    db.query('SELECT id,name,category,is_active FROM inventory_suppliers ORDER BY category,name'),
+    db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers ORDER BY name ASC'),
     db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY sort_order,name'),
   ])
   res.json({
@@ -2558,7 +2484,6 @@ const saveBillingServiceCategory = async (req, res) => {
   const name = String(req.body?.name || '').trim()
   const clinicType = ['medical','derma'].includes(String(req.body?.clinic_type || '')) ? String(req.body.clinic_type) : null
   const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
-  const sortOrder = Number.isFinite(Number(req.body?.sort_order)) ? Math.max(0, Number(req.body.sort_order)) : 0
   if (!name || !clinicType) return res.status(400).json({ message: 'Service Category name and clinic are required.' })
 
   const conn = await db.getConnection()
@@ -2569,7 +2494,7 @@ const saveBillingServiceCategory = async (req, res) => {
 
     if (id) {
       const [[existing]] = await conn.query(
-        'SELECT id,name,clinic_type,is_active,sort_order FROM billing_service_categories WHERE id=? FOR UPDATE',
+        'SELECT id,name,clinic_type,is_active FROM billing_service_categories WHERE id=? FOR UPDATE',
         [id]
       )
       if (!existing) {
@@ -2585,14 +2510,14 @@ const saveBillingServiceCategory = async (req, res) => {
       if (existing.clinic_type !== clinicType && Number(usage?.total || 0) > 0) {
         await conn.rollback()
         return res.status(409).json({
-          message: 'This Service Category is already used by services. Keep its clinic assignment and edit only its name, status, or order.',
+          message: 'This Service Category is already used by services. Keep its clinic assignment and edit only its name or status.',
           code: 'SERVICE_CATEGORY_CLINIC_IN_USE',
         })
       }
 
       await conn.query(
-        'UPDATE billing_service_categories SET name=?,clinic_type=?,is_active=?,sort_order=? WHERE id=?',
-        [name,clinicType,isActive,sortOrder,id]
+        'UPDATE billing_service_categories SET name=?,clinic_type=?,is_active=? WHERE id=?',
+        [name,clinicType,isActive,id]
       )
 
       // Keep the legacy category text synchronized for reports/billing snapshots
@@ -2603,14 +2528,14 @@ const saveBillingServiceCategory = async (req, res) => {
       )
     } else {
       const [result] = await conn.query(
-        'INSERT INTO billing_service_categories (name,clinic_type,is_active,sort_order) VALUES (?,?,?,?)',
-        [name,clinicType,isActive,sortOrder]
+        'INSERT INTO billing_service_categories (name,clinic_type,is_active,sort_order) VALUES (?,?,?,0)',
+        [name,clinicType,isActive]
       )
       targetId = result.insertId
     }
 
     const [[row]] = await conn.query(
-      'SELECT id,name,clinic_type,is_active,sort_order FROM billing_service_categories WHERE id=?',
+      'SELECT id,name,clinic_type,is_active FROM billing_service_categories WHERE id=?',
       [targetId]
     )
     await writeAuditLog({
@@ -2663,17 +2588,32 @@ const saveInventoryUom = async (req, res) => {
 const saveInventorySupplier = async (req, res) => {
   const id = Number(req.params.id || 0)
   const name = String(req.body?.name || '').trim()
+  const contactPerson = String(req.body?.contact_person || '').trim() || null
+  const contactNumber = String(req.body?.contact_number || '').trim() || null
+  const address = String(req.body?.address || '').trim() || null
   const category = ['medical','derma'].includes(String(req.body?.category || '')) ? String(req.body.category) : null
   const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
-  if (!name || !category) return res.status(400).json({ message: 'Supplier name and category are required.' })
+  if (!name || !category) return res.status(400).json({ message: 'Company / Supplier Name and clinic are required.' })
   try {
     let targetId=id
-    if (id) await db.query('UPDATE inventory_suppliers SET name=?,category=?,is_active=? WHERE id=?',[name,category,isActive,id])
-    else { const [result]=await db.query('INSERT INTO inventory_suppliers (name,category,is_active) VALUES (?,?,?)',[name,category,isActive]); targetId=result.insertId }
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'system.supplier_updated':'system.supplier_created',entityType:'inventory_supplier',entityId:targetId,newValues:{name,category,is_active:isActive},ipAddress:req.ip||null})
-    const [[row]]=await db.query('SELECT id,name,category,is_active FROM inventory_suppliers WHERE id=?',[targetId])
+    if (id) {
+      const [result] = await db.query(
+        'UPDATE inventory_suppliers SET name=?,contact_person=?,contact_number=?,address=?,category=?,is_active=? WHERE id=?',
+        [name,contactPerson,contactNumber,address,category,isActive,id]
+      )
+      if (!result.affectedRows) return res.status(404).json({ message: 'Supplier not found.' })
+    } else {
+      const [result]=await db.query(
+        'INSERT INTO inventory_suppliers (name,contact_person,contact_number,address,category,is_active) VALUES (?,?,?,?,?,?)',
+        [name,contactPerson,contactNumber,address,category,isActive]
+      )
+      targetId=result.insertId
+    }
+    const payload={name,contact_person:contactPerson,contact_number:contactNumber,address,category,is_active:isActive}
+    await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'system.supplier_updated':'system.supplier_created',entityType:'inventory_supplier',entityId:targetId,newValues:payload,ipAddress:req.ip||null})
+    const [[row]]=await db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers WHERE id=?',[targetId])
     res.status(id?200:201).json(row)
-  } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That supplier already exists for this category.'}); throw err }
+  } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That supplier/company already exists for this clinic.'}); throw err }
 }
 
 const saveInventoryLocationType = async (req,res) => {
@@ -2864,7 +2804,7 @@ module.exports = {
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
   getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
-  getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, reopenCashierShiftAdmin, voidBillingPayment, refundBillingPayment,
+  getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
   getSystemSetup, saveBillingServiceCategory, saveInventoryUom, saveInventorySupplier, saveInventoryLocationType, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
   getReports, recordReportExport, getInventoryLogs,

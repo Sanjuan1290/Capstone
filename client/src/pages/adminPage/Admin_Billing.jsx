@@ -108,7 +108,7 @@ const Admin_Billing = () => {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPayments className="text-amber-500" /> Billing</h1>
-          <p className="mt-1 text-sm text-slate-500">Monitor collections, outstanding balances, approvals, and cashier activity without mixing setup tasks into daily operations.</p>
+          <p className="mt-1 text-sm text-slate-500">Monitor collections, outstanding balances, approvals, and payment activity without mixing setup tasks into daily operations.</p>
         </div>
         <button type="button" onClick={load} className="button-secondary"><MdRefresh /> Refresh</button>
       </div>
@@ -199,7 +199,7 @@ const Admin_Billing = () => {
               </section>
 
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-3"><div><h2 className="font-black text-slate-900">Today’s Collection Mix</h2><p className="mt-1 text-xs text-slate-500">{formatDateOnly(reconciliation?.date || getLocalDateOnly())}</p></div><Link to="/admin/billing/reconciliation" className="text-sm font-bold text-amber-700">Open</Link></div>
+                <div className="flex items-center justify-between gap-3"><div><h2 className="font-black text-slate-900">Today’s Collection Mix</h2><p className="mt-1 text-xs text-slate-500">{formatDateOnly(reconciliation?.date || getLocalDateOnly())}</p></div><Link to="/admin/reports" className="text-sm font-bold text-amber-700">Open Reports</Link></div>
                 <div className="mt-4 space-y-3">
                   {(reconciliation?.methods || []).length === 0 ? <p className="text-sm text-slate-500">No payments recorded today.</p> : reconciliation.methods.slice(0, 4).map((method) => (
                     <div key={method.payment_method} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold text-slate-600">{paymentMethodLabel(method.payment_method)}</span><strong className="text-sm text-slate-900">{formatMoney(method.net)}</strong></div>

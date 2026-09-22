@@ -1,23 +1,8 @@
 const db = require('../db/connect')
 const { getDoctorUnavailableDate } = require('./doctorAvailability')
+const { parseTimeToMinutes, formatSlotLabel, isTimeCoveredByWeeklySchedule } = require('./scheduleWindows')
 
 const ACTIVE_SLOT_STATUSES = ['pending', 'confirmed', 'rescheduled', 'in-progress']
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-
-const parseTimeToMinutes = (value) => {
-  const raw = String(value || '').trim()
-  let match = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
-  if (match) return Number(match[1]) * 60 + Number(match[2])
-  match = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
-  if (!match) return null
-  let hour = Number(match[1])
-  const minute = Number(match[2])
-  const period = match[3].toUpperCase()
-  if (hour < 1 || hour > 12 || minute > 59) return null
-  if (period === 'PM' && hour !== 12) hour += 12
-  if (period === 'AM' && hour === 12) hour = 0
-  return hour * 60 + minute
-}
 
 const clinicMatchesDoctor = (clinicType, doctor) => {
   const explicit = String(doctor?.clinic_type || '').trim()
@@ -40,38 +25,56 @@ const validateAppointmentSlot = async ({ doctorId, clinicType, date, time, exclu
   const blocked = await getDoctorUnavailableDate(id, date, executor)
   if (blocked) throw Object.assign(new Error(blocked.reason || 'The doctor is unavailable on the selected date.'), { statusCode: 409 })
 
-  const selectedDate = new Date(`${date}T00:00:00`)
-  const day = DAY_NAMES[selectedDate.getDay()]
   const [scheduleRows] = await executor.query(
-    `SELECT start_time, end_time, slot_duration_mins FROM doctor_schedules
-     WHERE doctor_id = ? AND day_of_week = ? AND is_active = 1 LIMIT 1`,
-    [id, day]
+    `SELECT day_of_week, start_time, end_time, slot_duration_mins, is_active,
+            COALESCE(spans_next_day,0) AS spans_next_day,
+            COALESCE(is_24_hours,0) AS is_24_hours
+     FROM doctor_schedules
+     WHERE doctor_id = ? AND is_active = 1`,
+    [id]
   )
-  const schedule = scheduleRows[0]
-  if (!schedule) throw Object.assign(new Error('The doctor does not have an active schedule on the selected date.'), { statusCode: 409 })
-
-  const requested = parseTimeToMinutes(time)
-  const start = parseTimeToMinutes(schedule.start_time)
-  const end = parseTimeToMinutes(schedule.end_time)
-  const duration = Math.max(1, Number(schedule.slot_duration_mins) || 60)
-  if (requested === null || start === null || end === null || requested < start || requested + duration > end || (requested - start) % duration !== 0) {
+  if (!scheduleRows.length || !isTimeCoveredByWeeklySchedule({ date, time, schedules: scheduleRows })) {
     throw Object.assign(new Error('The selected time is outside the doctor’s available appointment slots.'), { statusCode: 409 })
   }
 
-  const params = [id, date, time]
-  let sql = `SELECT id FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND appointment_time = ? AND status IN ('pending','confirmed','rescheduled','in-progress')`
+  const requestedMinutes = parseTimeToMinutes(time)
+  if (requestedMinutes === null) throw Object.assign(new Error('Select a valid appointment time.'), { statusCode: 400 })
+
+  const params = [id, date]
+  let sql = `SELECT id, appointment_time FROM appointments
+             WHERE doctor_id = ? AND appointment_date = ?
+               AND status IN ('pending','confirmed','rescheduled','in-progress')`
   if (Number(excludeAppointmentId) > 0) { sql += ' AND id <> ?'; params.push(Number(excludeAppointmentId)) }
-  sql += ' LIMIT 1'
-  const [conflicts] = await executor.query(sql, params)
-  if (conflicts.length) throw Object.assign(new Error('That time slot is already taken.'), { statusCode: 409 })
-  return { doctor, schedule }
+  const [activeAppointments] = await executor.query(sql, params)
+  const conflict = activeAppointments.find((row) => parseTimeToMinutes(row.appointment_time) === requestedMinutes)
+  if (conflict) throw Object.assign(new Error('That time slot is already taken.'), { statusCode: 409 })
+  return { doctor, schedules: scheduleRows, normalizedTime: formatSlotLabel(requestedMinutes) }
 }
 
 const withAppointmentSlotLock = async ({ doctorId, date, time }, fn, executor = db) => {
-  const lockName = `carait:appt:${Number(doctorId)}:${String(date)}:${String(time)}`.slice(0, 64)
-  const [[lockRow]] = await executor.query('SELECT GET_LOCK(?, 5) AS acquired', [lockName])
-  if (Number(lockRow?.acquired) !== 1) throw Object.assign(new Error('This appointment slot is being booked. Please try again.'), { statusCode: 409 })
-  try { return await fn() } finally { await executor.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {}) }
+  const parsedTime = parseTimeToMinutes(time)
+  const normalizedTime = parsedTime === null ? String(time) : formatSlotLabel(parsedTime)
+  const lockName = `carait:appt:${Number(doctorId)}:${String(date)}:${normalizedTime}`.slice(0, 64)
+
+  // MySQL named locks are connection-scoped. A pool-level GET_LOCK followed by
+  // a pool-level RELEASE_LOCK can run on different connections, leaving the lock
+  // held until that pooled connection is eventually closed. Pin the lock to one
+  // dedicated connection whenever the shared pool is used.
+  const ownsConnection = executor === db && typeof db.getConnection === 'function'
+  const lockExecutor = ownsConnection ? await db.getConnection() : executor
+  try {
+    const [[lockRow]] = await lockExecutor.query('SELECT GET_LOCK(?, 5) AS acquired', [lockName])
+    if (Number(lockRow?.acquired) !== 1) {
+      throw Object.assign(new Error('This appointment slot is being booked. Please try again.'), { statusCode: 409 })
+    }
+    try {
+      return await fn()
+    } finally {
+      await lockExecutor.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {})
+    }
+  } finally {
+    if (ownsConnection) lockExecutor.release()
+  }
 }
 
 const ALLOWED_TRANSITIONS = {
@@ -92,3 +95,4 @@ const assertAppointmentTransition = (from, to) => {
 }
 
 module.exports = { ACTIVE_SLOT_STATUSES, parseTimeToMinutes, validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition }
+

@@ -11,7 +11,6 @@ import {
   getBillingAdjustmentRequests,
   getBillingCatalog,
   getBillingPaymentSettings,
-  getCashierShiftStatus,
   getDiscountPresets,
   getFinalizePreview,
   getInventory,
@@ -132,7 +131,6 @@ const Staff_CheckoutDetail = () => {
   const [catalog, setCatalog] = useState([])
   const [inventory, setInventory] = useState([])
   const [paymentSettings, setPaymentSettings] = useState({})
-  const [cashierShift, setCashierShift] = useState(null)
   const [discounts, setDiscounts] = useState([])
   const [adjustments, setAdjustments] = useState([])
   const [clinicSettings, setClinicSettings] = useState({})
@@ -200,20 +198,18 @@ const Staff_CheckoutDetail = () => {
     setError('')
     try {
       const current = await getBillById(billingId)
-      const [items, settings, presets, requests, clinic, services, shift] = await Promise.all([
+      const [items, settings, presets, requests, clinic, services] = await Promise.all([
         getInventory(),
         getBillingPaymentSettings(),
         getDiscountPresets(),
         getBillingAdjustmentRequests(billingId),
         getClinicSettings(),
         getBillingCatalog(current.clinic_type || ''),
-        getCashierShiftStatus(),
       ])
       setBill(current)
       setDraft(normalizeBill(current))
       setInventory(Array.isArray(items) ? items : [])
       setPaymentSettings(settings || {})
-      setCashierShift(shift || null)
       setDiscounts(Array.isArray(presets) ? presets : [])
       setAdjustments(Array.isArray(requests) ? requests : [])
       setClinicSettings(clinic || {})
@@ -512,7 +508,6 @@ const Staff_CheckoutDetail = () => {
   }
 
   const requestPay = () => {
-    if (cashierShift?.status === 'closed') return toast.error('Your cashier shift is closed. Ask an administrator to reopen it before accepting another payment.')
     const amount = Number(draft.payment_amount || 0)
     if (!draft.payment_method) return toast.error('Select a payment method.')
     if (amount <= 0 || amount > Number(bill.balance_amount || 0) + 0.001) return toast.error('Enter a valid payment amount.')
@@ -542,9 +537,6 @@ const Staff_CheckoutDetail = () => {
       setDirty(false)
       toast.success('Payment recorded.')
     } catch (err) {
-      if (/cashier shift.*closed|shift is already closed/i.test(err.message || '')) {
-        getCashierShiftStatus().then((shift) => setCashierShift(shift || null)).catch(() => {})
-      }
       toast.error(err.message || 'Payment could not be recorded.')
     } finally {
       setPaying(false)
@@ -708,23 +700,21 @@ const Staff_CheckoutDetail = () => {
 
       {isPayable && step === 3 && (
         <div className="space-y-4">
-          {cashierShift?.status === 'closed' && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><div><strong>Cashier Shift Closed</strong><p className="mt-1">Payments are locked for today. Ask an Administrator to reopen your shift before collecting another payment.</p></div><button type="button" className="button-secondary" onClick={() => getCashierShiftStatus().then((shift) => setCashierShift(shift || null)).catch(() => {})}><MdRefresh /> Refresh Shift</button></div>}
-          {cashierShift?.status === 'reopened' && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900"><MdWarning className="mr-1 inline" /> Your cashier shift was reopened by an Administrator. You may accept payments again, but remember to close the shift when finished.</div>}
           <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="font-black text-slate-900">Collect Payment</h2><p className="mt-1 text-sm text-slate-500">Only payment methods enabled by Admin are shown here.</p>
             <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-center"><p className="text-xs font-black uppercase tracking-wide text-sky-700">Amount Due</p><p className="mt-2 text-4xl font-black text-sky-950">{formatMoney(bill.balance_amount)}</p></div>
-            <div className="mt-5"><p className="form-label">Payment Method</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{paymentMethods.map((method) => <button key={method.value} disabled={cashierShift?.status === 'closed'} onClick={() => setDraft((current) => ({ ...current, payment_method: method.value, reference_number: '', amount_received: current.payment_amount || bill.balance_amount }))} className={`rounded-2xl border p-4 text-left font-black disabled:cursor-not-allowed disabled:opacity-50 ${draft.payment_method === method.value ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 hover:bg-slate-50'}`}>{method.label}</button>)}</div>{paymentMethods.length === 0 && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">No payment methods are enabled. Ask an administrator to update Billing → Setup → Payment Methods.</div>}</div>
+            <div className="mt-5"><p className="form-label">Payment Method</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{paymentMethods.map((method) => <button key={method.value} onClick={() => setDraft((current) => ({ ...current, payment_method: method.value, reference_number: '', amount_received: current.payment_amount || bill.balance_amount }))} className={`rounded-2xl border p-4 text-left font-black ${draft.payment_method === method.value ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 hover:bg-slate-50'}`}>{method.label}</button>)}</div>{paymentMethods.length === 0 && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">No payment methods are enabled. Ask an administrator to update Billing → Setup → Payment Methods.</div>}</div>
             {draft.payment_method && <div className="mt-5 space-y-4"><label><span className="form-label">Payment Amount</span><input type="number" min="0.01" max={bill.balance_amount} step="0.01" className="form-control mt-1.5" value={draft.payment_amount} onChange={(e) => setDraft((current) => ({ ...current, payment_amount: e.target.value, amount_received: current.payment_method === 'cash' ? e.target.value : current.amount_received }))} /></label>
               {draft.payment_method === 'cash' ? <label><span className="form-label">Cash Received</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={draft.amount_received} onChange={(e) => setDraft((current) => ({ ...current, amount_received: e.target.value }))} />{Number(draft.amount_received || 0) >= Number(draft.payment_amount || 0) && Number(draft.payment_amount || 0) > 0 && <span className="mt-2 block rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">Change: {formatMoney(Number(draft.amount_received || 0) - Number(draft.payment_amount || 0))}</span>}</label> : <>
                 <label><span className="form-label">Reference Number *</span><input className="form-control mt-1.5" value={draft.reference_number} onChange={(e) => setDraft((current) => ({ ...current, reference_number: e.target.value }))} /></label>
-                {['gcash', 'maya'].includes(draft.payment_method) && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center">{paymentSettings[`${draft.payment_method}_qr_mode`] === 'external' ? <p className="text-sm font-bold text-slate-700">Use the clinic's {paymentMethodLabel(draft.payment_method)} QR available at the cashier.</p> : paymentSettings[`${draft.payment_method}_qr_url`] ? <><img src={paymentSettings[`${draft.payment_method}_qr_url`]} alt={`${paymentMethodLabel(draft.payment_method)} QR`} className="mx-auto max-h-64 rounded-xl object-contain" /><p className="mt-3 text-sm font-bold">Scan to pay {formatMoney(draft.payment_amount)}</p></> : <p className="text-sm font-bold text-rose-700">This digital payment method is enabled but its QR instructions are incomplete. Ask an administrator to correct Billing Setup.</p>}</div>}
+                {['gcash', 'maya'].includes(draft.payment_method) && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center">{paymentSettings[`${draft.payment_method}_qr_mode`] === 'external' ? <p className="text-sm font-bold text-slate-700">Use the clinic's {paymentMethodLabel(draft.payment_method)} QR available at the front desk.</p> : paymentSettings[`${draft.payment_method}_qr_url`] ? <><img src={paymentSettings[`${draft.payment_method}_qr_url`]} alt={`${paymentMethodLabel(draft.payment_method)} QR`} className="mx-auto max-h-64 rounded-xl object-contain" /><p className="mt-3 text-sm font-bold">Scan to pay {formatMoney(draft.payment_amount)}</p></> : <p className="text-sm font-bold text-rose-700">This digital payment method is enabled but its QR instructions are incomplete. Ask an administrator to correct Billing Setup.</p>}</div>}
                 {draft.payment_method === 'bank_transfer' && <div className="rounded-2xl bg-slate-50 p-4 text-sm"><p><strong>Bank:</strong> {paymentSettings.bank_name || 'Not configured'}</p><p className="mt-1"><strong>Account Name:</strong> {paymentSettings.bank_account_name || '—'}</p><p className="mt-1"><strong>Account Number:</strong> {paymentSettings.bank_account_number || '—'}</p></div>}
               </>}
               <label><span className="form-label">Payment Notes</span><textarea rows={2} className="form-control mt-1.5 resize-none" value={draft.payment_notes || ''} onChange={(e) => setDraft((current) => ({ ...current, payment_notes: e.target.value }))} /></label>
             </div>}
           </section>
-          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || !draft.payment_method || cashierShift?.status === 'closed'} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
+          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
           </div>
         </div>
       )}

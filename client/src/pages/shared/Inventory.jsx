@@ -12,8 +12,6 @@ const CATEGORIES = [{ value: 'medical', label: 'General Medicine' }, { value: 'd
 const ITEM_TYPES = [{ value: 'medicine', label: 'Medicine' }, { value: 'supplies', label: 'Supplies' }]
 const FALLBACK_UOMS = ['piece', 'tablet', 'capsule', 'bottle', 'tube', 'sachet', 'vial', 'ampule', 'ml', 'gram', 'roll', 'pack', 'box']
 const ITEMS_PER_PAGE = 5
-const BATCHES_PER_PAGE = 4
-
 
 const CODE39_PATTERNS = {
   '0':'nnnwwnwnn','1':'wnnwnnnnw','2':'nnwwnnnnw','3':'wnwwnnnnn','4':'nnnwwnnnw',
@@ -91,13 +89,7 @@ const STOCK_IN_REASONS = [
   { value: 'correction_in', label: 'Inventory Correction (+)' },
 ]
 
-const STOCK_OUT_REASONS = [
-  { value: 'adjustment_out', label: 'Inventory Correction (-)' },
-  { value: 'expired', label: 'Expired Stock' },
-  { value: 'damaged', label: 'Damaged Stock' },
-  { value: 'wastage', label: 'Wastage / Spillage' },
-  { value: 'returned_to_supplier', label: 'Returned to Supplier' },
-]
+
 
 const getPackageCount = (item) => {
   const unitSize = Number(item.unit_size || 1)
@@ -541,13 +533,9 @@ const StockModal = ({ item, onClose, onSubmit, locations = [] }) => {
   const [note, setNote] = useState('')
   const [expirationDate, setExpirationDate] = useState('')
   const [movementReason, setMovementReason] = useState('received')
-  const [stockOutMode, setStockOutMode] = useState('fefo')
-  const [batchPage, setBatchPage] = useState(1)
-  const [batchAllocations, setBatchAllocations] = useState(
-    Array.isArray(item?.batches) ? item.batches.map((batch) => ({ batch_id: batch.id, quantity: '' })) : []
-  )
   const [stockInBatchMode, setStockInBatchMode] = useState(Array.isArray(item?.batches) && item.batches.length ? 'pick' : 'new')
   const [selectedBatchId, setSelectedBatchId] = useState('')
+  const [stockOutSelectionKey, setStockOutSelectionKey] = useState('')
   const [batchSearch, setBatchSearch] = useState('')
   const [batchPickerOpen, setBatchPickerOpen] = useState(false)
   const [newBatchCode, setNewBatchCode] = useState('')
@@ -557,18 +545,33 @@ const StockModal = ({ item, onClose, onSubmit, locations = [] }) => {
   const [locationId, setLocationId] = useState(mainLocation?.id ? String(mainLocation.id) : (locations[0]?.id ? String(locations[0].id) : ''))
 
   const batches = Array.isArray(item?.batches) ? item.batches : []
-  const stockOutBatches = batches.filter((batch) => getBatchLocationQuantity(batch) > 0)
   const selectedBatch = batches.find((batch) => Number(batch.id) === Number(selectedBatchId)) || null
-  const available = stockOutBatches.length > 0 ? stockOutBatches.reduce((sum, batch) => sum + getBatchLocationQuantity(batch), 0) : getPackageCount(item)
+  const stockOutOptions = useMemo(() => batches.flatMap((batch) => {
+    const batchLocations = (Array.isArray(batch?.locations) ? batch.locations : [])
+      .filter((location) => Number(location?.quantity || 0) > 0)
+    if (batchLocations.length) {
+      return batchLocations.map((location) => ({
+        key: `${batch.id}:${location.id || location.name}`,
+        batch,
+        location,
+        available: Number(location.quantity || 0),
+      }))
+    }
+    const fallbackQty = Number(batch?.quantity || 0)
+    if (fallbackQty <= 0) return []
+    return [{
+      key: `${batch.id}:${mainLocation?.id || 'main'}`,
+      batch,
+      location: { id: mainLocation?.id || null, name: 'Main Stockroom', quantity: fallbackQty },
+      available: fallbackQty,
+    }]
+  }), [batches, mainLocation?.id])
+  const selectedStockOut = stockOutOptions.find((option) => option.key === stockOutSelectionKey) || null
+  const selectedStockOutBatch = selectedStockOut?.batch || null
+  const selectedStockOutAvailable = Number(selectedStockOut?.available || 0)
+  const available = stockOutOptions.reduce((sum, option) => sum + Number(option.available || 0), 0)
   const numericQty = Math.max(0, Number(qty) || 0)
-  const selectedBatchQty = batchAllocations.reduce((sum, batch) => sum + Number(batch.quantity || 0), 0)
-  const exactBatchReason = type === 'out' && ['expired', 'damaged', 'wastage', 'returned_to_supplier'].includes(movementReason)
-  const isManualStockOut = type === 'out' && stockOutMode === 'manual'
-  const effectiveQty = isManualStockOut ? selectedBatchQty : numericQty
-  const manualModeInvalid = isManualStockOut && selectedBatchQty <= 0
-  const totalBatchPages = Math.max(1, Math.ceil(stockOutBatches.length / BATCHES_PER_PAGE))
-  const currentBatchPage = Math.min(batchPage, totalBatchPages)
-  const paginatedBatches = stockOutBatches.slice((currentBatchPage - 1) * BATCHES_PER_PAGE, currentBatchPage * BATCHES_PER_PAGE)
+  const remainingAfterStockOut = selectedStockOut ? Math.max(0, selectedStockOutAvailable - numericQty) : 0
   const autoBatchPreview = getNextBatchCodePreview(item)
   const effectiveNewBatchCode = autoGenerateBatch ? autoBatchPreview : newBatchCode.trim()
   const filteredStockInBatches = batches.filter((batch) => {
@@ -578,35 +581,18 @@ const StockModal = ({ item, onClose, onSubmit, locations = [] }) => {
       || String(batch.expiration_date || '').toLowerCase().includes(needle)
   })
 
-  const fefoPreview = useMemo(() => {
-    if (type !== 'out' || stockOutMode !== 'fefo' || numericQty <= 0) return []
-    const today = new Date(); today.setHours(0,0,0,0)
-    let remaining = numericQty
-    const allocation = []
-    for (const batch of stockOutBatches) {
-      if (remaining <= 0) break
-      const expiry = batch.expiration_date ? parseDateOnly(batch.expiration_date) : null
-      if (expiry) { expiry.setHours(0,0,0,0); if (expiry < today) continue }
-      const usable = getBatchLocationQuantity(batch)
-      if (usable <= 0) continue
-      const used = Math.min(usable, remaining)
-      allocation.push({ ...batch, allocation: used })
-      remaining -= used
-    }
-    return allocation
-  }, [stockOutBatches, numericQty, stockOutMode, type])
-
-  useEffect(() => { setBatchPage(1) }, [item?.id, type, stockOutMode])
-  useEffect(() => { setMovementReason(type === 'in' ? 'received' : 'adjustment_out') }, [type])
-  useEffect(() => { if (exactBatchReason && stockOutMode !== 'manual') setStockOutMode('manual') }, [exactBatchReason, stockOutMode])
-  useEffect(() => { if (batchPage > totalBatchPages) setBatchPage(totalBatchPages) }, [batchPage, totalBatchPages])
+  useEffect(() => {
+    if (type === 'in') setMovementReason('received')
+    setQty(type === 'in' ? '1' : '')
+    if (type === 'out') setStockOutSelectionKey('')
+  }, [type])
 
   const selectExistingBatch = (batch) => {
     setSelectedBatchId(String(batch.id))
     setBatchSearch(batch.batch_code || `Batch #${batch.id}`)
     setStockInBatchMode('existing')
     setBatchPickerOpen(false)
-    setExpirationDate(batch.expiration_date ? String(batch.expiration_date).slice(0,10) : '')
+    setExpirationDate(batch.expiration_date ? String(batch.expiration_date).slice(0, 10) : '')
   }
 
   const startNewBatch = () => {
@@ -633,103 +619,124 @@ const StockModal = ({ item, onClose, onSubmit, locations = [] }) => {
     }
   }
 
-  const updateBatchQty = (batchId, value) => {
-    const maxForBatch = getBatchLocationQuantity(item?.batches?.find((batch) => batch.id === batchId))
-    setBatchAllocations((prev) => prev.map((batch) => (
-      batch.batch_id === batchId ? { ...batch, quantity: value === '' ? '' : Math.min(maxForBatch, Math.max(0, parseFloat(value || '0'))) } : batch
-    )))
-  }
-  const fillBatchQty = (batchId, quantity) => setBatchAllocations((prev) => prev.map((batch) => batch.batch_id === batchId ? { ...batch, quantity } : batch))
-
   const stockInInvalid = type === 'in' && (
     numericQty <= 0
-    || (stockInBatchMode === 'pick')
+    || stockInBatchMode === 'pick'
     || (stockInBatchMode === 'existing' && !selectedBatch)
     || (stockInBatchMode === 'new' && !autoGenerateBatch && !newBatchCode.trim())
   )
+  const stockOutInvalid = type === 'out' && (
+    !selectedStockOut
+    || numericQty <= 0
+    || numericQty > selectedStockOutAvailable
+  )
 
-  const handleSave = () => onSubmit({
-    type,
-    qty: effectiveQty,
+  const handleSave = () => onSubmit(type === 'in' ? {
+    type: 'in',
+    qty: numericQty,
     note,
     movement_reason: movementReason,
-    expiration_date: type === 'in' && stockInBatchMode === 'new' ? expirationDate : '',
-    batch_code: type === 'in' && stockInBatchMode === 'new' ? (autoGenerateBatch ? '' : newBatchCode.trim()) : '',
-    existing_batch_id: type === 'in' && stockInBatchMode === 'existing' ? Number(selectedBatchId) : null,
-    storage_location_id: type === 'in' && locationId ? Number(locationId) : null,
-    selected_batches: isManualStockOut
-      ? batchAllocations.filter((batch) => Number(batch.quantity || 0) > 0).map((batch) => ({ batch_id: batch.batch_id, quantity: Number(batch.quantity) }))
-      : [],
+    expiration_date: stockInBatchMode === 'new' ? expirationDate : '',
+    batch_code: stockInBatchMode === 'new' ? (autoGenerateBatch ? '' : newBatchCode.trim()) : '',
+    existing_batch_id: stockInBatchMode === 'existing' ? Number(selectedBatchId) : null,
+    storage_location_id: locationId ? Number(locationId) : null,
+  } : {
+    type: 'out',
+    qty: numericQty,
+    batch_id: Number(selectedStockOutBatch?.id),
+    storage_location_id: selectedStockOut?.location?.id ? Number(selectedStockOut.location.id) : null,
+    note,
   })
+
+  const stockOutButtonLabel = selectedStockOut && numericQty > 0
+    ? `Stock Out ${numericQty} ${item.uom || item.unit}`
+    : 'Stock Out'
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
       <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
           <div><p className="text-sm font-bold text-slate-800">{item.name}</p><p className="text-xs text-slate-400">Available: {available} {item.uom || item.unit}</p></div>
-          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-slate-100 text-slate-400 flex items-center justify-center" aria-label="Close"><MdClose /></button>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100" aria-label="Close"><MdClose /></button>
         </div>
+
         <div className="flex-1 overflow-y-auto px-6 py-6"><div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <button onClick={() => setType('in')} className={`rounded-2xl border py-3 text-sm font-semibold ${type === 'in' ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'border-slate-200 text-slate-600'}`}>Stock In</button>
-            <button onClick={() => setType('out')} className={`rounded-2xl border py-3 text-sm font-semibold ${type === 'out' ? 'bg-red-50 border-red-300 text-red-600' : 'border-slate-200 text-slate-600'}`}>Stock Out</button>
+            <button type="button" onClick={() => setType('in')} className={`rounded-2xl border py-3 text-sm font-semibold ${type === 'in' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-600'}`}>Stock In</button>
+            <button type="button" onClick={() => setType('out')} className={`rounded-2xl border py-3 text-sm font-semibold ${type === 'out' ? 'border-red-300 bg-red-50 text-red-600' : 'border-slate-200 text-slate-600'}`}>Stock Out</button>
           </div>
 
-          {(!isManualStockOut || type === 'in') ? <Field label={`Quantity (${item.uom || item.unit}) *`}><input type="number" min="0.01" step="0.01" value={qty} onChange={e => setQty(e.target.value)} className={inputClass} /></Field> : <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3"><p className="text-xs font-bold uppercase tracking-widest text-sky-700">Selected Stock-Out Quantity</p><p className="mt-1 text-2xl font-black text-sky-900">{selectedBatchQty}</p><p className="mt-1 text-xs text-sky-700">Total is calculated from the batches you choose below.</p></div>}
+          {type === 'in' && <>
+            <Field label={`Quantity (${item.uom || item.unit}) *`}><input type="number" min="0.01" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className={inputClass} /></Field>
+            <Field label="Movement Reason *"><select value={movementReason} onChange={(e) => setMovementReason(e.target.value)} className={inputClass}>{STOCK_IN_REASONS.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field>
 
-          <Field label="Movement Reason *"><select value={movementReason} onChange={e => setMovementReason(e.target.value)} className={inputClass}>{(type === 'in' ? STOCK_IN_REASONS : STOCK_OUT_REASONS).map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field>
-
-          {type === 'in' && <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Batch / Lot No. *</p>
-              {stockInBatchMode !== 'new' && <div className="relative mt-1.5">
-                <div className="flex gap-2">
-                  <div className="relative flex-1"><MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={batchSearch} onFocus={()=>setBatchPickerOpen(true)} onChange={(e)=>{setBatchSearch(e.target.value);setSelectedBatchId('');setStockInBatchMode('pick');setBatchPickerOpen(true)}} className={`${inputClass} pl-10`} placeholder="Search batch / lot number..." /></div>
-                  <button type="button" onClick={()=>setBatchScannerOpen(true)} className="button-secondary shrink-0"><MdQrCodeScanner /> Scan</button>
-                </div>
-                {batchPickerOpen && <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                  <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Existing Batches</p>
-                  {filteredStockInBatches.length ? filteredStockInBatches.map((batch)=><button key={batch.id} type="button" onClick={()=>selectExistingBatch(batch)} className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-slate-50"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-slate-800">{batch.batch_code || `Batch #${batch.id}`}</p><p className="mt-0.5 text-xs text-slate-500">Expiry: {batch.expiration_date ? formatDate(batch.expiration_date) : 'No expiry'}</p></div><span className="text-xs font-semibold text-slate-500">{Number(batch.quantity || 0)} {item.uom || item.unit}</span></div></button>) : <p className="px-3 py-3 text-xs text-slate-400">No existing batch matches your search.</p>}
-                  <div className="my-1 border-t border-slate-100"/><button type="button" onClick={startNewBatch} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-sky-700 hover:bg-sky-50"><MdAdd /> Create New Batch</button>
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Batch / Lot No. *</p>
+                {stockInBatchMode !== 'new' && <div className="relative mt-1.5">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1"><MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={batchSearch} onFocus={() => setBatchPickerOpen(true)} onChange={(e) => { setBatchSearch(e.target.value); setSelectedBatchId(''); setStockInBatchMode('pick'); setBatchPickerOpen(true) }} className={`${inputClass} pl-10`} placeholder="Search batch / lot number..." /></div>
+                    <button type="button" onClick={() => setBatchScannerOpen(true)} className="button-secondary shrink-0"><MdQrCodeScanner /> Scan</button>
+                  </div>
+                  {batchPickerOpen && <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Existing Batches</p>
+                    {filteredStockInBatches.length ? filteredStockInBatches.map((batch) => <button key={batch.id} type="button" onClick={() => selectExistingBatch(batch)} className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-slate-50"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-slate-800">{batch.batch_code || `Batch #${batch.id}`}</p><p className="mt-0.5 text-xs text-slate-500">Expiry: {batch.expiration_date ? formatDate(batch.expiration_date) : 'No expiry'}</p></div><span className="text-xs font-semibold text-slate-500">{Number(batch.quantity || 0)} {item.uom || item.unit}</span></div></button>) : <p className="px-3 py-3 text-xs text-slate-400">No existing batch matches your search.</p>}
+                    <div className="my-1 border-t border-slate-100"/><button type="button" onClick={startNewBatch} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-sky-700 hover:bg-sky-50"><MdAdd /> Create New Batch</button>
+                  </div>}
                 </div>}
+              </div>
+
+              {stockInBatchMode === 'existing' && selectedBatch && <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Existing Batch Selected</p><p className="mt-1 font-mono text-sm font-bold text-slate-900">{selectedBatch.batch_code || `Batch #${selectedBatch.id}`}</p></div><button type="button" onClick={() => { setStockInBatchMode('pick'); setSelectedBatchId(''); setBatchSearch(''); setBatchPickerOpen(true) }} className="text-xs font-bold text-sky-700">Change</button></div>
+                <div className="grid grid-cols-2 gap-3 text-sm"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Batch Expiry</p><p className="mt-1 font-semibold text-slate-700">{selectedBatch.expiration_date ? formatDate(selectedBatch.expiration_date) : 'No expiry'}</p><p className="text-[10px] text-slate-400">Locked for existing batch</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Current Stock</p><p className="mt-1 font-semibold text-slate-700">{Number(selectedBatch.quantity || 0)} {item.uom || item.unit}</p></div></div>
+                <div className="rounded-xl bg-white px-3 py-2 text-xs text-slate-600">After Stock In: <strong>{Number(selectedBatch.quantity || 0) + numericQty} {item.uom || item.unit}</strong></div>
+                <BarcodePreview value={selectedBatch.batch_code || `${item.barcode}-B${String(selectedBatch.id).padStart(3,'0')}`} title="Batch Barcode" compact />
               </div>}
+
+              {stockInBatchMode === 'new' && <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3"><p className="text-sm font-bold text-slate-800">Create New Batch</p>{batches.length > 0 && <button type="button" onClick={() => { setStockInBatchMode('pick'); setBatchPickerOpen(true) }} className="text-xs font-bold text-sky-700">Choose Existing</button>}</div>
+                {!autoGenerateBatch && <Field label="New Batch / Lot No. *"><div className="flex gap-2"><input value={newBatchCode} onChange={(e) => setNewBatchCode(e.target.value)} className={`${inputClass} flex-1`} placeholder="Enter or scan supplier lot number"/><button type="button" onClick={() => setBatchScannerOpen(true)} className="button-secondary shrink-0"><MdQrCodeScanner /> Scan</button></div></Field>}
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700"><input type="checkbox" checked={autoGenerateBatch} onChange={(e) => setAutoGenerateBatch(e.target.checked)} className="mt-1"/><span><strong>Supplier did not provide a lot number</strong><span className="mt-0.5 block text-xs text-slate-500">Generate {autoBatchPreview} automatically.</span></span></label>
+                <Field label="Batch Expiry"><input type="date" value={expirationDate} onChange={(e) => setExpirationDate(e.target.value)} className={inputClass} /></Field>
+                <BarcodePreview value={effectiveNewBatchCode} title="New Batch Barcode Preview" compact />
+              </div>}
+
+              <Field label="Storage Location *"><select value={locationId} onChange={(e) => setLocationId(e.target.value)} className={inputClass}><option value="">{locations.length ? 'Select location' : 'Main Stockroom'}</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></Field>
             </div>
+            <Field label="Movement Note"><input value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} placeholder="e.g. Delivery receipt DR-1024" /></Field>
+          </>}
 
-            {stockInBatchMode === 'existing' && selectedBatch && <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Existing Batch Selected</p><p className="mt-1 font-mono text-sm font-bold text-slate-900">{selectedBatch.batch_code || `Batch #${selectedBatch.id}`}</p></div><button type="button" onClick={()=>{setStockInBatchMode('pick');setSelectedBatchId('');setBatchSearch('');setBatchPickerOpen(true)}} className="text-xs font-bold text-sky-700">Change</button></div>
-              <div className="grid grid-cols-2 gap-3 text-sm"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Batch Expiry</p><p className="mt-1 font-semibold text-slate-700">{selectedBatch.expiration_date ? formatDate(selectedBatch.expiration_date) : 'No expiry'}</p><p className="text-[10px] text-slate-400">Locked for existing batch</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Current Stock</p><p className="mt-1 font-semibold text-slate-700">{Number(selectedBatch.quantity || 0)} {item.uom || item.unit}</p></div></div>
-              <div className="rounded-xl bg-white px-3 py-2 text-xs text-slate-600">After Stock In: <strong>{Number(selectedBatch.quantity || 0) + numericQty} {item.uom || item.unit}</strong></div>
-              <BarcodePreview value={selectedBatch.batch_code || `${item.barcode}-B${String(selectedBatch.id).padStart(3,'0')}`} title="Batch Barcode" compact />
-            </div>}
+          {type === 'out' && <>
+            {!stockOutOptions.length ? <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">There is no batch stock available for this item.</div> : <>
+              <Field label="Batch / Lot *">
+                <select value={stockOutSelectionKey} onChange={(e) => { setStockOutSelectionKey(e.target.value); setQty('') }} className={inputClass}>
+                  <option value="">Select batch / lot</option>
+                  {stockOutOptions.map((option) => {
+                    const batch = option.batch
+                    const expiry = batch.expiration_date ? parseDateOnly(batch.expiration_date) : null
+                    const today = new Date(); today.setHours(0, 0, 0, 0)
+                    const expired = expiry ? new Date(expiry).setHours(0, 0, 0, 0) < today.getTime() : false
+                    const label = `${batch.batch_code || `Batch #${batch.id}`} · ${batch.expiration_date ? `${expired ? 'EXPIRED ' : ''}${formatDate(batch.expiration_date)}` : 'No expiry'} · ${option.location?.name || 'Main Stockroom'} · ${option.available} ${item.uom || item.unit}`
+                    return <option key={option.key} value={option.key}>{label}</option>
+                  })}
+                </select>
+              </Field>
 
-            {stockInBatchMode === 'new' && <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3"><p className="text-sm font-bold text-slate-800">Create New Batch</p>{batches.length > 0 && <button type="button" onClick={()=>{setStockInBatchMode('pick');setBatchPickerOpen(true)}} className="text-xs font-bold text-sky-700">Choose Existing</button>}</div>
-              {!autoGenerateBatch && <Field label="New Batch / Lot No. *"><div className="flex gap-2"><input value={newBatchCode} onChange={e=>setNewBatchCode(e.target.value)} className={`${inputClass} flex-1`} placeholder="Enter or scan supplier lot number"/><button type="button" onClick={()=>setBatchScannerOpen(true)} className="button-secondary shrink-0"><MdQrCodeScanner /> Scan</button></div></Field>}
-              <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700"><input type="checkbox" checked={autoGenerateBatch} onChange={(e)=>setAutoGenerateBatch(e.target.checked)} className="mt-1"/><span><strong>Supplier did not provide a lot number</strong><span className="mt-0.5 block text-xs text-slate-500">Generate {autoBatchPreview} automatically.</span></span></label>
-              <Field label="Batch Expiry"><input type="date" value={expirationDate} onChange={e => setExpirationDate(e.target.value)} className={inputClass} /></Field>
-              <BarcodePreview value={effectiveNewBatchCode} title="New Batch Barcode Preview" compact />
-            </div>}
+              {selectedStockOutBatch && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-sky-700">Selected Batch</p><p className="mt-1 font-mono text-sm font-bold text-slate-900">{selectedStockOutBatch.batch_code || `Batch #${selectedStockOutBatch.id}`}</p></div><span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-sky-700">{selectedStockOutAvailable} {item.uom || item.unit} available</span></div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Expiry</p><p className="mt-1 font-semibold text-slate-700">{selectedStockOutBatch.expiration_date ? formatDate(selectedStockOutBatch.expiration_date) : 'No expiry'}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Location</p><p className="mt-1 font-semibold text-slate-700">{selectedStockOut?.location?.name || 'Main Stockroom'}</p></div></div>
+              </div>}
 
-            <Field label="Storage Location *"><select value={locationId} onChange={(e)=>setLocationId(e.target.value)} className={inputClass}><option value="">{locations.length ? 'Select location' : 'Main Stockroom'}</option>{locations.map((location)=><option key={location.id} value={location.id}>{location.name}</option>)}</select></Field>
-          </div>}
-
-          <Field label="Movement Note"><input value={note} onChange={e => setNote(e.target.value)} className={inputClass} placeholder={type === 'in' ? 'e.g. Delivery receipt DR-1024' : 'Explain the stock-out when needed'} /></Field>
-
-          {type === 'out' && <div className="space-y-3">
-            {!exactBatchReason && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-amber-700">Batch Allocation</p><p className="mt-1 text-sm font-semibold text-amber-900">Automatic — Earliest Expiry First (FEFO)</p></div><button type="button" onClick={()=>setStockOutMode(stockOutMode==='fefo'?'manual':'fefo')} className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-700">{stockOutMode==='fefo'?'Change Batch':'Use FEFO'}</button></div>{stockOutMode==='fefo' && <div className="mt-3 space-y-1">{fefoPreview.length ? fefoPreview.map((batch)=><div key={batch.id} className="flex justify-between rounded-xl bg-white px-3 py-2 text-xs text-slate-600"><span>{batch.batch_code || `Batch #${batch.id}`} · {batch.expiration_date ? formatDate(batch.expiration_date) : 'No expiry'}</span><strong>{batch.allocation} {item.uom || item.unit}</strong></div>) : <p className="text-xs text-amber-700">Enter a quantity to preview FEFO allocation.</p>}</div>}</div>}
-            {exactBatchReason && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">This movement reason requires an exact batch/lot selection so expiry, damage, wastage, or supplier returns remain fully traceable.</div>}
-          </div>}
-
-          {type === 'out' && stockOutMode === 'manual' && stockOutBatches.length > 0 && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="flex items-center justify-between gap-3"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Choose Batch Quantities</p>{stockOutBatches.length > BATCHES_PER_PAGE && <span className="text-[11px] font-semibold text-slate-500">Page {currentBatchPage} of {totalBatchPages}</span>}</div>
-            <div className="mt-3 space-y-2">{paginatedBatches.map(batch => <div key={batch.id} className="rounded-2xl bg-white px-3 py-3 text-sm text-slate-600"><div className="flex items-center justify-between gap-3"><div><p className="font-semibold text-slate-800">{batch.batch_code || `Batch #${batch.id}`}</p><p className="text-[11px] text-slate-400">{batch.expiration_date ? `Expires ${formatDate(batch.expiration_date)}` : 'No expiry'} · Main Stockroom: {getBatchLocationQuantity(batch)}</p></div></div><div className="mt-2 flex gap-2"><input type="number" min="0" max={getBatchLocationQuantity(batch)} value={batchAllocations.find((entry) => entry.batch_id === batch.id)?.quantity ?? ''} onChange={(e)=>updateBatchQty(batch.id,e.target.value)} placeholder="Qty" className={inputClass}/><button type="button" onClick={()=>fillBatchQty(batch.id,getBatchLocationQuantity(batch))} className="button-secondary shrink-0">Use all</button></div></div>)}</div>
-            {stockOutBatches.length > BATCHES_PER_PAGE && <div className="mt-3 flex items-center justify-between gap-2"><button type="button" onClick={()=>setBatchPage(prev=>Math.max(1,prev-1))} disabled={currentBatchPage===1} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 disabled:opacity-40">Previous</button><button type="button" onClick={()=>setBatchPage(prev=>Math.min(totalBatchPages,prev+1))} disabled={currentBatchPage===totalBatchPages} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 disabled:opacity-40">Next</button></div>}
-            <p className={`mt-3 text-xs font-semibold ${manualModeInvalid ? 'text-rose-600' : 'text-slate-500'}`}>{manualModeInvalid ? 'Select at least one batch quantity before saving.' : `Selected total: ${selectedBatchQty} ${item.uom || item.unit}`}</p>
-          </div>}
+              <Field label={`Quantity to Stock Out (${item.uom || item.unit}) *`}><input type="number" min="0.01" max={selectedStockOutAvailable || undefined} step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className={inputClass} disabled={!selectedStockOut} /></Field>
+              {selectedStockOutBatch && <div className={`rounded-2xl border px-4 py-3 ${numericQty > selectedStockOutAvailable ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'}`}><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Remaining After Stock Out</p><p className={`mt-1 text-xl font-black ${numericQty > selectedStockOutAvailable ? 'text-red-600' : 'text-slate-900'}`}>{remainingAfterStockOut} {item.uom || item.unit}</p>{numericQty > selectedStockOutAvailable && <p className="mt-1 text-xs font-semibold text-red-600">This batch only has {selectedStockOutAvailable} {item.uom || item.unit} available.</p>}</div>}
+              <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} placeholder="Optional explanation or reference" /></Field>
+            </>}
+          </>}
         </div></div>
-        <div className="shrink-0 border-t border-slate-100 bg-white px-6 pb-6 pt-4"><button onClick={handleSave} disabled={stockInInvalid || (type === 'out' && !isManualStockOut && (numericQty <= 0 || numericQty > available)) || manualModeInvalid} className="w-full rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-40">Save Stock Update</button></div>
+
+        <div className="shrink-0 border-t border-slate-100 bg-white px-6 pb-6 pt-4"><button onClick={handleSave} disabled={stockInInvalid || stockOutInvalid || (type === 'out' && !stockOutOptions.length)} className="w-full rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-40">{type === 'in' ? `Stock In ${numericQty || ''} ${item.uom || item.unit}` : stockOutButtonLabel}</button></div>
       </div>
-      {batchScannerOpen && <CameraScanner onDetected={handleScannedBatch} onClose={()=>setBatchScannerOpen(false)} />}
+      {batchScannerOpen && <CameraScanner onDetected={handleScannedBatch} onClose={() => setBatchScannerOpen(false)} />}
     </div>
   )
 }
@@ -1052,3 +1059,4 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+

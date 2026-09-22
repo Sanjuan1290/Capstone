@@ -5,11 +5,14 @@
   "scripts": {
     "test": "vitest run",
     "start": "node server.js",
+    "predev": "npm run migrate",
     "dev": "nodemon server.js",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "migrate": "node scripts/migrate.js",
-    "verify:deploy": "node scripts/verifyDeployment.js"
+    "verify:deploy": "node scripts/verifyDeployment.js",
+    "verify:source": "node scripts/verifySourceGraph.js",
+    "pretest": "npm run verify:source"
   },
   "keywords": [],
   "author": "",

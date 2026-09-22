@@ -233,7 +233,7 @@ const listBillingCatalog = async (options = {}, executor = db) => {
      FROM billing_service_catalog bsc
      LEFT JOIN billing_service_categories bcat ON bcat.id = bsc.category_id
      ${whereClause}
-     ORDER BY bsc.sort_order ASC, COALESCE(bcat.sort_order, 9999) ASC, COALESCE(bcat.name, bsc.category) ASC, bsc.service_name ASC`,
+     ORDER BY COALESCE(bcat.name, bsc.category) ASC, bsc.service_name ASC`,
     params
   )
 

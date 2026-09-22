@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   MdAdd,
   MdCategory,
@@ -44,7 +44,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       plural: 'Service Categories',
       singular: 'service category',
       save: saveBillingServiceCategory,
-      description: 'These categories appear in Add Service. Deactivate a category to prevent new services from using it while keeping existing services intact.',
+      description: 'Categories only group actual services. They are shown alphabetically in Add Service; create bookable services separately under Billing → Setup → Services & Pricing.',
     },
     uoms: {
       title: 'Unit of Measure',
@@ -58,7 +58,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       plural: 'Suppliers',
       singular: 'supplier',
       save: saveInventorySupplier,
-      description: 'Reusable suppliers grouped by clinic.',
+      description: 'Reusable supplier/company records with clinic assignment and contact details.',
     },
     location_types: {
       title: 'Location Type',
@@ -81,7 +81,6 @@ const ReferenceManager = ({ type, rows, onReload }) => {
         name: row?.name || '',
         clinic_type: row?.clinic_type || 'medical',
         is_active: row ? Number(row.is_active) : 1,
-        sort_order: row?.sort_order ?? 0,
       })
     }
     if (type === 'uoms') {
@@ -95,6 +94,9 @@ const ReferenceManager = ({ type, rows, onReload }) => {
     if (type === 'suppliers') {
       setForm({
         name: row?.name || '',
+        contact_person: row?.contact_person || '',
+        contact_number: row?.contact_number || '',
+        address: row?.address || '',
         category: row?.category || 'medical',
         is_active: row ? Number(row.is_active) : 1,
       })
@@ -131,7 +133,10 @@ const ReferenceManager = ({ type, rows, onReload }) => {
           <h2 className="font-black text-slate-900">{config.plural}</h2>
           <p className="mt-1 max-w-3xl text-sm text-slate-500">{config.description}</p>
         </div>
-        <button className="button-primary" onClick={() => open()}><MdAdd /> Add {config.title}</button>
+        <div className="flex flex-wrap gap-2">
+          {type === 'service_categories' && <Link className="button-secondary" to="/admin/billing/setup/services">Manage Services & Pricing</Link>}
+          <button className="button-primary" onClick={() => open()}><MdAdd /> Add {config.title}</button>
+        </div>
       </div>
 
       {!rows.length ? (
@@ -143,9 +148,10 @@ const ReferenceManager = ({ type, rows, onReload }) => {
               <tr>
                 <th className="px-5 py-3">Name</th>
                 {type === 'service_categories' && <th className="px-5 py-3">Clinic</th>}
-                {type === 'service_categories' && <th className="px-5 py-3">Order</th>}
                 {type === 'service_categories' && <th className="px-5 py-3">Used By</th>}
                 {type === 'uoms' && <th className="px-5 py-3">Abbreviation</th>}
+                {type === 'suppliers' && <th className="px-5 py-3">Contact</th>}
+                {type === 'suppliers' && <th className="px-5 py-3">Address</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Clinic</th>}
                 {type === 'location_types' && <th className="px-5 py-3">Internal Code</th>}
                 <th className="px-5 py-3">Status</th>
@@ -157,9 +163,10 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                 <tr key={row.id}>
                   <td className="px-5 py-4 font-semibold text-slate-800">{row.name}</td>
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
-                  {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.sort_order || 0)}</td>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.service_count || 0)} service{Number(row.service_count || 0) === 1 ? '' : 's'}</td>}
                   {type === 'uoms' && <td className="px-5 py-4 text-slate-500">{row.abbreviation || '—'}</td>}
+                  {type === 'suppliers' && <td className="px-5 py-4 text-slate-500"><p className="font-semibold text-slate-700">{row.contact_person || '—'}</p><p className="mt-1 text-xs">{row.contact_number || 'No contact number'}</p></td>}
+                  {type === 'suppliers' && <td className="max-w-xs px-5 py-4 text-slate-500">{row.address || '—'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.category)}</td>}
                   {type === 'location_types' && <td className="px-5 py-4 font-mono text-xs text-slate-500">{row.code}</td>}
                   <td className="px-5 py-4">
@@ -178,7 +185,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       <Modal open={Boolean(editing) || Boolean(form.name !== undefined && Object.keys(form).length)} onClose={close} title={`${editing ? 'Edit' : 'Add'} ${config.title}`} size="md">
         <div className="space-y-4">
           <label className="block">
-            <span className="form-label">Name *</span>
+            <span className="form-label">{type === 'suppliers' ? 'Company / Supplier Name *' : 'Name *'}</span>
             <input className="form-control mt-1.5" value={form.name || ''} onChange={(e) => setForm((value) => ({ ...value, name: e.target.value }))} />
           </label>
 
@@ -190,12 +197,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                   <option value="medical">General Medicine</option>
                   <option value="derma">Dermatology</option>
                 </select>
-                {editing && Number(editing.service_count || 0) > 0 && <p className="mt-1 text-xs text-slate-400">Clinic is locked because this category is already used by {Number(editing.service_count)} service{Number(editing.service_count) === 1 ? '' : 's'}. You can still rename, reorder, or deactivate it.</p>}
-              </label>
-              <label className="block">
-                <span className="form-label">Display Order</span>
-                <input type="number" min="0" step="1" className="form-control mt-1.5" value={form.sort_order ?? 0} onChange={(e) => setForm((value) => ({ ...value, sort_order: Number(e.target.value) || 0 }))} />
-                <p className="mt-1 text-xs text-slate-400">Lower numbers appear first in the Add Service category list.</p>
+                {editing && Number(editing.service_count || 0) > 0 && <p className="mt-1 text-xs text-slate-400">Clinic is locked because this category is already used by {Number(editing.service_count)} service{Number(editing.service_count) === 1 ? '' : 's'}. You can still rename or deactivate it.</p>}
               </label>
             </>
           )}
@@ -208,13 +210,27 @@ const ReferenceManager = ({ type, rows, onReload }) => {
           )}
 
           {type === 'suppliers' && (
-            <label className="block">
-              <span className="form-label">Clinic *</span>
-              <select className="form-control mt-1.5" value={form.category || 'medical'} onChange={(e) => setForm((value) => ({ ...value, category: e.target.value }))}>
-                <option value="medical">General Medicine</option>
-                <option value="derma">Dermatology</option>
-              </select>
-            </label>
+            <>
+              <label className="block">
+                <span className="form-label">Contact Person / Spokesperson</span>
+                <input className="form-control mt-1.5" value={form.contact_person || ''} onChange={(e) => setForm((value) => ({ ...value, contact_person: e.target.value }))} placeholder="e.g. Juan Dela Cruz" />
+              </label>
+              <label className="block">
+                <span className="form-label">Contact Number</span>
+                <input className="form-control mt-1.5" value={form.contact_number || ''} onChange={(e) => setForm((value) => ({ ...value, contact_number: e.target.value }))} placeholder="Mobile or landline" />
+              </label>
+              <label className="block">
+                <span className="form-label">Address</span>
+                <textarea rows={3} className="form-control mt-1.5 resize-none" value={form.address || ''} onChange={(e) => setForm((value) => ({ ...value, address: e.target.value }))} placeholder="Supplier/company address" />
+              </label>
+              <label className="block">
+                <span className="form-label">Clinic *</span>
+                <select className="form-control mt-1.5" value={form.category || 'medical'} onChange={(e) => setForm((value) => ({ ...value, category: e.target.value }))}>
+                  <option value="medical">General Medicine</option>
+                  <option value="derma">Dermatology</option>
+                </select>
+              </label>
+            </>
           )}
 
           {type === 'location_types' && (

@@ -2,6 +2,7 @@ const db = require('../db/connect')
 const { getTodayDateOnly, getCurrentTimeLabel } = require('./date')
 const { broadcast } = require('./sse')
 const { writeAuditLog } = require('./audit')
+const { buildWalkInDoctorAvailability } = require('./doctorAvailabilitySummary')
 
 const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'rescheduled', 'in-progress']
 
@@ -53,55 +54,24 @@ const getWalkInPrecheck = async (patientId, executor = db) => {
 }
 
 const resolveWalkInDoctor = async ({ doctorId, clinicType }, executor = db) => {
-  const today = getTodayDateOnly()
-  const normalizedType = String(clinicType || '').toLowerCase()
-  const specialtyCondition = normalizedType === 'derma'
-    ? "COALESCE(d.clinic_type, CASE WHEN LOWER(COALESCE(d.specialty,'')) LIKE '%derm%' THEN 'derma' ELSE 'medical' END) = 'derma'"
-    : "COALESCE(d.clinic_type, CASE WHEN LOWER(COALESCE(d.specialty,'')) LIKE '%derm%' THEN 'derma' ELSE 'medical' END) = 'medical'"
-
-  const baseWhere = `d.is_active = 1
-    AND ${specialtyCondition}
-    AND NOT EXISTS (
-      SELECT 1 FROM doctor_unavailable_dates u
-      WHERE u.doctor_id = d.id AND u.unavailable_date = ?
-    )`
-
-  if (doctorId && doctorId !== 'first_available') {
-    const [rows] = await executor.query(
-      `SELECT d.id, d.full_name, d.specialty, d.clinic_type,
-              EXISTS(
-                SELECT 1 FROM doctor_schedules ds
-                WHERE ds.doctor_id = d.id AND ds.day_of_week = DAYNAME(?) AND ds.is_active = 1
-                  AND CURTIME() BETWEEN ds.start_time AND ds.end_time
-              ) AS on_duty
-       FROM doctors d
-       WHERE d.id = ? AND ${baseWhere}
-       LIMIT 1`,
-      [today, doctorId, today]
-    )
-    if (!rows[0]) return { ok: false, message: 'The selected doctor is not available for this clinic type today.' }
-    if (!Number(rows[0].on_duty)) return { ok: false, message: 'The selected doctor is not currently on duty.' }
-    return { ok: true, doctor: rows[0] }
+  const numericDoctorId = Number(doctorId) || 0
+  if (!numericDoctorId) {
+    return { ok: false, message: 'Select a doctor who is currently available.' }
   }
 
-  const [rows] = await executor.query(
-    `SELECT d.id, d.full_name, d.specialty, d.clinic_type,
-            COUNT(CASE WHEN q.status IN ('waiting','called','in_consultation') THEN 1 END) AS active_queue_count
-     FROM doctors d
-     JOIN doctor_schedules ds
-       ON ds.doctor_id = d.id
-      AND ds.day_of_week = DAYNAME(?)
-      AND ds.is_active = 1
-      AND CURTIME() BETWEEN ds.start_time AND ds.end_time
-     LEFT JOIN queue q ON q.doctor_id = d.id AND q.queue_date = ?
-     WHERE ${baseWhere}
-     GROUP BY d.id, d.full_name, d.specialty, d.clinic_type
-     ORDER BY active_queue_count ASC, d.full_name ASC
-     LIMIT 1`,
-    [today, today, today]
-  )
-  if (!rows[0]) return { ok: false, message: 'No on-duty doctor is currently available for this clinic type.' }
-  return { ok: true, doctor: rows[0] }
+  const availability = await buildWalkInDoctorAvailability({ clinicType }, executor)
+  const doctor = (availability.doctors || []).find((row) => Number(row.id) === numericDoctorId)
+  if (!doctor) {
+    return { ok: false, message: 'The selected doctor is not active for this clinic.' }
+  }
+  if (!doctor.available_now) {
+    return {
+      ok: false,
+      message: doctor.availability_reason || 'The selected doctor is not currently available for a walk-in.',
+    }
+  }
+
+  return { ok: true, doctor }
 }
 
 const addWalkInVisit = async ({
@@ -170,7 +140,13 @@ const addWalkInVisit = async ({
 
     const today = getTodayDateOnly()
     lockKey = `queue:${today}:${resolvedDoctorId}`
-    await conn.query('SELECT GET_LOCK(?, 5)', [lockKey])
+    const [[queueLock]] = await conn.query('SELECT GET_LOCK(?, 5) AS acquired', [lockKey])
+    if (Number(queueLock?.acquired) !== 1) {
+      const error = new Error('The doctor queue is being updated. Please try again.')
+      error.statusCode = 409
+      error.code = 'QUEUE_BUSY'
+      throw error
+    }
     const [[{ maxQ }]] = await conn.query(
       'SELECT COALESCE(MAX(queue_number), 0) AS maxQ FROM queue WHERE queue_date = ? AND doctor_id = ?',
       [today, resolvedDoctorId]
@@ -236,3 +212,4 @@ module.exports = {
   resolveWalkInDoctor,
   addWalkInVisit,
 }
+

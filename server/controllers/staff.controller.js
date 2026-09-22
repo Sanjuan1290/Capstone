@@ -15,8 +15,6 @@ const { markOverdueAppointments } = require('../utils/appointments')
 const {
   receiveInventoryBatch,
   attachBatchesToInventory,
-  consumeInventoryFEFO,
-  consumeInventoryByBatches,
   consumeInventoryFromLocationFEFO,
   syncInventorySnapshot,
 } = require('../utils/inventoryBatches')
@@ -42,9 +40,11 @@ const {
   makeNoShowWarningResponse,
 } = require('../utils/appointmentPolicies')
 const { isValidPaymentMethod, requiresPaymentReference, makeReceiptNumber, calculatePaymentAmounts } = require('../utils/payments')
-const { isValidQueueStatus, isValidSupplyRequestResolution, normalizeStockMovementType } = require('../utils/workflowValidation')
+const { isValidQueueStatus, isValidSupplyRequestResolution } = require('../utils/workflowValidation')
 const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
+const { applyManualInventoryMovement } = require('../utils/manualInventoryMovement')
 const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
+const { buildDoctorAvailabilitySummary, buildWalkInDoctorAvailability } = require('../utils/doctorAvailabilitySummary')
 const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
@@ -519,6 +519,24 @@ const rescheduleAppointment = async (req, res) => {
   })
   broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
   res.json({ message: 'Appointment rescheduled.' })
+}
+
+const getAppointmentReasons = async (req, res) => {
+  const clinicType = String(req.query.clinic_type || '').trim()
+  if (clinicType && !['medical', 'derma'].includes(clinicType)) {
+    return res.status(400).json({ message: 'Invalid clinic type.' })
+  }
+  const params = []
+  let sql = `SELECT id, label, clinic_type, is_active, sort_order
+             FROM appointment_reason_options
+             WHERE is_active = 1`
+  if (clinicType) {
+    sql += ' AND (clinic_type = ? OR clinic_type = "all")'
+    params.push(clinicType)
+  }
+  sql += ' ORDER BY label ASC'
+  const [rows] = await db.query(sql, params)
+  res.json(rows)
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -1216,21 +1234,6 @@ const payBill = async (req, res) => {
       }
     }
 
-    // Staff cashier closings lock Staff payments. Administrators can still collect a payment
-    // as an audited override and are not tied to an individual Staff cashier shift.
-    if (!isAdminActor) {
-      await conn.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [req.user.id])
-      const paymentDate = getTodayDateOnly()
-      const [closedShift] = await conn.query(
-        "SELECT id FROM cashier_closings WHERE staff_id = ? AND closing_date = ? AND COALESCE(is_locked,1) = 1 AND COALESCE(status,'closed') = 'closed' LIMIT 1",
-        [req.user.id, paymentDate]
-      )
-      if (closedShift.length) {
-        await conn.rollback()
-        return res.status(409).json({ message: 'Your cashier shift is already closed for today. Ask an administrator to reopen it before accepting another payment.' })
-      }
-    }
-
     const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE', [billingId])
     if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
     const lockedBill = lockedRows[0]
@@ -1296,99 +1299,6 @@ const getDiscountPresets = async (req, res) => {
      FROM discount_presets WHERE is_active = 1 ORDER BY sort_order ASC, label ASC`
   )
   res.json(rows)
-}
-
-const getCashierShiftStatus = async (req, res) => {
-  const date = String(req.query.date || getTodayDateOnly()).slice(0, 10)
-  if (!isValidDateOnly(date)) return res.status(400).json({ message: 'A valid cashier date is required.' })
-  const [[summary]] = await db.query(
-    `SELECT
-       COUNT(*) AS payment_count,
-       SUM(payment_method='cash' AND status='completed') AS cash_payment_count,
-       COALESCE(SUM(CASE WHEN payment_method='cash' AND status='completed' THEN amount - COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
-     FROM billing_payments WHERE received_by_staff_id=? AND DATE(paid_at)=?`,
-    [req.user.id, date]
-  )
-  const [[closing]] = await db.query(
-    `SELECT id, closing_date, expected_cash, actual_cash, variance, notes, status, is_locked, closed_at, reopened_at, reopen_reason
-     FROM cashier_closings WHERE staff_id=? AND closing_date=? LIMIT 1`,
-    [req.user.id, date]
-  )
-  res.json({
-    date,
-    status: closing && Number(closing.is_locked) === 1 && String(closing.status || 'closed') === 'closed' ? 'closed' : closing?.status === 'reopened' ? 'reopened' : 'open',
-    payment_count: Number(summary?.payment_count || 0),
-    cash_payment_count: Number(summary?.cash_payment_count || 0),
-    expected_cash: Number(summary?.expected_cash || 0),
-    closing: closing || null,
-  })
-}
-
-const closeCashierShift = async (req, res) => {
-  const today = getTodayDateOnly()
-  const closingDate = String(req.body.closing_date || today).slice(0, 10)
-  if (!isValidDateOnly(closingDate)) return res.status(400).json({ message: 'A valid cashier closing date is required.' })
-  if (closingDate > today) return res.status(400).json({ message: 'A cashier shift cannot be closed for a future date.' })
-  const actualCashInput = Number(req.body.actual_cash)
-  if (!Number.isFinite(actualCashInput) || actualCashInput < 0) return res.status(400).json({ message: 'Actual cash must be a valid non-negative amount.' })
-  const notes = String(req.body.notes || '').trim() || null
-
-  const conn = await db.getConnection()
-  try {
-    await conn.beginTransaction()
-    await conn.query('SELECT id FROM staff WHERE id = ? FOR UPDATE', [req.user.id])
-    const [[summary]] = await conn.query(
-      `SELECT COALESCE(SUM(CASE WHEN payment_method = 'cash' AND status = 'completed' THEN amount - COALESCE(refund_amount,0) ELSE 0 END),0) AS expected_cash
-       FROM billing_payments WHERE received_by_staff_id = ? AND DATE(paid_at) = ?`,
-      [req.user.id, closingDate]
-    )
-    const expectedCash = Number(summary?.expected_cash || 0)
-    const actualCash = Math.round(actualCashInput * 100) / 100
-    const variance = Math.round((actualCash - expectedCash) * 100) / 100
-    if (Math.abs(variance) > 0.009 && !notes) {
-      await conn.rollback()
-      return res.status(400).json({ message: 'A note is required when the actual cash does not match the expected cash.', code: 'CASH_VARIANCE_NOTE_REQUIRED' })
-    }
-
-    const [existingRows] = await conn.query(
-      'SELECT * FROM cashier_closings WHERE staff_id=? AND closing_date=? LIMIT 1 FOR UPDATE',
-      [req.user.id, closingDate]
-    )
-    let closingId
-    let eventType = 'closed'
-    if (existingRows.length) {
-      const existing = existingRows[0]
-      if (Number(existing.is_locked) === 1 && String(existing.status || 'closed') === 'closed') {
-        await conn.rollback()
-        return res.status(409).json({ message: 'This cashier shift is already closed. An administrator must reopen it before changes can be made.' })
-      }
-      eventType = 'reclosed'
-      closingId = existing.id
-      await conn.query(
-        `UPDATE cashier_closings
-         SET expected_cash=?, actual_cash=?, variance=?, notes=?, status='closed', is_locked=1, closed_at=NOW()
-         WHERE id=?`,
-        [expectedCash, actualCash, variance, notes, closingId]
-      )
-    } else {
-      const [result] = await conn.query(
-        `INSERT INTO cashier_closings (staff_id, closing_date, expected_cash, actual_cash, variance, notes, status, is_locked)
-         VALUES (?, ?, ?, ?, ?, ?, 'closed', 1)`,
-        [req.user.id, closingDate, expectedCash, actualCash, variance, notes]
-      )
-      closingId = result.insertId
-    }
-    await conn.query(
-      `INSERT INTO cashier_closing_events
-       (cashier_closing_id, event_type, actor_role, actor_id, expected_cash, actual_cash, variance, reason)
-       VALUES (?, ?, 'staff', ?, ?, ?, ?, ?)`,
-      [closingId, eventType, req.user.id, expectedCash, actualCash, variance, notes]
-    )
-    await writeAuditLog({ userId:req.user.id,userRole:'staff',action:eventType === 'reclosed' ? 'cashier.shift_reclosed' : 'cashier.shift_closed',entityType:'cashier_closing',entityId:closingId,newValues:{closing_date:closingDate,expected_cash:expectedCash,actual_cash:actualCash,variance,notes},ipAddress:req.ip||null }, conn)
-    await conn.commit()
-    broadcast(['admin','staff'], 'cashier_shift_changed', { closingId, closingDate, status:'closed' })
-    return res.json({ id:closingId, closing_date:closingDate, expected_cash:expectedCash, actual_cash:actualCash, variance, status:'closed' })
-  } catch (err) { await conn.rollback(); throw err } finally { conn.release() }
 }
 
 const getPaymentSettingsForStaff = async (req, res) => {
@@ -1575,82 +1485,17 @@ const deleteInventoryItem = async (req, res) => {
 }
 
 const updateStock = async (req, res) => {
-  const { type, qty, note, movement_reason, expiration_date, batch_code, selected_batches, existing_batch_id, storage_location_id } = req.body
-  if (!['in', 'out'].includes(type) || !qty)
-    return res.status(400).json({ message: 'type and qty are required.' })
-  const movementType = normalizeStockMovementType(type, movement_reason)
-  const exactBatchRequired = type === 'out' && ['expired', 'damaged', 'wastage', 'returned_to_supplier'].includes(movementType)
-  if (exactBatchRequired && (!Array.isArray(selected_batches) || selected_batches.length === 0)) {
-    return res.status(400).json({ message: 'Select the exact batch/lot for expired, damaged, wastage, or supplier-return stock-out.' })
-  }
-  if (type === 'out' && Array.isArray(selected_batches) && selected_batches.length > 0) {
-    const selectedQty = selected_batches.reduce((sum, entry) => sum + Number(entry?.quantity || 0), 0)
-    if (selectedQty !== Number(qty)) {
-      return res.status(400).json({ message: 'Selected batch quantities must equal the stock-out quantity.' })
-    }
-  }
-
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query('SELECT id, name FROM inventory WHERE id = ?', [req.params.id])
-    if (rows.length === 0) {
-      await conn.rollback()
-      return res.status(404).json({ message: 'Item not found.' })
-    }
-
-    let auditValues = null
-
-    if (type === 'in') {
-      const received = await receiveInventoryBatch(req.params.id, {
-        quantity: qty,
-        existing_batch_id,
-        expiration_date,
-        batch_code,
-        note: note || 'Manual stock-in',
-        location_id: storage_location_id,
-      }, conn)
-      await syncInventorySnapshot(req.params.id, conn)
-      const batchLabel = received.batch_code || `Batch #${received.batch_id}`
-      await conn.query(
-        `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, batch_id, to_location)
-         VALUES (?, ?, 'in', ?, ?, ?, ?, ?)`,
-        [req.params.id, req.user.id, qty, `${note || 'Stock received'} · ${batchLabel}${received.expiration_date ? ` · expires ${received.expiration_date}` : ''}`, movementType, received.batch_id, received.location]
-      )
-      auditValues = {
-        type: 'in', movement_type: movementType, quantity: Number(qty),
-        batch_id: received.batch_id, batch_code: received.batch_code || null,
-        expiration_date: received.expiration_date || null, location: received.location,
-        existing_batch: received.existing, previous_batch_quantity: received.previous_quantity,
-        new_batch_quantity: received.new_quantity, note: note || null,
-      }
-    } else {
-      const consumption = Array.isArray(selected_batches) && selected_batches.length > 0
-        ? await consumeInventoryByBatches(req.params.id, selected_batches, conn)
-        : await consumeInventoryFEFO(req.params.id, qty, conn)
-      if (!consumption.ok) {
-        await conn.rollback()
-        return res.status(400).json({ message: consumption.message })
-      }
-      for (const batch of consumption.consumed) {
-        const batchLabel = batch.batch_code || `Batch #${batch.batch_id || batch.id}`
-        await conn.query(
-          `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, batch_id, from_location)
-           VALUES (?, ?, 'out', ?, ?, ?, ?, ?)`,
-          [req.params.id, req.user.id, batch.quantity, `${note || 'Manual stock-out'} · ${batchLabel}${batch.expiration_date ? ` · expires ${batch.expiration_date}` : ''}`, movementType, batch.batch_id || batch.id, batch.location || 'Main Stockroom']
-        )
-      }
-      auditValues = { type: 'out', movement_type: movementType, quantity: Number(qty), batches: consumption.consumed.map((batch) => ({ batch_id: batch.batch_id || batch.id, batch_code: batch.batch_code || null, quantity: Number(batch.quantity || 0), expiration_date: batch.expiration_date || null, location: batch.location || 'Main Stockroom' })), note: note || null }
-    }
-    await writeAuditLog({
-      userId: req.user.id,
-      userRole: 'staff',
-      action: 'inventory.stock_moved',
-      entityType: 'inventory_item',
-      entityId: req.params.id,
-      newValues: { item_name: rows[0].name, ...auditValues },
-      ipAddress: req.ip || null,
-    }, conn)
+    await applyManualInventoryMovement({
+      inventoryId: req.params.id,
+      body: req.body,
+      actorRole: 'staff',
+      actorId: req.user.id,
+      ipAddress: req.ip,
+      executor: conn,
+    })
     await conn.commit()
     const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
     res.json(updated[0])
@@ -1713,8 +1558,9 @@ const getDoctors = async (req, res) => {
        full_name AS name,
        full_name,
        specialty,
+       clinic_type,
        is_active,
-       COALESCE(clinic_type, CASE WHEN specialty LIKE '%erm%' THEN 'derma' ELSE 'medical' END) AS type
+       clinic_type AS type
      FROM doctors
      WHERE is_active = 1
      ORDER BY full_name`
@@ -1728,6 +1574,29 @@ const getDoctorSchedules = async (req, res) => {
     [req.params.id]
   )
   res.json(rows)
+}
+
+const getDoctorAvailabilityForStaff = async (req, res) => {
+  const doctorId = Number(req.params.id)
+  if (!doctorId) return res.status(400).json({ message: 'A valid doctor is required.' })
+  const startDate = String(req.query.start_date || '').trim() || undefined
+  if (startDate && !isValidDateOnly(startDate)) return res.status(400).json({ message: 'A valid start date is required.' })
+  const result = await buildDoctorAvailabilitySummary({
+    doctorId,
+    startDate,
+    days: Math.min(14, Math.max(1, Number(req.query.days) || 14)),
+  })
+  const doctor = result.doctors?.[0]
+  if (!doctor) return res.status(404).json({ message: 'Doctor not found.' })
+  res.json({ start_date: result.start_date, end_date: result.end_date, days: result.days, doctor })
+}
+
+const getWalkInDoctors = async (req, res) => {
+  const clinicType = String(req.query.clinic_type || '').trim()
+  if (!['medical', 'derma'].includes(clinicType)) {
+    return res.status(400).json({ message: 'Select a valid clinic type.' })
+  }
+  res.json(await buildWalkInDoctorAvailability({ clinicType }))
 }
 
 const getDoctorUnavailableDatesForStaff = async (req, res) => {
@@ -1767,11 +1636,12 @@ const resolveSupplyRequest = async (req, res) => {
 module.exports = {
   login, checkAuth, logout,
   getDashboard,
-  getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment,
+  getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, getAppointmentReasons,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
-  getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getCashierShiftStatus, closeCashierShift, getPaymentSettingsForStaff,
+  getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getPaymentSettingsForStaff,
   getInventory, getInventoryMasterData, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, getInventoryLocations, createInventoryLocation, updateInventoryLocation,
-  getDoctors, getDoctorSchedules, getDoctorUnavailableDatesForStaff,
+  getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+

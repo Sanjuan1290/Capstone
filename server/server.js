@@ -52,9 +52,10 @@ app.get('/api/ready', async (req, res) => {
   }
 })
 
-// Authenticated SSE only. Role/user identity comes from the verified session cookie,
-// never from query-string values controlled by the browser.
-app.get('/api/events', authenticate.any, (req, res) => {
+// Authenticated SSE. Use role-scoped endpoints so a browser that legitimately
+// has multiple role cookies (for example Admin in one tab and Doctor in another)
+// cannot have the stream authenticated as whichever cookie happens to be checked first.
+const streamEvents = (req, res) => {
   const role = req.user.role
   const userId = req.user.id
 
@@ -77,7 +78,14 @@ app.get('/api/events', authenticate.any, (req, res) => {
     unregister()
     if (!res.writableEnded) res.end()
   })
-})
+}
+
+for (const role of ['admin', 'staff', 'doctor', 'patient']) {
+  app.get(`/api/events/${role}`, authenticate(`${role}_token`), streamEvents)
+}
+
+// Backwards-compatible endpoint for older clients. New clients use /api/events/:role.
+app.get('/api/events', authenticate.any, streamEvents)
 
 app.use('/api/patient', patientRouter)
 app.use('/api/admin', adminRouter)
@@ -99,10 +107,16 @@ app.use((err, req, res, next) => {
   })
   if (res.headersSent) return next(err)
 
-  const status = Number(err.statusCode || err.status) || 500
+  const databaseSchemaCodes = new Set(['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE'])
+  const schemaMismatch = databaseSchemaCodes.has(String(err.code || ''))
+  const status = schemaMismatch ? 503 : (Number(err.statusCode || err.status) || 500)
   const expose = status >= 400 && status < 500 && !/^ER_/.test(String(err.code || ''))
-  const message = expose ? (err.publicMessage || err.message || 'Request could not be completed.') : 'Something went wrong while processing your request.'
-  res.status(status).json({ message, request_id: requestId })
+  const message = schemaMismatch
+    ? 'The database schema is out of date for this feature. Run `npm run migrate`, then restart the server.'
+    : expose
+      ? (err.publicMessage || err.message || 'Request could not be completed.')
+      : 'Something went wrong while processing your request.'
+  res.status(status).json({ message, code: schemaMismatch ? 'SCHEMA_MIGRATION_REQUIRED' : undefined, request_id: requestId })
 })
 
 const start = async () => {
@@ -130,3 +144,4 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
+

@@ -472,7 +472,7 @@ const attachBatchesToInventory = async (items, executor = db) => {
   const placeholders = ids.map(() => '?').join(', ')
   const [rows] = await executor.query(
     `SELECT b.id, b.inventory_id, b.batch_code, b.quantity, b.expiration_date, b.received_at, b.note,
-            il.name AS location_name, ilb.quantity AS location_quantity
+            il.id AS location_id, il.name AS location_name, ilb.quantity AS location_quantity
      FROM inventory_batches b
      LEFT JOIN inventory_location_batches ilb ON ilb.batch_id = b.id AND ilb.quantity > 0
      LEFT JOIN inventory_locations il ON il.id = ilb.location_id
@@ -512,7 +512,7 @@ const attachBatchesToInventory = async (items, executor = db) => {
       })
     }
     if (row.location_name && Number(row.location_quantity || 0) > 0) {
-      batchMap.get(key).locations.push({ name: row.location_name, quantity: Number(row.location_quantity || 0) })
+      batchMap.get(key).locations.push({ id: row.location_id || null, name: row.location_name, quantity: Number(row.location_quantity || 0) })
     }
   }
 

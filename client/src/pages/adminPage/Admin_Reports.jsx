@@ -62,6 +62,21 @@ const titleCase = (value) => String(value || '')
   .replace(/[_-]/g, ' ')
   .replace(/\b\w/g, (char) => char.toUpperCase())
 
+const inventoryMovementLabel = (value) => ({
+  adjustment_out: 'Manual Stock Out',
+  received: 'Received from Supplier',
+  returned: 'Returned to Stock',
+  correction_in: 'Inventory Correction (+)',
+  clinical_use: 'Clinical Use',
+  dispensing: 'Dispensing',
+  wastage: 'Wastage / Spillage',
+  expired: 'Expired Stock',
+  damaged: 'Damaged Stock',
+  returned_to_supplier: 'Returned to Supplier',
+  transfer_out: 'Stock Transfer Out',
+  transfer_in: 'Stock Transfer In',
+}[String(value || '').toLowerCase()] || titleCase(value))
+
 const StatCard = ({ label, value, helper, icon: Icon, tone = 'border-slate-200 bg-white text-slate-900' }) => (
   <div className={`rounded-2xl border p-4 shadow-sm ${tone}`}>
     <div className="flex items-start justify-between gap-3">
@@ -180,7 +195,7 @@ const Admin_Reports = () => {
     const serviceRows = report.services.map((row) => `<tr><td>${escapeHtml(row.service_name)}</td><td>${escapeHtml(row.bills)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(formatMoney(row.gross_billed_amount))}</td></tr>`).join('')
     const paymentRows = report.payments.map((row) => `<tr><td>${escapeHtml(titleCase(row.payment_method))}</td><td>${escapeHtml(row.transactions)}</td><td>${escapeHtml(formatMoney(row.amount))}</td></tr>`).join('')
     const sourceRows = report.sources.map((row) => `<tr><td>${escapeHtml(titleCase(row.source))}</td><td>${escapeHtml(row.value)}</td></tr>`).join('')
-    const inventoryRows = report.stockReasons.map((row) => `<tr><td>${escapeHtml(titleCase(row.movement_type))}</td><td>${escapeHtml(row.actions)}</td><td>${escapeHtml(row.quantity)}</td></tr>`).join('')
+    const inventoryRows = report.stockReasons.map((row) => `<tr><td>${escapeHtml(inventoryMovementLabel(row.movement_type))}</td><td>${escapeHtml(row.actions)}</td><td>${escapeHtml(row.quantity)}</td></tr>`).join('')
     const monthlyRows = report.monthly.map((row) => `<tr><td>${escapeHtml(row.month)}</td><td>${escapeHtml(row.appointments)}</td><td>${escapeHtml(row.medical || 0)}</td><td>${escapeHtml(row.derma || 0)}</td><td>${escapeHtml(row.patients)}</td></tr>`).join('')
     const revenueRows = report.revenueTrend.map((row) => `<tr><td>${escapeHtml(row.month)}</td><td>${escapeHtml(row.transactions)}</td><td>${escapeHtml(formatMoney(row.revenue))}</td></tr>`).join('')
 
@@ -389,11 +404,12 @@ const Admin_Reports = () => {
         </div>
       </Section>
 
-      <Section title="Inventory Movement by Reason" subtitle="Transfers are movement between locations; clinical use/dispensing/wastage are true consumption. Batch details remain available in Inventory Activity.">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{report.stockReasons.length === 0 ? <p className="text-sm text-slate-400">No inventory movements for this period.</p> : report.stockReasons.map((row) => <div key={row.movement_type} className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{titleCase(row.movement_type)}</p><div className="mt-2 flex items-end justify-between"><p className="text-2xl font-black text-slate-900">{row.quantity}</p><p className="text-xs text-slate-500">{row.actions} actions</p></div></div>)}</div>
+      <Section title="Inventory Movement" subtitle="Stock-ins, manual stock-outs, transfers, and clinical consumption for the selected period. Batch details remain available in Inventory Activity.">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{report.stockReasons.length === 0 ? <p className="text-sm text-slate-400">No inventory movements for this period.</p> : report.stockReasons.map((row) => <div key={row.movement_type} className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{inventoryMovementLabel(row.movement_type)}</p><div className="mt-2 flex items-end justify-between"><p className="text-2xl font-black text-slate-900">{row.quantity}</p><p className="text-xs text-slate-500">{row.actions} actions</p></div></div>)}</div>
       </Section>
     </div>
   )
 }
 
 export default Admin_Reports
+

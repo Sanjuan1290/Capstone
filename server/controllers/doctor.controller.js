@@ -20,7 +20,8 @@ const { loadImagesForConsultationIds, authorizeConsultationImages, syncConsultat
 const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
 const { consumeInventoryFromLocationFEFO, getInventoryLocationById } = require('../utils/inventoryBatches')
 const { writeAuditLog } = require('../utils/audit')
-const { startQueueConsultationByAppointment, callNextQueuePatient, setQueueState } = require('../utils/queueWorkflow')
+const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
+const { callNextQueuePatient, setQueueState, normalizeQueueStatus, assertQueueTransition } = require('../utils/queueWorkflow')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
 const {
   createClinicalUploadSignature,
@@ -280,6 +281,9 @@ const getDailyAppointments = async (req, res) => {
 const startConsultation = async (req, res) => {
   const conn = await db.getConnection()
   let appointment
+  let queueEntry = null
+  let queuePreviousStatus = null
+
   try {
     await conn.beginTransaction()
     const [rows] = await conn.query(
@@ -298,10 +302,70 @@ const startConsultation = async (req, res) => {
       await conn.rollback()
       return res.status(409).json({ code: 'APPOINTMENT_NOT_TODAY', message: 'Consultations can only be started on the appointment date.' })
     }
+
+    // If this appointment has a queue row, Staff/Admin must call the patient first.
+    // Lock the queue row in the SAME transaction as the appointment so the two
+    // state machines cannot diverge if one update fails.
+    const [queueRows] = await conn.query(
+      `SELECT id, status, patient_id, doctor_id, queue_number, appointment_id
+       FROM queue
+       WHERE appointment_id = ? AND doctor_id = ? AND queue_date = ?
+         AND status IN ('waiting','called','in-progress','in_consultation')
+       ORDER BY id DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [req.params.id, req.user.id, getTodayDateOnly()]
+    )
+
+    if (queueRows[0]) {
+      queuePreviousStatus = normalizeQueueStatus(queueRows[0].status)
+      if (queuePreviousStatus === 'waiting') {
+        await conn.rollback()
+        return res.status(409).json({
+          code: 'PATIENT_NOT_CALLED',
+          message: 'Call the patient from the queue before starting the consultation.',
+        })
+      }
+      if (!['called', 'in_consultation'].includes(queuePreviousStatus)) {
+        await conn.rollback()
+        return res.status(409).json({ code: 'QUEUE_NOT_READY', message: 'The patient queue entry is not ready for consultation.' })
+      }
+
+      if (queuePreviousStatus === 'called') {
+        assertQueueTransition('called', 'in_consultation')
+        await conn.query(
+          "UPDATE queue SET status='in_consultation', consultation_started_at=COALESCE(consultation_started_at, NOW()) WHERE id = ?",
+          [queueRows[0].id]
+        )
+        await writeAuditLog({
+          userId: req.user.id,
+          userRole: 'doctor',
+          action: 'queue.in_consultation',
+          entityType: 'queue',
+          entityId: queueRows[0].id,
+          oldValues: { status: 'called' },
+          newValues: { status: 'in_consultation', appointment_id: Number(req.params.id) },
+          ipAddress: req.ip || null,
+        }, conn)
+      }
+      queueEntry = { ...queueRows[0], status: 'in_consultation' }
+    }
+
     if (appointment.status !== 'in-progress') {
       assertAppointmentTransition(appointment.status, 'in-progress')
       await conn.query("UPDATE appointments SET status = 'in-progress' WHERE id = ?", [req.params.id])
+      await writeAuditLog({
+        userId: req.user.id,
+        userRole: 'doctor',
+        action: 'appointment.consultation_started',
+        entityType: 'appointment',
+        entityId: req.params.id,
+        oldValues: { status: appointment.status },
+        newValues: { status: 'in-progress' },
+        ipAddress: req.ip || null,
+      }, conn)
     }
+
     await conn.commit()
   } catch (error) {
     await conn.rollback().catch(() => {})
@@ -310,16 +374,14 @@ const startConsultation = async (req, res) => {
     conn.release()
   }
 
-  const queueEntry = await startQueueConsultationByAppointment({
-    appointmentId: Number(req.params.id),
-    doctorId: req.user.id,
-    actorId: req.user.id,
-    ipAddress: req.ip || null,
-  }).catch((error) => {
-    // Scheduled appointments are allowed to start even if no queue row exists.
-    if (error?.statusCode === 404) return null
-    throw error
-  })
+  if (queueEntry && queuePreviousStatus === 'called') {
+    broadcast(['admin', 'staff', `doctor_${req.user.id}`, ...(queueEntry.patient_id ? [`patient_${queueEntry.patient_id}`] : [])], 'queue_updated', {
+      queueId: Number(queueEntry.id),
+      status: 'in_consultation',
+      doctorId: req.user.id,
+      appointmentId: Number(req.params.id),
+    })
+  }
 
   broadcast(['admin', 'staff', `patient_${appointment.patient_id}`], 'appointment_updated', {
     appointmentId: Number(req.params.id),
@@ -437,7 +499,7 @@ const finalizeConsultation = async (req, res) => {
     await conn.beginTransaction()
 
     const [apptRows] = await conn.query(
-      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ?',
+      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? FOR UPDATE',
       [appointmentId, req.user.id]
     )
     if (apptRows.length === 0) {
@@ -446,6 +508,29 @@ const finalizeConsultation = async (req, res) => {
     }
 
     appt = apptRows[0]
+    assertAppointmentTransition(appt.status, 'completed')
+
+    const [activeQueueRows] = await conn.query(
+      `SELECT id, status, patient_id, doctor_id, appointment_id
+       FROM queue
+       WHERE appointment_id = ? AND doctor_id = ? AND queue_date = ?
+         AND status IN ('waiting','called','in-progress','in_consultation')
+       ORDER BY id DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [appointmentId, req.user.id, getTodayDateOnly()]
+    )
+    if (activeQueueRows[0]) {
+      const queueStatus = normalizeQueueStatus(activeQueueRows[0].status)
+      if (queueStatus !== 'in_consultation') {
+        await conn.rollback()
+        return res.status(409).json({
+          code: 'QUEUE_CONSULTATION_NOT_STARTED',
+          message: 'Start the patient consultation before completing the visit.',
+        })
+      }
+      queueId = activeQueueRows[0].id
+    }
 
     const [existing] = await conn.query(
       'SELECT id, status FROM consultations WHERE appointment_id = ? FOR UPDATE',
@@ -487,7 +572,6 @@ const finalizeConsultation = async (req, res) => {
        WHERE id=?`,
       [req.user.id, consultationId]
     )
-    assertAppointmentTransition(appt.status, 'completed')
     await conn.query("UPDATE appointments SET status = 'completed' WHERE id = ?", [appointmentId])
     await writeAuditLog({
       userId: req.user.id, userRole: 'doctor', action: 'clinical.consultation_finalized', entityType: 'consultation', entityId: consultationId,
@@ -495,17 +579,21 @@ const finalizeConsultation = async (req, res) => {
       ipAddress: req.ip || null,
     }, conn)
 
-    const [queueRows] = await conn.query(
-      `SELECT id
-       FROM queue
-       WHERE appointment_id = ? AND doctor_id = ? AND status IN ('waiting','called','in-progress','in_consultation')
-       ORDER BY id DESC
-       LIMIT 1`,
-      [appointmentId, req.user.id]
-    )
-    if (queueRows.length > 0) {
-      queueId = queueRows[0].id
-      await conn.query("UPDATE queue SET status = 'done' WHERE id = ?", [queueId])
+    if (queueId) {
+      await conn.query(
+        "UPDATE queue SET status='done', completed_at=COALESCE(completed_at, NOW()) WHERE id = ?",
+        [queueId]
+      )
+      await writeAuditLog({
+        userId: req.user.id,
+        userRole: 'doctor',
+        action: 'queue.done',
+        entityType: 'queue',
+        entityId: queueId,
+        oldValues: { status: 'in_consultation' },
+        newValues: { status: 'done', appointment_id: Number(appointmentId) },
+        ipAddress: req.ip || null,
+      }, conn)
     }
 
     await conn.commit()
@@ -1080,27 +1168,27 @@ const getMyScheduleAll = async (req, res) => {
 }
 
 const saveMyScheduleDay = async (req, res) => {
-  const { day_of_week, start_time, end_time, slot_duration_mins, is_active } = req.body
-  if (!day_of_week || !start_time || !end_time)
-    return res.status(400).json({ message: 'day_of_week, start_time, and end_time are required.' })
-
-  const doctorId = req.user.id
-  const [existing] = await db.query(
-    'SELECT id FROM doctor_schedules WHERE doctor_id = ? AND day_of_week = ?', [doctorId, day_of_week]
-  )
-  if (existing.length > 0) {
-    await db.query(
-      'UPDATE doctor_schedules SET start_time=?, end_time=?, slot_duration_mins=?, is_active=? WHERE doctor_id=? AND day_of_week=?',
-      [start_time, end_time, slot_duration_mins||60, is_active??1, doctorId, day_of_week]
-    )
-  } else {
-    await db.query(
-      'INSERT INTO doctor_schedules (doctor_id, day_of_week, start_time, end_time, slot_duration_mins, is_active) VALUES (?,?,?,?,?,?)',
-      [doctorId, day_of_week, start_time, end_time, slot_duration_mins||60, is_active??1]
-    )
+  try {
+    const result = await saveDoctorScheduleDay({
+      doctorId: req.user.id,
+      body: req.body,
+      actorRole: 'doctor',
+      actorId: req.user.id,
+      ipAddress: req.ip,
+    })
+    res.json(result)
+  } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({
+        message: error.message,
+        code: error.code || null,
+        conflict_count: error.conflict_count || 0,
+        conflicts: error.conflicts || [],
+        doctor_name: error.doctor_name || null,
+      })
+    }
+    throw error
   }
-  await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'schedule.updated', entityType: 'doctor_schedule', entityId: `${req.user.id}:${day_of_week}`, newValues: { day_of_week, start_time, end_time, slot_duration_mins: slot_duration_mins || 60, is_active: is_active ?? 1 }, ipAddress: req.ip || null }).catch(() => {})
-  res.json({ message: 'Schedule saved.' })
 }
 
 const getMyUnavailableDates = async (req, res) => {
@@ -1168,3 +1256,4 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+

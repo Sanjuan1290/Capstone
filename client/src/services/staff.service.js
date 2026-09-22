@@ -5,15 +5,15 @@ const requestJson = async (url, options = {}) => {
   const res = await fetch(url, { credentials: 'include', ...options })
   const data = await res.json()
   if (!res.ok) {
-    const err = new Error(data.message || 'Request failed.')
+    const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
+    const err = new Error(`${data.message || 'Request failed.'}${reference}`)
     Object.assign(err, data)
     throw err
   }
   return data
 }
 
-export const getDashboard = () =>
-  fetch(`${BASE}/dashboard`, { credentials: 'include' }).then(r => r.json())
+export const getDashboard = () => requestJson(`${BASE}/dashboard`)
 
 // Alias — Staff_Dashboard.jsx imports this name
 export const getDashboardStats = getDashboard
@@ -22,7 +22,7 @@ export const getAppointments = (dateOrParams = '') => {
   const query = dateOrParams
     ? (String(dateOrParams).startsWith('?') ? dateOrParams : `?date=${dateOrParams}`)
     : ''
-  return fetch(`${BASE}/appointments${query}`, { credentials: 'include' }).then(r => r.json())
+  return requestJson(`${BASE}/appointments${query}`)
 }
 
 export const confirmAppointment = (id, payload = {}) =>
@@ -33,18 +33,16 @@ export const confirmAppointment = (id, payload = {}) =>
     body: JSON.stringify(payload),
   })
 
-export const cancelAppointment = (id) =>
-  fetch(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+export const cancelAppointment = (id) => requestJson(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH' })
 
-export const markAppointmentNoShow = (id) =>
-  fetch(`${BASE}/appointments/${id}/no-show`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+export const markAppointmentNoShow = (id) => requestJson(`${BASE}/appointments/${id}/no-show`, { method: 'PATCH' })
 
 export const rescheduleAppointment = (id, payload) =>
-  fetch(`${BASE}/appointments/${id}/reschedule`, {
-    method: 'PATCH', credentials: 'include',
+  requestJson(`${BASE}/appointments/${id}/reschedule`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
 export const createAppointment = (payload) =>
   requestJson(`${BASE}/appointments`, {
@@ -53,8 +51,16 @@ export const createAppointment = (payload) =>
     body: JSON.stringify(payload),
   })
 
-export const getQueue = (date) =>
-  fetch(`${BASE}/queue${date ? `?date=${date}` : ''}`, { credentials: 'include' }).then(r => r.json())
+
+export const getAppointmentReasons = (clinicType = '') => {
+  const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
+  return requestJson(`${BASE}/appointment-reasons${query}`)
+}
+
+export const getWalkInAvailableDoctors = (clinicType) =>
+  requestJson(`${BASE}/walk-in/doctors?clinic_type=${encodeURIComponent(clinicType || '')}`)
+
+export const getQueue = (date) => requestJson(`${BASE}/queue${date ? `?date=${date}` : ''}`)
 
 export const getQueuePrecheck = (patientId) => requestJson(`${BASE}/queue/precheck/${patientId}`)
 
@@ -66,14 +72,14 @@ export const addToQueue = (payload) =>
   })
 
 export const updateQueueStatus = (id, status) =>
-  fetch(`${BASE}/queue/${id}/status`, {
-    method: 'PATCH', credentials: 'include',
+  requestJson(`${BASE}/queue/${id}/status`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
-  }).then(r => r.json())
+  })
 
 export const getPatients = (search = '') =>
-  fetch(`${BASE}/patients?search=${encodeURIComponent(search)}`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/patients?search=${encodeURIComponent(search)}`)
 
 export const createWalkInPatient = (payload) =>
   requestJson(`${BASE}/patients/walk-in`, {
@@ -127,9 +133,6 @@ export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing
 export const requestBillingAdjustment = (id, payload) => requestJson(`${BASE}/billing/${id}/adjustment-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 export const cancelBillingAdjustmentRequest = (id, requestId) => requestJson(`${BASE}/billing/${id}/adjustment-requests/${requestId}/cancel`, { method: 'PATCH' })
 
-export const getCashierShiftStatus = () => requestJson(`${BASE}/billing/cashier-shift`)
-export const closeCashierShift = (payload) => requestJson(`${BASE}/billing/cashier-close`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-
 export const confirmBillPayment = (id, payload) =>
   requestJson(`${BASE}/billing/${id}/confirm-payment`, {
     method: 'POST',
@@ -182,10 +185,17 @@ export const deleteInventoryItem = (id) =>
   }).then(r => r.json())
 
 export const getDoctors = () =>
-  fetch(`${BASE}/doctors`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/doctors`)
 
 export const getDoctorSchedules = (doctorId) =>
-  fetch(`${BASE}/doctors/${doctorId}/schedules`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/doctors/${doctorId}/schedules`)
+
+export const getDoctorAvailability = (doctorId, { startDate = '', days = 14 } = {}) => {
+  const search = new URLSearchParams()
+  if (startDate) search.set('start_date', startDate)
+  search.set('days', String(days))
+  return requestJson(`${BASE}/doctors/${doctorId}/availability?${search.toString()}`)
+}
 
 export const getDoctorUnavailableDates = (doctorId, params = {}) => {
   const search = new URLSearchParams()
@@ -209,3 +219,4 @@ export const createInventoryLocation = (payload) => requestJson(`${BASE}/invento
 export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
+

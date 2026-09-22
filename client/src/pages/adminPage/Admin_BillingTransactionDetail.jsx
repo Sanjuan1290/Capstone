@@ -24,7 +24,6 @@ const Admin_BillingTransactionDetail = () => {
   const [reason, setReason] = useState('')
   const [refundAmount, setRefundAmount] = useState('')
   const [busy, setBusy] = useState(false)
-  const [shiftLocked, setShiftLocked] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -60,10 +59,9 @@ const Admin_BillingTransactionDetail = () => {
         ? await voidBillingPayment(paymentAction.payment.id, reason.trim())
         : await refundBillingPayment(paymentAction.payment.id, { reason: reason.trim(), amount: Number(refundAmount) })
       setBill(updated)
-      setShiftLocked(false)
       toast.success(paymentAction.action === 'void' ? 'Payment voided.' : 'Refund recorded.')
       setPaymentAction(null); setReason(''); setRefundAmount('')
-    } catch (err) { if (err.code === 'CASHIER_SHIFT_CLOSED' || /cashier shift.*closed/i.test(err.message || '')) setShiftLocked(true); toast.error(err.message || 'Payment action failed.') }
+    } catch (err) { toast.error(err.message || 'Payment action failed.') }
     finally { setBusy(false) }
   }
 
@@ -77,7 +75,6 @@ const Admin_BillingTransactionDetail = () => {
         <button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>
       </div>
       <AdminBillingNav pendingApprovals={pendingApprovals} />
-      {shiftLocked && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><div><strong>Cashier Shift Closed</strong><p className="mt-1">This payment belongs to a closed cashier shift. Reopen that shift before making a refund or void correction.</p></div><Link to="/admin/billing/reconciliation" className="button-secondary">Open Reconciliation</Link></div>}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.65fr)]">
         <div className="space-y-5">

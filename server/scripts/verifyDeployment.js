@@ -6,7 +6,7 @@ const REQUIRED_TABLES = [
   'admins', 'staff', 'doctors', 'patients', 'appointments', 'queue', 'consultations',
   'consultation_amendments', 'account_security_codes', 'patient_phone_verifications',
   'password_resets', 'consultation_images', 'billing_service_catalog', 'billing_records', 'billing_items', 'billing_payments',
-  'billing_adjustment_requests', 'cashier_closings', 'inventory', 'inventory_batches',
+  'billing_adjustment_requests', 'inventory', 'inventory_batches',
   'inventory_locations', 'inventory_location_batches', 'inventory_location_stock',
   'supply_requests', 'audit_logs', 'audit_log_archives', 'notifications', 'landing_page_content', 'clinic_payment_settings',
   'doctor_schedules', 'inventory_location_types', 'billing_service_categories',
@@ -26,10 +26,14 @@ const REQUIRED_COLUMNS = {
   supply_requests: ['destination_location_id'],
   password_resets: ['attempt_count', 'last_sent_at', 'verified_at'],
   patient_phone_verifications: ['attempt_count', 'last_sent_at'],
-  billing_payments: ['idempotency_key'],
-  cashier_closings: ['is_locked'],
+  billing_service_materials: ['bundled_in_service_price', 'cost_snapshot'],
+  billing_items: ['unit_cost_snapshot', 'cost_total_snapshot'],
+  inventory_batches: ['unit_cost'],
+  billing_records: ['finalized_by_admin_id', 'confirmed_by_admin_id'],
+  billing_payments: ['idempotency_key', 'received_by_admin_id'],
   audit_logs: ['archive_id', 'archived_at'],
   billing_service_catalog: ['category_id'],
+  inventory_suppliers: ['contact_person', 'contact_number', 'address'],
 }
 
 const run = async () => {
@@ -102,6 +106,19 @@ const run = async () => {
     )
     if (Number(badDoctorClinicTypes?.count || 0) > 0) {
       throw new Error('One or more doctors do not have a valid Clinic Assignment.')
+    }
+
+    const [[inventoryAllocationMismatch]] = await db.query(`
+      SELECT COUNT(*) AS count FROM (
+        SELECT b.id
+        FROM inventory_batches b
+        LEFT JOIN inventory_location_batches ilb ON ilb.batch_id = b.id
+        GROUP BY b.id, b.quantity
+        HAVING ABS(COALESCE(SUM(ilb.quantity),0) - b.quantity) > 0.0001
+      ) mismatches
+    `)
+    if (Number(inventoryAllocationMismatch?.count || 0) > 0) {
+      throw new Error(`${Number(inventoryAllocationMismatch.count)} inventory batch(es) have location balances that do not match their batch total. Run \`npm run migrate\` and verify inventory allocations before deployment.`)
     }
 
     const [[activeServices]] = await db.query('SELECT COUNT(*) AS count FROM billing_service_catalog WHERE is_active = 1')

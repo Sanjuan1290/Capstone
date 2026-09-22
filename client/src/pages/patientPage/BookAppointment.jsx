@@ -16,6 +16,7 @@ import {
   buildSlotsForScheduleDate,
   buildUnavailableDateSet,
   isDoctorAvailableOnDate,
+  scheduleSummary,
 } from '../../utils/schedule'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ const StepService = ({ value, onChange, services, loading, error, onRetry }) => 
     </div>
     {loading && <div className="py-10 text-center text-sm text-slate-400">Loading clinic services…</div>}
     {!loading && error && <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-center text-sm text-red-600">We couldn't load services.<button onClick={onRetry} className="ml-2 font-bold">Try again</button></div>}
-    {!loading && !error && services.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-700">No online-bookable services are configured for this clinic.</p><p className="mt-1 text-xs text-slate-400">Please contact the clinic or choose another clinic type.</p></div>}
+    {!loading && !error && services.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-700">No services are currently available for online booking in this clinic.</p><p className="mt-1 text-xs text-slate-400">Please contact the clinic for assistance or choose another clinic type.</p></div>}
     {!loading && !error && services.map((service) => (
       <button key={service.id} onClick={() => onChange(service)} className={`w-full rounded-2xl border-2 p-4 text-left transition-all ${Number(value?.id)===Number(service.id) ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
         <div className="flex items-start justify-between gap-4">
@@ -114,7 +115,6 @@ const StepService = ({ value, onChange, services, loading, error, onRetry }) => 
 )
 
 // ── Step 3: Doctor ────────────────────────────────────────────────────────────
-const fmtScheduleTime=(t)=>{if(!t)return'';const [h,m]=String(t).split(':').map(Number);return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`}
 const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, doctorError, onRetry }) => {
   const list = doctorList[clinicType] || []
   const ct = CLINIC_TYPES.find(c => c.id === clinicType)
@@ -138,7 +138,7 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, d
           <div className="flex-1 min-w-0">
             <p className="font-bold text-sm text-slate-800 truncate">{doc.full_name||doc.name}</p>
             <p className="text-xs text-slate-500 mt-0.5">{doc.specialty||ct?.label}</p>
-            {(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).length>0 ? <p className="mt-1 text-[11px] text-emerald-600">{(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).slice(0,3).map(s=>s.day_of_week.slice(0,3)).join(', ')} · {fmtScheduleTime((doc.weekly_schedule||[]).find(s=>Number(s.is_active)!==0)?.start_time)}–{fmtScheduleTime((doc.weekly_schedule||[]).find(s=>Number(s.is_active)!==0)?.end_time)}</p> : <p className="mt-1 text-[11px] font-semibold text-amber-600">No online schedule configured</p>}
+            {(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).length>0 ? <p className="mt-1 text-[11px] text-emerald-600">{(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).slice(0,3).map(s=>s.day_of_week.slice(0,3)).join(', ')} · {scheduleSummary((doc.weekly_schedule||[]).find(s=>Number(s.is_active)!==0))}</p> : <p className="mt-1 text-[11px] font-semibold text-amber-600">No online schedule configured</p>}
             {doc.next_available && <p className="mt-1 text-[11px] font-bold text-emerald-700">Next available: {doc.next_available.date} · {doc.next_available.time}</p>}
           </div>
           <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
@@ -646,3 +646,4 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+

@@ -1,11 +1,10 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { MdDashboard, MdReceiptLong, MdApproval, MdAccountBalanceWallet, MdSettings } from 'react-icons/md'
+import { MdDashboard, MdReceiptLong, MdApproval, MdSettings } from 'react-icons/md'
 
 const ITEMS = [
   { label: 'Overview', path: '/admin/billing', icon: MdDashboard, exact: true },
   { label: 'Transactions', path: '/admin/billing/transactions', icon: MdReceiptLong },
   { label: 'Adjustments', path: '/admin/billing/adjustments', icon: MdApproval },
-  { label: 'Reconciliation', path: '/admin/billing/reconciliation', icon: MdAccountBalanceWallet },
   { label: 'Setup', path: '/admin/billing/setup/services', icon: MdSettings, setup: true },
 ]
 

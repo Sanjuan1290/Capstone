@@ -34,6 +34,7 @@ router.patch('/appointments/:id/confirm',    ...auth, staffCtrl.confirmAppointme
 router.patch('/appointments/:id/cancel',     ...auth, staffCtrl.cancelAppointment)
 router.patch('/appointments/:id/no-show',    ...auth, staffCtrl.markAppointmentNoShow)
 router.patch('/appointments/:id/reschedule', ...auth, staffCtrl.rescheduleAppointment)
+router.get('/appointment-reasons',              ...auth, staffCtrl.getAppointmentReasons)
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
 router.get('/queue',              ...auth, staffCtrl.getQueue)
@@ -51,8 +52,6 @@ router.get('/billing/discount-presets', ...auth, staffCtrl.getDiscountPresets)
 router.get('/billing/:id/adjustment-requests', ...auth, staffCtrl.getBillingAdjustmentRequests)
 router.post('/billing/:id/adjustment-requests', ...auth, staffCtrl.requestBillingAdjustment)
 router.patch('/billing/:id/adjustment-requests/:requestId/cancel', ...auth, staffCtrl.cancelBillingAdjustmentRequest)
-router.get('/billing/cashier-shift', ...auth, staffCtrl.getCashierShiftStatus)
-router.post('/billing/cashier-close', ...auth, staffCtrl.closeCashierShift)
 router.get('/billing/:id', ...auth, staffCtrl.getBillById)
 router.put('/billing/:id', ...auth, staffCtrl.updateBill)
 router.get('/billing/:id/finalize-preview', ...auth, staffCtrl.getFinalizePreview)
@@ -75,7 +74,9 @@ router.delete('/inventory/:id',       ...auth, staffCtrl.deleteInventoryItem)
 
 // ── Doctors list ──────────────────────────────────────────────────────────────
 router.get('/doctors', ...auth, staffCtrl.getDoctors)
+router.get('/walk-in/doctors', ...auth, staffCtrl.getWalkInDoctors)
 router.get('/doctors/:id/schedules', ...auth, staffCtrl.getDoctorSchedules)
+router.get('/doctors/:id/availability', ...auth, staffCtrl.getDoctorAvailabilityForStaff)
 router.get('/doctors/:id/unavailable-dates', ...auth, staffCtrl.getDoctorUnavailableDatesForStaff)
 
 // ── Supply Requests ───────────────────────────────────────────────────────────
