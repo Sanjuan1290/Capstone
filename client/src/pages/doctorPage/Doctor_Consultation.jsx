@@ -14,6 +14,7 @@ import {
   addConsultationAmendment,
 } from '../../services/doctor.service'
 import { getClinicSettings } from '../../services/clinic.service'
+import { printConsultationRecord } from '../../utils/consultationPrint'
 import {
   MdAccessTime,
   MdAdd,
@@ -51,6 +52,7 @@ function formatDate(raw) {
 
 const FREQUENCIES = ['Once daily', 'Twice daily', 'Three times daily', 'Every 8 hours', 'Every 12 hours', 'As needed (PRN)']
 const DURATIONS = ['3 days', '5 days', '7 days', '2 weeks', '1 month', '3 months', 'Ongoing']
+const isCustomOption = (value, options) => Boolean(value) && !options.includes(value)
 
 const getMedicineUnit = (medicineName, inventoryItems = []) => (
   inventoryItems.find(
@@ -76,31 +78,6 @@ const normalizeProgressImages = (images = []) => (
       security_token: String(image?.security_token || '').trim(),
     })).filter((image) => image.image_url || image.caption)
     : []
-)
-
-const PrintPrescription = ({ patient, diagnosis, prescriptions, doctorName, specialty, prcLicense, date, clinic }) => (
-  <div id="print-area" className="hidden print:block font-sans p-8 max-w-lg mx-auto">
-    <div className="text-center border-b-2 border-slate-800 pb-4 mb-4">
-      <h1 className="text-xl font-bold text-slate-800 uppercase tracking-wide">{clinic?.clinic_name || 'CARAIT MEDICAL AND DERMATOLOGY CLINIC'}</h1>
-      {clinic?.address && <p className="text-sm text-slate-600 mt-1">{clinic.address}</p>}
-      {(clinic?.phone || clinic?.email) && <p className="text-xs text-slate-500 mt-1">{[clinic?.phone, clinic?.email].filter(Boolean).join(' • ')}</p>}
-      <div className="mt-3">
-        <p className="text-base font-bold text-slate-800">{doctorName}</p>
-        <p className="text-sm text-slate-600">{specialty}{prcLicense ? ` • PRC Lic. No. ${prcLicense}` : ''}</p>
-      </div>
-    </div>
-    <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
-      <div><span className="text-slate-500">Name:</span> <strong>{patient?.name}</strong></div>
-      <div><span className="text-slate-500">Age/Sex:</span> <strong>{patient?.age} / {patient?.sex}</strong></div>
-      <div><span className="text-slate-500">Date:</span> <strong>{date}</strong></div>
-    </div>
-    {diagnosis && <div className="mb-4 p-3 border border-slate-300 rounded"><p className="text-xs font-bold text-slate-500 uppercase mb-1">Diagnosis</p><p className="text-sm text-slate-800">{diagnosis}</p></div>}
-    <div className="mb-6">
-      <p className="text-2xl font-serif text-slate-800 mb-3">Rx</p>
-      {prescriptions.filter((rx) => rx.medicine?.trim()).map((rx, i) => <div key={i} className="mb-3 pl-4 border-l-2 border-slate-400"><p className="text-sm font-bold text-slate-800">{i + 1}. {rx.medicine}</p>{rx.dosage && <p className="text-sm text-slate-600 ml-2">Dosage: {rx.dosage}</p>}{rx.frequency && <p className="text-sm text-slate-600 ml-2">Sig: {rx.frequency}</p>}{rx.duration && <p className="text-sm text-slate-600 ml-2">Duration: {rx.duration}</p>}{rx.notes && <p className="text-sm text-slate-500 ml-2 italic">{rx.notes}</p>}</div>)}
-    </div>
-    <div className="mt-12 pt-4 border-t border-slate-300"><div className="w-40 border-b border-slate-800 mb-1" /><p className="text-xs text-slate-600">Doctor&apos;s Signature</p></div>
-  </div>
 )
 
 const ProgressImageGallery = ({ images = [], emptyText = 'No progress images added yet.' }) => {
@@ -348,10 +325,20 @@ const Doctor_Consultation = () => {
     }
   }
 
+  const handleUploadProgressImages = async (fileList) => {
+    const files = Array.from(fileList || [])
+    if (!files.length) return
+    const start = progressImages.length
+    setProgressImages((prev) => [...prev, ...files.map(() => createBlankProgressImage())])
+    for (let offset = 0; offset < files.length; offset += 1) {
+      await handleUploadProgressImage(start + offset, files[offset])
+    }
+  }
+
   const handleUploadProgressImage = async (index, file) => {
     if (!file) return
-    if (!String(file.type || '').startsWith('image/')) {
-      setClinicalUploadStatus(index, { tone: 'danger', message: 'Select a valid image file.' })
+    if (!['image/png','image/jpeg'].includes(String(file.type || '').toLowerCase())) {
+      setClinicalUploadStatus(index, { tone: 'danger', message: 'Select a PNG or JPG image.' })
       return
     }
     if (Number(file.size || 0) > 10 * 1024 * 1024) {
@@ -482,6 +469,20 @@ const Doctor_Consultation = () => {
     }
   }
 
+  const validateClinicalInventory = () => {
+    const totals = new Map()
+    for (const service of billableServices) for (const material of (service.materials || [])) {
+      const id = Number(material.inventory_id || 0); if (!id) continue
+      totals.set(id, (totals.get(id) || 0) + Math.max(0, Number(material.quantity || 0)))
+    }
+    for (const [id, qty] of totals) {
+      const item = inventoryItems.find((inv) => Number(inv.id) === id)
+      const available = Number(item?.stock || 0)
+      if (qty > available + 0.0001) return `${item?.name || 'Inventory item'} requires ${qty}, but only ${available} is available.`
+    }
+    return ''
+  }
+
   const buildPayload = () => ({
     diagnosis,
     notes,
@@ -514,6 +515,8 @@ const Doctor_Consultation = () => {
 
   const handleFinalize = async () => {
     if (!appt || consultationStatus === 'finalized') return
+    const stockError = validateClinicalInventory()
+    if (stockError) { alert(stockError); return }
     if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct recorded medicines and consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
     setSaving(true)
     try {
@@ -581,16 +584,6 @@ const Doctor_Consultation = () => {
 
   return (
     <>
-      <PrintPrescription
-        patient={currentPatient}
-        diagnosis={diagnosis}
-        prescriptions={prescriptions}
-        doctorName={user?.full_name}
-        specialty={user?.specialty}
-        prcLicense={user?.prc_license}
-        clinic={clinicSettings}
-        date={date}
-      />
 
       <div className="mx-auto w-full max-w-6xl space-y-5">
         <div className="flex items-center gap-3">
@@ -619,7 +612,7 @@ const Doctor_Consultation = () => {
             <MdEdit className="text-[14px]" /> Edit / Amend Record
           </button>}
           <button
-            onClick={() => window.print()}
+            onClick={() => printConsultationRecord({ patient: currentPatient, diagnosis, notes, prescriptions, doctorName: user?.full_name || user?.name || 'Doctor', specialty: user?.specialty || '', prcLicense: user?.prc_license || '', date: formatDate(appt?.appointment_date || new Date().toISOString()), clinic: clinicSettings, services: billableServices })}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
           >
             <MdPrint className="text-[14px]" /> Print
@@ -731,12 +724,13 @@ const Doctor_Consultation = () => {
                 <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                   <MdImage className="text-violet-500 text-[16px]" /> Progress Images
                 </h2>
-                <button
-                  onClick={addProgressImage}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-600 bg-violet-50 border border-violet-200 hover:bg-violet-100 rounded-xl transition-colors"
-                >
-                  <MdAdd className="text-[14px]" /> Add Image
-                </button>
+                <div className="flex items-center gap-2">
+                  <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-600 hover:bg-violet-100">
+                    <MdUpload className="text-[14px]" /> Add Images
+                    <input type="file" multiple accept="image/png,image/jpeg,.png,.jpg,.jpeg" className="hidden" disabled={uploadingIndex !== null} onChange={(e) => { const files = e.target.files; e.target.value = ''; handleUploadProgressImages(files) }} />
+                  </label>
+                  <button onClick={addProgressImage} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-50"><MdAdd className="inline text-[14px]" /> Blank</button>
+                </div>
               </div>
 
               <p className="text-xs text-slate-500 mb-4">
@@ -800,7 +794,7 @@ const Doctor_Consultation = () => {
                               {uploadingIndex === index ? 'Uploading & scanning...' : image.image_url ? 'Replace Image' : 'Choose File'}
                               <input
                                 type="file"
-                                accept="image/*"
+                                accept="image/png,image/jpeg,.png,.jpg,.jpeg"
                                 className="hidden"
                                 disabled={uploadingIndex !== null}
                                 onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; handleUploadProgressImage(index, file) }}
@@ -846,7 +840,7 @@ const Doctor_Consultation = () => {
                 const selected = billableServices.find((entry) => Number(entry.catalog_service_id) === Number(service.id))
                 return <div key={service.id} className={`rounded-2xl border p-4 ${selected ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-white'}`}>
                   <label className="flex cursor-pointer items-start gap-3"><input type="checkbox" disabled={isEditMode} checked={Boolean(selected)} onChange={() => toggleService(service)} className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold text-slate-800">{service.service_name}</p><p className="text-xs text-slate-500">{service.category || 'Clinic service'}</p></div></div></div></label>
-                  {selected && selected.materials?.length > 0 && <div className="mt-4 border-t border-violet-100 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Actual Material Usage</p><div className="grid gap-2 sm:grid-cols-2">{selected.materials.map((material, index) => <label key={`${material.inventory_id || material.material_name}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3"><span className="text-xs font-semibold text-slate-700">{material.material_name}</span><div className="mt-2 flex items-center gap-2"><input type="number" min="0" step="0.01" disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(service.id, index, e.target.value)} className="form-control h-9" /><span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || 'unit'}</span></div></label>)}</div></div>}
+                  {selected && selected.materials?.length > 0 && <div className="mt-4 border-t border-violet-100 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Actual Material Usage</p><div className="grid gap-2 sm:grid-cols-2">{selected.materials.map((material, index) => <label key={`${material.inventory_id || material.material_name}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3"><span className="text-xs font-semibold text-slate-700">{material.material_name}</span><div className="mt-2 flex items-center gap-2"><input type="number" min="0" max={Number(inventoryItems.find((inv) => Number(inv.id) === Number(material.inventory_id))?.stock || 0)} step="0.01" disabled={isEditMode} value={material.quantity} onChange={(e) => { const stock = Number(inventoryItems.find((inv) => Number(inv.id) === Number(material.inventory_id))?.stock || 0); updateServiceMaterial(service.id, index, Math.min(stock, Math.max(0, Number(e.target.value) || 0))) }} className="form-control h-9" /><span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || 'unit'}</span></div><span className="mt-1 block text-[10px] text-slate-400">Available: {Number(inventoryItems.find((inv) => Number(inv.id) === Number(material.inventory_id))?.stock || 0)} {material.unit_label || 'unit'}</span></label>)}</div></div>}
                 </div>
               })}</div>}
             </div>
@@ -927,7 +921,7 @@ const Doctor_Consultation = () => {
                             value={/^\d*\.?\d*$/.test(String(rx.dosage || '')) ? rx.dosage : ''}
                             onChange={(e) => updateRx(index, 'dosage', e.target.value)}
                             placeholder="0"
-                            className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
+                            className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
                           {getMedicineUnit(rx.medicine, inventoryItems) && (
                             <span className="shrink-0 text-xs font-medium text-slate-500">
@@ -943,25 +937,17 @@ const Doctor_Consultation = () => {
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Frequency</label>
-                        <select
-                          value={rx.frequency}
-                          onChange={(e) => updateRx(index, 'frequency', e.target.value)}
-                          className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
-                        >
-                          <option value="">Select...</option>
-                          {FREQUENCIES.map((frequency) => <option key={frequency}>{frequency}</option>)}
+                        <select value={isCustomOption(rx.frequency, FREQUENCIES) ? '__custom__' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value === '__custom__' ? 'Custom' : e.target.value)} className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400">
+                          <option value="">Select...</option>{FREQUENCIES.map((frequency) => <option key={frequency}>{frequency}</option>)}<option value="__custom__">Custom…</option>
                         </select>
+                        {isCustomOption(rx.frequency, FREQUENCIES) && <input type="text" value={rx.frequency === 'Custom' ? '' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value || 'Custom')} placeholder="e.g. Every 6 hours" className="mt-2 w-full text-sm p-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:border-violet-400" />}
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Duration</label>
-                        <select
-                          value={rx.duration}
-                          onChange={(e) => updateRx(index, 'duration', e.target.value)}
-                          className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
-                        >
-                          <option value="">Select...</option>
-                          {DURATIONS.map((duration) => <option key={duration}>{duration}</option>)}
+                        <select value={isCustomOption(rx.duration, DURATIONS) ? '__custom__' : rx.duration} onChange={(e) => updateRx(index, 'duration', e.target.value === '__custom__' ? 'Custom' : e.target.value)} className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400">
+                          <option value="">Select...</option>{DURATIONS.map((duration) => <option key={duration}>{duration}</option>)}<option value="__custom__">Custom…</option>
                         </select>
+                        {isCustomOption(rx.duration, DURATIONS) && <input type="text" value={rx.duration === 'Custom' ? '' : rx.duration} onChange={(e) => updateRx(index, 'duration', e.target.value || 'Custom')} placeholder="e.g. 10 days" className="mt-2 w-full text-sm p-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:border-violet-400" />}
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Notes</label>
@@ -1148,8 +1134,6 @@ const Doctor_Consultation = () => {
           </div>
         </div>
       </Modal>
-
-      <style>{'@media print { body * { visibility: hidden; } #print-area, #print-area * { visibility: visible; } #print-area { position: absolute; left: 0; top: 0; width: 100%; } }'}</style>
     </>
   )
 }

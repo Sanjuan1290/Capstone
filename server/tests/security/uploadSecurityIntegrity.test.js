@@ -24,7 +24,7 @@ describe('upload security integrity', () => {
       doctorId: 7,
       images: [{ image_url: 'https://res.cloudinary.com/test/image/upload/new.png', security_scan_status: 'approved' }],
       executor,
-    })).rejects.toMatchObject({ code: 'UPLOAD_SECURITY_TOKEN_REQUIRED' })
+    })).rejects.toMatchObject({ code: 'CLINICAL_IMAGE_TOKEN_INVALID' })
   })
 
   it('accepts a new clinical image only with server-signed accepted upload proof', async () => {

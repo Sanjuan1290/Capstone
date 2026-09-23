@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  MdAdd, MdArrowBack, MdCheck, MdDeleteOutline, MdInfoOutline,
+  MdAdd, MdArrowBack, MdCheck, MdDeleteOutline,
   MdLocalPharmacy, MdLock, MdPayments, MdPrint, MdRefresh, MdWarning,
 } from 'react-icons/md'
 import {
@@ -37,11 +37,6 @@ const makeBlankItem = (itemType = 'custom') => ({
   base_amount: 0,
   markup_percentage: 0,
   unit_price: 0,
-  price_overridden: false,
-  original_price: 0,
-  override_reason: '',
-  requested_override_price: '',
-  override_request_reason: '',
   notes: '',
   details: null,
 })
@@ -67,17 +62,12 @@ const normalizeBill = (bill) => ({
     base_amount: Number(item.base_amount || 0),
     markup_percentage: Number(item.markup_percentage || 0),
     unit_price: Number(item.unit_price || 0),
-    price_overridden: Boolean(item?.details?.pricing?.price_overridden),
-    original_price: Number(item?.details?.pricing?.original_price ?? item.unit_price ?? 0),
-    override_reason: item?.details?.pricing?.override_reason || '',
-    requested_override_price: '',
-    override_request_reason: '',
-    notes: item.notes || '',
+        notes: item.notes || '',
     details: item.details || null,
   })) : [],
 })
 
-const serializeItems = (items = []) => items.map((item, index) => ({
+const serializeItems = (items = []) => items.filter((item) => item.source_type !== 'consultation').map((item, index) => ({
   id: item.id || null,
   item_type: item.item_type,
   source_type: item.source_type,
@@ -90,8 +80,6 @@ const serializeItems = (items = []) => items.map((item, index) => ({
   base_amount: Number(item.base_amount || 0),
   markup_percentage: Number(item.markup_percentage || 0),
   unit_price: Number(item.unit_price || 0),
-  price_overridden: Boolean(item.price_overridden),
-  override_reason: item.override_reason || '',
   notes: item.notes || '',
   sort_order: index,
   details: item.details || null,
@@ -290,7 +278,6 @@ const Admin_CheckoutDetail = () => {
         service_name: item.name || '',
         category: item.category || 'Medicine / Supply',
         unit_price: Number(item.selling_price || 0),
-        original_price: Number(item.selling_price || 0),
         details: { ...(row.details || {}), unit: item.base_unit || item.unit || '' },
       } : row),
     }))
@@ -319,19 +306,34 @@ const Admin_CheckoutDetail = () => {
     })
   }
 
+  const validateReviewCharges = (workingDraft = draft) => {
+    if (!workingDraft) return 'Bill is not ready.'
+    const invalidName = workingDraft.items.find((item) => item.source_type !== 'consultation' && !String(item.service_name || '').trim())
+    if (invalidName) return 'Enter a description for every added charge.'
+    const invalidQuantity = workingDraft.items.find((item) => item.source_type !== 'consultation' && !(Number(item.quantity) > 0))
+    if (invalidQuantity) return 'Every added charge must have a quantity greater than zero.'
+    const invalidCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !String(item.notes || '').trim())
+    if (invalidCustom) return 'Every custom charge needs a reason or note before continuing.'
+    const invalidSupply = workingDraft.items.find((item) => item.item_type === 'supply' && !item.source_inventory_id)
+    if (invalidSupply) return 'Select an inventory item for every Medicine / Supply charge.'
+    const totals = new Map()
+    for (const item of workingDraft.items.filter((row) => row.item_type === 'supply' && row.source_inventory_id)) {
+      const id = Number(item.source_inventory_id)
+      totals.set(id, (totals.get(id) || 0) + Math.max(0, Number(item.quantity || 0)))
+    }
+    for (const [id, qty] of totals) {
+      const inv = inventoryMap.get(id)
+      const available = Number(inv?.stock || 0)
+      if (qty > available + 0.0001) return `${inv?.name || 'Inventory item'} requires ${qty}, but only ${available} is available.`
+    }
+    return ''
+  }
+
   const saveDraft = async ({ quiet = false, draftOverride = null } = {}) => {
     const workingDraft = draftOverride || draft
     if (!workingDraft || !isDraft) return bill
-    const invalidCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !String(item.notes || '').trim())
-    if (invalidCustom) {
-      toast.error('Every custom charge needs a reason or note before saving.')
-      return null
-    }
-    const invalidSupply = workingDraft.items.find((item) => item.item_type === 'supply' && !item.source_inventory_id)
-    if (invalidSupply) {
-      toast.error('Select an inventory item for every Medicine / Supply charge.')
-      return null
-    }
+    const validationError = validateReviewCharges(workingDraft)
+    if (validationError) { toast.error(validationError); return null }
     setSaving(true)
     try {
       const updated = await updateBill(billingId, {
@@ -369,19 +371,11 @@ const Admin_CheckoutDetail = () => {
     toast.info('Existing Staff adjustment requests are managed from Billing → Adjustment Requests.')
   }
 
-  const requestPriceOverride = async (item, index) => {
-    const requestedPrice = Number(item.requested_override_price)
-    const reason = String(item.override_request_reason || '').trim()
-    if (!Number.isFinite(requestedPrice) || requestedPrice < 0) return toast.error('Enter a valid override price.')
-    if (!reason) return toast.error('Enter a reason for the administrator override.')
-    setDraft((current) => ({ ...current, items: current.items.map((row,i) => i===index ? { ...row, unit_price: requestedPrice, price_overridden: true, override_reason: reason } : row) }))
-    setDirty(true)
-    toast.success('Direct administrator override staged. Save the draft to apply it.')
-  }
-
   const applyApprovedOverridesToDraft = () => draft
 
   const proceedToReview = () => {
+    const validationError = validateReviewCharges()
+    if (validationError) { toast.error(validationError); return }
     setDraft(applyApprovedOverridesToDraft())
     setStep(2)
   }
@@ -481,9 +475,9 @@ const Admin_CheckoutDetail = () => {
       <div className="mx-auto max-w-2xl py-8">
         <div className="rounded-3xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-3xl text-emerald-700"><MdCheck /></div>
-          <h1 className="mt-5 text-2xl font-black text-slate-900">Payment Recorded</h1>
+          <h1 className="mt-5 text-xl font-black text-slate-900">Payment Recorded</h1>
           <p className="mt-2 text-slate-500">{bill.patient_name}</p>
-          <p className="mt-5 text-4xl font-black text-slate-900">{formatMoney(lastPayment.amount)}</p>
+          <p className="mt-5 text-3xl font-black text-slate-900">{formatMoney(lastPayment.amount)}</p>
           <p className="mt-1 font-bold text-slate-500">{paymentMethodLabel(lastPayment.payment_method)}</p>
           <div className="mx-auto mt-5 max-w-sm rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
             <p><strong>Receipt:</strong> {lastPayment.receipt_number || '—'}</p>
@@ -505,7 +499,7 @@ const Admin_CheckoutDetail = () => {
         <div>
           <button className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-900" onClick={handleBack}><MdArrowBack /> Back to Checkout</button>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-black text-slate-900">{bill.patient_name}</h1>
+            <h1 className="text-xl font-black text-slate-900">{bill.patient_name}</h1>
             <BillingStatusBadge status={bill.status} audience="staff" />
             {dirty && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">● Unsaved changes</span>}
           </div>
@@ -520,8 +514,8 @@ const Admin_CheckoutDetail = () => {
       <Stepper active={step} complete={complete} />
 
       {isDraft && step === 1 && (
-        <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><h2 className="font-black text-slate-900">Review Charges</h2><p className="mt-1 text-sm text-slate-500">Doctor-recorded clinical services are locked. Staff can add medicines/supplies or a traceable custom charge.</p></div>
               <button className="button-secondary" onClick={() => setAddOpen(true)}><MdAdd /> Add Charge</button>
@@ -531,9 +525,6 @@ const Admin_CheckoutDetail = () => {
               {draft.items.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">No charges yet.</div>}
               {draft.items.map((item, index) => {
                 const protectedLine = item.source_type === 'consultation'
-                const pendingOverride = protectedLine ? latestAdjustment('price_override', (request) => Number(request.catalog_service_id) === Number(item.catalog_service_id), 'pending') : null
-                const approvedOverride = protectedLine ? latestAdjustment('price_override', (request) => Number(request.catalog_service_id) === Number(item.catalog_service_id), 'approved') : null
-                const rejectedOverride = protectedLine ? latestAdjustment('price_override', (request) => Number(request.catalog_service_id) === Number(item.catalog_service_id), 'rejected') : null
                 return (
                   <div key={item.id || `new-${index}`} className={`rounded-2xl border p-4 ${protectedLine ? 'border-sky-100 bg-sky-50/50' : 'border-slate-200'}`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -542,7 +533,7 @@ const Admin_CheckoutDetail = () => {
                           <p className="font-black text-slate-900">{item.service_name || (item.item_type === 'supply' ? 'Medicine / Supply' : 'Custom Charge')}</p>
                           {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> From Consultation</span>}
                         </div>
-                        {protectedLine && <p className="mt-1 text-xs text-slate-500">Recorded by the Doctor. Service and quantity cannot be changed at Checkout.</p>}
+                        {protectedLine && <p className="mt-1 text-xs text-slate-500">Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.</p>}
                       </div>
                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
                     </div>
@@ -556,28 +547,19 @@ const Admin_CheckoutDetail = () => {
                     ) : item.item_type === 'supply' ? (
                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_110px_140px]">
                         <label><span className="form-label">Medicine / Supply *</span><select className="form-control mt-1.5" value={item.source_inventory_id || ''} onChange={(e) => selectSupply(index, e.target.value)}><option value="">Select inventory item</option>{inventory.map((inv) => <option key={inv.id} value={inv.id} disabled={inv.selling_price === null || inv.selling_price === undefined}>{inv.name}{inv.selling_price === null || inv.selling_price === undefined ? ' — price not configured' : ` — ${formatMoney(inv.selling_price)}`}</option>)}</select></label>
-                        <label><span className="form-label">Qty</span><input type="number" min="0.01" step="0.01" className="form-control mt-1.5" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', e.target.value)} /></label>
+                        <label><span className="form-label">Qty</span><input type="number" min="0.01" max={Number(inventoryMap.get(Number(item.source_inventory_id))?.stock || 0)} step="0.01" className="form-control mt-1.5" value={item.quantity} onChange={(e) => { const inv = inventoryMap.get(Number(item.source_inventory_id)); const max = Number(inv?.stock || 0); updateItem(index, 'quantity', Math.min(max, Math.max(0, Number(e.target.value) || 0))) }} /><span className="mt-1 block text-[10px] text-slate-400">Available: {Number(inventoryMap.get(Number(item.source_inventory_id))?.stock || 0)} {inventoryMap.get(Number(item.source_inventory_id))?.uom || inventoryMap.get(Number(item.source_inventory_id))?.unit || 'unit(s)'}</span></label>
                         <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-black">{formatMoney(item.unit_price)}</div></div>
                       </div>
                     ) : (
                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_110px_140px]">
                         <label><span className="form-label">Description *</span><input className="form-control mt-1.5" value={item.service_name} onChange={(e) => updateItem(index, 'service_name', e.target.value)} placeholder="e.g. Medical Certificate" /></label>
-                        <label><span className="form-label">Qty</span><input type="number" min="0.01" step="0.01" className="form-control mt-1.5" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', e.target.value)} /></label>
+                        <label><span className="form-label">Qty</span><input type="number" min="0.01" max={Number(inventoryMap.get(Number(item.source_inventory_id))?.stock || 0)} step="0.01" className="form-control mt-1.5" value={item.quantity} onChange={(e) => { const inv = inventoryMap.get(Number(item.source_inventory_id)); const max = Number(inv?.stock || 0); updateItem(index, 'quantity', Math.min(max, Math.max(0, Number(e.target.value) || 0))) }} /><span className="mt-1 block text-[10px] text-slate-400">Available: {Number(inventoryMap.get(Number(item.source_inventory_id))?.stock || 0)} {inventoryMap.get(Number(item.source_inventory_id))?.uom || inventoryMap.get(Number(item.source_inventory_id))?.unit || 'unit(s)'}</span></label>
                         <label><span className="form-label">Amount *</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={item.unit_price} onChange={(e) => updateItem(index, 'unit_price', e.target.value)} /></label>
                         <label className="sm:col-span-3"><span className="form-label">Reason / Notes *</span><textarea rows={2} className="form-control mt-1.5 resize-none" value={item.notes} onChange={(e) => updateItem(index, 'notes', e.target.value)} placeholder="Required for the billing audit trail" /></label>
                       </div>
                     )}
 
-                    {protectedLine && (
-                      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                        <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-slate-500"><MdInfoOutline /> Price correction</div>
-                        {approvedOverride ? <div className="mt-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"><strong>Approved:</strong> {formatMoney(approvedOverride.requested_price)}. This price will be applied when you save the draft.</div>
-                          : item.price_overridden ? <div className={`mt-2 rounded-xl p-3 text-sm ${dirty ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`}><strong>{dirty ? 'Override changed:' : 'Administrator price applied:'}</strong> {formatMoney(item.unit_price)}. {dirty ? 'Because the bill changed, request this price again before saving.' : 'You may confirm this saved bill; a later edit will require new approval.'}</div>
-                          : pendingOverride ? <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"><span><strong>Waiting for Admin:</strong> {formatMoney(pendingOverride.requested_price)}</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(pendingOverride)}>Cancel Request</button></div>
-                            : <div className="mt-3 grid gap-2 sm:grid-cols-[140px_1fr_auto]"><input type="number" min="0" step="0.01" className="form-control" placeholder="Requested price" value={item.requested_override_price} onChange={(e) => setDraft((current) => ({ ...current, items: current.items.map((row, i) => i === index ? { ...row, requested_override_price: e.target.value } : row) }))} /><input className="form-control" placeholder="Reason for override" value={item.override_request_reason} onChange={(e) => setDraft((current) => ({ ...current, items: current.items.map((row, i) => i === index ? { ...row, override_request_reason: e.target.value } : row) }))} /><button className="button-secondary" disabled={adjusting} onClick={() => requestPriceOverride(item, index)}>Apply Override</button></div>}
-                        {rejectedOverride && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-800"><strong>Previous request rejected.</strong> {rejectedOverride.admin_note || 'No reason supplied.'}</div>}
-                      </div>
-                    )}
+
 
                     <div className="mt-4 flex justify-end border-t border-slate-100 pt-3 text-sm"><span className="mr-3 text-slate-500">Line Total</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>
                   </div>
@@ -587,7 +569,7 @@ const Admin_CheckoutDetail = () => {
           </section>
 
           <aside className="lg:sticky lg:top-24 lg:self-start">
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <h2 className="font-black text-slate-900">Charge Summary</h2>
               <div className="mt-4 space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Current Total</span><strong>{formatMoney(totals.total)}</strong></div></div>
               <button className="button-primary mt-5 w-full justify-center" disabled={draft.items.length === 0} onClick={proceedToReview}>Continue to Confirm Bill →</button>
@@ -598,8 +580,8 @@ const Admin_CheckoutDetail = () => {
       )}
 
       {isDraft && step === 2 && (
-        <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-black text-slate-900">Confirm Bill</h2>
             <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
             <label className="mt-5 block"><span className="form-label">Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
@@ -617,16 +599,16 @@ const Admin_CheckoutDetail = () => {
             <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Charges</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
             <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Draft'}</button></div>
           </section>
-          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges and may dispense directly added medicine/supply inventory.</p></div></aside>
+          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges and may dispense directly added medicine/supply inventory.</p></div></aside>
         </div>
       )}
 
       {isPayable && step === 3 && (
         <div className="space-y-4">
-          <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-black text-slate-900">Collect Payment</h2><p className="mt-1 text-sm text-slate-500">Only payment methods enabled by Admin are shown here.</p>
-            <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-center"><p className="text-xs font-black uppercase tracking-wide text-sky-700">Amount Due</p><p className="mt-2 text-4xl font-black text-sky-950">{formatMoney(bill.balance_amount)}</p></div>
+            <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-center"><p className="text-xs font-black uppercase tracking-wide text-sky-700">Amount Due</p><p className="mt-2 text-3xl font-black text-sky-950">{formatMoney(bill.balance_amount)}</p></div>
             <div className="mt-5"><p className="form-label">Payment Method</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{paymentMethods.map((method) => <button key={method.value} onClick={() => setDraft((current) => ({ ...current, payment_method: method.value, reference_number: '', amount_received: current.payment_amount || bill.balance_amount }))} className={`rounded-2xl border p-4 text-left font-black ${draft.payment_method === method.value ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 hover:bg-slate-50'}`}>{method.label}</button>)}</div>{paymentMethods.length === 0 && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">No payment methods are enabled. Ask an administrator to update Billing → Setup → Payment Methods.</div>}</div>
             {draft.payment_method && <div className="mt-5 space-y-4"><label><span className="form-label">Payment Amount</span><input type="number" min="0.01" max={bill.balance_amount} step="0.01" className="form-control mt-1.5" value={draft.payment_amount} onChange={(e) => setDraft((current) => ({ ...current, payment_amount: e.target.value, amount_received: current.payment_method === 'cash' ? e.target.value : current.amount_received }))} /></label>
               {draft.payment_method === 'cash' ? <label><span className="form-label">Cash Received</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={draft.amount_received} onChange={(e) => setDraft((current) => ({ ...current, amount_received: e.target.value }))} />{Number(draft.amount_received || 0) >= Number(draft.payment_amount || 0) && Number(draft.payment_amount || 0) > 0 && <span className="mt-2 block rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">Change: {formatMoney(Number(draft.amount_received || 0) - Number(draft.payment_amount || 0))}</span>}</label> : <>
@@ -637,7 +619,7 @@ const Admin_CheckoutDetail = () => {
               <label><span className="form-label">Payment Notes</span><textarea rows={2} className="form-control mt-1.5 resize-none" value={draft.payment_notes || ''} onChange={(e) => setDraft((current) => ({ ...current, payment_notes: e.target.value }))} /></label>
             </div>}
           </section>
-          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
+          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
           </div>
         </div>
       )}

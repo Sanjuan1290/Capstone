@@ -81,6 +81,52 @@ const logout = async (req, res) => {
   res.status(200).json({ message: 'Logged out.' })
 }
 
+const validateClinicalInventoryAvailability = async ({ billing, appointment }, conn) => {
+  if (!billing?.id || !Array.isArray(billing.items)) return []
+  const usage = collectInventoryUsageFromBillingItems(billing.items)
+  const preferredLocation = appointment?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
+  const checks = []
+  for (const entry of usage) {
+    const [[inventory]] = await conn.query(
+      'SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? LIMIT 1',
+      [entry.inventory_id]
+    )
+    if (!inventory) continue
+    const unitLabel = String(entry.unit_label || inventory.unit || '').toLowerCase()
+    const baseUnit = String(inventory.base_unit || inventory.unit || '').toLowerCase()
+    const packageUnit = String(inventory.unit || '').toLowerCase()
+    const unitSize = Math.max(1, Number(inventory.unit_size) || 1)
+    const requestedUsageQty = Number(entry.quantity || 0)
+    const requestedPackages = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
+      ? requestedUsageQty / unitSize
+      : requestedUsageQty
+    const [[stock]] = await conn.query(
+      `SELECT COALESCE(SUM(ilb.quantity),0) AS available_packages
+       FROM inventory_location_batches ilb
+       JOIN inventory_locations il ON il.id = ilb.location_id
+       JOIN inventory_batches ib ON ib.id = ilb.batch_id
+       WHERE ilb.inventory_id = ?
+         AND il.name IN (?, 'Main Stockroom')
+         AND ilb.quantity > 0 AND ib.quantity > 0
+         AND (ib.expiration_date IS NULL OR ib.expiration_date >= CURDATE())`,
+      [entry.inventory_id, preferredLocation]
+    )
+    const availablePackages = Number(stock?.available_packages || 0)
+    const availableUsageQty = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
+      ? availablePackages * unitSize
+      : availablePackages
+    const sufficient = availablePackages + 0.0001 >= requestedPackages
+    checks.push({ inventory_id: entry.inventory_id, name: inventory.name, requested: requestedUsageQty, available: availableUsageQty, unit: entry.unit_label || inventory.unit, sufficient })
+    if (!sufficient) {
+      throw Object.assign(
+        new Error(`${inventory.name} requires ${requestedUsageQty} ${entry.unit_label || inventory.unit || 'unit(s)'}, but only ${availableUsageQty} is currently available.`),
+        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, requested: requestedUsageQty, available: availableUsageQty }
+      )
+    }
+  }
+  return checks
+}
+
 const consumeClinicalInventory = async ({ billing, consultationId, doctorId, appointment }, conn) => {
   if (!billing?.id || billing.clinical_inventory_consumed_at || !Array.isArray(billing.items)) return
   const usage = collectInventoryUsageFromBillingItems(billing.items)
@@ -112,7 +158,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
       conn,
       { fallbackLocation: 'Main Stockroom' }
     )
-    if (!consumption.ok) throw new Error(`Not enough stock for ${inventory.name}. ${consumption.message}`)
+    if (!consumption.ok) throw Object.assign(new Error(`Not enough stock for ${inventory.name}. ${consumption.message}`), { statusCode: 409, code: 'INVENTORY_INSUFFICIENT' })
 
     const [usageResult] = await conn.query(
       `INSERT INTO consultation_inventory_usage
@@ -369,6 +415,7 @@ const startConsultation = async (req, res) => {
     await conn.commit()
   } catch (error) {
     await conn.rollback().catch(() => {})
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message, code: error.code || undefined })
     throw error
   } finally {
     conn.release()
@@ -458,6 +505,7 @@ const saveConsultationDraft = async (req, res) => {
     } else {
       billing = await getBillingByAppointmentId(appointmentId, conn)
     }
+    await validateClinicalInventoryAvailability({ billing, appointment: appt }, conn)
 
     await writeAuditLog({
       userId: req.user.id,
@@ -564,6 +612,7 @@ const finalizeConsultation = async (req, res) => {
       consultationId,
       items: billableServices,
     }, conn)
+    await validateClinicalInventoryAvailability({ billing, appointment: appt }, conn)
     await consumeClinicalInventory({ billing, consultationId, doctorId: req.user.id, appointment: appt }, conn)
 
     await conn.query(
@@ -599,6 +648,7 @@ const finalizeConsultation = async (req, res) => {
     await conn.commit()
   } catch (err) {
     await conn.rollback()
+    if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || undefined })
     throw err
   } finally {
     conn.release()
@@ -898,7 +948,7 @@ const uploadClinicalImage = async (req, res) => {
         bypass_token: issueBypassAuthorizationToken({ role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId, reason, fileHash }),
       })
     }
-    return res.status(error.statusCode || 502).json({ message: error.message || 'Clinical image upload failed.' })
+    return res.status(error.statusCode || 502).json({ message: error.message || 'Clinical image upload failed.', code: error.code || 'CLINICAL_IMAGE_UPLOAD_FAILED' })
   }
 
   if (scanMode === 'bypass') {

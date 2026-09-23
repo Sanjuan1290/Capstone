@@ -48,7 +48,7 @@ const { buildDoctorAvailabilitySummary, buildWalkInDoctorAvailability } = requir
 const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
-const { resolveDiscountForDraft, applyApprovedPriceOverrides, loadDiscountPreset } = require('../utils/billingSecurity')
+const { resolveDiscountForDraft, loadDiscountPreset } = require('../utils/billingSecurity')
 
 const makeTempPassword = () => makeTemporaryPassword(14)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
@@ -852,6 +852,52 @@ const getBillById = async (req, res) => {
   res.json(bill)
 }
 
+const validateStaffSupplyAvailability = async (items = [], executor = db) => {
+  const grouped = new Map()
+  for (const item of Array.isArray(items) ? items : []) {
+    if (String(item?.item_type || '') !== 'supply' || String(item?.source_type || '') !== 'staff_supply') continue
+    const inventoryId = Number(item?.source_inventory_id || 0)
+    if (!inventoryId) continue
+    let details = item?.details || item?.details_json || null
+    if (typeof details === 'string') { try { details = JSON.parse(details) } catch { details = null } }
+    const current = grouped.get(inventoryId) || { inventory_id: inventoryId, requested: 0, unit: details?.unit || null }
+    current.requested += Math.max(0, Number(item?.quantity || 0))
+    if (!current.unit && details?.unit) current.unit = details.unit
+    grouped.set(inventoryId, current)
+  }
+
+  const checks = []
+  for (const entry of grouped.values()) {
+    const [[inventoryItem]] = await executor.query(
+      'SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? LIMIT 1',
+      [entry.inventory_id]
+    )
+    if (!inventoryItem) {
+      checks.push({ ...entry, name: 'Inventory item', available: 0, sufficient: false })
+      continue
+    }
+    const [[stock]] = await executor.query(
+      `SELECT COALESCE(SUM(ilb.quantity),0) AS package_available
+       FROM inventory_location_batches ilb
+       JOIN inventory_locations il ON il.id=ilb.location_id
+       JOIN inventory_batches ib ON ib.id=ilb.batch_id
+       WHERE ilb.inventory_id=? AND il.name IN ('Dispensing Area','Main Stockroom')
+         AND ilb.quantity>0 AND ib.quantity>0
+         AND (ib.expiration_date IS NULL OR ib.expiration_date >= CURDATE())`,
+      [inventoryItem.id]
+    )
+    const packageAvailable = Number(stock?.package_available || 0)
+    const unit = String(entry.unit || inventoryItem.unit || '').trim()
+    const baseUnit = String(inventoryItem.base_unit || '').trim()
+    const unitSize = Math.max(1, Number(inventoryItem.unit_size) || 1)
+    const available = unit && baseUnit && unit.toLowerCase() === baseUnit.toLowerCase()
+      ? packageAvailable * unitSize
+      : packageAvailable
+    checks.push({ ...entry, name: inventoryItem.name, unit: unit || inventoryItem.unit || '', available, sufficient: available + 0.0001 >= entry.requested })
+  }
+  return checks
+}
+
 const updateBill = async (req, res) => {
   const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
   const isAdminActor = actorRole === 'admin'
@@ -879,54 +925,20 @@ const updateBill = async (req, res) => {
     const currentBill = await getBillingRecordWithItems(billingId, conn)
     if (Number(currentBill.paid_amount || 0) > 0) { await conn.rollback(); return res.status(400).json({ message: 'A bill with recorded payments can no longer be edited.' }) }
 
-    // Consultation-owned lines are clinical facts. Staff may only apply an Admin-approved
-    // price override; the service identity, quantity and clinical snapshot remain immutable.
+    // Consultation-owned lines are server-owned clinical facts. Checkout never round-trips
+    // or mutates them; Staff/Admin may only add non-service charges and billing-level fields.
     const consultationItems = (currentBill.items || []).filter((item) => item.source_type === 'consultation')
-    const incomingById = new Map(rawItems.filter((item) => Number(item?.id) > 0).map((item) => [Number(item.id), item]))
     const protectedIds = new Set(consultationItems.map((item) => Number(item.id)))
-    const securedConsultationItems = []
+    const securedConsultationItems = consultationItems.map((existing) => ({
+      ...existing,
+      id: Number(existing.id),
+      source_type: 'consultation',
+      source_reference_id: existing.source_reference_id || currentBill.consultation_id || null,
+      unit_price: Number(existing.unit_price || 0),
+      line_total: Math.round(Number(existing.quantity || 0) * Number(existing.unit_price || 0) * 100) / 100,
+    }))
 
-    for (const existing of consultationItems) {
-      const incoming = incomingById.get(Number(existing.id))
-      if (!incoming) {
-        await conn.rollback()
-        return res.status(409).json({ message: `${existing.service_name} was recorded during consultation and cannot be removed at Checkout. Ask the Doctor to correct the consultation or request an administrative correction.`, code: 'CONSULTATION_CHARGE_LOCKED' })
-      }
-      if (String(incoming.item_type || 'service') !== 'service'
-        || Number(incoming.catalog_service_id || 0) !== Number(existing.catalog_service_id || 0)
-        || Math.abs(Number(incoming.quantity || 0) - Number(existing.quantity || 0)) > 0.0001) {
-        await conn.rollback()
-        return res.status(409).json({ message: `${existing.service_name} is a protected consultation charge. Its service and quantity cannot be changed at Checkout.`, code: 'CONSULTATION_CHARGE_LOCKED' })
-      }
-
-      const candidate = {
-        ...existing,
-        item_type: 'service',
-        price_overridden: Boolean(incoming.price_overridden),
-        unit_price: Boolean(incoming.price_overridden) ? Math.max(0, Number(incoming.unit_price) || 0) : Number(existing.unit_price || 0),
-        override_reason: incoming.override_reason || '',
-      }
-      const [secured] = await applyApprovedPriceOverrides(billingId, [candidate], conn, expectedVersion, { allowDirectAdmin: isAdminActor })
-      const details = existing.details && typeof existing.details === 'object' ? JSON.parse(JSON.stringify(existing.details)) : {}
-      details.pricing = {
-        ...(details.pricing || {}),
-        price_overridden: Boolean(secured.price_overridden),
-        original_price: Number(details?.pricing?.original_price ?? existing.unit_price ?? 0),
-        override_reason: secured.override_reason || null,
-      }
-      securedConsultationItems.push({
-        ...existing,
-        id: Number(existing.id),
-        source_type: 'consultation',
-        source_reference_id: existing.source_reference_id || currentBill.consultation_id || null,
-        unit_price: Number(secured.unit_price || 0),
-        line_total: Math.round(Number(existing.quantity || 0) * Number(secured.unit_price || 0) * 100) / 100,
-        details,
-        details_json: JSON.stringify(details),
-      })
-    }
-
-    const staffRawItems = rawItems.filter((item) => !protectedIds.has(Number(item?.id || 0)))
+    const staffRawItems = rawItems.filter((item) => !protectedIds.has(Number(item?.id || 0)) && String(item?.source_type || '') !== 'consultation')
     if (staffRawItems.some((item) => String(item?.item_type || '').toLowerCase() === 'service' || Number(item?.catalog_service_id || 0) > 0)) {
       await conn.rollback()
       return res.status(400).json({ message: 'Clinic services must come from the Doctor consultation. Staff can add only Medicine / Supply or Custom Charge items at Checkout.', code: 'STAFF_SERVICE_NOT_ALLOWED' })
@@ -945,6 +957,19 @@ const updateBill = async (req, res) => {
 
     const allItems = [...securedConsultationItems, ...normalizedStaffItems]
     if (!allItems.length) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item.' }) }
+
+    const supplyChecks = await validateStaffSupplyAvailability(normalizedStaffItems, conn)
+    const insufficient = supplyChecks.find((item) => !item.sufficient)
+    if (insufficient) {
+      await conn.rollback()
+      return res.status(409).json({
+        code: 'INVENTORY_INSUFFICIENT',
+        message: `${insufficient.name} requires ${insufficient.requested} ${insufficient.unit || 'unit(s)'}, but only ${insufficient.available} is currently available for dispensing.`,
+        inventory_id: insufficient.inventory_id,
+        requested: insufficient.requested,
+        available: insufficient.available,
+      })
+    }
 
     const subtotalOnly = computeBillingTotals({ items: allItems, discount_amount: 0 })
     const discount = await resolveDiscountForDraft({
@@ -1010,7 +1035,7 @@ const getBillingAdjustmentRequests = async (req, res) => {
 const requestBillingAdjustment = async (req, res) => {
   const billingId = Number(req.params.id)
   const type = String(req.body.request_type || '').trim()
-  if (!['discount', 'price_override'].includes(type)) return res.status(400).json({ message: 'Invalid adjustment request type.' })
+  if (type !== 'discount') return res.status(400).json({ message: 'Only discount approval requests are supported.', code: 'PRICE_OVERRIDE_REMOVED' })
   const bill = await getBillingRecordWithItems(billingId)
   if (!bill || !['draft', 'pending'].includes(bill.status)) return res.status(400).json({ message: 'Only draft bills can request adjustments.' })
 
@@ -1022,18 +1047,11 @@ const requestBillingAdjustment = async (req, res) => {
   )
 
   let discountPresetId = null, catalogServiceId = null, requestedAmount = null, requestedPrice = null
-  if (type === 'discount') {
-    discountPresetId = Number(req.body.discount_preset_id) || null
-    const preset = await loadDiscountPreset(discountPresetId)
-    if (!preset || Number(preset.is_active) === 0) return res.status(400).json({ message: 'Select a valid discount preset.' })
-    requestedAmount = Math.max(0, Number(req.body.requested_amount) || 0) || null
-    if (requestedAmount && requestedAmount > Number(bill.subtotal || 0) + 0.001) return res.status(400).json({ message: 'Requested discount cannot exceed the bill subtotal.' })
-  } else {
-    catalogServiceId = Number(req.body.catalog_service_id) || null
-    requestedPrice = Math.max(0, Number(req.body.requested_price) || 0)
-    const line = (bill.items || []).find((item) => item.source_type === 'consultation' && Number(item.catalog_service_id) === catalogServiceId)
-    if (!catalogServiceId || !line) return res.status(400).json({ message: 'Price overrides can only be requested for a consultation service on this bill.' })
-  }
+  discountPresetId = Number(req.body.discount_preset_id) || null
+  const preset = await loadDiscountPreset(discountPresetId)
+  if (!preset || Number(preset.is_active) === 0) return res.status(400).json({ message: 'Select a valid discount preset.' })
+  requestedAmount = Math.max(0, Number(req.body.requested_amount) || 0) || null
+  if (requestedAmount && requestedAmount > Number(bill.subtotal || 0) + 0.001) return res.status(400).json({ message: 'Requested discount cannot exceed the bill subtotal.' })
   const reason = String(req.body.reason || '').trim()
   const reference = String(req.body.reference || '').trim() || null
   if (!reason) return res.status(400).json({ message: 'A reason is required for administrator approval.' })
@@ -1081,37 +1099,14 @@ const getFinalizePreview = async (req, res) => {
   const bill = await getBillingRecordWithItems(billingId)
   if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
   if (!['draft','pending'].includes(bill.status)) return res.status(400).json({ message: 'Only a draft bill can be reviewed for confirmation.' })
-  const supplies = []
-  for (const item of (bill.items || []).filter((row) => row.item_type === 'supply' && row.source_type === 'staff_supply' && Number(row.source_inventory_id) > 0)) {
-    const [[inventoryItem]] = await db.query('SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? LIMIT 1', [item.source_inventory_id])
-    if (!inventoryItem) {
-      supplies.push({ billing_item_id:item.id, name:item.service_name, requested:Number(item.quantity||0), available:0, sufficient:false, warning:'Inventory item is no longer available.' })
-      continue
-    }
-    const details = item.details || {}
-    const usageUnit = String(details?.unit || inventoryItem.unit || '').trim().toLowerCase()
-    const baseUnit = String(inventoryItem.base_unit || '').trim().toLowerCase()
-    const unitSize = Math.max(1, Number(inventoryItem.unit_size) || 1)
-    const [[stock]] = await db.query(
-      `SELECT COALESCE(SUM(ilb.quantity),0) AS package_available
-       FROM inventory_location_batches ilb
-       JOIN inventory_locations il ON il.id=ilb.location_id
-       JOIN inventory_batches ib ON ib.id=ilb.batch_id
-       WHERE ilb.inventory_id=? AND il.name IN ('Dispensing Area','Main Stockroom')
-         AND ilb.quantity>0 AND ib.quantity>0 AND (ib.expiration_date IS NULL OR ib.expiration_date >= CURDATE())`,
-      [inventoryItem.id]
-    )
-    const packageAvailable = Number(stock?.package_available || 0)
-    const available = usageUnit && baseUnit && usageUnit === baseUnit ? packageAvailable * unitSize : packageAvailable
-    const requested = Math.max(0, Number(item.quantity || 0))
-    supplies.push({ billing_item_id:item.id, inventory_id:inventoryItem.id, name:inventoryItem.name, requested, available, unit:details?.unit || inventoryItem.unit || '', sufficient: available + 0.0001 >= requested })
-  }
+  const directSupplies = (bill.items || []).filter((row) => row.item_type === 'supply' && row.source_type === 'staff_supply' && Number(row.source_inventory_id) > 0)
+  const supplies = await validateStaffSupplyAvailability(directSupplies, db)
   res.json({
     billing_id: billingId,
     version: Number(bill.version || 1),
     total_amount: Number(bill.total_amount || 0),
     charge_count: (bill.items || []).length,
-    supply_count: supplies.length,
+    supply_count: directSupplies.length,
     supplies,
     can_finalize: supplies.every((item) => item.sufficient),
   })

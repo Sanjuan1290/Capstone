@@ -48,7 +48,7 @@ router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
 router.get('/billing/catalog',                 getBillingCatalog)
-router.post('/uploads/clinical', express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '10mb' }), uploadClinicalImage)
+router.post('/uploads/clinical', express.raw({ type: ['image/png', 'image/jpeg'], limit: '10mb' }), uploadClinicalImage)
 router.post('/uploads/clinical/status',             getClinicalUploadScanStatus)
 
 router.get('/patients/:id/history',          getPatientHistory)

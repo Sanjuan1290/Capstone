@@ -11,7 +11,7 @@ const requireCloudinaryConfig = () => {
   const apiKey = process.env.CLOUDINARY_API_KEY
   const apiSecret = process.env.CLOUDINARY_API_SECRET
   if (!cloudName || !apiKey || !apiSecret) {
-    throw Object.assign(new Error('Signed image uploads are not configured.'), { statusCode: 503, scannerUnavailable: true })
+    throw Object.assign(new Error('Signed image uploads are not configured. Add the Cloudinary server credentials and restart the server.'), { statusCode: 503, code: 'CLINICAL_IMAGE_UPLOAD_NOT_CONFIGURED', providerUnavailable: true })
   }
   return { cloudName, apiKey, apiSecret }
 }
@@ -190,12 +190,11 @@ const hasValidImageSignature = (buffer, mimeType) => {
   const mime = String(mimeType || '').toLowerCase()
   if (mime === 'image/png') return buffer.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]))
   if (mime === 'image/jpeg') return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
-  if (mime === 'image/webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP'
-  return false
+    return false
 }
 
 const detectImageMime = (buffer) => {
-  for (const mime of ['image/png','image/jpeg','image/webp']) {
+  for (const mime of ['image/png','image/jpeg']) {
     if (hasValidImageSignature(buffer, mime)) return mime
   }
   return null
@@ -208,17 +207,22 @@ const cloudinaryUploadBuffer = async ({ buffer, mimeType, fileName, signed }) =>
   const declaredMime = String(mimeType || '').toLowerCase().split(';')[0].trim()
   const detectedMime = detectImageMime(buffer)
   if (!detectedMime) {
-    throw Object.assign(new Error('The selected file is not a valid PNG, JPG, or WEBP image.'), { statusCode: 400 })
+    throw Object.assign(new Error('The selected file is not a valid PNG or JPG image.'), { statusCode: 400 })
   }
   // Trust the file signature over the browser-provided MIME type. Some browsers/devices
   // report a valid PNG/JPEG/WebP with a generic or mismatched content-type.
   const safeMime = detectedMime
-  if (declaredMime && !['image/png','image/jpeg','image/webp','application/octet-stream'].includes(declaredMime)) {
-    throw Object.assign(new Error('Image must be PNG, JPG, or WEBP.'), { statusCode: 400 })
+  if (declaredMime && !['image/png','image/jpeg','application/octet-stream'].includes(declaredMime)) {
+    throw Object.assign(new Error('Image must be PNG or JPG.'), { statusCode: 400 })
   }
 
-  const formData = new FormData()
-  formData.append('file', new Blob([buffer], { type: safeMime }), String(fileName || 'upload-image').replace(/[\r\n"]/g, '_'))
+  let formData
+  try {
+    formData = new FormData()
+    formData.append('file', new Blob([buffer], { type: safeMime }), String(fileName || 'upload-image').replace(/[\r\n"]/g, '_'))
+  } catch (error) {
+    throw Object.assign(new Error('The image could not be prepared for upload on this server.'), { statusCode: 500, code: 'CLINICAL_IMAGE_UPLOAD_PREPARE_FAILED', cause: error })
+  }
   formData.append('api_key', signed.api_key)
   formData.append('timestamp', String(signed.timestamp))
   if (signed.folder) formData.append('folder', signed.folder)

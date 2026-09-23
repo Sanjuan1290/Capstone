@@ -10,7 +10,7 @@ const request = async (role, path = '', options = {}) => {
   })
 
   const data = await res.json()
-  if (!res.ok) throw new Error(data.message || 'Request failed')
+  if (!res.ok) { const err = new Error(data.message || 'Request failed'); Object.assign(err, data); throw err }
   return data
 }
 
@@ -61,7 +61,7 @@ export const getClinicalImageScanStatus = async (appointmentId, assetId, scanTok
     body: JSON.stringify({ appointment_id: appointmentId, asset_id: assetId, scan_token: scanToken }),
   })
   const data = await response.json()
-  if (!response.ok) throw new Error(data.message || 'Could not check the clinical image security scan.')
+  if (!response.ok) { const err = new Error(data.message || 'Could not check the clinical image security scan.'); Object.assign(err, data); throw err }
   return data
 }
 
@@ -78,15 +78,15 @@ const uploadClinicalImageToServer = async (file, appointmentId, scanMode = 'scan
     body: file,
   })
   const data = await response.json()
-  if (!response.ok) throw new Error(data.message || 'Clinical image upload failed.')
+  if (!response.ok) { const err = new Error(data.message || 'Clinical image upload failed.'); Object.assign(err, data); throw err }
   return data
 }
 
 export const uploadClinicalImageSigned = async (file, appointmentId, { scanMode = 'scan', bypassToken = '', onStatus } = {}) => {
   if (!file) throw new Error('Select an image to upload.')
   if (!appointmentId) throw new Error('A valid appointment is required before uploading a clinical image.')
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(String(file.type || '').toLowerCase())) {
-    throw new Error('Clinical image must be PNG, JPG, or WEBP.')
+  if (!['image/png', 'image/jpeg'].includes(String(file.type || '').toLowerCase())) {
+    throw new Error('Clinical image must be PNG or JPG.')
   }
   if (Number(file.size || 0) > 10 * 1024 * 1024) throw new Error('Clinical images must be 10 MB or smaller.')
 

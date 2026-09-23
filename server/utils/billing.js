@@ -357,10 +357,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         const markupPercentage = Number(service?.profit_percentage) || Number(item?.markup_percentage) || 0
         const suggestedPrice = roundMoney((defaultMaterialsCost + consultationFee) * (1 + markupPercentage / 100))
         const catalogPatientPrice = Math.max(0, Number(service?.default_price) || 0) || suggestedPrice
-        const requestedOverride = Boolean(item?.price_overridden)
-        const unitPrice = requestedOverride
-          ? Math.max(0, Number(item?.unit_price) || 0)
-          : catalogPatientPrice
+        const unitPrice = catalogPatientPrice
         const baseAmount = roundMoney(defaultMaterialsCost + consultationFee)
         const serviceDetails = {
           pricing: {
@@ -369,9 +366,9 @@ const normalizeBillingItems = async (items = [], executor = db) => {
             markup_percentage: markupPercentage,
             suggested_price: suggestedPrice,
             patient_price: catalogPatientPrice,
-            price_overridden: requestedOverride,
+            price_overridden: false,
             original_price: catalogPatientPrice,
-            override_reason: String(item?.override_reason || '').trim() || null,
+            override_reason: null,
           },
           materials: normalizedMaterials,
         }

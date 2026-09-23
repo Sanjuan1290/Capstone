@@ -109,14 +109,18 @@ app.use((err, req, res, next) => {
 
   const databaseSchemaCodes = new Set(['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE'])
   const schemaMismatch = databaseSchemaCodes.has(String(err.code || ''))
-  const status = schemaMismatch ? 503 : (Number(err.statusCode || err.status) || 500)
+  const payloadTooLarge = Number(err.status || err.statusCode) === 413 || String(err.type || '') === 'entity.too.large'
+  const status = schemaMismatch ? 503 : payloadTooLarge ? 413 : (Number(err.statusCode || err.status) || 500)
   const expose = status >= 400 && status < 500 && !/^ER_/.test(String(err.code || ''))
+  const responseCode = schemaMismatch ? 'SCHEMA_MIGRATION_REQUIRED' : payloadTooLarge ? 'FILE_TOO_LARGE' : (err.code && !/^ER_/.test(String(err.code)) ? err.code : undefined)
   const message = schemaMismatch
     ? 'The database schema is out of date for this feature. Run `npm run migrate`, then restart the server.'
-    : expose
-      ? (err.publicMessage || err.message || 'Request could not be completed.')
-      : 'Something went wrong while processing your request.'
-  res.status(status).json({ message, code: schemaMismatch ? 'SCHEMA_MIGRATION_REQUIRED' : undefined, request_id: requestId })
+    : payloadTooLarge
+      ? 'The uploaded file is larger than the allowed limit.'
+      : expose
+        ? (err.publicMessage || err.message || 'Request could not be completed.')
+        : 'Something went wrong while processing your request.'
+  res.status(status).json({ message, code: responseCode, request_id: requestId })
 })
 
 const start = async () => {

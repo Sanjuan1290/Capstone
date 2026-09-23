@@ -70,16 +70,21 @@ const authorizeConsultationImages = async ({ consultationId, appointmentId, doct
       return { ...image, security_scan_status: existingByUrl.get(image.image_url), security_token: null }
     }
 
-    const verified = verifyUploadSecurityToken(image.security_token, {
+    let verified
+    try {
+      verified = verifyUploadSecurityToken(image.security_token, {
       stage: 'accepted',
       role: 'doctor',
       user_id: doctorId,
       context_type: 'clinical',
       context_id: appointmentId,
       url: image.image_url,
-    })
+      })
+    } catch (error) {
+      throw Object.assign(new Error(error.message || 'Clinical image authorization is invalid or expired. Upload the image again.'), { statusCode: error.statusCode || 422, code: 'CLINICAL_IMAGE_TOKEN_INVALID' })
+    }
     if (!['approved', 'bypassed'].includes(String(verified.scan_status))) {
-      throw Object.assign(new Error('A new clinical image has not completed the required upload security workflow.'), { statusCode: 400 })
+      throw Object.assign(new Error('A new clinical image has not completed the required upload security workflow.'), { statusCode: 422, code: 'CLINICAL_IMAGE_TOKEN_INVALID' })
     }
     return { ...image, security_scan_status: verified.scan_status, security_token: null }
   })
