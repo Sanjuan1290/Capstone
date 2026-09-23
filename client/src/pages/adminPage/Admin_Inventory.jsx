@@ -60,9 +60,30 @@ const getTypeTone = (type) => {
   const logType = String(type).toLowerCase()
   if (logType === 'in') return 'bg-emerald-50 text-emerald-700'
   if (logType === 'out') return 'bg-amber-50 text-amber-700'
+  if (logType === 'transfer') return 'bg-sky-50 text-sky-700'
   if (logType === 'delete') return 'bg-red-50 text-red-700'
   return 'bg-sky-50 text-sky-700'
 }
+
+
+const getMovementLabel = (log = {}) => {
+  const movement = String(log.movement_type || '').toLowerCase()
+  const labels = {
+    received: 'Stock In', returned: 'Returned to Stock', correction_in: 'Correction (+)',
+    adjustment_out: 'Correction (-)', expired: 'Expired Stock', damaged: 'Damaged Stock',
+    wastage: 'Wastage / Spillage', returned_to_supplier: 'Returned to Supplier',
+    clinical_use: 'Clinical Use', dispensing: 'Dispensing', transfer_out: 'Transfer Out', transfer_in: 'Transfer In',
+  }
+  return labels[movement] || (String(log.type || '').toLowerCase() === 'in' ? 'Stock In' : 'Stock Out')
+}
+
+const ACTIVITY_TABS = [
+  { value: 'all', label: 'All' },
+  { value: 'stock_in', label: 'Stock In' },
+  { value: 'stock_out', label: 'Stock Out' },
+  { value: 'transfers', label: 'Transfers' },
+  { value: 'corrections', label: 'Corrections' },
+]
 
 const AdminInventory = () => {
   const [logs, setLogs] = useState([])
@@ -71,6 +92,7 @@ const AdminInventory = () => {
   const [filters, setFilters] = useState({
     start_date: '',
     end_date: '',
+    kind: 'all',
   })
   const [pagination, setPagination] = useState(DEFAULT_PAGINATION)
 
@@ -107,7 +129,7 @@ const AdminInventory = () => {
 
   const handleClearFilters = () => {
     setPage(1)
-    setFilters({ start_date: '', end_date: '' })
+    setFilters({ start_date: '', end_date: '', kind: 'all' })
   }
 
   return (
@@ -128,6 +150,15 @@ const AdminInventory = () => {
           >
             <MdRefresh /> Refresh
           </button>
+        </div>
+
+        <div className="mb-4 flex flex-wrap gap-2">
+          {ACTIVITY_TABS.map((tab) => (
+            <button key={tab.value} type="button" onClick={() => { setPage(1); setFilters((current) => ({ ...current, kind: tab.value })) }}
+              className={`rounded-xl px-4 py-2.5 text-sm font-bold ${filters.kind === tab.value ? 'bg-[#0b1a2c] text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         <div className="mb-4 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
@@ -185,6 +216,7 @@ const AdminInventory = () => {
                     <th className="px-3 py-3">Date/Time</th>
                     <th className="px-3 py-3">Item Name</th>
                     <th className="px-3 py-3">Type</th>
+                    <th className="px-3 py-3">Movement</th>
                     <th className="px-3 py-3">Quantity</th>
                     <th className="px-3 py-3">Batch / Lot</th>
                     <th className="px-3 py-3">Performed By</th>
@@ -197,12 +229,13 @@ const AdminInventory = () => {
                       <td className="px-3 py-3">{formatDateTime(log.logged_at || log.created_at)}</td>
                       <td className="px-3 py-3 font-medium text-slate-800">{log.item_name || 'Unknown Item'}</td>
                       <td className="px-3 py-3">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${getTypeTone(log.type)}`}>
-                          {String(log.type).toUpperCase()}
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${getTypeTone(String(log.movement_type || '').startsWith('transfer_') ? 'transfer' : log.type)}`}>
+                          {String(log.movement_type || '').startsWith('transfer_') ? 'TRANSFER' : String(log.type).toUpperCase()}
                         </span>
                       </td>
+                      <td className="px-3 py-3 font-semibold text-slate-700">{getMovementLabel(log)}</td>
                       <td className="px-3 py-3">{log.qty}</td>
-                      <td className="px-3 py-3">{log.batch_code || (log.batch_id ? `Batch #${log.batch_id}` : '—')}</td>
+                      <td className="px-3 py-3">{log.batch_code || (log.batch_id ? `Batch #${log.batch_id}` : '—')}{log.supplier_lot_number ? <span className="block text-xs text-slate-400">Supplier Lot: {log.supplier_lot_number}</span> : null}</td>
                       <td className="px-3 py-3">
                         <div className="flex flex-col">
                           <span>{log.performed_by || 'System'}</span>
@@ -243,3 +276,4 @@ const AdminInventory = () => {
 }
 
 export default AdminInventory
+

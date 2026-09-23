@@ -79,6 +79,8 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
         )
       }
 
+      // Keep one low-level transfer log per moved batch. Transfers are classified separately
+      // from true Stock Out in the inventory activity UI/reports.
       const actorColumn = actorRole === 'admin' ? 'admin_id' : 'staff_id'
       for (const batch of batchBreakdown) {
         const label = batch.batch_code || `Batch #${batch.batch_id}`
@@ -86,13 +88,7 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
           `INSERT INTO inventory_logs
            (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id)
            VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'supply_request', ?, ?)`,
-          [request.inventory_id, actorId, batch.quantity, `${label} transferred to ${destination} for supply request #${request.id}`, MAIN_LOCATION, destination, request.id, batch.batch_id]
-        )
-        await conn.query(
-          `INSERT INTO inventory_logs
-           (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id)
-           VALUES (?, ?, 'in', ?, ?, 'transfer_in', ?, ?, 'supply_request', ?, ?)`,
-          [request.inventory_id, actorId, batch.quantity, `${label} received at ${destination}`, MAIN_LOCATION, destination, request.id, batch.batch_id]
+          [request.inventory_id, actorId, batch.quantity, `${label} moved from ${MAIN_LOCATION} to ${destination} for stock transfer request #${request.id}`, MAIN_LOCATION, destination, request.id, batch.batch_id]
         )
       }
     }
@@ -146,7 +142,7 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
     statusCode: 200,
     body: {
       message: status === 'approved'
-        ? 'Supply request approved. Stock was transferred per batch.'
+        ? 'Stock transfer approved. Requested stock was moved from Main Stockroom to the destination automatically.'
         : 'Supply request rejected.',
       transfer_id: request.transfer_id || null,
     },
@@ -154,3 +150,4 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
 }
 
 module.exports = { resolveSupplyTransfer }
+

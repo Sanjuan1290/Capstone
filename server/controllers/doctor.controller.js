@@ -1079,7 +1079,17 @@ const getBillingCatalog = async (req, res) => {
 
 const getInventoryItems = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT id, name, category, COALESCE(item_type, 'medicine') AS item_type, COALESCE(uom, base_unit, unit, 'piece') AS uom, COALESCE(uom, base_unit, unit, 'piece') AS unit, dosage_form, strength, stock, stock_base, threshold, price FROM inventory WHERE stock > 0 ORDER BY category, name`
+    `SELECT i.id, i.name, i.category, COALESCE(i.item_type, 'medicine') AS item_type,
+            COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS uom,
+            COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS unit,
+            i.dosage_form, i.strength, i.stock, i.stock_base, i.threshold, i.price,
+            COALESCE((SELECT SUM(ils.quantity)
+                      FROM inventory_location_stock ils
+                      JOIN inventory_locations il ON il.id=ils.location_id
+                      WHERE ils.inventory_id=i.id AND il.name='Main Stockroom'),0) AS main_stockroom_stock
+     FROM inventory i
+     WHERE i.stock > 0
+     ORDER BY i.category, i.name`
   )
   res.json(rows)
 }
@@ -1314,3 +1324,4 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+

@@ -343,7 +343,7 @@ const SupplyRequestReviewPanel = ({
                         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
                       >
                         {isResolving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" /> : <MdCheck className="text-lg" />}
-                        Approve & Transfer
+                        Approve & Transfer Stock
                       </button>
                       <button
                         onClick={() => openDecision(request, 'rejected')}
@@ -398,8 +398,8 @@ const SupplyRequestReviewPanel = ({
         open={Boolean(decision)}
         onClose={closeDecision}
         closeDisabled={Boolean(resolving)}
-        title={decision?.status === 'approved' ? 'Approve Stock Transfer?' : 'Reject Stock Transfer?'}
-        description={decision?.status === 'approved' ? 'Confirm the requested stock movement before inventory locations are updated.' : 'The request will remain in the audit history with your rejection reason.'}
+        title={decision?.status === 'approved' ? 'Review & Transfer Stock' : 'Reject Stock Transfer?'}
+        description={decision?.status === 'approved' ? 'Approval immediately moves FEFO batch stock from Main Stockroom to the requested destination.' : 'The request will remain in the audit history with your rejection reason.'}
         size="md"
       >
         {decision?.request && (
@@ -411,7 +411,16 @@ const SupplyRequestReviewPanel = ({
                 <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Requested By</p><p className="mt-1 font-bold text-slate-900">{decision.request.doctor_name || 'Doctor'}</p></div>
                 <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Destination</p><p className="mt-1 font-bold text-slate-900">{decision.request.destination_location || 'Doctor / Treatment Room'}</p></div>
               </div>
-              {decision.status === 'approved' && <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Stock will be transferred from Main Stockroom using FEFO while preserving the exact source batches.</p>}
+              {decision.status === 'approved' && <div className="mt-4 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">From</p><p className="mt-1 font-bold text-slate-800">Main Stockroom</p><p className="mt-1 text-xs text-slate-500">Available: {Number(decision.request.main_stockroom_stock || 0)} {decision.request.unit}(s)</p></div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">To</p><p className="mt-1 font-bold text-slate-800">{decision.request.destination_location || 'Requested destination'}</p><p className="mt-1 text-xs text-slate-500">Current: {Number(decision.request.destination_stock || 0)} {decision.request.unit}(s)</p></div>
+                </div>
+                <div className={`rounded-xl border px-3 py-3 text-xs ${Number(decision.request.main_stockroom_stock||0) >= Number(decision.request.qty_requested||0) ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+                  {Number(decision.request.main_stockroom_stock||0) >= Number(decision.request.qty_requested||0) ? <><strong>After approval:</strong> Main Stockroom will have {Number(decision.request.main_stockroom_stock||0)-Number(decision.request.qty_requested||0)} {decision.request.unit}(s) and the destination will receive {Number(decision.request.qty_requested||0)}. Clinic-wide stock stays unchanged because this is a transfer, not consumption.</> : <><strong>Insufficient Main Stockroom stock.</strong> The transfer cannot be approved until enough transferable stock is available.</>}
+                </div>
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">FEFO selects the earliest usable batches automatically. No second stock-out step is required after approval.</p>
+              </div>}
             </div>
 
             <label className="block">
@@ -430,10 +439,10 @@ const SupplyRequestReviewPanel = ({
               <button
                 type="button"
                 className={decision.status === 'approved' ? 'button-primary' : 'button-danger'}
-                disabled={Boolean(resolving) || (decision.status === 'rejected' && !resolutionNote.trim())}
+                disabled={Boolean(resolving) || (decision.status === 'rejected' && !resolutionNote.trim()) || (decision.status === 'approved' && Number(decision.request.main_stockroom_stock || 0) < Number(decision.request.qty_requested || 0))}
                 onClick={handleResolve}
               >
-                {resolving ? 'Working...' : decision.status === 'approved' ? 'Approve & Transfer' : 'Reject Request'}
+                {resolving ? 'Working...' : decision.status === 'approved' ? 'Approve & Transfer Stock' : 'Reject Request'}
               </button>
             </div>
           </div>
@@ -444,3 +453,4 @@ const SupplyRequestReviewPanel = ({
 }
 
 export default SupplyRequestReviewPanel
+

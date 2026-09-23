@@ -4,6 +4,7 @@ const {
   receiveInventoryBatch,
   consumeInventoryFromLocationByBatches,
   syncInventorySnapshot,
+  syncLocationSnapshot,
 } = require('./inventoryBatches')
 const { normalizeStockMovementType } = require('./workflowValidation')
 const { writeAuditLog } = require('./audit')
@@ -69,13 +70,15 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
     const movementType = movementReason.code
     const received = await receiveInventoryBatch(inventoryId, {
       quantity: qty,
-      existing_batch_id: body.existing_batch_id,
       expiration_date: body.expiration_date,
       batch_code: body.batch_code,
+      supplier_lot_number: body.supplier_lot_number,
       note: note || 'Manual stock-in',
       unit_cost: body.unit_cost,
       location_id: body.storage_location_id,
     }, executor)
+    // inventory.price is kept only as a compatibility snapshot of the latest receipt cost.
+    await executor.query('UPDATE inventory SET price=? WHERE id=?', [Math.max(0, Number(received.unit_cost || 0)), inventoryId])
     await syncInventorySnapshot(inventoryId, executor)
     await executor.query(
       `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, to_location)
@@ -85,6 +88,7 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
     auditValues = {
       type: 'in', movement_type: movementType, quantity: qty,
       batch_id: received.batch_id, batch_code: received.batch_code || null,
+      supplier_lot_number: received.supplier_lot_number || null,
       expiration_date: received.expiration_date || null, location: received.location,
       existing_batch: received.existing, previous_batch_quantity: received.previous_quantity,
       new_batch_quantity: received.new_quantity, note: note || null,
@@ -126,6 +130,8 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
       throw error
     }
     const batch = consumption.consumed[0]
+    await syncInventorySnapshot(inventoryId, executor)
+    await syncLocationSnapshot(inventoryId, executor)
     const movementReason = await resolveConfiguredMovementReason('out', body.movement_reason, executor)
     const movementType = movementReason.code
     await executor.query(
@@ -157,3 +163,4 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
 }
 
 module.exports = { applyManualInventoryMovement }
+

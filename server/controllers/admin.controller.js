@@ -33,6 +33,7 @@ const {
   receiveInventoryBatch,
   attachBatchesToInventory,
   syncInventorySnapshot,
+  ensureInventoryLocationAllocations,
   syncLocationSnapshot,
 } = require('../utils/inventoryBatches')
 const { broadcast } = require('../utils/sse')
@@ -94,6 +95,7 @@ const normalizeInventoryPayload = (body = {}) => {
     expiration_date: body.expiration_date || null,
     batch_code: String(body.batch_code || '').trim() || null,
     batch_lot_code: String(body.batch_lot_code || '').trim().replace(/^-+/, '') || null,
+    supplier_lot_number: String(body.supplier_lot_number || '').trim() || null,
     location_type_id: Number(body.location_type_id) || null,
     storage_location_id: Number(body.storage_location_id) || null,
     storage_location: body.storage_location?.trim() || null,
@@ -1817,7 +1819,7 @@ const getReports = async (req, res) => {
   const [[inventoryStats]] = await db.query(
     `SELECT
        (SELECT COUNT(*) FROM inventory) AS total_items,
-       (SELECT COALESCE(SUM(stock * COALESCE(price, 0)), 0) FROM inventory) AS total_value,
+       (SELECT COALESCE(SUM(quantity * COALESCE(unit_cost, 0)), 0) FROM inventory_batches WHERE archived_at IS NULL AND quantity > 0) AS total_value,
        (SELECT SUM(stock = 0) FROM inventory) AS out_of_stock,
        (SELECT SUM(stock > 0 AND stock <= threshold) FROM inventory) AS low_stock,
        (SELECT COUNT(*) FROM inventory_batches WHERE quantity > 0 AND expiration_date IS NOT NULL AND expiration_date < ?) AS expired,
@@ -1827,10 +1829,10 @@ const getReports = async (req, res) => {
   const [stockActivity] = await db.query(
     `SELECT DATE_FORMAT(logged_at, '%Y-%m') AS ym,
             DATE_FORMAT(MIN(logged_at), '%b %Y') AS month,
-            SUM(CASE WHEN type = 'in' THEN 1 ELSE 0 END) AS stock_in_actions,
-            SUM(CASE WHEN type = 'out' THEN 1 ELSE 0 END) AS stock_out_actions,
-            COALESCE(SUM(CASE WHEN type = 'in' THEN qty ELSE 0 END), 0) AS stock_in,
-            COALESCE(SUM(CASE WHEN type = 'out' THEN qty ELSE 0 END), 0) AS stock_out
+            SUM(CASE WHEN type = 'in' AND COALESCE(movement_type,'') <> 'transfer_in' THEN 1 ELSE 0 END) AS stock_in_actions,
+            SUM(CASE WHEN type = 'out' AND COALESCE(movement_type,'') <> 'transfer_out' THEN 1 ELSE 0 END) AS stock_out_actions,
+            COALESCE(SUM(CASE WHEN type = 'in' AND COALESCE(movement_type,'') <> 'transfer_in' THEN qty ELSE 0 END), 0) AS stock_in,
+            COALESCE(SUM(CASE WHEN type = 'out' AND COALESCE(movement_type,'') <> 'transfer_out' THEN qty ELSE 0 END), 0) AS stock_out
      FROM inventory_logs WHERE DATE(logged_at) BETWEEN ? AND ?
      GROUP BY DATE_FORMAT(logged_at, '%Y-%m') ORDER BY ym ASC`, dateParams)
 
@@ -1842,9 +1844,11 @@ const getReports = async (req, res) => {
      ORDER BY quantity DESC`, dateParams)
 
   const [inventoryByCategory] = await db.query(
-    `SELECT category, COUNT(*) AS items, COALESCE(SUM(stock), 0) AS total_stock,
-            COALESCE(SUM(stock * COALESCE(price, 0)), 0) AS total_value
-     FROM inventory GROUP BY category ORDER BY total_value DESC, category ASC`)
+    `SELECT i.category, COUNT(DISTINCT i.id) AS items, COALESCE(SUM(b.quantity), 0) AS total_stock,
+            COALESCE(SUM(b.quantity * COALESCE(b.unit_cost, 0)), 0) AS total_value
+     FROM inventory i
+     LEFT JOIN inventory_batches b ON b.inventory_id=i.id AND b.archived_at IS NULL AND b.quantity > 0
+     GROUP BY i.category ORDER BY total_value DESC, i.category ASC`)
 
   const [[currentOperations]] = await db.query(
     `SELECT
@@ -1969,6 +1973,7 @@ const getInventoryLogs = async (req, res) => {
   const endDate = String(req.query.end_date || '').trim()
   const batchId = Number(req.query.batch_id) || 0
   const inventoryId = Number(req.query.inventory_id) || 0
+  const kind = String(req.query.kind || 'all').trim().toLowerCase()
 
   const filters = []
   const params = []
@@ -1986,6 +1991,12 @@ const getInventoryLogs = async (req, res) => {
   if (batchId) { filters.push('il.batch_id = ?'); params.push(batchId) }
   if (inventoryId) { filters.push('il.inventory_id = ?'); params.push(inventoryId) }
 
+  if (kind === 'all') filters.push("COALESCE(il.movement_type,'') <> 'transfer_in'")
+  if (kind === 'stock_in') filters.push("il.type='in' AND COALESCE(il.movement_type,'') NOT IN ('transfer_in','correction_in')")
+  if (kind === 'stock_out') filters.push("il.type='out' AND COALESCE(il.movement_type,'') NOT IN ('transfer_out','adjustment_out')")
+  if (kind === 'transfers') filters.push("COALESCE(il.movement_type,'') = 'transfer_out'")
+  if (kind === 'corrections') filters.push("COALESCE(il.movement_type,'') IN ('correction_in','adjustment_out')")
+
   const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : ''
 
   const [[{ total }]] = await db.query(
@@ -1996,7 +2007,7 @@ const getInventoryLogs = async (req, res) => {
   )
 
   const [rows] = await db.query(
-    `SELECT il.*, i.name AS item_name, ib.batch_code,
+    `SELECT il.*, i.name AS item_name, ib.batch_code, ib.supplier_lot_number,
             COALESCE(s.full_name, a.full_name, 'System') AS performed_by,
             CASE
               WHEN il.admin_id IS NOT NULL THEN 'Admin'
@@ -2118,6 +2129,11 @@ const createInventorySupplier = async (req, res) => {
 }
 
 const getInventory = async (req, res) => {
+  const [ids] = await db.query('SELECT id FROM inventory ORDER BY id')
+  for (const row of ids) {
+    await ensureInventoryLocationAllocations(row.id, db)
+    await syncInventorySnapshot(row.id, db)
+  }
   const rows = await loadInventoryRows()
   res.json(rows)
 }
@@ -2125,7 +2141,7 @@ const getInventory = async (req, res) => {
 const addInventoryItem = async (req, res) => {
   let {
     barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id,
-    expiration_date, batch_code, batch_lot_code, location_type_id,
+    expiration_date, batch_code, batch_lot_code, supplier_lot_number, location_type_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -2138,7 +2154,8 @@ const addInventoryItem = async (req, res) => {
     base_unit = uom
     location_type_id = setupSelection.locationType.id
     if (!barcode) barcode = await nextInventoryBarcode(category, conn)
-    if (batch_lot_code) batch_code = `${barcode}-${batch_lot_code}`
+    // Every receipt gets its own internal batch code. Supplier lot is stored separately.
+    batch_code = null
     if (supplier_id) {
       const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
       if (!supplierRow || !supplierSupportsClinic(supplierRow.category, category)) {
@@ -2162,6 +2179,7 @@ const addInventoryItem = async (req, res) => {
         quantity: stock,
         expiration_date,
         batch_code,
+        supplier_lot_number,
         unit_cost: price,
         note: 'Opening stock',
         location: 'Main Stockroom',
@@ -2192,7 +2210,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, item_type, barcode, uom, dosage_form, strength, unit_cost: price, patient_selling_price: selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, dosage_form, strength, unit_cost: price, patient_selling_price: selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: supplier_lot_number || null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -2213,7 +2231,7 @@ const addInventoryItem = async (req, res) => {
 // FIX 5: Edit an existing inventory item
 const updateInventoryItem = async (req, res) => {
   let {
-    barcode, name, category, item_type, uom, dosage_form, strength, threshold, price, selling_price, supplier, supplier_id, location_type_id,
+    barcode, name, category, item_type, uom, dosage_form, strength, threshold, selling_price, supplier, supplier_id, location_type_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -2244,9 +2262,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?, location_type_id=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, selling_price=?, supplier=?, supplier_id=?, location_type_id=?
        WHERE id=?`,
-      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, canonicalUom, canonicalUom, threshold, price, selling_price, supplier, supplier_id, location_type_id, req.params.id]
+      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, canonicalUom, canonicalUom, threshold, selling_price, supplier, supplier_id, location_type_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -2304,7 +2322,7 @@ const getInventoryBatchHistory = async (req, res) => {
   if (!batch) return res.status(404).json({ message: 'Batch not found.' })
 
   const [movements] = await db.query(
-    `SELECT il.*, i.name AS item_name, ib.batch_code,
+    `SELECT il.*, i.name AS item_name, ib.batch_code, ib.supplier_lot_number,
             COALESCE(s.full_name, a.full_name, 'System') AS performed_by,
             CASE
               WHEN il.admin_id IS NOT NULL THEN 'Admin'
@@ -2362,7 +2380,7 @@ const maskEmailAddress = (email = '') => {
 
 const getInventoryBatchForAction = async (batchId, executor = db, forUpdate = false) => {
   const [rows] = await executor.query(
-    `SELECT b.id, b.inventory_id, b.batch_code, b.quantity, b.expiration_date, b.note,
+    `SELECT b.id, b.inventory_id, b.batch_code, b.supplier_lot_number, b.quantity, b.expiration_date, b.note,
             COALESCE(b.unit_cost,0) AS unit_cost, b.archived_at, b.archived_by_admin_id, b.archive_reason,
             i.name AS item_name, i.barcode AS item_barcode, COALESCE(i.uom,i.base_unit,i.unit,'') AS uom
      FROM inventory_batches b
@@ -2455,6 +2473,7 @@ const normalizeInventoryBatchActionPayload = (action, body, batch) => {
       reason,
       batch_lot_code: lotCode,
       batch_code: fullBatchCode,
+      supplier_lot_number: String(body?.supplier_lot_number || '').trim().slice(0, 120) || null,
       expiration_date: expirationDate,
       unit_cost: unitCost,
       note: String(body?.note || '').trim().slice(0, 1000) || null,
@@ -2537,6 +2556,7 @@ const requestInventoryBatchActionCode = async (req, res) => {
     old: {
       quantity: Number(batch.quantity || 0),
       batch_code: batch.batch_code || null,
+      supplier_lot_number: batch.supplier_lot_number || null,
       expiration_date: batch.expiration_date ? String(batch.expiration_date).slice(0, 10) : null,
       unit_cost: Number(batch.unit_cost || 0),
       note: batch.note || null,
@@ -2590,8 +2610,10 @@ const confirmInventoryBatchAction = async (req, res) => {
     if (
       Math.abs(Number(expected.quantity || 0) - Number(batch.quantity || 0)) > 0.0001 ||
       String(expected.batch_code || '') !== String(batch.batch_code || '') ||
+      String(expected.supplier_lot_number || '') !== String(batch.supplier_lot_number || '') ||
       String(expected.expiration_date || '') !== String(currentExpiry || '') ||
       Math.abs(Number(expected.unit_cost || 0) - Number(batch.unit_cost || 0)) > 0.0001 ||
+      String(expected.note || '') !== String(batch.note || '') ||
       String(expected.archived_at || '') !== String(batch.archived_at || '')
     ) {
       throw Object.assign(new Error('This batch changed after the verification code was requested. Review the latest values and request a new code.'), { statusCode:409, code:'BATCH_CHANGED' })
@@ -2675,13 +2697,13 @@ const confirmInventoryBatchAction = async (req, res) => {
       const [[duplicate]] = await conn.query('SELECT id FROM inventory_batches WHERE inventory_id=? AND batch_code=? AND id<>? LIMIT 1', [batch.inventory_id,newCode,batch.id])
       if (duplicate) throw Object.assign(new Error('That Batch / Lot code already exists for this item.'), { statusCode:409, code:'BATCH_ALREADY_EXISTS' })
       await conn.query(
-        'UPDATE inventory_batches SET batch_code=?,expiration_date=?,unit_cost=?,note=? WHERE id=?',
-        [newCode,requested.expiration_date || null,Math.max(0,Number(requested.unit_cost)||0),requested.note || null,batch.id]
+        'UPDATE inventory_batches SET batch_code=?,supplier_lot_number=?,expiration_date=?,unit_cost=?,note=? WHERE id=?',
+        [newCode,requested.supplier_lot_number || null,requested.expiration_date || null,Math.max(0,Number(requested.unit_cost)||0),requested.note || null,batch.id]
       )
       await writeAuditLog({
         userId:req.user.id,userRole:'admin',action:'inventory.batch_details_corrected',entityType:'inventory_batch',entityId:batch.id,
-        oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),note:batch.note||null },
-        newValues:{ item_name:batch.item_name,batch_code:newCode,expiration_date:requested.expiration_date||null,unit_cost:Math.max(0,Number(requested.unit_cost)||0),note:requested.note||null,reason,authorization:'admin_password_email_code' },
+        oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,supplier_lot_number:batch.supplier_lot_number||null,expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),note:batch.note||null },
+        newValues:{ item_name:batch.item_name,batch_code:newCode,supplier_lot_number:requested.supplier_lot_number||null,expiration_date:requested.expiration_date||null,unit_cost:Math.max(0,Number(requested.unit_cost)||0),note:requested.note||null,reason,authorization:'admin_password_email_code' },
         ipAddress:req.ip||null,
       },conn)
     } else if (action === 'archive') {
@@ -2745,10 +2767,14 @@ const updateStock = async (req, res) => {
 
 const getSupplyRequests = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT sr.*, i.name AS item_name, i.category, i.unit, d.full_name AS doctor_name
+    `SELECT sr.*, i.name AS item_name, i.category, i.unit, d.full_name AS doctor_name,
+            COALESCE(dest.name, sr.destination_location) AS destination_location,
+            COALESCE((SELECT SUM(ils.quantity) FROM inventory_location_stock ils JOIN inventory_locations ml ON ml.id=ils.location_id WHERE ils.inventory_id=i.id AND ml.name='Main Stockroom'),0) AS main_stockroom_stock,
+            COALESCE((SELECT SUM(ils.quantity) FROM inventory_location_stock ils WHERE ils.inventory_id=i.id AND ils.location_id=sr.destination_location_id),0) AS destination_stock
      FROM supply_requests sr
      JOIN inventory i ON sr.inventory_id = i.id
-     JOIN doctors   d ON sr.doctor_id   = d.id
+     JOIN doctors d ON sr.doctor_id = d.id
+     LEFT JOIN inventory_locations dest ON dest.id=sr.destination_location_id
      ORDER BY sr.requested_at DESC`
   )
   res.json(rows)
@@ -3500,3 +3526,4 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+

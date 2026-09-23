@@ -8,6 +8,7 @@ const normalizeExpiryDate = (value) => {
 }
 
 const normalizeBatchCode = (value) => String(value || '').trim() || null
+const normalizeSupplierLotNumber = (value) => String(value || '').trim() || null
 
 const toPositiveNumber = (value) => {
   const num = Number(value)
@@ -58,7 +59,7 @@ const ensureInventoryLocationAllocations = async (inventoryId, executor = db) =>
             COALESCE(SUM(ilb.quantity), 0) AS allocated_quantity
      FROM inventory_batches b
      LEFT JOIN inventory_location_batches ilb ON ilb.batch_id = b.id
-     WHERE b.inventory_id = ? AND b.quantity > 0
+     WHERE b.inventory_id = ? AND b.quantity > 0 AND b.archived_at IS NULL
      GROUP BY b.id, b.quantity`,
     [inventoryId]
   )
@@ -92,7 +93,7 @@ const syncInventorySnapshot = async (inventoryId, executor = db) => {
        COALESCE(SUM(CASE WHEN quantity > 0 THEN quantity ELSE 0 END), 0) AS stock,
        MIN(CASE WHEN quantity > 0 THEN expiration_date ELSE NULL END) AS expiration_date
      FROM inventory_batches
-     WHERE inventory_id = ?`,
+     WHERE inventory_id = ? AND archived_at IS NULL`,
     [inventoryId]
   )
 
@@ -120,16 +121,16 @@ const syncInventorySnapshot = async (inventoryId, executor = db) => {
 
 const addInventoryBatch = async (
   inventoryId,
-  { quantity, expiration_date, note = null, batch_code = null, location = MAIN_LOCATION, location_id = null },
+  { quantity, expiration_date, note = null, batch_code = null, supplier_lot_number = null, unit_cost = 0, location = MAIN_LOCATION, location_id = null },
   executor = db
 ) => {
   const batchQty = toPositiveNumber(quantity)
   if (batchQty <= 0) return null
 
   const [result] = await executor.query(
-    `INSERT INTO inventory_batches (inventory_id, quantity, expiration_date, note, batch_code)
-     VALUES (?,?,?,?,?)`,
-    [inventoryId, batchQty, normalizeExpiryDate(expiration_date), note || null, normalizeBatchCode(batch_code)]
+    `INSERT INTO inventory_batches (inventory_id, quantity, expiration_date, note, batch_code, supplier_lot_number, unit_cost)
+     VALUES (?,?,?,?,?,?,?)`,
+    [inventoryId, batchQty, normalizeExpiryDate(expiration_date), note || null, normalizeBatchCode(batch_code), normalizeSupplierLotNumber(supplier_lot_number), Math.max(0, Number(unit_cost) || 0)]
   )
 
   // Location tables are created later during first schema migration. Ignore only that
@@ -179,8 +180,10 @@ const receiveInventoryBatch = async (
     quantity,
     existing_batch_id = null,
     batch_code = null,
+    supplier_lot_number = null,
     expiration_date = null,
     note = null,
+    unit_cost = 0,
     location = MAIN_LOCATION,
     location_id = null,
   },
@@ -196,41 +199,10 @@ const receiveInventoryBatch = async (
 
   const existingBatchId = Number(existing_batch_id)
   if (existingBatchId > 0) {
-    const [[batch]] = await executor.query(
-      `SELECT id, inventory_id, batch_code, quantity, expiration_date
-       FROM inventory_batches
-       WHERE id = ? AND inventory_id = ?
-       FOR UPDATE`,
-      [existingBatchId, inventoryId]
+    throw Object.assign(
+      new Error('Every Stock In is a new receipt and must create a new batch. Existing batches cannot be increased through Stock In.'),
+      { statusCode: 409, code: 'NEW_RECEIPT_REQUIRES_NEW_BATCH' }
     )
-    if (!batch) throw Object.assign(new Error('The selected batch no longer exists for this item.'), { statusCode: 404 })
-
-    const [batchUpdate] = await executor.query(
-      'UPDATE inventory_batches SET quantity = quantity + ? WHERE id = ? AND inventory_id = ?',
-      [batchQty, existingBatchId, inventoryId]
-    )
-    if (Number(batchUpdate.affectedRows || 0) !== 1) {
-      throw Object.assign(new Error('The selected batch changed while receiving stock. Please retry.'), { statusCode: 409 })
-    }
-
-    await executor.query(
-      `INSERT INTO inventory_location_batches (location_id, inventory_id, batch_id, quantity)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`,
-      [locationId, inventoryId, existingBatchId, batchQty]
-    )
-    await syncLocationSnapshot(inventoryId, executor)
-
-    return {
-      batch_id: existingBatchId,
-      batch_code: batch.batch_code || null,
-      expiration_date: batch.expiration_date || null,
-      quantity_added: batchQty,
-      previous_quantity: Number(batch.quantity || 0),
-      new_quantity: Number(batch.quantity || 0) + batchQty,
-      existing: true,
-      location: locationName,
-    }
   }
 
   const resolvedBatchCode = normalizeBatchCode(batch_code) || await generateNextBatchCode(inventoryId, executor)
@@ -244,7 +216,7 @@ const receiveInventoryBatch = async (
   )
   if (duplicate) {
     throw Object.assign(
-      new Error(`Batch ${resolvedBatchCode} already exists for this item. Select the existing batch instead of creating a new one.`),
+      new Error(`Internal batch ${resolvedBatchCode} already exists for this item. Refresh and retry so a new batch code can be generated.`),
       { statusCode: 409, code: 'BATCH_ALREADY_EXISTS', existingBatchId: duplicate.id }
     )
   }
@@ -253,7 +225,9 @@ const receiveInventoryBatch = async (
     quantity: batchQty,
     expiration_date,
     batch_code: resolvedBatchCode,
+    supplier_lot_number,
     note,
+    unit_cost,
     location: locationName,
     location_id: locationId,
   }, executor)
@@ -261,7 +235,9 @@ const receiveInventoryBatch = async (
   return {
     batch_id: batchId,
     batch_code: resolvedBatchCode,
+    supplier_lot_number: normalizeSupplierLotNumber(supplier_lot_number),
     expiration_date: normalizeExpiryDate(expiration_date),
+    unit_cost: Math.max(0, Number(unit_cost) || 0),
     quantity_added: batchQty,
     previous_quantity: 0,
     new_quantity: batchQty,
@@ -282,6 +258,7 @@ const loadLocationBatches = async (inventoryId, locationName, executor = db) => 
        AND ilb.inventory_id = ?
        AND ilb.quantity > 0
        AND b.quantity > 0
+       AND b.archived_at IS NULL
        AND (b.expiration_date IS NULL OR b.expiration_date >= CURDATE())
      ORDER BY
        CASE WHEN b.expiration_date IS NULL THEN 1 ELSE 0 END,
@@ -387,7 +364,7 @@ const consumeInventoryFromLocationByBatches = async (
      FROM inventory_batches b
      LEFT JOIN inventory_location_batches ilb
        ON ilb.batch_id = b.id AND ilb.location_id = ?
-     WHERE b.inventory_id = ? AND b.id IN (${batchIds.map(() => '?').join(',')})
+     WHERE b.inventory_id = ? AND b.id IN (${batchIds.map(() => '?').join(',')}) AND b.archived_at IS NULL
      FOR UPDATE`,
     [locationId, inventoryId, ...batchIds]
   )
@@ -461,6 +438,7 @@ const transferInventoryBatchesFEFO = async (
   if (remaining > 0) {
     return { ok: false, message: `Not enough transferable stock in ${fromLocation}.`, shortage: remaining, transferred }
   }
+  await syncInventorySnapshot(inventoryId, executor)
   await syncLocationSnapshot(inventoryId, executor)
   return { ok: true, shortage: 0, requested: requestedQty, transferred }
 }
@@ -471,7 +449,7 @@ const attachBatchesToInventory = async (items, executor = db) => {
   const ids = items.map((item) => item.id)
   const placeholders = ids.map(() => '?').join(', ')
   const [rows] = await executor.query(
-    `SELECT b.id, b.inventory_id, b.batch_code, b.quantity, b.expiration_date, b.received_at, b.note,
+    `SELECT b.id, b.inventory_id, b.batch_code, b.supplier_lot_number, b.quantity, b.expiration_date, b.received_at, b.note, b.unit_cost, b.archived_at, b.archived_by_admin_id, b.archive_reason,
             il.id AS location_id, il.name AS location_name, ilb.quantity AS location_quantity
      FROM inventory_batches b
      LEFT JOIN inventory_location_batches ilb ON ilb.batch_id = b.id AND ilb.quantity > 0
@@ -487,7 +465,7 @@ const attachBatchesToInventory = async (items, executor = db) => {
   ).catch(async (error) => {
     if (error.code !== 'ER_NO_SUCH_TABLE') throw error
     return executor.query(
-      `SELECT id, inventory_id, NULL AS batch_code, quantity, expiration_date, received_at, note,
+      `SELECT id, inventory_id, NULL AS batch_code, NULL AS supplier_lot_number, quantity, expiration_date, received_at, note, unit_cost, archived_at, archived_by_admin_id, archive_reason,
               NULL AS location_name, NULL AS location_quantity
        FROM inventory_batches
        WHERE inventory_id IN (${placeholders})
@@ -504,10 +482,15 @@ const attachBatchesToInventory = async (items, executor = db) => {
         id: row.id,
         inventory_id: row.inventory_id,
         batch_code: row.batch_code || null,
+        supplier_lot_number: row.supplier_lot_number || null,
         quantity: Number(row.quantity || 0),
         expiration_date: row.expiration_date || null,
         received_at: row.received_at,
         note: row.note || null,
+        unit_cost: Number(row.unit_cost || 0),
+        archived_at: row.archived_at || null,
+        archived_by_admin_id: row.archived_by_admin_id || null,
+        archive_reason: row.archive_reason || null,
         locations: [],
       })
     }
@@ -535,6 +518,7 @@ module.exports = {
   MAIN_LOCATION,
   normalizeExpiryDate,
   normalizeBatchCode,
+  normalizeSupplierLotNumber,
   syncInventorySnapshot,
   syncLocationSnapshot,
   ensureInventoryLocationAllocations,
@@ -548,3 +532,4 @@ module.exports = {
   transferInventoryBatchesFEFO,
   attachBatchesToInventory,
 }
+

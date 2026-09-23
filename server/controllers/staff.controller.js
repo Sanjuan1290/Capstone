@@ -17,6 +17,7 @@ const {
   attachBatchesToInventory,
   consumeInventoryFromLocationFEFO,
   syncInventorySnapshot,
+  ensureInventoryLocationAllocations,
 } = require('../utils/inventoryBatches')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel, getClinicDateTimeSql } = require('../utils/date')
@@ -78,6 +79,7 @@ const normalizeInventoryPayload = (body = {}) => {
     expiration_date: body.expiration_date || null,
     batch_code: String(body.batch_code || '').trim() || null,
     batch_lot_code: String(body.batch_lot_code || '').trim().replace(/^-+/, '') || null,
+    supplier_lot_number: String(body.supplier_lot_number || '').trim() || null,
     location_type_id: Number(body.location_type_id) || null,
     storage_location_id: Number(body.storage_location_id) || null,
     storage_location: body.storage_location?.trim() || null,
@@ -1377,6 +1379,11 @@ const getInventoryMasterData = async (req, res) => {
 }
 
 const getInventory = async (req, res) => {
+  const [ids] = await db.query('SELECT id FROM inventory ORDER BY id')
+  for (const row of ids) {
+    await ensureInventoryLocationAllocations(row.id, db)
+    await syncInventorySnapshot(row.id, db)
+  }
   const items = await loadInventoryRows()
   res.json(items)
 }
@@ -1384,7 +1391,7 @@ const getInventory = async (req, res) => {
 const addInventoryItem = async (req, res) => {
   let {
     barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier, supplier_id,
-    expiration_date, batch_code, batch_lot_code, location_type_id,
+    expiration_date, batch_code, batch_lot_code, supplier_lot_number, location_type_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1404,7 +1411,8 @@ const addInventoryItem = async (req, res) => {
     base_unit = uom
     location_type_id = setupSelection.locationType.id
     if (!barcode) barcode = await nextInventoryBarcode(category, conn)
-    if (batch_lot_code) batch_code = `${barcode}-${batch_lot_code}`
+    // Every receipt gets its own internal batch code. Supplier lot is stored separately.
+    batch_code = null
     if (supplier_id) {
       const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
       if (!supplierRow || !supplierSupportsClinic(supplierRow.category, category)) {
@@ -1428,6 +1436,7 @@ const addInventoryItem = async (req, res) => {
         quantity: stock,
         expiration_date,
         batch_code,
+        supplier_lot_number,
         unit_cost: price,
         note: 'Opening stock',
         location: 'Main Stockroom',
@@ -1458,7 +1467,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, item_type, barcode, uom, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: supplier_lot_number || null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -1479,7 +1488,7 @@ const addInventoryItem = async (req, res) => {
 // FIX 2: Edit inventory item (name, barcode, category, unit, threshold, price, supplier)
 const updateInventoryItem = async (req, res) => {
   let {
-    barcode, name, category, item_type, uom, dosage_form, strength, threshold, price, supplier, supplier_id, location_type_id,
+    barcode, name, category, item_type, uom, dosage_form, strength, threshold, supplier, supplier_id, location_type_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1510,9 +1519,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, supplier=?, supplier_id=?, location_type_id=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, supplier=?, supplier_id=?, location_type_id=?
        WHERE id=?`,
-      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, canonicalUom, canonicalUom, threshold, price, supplier, supplier_id, location_type_id, req.params.id]
+      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, canonicalUom, canonicalUom, threshold, supplier, supplier_id, location_type_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -1689,11 +1698,14 @@ const getDoctorUnavailableDatesForStaff = async (req, res) => {
 
 const getSupplyRequests = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT sr.*, i.name AS item_name, i.unit, i.category,
-            d.full_name AS doctor_name
+    `SELECT sr.*, i.name AS item_name, i.category, i.unit, d.full_name AS doctor_name,
+            COALESCE(dest.name, sr.destination_location) AS destination_location,
+            COALESCE((SELECT SUM(ils.quantity) FROM inventory_location_stock ils JOIN inventory_locations ml ON ml.id=ils.location_id WHERE ils.inventory_id=i.id AND ml.name='Main Stockroom'),0) AS main_stockroom_stock,
+            COALESCE((SELECT SUM(ils.quantity) FROM inventory_location_stock ils WHERE ils.inventory_id=i.id AND ils.location_id=sr.destination_location_id),0) AS destination_stock
      FROM supply_requests sr
      JOIN inventory i ON sr.inventory_id = i.id
-     JOIN doctors   d ON sr.doctor_id    = d.id
+     JOIN doctors d ON sr.doctor_id = d.id
+     LEFT JOIN inventory_locations dest ON dest.id=sr.destination_location_id
      ORDER BY FIELD(sr.status,'pending','approved','rejected'), sr.requested_at DESC`
   )
   res.json(rows)
@@ -1722,3 +1734,4 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+

@@ -678,9 +678,14 @@ const ensureAppSchema = async () => {
       id INT AUTO_INCREMENT PRIMARY KEY,
       inventory_id INT NOT NULL,
       batch_code VARCHAR(80) NULL,
+      supplier_lot_number VARCHAR(120) NULL,
       quantity DECIMAL(12,2) NOT NULL DEFAULT 0,
       expiration_date DATE NULL,
       note TEXT NULL,
+      unit_cost DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      archived_at DATETIME NULL,
+      archived_by_admin_id INT NULL,
+      archive_reason VARCHAR(255) NULL,
       received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_inventory_batches_inventory_expiry (inventory_id, expiration_date, received_at),
       INDEX idx_inventory_batches_code (inventory_id, batch_code),
@@ -689,11 +694,13 @@ const ensureAppSchema = async () => {
     )
   `)
   await ensureColumn('inventory_batches', 'batch_code', 'VARCHAR(80) NULL')
+  await ensureColumn('inventory_batches', 'supplier_lot_number', 'VARCHAR(120) NULL').catch(() => {})
   await ensureColumn('inventory_batches', 'unit_cost', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch(() => {})
   await ensureColumn('inventory_batches', 'archived_at', 'DATETIME NULL').catch(() => {})
   await ensureColumn('inventory_batches', 'archived_by_admin_id', 'INT NULL').catch(() => {})
   await ensureColumn('inventory_batches', 'archive_reason', 'VARCHAR(255) NULL').catch(() => {})
   await db.query('CREATE INDEX idx_inventory_batches_archived ON inventory_batches (inventory_id, archived_at)').catch(() => {})
+  await db.query('CREATE INDEX idx_inventory_batches_supplier_lot ON inventory_batches (inventory_id, supplier_lot_number)').catch(() => {})
   await db.query('ALTER TABLE inventory_batches ADD INDEX idx_inventory_batches_code (inventory_id, batch_code)').catch(() => {})
   await db.query('ALTER TABLE inventory_batches ADD UNIQUE KEY uniq_inventory_batch_code (inventory_id, batch_code)').catch(() => {})
 
@@ -1359,3 +1366,4 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
+
