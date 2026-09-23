@@ -317,22 +317,6 @@ const ensureAppSchema = async () => {
   `)
 
   await ensureTable(`
-    CREATE TABLE IF NOT EXISTS inventory_movement_reasons (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(120) NOT NULL,
-      code VARCHAR(80) NOT NULL,
-      movement_type ENUM('in','out') NOT NULL,
-      requires_batch TINYINT(1) NOT NULL DEFAULT 0,
-      is_system TINYINT(1) NOT NULL DEFAULT 0,
-      is_active TINYINT(1) NOT NULL DEFAULT 1,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uniq_inventory_movement_reason_code (code),
-      INDEX idx_inventory_movement_reason_active (movement_type, is_active, name)
-    )
-  `)
-
-  await ensureTable(`
     CREATE TABLE IF NOT EXISTS billing_service_categories (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(120) NOT NULL,
@@ -368,20 +352,6 @@ const ensureAppSchema = async () => {
     ('Treatment Room','room',20),
     ('Dispensing Area','dispensing',30),
     ('General Storage','storage',40)`).catch(() => {})
-
-  await db.query(`
-    INSERT INTO inventory_movement_reasons (name,code,movement_type,requires_batch,is_system,is_active) VALUES
-      ('Received from Supplier','received','in',0,1,1),
-      ('Returned to Stock','returned','in',0,1,1),
-      ('Inventory Correction (+)','correction_in','in',0,1,1),
-      ('Inventory Correction (-)','adjustment_out','out',1,1,1),
-      ('Expired Stock','expired','out',1,1,1),
-      ('Damaged Stock','damaged','out',1,1,1),
-      ('Wastage / Spillage','wastage','out',1,1,1),
-      ('Returned to Supplier','returned_to_supplier','out',1,1,1)
-    ON DUPLICATE KEY UPDATE
-      name=VALUES(name),movement_type=VALUES(movement_type),requires_batch=VALUES(requires_batch),is_system=VALUES(is_system)
-  `).catch(() => {})
 
   await db.query(`INSERT IGNORE INTO inventory_barcode_sequences (category,last_number) VALUES ('medical',0),('derma',0)`).catch(() => {})
 

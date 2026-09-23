@@ -14,6 +14,9 @@ import {
   getInventoryMasterData,
   saveInventoryLocationType,
   createInventorySupplier,
+  requestInventoryBatchActionCode,
+  confirmInventoryBatchAction,
+  getInventoryBatchHistory,
   updateInventoryItem,
   updateStock,
 } from '../../services/admin.service'
@@ -28,6 +31,9 @@ const adminServices = {
   createInventoryLocationType: (payload) => saveInventoryLocationType(payload),
   updateInventoryLocationType: (id, payload) => saveInventoryLocationType(payload, id),
   createInventorySupplier,
+  requestInventoryBatchActionCode,
+  confirmInventoryBatchAction,
+  getInventoryBatchHistory,
 }
 
 const DEFAULT_PAGINATION = {

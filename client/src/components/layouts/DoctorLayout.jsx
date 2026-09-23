@@ -1,7 +1,7 @@
 // client/src/components/layouts/DoctorLayout.jsx
 // REDESIGNED: Mobile bottom nav, slide-in drawer, violet theme, responsive
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import {
   MdDashboard, MdCalendarToday, MdMedicalServices,
@@ -15,10 +15,11 @@ import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
 import { useSSE } from '../../hooks/useSSE'
 import { playNotificationSound } from '../../utils/notificationSound'
+import { getDashboard } from '../../services/doctor.service'
 
 const sideNav = [
   { name: 'Dashboard',          path: '/doctor',                    icon: MdDashboard,     short: 'Home'     },
-  { name: 'Appointments',       path: '/doctor/appointments',       icon: MdCalendarToday, short: 'Appts' },
+  { name: 'Appointments',       path: '/doctor/appointments',       icon: MdCalendarToday, short: 'Appts', badge: 'today' },
   { name: 'My Schedule',        path: '/doctor/schedule',           icon: MdSchedule,      short: 'Hours'    },
   { name: 'Stock Transfers',    path: '/doctor/request',            icon: MdInventory2,    short: 'Transfer' },
 ]
@@ -30,7 +31,12 @@ const DoctorLayout = () => {
   const [mobileOpen,  setMobileOpen]  = useState(false)
   const [loggingOut,  setLoggingOut]  = useState(false)
   const [logoutError, setLogoutError] = useState('')
+  const [todayRemaining, setTodayRemaining] = useState(0)
   const navigate = useNavigate()
+  const loadAppointmentCount = useCallback(() => {
+    getDashboard().then((data) => setTodayRemaining(Number(data?.remainingToday || 0))).catch(() => {})
+  }, [])
+  useEffect(() => { loadAppointmentCount() }, [loadAppointmentCount])
   const handleSSEMessage = useCallback((eventName) => {
     if (eventName === 'notification_created') {
       playNotificationSound()
@@ -40,8 +46,9 @@ const DoctorLayout = () => {
     if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
       window.dispatchEvent(new CustomEvent('clinic:refresh', { detail: { eventName } }))
+      if (['appointment_updated','queue_updated','consultation_saved'].includes(eventName)) loadAppointmentCount()
     }
-  }, [])
+  }, [loadAppointmentCount])
 
   useSSE('doctor', user?.id, handleSSEMessage)
 
@@ -61,6 +68,7 @@ const DoctorLayout = () => {
 
   const NavItem = (item) => {
     const IconComponent = item.icon
+    const badge = item.badge === 'today' ? todayRemaining : 0
     return (
     <NavLink
       to={item.path}
@@ -79,10 +87,11 @@ const DoctorLayout = () => {
             <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-violet-400 rounded-r-full" />
           )}
           <IconComponent className="shrink-0 text-[18px]" />
-          <span className={`whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
+          <span className={`min-w-0 flex-1 whitespace-nowrap overflow-hidden transition-[opacity,max-width] duration-300
             ${collapsed ? 'opacity-0 max-w-0' : 'opacity-100 max-w-xs'}`}>
             {item.name}
           </span>
+          {badge > 0 && <span className={`min-w-6 rounded-full bg-violet-400 px-1.5 py-0.5 text-center text-[10px] font-black text-[#0b1a2c] ${collapsed ? 'absolute -right-1 -top-1' : ''}`}>{badge > 99 ? '99+' : badge}</span>}
           {collapsed && (
             <span className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white
               text-xs rounded-lg whitespace-nowrap shadow-lg border border-white/10
@@ -236,6 +245,7 @@ const DoctorLayout = () => {
           flex items-center justify-around px-1 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
           {sideNav.map((item) => {
             const IconComponent = item.icon
+            const badge = item.badge === 'today' ? todayRemaining : 0
             return (
             <NavLink key={item.path} to={item.path} end={item.path === '/doctor'}
               className={({ isActive }) =>
@@ -244,9 +254,10 @@ const DoctorLayout = () => {
                  ${isActive ? 'text-violet-600' : 'text-slate-400'}`}>
               {({ isActive }) => (
                 <>
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center
+                  <div className={`relative w-8 h-8 rounded-xl flex items-center justify-center
                     ${isActive ? 'bg-violet-50' : ''}`}>
                     <IconComponent className={`text-[20px] ${isActive ? 'text-violet-600' : ''}`} />
+                    {badge > 0 && <span className="absolute -right-2 -top-1 min-w-4 rounded-full bg-violet-600 px-1 text-center text-[9px] font-black text-white">{badge > 99 ? '99+' : badge}</span>}
                   </div>
                   <span className={`text-[9px] font-bold ${isActive ? 'text-violet-600' : 'text-slate-400'}`}>
                     {item.short}

@@ -222,6 +222,14 @@ const getDashboard = async (req, res) => {
     "SELECT COUNT(*) AS completed FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status = 'completed'",
     [req.user.id, today]
   )
+  const [[{ remainingToday }]]  = await db.query(
+    "SELECT COUNT(*) AS remainingToday FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status IN ('confirmed','rescheduled','in-progress')",
+    [req.user.id, today]
+  )
+  const [[{ upcomingCount }]]   = await db.query(
+    "SELECT COUNT(*) AS upcomingCount FROM appointments WHERE doctor_id = ? AND appointment_date > ? AND status IN ('confirmed','rescheduled')",
+    [req.user.id, today]
+  )
   const [[{ pending }]]         = await db.query(
     "SELECT COUNT(*) AS pending FROM appointments WHERE doctor_id = ? AND status = 'confirmed'",
     [req.user.id]
@@ -254,7 +262,7 @@ const getDashboard = async (req, res) => {
      LIMIT 8`,
     [req.user.id, today]
   )
-  res.json({ totalToday, completed, pending, pendingRequests, schedule, walkInQueue, upcomingAppointments })
+  res.json({ totalToday, completed, remainingToday, upcomingCount, pending, pendingRequests, schedule, walkInQueue, upcomingAppointments })
 }
 
 // ── Appointments ──────────────────────────────────────────────────────────────
@@ -1306,4 +1314,3 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
-

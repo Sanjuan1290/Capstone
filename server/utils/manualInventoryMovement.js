@@ -9,6 +9,40 @@ const { normalizeStockMovementType } = require('./workflowValidation')
 const { writeAuditLog } = require('./audit')
 
 const { resolveManualStockOutSelection } = require('./manualInventoryPolicy')
+
+const resolveConfiguredMovementReason = async (type, value, executor) => {
+  const requested = String(value || '').trim()
+  try {
+    const params = [type]
+    let sql = `SELECT id,name,code,movement_type,requires_batch,is_system
+               FROM inventory_movement_reasons
+               WHERE movement_type=? AND is_active=1`
+    if (requested) {
+      sql += ' AND code=?'
+      params.push(requested)
+    }
+    sql += ' ORDER BY is_system DESC,id ASC LIMIT 1'
+    const [rows] = await executor.query(sql, params)
+    if (!rows.length) {
+      const error = new Error(requested
+        ? 'The selected movement reason is unavailable. Refresh Inventory and choose an active reason.'
+        : `No active Stock ${type === 'in' ? 'In' : 'Out'} movement reason is configured. Add one in Admin > System Setup > Movement Reasons.`)
+      error.statusCode = 400
+      error.code = 'MOVEMENT_REASON_UNAVAILABLE'
+      throw error
+    }
+    return rows[0]
+  } catch (error) {
+    // Transitional compatibility for a database that has not run the movement-reason migration yet.
+    if (error.code !== 'ER_NO_SUCH_TABLE') throw error
+    return {
+      code: normalizeStockMovementType(type, requested),
+      name: requested || (type === 'in' ? 'Received from Supplier' : 'Inventory Correction (-)'),
+      requires_batch: type === 'out' ? 1 : 0,
+      is_system: 1,
+    }
+  }
+}
 const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole, actorId, ipAddress, executor }) => {
   const type = String(body.type || '').trim()
   const qty = Number(body.qty)
@@ -31,13 +65,15 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
   let auditValues
 
   if (type === 'in') {
-    const movementType = normalizeStockMovementType('in', body.movement_reason)
+    const movementReason = await resolveConfiguredMovementReason('in', body.movement_reason, executor)
+    const movementType = movementReason.code
     const received = await receiveInventoryBatch(inventoryId, {
       quantity: qty,
       existing_batch_id: body.existing_batch_id,
       expiration_date: body.expiration_date,
       batch_code: body.batch_code,
       note: note || 'Manual stock-in',
+      unit_cost: body.unit_cost,
       location_id: body.storage_location_id,
     }, executor)
     await syncInventorySnapshot(inventoryId, executor)
@@ -90,7 +126,8 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
       throw error
     }
     const batch = consumption.consumed[0]
-    const movementType = 'adjustment_out'
+    const movementReason = await resolveConfiguredMovementReason('out', body.movement_reason, executor)
+    const movementType = movementReason.code
     await executor.query(
       `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, from_location)
        VALUES (?, ?, 'out', ?, ?, ?, ?, ?)`,

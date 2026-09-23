@@ -9,7 +9,7 @@ const REQUIRED_TABLES = [
   'billing_adjustment_requests', 'inventory', 'inventory_batches',
   'inventory_locations', 'inventory_location_batches', 'inventory_location_stock',
   'supply_requests', 'audit_logs', 'audit_log_archives', 'notifications', 'landing_page_content', 'clinic_payment_settings',
-  'doctor_schedules', 'inventory_location_types', 'billing_service_categories',
+  'doctor_schedules', 'inventory_location_types', 'inventory_movement_reasons', 'billing_service_categories',
 ]
 
 const REQUIRED_COLUMNS = {
@@ -28,7 +28,7 @@ const REQUIRED_COLUMNS = {
   patient_phone_verifications: ['attempt_count', 'last_sent_at'],
   billing_service_materials: ['bundled_in_service_price', 'cost_snapshot'],
   billing_items: ['unit_cost_snapshot', 'cost_total_snapshot'],
-  inventory_batches: ['unit_cost'],
+  inventory_batches: ['unit_cost', 'archived_at', 'archived_by_admin_id', 'archive_reason'],
   billing_records: ['finalized_by_admin_id', 'confirmed_by_admin_id'],
   billing_payments: ['idempotency_key', 'received_by_admin_id'],
   audit_logs: ['archive_id', 'archived_at'],
@@ -146,4 +146,5 @@ const run = async () => {
 }
 
 run()
+
 

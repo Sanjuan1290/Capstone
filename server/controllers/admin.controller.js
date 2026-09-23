@@ -24,15 +24,16 @@ const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
 const { issueSession, verifySessionToken, revokeSessions } = require('../utils/sessionSecurity')
-const { requestAdminMfa, verifyAdminMfa } = require('../utils/accountSecurity')
+const { requestAdminMfa, verifyAdminMfa, createSecurityCode, verifySecurityCode } = require('../utils/accountSecurity')
 const { makeTemporaryPassword } = require('../utils/securityCrypto')
-const { sendTempPassword, sendAppointmentStatusEmail } = require('../utils/emailService')
+const { sendTempPassword, sendAppointmentStatusEmail, sendAccountSecurityOtp } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const {
   receiveInventoryBatch,
   attachBatchesToInventory,
   syncInventorySnapshot,
+  syncLocationSnapshot,
 } = require('../utils/inventoryBatches')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel, addDaysDateOnly } = require('../utils/date')
@@ -818,7 +819,9 @@ const getPatients = async (req, res) => {
 
 const getPatientRecord = async (req, res) => {
   const [pRows] = await db.query(
-    `SELECT id, full_name, email, phone, sex, birthdate, address, civil_status, created_at
+    `SELECT id, full_name, email, phone, sex,
+            DATE_FORMAT(birthdate, '%Y-%m-%d') AS birthdate,
+            address, civil_status, created_at
      FROM patients WHERE id = ?`,
     [req.params.id]
   )
@@ -826,28 +829,33 @@ const getPatientRecord = async (req, res) => {
   const patient = pRows[0]
 
   const [history] = await db.query(
-    `SELECT a.*, DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS date,
+    `SELECT a.*,
+            DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS date,
+            a.appointment_time                          AS time,
+            a.clinic_type                               AS type,
             d.full_name AS doctor_name, d.specialty,
             c.id AS consultation_id, c.diagnosis, c.prescription, c.notes AS consultation_notes
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled','no_show')
+     WHERE a.patient_id = ?
      ORDER BY a.appointment_date DESC`,
     [req.params.id]
   )
-
-  const [upcoming] = await db.query(
-    `SELECT a.*, DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS date,
-            d.full_name AS doctor_name, d.specialty
-     FROM appointments a
-     JOIN doctors d ON a.doctor_id = d.id
-     WHERE a.patient_id = ? AND a.status IN ('pending','confirmed')
-     ORDER BY a.appointment_date ASC`,
+  const imagesByConsultationId = await loadImagesForConsultationIds(history.map((row) => row.consultation_id))
+  const [billingHistory] = await db.query(
+    `SELECT b.id, b.status, b.subtotal, b.discount_amount, b.total_amount, b.payment_method, b.paid_at, b.created_at,
+            DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
+            a.reason, d.full_name AS doctor_name,
+            COALESCE((SELECT SUM(CASE WHEN bp.status = 'completed' THEN bp.amount - COALESCE(bp.refund_amount, 0) ELSE 0 END)
+                      FROM billing_payments bp WHERE bp.billing_id = b.id), 0) AS paid_amount
+     FROM billing_records b
+     JOIN appointments a ON a.id = b.appointment_id
+     JOIN doctors d ON d.id = b.doctor_id
+     WHERE b.patient_id = ?
+     ORDER BY COALESCE(b.paid_at, b.created_at) DESC`,
     [req.params.id]
   )
-
-  const imagesByConsultationId = await loadImagesForConsultationIds(history.map((row) => row.consultation_id))
 
   res.json({
     patient,
@@ -855,7 +863,7 @@ const getPatientRecord = async (req, res) => {
       ...row,
       progress_images: imagesByConsultationId[row.consultation_id] || [],
     })),
-    upcoming,
+    billing: billingHistory.map((bill) => ({ ...bill, balance_amount: Math.max(0, Number(bill.total_amount || 0) - Number(bill.paid_amount || 0)) })),
   })
 }
 
@@ -1959,6 +1967,8 @@ const getInventoryLogs = async (req, res) => {
   const offset = (page - 1) * limit
   const startDate = String(req.query.start_date || '').trim()
   const endDate = String(req.query.end_date || '').trim()
+  const batchId = Number(req.query.batch_id) || 0
+  const inventoryId = Number(req.query.inventory_id) || 0
 
   const filters = []
   const params = []
@@ -1972,6 +1982,9 @@ const getInventoryLogs = async (req, res) => {
     filters.push('DATE(il.logged_at) <= ?')
     params.push(endDate)
   }
+
+  if (batchId) { filters.push('il.batch_id = ?'); params.push(batchId) }
+  if (inventoryId) { filters.push('il.inventory_id = ?'); params.push(inventoryId) }
 
   const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : ''
 
@@ -2016,6 +2029,8 @@ const getInventoryLogs = async (req, res) => {
     filters: {
       start_date: startDate || '',
       end_date: endDate || '',
+      batch_id: batchId || '',
+      inventory_id: inventoryId || '',
     },
   })
 }
@@ -2049,7 +2064,10 @@ const getInventoryMasterData = async (req, res) => {
   const [uoms] = await db.query('SELECT id,name,abbreviation FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
   const [suppliers] = await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name ASC`, category ? [category] : [])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY is_active DESC,sort_order,name')
-  res.json({ uoms, suppliers, location_types: locationTypes })
+  const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
+                                            FROM inventory_movement_reasons WHERE is_active=1
+                                            ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`)
+  res.json({ uoms, suppliers, location_types: locationTypes, movement_reasons: movementReasons })
 }
 
 const createInventoryLocation = async (req, res) => {
@@ -2144,6 +2162,7 @@ const addInventoryItem = async (req, res) => {
         quantity: stock,
         expiration_date,
         batch_code,
+        unit_cost: price,
         note: 'Opening stock',
         location: 'Main Stockroom',
       }, conn)
@@ -2272,6 +2291,427 @@ const deleteInventoryItem = async (req, res) => {
   } catch (error) {
     await conn.rollback()
     throw error
+  } finally {
+    conn.release()
+  }
+}
+
+const getInventoryBatchHistory = async (req, res) => {
+  const batchId = Number(req.params.batchId)
+  if (!batchId) return res.status(400).json({ message: 'Select a valid batch.' })
+
+  const batch = await getInventoryBatchForAction(batchId).catch(() => null)
+  if (!batch) return res.status(404).json({ message: 'Batch not found.' })
+
+  const [movements] = await db.query(
+    `SELECT il.*, i.name AS item_name, ib.batch_code,
+            COALESCE(s.full_name, a.full_name, 'System') AS performed_by,
+            CASE
+              WHEN il.admin_id IS NOT NULL THEN 'Admin'
+              WHEN il.staff_id IS NOT NULL THEN 'Staff'
+              ELSE 'System'
+            END AS performed_by_role
+     FROM inventory_logs il
+     LEFT JOIN inventory i ON i.id = il.inventory_id
+     LEFT JOIN inventory_batches ib ON ib.id = il.batch_id
+     LEFT JOIN staff s ON s.id = il.staff_id
+     LEFT JOIN admins a ON a.id = il.admin_id
+     WHERE il.batch_id = ?
+     ORDER BY il.logged_at DESC, il.id DESC
+     LIMIT 200`,
+    [batchId]
+  )
+
+  const [auditRows] = await db.query(
+    `SELECT al.id, al.action, al.old_values, al.new_values, al.created_at, al.user_role, al.user_id,
+            COALESCE(a.full_name, 'System') AS performed_by
+     FROM audit_logs al
+     LEFT JOIN admins a ON al.user_role = 'admin' AND a.id = al.user_id
+     WHERE al.entity_type = 'inventory_batch' AND al.entity_id = ?
+     ORDER BY al.created_at DESC, al.id DESC
+     LIMIT 200`,
+    [String(batchId)]
+  )
+
+  const parseJsonValue = (value) => {
+    if (!value) return null
+    if (typeof value === 'object') return value
+    try { return JSON.parse(value) } catch { return null }
+  }
+
+  res.json({
+    batch: {
+      id: batch.id, inventory_id: batch.inventory_id, item_name: batch.item_name, item_barcode: batch.item_barcode,
+      batch_code: batch.batch_code, quantity: Number(batch.quantity || 0), expiration_date: batch.expiration_date || null,
+      unit_cost: Number(batch.unit_cost || 0), note: batch.note || null, archived_at: batch.archived_at || null,
+      archive_reason: batch.archive_reason || null,
+    },
+    movements,
+    audit: auditRows.map((row) => ({ ...row, old_values: parseJsonValue(row.old_values), new_values: parseJsonValue(row.new_values) })),
+  })
+}
+
+const INVENTORY_BATCH_ACTION_PURPOSE = 'inventory_batch_action'
+const INVENTORY_BATCH_ACTIONS = new Set(['correct_quantity', 'correct_details', 'archive', 'restore', 'delete'])
+
+const maskEmailAddress = (email = '') => {
+  const [local = '', domain = ''] = String(email || '').split('@')
+  if (!local || !domain) return 'your admin email'
+  return `${local.slice(0, 2)}${'*'.repeat(Math.max(2, local.length - 2))}@${domain}`
+}
+
+const getInventoryBatchForAction = async (batchId, executor = db, forUpdate = false) => {
+  const [rows] = await executor.query(
+    `SELECT b.id, b.inventory_id, b.batch_code, b.quantity, b.expiration_date, b.note,
+            COALESCE(b.unit_cost,0) AS unit_cost, b.archived_at, b.archived_by_admin_id, b.archive_reason,
+            i.name AS item_name, i.barcode AS item_barcode, COALESCE(i.uom,i.base_unit,i.unit,'') AS uom
+     FROM inventory_batches b
+     JOIN inventory i ON i.id = b.inventory_id
+     WHERE b.id = ?
+     ${forUpdate ? 'FOR UPDATE' : ''}`,
+    [batchId]
+  )
+  return rows[0] || null
+}
+
+const getInventoryBatchReferenceCounts = async (batchId, executor = db) => {
+  const [[row]] = await executor.query(
+    `SELECT
+       (SELECT COUNT(*) FROM inventory_logs WHERE batch_id = ?) AS inventory_logs,
+       (SELECT COUNT(*) FROM consultation_inventory_usage_batches WHERE batch_id = ?) AS consultation_usage,
+       (SELECT COUNT(*) FROM billing_item_batch_usage WHERE batch_id = ?) AS billing_usage,
+       (SELECT COUNT(*) FROM inventory_transfer_batches WHERE batch_id = ?) AS transfer_usage`,
+    [batchId, batchId, batchId, batchId]
+  )
+  return {
+    inventory_logs: Number(row?.inventory_logs || 0),
+    consultation_usage: Number(row?.consultation_usage || 0),
+    billing_usage: Number(row?.billing_usage || 0),
+    transfer_usage: Number(row?.transfer_usage || 0),
+  }
+}
+
+const batchHasProtectedHistory = (counts = {}) => Object.values(counts).some((value) => Number(value || 0) > 0)
+
+const normalizeInventoryBatchActionPayload = (action, body, batch) => {
+  const reason = String(body?.reason || '').trim()
+  if (reason.length < 5) {
+    const error = new Error('Enter a correction/reason with at least 5 characters.')
+    error.statusCode = 400
+    throw error
+  }
+
+  if (['correct_quantity', 'correct_details'].includes(action) && batch.archived_at) {
+    const error = new Error('Restore this archived batch before correcting it.')
+    error.statusCode = 409
+    error.code = 'BATCH_ARCHIVED'
+    throw error
+  }
+
+  if (action === 'correct_quantity') {
+    const targetQuantity = Number(body?.target_quantity)
+    if (!Number.isFinite(targetQuantity) || targetQuantity < 0) {
+      const error = new Error('Correct quantity must be zero or greater.')
+      error.statusCode = 400
+      throw error
+    }
+    if (Math.abs(targetQuantity - Number(batch.quantity || 0)) < 0.0001) {
+      const error = new Error('The corrected quantity is the same as the current batch quantity.')
+      error.statusCode = 400
+      throw error
+    }
+    return { reason, target_quantity: targetQuantity }
+  }
+
+  if (action === 'correct_details') {
+    let lotCode = String(body?.batch_lot_code || '').trim().replace(/^-+/, '')
+    const prefix = String(batch.item_barcode || '').trim()
+    if (prefix && lotCode.toLowerCase().startsWith(`${prefix.toLowerCase()}-`)) lotCode = lotCode.slice(prefix.length + 1)
+    if (!lotCode) {
+      const error = new Error('Batch / Lot code is required.')
+      error.statusCode = 400
+      throw error
+    }
+    const fullBatchCode = prefix ? `${prefix}-${lotCode}` : lotCode
+    if (fullBatchCode.length > 80) {
+      const error = new Error('Batch / Lot code is too long.')
+      error.statusCode = 400
+      throw error
+    }
+    const rawExpiry = String(body?.expiration_date || '').trim()
+    const expirationDate = rawExpiry || null
+    if (expirationDate && !/^\d{4}-\d{2}-\d{2}$/.test(expirationDate)) {
+      const error = new Error('Enter a valid batch expiry date.')
+      error.statusCode = 400
+      throw error
+    }
+    const unitCost = Number(body?.unit_cost)
+    if (!Number.isFinite(unitCost) || unitCost < 0) {
+      const error = new Error('Unit cost must be zero or greater.')
+      error.statusCode = 400
+      throw error
+    }
+    return {
+      reason,
+      batch_lot_code: lotCode,
+      batch_code: fullBatchCode,
+      expiration_date: expirationDate,
+      unit_cost: unitCost,
+      note: String(body?.note || '').trim().slice(0, 1000) || null,
+    }
+  }
+
+  if (action === 'archive') {
+    if (Number(batch.quantity || 0) > 0) {
+      const error = new Error('Only a zero-stock batch can be archived. Stock out the remaining quantity first.')
+      error.statusCode = 409
+      error.code = 'BATCH_HAS_STOCK'
+      throw error
+    }
+    if (batch.archived_at) {
+      const error = new Error('This batch is already archived.')
+      error.statusCode = 409
+      throw error
+    }
+    return { reason }
+  }
+
+  if (action === 'restore') {
+    if (!batch.archived_at) {
+      const error = new Error('This batch is not archived.')
+      error.statusCode = 409
+      throw error
+    }
+    return { reason }
+  }
+
+  if (action === 'delete') {
+    if (Number(batch.quantity || 0) > 0) {
+      const error = new Error('A batch with remaining stock cannot be deleted.')
+      error.statusCode = 409
+      error.code = 'BATCH_HAS_STOCK'
+      throw error
+    }
+    return { reason }
+  }
+
+  const error = new Error('Unsupported batch action.')
+  error.statusCode = 400
+  throw error
+}
+
+const requestInventoryBatchActionCode = async (req, res) => {
+  const batchId = Number(req.params.batchId)
+  const action = String(req.body?.action || '').trim()
+  if (!batchId || !INVENTORY_BATCH_ACTIONS.has(action)) return res.status(400).json({ message: 'Select a valid batch action.' })
+
+  const batch = await getInventoryBatchForAction(batchId)
+  if (!batch) return res.status(404).json({ message: 'Batch not found.' })
+
+  let payload
+  try { payload = normalizeInventoryBatchActionPayload(action, req.body, batch) }
+  catch (error) { return res.status(error.statusCode || 400).json({ message: error.message, code: error.code || null }) }
+
+  if (action === 'delete') {
+    const references = await getInventoryBatchReferenceCounts(batchId)
+    if (batchHasProtectedHistory(references)) {
+      return res.status(409).json({
+        message: 'This zero-stock batch has inventory/clinical/billing/transfer history and cannot be hard deleted. Archive it instead.',
+        code: 'BATCH_HAS_HISTORY',
+        references,
+      })
+    }
+  }
+
+  const [[admin]] = await db.query('SELECT id,full_name,email,password FROM admins WHERE id=? LIMIT 1', [req.user.id])
+  if (!admin) return res.status(404).json({ message: 'Administrator account not found.' })
+  if (!String(req.body?.password || '')) return res.status(400).json({ message: 'Admin password is required.' })
+  const passwordMatches = await bcrypt.compare(String(req.body.password), admin.password)
+  if (!passwordMatches) return res.status(401).json({ message: 'Admin password is incorrect.' })
+  if (!admin.email) return res.status(400).json({ message: 'The administrator account needs an email address for verification.' })
+
+  const authorizationPayload = {
+    action,
+    batch_id: batch.id,
+    inventory_id: batch.inventory_id,
+    old: {
+      quantity: Number(batch.quantity || 0),
+      batch_code: batch.batch_code || null,
+      expiration_date: batch.expiration_date ? String(batch.expiration_date).slice(0, 10) : null,
+      unit_cost: Number(batch.unit_cost || 0),
+      note: batch.note || null,
+      archived_at: batch.archived_at || null,
+    },
+    requested: payload,
+  }
+
+  try {
+    const code = await createSecurityCode({
+      role: 'admin', accountId: req.user.id, purpose: INVENTORY_BATCH_ACTION_PURPOSE, payload: authorizationPayload,
+    })
+    await sendAccountSecurityOtp(admin.email, admin.full_name, code)
+    await writeAuditLog({
+      userId:req.user.id,userRole:'admin',action:'inventory.batch_action_verification_requested',entityType:'inventory_batch',entityId:batch.id,
+      newValues:{ action, item_name:batch.item_name, batch_code:batch.batch_code || null, reason:payload.reason },ipAddress:req.ip||null,
+    }).catch(() => {})
+    res.json({ message: `Verification code sent to ${maskEmailAddress(admin.email)}.`, destination: maskEmailAddress(admin.email) })
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message || 'Could not send the verification code.' })
+  }
+}
+
+const confirmInventoryBatchAction = async (req, res) => {
+  const routeBatchId = Number(req.params.batchId)
+  const code = String(req.body?.code || '').trim()
+  if (!routeBatchId || !/^\d{6}$/.test(code)) return res.status(400).json({ message: 'Enter the 6-digit verification code.' })
+
+  let verified
+  try {
+    verified = await verifySecurityCode({ role:'admin', accountId:req.user.id, purpose:INVENTORY_BATCH_ACTION_PURPOSE, code })
+  } catch (error) {
+    return res.status(400).json({ message: error.message || 'Invalid or expired verification code.' })
+  }
+
+  const authorization = verified.payload || {}
+  const action = String(authorization.action || '')
+  const batchId = Number(authorization.batch_id)
+  if (!INVENTORY_BATCH_ACTIONS.has(action) || batchId !== routeBatchId) {
+    return res.status(400).json({ message: 'This verification code does not authorize the selected batch action.' })
+  }
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const batch = await getInventoryBatchForAction(batchId, conn, true)
+    if (!batch) throw Object.assign(new Error('Batch not found.'), { statusCode:404 })
+
+    const expected = authorization.old || {}
+    const currentExpiry = batch.expiration_date ? String(batch.expiration_date).slice(0,10) : null
+    if (
+      Math.abs(Number(expected.quantity || 0) - Number(batch.quantity || 0)) > 0.0001 ||
+      String(expected.batch_code || '') !== String(batch.batch_code || '') ||
+      String(expected.expiration_date || '') !== String(currentExpiry || '') ||
+      Math.abs(Number(expected.unit_cost || 0) - Number(batch.unit_cost || 0)) > 0.0001 ||
+      String(expected.archived_at || '') !== String(batch.archived_at || '')
+    ) {
+      throw Object.assign(new Error('This batch changed after the verification code was requested. Review the latest values and request a new code.'), { statusCode:409, code:'BATCH_CHANGED' })
+    }
+
+    const requested = authorization.requested || {}
+    const reason = String(requested.reason || '').trim()
+
+    if (action === 'correct_quantity') {
+      if (batch.archived_at) throw Object.assign(new Error('Restore this archived batch before correcting it.'), { statusCode:409 })
+      const target = Number(requested.target_quantity)
+      if (!Number.isFinite(target) || target < 0) throw Object.assign(new Error('Correct quantity is invalid.'), { statusCode:400 })
+      const current = Number(batch.quantity || 0)
+      const delta = target - current
+      if (Math.abs(delta) < 0.0001) throw Object.assign(new Error('The batch quantity is already correct.'), { statusCode:400 })
+
+      const [allocationRows] = await conn.query(
+        `SELECT ilb.location_id, ilb.quantity, il.name
+         FROM inventory_location_batches ilb
+         JOIN inventory_locations il ON il.id=ilb.location_id
+         WHERE ilb.batch_id=?
+         ORDER BY ilb.quantity DESC, ilb.location_id
+         FOR UPDATE`, [batch.id]
+      )
+      const allocated = allocationRows.reduce((sum,row)=>sum+Number(row.quantity||0),0)
+      if (current > 0 && Math.abs(allocated-current) > 0.0001) {
+        throw Object.assign(new Error('Batch location balances do not match the batch total. Repair the inventory allocation before applying a correction.'), { statusCode:409, code:'BATCH_LOCATION_MISMATCH' })
+      }
+
+      if (delta > 0) {
+        let targetLocation = allocationRows[0] || null
+        if (!targetLocation) {
+          let [[location]] = await conn.query("SELECT id,name FROM inventory_locations WHERE COALESCE(is_active,1)=1 ORDER BY (name='Main Stockroom') DESC,id ASC LIMIT 1")
+          if (!location) {
+            await conn.query("INSERT INTO inventory_locations (name,location_type,is_active) VALUES ('Main Stockroom','stockroom',1)")
+            ;[[location]] = await conn.query("SELECT id,name FROM inventory_locations WHERE name='Main Stockroom' LIMIT 1")
+          }
+          targetLocation = { location_id:location.id, name:location.name, quantity:0 }
+        }
+        await conn.query(
+          `INSERT INTO inventory_location_batches (location_id,inventory_id,batch_id,quantity)
+           VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+VALUES(quantity)`,
+          [targetLocation.location_id,batch.inventory_id,batch.id,delta]
+        )
+        await conn.query(
+          `INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location)
+           VALUES (?,?,'in',?,?, 'correction_in',?,?)`,
+          [batch.inventory_id,req.user.id,delta,reason,batch.id,targetLocation.name || null]
+        )
+      } else {
+        let remaining = Math.abs(delta)
+        for (const allocation of allocationRows) {
+          if (remaining <= 0.0001) break
+          const available = Number(allocation.quantity || 0)
+          if (available <= 0) continue
+          const take = Math.min(available, remaining)
+          await conn.query('UPDATE inventory_location_batches SET quantity=quantity-? WHERE location_id=? AND batch_id=? AND quantity>=?', [take,allocation.location_id,batch.id,take])
+          await conn.query(
+            `INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,from_location)
+             VALUES (?,?,'out',?,?, 'adjustment_out',?,?)`,
+            [batch.inventory_id,req.user.id,take,reason,batch.id,allocation.name || null]
+          )
+          remaining -= take
+        }
+        if (remaining > 0.0001) throw Object.assign(new Error('The batch location balances are insufficient for this correction.'), { statusCode:409 })
+      }
+
+      await conn.query('UPDATE inventory_batches SET quantity=? WHERE id=?', [target,batch.id])
+      await syncInventorySnapshot(batch.inventory_id, conn)
+      await syncLocationSnapshot(batch.inventory_id, conn)
+      await writeAuditLog({
+        userId:req.user.id,userRole:'admin',action:'inventory.batch_quantity_corrected',entityType:'inventory_batch',entityId:batch.id,
+        oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:current },
+        newValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:target,adjustment:delta,reason,authorization:'admin_password_email_code' },
+        ipAddress:req.ip||null,
+      },conn)
+    } else if (action === 'correct_details') {
+      if (batch.archived_at) throw Object.assign(new Error('Restore this archived batch before correcting it.'), { statusCode:409 })
+      const newCode = String(requested.batch_code || '').trim()
+      if (!newCode) throw Object.assign(new Error('Batch / Lot code is required.'), { statusCode:400 })
+      const [[duplicate]] = await conn.query('SELECT id FROM inventory_batches WHERE inventory_id=? AND batch_code=? AND id<>? LIMIT 1', [batch.inventory_id,newCode,batch.id])
+      if (duplicate) throw Object.assign(new Error('That Batch / Lot code already exists for this item.'), { statusCode:409, code:'BATCH_ALREADY_EXISTS' })
+      await conn.query(
+        'UPDATE inventory_batches SET batch_code=?,expiration_date=?,unit_cost=?,note=? WHERE id=?',
+        [newCode,requested.expiration_date || null,Math.max(0,Number(requested.unit_cost)||0),requested.note || null,batch.id]
+      )
+      await writeAuditLog({
+        userId:req.user.id,userRole:'admin',action:'inventory.batch_details_corrected',entityType:'inventory_batch',entityId:batch.id,
+        oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),note:batch.note||null },
+        newValues:{ item_name:batch.item_name,batch_code:newCode,expiration_date:requested.expiration_date||null,unit_cost:Math.max(0,Number(requested.unit_cost)||0),note:requested.note||null,reason,authorization:'admin_password_email_code' },
+        ipAddress:req.ip||null,
+      },conn)
+    } else if (action === 'archive') {
+      if (Number(batch.quantity||0)>0) throw Object.assign(new Error('Only a zero-stock batch can be archived.'), { statusCode:409 })
+      if (batch.archived_at) throw Object.assign(new Error('This batch is already archived.'), { statusCode:409 })
+      await conn.query('UPDATE inventory_batches SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=?', [req.user.id,reason,batch.id])
+      await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.batch_archived',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:null},newValues:{batch_code:batch.batch_code,archived_at:'now',reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+    } else if (action === 'restore') {
+      if (!batch.archived_at) throw Object.assign(new Error('This batch is not archived.'), { statusCode:409 })
+      await conn.query('UPDATE inventory_batches SET archived_at=NULL,archived_by_admin_id=NULL,archive_reason=NULL WHERE id=?', [batch.id])
+      await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.batch_restored',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:batch.archived_at,archive_reason:batch.archive_reason},newValues:{batch_code:batch.batch_code,archived_at:null,reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+    } else if (action === 'delete') {
+      if (Number(batch.quantity||0)>0) throw Object.assign(new Error('A batch with remaining stock cannot be deleted.'), { statusCode:409 })
+      const references = await getInventoryBatchReferenceCounts(batch.id, conn)
+      if (batchHasProtectedHistory(references)) throw Object.assign(new Error('This batch has transaction history and cannot be hard deleted. Archive it instead.'), { statusCode:409, code:'BATCH_HAS_HISTORY' })
+      await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.batch_deleted',entityType:'inventory_batch',entityId:batch.id,oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,quantity:Number(batch.quantity||0),expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await conn.query('DELETE FROM inventory_batches WHERE id=?', [batch.id])
+      await syncInventorySnapshot(batch.inventory_id, conn)
+      await syncLocationSnapshot(batch.inventory_id, conn)
+    }
+
+    await conn.commit()
+    const refreshed = await loadInventoryRows(db, 'WHERE id = ?', [batch.inventory_id])
+    const messages = {
+      correct_quantity:'Batch quantity corrected.', correct_details:'Batch details corrected.', archive:'Batch archived.', restore:'Batch restored.', delete:'Batch deleted.',
+    }
+    res.json({ message:messages[action] || 'Batch updated.', item:refreshed[0] || null })
+  } catch (error) {
+    await conn.rollback()
+    res.status(error.statusCode || 500).json({ message:error.message || 'Could not complete the batch action.', code:error.code || null })
   } finally {
     conn.release()
   }
@@ -2535,29 +2975,29 @@ const resolveBillingAdjustmentRequestAdmin = async (req, res) => {
 // ── Discount presets ──────────────────────────────────────────────────────────
 
 const getDiscountPresetsAdmin = async (req,res) => {
-  const [rows]=await db.query('SELECT * FROM discount_presets ORDER BY sort_order,label');res.json(rows)
+  const [rows]=await db.query('SELECT * FROM discount_presets ORDER BY created_at ASC, id ASC');res.json(rows)
 }
 const saveDiscountPresetAdmin = async (req,res) => {
   const id=Number(req.params.id)||0
   const discountType=['percentage','fixed'].includes(req.body.discount_type)?req.body.discount_type:'fixed'
   const value=Math.max(0,Number(req.body.value)||0)
   if(discountType==='percentage' && value>100) return res.status(400).json({code:'INVALID_DISCOUNT_PERCENTAGE',message:'Percentage discount cannot exceed 100%.'})
-  const payload={label:String(req.body.label||'').trim(),discount_type:discountType,value,requires_reference:req.body.requires_reference?1:0,requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===0||req.body.is_active===false?0:1,sort_order:Number(req.body.sort_order)||0}
+  const payload={label:String(req.body.label||'').trim(),discount_type:discountType,value,requires_reference:req.body.requires_reference?1:0,requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===0||req.body.is_active===false?0:1}
   if(!payload.label)return res.status(400).json({message:'Discount label is required.'})
   if(id && !payload.is_active){
     const [[pending]]=await db.query(`SELECT COUNT(*) AS total FROM billing_adjustment_requests WHERE discount_preset_id=? AND status='pending'`,[id])
     if(Number(pending?.total||0)>0) return res.status(409).json({code:'PENDING_DISCOUNT_REQUESTS',message:`Resolve ${Number(pending.total)} pending billing request${Number(pending.total)===1?'':'s'} before deactivating this discount.`,pending_count:Number(pending.total)})
   }
   let targetId=id
-  if(id){ await db.query(`UPDATE discount_presets SET label=?,discount_type=?,value=?,requires_reference=?,requires_admin_approval=?,is_active=?,sort_order=? WHERE id=?`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active,payload.sort_order,id]) }
-  else { const [r]=await db.query(`INSERT INTO discount_presets (label,discount_type,value,requires_reference,requires_admin_approval,is_active,sort_order) VALUES (?,?,?,?,?,?,?)`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active,payload.sort_order]); targetId=r.insertId }
+  if(id){ await db.query(`UPDATE discount_presets SET label=?,discount_type=?,value=?,requires_reference=?,requires_admin_approval=?,is_active=? WHERE id=?`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active,id]) }
+  else { const [r]=await db.query(`INSERT INTO discount_presets (label,discount_type,value,requires_reference,requires_admin_approval,is_active) VALUES (?,?,?,?,?,?)`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active]); targetId=r.insertId }
   await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'billing.discount_preset_updated':'billing.discount_preset_created',entityType:'discount_preset',entityId:targetId,newValues:payload,ipAddress:req.ip||null})
   const [rows]=await db.query('SELECT * FROM discount_presets WHERE id=?',[targetId]);res.status(id?200:201).json(rows[0])
 }
 
 // ── System setup / inventory reference data ──────────────────────────────────
 const getSystemSetup = async (req, res) => {
-  const [visitReasons, serviceCategories, uoms, suppliers, locationTypes] = await Promise.all([
+  const [visitReasons, serviceCategories, uoms, suppliers, locationTypes, movementReasons] = await Promise.all([
     db.query('SELECT id,label,clinic_type,is_active,sort_order FROM appointment_reason_options ORDER BY sort_order,label'),
     db.query(`SELECT c.id,c.name,c.clinic_type,c.is_active,COUNT(s.id) AS service_count
               FROM billing_service_categories c
@@ -2567,6 +3007,9 @@ const getSystemSetup = async (req, res) => {
     db.query('SELECT id,name,abbreviation,is_active,sort_order FROM inventory_uoms ORDER BY sort_order,name'),
     db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers ORDER BY name ASC'),
     db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY sort_order,name'),
+    db.query(`SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at
+              FROM inventory_movement_reasons
+              ORDER BY FIELD(movement_type,'in','out'), is_system DESC, name ASC`),
   ])
   res.json({
     visit_reasons: visitReasons[0],
@@ -2574,6 +3017,7 @@ const getSystemSetup = async (req, res) => {
     uoms: uoms[0],
     suppliers: suppliers[0],
     location_types: locationTypes[0],
+    movement_reasons: movementReasons[0],
   })
 }
 
@@ -2788,6 +3232,102 @@ const saveInventoryLocationType = async (req,res) => {
   }
 }
 
+const saveInventoryMovementReason = async (req, res) => {
+  const id = Number(req.params.id || 0)
+  const name = String(req.body?.name || '').trim()
+  const requestedType = ['in','out'].includes(String(req.body?.movement_type || '')) ? String(req.body.movement_type) : null
+  const requiresBatch = req.body?.requires_batch === true || Number(req.body?.requires_batch) === 1 ? 1 : 0
+  const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
+  if (!name || !requestedType) return res.status(400).json({ message: 'Movement reason name and movement type are required.' })
+
+  const protectedCodes = new Set(['received','correction_in','adjustment_out'])
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    let targetId = id
+    let code = ''
+    let movementType = requestedType
+    let isSystem = 0
+    let oldValues = null
+
+    if (id) {
+      const [[existing]] = await conn.query(
+        'SELECT id,name,code,movement_type,requires_batch,is_system,is_active FROM inventory_movement_reasons WHERE id=? FOR UPDATE',
+        [id]
+      )
+      if (!existing) { await conn.rollback(); return res.status(404).json({ message: 'Movement reason not found.' }) }
+      oldValues = existing
+      code = existing.code
+      isSystem = Number(existing.is_system || 0)
+
+      if (isSystem && requestedType !== existing.movement_type) {
+        await conn.rollback()
+        return res.status(409).json({ code:'SYSTEM_MOVEMENT_TYPE_LOCKED', message:'Built-in movement reasons cannot be changed between Stock In and Stock Out.' })
+      }
+      if (!isSystem && requestedType !== existing.movement_type) {
+        const [[usage]] = await conn.query('SELECT COUNT(*) AS total FROM inventory_logs WHERE movement_type=?', [existing.code])
+        if (Number(usage?.total || 0) > 0) {
+          await conn.rollback()
+          return res.status(409).json({ code:'MOVEMENT_REASON_IN_USE', message:'This movement reason already has inventory history. Its Stock In / Stock Out type can no longer be changed.' })
+        }
+      }
+      movementType = isSystem ? existing.movement_type : requestedType
+
+      if (!isActive && protectedCodes.has(code)) {
+        await conn.rollback()
+        return res.status(409).json({ code:'PROTECTED_MOVEMENT_REASON', message:'This core movement reason is required by inventory correction/receiving workflows and cannot be deactivated. You can rename its visible label.' })
+      }
+      if (!isActive && Number(existing.is_active) === 1) {
+        const [[remaining]] = await conn.query(
+          'SELECT COUNT(*) AS total FROM inventory_movement_reasons WHERE movement_type=? AND is_active=1 AND id<>?',
+          [movementType,id]
+        )
+        if (Number(remaining?.total || 0) === 0) {
+          await conn.rollback()
+          return res.status(409).json({ code:'LAST_ACTIVE_MOVEMENT_REASON', message:`Keep at least one active Stock ${movementType === 'in' ? 'In' : 'Out'} movement reason.` })
+        }
+      }
+
+      await conn.query(
+        'UPDATE inventory_movement_reasons SET name=?,movement_type=?,requires_batch=?,is_active=? WHERE id=?',
+        [name,movementType,requiresBatch,isActive,id]
+      )
+    } else {
+      const baseCode = name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,70)
+      if (!baseCode) { await conn.rollback(); return res.status(400).json({ message:'Enter a valid movement reason name.' }) }
+      code = baseCode
+      let suffix = 2
+      while (true) {
+        const [[duplicate]] = await conn.query('SELECT id FROM inventory_movement_reasons WHERE code=? LIMIT 1', [code])
+        if (!duplicate) break
+        code = `${baseCode}_${suffix++}`
+      }
+      const [result] = await conn.query(
+        'INSERT INTO inventory_movement_reasons (name,code,movement_type,requires_batch,is_system,is_active) VALUES (?,?,?,?,0,?)',
+        [name,code,movementType,requiresBatch,isActive]
+      )
+      targetId = result.insertId
+    }
+
+    const [[row]] = await conn.query(
+      'SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at FROM inventory_movement_reasons WHERE id=?',
+      [targetId]
+    )
+    await writeAuditLog({
+      userId:req.user.id,userRole:'admin',
+      action:id?'system.movement_reason_updated':'system.movement_reason_created',
+      entityType:'inventory_movement_reason',entityId:targetId,oldValues,newValues:row,ipAddress:req.ip||null,
+    }, conn)
+    await conn.commit()
+    res.status(id ? 200 : 201).json(row)
+  } catch (err) {
+    await conn.rollback()
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message:'That movement reason already exists.' })
+    throw err
+  } finally { conn.release() }
+}
+
+
 const getInventoryLocationsAdmin = async (req,res) => {
   const [rows]=await db.query(`SELECT l.id,l.name,l.location_type,l.is_active,l.created_at,
       COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.inventory_id END) AS item_count,
@@ -2894,7 +3434,7 @@ const getAuditLogs = async (req,res) => {
     const areaTypes={
       appointments:['appointment'],
       doctor_schedule:['doctor_schedule','doctor_unavailable_date'],
-      inventory:['inventory_item'],
+      inventory:['inventory_item','inventory_movement_reason'],
       stock_transfers:['supply_request'],
       billing:['billing_record','billing_payment','billing_adjustment_request','cashier_closing','discount_preset','clinic_payment_settings'],
       service_catalog:['billing_service','billing_service_category'],
@@ -2955,8 +3495,8 @@ module.exports = {
   getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
-  getSystemSetup, saveBillingServiceCategory, saveInventoryUom, saveInventorySupplier, saveInventoryLocationType, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
-  getReports, recordReportExport, getInventoryLogs,
-  getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
+  getSystemSetup, saveBillingServiceCategory, saveInventoryUom, saveInventorySupplier, saveInventoryLocationType, saveInventoryMovementReason, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
+  getReports, recordReportExport, getInventoryLogs, getInventoryBatchHistory,
+  getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }

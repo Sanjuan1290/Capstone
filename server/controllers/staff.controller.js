@@ -1340,7 +1340,7 @@ const confirmBillPayment = payBill
 const getDiscountPresets = async (req, res) => {
   const [rows] = await db.query(
     `SELECT id, label, discount_type, value, requires_reference, requires_admin_approval
-     FROM discount_presets WHERE is_active = 1 ORDER BY sort_order ASC, label ASC`
+     FROM discount_presets WHERE is_active = 1 ORDER BY created_at ASC, id ASC`
   )
   res.json(rows)
 }
@@ -1370,7 +1370,10 @@ const getInventoryMasterData = async (req, res) => {
   const [uoms] = await db.query('SELECT id,name,abbreviation FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
   const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name`, category ? [category] : [])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE is_active=1 ORDER BY sort_order,name')
-  res.json({ uoms, suppliers, location_types: locationTypes })
+  const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
+                                            FROM inventory_movement_reasons WHERE is_active=1
+                                            ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`)
+  res.json({ uoms, suppliers, location_types: locationTypes, movement_reasons: movementReasons })
 }
 
 const getInventory = async (req, res) => {
@@ -1425,6 +1428,7 @@ const addInventoryItem = async (req, res) => {
         quantity: stock,
         expiration_date,
         batch_code,
+        unit_cost: price,
         note: 'Opening stock',
         location: 'Main Stockroom',
       }, conn)

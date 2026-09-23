@@ -9,6 +9,7 @@ import {
   MdPlace,
   MdRefresh,
   MdSettings,
+  MdSwapVert,
 } from 'react-icons/md'
 import Admin_PatientBooking from './Admin_PatientBooking'
 import Modal from '../../components/ui/Modal'
@@ -18,6 +19,7 @@ import {
   getSystemSetup,
   saveBillingServiceCategory,
   saveInventoryLocationType,
+  saveInventoryMovementReason,
   saveInventorySupplier,
   saveInventoryUom,
 } from '../../services/admin.service'
@@ -28,6 +30,7 @@ const TABS = [
   { key: 'uoms', label: 'Units of Measure', Icon: MdInventory2 },
   { key: 'suppliers', label: 'Suppliers', Icon: MdLocalShipping },
   { key: 'location_types', label: 'Location Types', Icon: MdPlace },
+  { key: 'movement_reasons', label: 'Movement Reasons', Icon: MdSwapVert },
 ]
 
 const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : 'General Medicine'
@@ -72,6 +75,13 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       save: saveInventoryLocationType,
       description: 'Reusable Location Types assigned directly to inventory items. Add at least one before creating inventory items.',
     },
+    movement_reasons: {
+      title: 'Movement Reason',
+      plural: 'Movement Reasons',
+      singular: 'movement reason',
+      save: saveInventoryMovementReason,
+      description: 'Reusable reasons shown when recording Stock In or Stock Out. Built-in codes stay protected so existing inventory history remains valid.',
+    },
   }[type]), [type])
 
   const close = () => {
@@ -111,6 +121,16 @@ const ReferenceManager = ({ type, rows, onReload }) => {
         name: row?.name || '',
         is_active: row ? Number(row.is_active) : 1,
         sort_order: row?.sort_order ?? 0,
+      })
+    }
+    if (type === 'movement_reasons') {
+      setForm({
+        name: row?.name || '',
+        movement_type: row?.movement_type || 'in',
+        requires_batch: row ? Number(row.requires_batch) : 0,
+        is_active: row ? Number(row.is_active) : 1,
+        is_system: row ? Number(row.is_system) : 0,
+        code: row?.code || '',
       })
     }
   }
@@ -158,6 +178,8 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                 {type === 'suppliers' && <th className="px-5 py-3">Contact</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Address</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Clinic</th>}
+                {type === 'movement_reasons' && <th className="px-5 py-3">Movement</th>}
+                {type === 'movement_reasons' && <th className="px-5 py-3">Batch Rule</th>}
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3 text-right">Action</th>
               </tr>
@@ -172,6 +194,8 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500"><p className="font-semibold text-slate-700">{row.contact_person || '—'}</p><p className="mt-1 text-xs">{row.contact_number || 'No contact number'}</p></td>}
                   {type === 'suppliers' && <td className="max-w-xs px-5 py-4 text-slate-500">{row.address || '—'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{supplierClinicLabel(row.category)}</td>}
+                  {type === 'movement_reasons' && <td className="px-5 py-4 text-slate-500"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${row.movement_type === 'in' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{row.movement_type === 'in' ? 'Stock In' : 'Stock Out'}</span>{Number(row.is_system) === 1 && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">System</span>}</td>}
+                  {type === 'movement_reasons' && <td className="px-5 py-4 text-slate-500">{Number(row.requires_batch) === 1 ? 'Exact batch required' : 'Standard batch flow'}</td>}
                   <td className="px-5 py-4">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${Number(row.is_active) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                       {Number(row.is_active) === 1 ? 'Active' : 'Inactive'}
@@ -257,6 +281,29 @@ const ReferenceManager = ({ type, rows, onReload }) => {
             </>
           )}
 
+          {type === 'movement_reasons' && (
+            <>
+              <label className="block">
+                <span className="form-label">Movement Type *</span>
+                <select
+                  className="form-control mt-1.5"
+                  value={form.movement_type || 'in'}
+                  disabled={Boolean(editing && Number(form.is_system) === 1)}
+                  onChange={(e) => setForm((value) => ({ ...value, movement_type: e.target.value }))}
+                >
+                  <option value="in">Stock In</option>
+                  <option value="out">Stock Out</option>
+                </select>
+                {editing && Number(form.is_system) === 1 && <p className="mt-1 text-xs text-slate-400">Built-in reasons keep their Stock In / Stock Out type so existing inventory history remains consistent.</p>}
+              </label>
+              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <input type="checkbox" className="mt-1" checked={Number(form.requires_batch) === 1} onChange={(e) => setForm((value) => ({ ...value, requires_batch: e.target.checked ? 1 : 0 }))} />
+                <span><strong className="text-sm text-slate-800">Require exact batch selection</strong><span className="mt-0.5 block text-xs text-slate-500">Use this for reasons where the specific lot must remain traceable, such as expired, damaged, wastage, or returns.</span></span>
+              </label>
+              {editing && form.code && <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">Internal code: <code className="font-bold text-slate-700">{form.code}</code>. The code is kept stable and is not edited from System Setup.</div>}
+            </>
+          )}
+
           <label className="block">
             <span className="form-label">Status</span>
             <select className="form-control mt-1.5" value={Number(form.is_active) === 0 ? 0 : 1} onChange={(e) => setForm((value) => ({ ...value, is_active: Number(e.target.value) }))}>
@@ -280,7 +327,7 @@ const Admin_SystemSetup = () => {
   const requestedTab = searchParams.get('tab')
   const validTab = TABS.some((item) => item.key === requestedTab) ? requestedTab : 'visits'
   const [tab, setTab] = useState(validTab)
-  const [data, setData] = useState({ service_categories: [], uoms: [], suppliers: [], location_types: [] })
+  const [data, setData] = useState({ service_categories: [], uoms: [], suppliers: [], location_types: [], movement_reasons: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -315,7 +362,7 @@ const Admin_SystemSetup = () => {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdSettings className="text-amber-500" /> System Setup</h1>
-          <p className="mt-1 text-sm text-slate-500">Manage patient visit options, service categories, and reusable inventory reference data from one place.</p>
+          <p className="mt-1 text-sm text-slate-500">Manage patient visit options, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
         </div>
         {tab !== 'visits' && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
       </div>

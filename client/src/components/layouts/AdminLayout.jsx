@@ -17,6 +17,7 @@ const GROUPS = [
   { label: 'Overview', items: [{ name: 'Dashboard', path: '/admin', icon: MdDashboard, short: 'Home' }] },
   { label: 'Clinic Operations', items: [
     { name: 'Appointments', path: '/admin/appointments', icon: MdEventAvailable, short: 'Appts', badge: 'pending' },
+    { name: 'Patient Records', path: '/admin/patient-records', icon: MdPeople, short: 'Patients' },
     { name: 'Doctor Schedules', path: '/admin/doctor-schedules', icon: MdCalendarToday, short: 'Schedule' },
   ] },
   { label: 'Billing & Stock', items: [

@@ -111,6 +111,8 @@ router.post('/system-setup/suppliers', ...auth, adminCtrl.saveInventorySupplier)
 router.put('/system-setup/suppliers/:id', ...auth, adminCtrl.saveInventorySupplier)
 router.post('/system-setup/location-types', ...auth, adminCtrl.saveInventoryLocationType)
 router.put('/system-setup/location-types/:id', ...auth, adminCtrl.saveInventoryLocationType)
+router.post('/system-setup/movement-reasons', ...auth, adminCtrl.saveInventoryMovementReason)
+router.put('/system-setup/movement-reasons/:id', ...auth, adminCtrl.saveInventoryMovementReason)
 router.get('/clinic-settings', ...auth, adminCtrl.getClinicSettingsAdmin)
 router.put('/clinic-settings', ...auth, adminCtrl.updateClinicSettingsAdmin)
 
@@ -125,6 +127,9 @@ router.post('/inventory/suppliers',    ...auth, adminCtrl.createInventorySupplie
 router.get('/inventory/logs',         ...auth, adminCtrl.getInventoryLogs)
 router.post('/inventory',             ...auth, adminCtrl.addInventoryItem)
 router.patch('/inventory/:id/stock',  ...auth, adminCtrl.updateStock)
+router.get('/inventory/batches/:batchId/history', ...auth, adminCtrl.getInventoryBatchHistory)
+router.post('/inventory/batches/:batchId/action/request-code', otpRequestLimiter, ...auth, adminCtrl.requestInventoryBatchActionCode)
+router.post('/inventory/batches/:batchId/action/confirm', otpVerifyLimiter, ...auth, adminCtrl.confirmInventoryBatchAction)
 // FIX 5: Edit and Delete inventory items
 router.put('/inventory/:id',          ...auth, adminCtrl.updateInventoryItem)
 router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
@@ -134,4 +139,3 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
-

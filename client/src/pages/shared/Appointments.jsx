@@ -48,6 +48,23 @@ const buttonBase = 'rounded-xl px-3 py-2 text-xs font-semibold transition'
 const formatDate = (value) => formatDateOnly(value)
 
 const formatStatus = (value) => value?.replace('_', ' ').replace(/\b\w/g, (m) => m.toUpperCase()) || 'Unknown'
+const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : value === 'medical' ? 'General Medicine' : 'Other'
+const timeToMinutes = (value) => {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i)
+  if (!match) return 0
+  let hour = Number(match[1])
+  const minute = Number(match[2])
+  const meridiem = String(match[3] || '').toUpperCase()
+  if (meridiem === 'PM' && hour < 12) hour += 12
+  if (meridiem === 'AM' && hour === 12) hour = 0
+  return (hour * 60) + minute
+}
+const compareVisitTime = (a, b, direction = 1) => {
+  const aDate = String(a.appointment_date || a.date || '').slice(0, 10)
+  const bDate = String(b.appointment_date || b.date || '').slice(0, 10)
+  if (aDate !== bDate) return aDate.localeCompare(bDate) * direction
+  return (timeToMinutes(a.appointment_time || a.time) - timeToMinutes(b.appointment_time || b.time)) * direction
+}
 const getActionsForStatus = (status) => {
   if (status === 'pending') return ['confirm', 'cancel', 'reschedule']
   if (status === 'confirmed') return ['cancel', 'reschedule', 'no_show']
@@ -316,7 +333,7 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
 
   useEffect(() => {
     services.getDoctors?.().then((rows) => setDoctors(Array.isArray(rows) ? rows : [])).catch(() => {})
-  }, [services, sort, direction])
+  }, [services])
 
   useEffect(() => {
     if (mode !== 'existing' || search.trim().length < 2 || (selectedPatient?.full_name || selectedPatient?.name) === search) {
@@ -614,8 +631,8 @@ const Appointments = ({ services }) => {
   const [query, setQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [sort, setSort] = useState('created_at')
-  const [direction, setDirection] = useState('desc')
+  const [clinicFilter, setClinicFilter] = useState('all')
+  const [doctorFilter, setDoctorFilter] = useState('all')
   const [page, setPage] = useState(1)
   const [busyId, setBusyId] = useState(null)
   const [viewAppointment, setViewAppointment] = useState(null)
@@ -625,8 +642,7 @@ const Appointments = ({ services }) => {
   const loadAppointments = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ sort, direction })
-      const rows = await services.getAppointments(`?${params.toString()}`)
+      const rows = await services.getAppointments()
       setAppointments(Array.isArray(rows) ? rows : [])
     } finally {
       setLoading(false)
@@ -643,20 +659,41 @@ const Appointments = ({ services }) => {
     return () => window.removeEventListener('clinic:refresh', refresh)
   }, [loadAppointments])
 
+  const pendingCount = useMemo(() => appointments.filter((appointment) => appointment.status === 'pending').length, [appointments])
+  const doctorOptions = useMemo(() => Array.from(new Set(appointments.map((appointment) => appointment.doctor).filter(Boolean))).sort((a,b) => a.localeCompare(b)), [appointments])
+  const clinicOptions = useMemo(() => Array.from(new Set(appointments.map((appointment) => appointment.clinic_type || appointment.type).filter(Boolean))), [appointments])
+
   const filteredAppointments = useMemo(() => {
-    return appointments.filter((appointment) => {
+    const filtered = appointments.filter((appointment) => {
       const matchesTab = tab === 'all' || appointment.status === tab
       const searchNeedle = query.trim().toLowerCase()
-      const matchesSearch = !searchNeedle || [appointment.patient_name, appointment.patient, appointment.reason]
+      const matchesSearch = !searchNeedle || [appointment.patient_name, appointment.patient, appointment.doctor, appointment.requested_service_name_snapshot, appointment.reason]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(searchNeedle))
 
       const appointmentDate = (appointment.appointment_date || appointment.date || '').slice(0, 10)
       const matchesFrom = !dateFrom || appointmentDate >= dateFrom
       const matchesTo = !dateTo || appointmentDate <= dateTo
-      return matchesTab && matchesSearch && matchesFrom && matchesTo
+      const appointmentClinic = appointment.clinic_type || appointment.type || ''
+      const matchesClinic = clinicFilter === 'all' || appointmentClinic === clinicFilter
+      const matchesDoctor = doctorFilter === 'all' || appointment.doctor === doctorFilter
+      return matchesTab && matchesSearch && matchesFrom && matchesTo && matchesClinic && matchesDoctor
     })
-  }, [appointments, tab, query, dateFrom, dateTo])
+
+    const today = getLocalDateOnly()
+    return [...filtered].sort((a, b) => {
+      if (tab === 'pending') return new Date(b.created_at || 0) - new Date(a.created_at || 0) || Number(b.id || 0) - Number(a.id || 0)
+      if (tab === 'confirmed' || tab === 'rescheduled') return compareVisitTime(a, b, 1)
+      if (['completed','cancelled','no_show'].includes(tab)) return new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0) || Number(b.id || 0) - Number(a.id || 0)
+
+      const aDate = String(a.appointment_date || a.date || '').slice(0,10)
+      const bDate = String(b.appointment_date || b.date || '').slice(0,10)
+      const aActive = aDate >= today && !['completed','cancelled','no_show'].includes(a.status)
+      const bActive = bDate >= today && !['completed','cancelled','no_show'].includes(b.status)
+      if (aActive !== bActive) return aActive ? -1 : 1
+      return aActive ? compareVisitTime(a,b,1) : compareVisitTime(a,b,-1)
+    })
+  }, [appointments, tab, query, dateFrom, dateTo, clinicFilter, doctorFilter])
 
   const totalPages = Math.max(1, Math.ceil(filteredAppointments.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -664,7 +701,7 @@ const Appointments = ({ services }) => {
 
   useEffect(() => {
     setPage(1)
-  }, [tab, query, dateFrom, dateTo, sort, direction])
+  }, [tab, query, dateFrom, dateTo, clinicFilter, doctorFilter])
 
   const runAction = async (appointment, action) => {
     setBusyId(appointment.id)
@@ -736,40 +773,48 @@ const Appointments = ({ services }) => {
               onClick={() => setTab(status.key)}
               className={`rounded-full px-4 py-2 text-sm font-semibold transition ${tab === status.key ? 'bg-[#0b1a2c] text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
             >
-              {status.label}
+              {status.label}{status.key === 'pending' && pendingCount > 0 ? ` ${pendingCount}` : ''}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 md:grid-cols-2 xl:grid-cols-6">
-        <label className="relative md:col-span-2 xl:col-span-2">
-          <MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" placeholder="Search patient or reason" />
-        </label>
-        <label className="relative">
-          <MdCalendarToday className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label="From date" className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" />
-        </label>
-        <label className="relative">
-          <MdSchedule className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="To date" className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" />
-        </label>
-        <label>
-          <span className="sr-only">Sort appointments</span>
-          <select value={sort} onChange={(e) => setSort(e.target.value)} className="form-control h-full">
-            <option value="created_at">Request received</option>
-            <option value="visit_time">Visit time</option>
-            <option value="updated_at">Last updated</option>
-          </select>
-        </label>
-        <label>
-          <span className="sr-only">Sort direction</span>
-          <select value={direction} onChange={(e) => setDirection(e.target.value)} className="form-control h-full">
-            <option value="desc">Newest / latest first</option>
-            <option value="asc">Oldest / earliest first</option>
-          </select>
-        </label>
+      <div className="rounded-3xl border border-slate-200 bg-white p-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <label className="block md:col-span-2 xl:col-span-2">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Search</span>
+            <div className="relative">
+              <MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" placeholder="Search patient, doctor, service or reason..." />
+            </div>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">From Date</span>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="form-control" />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">To Date</span>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="form-control" />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic</span>
+            <select value={clinicFilter} onChange={(e) => setClinicFilter(e.target.value)} className="form-control">
+              <option value="all">All Clinics</option>
+              {clinicOptions.map((clinic) => <option key={clinic} value={clinic}>{clinicLabel(clinic)}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</span>
+            <select value={doctorFilter} onChange={(e) => setDoctorFilter(e.target.value)} className="form-control">
+              <option value="all">All Doctors</option>
+              {doctorOptions.map((doctor) => <option key={doctor} value={doctor}>{doctor}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+          <p className="text-sm text-slate-500"><strong className="text-slate-800">{filteredAppointments.length}</strong> appointment{filteredAppointments.length === 1 ? '' : 's'} found</p>
+          <button type="button" className="button-secondary" onClick={() => { setQuery(''); setDateFrom(''); setDateTo(''); setClinicFilter('all'); setDoctorFilter('all') }}>Clear Filters</button>
+        </div>
       </div>
 
       {loading ? (

@@ -53,6 +53,7 @@ import Admin_Accounts         from './pages/adminPage/Admin_Accounts'
 import Admin_DoctorAccount   from './pages/adminPage/Admin_DoctorAccount'
 import Admin_DoctorSchedules from './pages/adminPage/Admin_DoctorSchedules'
 import Admin_Appointments    from './pages/adminPage/Admin_Appointments'
+import Admin_PatientRecord    from './pages/adminPage/Admin_PatientRecord'
 import Admin_PatientBooking  from './pages/adminPage/Admin_PatientBooking'
 import Admin_BillingCatalog  from './pages/adminPage/Admin_BillingCatalog'
 import Admin_Billing         from './pages/adminPage/Admin_Billing'
@@ -172,6 +173,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='doctor-accounts'  element={<Navigate to='/admin/accounts?tab=doctors' replace />} />
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='appointments'     element={<Admin_Appointments />} />
+        <Route path='patient-records'   element={<Admin_PatientRecord />} />
         <Route path='patient-booking' element={<Navigate to='/admin/system-setup?tab=patient-visits' replace />} />
         <Route path='patient-visit-details' element={<Navigate to='/admin/system-setup?tab=patient-visits' replace />} />
         <Route path='system-setup' element={<Admin_SystemSetup />} />

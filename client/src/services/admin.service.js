@@ -338,7 +338,10 @@ export const resolveSupplyRequest = (id, status, note = '') =>
   })
 
 export const getPatients = (search = '') =>
-  fetch(`${BASE}/patients?search=${encodeURIComponent(search)}`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/patients?search=${encodeURIComponent(search)}`)
+
+export const getPatientRecord = (id) =>
+  requestJson(`${BASE}/patients/${id}`)
 
 export const createWalkInPatient = (payload) =>
   requestJson(`${BASE}/patients/walk-in`, {
@@ -375,6 +378,7 @@ export const saveBillingServiceCategory = (payload, id = null) => requestJson(`$
 export const saveInventoryUom = (payload, id = null) => requestJson(`${BASE}/system-setup/uoms${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const saveInventorySupplier = (payload, id = null) => requestJson(`${BASE}/system-setup/suppliers${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const saveInventoryLocationType = (payload, id = null) => requestJson(`${BASE}/system-setup/location-types${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const saveInventoryMovementReason = (payload, id = null) => requestJson(`${BASE}/system-setup/movement-reasons${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
 export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const deleteInventoryLocation = (id) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'DELETE' })
@@ -399,3 +403,20 @@ export const getAdminBillAdjustmentRequests = (id) => requestJson(`${BASE}/billi
 export const getAdminDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ clinicType })
+
+export const requestInventoryBatchActionCode = (batchId, payload) =>
+  requestJson(`${BASE}/inventory/batches/${batchId}/action/request-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+export const confirmInventoryBatchAction = (batchId, code) =>
+  requestJson(`${BASE}/inventory/batches/${batchId}/action/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })
+
+export const getInventoryBatchHistory = (batchId) =>
+  requestJson(`${BASE}/inventory/batches/${batchId}/history`)

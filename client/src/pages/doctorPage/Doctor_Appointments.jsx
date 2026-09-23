@@ -5,12 +5,12 @@
 // 3. Read-only clinical record viewer for completed appointments
 // 4. Status indicators and quick actions on every row
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import useClientPagination from '../../hooks/useClientPagination'
 import { useNavigate } from 'react-router-dom'
 import {
-  getAppointments, startConsultation,
+  getAppointments, getDashboard, startConsultation,
   getMyQueue, callNextPatient,
   getConsultation,
 } from '../../services/doctor.service'
@@ -20,7 +20,7 @@ import {
   MdChevronRight, MdPerson, MdNotes, MdArrowBack,
   MdCheck, MdClose,
   MdQueuePlayNext, MdSkipNext, MdWc, MdCake,
-  MdLocalPharmacy, MdPhone,
+  MdLocalPharmacy, MdPhone, MdSearch,
 } from 'react-icons/md'
 import { getLocalDateOnly } from '../../utils/date'
 
@@ -405,8 +405,20 @@ const Doctor_Appointments = () => {
   const [prescModal, setPrescModal] = useState(null)
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
   const [viewMode, setViewMode] = useState('today')
+  const [query, setQuery] = useState('')
+  const [showCompleted, setShowCompleted] = useState(false)
+  const [summary, setSummary] = useState({ remainingToday: 0, completed: 0, upcomingCount: 0, totalToday: 0 })
   const today = getLocalDateOnly()
   const [dateFilter, setDateFilter] = useState(today)
+
+  const loadSummary = useCallback(() => {
+    getDashboard().then((data) => setSummary({
+      remainingToday: Number(data?.remainingToday || 0),
+      completed: Number(data?.completed || 0),
+      upcomingCount: Number(data?.upcomingCount || 0),
+      totalToday: Number(data?.totalToday || 0),
+    })).catch(() => {})
+  }, [])
 
   const loadAppointments = useCallback(async () => {
     try {
@@ -438,10 +450,14 @@ const Doctor_Appointments = () => {
     setLoading(true)
     setSelected(null)
     setMobileDetailOpen(false)
+    setShowCompleted(false)
     loadAppointments()
-    const timer = window.setInterval(loadAppointments, viewMode === 'today' ? 15000 : 30000)
-    return () => window.clearInterval(timer)
-  }, [loadAppointments, viewMode])
+    loadSummary()
+    const timer = window.setInterval(() => { loadAppointments(); loadSummary() }, viewMode === 'today' ? 15000 : 30000)
+    const refresh = () => { loadAppointments(); loadSummary() }
+    window.addEventListener('clinic:refresh', refresh)
+    return () => { window.clearInterval(timer); window.removeEventListener('clinic:refresh', refresh) }
+  }, [loadAppointments, loadSummary, viewMode])
 
   usePolling(loadQueue, 10000, viewMode !== 'today')
 
@@ -519,12 +535,24 @@ const Doctor_Appointments = () => {
     navigate(`/doctor/consultation?id=${appointmentId}`)
   }
 
-  const done = appointments.filter(a => a.status === 'completed').length
-  const inProgressCount = appointments.filter(a => a.status === 'in-progress').length
-  const pendingCount = appointments.filter(a => a.status === 'pending').length
-  const confirmedCount = appointments.filter(a => a.status === 'confirmed' || a.status === 'rescheduled').length
-  const appointmentPagination = useClientPagination(appointments, { initialPageSize: 10, resetDeps: [viewMode, dateFilter] })
+  const completedToday = appointments.filter(a => a.status === 'completed').length
+  const remainingToday = Number(summary.remainingToday || appointments.filter(a => ['confirmed','rescheduled','in-progress'].includes(a.status)).length)
+  const upcomingCount = Number(summary.upcomingCount || (viewMode === 'upcoming' ? appointments.length : 0))
+  const filteredAppointments = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return appointments.filter((appt) => {
+      const matchesSearch = !needle || [appt.patient_name, appt.patient, appt.reason, appt.requested_service_name_snapshot]
+        .filter(Boolean).some((value) => String(value).toLowerCase().includes(needle))
+      const matchesCompleted = viewMode !== 'today' || showCompleted || appt.status !== 'completed'
+      return matchesSearch && matchesCompleted
+    })
+  }, [appointments, query, showCompleted, viewMode])
+  const appointmentPagination = useClientPagination(filteredAppointments, { initialPageSize: 10, resetDeps: [viewMode, dateFilter, query, showCompleted] })
   const walkInPagination = useClientPagination(walkInQueue, { initialPageSize: 8 })
+
+  useEffect(() => {
+    if (selected && !filteredAppointments.some((appt) => appt.id === selected.id)) setSelected(filteredAppointments[0] || null)
+  }, [filteredAppointments, selected])
 
   const groupedPageItems = appointmentPagination.pageItems.reduce((groups, appt) => {
     const key = String(appt.appointment_date || '').slice(0, 10) || 'Unknown date'
@@ -536,7 +564,7 @@ const Doctor_Appointments = () => {
   const selectedDateLabel = viewMode === 'today'
     ? formatAppointmentDate(today)
     : viewMode === 'upcoming'
-      ? 'Future confirmed, pending, and rescheduled appointments'
+      ? 'Future confirmed and rescheduled appointments'
       : formatAppointmentDate(dateFilter)
 
   const allowStart = String(selected?.appointment_date || (viewMode === 'date' ? dateFilter : today)).slice(0, 10) === today
@@ -545,54 +573,54 @@ const Doctor_Appointments = () => {
   return (
     <>
       <div className="mx-auto max-w-6xl space-y-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Appointments</h1>
-            <p className="text-sm text-slate-500 mt-0.5">{selectedDateLabel}</p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Appointments</h1>
+          <p className="mt-1 text-sm text-slate-500">Manage today's patients and review your upcoming schedule.</p>
+        </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setViewMode('today')}
-              className={`rounded-xl border px-3.5 py-2 text-xs font-bold transition-colors ${viewMode === 'today' ? 'border-violet-500 bg-violet-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('upcoming')}
-              className={`rounded-xl border px-3.5 py-2 text-xs font-bold transition-colors ${viewMode === 'upcoming' ? 'border-violet-500 bg-violet-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              Upcoming
-            </button>
-            <label className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 ${viewMode === 'date' ? 'border-violet-400 bg-violet-50' : 'border-slate-200 bg-white'}`}>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Date</span>
-              <input
-                type="date"
-                value={dateFilter}
-                onFocus={() => setViewMode('date')}
-                onChange={(event) => { setDateFilter(event.target.value || today); setViewMode('date') }}
-                className="bg-transparent text-xs font-bold text-slate-700 outline-none"
-              />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={() => setViewMode('today')} className={`rounded-2xl border p-4 text-left transition ${viewMode === 'today' ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Today</p>
+            <p className="mt-2 text-2xl font-black text-slate-900">{remainingToday} remaining</p>
+            <p className="mt-1 text-xs text-slate-500">{Number(summary.completed || completedToday)} completed today</p>
+          </button>
+          <button type="button" onClick={() => setViewMode('upcoming')} className={`rounded-2xl border p-4 text-left transition ${viewMode === 'upcoming' ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Upcoming</p>
+            <p className="mt-2 text-2xl font-black text-slate-900">{upcomingCount} scheduled</p>
+            <p className="mt-1 text-xs text-slate-500">Future confirmed / rescheduled visits</p>
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <button type="button" onClick={() => setViewMode('today')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${viewMode === 'today' ? 'bg-violet-600 text-white' : 'border border-slate-200 text-slate-600'}`}>Today {remainingToday > 0 ? remainingToday : ''}</button>
+            <button type="button" onClick={() => setViewMode('upcoming')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${viewMode === 'upcoming' ? 'bg-violet-600 text-white' : 'border border-slate-200 text-slate-600'}`}>Upcoming {upcomingCount > 0 ? upcomingCount : ''}</button>
+            <label className="block min-w-[190px]">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">View a Date</span>
+              <input type="date" value={dateFilter} onFocus={() => setViewMode('date')} onChange={(event) => { setDateFilter(event.target.value || today); setViewMode('date') }} className={`form-control ${viewMode === 'date' ? 'border-violet-400 bg-violet-50' : ''}`} />
             </label>
+          </div>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Search</span>
+              <div className="relative">
+                <MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} className="form-control pl-11" placeholder="Search patient, service or reason..." />
+              </div>
+            </label>
+            {viewMode === 'today' && Number(summary.completed || completedToday) > 0 && (
+              <button type="button" onClick={() => setShowCompleted((value) => !value)} className="mt-3 text-xs font-bold text-violet-700">
+                {showCompleted ? 'Hide completed appointments' : `Show completed today (${Number(summary.completed || completedToday)})`}
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {viewMode === 'today' ? (
-            <>
-              <span className="text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full">{confirmedCount} waiting</span>
-              {inProgressCount > 0 && <span className="text-[11px] font-bold bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 rounded-full">{inProgressCount} in progress</span>}
-              <span className="text-[11px] font-bold bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1 rounded-full">{done}/{appointments.length} done</span>
-            </>
-          ) : (
-            <>
-              <span className="text-[11px] font-bold bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 rounded-full">{appointments.length} appointment{appointments.length !== 1 ? 's' : ''}</span>
-              {pendingCount > 0 && <span className="text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full">{pendingCount} pending</span>}
-              {confirmedCount > 0 && <span className="text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full">{confirmedCount} scheduled</span>}
-            </>
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-slate-800">{selectedDateLabel}</p>
+            <p className="mt-0.5 text-xs text-slate-400">{filteredAppointments.length} appointment{filteredAppointments.length === 1 ? '' : 's'} shown</p>
+          </div>
         </div>
 
         {loading ? (
@@ -604,15 +632,15 @@ const Doctor_Appointments = () => {
                 <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/70">
                   <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                     {viewMode === 'today'
-                      ? `${appointments.length} scheduled today`
+                      ? `${filteredAppointments.length} appointment${filteredAppointments.length !== 1 ? 's' : ''} shown today`
                       : viewMode === 'upcoming'
-                        ? `${appointments.length} upcoming appointments`
-                        : `${appointments.length} appointment${appointments.length !== 1 ? 's' : ''}`}
+                        ? `${filteredAppointments.length} upcoming appointments`
+                        : `${filteredAppointments.length} appointment${filteredAppointments.length !== 1 ? 's' : ''}`}
                   </p>
                 </div>
 
                 <div className="flex-1 overflow-y-auto">
-                  {appointments.length === 0 ? (
+                  {filteredAppointments.length === 0 ? (
                     <div className="flex flex-col items-center py-12 text-center px-6">
                       <MdCalendarToday className="text-slate-200 text-[32px] mb-2" />
                       <p className="text-xs text-slate-400">{viewMode === 'upcoming' ? 'No upcoming appointments.' : 'No appointments scheduled for this date.'}</p>
@@ -639,9 +667,9 @@ const Doctor_Appointments = () => {
                   )}
                 </div>
 
-                {appointments.length > 0 && (
+                {filteredAppointments.length > 0 && (
                   <div className="border-t border-slate-100 p-3">
-                    <Pagination compact {...appointmentPagination} total={appointments.length} pageSizeOptions={[10, 20, 30]} />
+                    <Pagination compact {...appointmentPagination} total={filteredAppointments.length} pageSizeOptions={[10, 20, 30]} />
                   </div>
                 )}
               </div>

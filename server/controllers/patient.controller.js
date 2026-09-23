@@ -139,7 +139,7 @@ const register = async (req, res) => {
     password,
     confirmPassword,
     consent_given,
-    receive_promotions,
+    verification_method,
   } = req.body
 
   if (!full_name || !email || !phone || !birthdate || !gender || !address || !password) {
@@ -148,7 +148,7 @@ const register = async (req, res) => {
 
   const birthdateError = validateBirthdate(birthdate)
   if (birthdateError) return res.status(400).json({ message: birthdateError })
-  const normalizedProfile = normalizePatientProfileInput({ email, birthdate, gender, address, receive_promotions })
+  const normalizedProfile = normalizePatientProfileInput({ email, birthdate, gender, address, receive_promotions: false })
   if (!normalizedProfile.email || !normalizedProfile.birthdate || !normalizedProfile.gender || !normalizedProfile.address) {
     return res.status(400).json({ message: 'Complete all required patient information.' })
   }
@@ -198,7 +198,7 @@ const register = async (req, res) => {
     address: normalizedProfile.address,
     password: hashedPassword,
     consent_given: true,
-    receive_promotions: receive_promotions ? 1 : 0,
+    receive_promotions: 0,
   })
 
   await db.query(
@@ -214,35 +214,44 @@ const register = async (req, res) => {
     [normalizedPhone, hashSecret(code), payload, new Date(Date.now() + OTP_EXPIRY_MS)]
   )
 
+  const method = String(verification_method || 'email').trim().toLowerCase()
+  if (!['email', 'sms'].includes(method)) {
+    return res.status(400).json({ message: 'Verification method must be email or SMS.' })
+  }
+
   try {
-    await sendPatientRegistrationOtp({
-      phone: normalizedPhone,
-      code,
-      fullName: full_name,
-    })
+    if (method === 'email') {
+      await sendVerificationCode(normalizedProfile.email, String(full_name).trim(), code)
+    } else {
+      await sendPatientRegistrationOtp({
+        phone: normalizedPhone,
+        code,
+        fullName: full_name,
+      })
+    }
   } catch (err) {
-    console.error('Patient registration OTP SMS failed:', {
+    console.error(`Patient registration OTP ${method} failed:`, {
       message: err.message,
       statusCode: err.statusCode,
       responseBody: err.responseBody,
     })
 
     return res.status(502).json({
-      message: 'Failed to send verification code by SMS. Please try again later.',
+      message: `Failed to send verification code by ${method === 'email' ? 'email' : 'SMS'}. Please try again later.`,
     })
   }
 
   res.status(200).json({
-    message: 'Verification code sent by SMS.',
+    message: `Verification code sent by ${method === 'email' ? 'email' : 'SMS'}.`,
     phone: normalizedPhone,
     email: normalizedProfile.email,
-    verification_method: 'sms',
+    verification_method: method,
   })
 }
 
 const resendRegistrationVerification = async (req, res) => {
   const normalizedPhone = normalizePhilippinePhone(req.body.phone)
-  const method = String(req.body.method || 'sms').toLowerCase()
+  const method = String(req.body.method || 'email').toLowerCase()
   if (!normalizedPhone || !['sms', 'email'].includes(method)) {
     return res.status(400).json({ message: 'A valid phone number and verification method are required.' })
   }
@@ -267,7 +276,6 @@ const resendRegistrationVerification = async (req, res) => {
     method,
     phone: normalizedPhone,
     email: payload.email || null,
-    ...(process.env.NODE_ENV === 'development' ? { dev_otp: code } : {}),
   })
 }
 
