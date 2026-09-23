@@ -180,9 +180,9 @@ export const updateInventoryItem = (id, payload) =>
 
 // FIX 2: Delete inventory item
 export const deleteInventoryItem = (id) =>
-  fetch(`${BASE}/inventory/${id}`, {
+  requestJson(`${BASE}/inventory/${id}`, {
     method: 'DELETE', credentials: 'include',
-  }).then(r => r.json())
+  })
 
 export const getDoctors = () =>
   requestJson(`${BASE}/doctors`)
@@ -219,4 +219,3 @@ export const createInventoryLocation = (payload) => requestJson(`${BASE}/invento
 export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
-

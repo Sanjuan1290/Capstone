@@ -205,7 +205,7 @@ const Admin_DoctorSchedules = () => {
       </div>
 
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Search Doctor</p><div className="relative mt-2"><MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Search by name or specialty..." className="form-control pl-9"/></div></div>
+        <div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Search Doctor</p><div className="relative mt-2"><input value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Search by name or specialty..." className="form-control pl-9"/></div></div>
         <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Select Doctor</p>
 
         <div className="relative sm:hidden">

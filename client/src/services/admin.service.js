@@ -323,9 +323,9 @@ export const updateInventoryItem = (id, payload) =>
 
 // FIX 5: Delete inventory item
 export const deleteInventoryItem = (id) =>
-  fetch(`${BASE}/inventory/${id}`, {
+  requestJson(`${BASE}/inventory/${id}`, {
     method: 'DELETE', credentials: 'include',
-  }).then(r => r.json())
+  })
 
 export const getSupplyRequests = () =>
   fetch(`${BASE}/supply-requests`, { credentials: 'include' }).then(r => r.json())
@@ -399,4 +399,3 @@ export const getAdminBillAdjustmentRequests = (id) => requestJson(`${BASE}/billi
 export const getAdminDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ clinicType })
-

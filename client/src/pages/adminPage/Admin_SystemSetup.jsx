@@ -31,6 +31,11 @@ const TABS = [
 ]
 
 const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : 'General Medicine'
+const parseSupplierClinics = (value) => String(value || '').split(',').map((entry) => entry.trim()).filter((entry) => ['medical','derma'].includes(entry))
+const supplierClinicLabel = (value) => {
+  const clinics = parseSupplierClinics(value)
+  return clinics.length ? clinics.map(clinicLabel).join(', ') : '—'
+}
 
 const ReferenceManager = ({ type, rows, onReload }) => {
   const toast = useToast()
@@ -65,7 +70,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       plural: 'Location Types',
       singular: 'location type',
       save: saveInventoryLocationType,
-      description: 'Reusable storage-location classifications.',
+      description: 'Reusable Location Types assigned directly to inventory items. Add at least one before creating inventory items.',
     },
   }[type]), [type])
 
@@ -97,14 +102,13 @@ const ReferenceManager = ({ type, rows, onReload }) => {
         contact_person: row?.contact_person || '',
         contact_number: row?.contact_number || '',
         address: row?.address || '',
-        category: row?.category || 'medical',
+        clinics: parseSupplierClinics(row?.category),
         is_active: row ? Number(row.is_active) : 1,
       })
     }
     if (type === 'location_types') {
       setForm({
         name: row?.name || '',
-        code: row?.code || '',
         is_active: row ? Number(row.is_active) : 1,
         sort_order: row?.sort_order ?? 0,
       })
@@ -113,6 +117,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
 
   const save = async () => {
     if (!String(form.name || '').trim()) return toast.warning(`Enter a ${config.singular} name.`)
+    if (type === 'suppliers' && !(form.clinics || []).length) return toast.warning('Select at least one clinic.')
     setSaving(true)
     try {
       await config.save({ ...form, name: String(form.name).trim() }, editing?.id || null)
@@ -153,7 +158,6 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                 {type === 'suppliers' && <th className="px-5 py-3">Contact</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Address</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Clinic</th>}
-                {type === 'location_types' && <th className="px-5 py-3">Internal Code</th>}
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3 text-right">Action</th>
               </tr>
@@ -167,8 +171,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                   {type === 'uoms' && <td className="px-5 py-4 text-slate-500">{row.abbreviation || '—'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500"><p className="font-semibold text-slate-700">{row.contact_person || '—'}</p><p className="mt-1 text-xs">{row.contact_number || 'No contact number'}</p></td>}
                   {type === 'suppliers' && <td className="max-w-xs px-5 py-4 text-slate-500">{row.address || '—'}</td>}
-                  {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.category)}</td>}
-                  {type === 'location_types' && <td className="px-5 py-4 font-mono text-xs text-slate-500">{row.code}</td>}
+                  {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{supplierClinicLabel(row.category)}</td>}
                   <td className="px-5 py-4">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${Number(row.is_active) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                       {Number(row.is_active) === 1 ? 'Active' : 'Inactive'}
@@ -223,22 +226,35 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                 <span className="form-label">Address</span>
                 <textarea rows={3} className="form-control mt-1.5 resize-none" value={form.address || ''} onChange={(e) => setForm((value) => ({ ...value, address: e.target.value }))} placeholder="Supplier/company address" />
               </label>
-              <label className="block">
-                <span className="form-label">Clinic *</span>
-                <select className="form-control mt-1.5" value={form.category || 'medical'} onChange={(e) => setForm((value) => ({ ...value, category: e.target.value }))}>
-                  <option value="medical">General Medicine</option>
-                  <option value="derma">Dermatology</option>
-                </select>
-              </label>
+              <fieldset className="block">
+                <legend className="form-label">Clinic *</legend>
+                <p className="mt-1 text-xs text-slate-500">Select every clinic this supplier can provide items for.</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {[
+                    { value: 'medical', label: 'General Medicine' },
+                    { value: 'derma', label: 'Dermatology' },
+                  ].map((clinic) => {
+                    const checked = (form.clinics || []).includes(clinic.value)
+                    return (
+                      <label key={clinic.value} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm font-semibold transition ${checked ? 'border-amber-300 bg-amber-50 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+                          checked={checked}
+                          onChange={(e) => setForm((value) => {
+                            const current = new Set(value.clinics || [])
+                            if (e.target.checked) current.add(clinic.value)
+                            else current.delete(clinic.value)
+                            return { ...value, clinics: Array.from(current) }
+                          })}
+                        />
+                        <span>{clinic.label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </fieldset>
             </>
-          )}
-
-          {type === 'location_types' && (
-            <label className="block">
-              <span className="form-label">Internal Code</span>
-              <input className="form-control mt-1.5" value={form.code || ''} onChange={(e) => setForm((value) => ({ ...value, code: e.target.value }))} placeholder="Generated from the name for new types" />
-              <p className="mt-1 text-xs text-slate-400">Once used by a storage location, the internal code cannot be changed.</p>
-            </label>
           )}
 
           <label className="block">

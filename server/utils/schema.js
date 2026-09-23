@@ -264,6 +264,7 @@ const ensureAppSchema = async () => {
   await ensureColumn('inventory_suppliers', 'contact_number', 'VARCHAR(80) NULL').catch(() => {})
   await ensureColumn('inventory_suppliers', 'address', 'VARCHAR(255) NULL').catch(() => {})
   await ensureColumn('inventory', 'selling_price', 'DECIMAL(10,2) NULL').catch(() => {})
+  await ensureColumn('inventory', 'location_type_id', 'INT NULL').catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_uoms (
@@ -316,6 +317,13 @@ const ensureAppSchema = async () => {
     )
   `)
 
+  await ensureIndex('inventory', 'idx_inventory_location_type_id', 'location_type_id').catch(() => {})
+  await ensureForeignKey(
+    'inventory',
+    'fk_inventory_location_type',
+    'ALTER TABLE inventory ADD CONSTRAINT fk_inventory_location_type FOREIGN KEY (location_type_id) REFERENCES inventory_location_types(id) ON DELETE SET NULL ON UPDATE CASCADE'
+  ).catch(() => {})
+
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS billing_service_categories (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -347,12 +355,6 @@ const ensureAppSchema = async () => {
       ('Aesthetic Treatments', 'derma', 40),
       ('Skin Tests / Biopsy', 'derma', 50)
   `).catch(() => {})
-  await db.query(`INSERT IGNORE INTO inventory_location_types (name,code,sort_order) VALUES
-    ('Main Stockroom','stockroom',10),
-    ('Treatment Room','room',20),
-    ('Dispensing Area','dispensing',30),
-    ('General Storage','storage',40)`).catch(() => {})
-
   await db.query(`INSERT IGNORE INTO inventory_barcode_sequences (category,last_number) VALUES ('medical',0),('derma',0)`).catch(() => {})
 
   await ensureColumn('consultations', 'status', "VARCHAR(20) NOT NULL DEFAULT 'draft'").catch(() => {})
@@ -1325,4 +1327,3 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
-

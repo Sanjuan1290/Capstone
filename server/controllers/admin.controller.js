@@ -72,7 +72,7 @@ const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+'
 const normalizeInventoryPayload = (body = {}) => {
   const category = ['medical','derma'].includes(String(body.category || '').trim()) ? String(body.category).trim() : 'medical'
   const itemType = ['medicine','supplies'].includes(String(body.item_type || '').trim()) ? String(body.item_type).trim() : 'supplies'
-  const uom = String(body.uom || body.base_unit || body.unit || 'piece').trim().toLowerCase()
+  const uom = String(body.uom || body.base_unit || body.unit || '').trim().toLowerCase()
   return {
     barcode: body.barcode?.trim() || null,
     name: body.name?.trim() || '',
@@ -92,8 +92,52 @@ const normalizeInventoryPayload = (body = {}) => {
     supplier_id: Number(body.supplier_id) || null,
     expiration_date: body.expiration_date || null,
     batch_code: String(body.batch_code || '').trim() || null,
+    batch_lot_code: String(body.batch_lot_code || '').trim().replace(/^-+/, '') || null,
+    location_type_id: Number(body.location_type_id) || null,
     storage_location_id: Number(body.storage_location_id) || null,
     storage_location: body.storage_location?.trim() || null,
+  }
+}
+
+const resolveInventorySetupSelection = async ({ uom, location_type_id }, executor = db) => {
+  if (!String(uom || '').trim()) {
+    const error = new Error('Select a Unit of Measure configured in System Setup.')
+    error.statusCode = 400
+    error.code = 'INVENTORY_UOM_REQUIRED'
+    throw error
+  }
+  const [[uomRow]] = await executor.query(
+    'SELECT id,name,abbreviation FROM inventory_uoms WHERE LOWER(name)=? AND is_active=1 LIMIT 1',
+    [String(uom).trim().toLowerCase()]
+  )
+  if (!uomRow) {
+    const error = new Error('That Unit of Measure is unavailable. Configure an active Unit of Measure in System Setup.')
+    error.statusCode = 400
+    error.code = 'INVENTORY_UOM_INVALID'
+    throw error
+  }
+
+  const locationTypeId = Number(location_type_id)
+  if (!locationTypeId) {
+    const error = new Error('Select a Location Type configured in System Setup.')
+    error.statusCode = 400
+    error.code = 'INVENTORY_LOCATION_TYPE_REQUIRED'
+    throw error
+  }
+  const [[locationType]] = await executor.query(
+    'SELECT id,name,code FROM inventory_location_types WHERE id=? AND is_active=1 LIMIT 1',
+    [locationTypeId]
+  )
+  if (!locationType) {
+    const error = new Error('That Location Type is unavailable. Configure an active Location Type in System Setup.')
+    error.statusCode = 400
+    error.code = 'INVENTORY_LOCATION_TYPE_INVALID'
+    throw error
+  }
+
+  return {
+    uom: String(uomRow.name || '').trim().toLowerCase(),
+    locationType,
   }
 }
 
@@ -175,12 +219,18 @@ const saveBillingServiceMaterials = async (serviceId, materials, executor = db) 
 
 const loadInventoryRows = async (executor = db, whereClause = '', params = []) => {
   const [rows] = await executor.query(
-    `SELECT * FROM inventory
-     ${whereClause}
+    `SELECT i.*, lt.name AS location_type_name, lt.code AS location_type_code
+     FROM (
+       SELECT *
+       FROM inventory
+       ${whereClause}
+     ) i
+     LEFT JOIN inventory_location_types lt ON lt.id = i.location_type_id
      ORDER BY
-       CASE WHEN expiration_date IS NULL THEN 1 ELSE 0 END,
-       expiration_date ASC,
-       name ASC`,
+       CASE WHEN i.expiration_date IS NULL THEN 1 ELSE 0 END,
+       i.expiration_date ASC,
+       i.category ASC,
+       i.name ASC`,
     params
   )
   return attachBatchesToInventory(rows, executor)
@@ -1972,6 +2022,18 @@ const getInventoryLogs = async (req, res) => {
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
+const normalizeSupplierClinics = (payload = {}) => {
+  const source = Array.isArray(payload.clinics) ? payload.clinics : String(payload.category || '').split(',')
+  const requested = new Set(source.map((value) => String(value || '').trim()).filter(Boolean))
+  return ['medical','derma'].filter((clinic) => requested.has(clinic))
+}
+
+const supplierSupportsClinic = (categoryValue, clinic) => String(categoryValue || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
+  .includes(clinic)
+
 const nextInventoryBarcode = async (category, conn = db) => {
   const normalized = category === 'derma' ? 'derma' : 'medical'
   const prefix = normalized === 'derma' ? 'DRM' : 'GMED'
@@ -1985,9 +2047,9 @@ const nextInventoryBarcode = async (category, conn = db) => {
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
   const [uoms] = await db.query('SELECT id,name,abbreviation FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
-  const [suppliers] = await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 ${category ? 'AND category=?' : ''} ORDER BY name ASC`, category ? [category] : [])
-  const [locations] = await db.query("SELECT id,name,location_type FROM inventory_locations WHERE is_active=1 ORDER BY FIELD(location_type,'stockroom','room','dispensing'),name")
-  res.json({ uoms, suppliers, locations })
+  const [suppliers] = await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name ASC`, category ? [category] : [])
+  const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY is_active DESC,sort_order,name')
+  res.json({ uoms, suppliers, location_types: locationTypes })
 }
 
 const createInventoryLocation = async (req, res) => {
@@ -2008,8 +2070,20 @@ const createInventorySupplier = async (req, res) => {
   const contactPerson = String(req.body?.contact_person || '').trim() || null
   const contactNumber = String(req.body?.contact_number || '').trim() || null
   const address = String(req.body?.address || '').trim() || null
-  const category = ['medical','derma'].includes(String(req.body?.category || '')) ? String(req.body.category) : null
-  if (!name || !category) return res.status(400).json({ message: 'Company / Supplier Name and clinic are required.' })
+  const clinics = normalizeSupplierClinics(req.body)
+  const category = clinics.join(',')
+  if (!name || !clinics.length) return res.status(400).json({ message: 'Company / Supplier Name and at least one clinic are required.' })
+
+  const [sameNameRows] = await db.query(
+    'SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers WHERE name=? ORDER BY id ASC',
+    [name]
+  )
+  const compatible = sameNameRows.find((row) => clinics.every((clinic) => supplierSupportsClinic(row.category, clinic)))
+  if (compatible) return res.json(compatible)
+  if (sameNameRows.length) {
+    return res.status(409).json({ message: 'That supplier already exists but is not assigned to this clinic. Update its Clinic checkboxes in System Setup.' })
+  }
+
   try {
     const [result] = await db.query(
       'INSERT INTO inventory_suppliers (name,contact_person,contact_number,address,category,is_active) VALUES (?,?,?,?,?,1)',
@@ -2033,42 +2107,50 @@ const getInventory = async (req, res) => {
 const addInventoryItem = async (req, res) => {
   let {
     barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id,
-    expiration_date, batch_code, storage_location, storage_location_id,
+    expiration_date, batch_code, batch_lot_code, location_type_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    const setupSelection = await resolveInventorySetupSelection({ uom, location_type_id }, conn)
+    uom = setupSelection.uom
+    unit = uom
+    base_unit = uom
+    location_type_id = setupSelection.locationType.id
     if (!barcode) barcode = await nextInventoryBarcode(category, conn)
-    if (!supplier && supplier_id) {
-      const [[supplierRow]] = await conn.query('SELECT name FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
-      supplier = supplierRow?.name || null
-    }
-    if (!storage_location && storage_location_id) {
-      const [[locationRow]] = await conn.query('SELECT name FROM inventory_locations WHERE id=? AND is_active=1 LIMIT 1',[storage_location_id])
-      storage_location = locationRow?.name || null
+    if (batch_lot_code) batch_code = `${barcode}-${batch_lot_code}`
+    if (supplier_id) {
+      const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
+      if (!supplierRow || !supplierSupportsClinic(supplierRow.category, category)) {
+        const error = new Error('Selected supplier is not assigned to this item clinic.')
+        error.statusCode = 400
+        error.code = 'SUPPLIER_CLINIC_MISMATCH'
+        throw error
+      }
+      supplier = supplierRow.name
     }
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, 0, threshold, price, selling_price, supplier, supplier_id, null, storage_location]
+       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location, location_type_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, 0, threshold, price, selling_price, supplier, supplier_id, null, null, location_type_id]
     )
     let openingBatchId = null
+    let openingLocation = 'Main Stockroom'
     if (stock > 0) {
       const received = await receiveInventoryBatch(result.insertId, {
         quantity: stock,
         expiration_date,
         batch_code,
         note: 'Opening stock',
-        location: storage_location || 'Main Stockroom',
-        location_id: storage_location_id,
+        location: 'Main Stockroom',
       }, conn)
       openingBatchId = received.batch_id
       batch_code = received.batch_code
       expiration_date = received.expiration_date
-      storage_location = received.location
+      openingLocation = received.location || openingLocation
     }
     await syncInventorySnapshot(result.insertId, conn)
     if (stock > 0 && openingBatchId) {
@@ -2081,7 +2163,7 @@ const addInventoryItem = async (req, res) => {
           stock,
           `Opening stock · ${batch_code || `Batch #${openingBatchId}`}${expiration_date ? ` · expires ${expiration_date}` : ''}`,
           openingBatchId,
-          storage_location || 'Main Stockroom',
+          openingLocation,
         ]
       )
     }
@@ -2091,7 +2173,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, item_type, barcode, uom, dosage_form, strength, unit_cost: price, patient_selling_price: selling_price, supplier_id, storage_location_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, dosage_form, strength, unit_cost: price, patient_selling_price: selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -2099,6 +2181,7 @@ const addInventoryItem = async (req, res) => {
     res.status(201).json(rows[0])
   } catch (err) {
     await conn.rollback()
+    if (err?.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || null })
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ message: 'That barcode is already assigned to another inventory item.' })
     }
@@ -2110,9 +2193,8 @@ const addInventoryItem = async (req, res) => {
 
 // FIX 5: Edit an existing inventory item
 const updateInventoryItem = async (req, res) => {
-  const {
-    barcode, name, category, item_type, uom, dosage_form, strength, threshold, price, selling_price, supplier, supplier_id,
-    storage_location, storage_location_id,
+  let {
+    barcode, name, category, item_type, uom, dosage_form, strength, threshold, price, selling_price, supplier, supplier_id, location_type_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -2126,11 +2208,26 @@ const updateInventoryItem = async (req, res) => {
       return res.status(404).json({ message: 'Item not found.' })
     }
 
+    const setupSelection = await resolveInventorySetupSelection({ uom, location_type_id }, conn)
+    const canonicalUom = setupSelection.uom
+    location_type_id = setupSelection.locationType.id
+
+    if (supplier_id) {
+      const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
+      if (!supplierRow || !supplierSupportsClinic(supplierRow.category, category)) {
+        const error = new Error('Selected supplier is not assigned to this item clinic.')
+        error.statusCode = 400
+        error.code = 'SUPPLIER_CLINIC_MISMATCH'
+        throw error
+      }
+      supplier = supplierRow.name
+    }
+
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?, location_type_id=?
        WHERE id=?`,
-      [barcode, name, category, item_type, uom, dosage_form, strength, uom, uom, threshold, price, selling_price, supplier, supplier_id, req.params.id]
+      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, canonicalUom, canonicalUom, threshold, price, selling_price, supplier, supplier_id, location_type_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -2138,6 +2235,7 @@ const updateInventoryItem = async (req, res) => {
     res.json(updated[0])
   } catch (err) {
     await conn.rollback()
+    if (err?.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || null })
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ message: 'That barcode is already assigned to another inventory item.' })
     }
@@ -2591,52 +2689,103 @@ const saveInventorySupplier = async (req, res) => {
   const contactPerson = String(req.body?.contact_person || '').trim() || null
   const contactNumber = String(req.body?.contact_number || '').trim() || null
   const address = String(req.body?.address || '').trim() || null
-  const category = ['medical','derma'].includes(String(req.body?.category || '')) ? String(req.body.category) : null
+  const clinics = normalizeSupplierClinics(req.body)
+  const category = clinics.join(',')
   const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
-  if (!name || !category) return res.status(400).json({ message: 'Company / Supplier Name and clinic are required.' })
+  if (!name || !clinics.length) return res.status(400).json({ message: 'Company / Supplier Name and at least one clinic are required.' })
   try {
     let targetId=id
     if (id) {
+      const [[current]] = await db.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? LIMIT 1',[id])
+      if (!current) return res.status(404).json({ message: 'Supplier not found.' })
+      for (const clinic of ['medical','derma']) {
+        if (supplierSupportsClinic(current.category, clinic) && !clinics.includes(clinic)) {
+          const [[usage]] = await db.query('SELECT COUNT(*) AS total FROM inventory WHERE supplier_id=? AND category=?',[id,clinic])
+          if (Number(usage?.total || 0) > 0) {
+            return res.status(409).json({ message: `Cannot remove ${clinic === 'derma' ? 'Dermatology' : 'General Medicine'} because this supplier is assigned to ${Number(usage.total)} inventory item${Number(usage.total) === 1 ? '' : 's'} in that clinic.` })
+          }
+        }
+      }
       const [result] = await db.query(
         'UPDATE inventory_suppliers SET name=?,contact_person=?,contact_number=?,address=?,category=?,is_active=? WHERE id=?',
         [name,contactPerson,contactNumber,address,category,isActive,id]
       )
       if (!result.affectedRows) return res.status(404).json({ message: 'Supplier not found.' })
     } else {
+      const [sameNameRows] = await db.query('SELECT id FROM inventory_suppliers WHERE name=? LIMIT 1',[name])
+      if (sameNameRows.length) return res.status(409).json({ message: 'That supplier/company already exists. Edit the existing supplier to change its clinic coverage.' })
       const [result]=await db.query(
         'INSERT INTO inventory_suppliers (name,contact_person,contact_number,address,category,is_active) VALUES (?,?,?,?,?,?)',
         [name,contactPerson,contactNumber,address,category,isActive]
       )
       targetId=result.insertId
     }
-    const payload={name,contact_person:contactPerson,contact_number:contactNumber,address,category,is_active:isActive}
+    const payload={name,contact_person:contactPerson,contact_number:contactNumber,address,category,clinics,is_active:isActive}
     await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'system.supplier_updated':'system.supplier_created',entityType:'inventory_supplier',entityId:targetId,newValues:payload,ipAddress:req.ip||null})
     const [[row]]=await db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers WHERE id=?',[targetId])
     res.status(id?200:201).json(row)
-  } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That supplier/company already exists for this clinic.'}); throw err }
+  } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That supplier/company already exists with the same clinic coverage.'}); throw err }
 }
 
 const saveInventoryLocationType = async (req,res) => {
-  const id=Number(req.params.id||0)
-  const name=String(req.body?.name||'').trim()
-  const requestedCode=String(req.body?.code||'').trim().toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'')
-  const code=requestedCode || name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')
-  const isActive=req.body?.is_active===false||Number(req.body?.is_active)===0?0:1
-  const sortOrder=Number(req.body?.sort_order||0)
-  if(!name||!code) return res.status(400).json({message:'Location Type name is required.'})
-  try{
-    let targetId=id
-    if(id){
-      const [[existing]]=await db.query('SELECT code FROM inventory_location_types WHERE id=?',[id])
-      if(!existing) return res.status(404).json({message:'Location Type not found.'})
-      const [[inUse]]=await db.query('SELECT COUNT(*) AS total FROM inventory_locations WHERE location_type=?',[existing.code])
-      if(existing.code!==code && Number(inUse?.total||0)>0) return res.status(409).json({message:'This Location Type is already used by storage locations. Keep its internal code and rename only the display name.'})
-      await db.query('UPDATE inventory_location_types SET name=?,code=?,is_active=?,sort_order=? WHERE id=?',[name,code,isActive,sortOrder,id])
-    } else { const [result]=await db.query('INSERT INTO inventory_location_types (name,code,is_active,sort_order) VALUES (?,?,?,?)',[name,code,isActive,sortOrder]); targetId=result.insertId }
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'system.location_type_updated':'system.location_type_created',entityType:'inventory_location_type',entityId:targetId,newValues:{name,code,is_active:isActive},ipAddress:req.ip||null})
-    const [[row]]=await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE id=?',[targetId])
-    res.status(id?200:201).json(row)
-  } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That Location Type already exists.'}); throw err }
+  const id = Number(req.params.id || 0)
+  const name = String(req.body?.name || '').trim()
+  const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
+  const sortOrder = Number(req.body?.sort_order || 0)
+  if (!name) return res.status(400).json({ message: 'Location Type name is required.' })
+
+  try {
+    let targetId = id
+    let code
+
+    if (id) {
+      const [[existing]] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE id=?', [id])
+      if (!existing) return res.status(404).json({ message: 'Location Type not found.' })
+
+      if (!isActive) {
+        const [[usage]] = await db.query('SELECT COUNT(*) AS total FROM inventory WHERE location_type_id=?', [id])
+        if (Number(usage?.total || 0) > 0) {
+          return res.status(409).json({
+            message: 'This Location Type is assigned to inventory items. Reassign those items before deactivating it.',
+            code: 'LOCATION_TYPE_IN_USE',
+          })
+        }
+      }
+
+      code = existing.code
+      await db.query(
+        'UPDATE inventory_location_types SET name=?,is_active=?,sort_order=? WHERE id=?',
+        [name, isActive, sortOrder, id]
+      )
+    } else {
+      code = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+      if (!code) return res.status(400).json({ message: 'Enter a valid Location Type name.' })
+      const [result] = await db.query(
+        'INSERT INTO inventory_location_types (name,code,is_active,sort_order) VALUES (?,?,?,?)',
+        [name, code, isActive, sortOrder]
+      )
+      targetId = result.insertId
+    }
+
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'admin',
+      action: id ? 'system.location_type_updated' : 'system.location_type_created',
+      entityType: 'inventory_location_type',
+      entityId: targetId,
+      newValues: { name, code, is_active: isActive, sort_order: sortOrder },
+      ipAddress: req.ip || null,
+    })
+
+    const [[row]] = await db.query(
+      'SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE id=?',
+      [targetId]
+    )
+    res.status(id ? 200 : 201).json(row)
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That Location Type already exists.' })
+    throw err
+  }
 }
 
 const getInventoryLocationsAdmin = async (req,res) => {
@@ -2811,4 +2960,3 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock,
   getSupplyRequests, resolveSupplyRequest,
 }
-

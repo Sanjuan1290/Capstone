@@ -94,20 +94,7 @@ CREATE TABLE IF NOT EXISTS inventory_uoms (
   UNIQUE KEY uniq_inventory_uom_name (name)
 );
 
-INSERT IGNORE INTO inventory_uoms (name, abbreviation, sort_order) VALUES
-('Piece','pc',10),
-('Tablet','tab',20),
-('Capsule','cap',30),
-('Bottle','btl',40),
-('Tube','tube',50),
-('Sachet','sachet',60),
-('Vial','vial',70),
-('Ampule','amp',80),
-('Milliliter','mL',90),
-('Gram','g',100),
-('Roll','roll',110),
-('Pack','pack',120),
-('Box','box',130);
+-- No default UOM values are inserted. Configure Units of Measure in System Setup first.
 
 -- -----------------------------------------------------------------------------
 -- Suppliers (category-specific master list)

@@ -6,9 +6,6 @@ import {
   addInventoryItem,
   updateInventoryItem,
   deleteInventoryItem,
-  getInventoryLocations,
-  createInventoryLocation,
-  updateInventoryLocation,
 } from '../../services/staff.service'
 
 const staffServices = {
@@ -18,9 +15,6 @@ const staffServices = {
   addInventoryItem,
   updateInventoryItem,
   deleteInventoryItem,
-  getInventoryLocations,
-  createInventoryLocation,
-  updateInventoryLocation,
 }
 
 const Staff_Inventory = () => <Inventory services={staffServices} />

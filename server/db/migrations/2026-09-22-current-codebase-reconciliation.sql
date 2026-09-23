@@ -111,11 +111,6 @@ CREATE TABLE IF NOT EXISTS inventory_location_types (
   UNIQUE KEY uniq_inventory_location_type_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-INSERT IGNORE INTO inventory_location_types (name,code,sort_order) VALUES
-  ('Main Stockroom','stockroom',10),
-  ('Treatment Room','room',20),
-  ('Dispensing Area','dispensing',30),
-  ('General Storage','storage',40);
 
 -- Repair the known legacy duplicate-location allocation only when it is safe to infer
 -- the original location from stock-in history and the batch has no transfer history.
