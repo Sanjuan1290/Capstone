@@ -18,3 +18,4 @@ export const printConsultationRecord = ({ patient, diagnosis, notes, prescriptio
   popup.focus()
   popup.onload = () => { popup.print() }
 }
+

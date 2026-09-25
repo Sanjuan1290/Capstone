@@ -138,3 +138,4 @@ const CheckoutSupplyEditor = ({ item, inventory, onSelectInventory, onSelectBatc
 }
 
 export default CheckoutSupplyEditor
+

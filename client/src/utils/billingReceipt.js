@@ -34,3 +34,4 @@ export const printBillingReceipt = ({ bill, payment, clinicSettings = {}, onPopu
   popup.onload = () => popup.print()
   return true
 }
+

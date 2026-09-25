@@ -1231,35 +1231,51 @@ const submitRequest = async (req, res) => {
     })
   }
 
-  const [duplicates] = await db.query(
-    `SELECT id, qty_requested, requested_at FROM supply_requests
-     WHERE doctor_id=? AND inventory_id=? AND destination_location_id=? AND status='pending'
-     ORDER BY requested_at DESC LIMIT 1`,
-    [req.user.id, Number(inventory_id), destination.id]
-  )
-  if (duplicates.length) {
-    return res.status(409).json({
-      code: 'DUPLICATE_SUPPLY_REQUEST',
-      existing_request_id: duplicates[0].id,
-      message: `A pending request for ${inventory.name} to ${destination.name} already exists. Update or wait for that request instead of creating a duplicate.`
-    })
-  }
+  // Serialize request creation per doctor so two tabs cannot both pass the
+  // duplicate-pending check before either insert commits.
+  const conn = await db.getConnection()
+  let result
+  let rows
+  try {
+    await conn.beginTransaction()
+    await conn.query('SELECT id FROM doctors WHERE id=? FOR UPDATE', [req.user.id])
+    const [duplicates] = await conn.query(
+      `SELECT id, qty_requested, requested_at FROM supply_requests
+       WHERE doctor_id=? AND inventory_id=? AND destination_location_id=? AND status='pending'
+       ORDER BY requested_at DESC LIMIT 1`,
+      [req.user.id, Number(inventory_id), destination.id]
+    )
+    if (duplicates.length) {
+      await conn.rollback()
+      return res.status(409).json({
+        code: 'DUPLICATE_SUPPLY_REQUEST',
+        existing_request_id: duplicates[0].id,
+        message: `A pending request for ${inventory.name} to ${destination.name} already exists. Update or wait for that request instead of creating a duplicate.`
+      })
+    }
 
-  const [result] = await db.query(
-    `INSERT INTO supply_requests
-     (doctor_id, inventory_id, qty_requested, reason, destination_location, destination_location_id)
-     VALUES (?,?,?,?,?,?)`,
-    [req.user.id, inventory_id, quantity, reason || null, destination.name, destination.id]
-  )
-  const [rows] = await db.query(
-    `SELECT sr.*, i.name AS item_name, i.unit, loc.name AS destination_location
-     FROM supply_requests sr
-     JOIN inventory i ON sr.inventory_id = i.id
-     LEFT JOIN inventory_locations loc ON loc.id = sr.destination_location_id
-     WHERE sr.id = ?`,
-    [result.insertId]
-  )
-  await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'supply.request_created', entityType: 'supply_request', entityId: result.insertId, newValues: { inventory_id: Number(inventory_id), qty_requested: quantity, destination_location_id: destination.id, destination_location: destination.name, reason: reason || null }, ipAddress: req.ip || null })
+    ;[result] = await conn.query(
+      `INSERT INTO supply_requests
+       (doctor_id, inventory_id, qty_requested, reason, destination_location, destination_location_id)
+       VALUES (?,?,?,?,?,?)`,
+      [req.user.id, inventory_id, quantity, reason || null, destination.name, destination.id]
+    )
+    ;[rows] = await conn.query(
+      `SELECT sr.*, i.name AS item_name, i.unit, loc.name AS destination_location
+       FROM supply_requests sr
+       JOIN inventory i ON sr.inventory_id = i.id
+       LEFT JOIN inventory_locations loc ON loc.id = sr.destination_location_id
+       WHERE sr.id = ?`,
+      [result.insertId]
+    )
+    await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'supply.request_created', entityType: 'supply_request', entityId: result.insertId, newValues: { inventory_id: Number(inventory_id), qty_requested: quantity, destination_location_id: destination.id, destination_location: destination.name, reason: reason || null }, ipAddress: req.ip || null }, conn)
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    throw error
+  } finally {
+    conn.release()
+  }
   for (const target_role of ['staff','admin']) {
     await createNotification({ target_role, type: 'supply_request', title: 'Doctor supply transfer request', message: `Requested ${quantity} ${rows[0].unit}(s) of ${rows[0].item_name} for ${destination.name}.`, reference_type: 'supply_request', reference_id: result.insertId })
   }
@@ -1425,5 +1441,6 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 
 

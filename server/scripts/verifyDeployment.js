@@ -6,8 +6,8 @@ const REQUIRED_TABLES = [
   'admins', 'staff', 'doctors', 'patients', 'appointments', 'queue', 'consultations',
   'consultation_amendments', 'account_security_codes', 'patient_phone_verifications',
   'password_resets', 'consultation_images', 'billing_service_catalog', 'billing_records', 'billing_items', 'billing_payments',
-  'billing_adjustment_requests', 'inventory', 'inventory_batches',
-  'inventory_locations', 'inventory_location_batches', 'inventory_location_stock',
+  'billing_adjustment_requests', 'inventory', 'inventory_uoms', 'inventory_suppliers', 'inventory_batches',
+  'consultation_inventory_usage_batches', 'billing_item_batch_usage', 'inventory_locations', 'inventory_location_batches', 'inventory_location_stock',
   'supply_requests', 'audit_logs', 'audit_log_archives', 'notifications', 'landing_page_content', 'clinic_payment_settings',
   'doctor_schedules', 'inventory_location_types', 'inventory_movement_reasons', 'billing_service_categories',
 ]
@@ -17,7 +17,7 @@ const REQUIRED_COLUMNS = {
   staff: ['must_change_password', 'password_changed_at', 'session_version'],
   doctors: ['must_change_password', 'password_changed_at', 'session_version', 'clinic_type'],
   doctor_schedules: ['spans_next_day', 'is_24_hours'],
-  patients: ['onboarding_completed_at', 'session_version'],
+  patients: ['onboarding_completed_at', 'session_version', 'email_verified_at', 'phone_verified_at'],
   appointments: ['appointment_source', 'checked_in_at', 'requested_service_id', 'requested_service_name_snapshot', 'requested_service_price_snapshot'],
   queue: ['appointment_id', 'called_at', 'consultation_started_at', 'completed_at'],
   consultations: ['status', 'finalized_at', 'finalized_by_doctor_id', 'updated_at', 'version'],
@@ -28,7 +28,11 @@ const REQUIRED_COLUMNS = {
   patient_phone_verifications: ['attempt_count', 'last_sent_at'],
   billing_service_materials: ['bundled_in_service_price', 'cost_snapshot'],
   billing_items: ['unit_cost_snapshot', 'cost_total_snapshot'],
-  inventory_batches: ['unit_cost', 'archived_at', 'archived_by_admin_id', 'archive_reason'],
+  inventory: ['selling_price', 'archived_at', 'archived_by_admin_id', 'archive_reason'],
+  inventory_uoms: ['allow_decimal_quantity', 'decimal_precision'],
+  inventory_batches: ['unit_cost', 'supplier_id', 'archived_at', 'archived_by_admin_id', 'archive_reason'],
+  consultation_inventory_usage_batches: ['source_location_id'],
+  billing_item_batch_usage: ['source_location_id'],
   billing_records: ['finalized_by_admin_id', 'confirmed_by_admin_id'],
   billing_payments: ['idempotency_key', 'received_by_admin_id'],
   audit_logs: ['archive_id', 'archived_at'],
@@ -87,7 +91,7 @@ const run = async () => {
        FROM information_schema.TABLE_CONSTRAINTS
        WHERE CONSTRAINT_SCHEMA = ?
          AND CONSTRAINT_TYPE = 'FOREIGN KEY'
-         AND CONSTRAINT_NAME IN ('fk_appointments_requested_service','fk_queue_appointment','fk_billing_service_category')`,
+         AND CONSTRAINT_NAME IN ('fk_appointments_requested_service','fk_queue_appointment','fk_billing_service_category','fk_inventory_batches_supplier','fk_billing_usage_source_location','fk_consultation_usage_source_location')`,
       [process.env.DB_NAME]
     )
     const constraints = new Set(constraintRows.map((row) => `${row.TABLE_NAME}.${row.CONSTRAINT_NAME}`))
@@ -95,10 +99,23 @@ const run = async () => {
       'appointments.fk_appointments_requested_service',
       'queue.fk_queue_appointment',
       'billing_service_catalog.fk_billing_service_category',
+      'inventory_batches.fk_inventory_batches_supplier',
+      'billing_item_batch_usage.fk_billing_usage_source_location',
+      'consultation_inventory_usage_batches.fk_consultation_usage_source_location',
     ]
     const missingConstraints = requiredConstraints.filter((key) => !constraints.has(key))
     if (missingConstraints.length) {
       throw new Error(`Missing workflow foreign keys: ${missingConstraints.join(', ')}. Run \`npm run migrate\` and verify again.`)
+    }
+
+    const [[securityPurposeIndex]] = await db.query(
+      `SELECT COUNT(*) AS count FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA=? AND TABLE_NAME='account_security_codes'
+         AND INDEX_NAME='uniq_account_security_code_purpose'`,
+      [process.env.DB_NAME]
+    )
+    if (Number(securityPurposeIndex?.count || 0) === 0) {
+      throw new Error('Account security OTP uniqueness is still using the legacy per-account key. Run `npm run migrate` and verify again.')
     }
 
     const [[badDoctorClinicTypes]] = await db.query(
@@ -119,6 +136,26 @@ const run = async () => {
     `)
     if (Number(inventoryAllocationMismatch?.count || 0) > 0) {
       throw new Error(`${Number(inventoryAllocationMismatch.count)} inventory batch(es) have location balances that do not match their batch total. Run \`npm run migrate\` and verify inventory allocations before deployment.`)
+    }
+
+    const [[fractionalWholeUnitBatches]] = await db.query(`
+      SELECT COUNT(*) AS count
+      FROM inventory_batches b
+      JOIN inventory i ON i.id=b.inventory_id
+      JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
+      WHERE COALESCE(u.allow_decimal_quantity,0)=0
+        AND ABS(COALESCE(b.quantity,0)-ROUND(COALESCE(b.quantity,0))) > 0.0001
+    `)
+    if (Number(fractionalWholeUnitBatches?.count || 0) > 0) {
+      throw new Error(`${Number(fractionalWholeUnitBatches.count)} whole-unit inventory batch(es) still contain fractional quantities. Correct those batches with the secured batch correction flow, or explicitly enable decimal precision for the UOM before deployment.`)
+    }
+
+    const [[unpricedInventory]] = await db.query(`
+      SELECT COUNT(*) AS count FROM inventory
+      WHERE archived_at IS NULL AND (selling_price IS NULL OR selling_price <= 0)
+    `)
+    if (Number(unpricedInventory?.count || 0) > 0) {
+      console.warn(`WARNING: ${Number(unpricedInventory.count)} active inventory item(s) still need an Admin-reviewed Selling Price before direct Checkout billing.`)
     }
 
     const [[activeServices]] = await db.query('SELECT COUNT(*) AS count FROM billing_service_catalog WHERE is_active = 1')
@@ -146,5 +183,6 @@ const run = async () => {
 }
 
 run()
+
 
 

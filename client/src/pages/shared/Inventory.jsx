@@ -452,9 +452,8 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
   const barcodePreview = normalizedBarcode || generatedItemPreview
   const sellingPrice = Number(form.selling_price)
   const thresholdValid = form.threshold !== '' && Number.isFinite(Number(form.threshold)) && Number(form.threshold) >= 0
-  const supplierValid = Boolean(supplierChoice)
   const sellingPriceValid = Number.isFinite(sellingPrice) && sellingPrice > 0
-  const canSaveDetails = Boolean(form.name.trim() && form.category && form.item_type && form.uom && form.location_type_id && supplierValid && thresholdValid && sellingPriceValid && !duplicateBarcode)
+  const canSaveDetails = Boolean(form.name.trim() && form.category && form.item_type && form.uom && form.location_type_id && thresholdValid && sellingPriceValid && !duplicateBarcode)
 
   const handleScannedBarcode = (code) => {
     const normalized = String(code || '').trim()
@@ -522,13 +521,14 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
           </div>
           <Field label="Unit of Measure *"><select value={form.uom} onChange={update('uom')} className={inputClass} disabled={!uomOptions.length}><option value="">{uomOptions.length ? 'Select unit of measure' : 'No units configured'}</option>{uomOptions.map((entry)=><option key={entry.id || entry.value} value={entry.value}>{entry.label}</option>)}</select></Field>
           <Field label="Storage Classification *"><select value={form.location_type_id} onChange={update('location_type_id')} className={inputClass} disabled={!locationTypes.length}><option value="">{locationTypes.length ? 'Select storage classification' : 'No storage classifications configured'}</option>{locationTypes.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></Field>
-          <Field label="Supplier *"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={`${inputClass} ${!supplierChoice ? 'border-amber-300 bg-amber-50' : ''}`}><option value="">Select supplier</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Required. Suppliers are managed in System Setup.</p></Field>
+          <Field label="Preferred Supplier (optional)"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={inputClass}><option value="">No preferred supplier</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Optional product default. Every Stock In receipt records its actual supplier separately.</p></Field>
           <Field label="Low Stock Alert *"><input type="number" inputMode="decimal" min="0" step={quantityStep} value={form.threshold} onChange={update('threshold')} className={`${inputClass} ${!thresholdValid ? 'border-amber-300 bg-amber-50' : ''}`}/>{!thresholdValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter a low-stock alert quantity of 0 or greater.</p>}</Field>
           {canManageSellingPrice && <Field label="Selling Price *"><input type="number" inputMode="decimal" min="0.01" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={`${inputClass} ${!sellingPriceValid ? 'border-red-300 bg-red-50' : ''}`} placeholder="e.g. 10.00"/>{!sellingPriceValid ? <p className="mt-1 text-xs font-semibold text-red-700">Selling Price is required and must be greater than ₱0.00.</p> : <p className="mt-1 text-xs text-slate-400">This is the amount charged when the item is added directly to patient Checkout.</p>}</Field>}
           <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">Item details describe the product. <strong>Quantity, supplier lot and expiry are batch-level information. Selling Price belongs to the item.</strong></div>
         </div> : <div className="grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"><strong>{form.name}</strong><div className="mt-1 text-xs text-slate-500">{CATEGORIES.find(x=>x.value===form.category)?.label} · {ITEM_TYPES.find(x=>x.value===form.item_type)?.label} · Unit: {form.uom} · Storage Classification: {selectedLocationType?.name || 'Not selected'}</div></div>
           <Field label="Opening Quantity *"><input type="number" inputMode="decimal" min="0" step={quantityStep} value={form.stock} onChange={update('stock')} className={inputClass}/></Field>
+          {Number(form.stock || 0) > 0 && <Field label="Supplier for opening receipt *"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={`${inputClass} ${!supplierChoice ? 'border-amber-300 bg-amber-50' : ''}`}><option value="">Select supplier</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Required only because an opening batch is being received.</p></Field>}
           <div><Field label={`Batch Expiry${Number(form.stock || 0) > 0 && form.item_type === 'medicine' ? ' *' : ''}`}><input type="date" value={form.expiration_date} onChange={update('expiration_date')} disabled={noExpiry} className={`${inputClass} ${Number(form.stock || 0) > 0 && !noExpiry && !form.expiration_date ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{form.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setForm((v)=>({...v,expiration_date:''}))}}/> No expiry / Not applicable</label>}{Number(form.stock || 0) > 0 && !noExpiry && !form.expiration_date && <p className="mt-1 text-xs font-semibold text-amber-700">{form.item_type === 'medicine' ? 'Expiry is required for medicines.' : 'Enter an expiry date or choose No expiry / Not applicable.'}</p>}</div>
           <div className="md:col-span-2 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <label className="flex items-start gap-3 text-sm font-semibold text-slate-700"><input type="checkbox" checked={supplierLotMissing} onChange={(e)=>setSupplierLotMissing(e.target.checked)} className="mt-1"/><span><strong>Supplier did not provide a lot number</strong><span className="mt-0.5 block text-xs font-normal text-slate-500">The system will still create its own internal batch barcode.</span></span></label>
@@ -541,7 +541,7 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
       </div>
 
       <div className="flex gap-3 border-t border-slate-100 px-6 py-5">
-        {isEditing ? <><button onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button><button onClick={handleSubmit} disabled={!canSaveDetails || submitting} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? 'Saving…' : 'Save Item Details'}</button></> : step===1 ? <><button onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button><button onClick={()=>canSaveDetails&&setStep(2)} disabled={!canSaveDetails} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50">Next: Opening Batch</button></> : <><button onClick={()=>setStep(1)} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Back</button><button onClick={handleSubmit} disabled={submitting || !canSaveDetails || (Number(form.stock||0)>0 && !noExpiry && !form.expiration_date) || (Number(form.stock||0)>0 && !supplierLotMissing && !form.supplier_lot_number.trim())} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? 'Adding…' : 'Add Item'}</button></>}
+        {isEditing ? <><button onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button><button onClick={handleSubmit} disabled={!canSaveDetails || submitting} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? 'Saving…' : 'Save Item Details'}</button></> : step===1 ? <><button onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button><button onClick={()=>canSaveDetails&&setStep(2)} disabled={!canSaveDetails} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50">Next: Opening Batch</button></> : <><button onClick={()=>setStep(1)} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Back</button><button onClick={handleSubmit} disabled={submitting || !canSaveDetails || (Number(form.stock||0)>0 && !supplierChoice) || (Number(form.stock||0)>0 && !noExpiry && !form.expiration_date) || (Number(form.stock||0)>0 && !supplierLotMissing && !form.supplier_lot_number.trim())} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? 'Adding…' : 'Add Item'}</button></>}
       </div>
     </div>
     {barcodeScannerOpen && <CameraScanner onDetected={handleScannedBarcode} onClose={()=>setBarcodeScannerOpen(false)} />}
@@ -951,10 +951,10 @@ const Inventory = ({ services, canManageSellingPrice = true }) => {
     try {
       const result = await deleteInventoryItem(deleteCandidate.id)
       setItems(prev => prev.filter(entry => entry.id !== deleteCandidate.id))
-      setFeedback({ type: 'success', message: result?.message || `${deleteCandidate.name} was removed from active inventory.` })
+      setFeedback({ type: 'success', message: result?.message || `${deleteCandidate.name} was archived.` })
       setDeleteCandidate(null)
     } catch (err) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to remove inventory item.' })
+      setFeedback({ type: 'error', message: err.message || 'Failed to archive inventory item.' })
       await load().catch(() => {})
       setDeleteCandidate(null)
     } finally {
@@ -1122,7 +1122,7 @@ const Inventory = ({ services, canManageSellingPrice = true }) => {
                 <button onClick={() => { setStockMode('out'); setStockItem(item) }} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 flex items-center gap-2"><MdInventory2 /> Stock Out</button>
                 <button onClick={() => setEditItem(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdEdit /> Edit Item</button>
                 {requestInventoryBatchActionCode && confirmInventoryBatchAction && <button onClick={()=>setBatchManagerItem(item)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-700 hover:bg-sky-100 flex items-center gap-2"><MdInventory2/> Manage Batches</button>}
-                {deleteInventoryItem && <button onClick={() => handleDelete(item)} title="Archive / remove item" className="w-11 h-11 rounded-2xl border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center"><MdDelete className="text-[18px]" /></button>}
+                {deleteInventoryItem && <button onClick={() => handleDelete(item)} title="Archive item" className="w-11 h-11 rounded-2xl border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center"><MdDelete className="text-[18px]" /></button>}
               </div>
             </div>
           </div>
@@ -1175,9 +1175,9 @@ const Inventory = ({ services, canManageSellingPrice = true }) => {
       {batchManagerItem && requestInventoryBatchActionCode && confirmInventoryBatchAction && <BatchManagerModal item={batchManagerItem} onClose={()=>setBatchManagerItem(null)} onRequestAction={requestInventoryBatchActionCode} onConfirmAction={confirmInventoryBatchAction} onLoadHistory={getInventoryBatchHistory} onChanged={async (message)=>{setBatchManagerItem(null);await load();setFeedback({type:'success',message})}} />}
       <ConfirmDialog
         open={Boolean(deleteCandidate)}
-        title="Remove inventory item?"
-        message={deleteCandidate ? `Remove ${deleteCandidate.name} from active inventory? Items with stock cannot be removed. If this item has historical stock, billing, transfer, or clinical records, CARAIT will archive it instead of deleting its history.` : ''}
-        confirmLabel="Remove Item"
+        title="Archive inventory item?"
+        message={deleteCandidate ? `Archive ${deleteCandidate.name}? Items with stock cannot be archived. Archived items are hidden from active inventory and their inventory, billing, transfer, and clinical history is preserved.` : ''}
+        confirmLabel="Archive Item"
         loading={deleting}
         onCancel={() => !deleting && setDeleteCandidate(null)}
         onConfirm={confirmDelete}
@@ -1187,5 +1187,6 @@ const Inventory = ({ services, canManageSellingPrice = true }) => {
 }
 
 export default Inventory
+
 
 

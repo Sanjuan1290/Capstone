@@ -17,3 +17,4 @@ const Admin_Accounts = () => {
   </div>
 }
 export default Admin_Accounts
+

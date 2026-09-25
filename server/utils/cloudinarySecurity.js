@@ -350,3 +350,4 @@ module.exports = {
   hasValidImageSignature,
   detectImageMime,
 }
+

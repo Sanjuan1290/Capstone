@@ -51,3 +51,4 @@ router.get('/doctors/:id/unavailable-dates',       getDoctorUnavailableDatesCont
 router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router
+

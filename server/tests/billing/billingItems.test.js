@@ -19,3 +19,4 @@ describe('billing items', () => {
     expect(usage.find((row) => row.inventory_id === 2).quantity).toBe(2)
   })
 })
+

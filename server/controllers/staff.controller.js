@@ -106,7 +106,7 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   const itemType = String(body.item_type || '').trim()
   const uom = String(body.uom || body.base_unit || body.unit || '').trim()
   const locationTypeId = Number(body.location_type_id)
-  const supplierId = Number(body.supplier_id)
+  const supplierId = Number(body.supplier_id) || null
   const thresholdRaw = body.threshold
   const sellingPrice = Number(body.selling_price)
 
@@ -115,7 +115,6 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   if (!['medicine', 'supplies'].includes(itemType)) return { message: 'Select a valid Type.', code: 'INVENTORY_TYPE_REQUIRED' }
   if (!uom) return { message: 'Unit of Measure is required.', code: 'INVENTORY_UOM_REQUIRED' }
   if (!locationTypeId) return { message: 'Location Type is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
-  if (!supplierId) return { message: 'Supplier is required.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
   if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0) {
     return { message: 'Low Stock Alert is required and must be 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
   }
@@ -128,6 +127,9 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
       return { message: 'Opening Quantity is required and must be 0 or greater.', code: 'INVENTORY_OPENING_QUANTITY_REQUIRED' }
     }
     if (Number(body.stock) > 0) {
+      if (!supplierId) {
+        return { message: 'Select the supplier for the opening receipt.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
+      }
       const noExpiry = body.no_expiry === true || body.no_expiry === 1 || String(body.no_expiry || '').toLowerCase() === 'true'
       if (itemType === 'medicine' && !String(body.expiration_date || '').trim()) {
         return { message: 'Batch Expiry is required for medicines.', code: 'INVENTORY_EXPIRY_REQUIRED' }
@@ -1688,10 +1690,14 @@ const updateInventoryItem = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
+    const [rows] = await conn.query('SELECT * FROM inventory WHERE id = ? FOR UPDATE', [req.params.id])
     if (rows.length === 0) {
       await conn.rollback()
       return res.status(404).json({ message: 'Item not found.' })
+    }
+    if (rows[0].archived_at) {
+      await conn.rollback()
+      return res.status(409).json({ code: 'INVENTORY_ARCHIVED', message: 'Archived inventory items cannot be edited.' })
     }
 
     const setupSelection = await resolveInventorySetupSelection({ uom, location_type_id }, conn)
@@ -1902,3 +1908,4 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+

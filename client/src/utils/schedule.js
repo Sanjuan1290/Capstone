@@ -143,3 +143,4 @@ export const buildSlotsForScheduleDate = (
   labels = slots.filter((slot) => slot.minutes > cutoffMinutes).map((slot) => slot.label)
   return labels
 }
+

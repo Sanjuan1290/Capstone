@@ -50,3 +50,4 @@ SET @sql = IF(
   'ALTER TABLE patients ADD COLUMN phone_verified_at DATETIME NULL'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+

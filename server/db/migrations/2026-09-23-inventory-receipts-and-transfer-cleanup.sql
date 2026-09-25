@@ -42,3 +42,4 @@ SELECT location_id, inventory_id, SUM(quantity)
 FROM inventory_location_batches
 WHERE quantity > 0
 GROUP BY location_id, inventory_id;
+

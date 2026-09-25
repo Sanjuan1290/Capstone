@@ -264,6 +264,10 @@ const ensureAppSchema = async () => {
   await ensureColumn('inventory_suppliers', 'contact_number', 'VARCHAR(80) NULL').catch(() => {})
   await ensureColumn('inventory_suppliers', 'address', 'VARCHAR(255) NULL').catch(() => {})
   await ensureColumn('inventory', 'selling_price', 'DECIMAL(10,2) NULL').catch(() => {})
+  await ensureColumn('inventory', 'archived_at', 'DATETIME NULL').catch(() => {})
+  await ensureColumn('inventory', 'archived_by_admin_id', 'INT NULL').catch(() => {})
+  await ensureColumn('inventory', 'archive_reason', 'VARCHAR(255) NULL').catch(() => {})
+  await ensureIndex('inventory', 'idx_inventory_archived', 'archived_at').catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_uoms (
@@ -277,6 +281,8 @@ const ensureAppSchema = async () => {
       UNIQUE KEY uniq_inventory_uom_name (name)
     )
   `)
+  await ensureColumn('inventory_uoms', 'allow_decimal_quantity', 'TINYINT(1) NOT NULL DEFAULT 0').catch(() => {})
+  await ensureColumn('inventory_uoms', 'decimal_precision', 'TINYINT NOT NULL DEFAULT 0').catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_suppliers (
@@ -695,12 +701,16 @@ const ensureAppSchema = async () => {
   `)
   await ensureColumn('inventory_batches', 'batch_code', 'VARCHAR(80) NULL')
   await ensureColumn('inventory_batches', 'supplier_lot_number', 'VARCHAR(120) NULL').catch(() => {})
+  await ensureColumn('inventory_batches', 'supplier_id', 'INT NULL').catch(() => {})
   await ensureColumn('inventory_batches', 'unit_cost', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00').catch(() => {})
   await ensureColumn('inventory_batches', 'archived_at', 'DATETIME NULL').catch(() => {})
   await ensureColumn('inventory_batches', 'archived_by_admin_id', 'INT NULL').catch(() => {})
   await ensureColumn('inventory_batches', 'archive_reason', 'VARCHAR(255) NULL').catch(() => {})
   await db.query('CREATE INDEX idx_inventory_batches_archived ON inventory_batches (inventory_id, archived_at)').catch(() => {})
   await db.query('CREATE INDEX idx_inventory_batches_supplier_lot ON inventory_batches (inventory_id, supplier_lot_number)').catch(() => {})
+  await ensureIndex('inventory_batches', 'idx_inventory_batches_supplier', 'supplier_id').catch(() => {})
+  await db.query(`UPDATE inventory_batches b JOIN inventory i ON i.id=b.inventory_id SET b.supplier_id=i.supplier_id WHERE b.supplier_id IS NULL AND i.supplier_id IS NOT NULL`).catch(() => {})
+  await ensureForeignKey('inventory_batches', 'fk_inventory_batches_supplier', 'ALTER TABLE inventory_batches ADD CONSTRAINT fk_inventory_batches_supplier FOREIGN KEY (supplier_id) REFERENCES inventory_suppliers(id) ON DELETE SET NULL').catch(() => {})
   await db.query('ALTER TABLE inventory_batches ADD INDEX idx_inventory_batches_code (inventory_id, batch_code)').catch(() => {})
   await db.query('ALTER TABLE inventory_batches ADD UNIQUE KEY uniq_inventory_batch_code (inventory_id, batch_code)').catch(() => {})
 
@@ -850,6 +860,36 @@ const ensureAppSchema = async () => {
 
   await db.query("ALTER TABLE billing_records MODIFY COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'").catch(() => {})
   await ensureColumn('inventory', 'selling_price', 'DECIMAL(10,2) NULL')
+  // Never infer a patient-facing Selling Price from the legacy inventory.price field.
+  // If the 2026-09-24 migration copied a legacy cost into selling_price, roll it back
+  // only when item-creation audit history shows no explicitly approved selling price.
+  await db.query(`
+    UPDATE inventory i
+    JOIN audit_logs created
+      ON created.action='inventory.item_created'
+     AND created.entity_type='inventory_item'
+     AND CAST(created.entity_id AS UNSIGNED)=i.id
+    SET i.selling_price=NULL
+    WHERE JSON_VALID(created.new_values)
+      AND NOT (
+        COALESCE(CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(created.new_values,'$.selling_price')), 'null') AS DECIMAL(10,2)), 0) > 0
+        OR COALESCE(CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(created.new_values,'$.patient_selling_price')), 'null') AS DECIMAL(10,2)), 0) > 0
+      )
+      AND i.selling_price IS NOT NULL
+      AND i.price IS NOT NULL
+      AND ABS(i.selling_price-i.price) < 0.0001
+      AND NOT EXISTS (
+        SELECT 1 FROM audit_logs changed
+        WHERE changed.entity_type='inventory_item'
+          AND CAST(changed.entity_id AS UNSIGNED)=i.id
+          AND changed.action IN ('inventory.item_updated','inventory.item_created')
+          AND changed.id > created.id
+          AND JSON_VALID(changed.new_values)
+          AND CAST(JSON_UNQUOTE(JSON_EXTRACT(changed.new_values,'$.selling_price')) AS DECIMAL(10,2)) > 0
+      )
+  `).catch(() => {})
+  // Legacy price is now only a compatibility mirror of an explicitly reviewed selling_price.
+  await db.query(`UPDATE inventory SET price=selling_price WHERE selling_price IS NOT NULL AND selling_price > 0 AND (price IS NULL OR ABS(price-selling_price)>0.0001)`).catch(() => {})
   await ensureColumn('billing_records', 'discount_reference', 'VARCHAR(160) NULL')
   await ensureColumn('billing_records', 'finalized_at', 'DATETIME NULL')
   await ensureColumn('billing_records', 'finalized_by_staff_id', 'INT NULL')
@@ -1006,6 +1046,11 @@ const ensureAppSchema = async () => {
     )
   `)
 
+  await ensureColumn('consultation_inventory_usage_batches', 'source_location_id', 'INT NULL').catch(() => {})
+  await ensureColumn('billing_item_batch_usage', 'source_location_id', 'INT NULL').catch(() => {})
+  await ensureIndex('consultation_inventory_usage_batches', 'idx_consultation_usage_source_location', 'source_location_id').catch(() => {})
+  await ensureIndex('billing_item_batch_usage', 'idx_billing_usage_source_location', 'source_location_id').catch(() => {})
+
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_locations (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1019,6 +1064,10 @@ const ensureAppSchema = async () => {
   await db.query(`INSERT IGNORE INTO inventory_locations (name, location_type) VALUES ('Main Stockroom', 'stockroom'), ('General Medicine Room', 'room'), ('Dermatology Room', 'room'), ('Dispensing Area', 'dispensing')`)
 
   await ensureColumn('inventory_locations', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1').catch(() => {})
+  await db.query(`UPDATE billing_item_batch_usage u JOIN inventory_locations l ON l.name=u.source_location SET u.source_location_id=l.id WHERE u.source_location_id IS NULL AND u.source_location IS NOT NULL`).catch(() => {})
+  await db.query(`UPDATE consultation_inventory_usage_batches u JOIN inventory_locations l ON l.name=u.source_location SET u.source_location_id=l.id WHERE u.source_location_id IS NULL AND u.source_location IS NOT NULL`).catch(() => {})
+  await ensureForeignKey('billing_item_batch_usage', 'fk_billing_usage_source_location', 'ALTER TABLE billing_item_batch_usage ADD CONSTRAINT fk_billing_usage_source_location FOREIGN KEY (source_location_id) REFERENCES inventory_locations(id) ON DELETE SET NULL').catch(() => {})
+  await ensureForeignKey('consultation_inventory_usage_batches', 'fk_consultation_usage_source_location', 'ALTER TABLE consultation_inventory_usage_batches ADD CONSTRAINT fk_consultation_usage_source_location FOREIGN KEY (source_location_id) REFERENCES inventory_locations(id) ON DELETE SET NULL').catch(() => {})
   await db.query(
     `UPDATE supply_requests sr
      JOIN inventory_locations il ON il.name = sr.destination_location
@@ -1183,6 +1232,9 @@ const ensureAppSchema = async () => {
   await ensureColumn('patients', 'receive_promotions', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('patients', 'is_profile_complete', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('patients', 'onboarding_completed_at', "DATETIME NULL")
+  await ensureColumn('patients', 'email_verified_at', 'DATETIME NULL').catch(() => {})
+  await ensureColumn('patients', 'phone_verified_at', 'DATETIME NULL').catch(() => {})
+  await db.query(`UPDATE patients SET email_verified_at=COALESCE(email_verified_at, created_at, NOW()) WHERE COALESCE(is_walk_in,0)=0 AND email IS NOT NULL AND TRIM(email)<>'' AND email_verified_at IS NULL`).catch(() => {})
   await db.query("ALTER TABLE patients MODIFY COLUMN sex ENUM('Male','Female','Other') NULL").catch(() => {})
   await ensureColumn('queue', 'appointment_id', 'INT NULL').catch(() => {})
 
@@ -1362,12 +1414,14 @@ const ensureAppSchema = async () => {
   await ensureIndex('queue', 'idx_queue_appointment', 'appointment_id').catch(() => {})
   await ensureIndex('consultations', 'idx_consultations_doctor_patient', 'doctor_id, patient_id, status').catch(() => {})
   await ensureIndex('inventory_batches', 'idx_inventory_batches_item_expiry', 'inventory_id, expiration_date, quantity').catch(() => {})
+  await ensureIndex('supply_requests', 'idx_supply_request_pending_dedupe', 'doctor_id, inventory_id, destination_location_id, status').catch(() => {})
   await ensureIndex('audit_logs', 'idx_audit_action_created', 'action, created_at').catch(() => {})
 }
 
 module.exports = {
   ensureAppSchema,
 }
+
 
 
 

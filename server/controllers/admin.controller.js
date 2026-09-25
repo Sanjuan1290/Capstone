@@ -121,7 +121,7 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   const itemType = String(body.item_type || '').trim()
   const uom = String(body.uom || body.base_unit || body.unit || '').trim()
   const locationTypeId = Number(body.location_type_id)
-  const supplierId = Number(body.supplier_id)
+  const supplierId = Number(body.supplier_id) || null
   const thresholdRaw = body.threshold
   const sellingPrice = Number(body.selling_price)
 
@@ -130,7 +130,6 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   if (!['medicine', 'supplies'].includes(itemType)) return { message: 'Select a valid Type.', code: 'INVENTORY_TYPE_REQUIRED' }
   if (!uom) return { message: 'Unit of Measure is required.', code: 'INVENTORY_UOM_REQUIRED' }
   if (!locationTypeId) return { message: 'Location Type is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
-  if (!supplierId) return { message: 'Supplier is required.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
   if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0) {
     return { message: 'Low Stock Alert is required and must be 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
   }
@@ -143,6 +142,9 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
       return { message: 'Opening Quantity is required and must be 0 or greater.', code: 'INVENTORY_OPENING_QUANTITY_REQUIRED' }
     }
     if (Number(body.stock) > 0) {
+      if (!supplierId) {
+        return { message: 'Select the supplier for the opening receipt.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
+      }
       const noExpiry = body.no_expiry === true || body.no_expiry === 1 || String(body.no_expiry || '').toLowerCase() === 'true'
       if (itemType === 'medicine' && !String(body.expiration_date || '').trim()) {
         return { message: 'Batch Expiry is required for medicines.', code: 'INVENTORY_EXPIRY_REQUIRED' }
@@ -2205,7 +2207,7 @@ const getInventory = async (req, res) => {
     await ensureInventoryLocationAllocations(row.id, db)
     await syncInventorySnapshot(row.id, db)
   }
-  const rows = await loadInventoryRows()
+  const rows = await loadInventoryRows(db, 'WHERE archived_at IS NULL')
   res.json(rows)
 }
 
@@ -2318,10 +2320,14 @@ const updateInventoryItem = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [currentRows] = await conn.query('SELECT * FROM inventory WHERE id = ?', [req.params.id])
+    const [currentRows] = await conn.query('SELECT * FROM inventory WHERE id = ? FOR UPDATE', [req.params.id])
     if (currentRows.length === 0) {
       await conn.rollback()
       return res.status(404).json({ message: 'Item not found.' })
+    }
+    if (currentRows[0].archived_at) {
+      await conn.rollback()
+      return res.status(409).json({ code: 'INVENTORY_ARCHIVED', message: 'Archived inventory items cannot be edited.' })
     }
 
     const setupSelection = await resolveInventorySetupSelection({ uom, location_type_id }, conn)
@@ -2361,7 +2367,8 @@ const updateInventoryItem = async (req, res) => {
   }
 }
 
-// FIX 5: Delete an inventory item
+// QA-001: Ordinary inventory removal is archive-only. Permanent deletion is not
+// exposed through the operational endpoint, so inventory history cannot disappear.
 const deleteInventoryItem = async (req, res) => {
   const inventoryId = Number(req.params.id)
   if (!inventoryId) return res.status(400).json({ message: 'Select a valid inventory item.' })
@@ -2393,31 +2400,29 @@ const deleteInventoryItem = async (req, res) => {
       [inventoryId, inventoryId, inventoryId, inventoryId, inventoryId, inventoryId, inventoryId]
     )
     const historyCount = Number(history?.history_count || 0)
+    const reason = normalizeOptionalText(req.body?.reason, { field: 'Archive Reason', max: 255 })
+      || (historyCount > 0
+        ? 'Archived because the item has historical inventory, billing, transfer, or clinical records.'
+        : 'Archived from active inventory by an administrator.')
 
-    if (historyCount > 0) {
-      const reason = String(req.body?.reason || 'Archived because the item has historical inventory/clinical/billing records.').trim().slice(0,255)
-      await conn.query(
-        'UPDATE inventory SET archived_at=NOW(), archived_by_admin_id=?, archive_reason=? WHERE id=?',
-        [req.user.id, reason, inventoryId]
-      )
-      await writeAuditLog({
-        userId:req.user.id,userRole:'admin',action:'inventory.item_archived',entityType:'inventory_item',entityId:inventoryId,
-        oldValues:{ name:item.name, stock:Number(item.stock||0), archived_at:null },
-        newValues:{ archived:true, archive_reason:reason, history_count:historyCount },ipAddress:req.ip||null,
-      }, conn)
-      await conn.commit()
-      return res.json({ archived:true, message:'Inventory item archived. Historical stock, billing, transfer, and clinical records were preserved.' })
+    const [archiveResult] = await conn.query(
+      'UPDATE inventory SET archived_at=NOW(), archived_by_admin_id=?, archive_reason=? WHERE id=? AND archived_at IS NULL',
+      [req.user.id, reason, inventoryId]
+    )
+    if (Number(archiveResult.affectedRows || 0) !== 1) {
+      await conn.rollback()
+      return res.status(409).json({ message: 'This inventory item changed while you were viewing it. Refresh and try again.' })
     }
-
     await writeAuditLog({
-      userId:req.user.id,userRole:'admin',action:'inventory.item_deleted',entityType:'inventory_item',entityId:inventoryId,
-      oldValues:{ name:item.name, stock:Number(item.stock||0) },newValues:{ permanent_delete:true },ipAddress:req.ip||null,
+      userId:req.user.id,userRole:'admin',action:'inventory.item_archived',entityType:'inventory_item',entityId:inventoryId,
+      oldValues:{ name:item.name, stock:Number(item.stock||0), archived_at:null },
+      newValues:{ archived:true, archive_reason:reason, history_count:historyCount },ipAddress:req.ip||null,
     }, conn)
-    await conn.query('DELETE FROM inventory WHERE id=?', [inventoryId])
     await conn.commit()
-    return res.json({ archived:false, message:'Unused inventory item permanently removed.' })
+    return res.json({ archived:true, message:'Inventory item archived. It is hidden from active inventory while historical records remain intact.' })
   } catch (error) {
     await conn.rollback()
+    if (error?.statusCode) return res.status(error.statusCode).json({ message:error.message, code:error.code || null, field:error.field || null })
     throw error
   } finally {
     conn.release()
@@ -3630,4 +3635,5 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 

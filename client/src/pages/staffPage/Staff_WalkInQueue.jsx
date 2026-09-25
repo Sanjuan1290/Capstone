@@ -343,3 +343,4 @@ const StaffWalkInQueue = () => {
 }
 
 export default StaffWalkInQueue
+

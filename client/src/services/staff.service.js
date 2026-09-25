@@ -220,3 +220,4 @@ export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inve
 
 export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
 
+

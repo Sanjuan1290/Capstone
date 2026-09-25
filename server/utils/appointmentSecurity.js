@@ -111,3 +111,4 @@ module.exports = { ACTIVE_SLOT_STATUSES, parseTimeToMinutes, validateAppointment
 
 
 
+
