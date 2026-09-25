@@ -71,26 +71,27 @@ export const getBillingCatalog = (clinicType = '') =>
 export const getPatientHistory = (patientId) => requestJson(`${BASE}/patients/${patientId}/history`)
 
 export const getInventoryItems = () =>
-  fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/inventory`)
 
 export const getInventoryLocations = () =>
   requestJson(`${BASE}/inventory/locations`)
 
 export const getMyRequests = () =>
-  fetch(`${BASE}/requests`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/requests`)
 
 export const submitRequest = (payload) =>
-  fetch(`${BASE}/requests`, {
-    method: 'POST', credentials: 'include',
+  requestJson(`${BASE}/requests`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  }).then(r => r.json())
+  })
 
-export const getDoctorSchedule = (doctorId) =>
-  fetch(`/api/patient/doctors/${doctorId}/schedule`, { credentials: 'include' }).then(r => r.json())
+// Doctors may only read their own schedule through the doctor-authenticated route.
+export const getDoctorSchedule = () =>
+  requestJson(`${BASE}/schedule`)
 
 export const getMySchedule = () =>
-  fetch(`${BASE}/schedule`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/schedule`)
 
 export const getMyScheduleAll = () =>
   requestJson(`${BASE}/schedule/all`)
@@ -124,7 +125,7 @@ export const deleteMyUnavailableDate = (date) =>
 
 // NEW: get today's walk-in queue for the logged-in doctor
 export const getMyQueue = () =>
-  fetch(`${BASE}/queue`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/queue`)
 
 // NEW: mark current patient done and call next
 export const callNextPatient = () =>
@@ -133,4 +134,5 @@ export const callNextPatient = () =>
 // NEW: mark a specific queue entry as done
 export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
+
 

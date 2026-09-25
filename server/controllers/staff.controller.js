@@ -15,7 +15,7 @@ const { markOverdueAppointments } = require('../utils/appointments')
 const {
   receiveInventoryBatch,
   attachBatchesToInventory,
-  consumeInventoryFromLocationFEFO,
+  consumeInventoryFromLocationByBatches,
   syncInventorySnapshot,
   ensureInventoryLocationAllocations,
 } = require('../utils/inventoryBatches')
@@ -48,7 +48,8 @@ const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
 const { buildDoctorAvailabilitySummary, buildWalkInDoctorAvailability } = require('../utils/doctorAvailabilitySummary')
 const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
-const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
+const { normalizeText, normalizeOptionalText, normalizeNumber, normalizePositiveId, assertPlainObject } = require('../utils/inputValidation')
+const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
 const { resolveDiscountForDraft, loadDiscountPreset } = require('../utils/billingSecurity')
 
 const makeTempPassword = () => makeTemporaryPassword(14)
@@ -61,8 +62,8 @@ const normalizeInventoryPayload = (body = {}) => {
   const itemType = ['medicine','supplies'].includes(String(body.item_type || '').trim()) ? String(body.item_type).trim() : 'supplies'
   const uom = String(body.uom || body.base_unit || body.unit || '').trim().toLowerCase()
   return {
-    barcode: body.barcode?.trim() || null,
-    name: body.name?.trim() || '',
+    barcode: String(body.barcode || '').trim() || null,
+    name: String(body.name || '').trim(),
     category,
     item_type: itemType,
     uom,
@@ -74,7 +75,8 @@ const normalizeInventoryPayload = (body = {}) => {
     stock: Math.max(0, Number(body.stock) || 0),
     threshold: Math.max(0, Number(body.threshold) || 0),
     price: Math.max(0, Number(body.price) || 0),
-    supplier: body.supplier?.trim() || null,
+    selling_price: body.selling_price === '' || body.selling_price === null || body.selling_price === undefined ? null : Math.max(0, Number(body.selling_price) || 0),
+    supplier: String(body.supplier || '').trim() || null,
     supplier_id: Number(body.supplier_id) || null,
     expiration_date: body.expiration_date || null,
     batch_code: String(body.batch_code || '').trim() || null,
@@ -82,8 +84,65 @@ const normalizeInventoryPayload = (body = {}) => {
     supplier_lot_number: String(body.supplier_lot_number || '').trim() || null,
     location_type_id: Number(body.location_type_id) || null,
     storage_location_id: Number(body.storage_location_id) || null,
-    storage_location: body.storage_location?.trim() || null,
+    storage_location: String(body.storage_location || '').trim() || null,
   }
+}
+
+
+const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = false } = {}) => {
+  try {
+    assertPlainObject(body)
+    normalizeText(body.name, { field: 'Item Name', required: true, max: 150 })
+    if (body.barcode !== undefined && body.barcode !== null && body.barcode !== '') normalizeText(body.barcode, { field: 'Product Barcode', max: 50 })
+    if (body.supplier_lot_number !== undefined && body.supplier_lot_number !== null && body.supplier_lot_number !== '') normalizeText(body.supplier_lot_number, { field: 'Supplier Lot Number', max: 120 })
+    normalizeNumber(body.threshold, { field: 'Low Stock Alert', required: true, min: 0, max: 9999999999 })
+    normalizeNumber(body.selling_price, { field: 'Selling Price', required: true, min: 0.01, max: 99999999.99 })
+    if (requireOpeningQuantity) normalizeNumber(body.stock, { field: 'Opening Quantity', required: true, min: 0, max: 9999999999 })
+  } catch (err) {
+    return { message: err.message, code: err.code || 'VALIDATION_ERROR', field: err.field || null }
+  }
+  const name = String(body.name || '').trim()
+  const category = String(body.category || '').trim()
+  const itemType = String(body.item_type || '').trim()
+  const uom = String(body.uom || body.base_unit || body.unit || '').trim()
+  const locationTypeId = Number(body.location_type_id)
+  const supplierId = Number(body.supplier_id)
+  const thresholdRaw = body.threshold
+  const sellingPrice = Number(body.selling_price)
+
+  if (!name) return { message: 'Item Name is required.', code: 'INVENTORY_NAME_REQUIRED' }
+  if (!['medical', 'derma'].includes(category)) return { message: 'Select a valid Category.', code: 'INVENTORY_CATEGORY_REQUIRED' }
+  if (!['medicine', 'supplies'].includes(itemType)) return { message: 'Select a valid Type.', code: 'INVENTORY_TYPE_REQUIRED' }
+  if (!uom) return { message: 'Unit of Measure is required.', code: 'INVENTORY_UOM_REQUIRED' }
+  if (!locationTypeId) return { message: 'Location Type is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
+  if (!supplierId) return { message: 'Supplier is required.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
+  if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0) {
+    return { message: 'Low Stock Alert is required and must be 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
+  }
+  if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+    return { message: 'Selling Price is required and must be greater than ₱0.00.', code: 'INVENTORY_SELLING_PRICE_REQUIRED' }
+  }
+
+  if (requireOpeningQuantity) {
+    if (body.stock === '' || body.stock === null || body.stock === undefined || !Number.isFinite(Number(body.stock)) || Number(body.stock) < 0) {
+      return { message: 'Opening Quantity is required and must be 0 or greater.', code: 'INVENTORY_OPENING_QUANTITY_REQUIRED' }
+    }
+    if (Number(body.stock) > 0) {
+      const noExpiry = body.no_expiry === true || body.no_expiry === 1 || String(body.no_expiry || '').toLowerCase() === 'true'
+      if (itemType === 'medicine' && !String(body.expiration_date || '').trim()) {
+        return { message: 'Batch Expiry is required for medicines.', code: 'INVENTORY_EXPIRY_REQUIRED' }
+      }
+      if (itemType === 'supplies' && !noExpiry && !String(body.expiration_date || '').trim()) {
+        return { message: 'Enter the Batch Expiry or select “No expiry / Not applicable”.', code: 'INVENTORY_EXPIRY_REQUIRED' }
+      }
+      const lotMissing = body.supplier_lot_missing === true || body.supplier_lot_missing === 1 || String(body.supplier_lot_missing || '').toLowerCase() === 'true'
+      if (!lotMissing && !String(body.supplier_lot_number || '').trim()) {
+        return { message: 'Supplier Lot Number is required unless the supplier did not provide one.', code: 'INVENTORY_SUPPLIER_LOT_REQUIRED' }
+      }
+    }
+  }
+
+  return null
 }
 
 const resolveInventorySetupSelection = async ({ uom, location_type_id }, executor = db) => {
@@ -177,13 +236,16 @@ const findExistingPatientByPhone = async (phone) => {
 
 const loadInventoryRows = async (executor = db, whereClause = '', params = []) => {
   const [rows] = await executor.query(
-    `SELECT i.*, lt.name AS location_type_name, lt.code AS location_type_code
+    `SELECT i.*, lt.name AS location_type_name, lt.code AS location_type_code,
+            COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal,
+            COALESCE(u.decimal_precision,0) AS uom_decimal_precision
      FROM (
        SELECT *
        FROM inventory
        ${whereClause}
      ) i
      LEFT JOIN inventory_location_types lt ON lt.id = i.location_type_id
+     LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
      ORDER BY
        CASE WHEN i.expiration_date IS NULL THEN 1 ELSE 0 END,
        i.expiration_date ASC,
@@ -258,7 +320,7 @@ const getDashboard = async (req, res) => {
     "SELECT COUNT(*) AS queueCount FROM queue WHERE queue_date = ? AND status IN ('waiting','called','in_consultation')", [today]
   )
   const [[{ lowStock }]]      = await db.query(
-    'SELECT COUNT(*) AS lowStock FROM inventory WHERE stock <= threshold'
+    'SELECT COUNT(*) AS lowStock FROM inventory WHERE archived_at IS NULL AND stock <= threshold'
   )
   const [[{ totalPatients }]] = await db.query('SELECT COUNT(*) AS totalPatients FROM patients')
   res.json({ totalToday, pendingCount, queueCount, lowStock, totalPatients })
@@ -375,7 +437,8 @@ const confirmAppointment = async (req, res) => {
     return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
   }
   assertAppointmentTransition(rows[0].status, 'confirmed')
-  await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ?", [req.params.id])
+  const [updated] = await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
+  await assertAppointmentMutationApplied(updated, req.params.id)
   await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.confirmed',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
@@ -405,6 +468,7 @@ const confirmAppointment = async (req, res) => {
     status: 'confirmed',
   }).catch(() => {})
   await sendPatientAppointmentStatusSms({
+    patientId: rows[0].patient_id,
     patientPhone: rows[0].patient_phone,
     patientName: rows[0].patient_name,
     doctorName: rows[0].doctor_name,
@@ -442,7 +506,8 @@ const cancelAppointment = async (req, res) => {
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   assertAppointmentTransition(rows[0].status, 'cancelled')
-  await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [req.params.id])
+  const [updated] = await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
+  await assertAppointmentMutationApplied(updated, req.params.id)
   await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.cancelled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'cancelled'},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
@@ -463,6 +528,7 @@ const cancelAppointment = async (req, res) => {
     status: 'cancelled',
   }).catch(() => {})
   await sendPatientAppointmentStatusSms({
+    patientId: rows[0].patient_id,
     patientPhone: rows[0].patient_phone,
     patientName: rows[0].patient_name,
     doctorName: rows[0].doctor_name,
@@ -492,7 +558,8 @@ const markAppointmentNoShow = async (req, res) => {
     return res.status(400).json({ message: 'Only confirmed or rescheduled appointments can be marked as no show.' })
   }
   assertAppointmentTransition(rows[0].status, 'no_show')
-  await db.query("UPDATE appointments SET status = 'no_show' WHERE id = ?", [req.params.id])
+  const [updated] = await db.query("UPDATE appointments SET status = 'no_show' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
+  await assertAppointmentMutationApplied(updated, req.params.id)
   await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.no_show',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'no_show'},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
@@ -534,10 +601,11 @@ const rescheduleAppointment = async (req, res) => {
   assertAppointmentTransition(rows[0].status, 'rescheduled')
   await withAppointmentSlotLock({ doctorId: rows[0].doctor_id, date: normalizedDate, time: appointment_time }, async () => {
     await validateAppointmentSlot({ doctorId: rows[0].doctor_id, clinicType: rows[0].clinic_type, date: normalizedDate, time: appointment_time, excludeAppointmentId: req.params.id })
-    await db.query(
-      "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=?",
-      [normalizedDate, appointment_time, req.params.id]
+    const [updated] = await db.query(
+      "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=? AND status=?",
+      [normalizedDate, appointment_time, req.params.id, rows[0].status]
     )
+    await assertAppointmentMutationApplied(updated, req.params.id)
   })
   await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
@@ -559,6 +627,7 @@ const rescheduleAppointment = async (req, res) => {
     status: 'rescheduled',
   }).catch(() => {})
   await sendPatientAppointmentStatusSms({
+    patientId: rows[0].patient_id,
     patientPhone: rows[0].patient_phone,
     patientName: rows[0].patient_name,
     doctorName: rows[0].doctor_name,
@@ -903,50 +972,169 @@ const getBillById = async (req, res) => {
   res.json(bill)
 }
 
+const parseBillingItemDetails = (item) => {
+  const raw = item?.details || item?.details_json || null
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw
+  try { return JSON.parse(raw) || {} } catch { return {} }
+}
+
 const validateStaffSupplyAvailability = async (items = [], executor = db) => {
+  const inventoryCache = new Map()
   const grouped = new Map()
+  const checks = []
+
   for (const item of Array.isArray(items) ? items : []) {
     if (String(item?.item_type || '') !== 'supply' || String(item?.source_type || '') !== 'staff_supply') continue
     const inventoryId = Number(item?.source_inventory_id || 0)
     if (!inventoryId) continue
-    let details = item?.details || item?.details_json || null
-    if (typeof details === 'string') { try { details = JSON.parse(details) } catch { details = null } }
-    const current = grouped.get(inventoryId) || { inventory_id: inventoryId, requested: 0, unit: details?.unit || null }
-    current.requested += Math.max(0, Number(item?.quantity || 0))
-    if (!current.unit && details?.unit) current.unit = details.unit
-    grouped.set(inventoryId, current)
-  }
 
-  const checks = []
-  for (const entry of grouped.values()) {
-    const [[inventoryItem]] = await executor.query(
-      'SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? LIMIT 1',
-      [entry.inventory_id]
-    )
+    let inventoryItem = inventoryCache.get(inventoryId)
     if (!inventoryItem) {
-      checks.push({ ...entry, name: 'Inventory item', available: 0, sufficient: false })
+      const [[row]] = await executor.query('SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? LIMIT 1', [inventoryId])
+      inventoryItem = row || null
+      inventoryCache.set(inventoryId, inventoryItem)
+    }
+    if (!inventoryItem) {
+      checks.push({ inventory_id: inventoryId, name: item?.service_name || 'Inventory item', requested: Number(item?.quantity || 0), available: 0, sufficient: false, message: 'Inventory item no longer exists.' })
       continue
     }
-    const [[stock]] = await executor.query(
-      `SELECT COALESCE(SUM(ilb.quantity),0) AS package_available
-       FROM inventory_location_batches ilb
-       JOIN inventory_locations il ON il.id=ilb.location_id
-       JOIN inventory_batches ib ON ib.id=ilb.batch_id
-       WHERE ilb.inventory_id=? AND il.name IN ('Dispensing Area','Main Stockroom')
-         AND ilb.quantity>0 AND ib.quantity>0
-         AND (ib.expiration_date IS NULL OR ib.expiration_date >= CURDATE())`,
-      [inventoryItem.id]
-    )
-    const packageAvailable = Number(stock?.package_available || 0)
-    const unit = String(entry.unit || inventoryItem.unit || '').trim()
+
+    const details = parseBillingItemDetails(item)
+    const batchId = Number(details.batch_id || 0)
+    const sourceLocationId = Number(details.source_location_id || 0)
+    const sourceLocation = String(details.source_location || '').trim()
+    const usageUnit = String(details.unit || inventoryItem.unit || '').trim()
     const baseUnit = String(inventoryItem.base_unit || '').trim()
     const unitSize = Math.max(1, Number(inventoryItem.unit_size) || 1)
-    const available = unit && baseUnit && unit.toLowerCase() === baseUnit.toLowerCase()
-      ? packageAvailable * unitSize
-      : packageAvailable
-    checks.push({ ...entry, name: inventoryItem.name, unit: unit || inventoryItem.unit || '', available, sufficient: available + 0.0001 >= entry.requested })
+    const requestedUsage = Math.max(0, Number(item?.quantity || 0))
+    const packageRequested = usageUnit && baseUnit && usageUnit.toLowerCase() === baseUnit.toLowerCase()
+      ? requestedUsage / unitSize
+      : requestedUsage
+
+    if (!batchId || !sourceLocationId) {
+      checks.push({
+        inventory_id: inventoryId,
+        name: inventoryItem.name,
+        requested: requestedUsage,
+        available: 0,
+        unit: usageUnit || inventoryItem.unit || '',
+        sufficient: false,
+        message: 'Select the exact batch to dispense for this Checkout item.',
+      })
+      continue
+    }
+
+    const key = `${inventoryId}:${batchId}:${sourceLocationId}`
+    const current = grouped.get(key) || {
+      inventory_id: inventoryId,
+      batch_id: batchId,
+      source_location_id: sourceLocationId,
+      source_location: sourceLocation,
+      name: inventoryItem.name,
+      unit: usageUnit || inventoryItem.unit || '',
+      requested: 0,
+      package_requested: 0,
+      unit_size: unitSize,
+      uses_base_unit: Boolean(usageUnit && baseUnit && usageUnit.toLowerCase() === baseUnit.toLowerCase()),
+    }
+    current.requested += requestedUsage
+    current.package_requested += packageRequested
+    grouped.set(key, current)
+  }
+
+  for (const entry of grouped.values()) {
+    const [[batch]] = await executor.query(
+      `SELECT ib.id, ib.batch_code, ib.expiration_date, ib.archived_at, ib.quantity AS clinic_quantity,
+              il.name AS location_name, COALESCE(ilb.quantity,0) AS location_quantity
+       FROM inventory_batches ib
+       JOIN inventory_locations il ON il.id = ? AND COALESCE(il.is_active,1)=1
+       LEFT JOIN inventory_location_batches ilb ON ilb.location_id = il.id AND ilb.batch_id = ib.id
+       WHERE ib.id = ? AND ib.inventory_id = ?
+       LIMIT 1`,
+      [entry.source_location_id, entry.batch_id, entry.inventory_id]
+    )
+    const validBatch = batch && !batch.archived_at && (!batch.expiration_date || String(batch.expiration_date).slice(0,10) >= getTodayDateOnly())
+    const packageAvailable = validBatch ? Math.min(Number(batch.location_quantity || 0), Number(batch.clinic_quantity || 0)) : 0
+    const canonicalLocation = batch?.location_name || entry.source_location || 'selected location'
+    entry.source_location = canonicalLocation
+    const available = entry.uses_base_unit ? packageAvailable * entry.unit_size : packageAvailable
+    const sufficient = packageAvailable + 0.0001 >= entry.package_requested
+    checks.push({
+      ...entry,
+      batch_code: batch?.batch_code || null,
+      available,
+      sufficient,
+      message: sufficient ? null : validBatch
+        ? `${entry.name} batch ${batch?.batch_code || `#${entry.batch_id}`} only has ${available} ${entry.unit || 'unit(s)'} available at ${entry.source_location}.`
+        : `The selected batch for ${entry.name} is expired, archived, missing, or unavailable at ${entry.source_location}.`,
+    })
   }
   return checks
+}
+
+const dispenseCheckoutSupplies = async ({ bill, actorRole, userId, executor }) => {
+  const isAdminActor = actorRole === 'admin'
+  const directSupplies = (bill?.items || []).filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id) > 0)
+  if (!directSupplies.length) return []
+
+  const validation = await validateStaffSupplyAvailability(directSupplies, executor)
+  const insufficient = validation.find((entry) => !entry.sufficient)
+  if (insufficient) {
+    throw Object.assign(new Error(insufficient.message || `Not enough stock for ${insufficient.name}.`), { statusCode: 409, code: 'CHECKOUT_BATCH_STOCK_CHANGED' })
+  }
+
+  const dispensed = []
+  for (const item of directSupplies) {
+    const [[already]] = await executor.query(
+      `SELECT id FROM billing_item_batch_usage WHERE billing_id=? AND billing_item_id=? AND movement_type='dispensed' LIMIT 1`,
+      [bill.id, item.id]
+    )
+    if (already) continue
+
+    const details = parseBillingItemDetails(item)
+    const batchId = Number(details.batch_id || 0)
+    const sourceLocationId = Number(details.source_location_id || 0)
+    const sourceLocation = String(details.source_location || '').trim()
+    if (!batchId || !sourceLocationId) {
+      throw Object.assign(new Error(`Select an exact batch for ${item.service_name} before accepting the final payment.`), { statusCode: 409, code: 'CHECKOUT_BATCH_REQUIRED' })
+    }
+
+    const [[inventoryItem]] = await executor.query('SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? AND archived_at IS NULL LIMIT 1 FOR UPDATE', [item.source_inventory_id])
+    if (!inventoryItem) throw Object.assign(new Error(`Inventory item for ${item.service_name} is no longer available.`), { statusCode: 400 })
+    const [[sourceLocationRow]] = await executor.query('SELECT id,name FROM inventory_locations WHERE id=? AND COALESCE(is_active,1)=1 LIMIT 1', [sourceLocationId])
+    if (!sourceLocationRow) throw Object.assign(new Error(`The selected stock location for ${item.service_name} is no longer available.`), { statusCode: 409, code: 'CHECKOUT_LOCATION_CHANGED' })
+    const canonicalSourceLocation = sourceLocationRow.name
+    const usageUnit = String(details.unit || inventoryItem.unit || '').trim().toLowerCase()
+    const baseUnit = String(inventoryItem.base_unit || '').trim().toLowerCase()
+    const unitSize = Math.max(1, Number(inventoryItem.unit_size) || 1)
+    const requestedQty = Math.max(0, Number(item.quantity) || 0)
+    const packageQty = usageUnit && baseUnit && usageUnit === baseUnit ? requestedQty / unitSize : requestedQty
+
+    const consumption = await consumeInventoryFromLocationByBatches(
+      inventoryItem.id,
+      [{ batch_id: batchId, quantity: packageQty }],
+      canonicalSourceLocation,
+      executor
+    )
+    if (!consumption.ok) throw Object.assign(new Error(consumption.message || `Not enough stock for ${inventoryItem.name}.`), { statusCode: 409, code: 'CHECKOUT_BATCH_STOCK_CHANGED' })
+
+    for (const batch of consumption.consumed) {
+      const batchUsageQty = usageUnit && baseUnit && usageUnit === baseUnit ? Number(batch.quantity || 0) * unitSize : Number(batch.quantity || 0)
+      await executor.query(
+        `INSERT INTO billing_item_batch_usage (billing_id, billing_item_id, inventory_id, batch_id, package_quantity, usage_quantity, usage_unit_label, movement_type, source_location, source_location_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'dispensed', ?, ?)`,
+        [bill.id, item.id || null, inventoryItem.id, batch.batch_id, Number(batch.quantity || 0), batchUsageQty, details.unit || inventoryItem.unit, canonicalSourceLocation, sourceLocationId]
+      )
+      await executor.query(
+        `INSERT INTO inventory_logs (inventory_id, staff_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
+         VALUES (?, ?, ?, 'out', ?, ?, 'dispensed', 'billing_record', ?, ?, ?)`,
+        [inventoryItem.id, isAdminActor ? null : userId, isAdminActor ? userId : null, Number(batch.quantity || 0), `${batch.batch_code || `Batch #${batch.batch_id}`} dispensed after full payment for billing record ${bill.id}: ${item.service_name}`, String(bill.id), batch.batch_id, canonicalSourceLocation]
+      )
+      dispensed.push({ billing_item_id: item.id, inventory_id: inventoryItem.id, batch_id: batch.batch_id, quantity: Number(batch.quantity || 0), source_location: canonicalSourceLocation, source_location_id: sourceLocationId })
+    }
+  }
+  return dispensed
 }
 
 const updateBill = async (req, res) => {
@@ -959,7 +1147,7 @@ const updateBill = async (req, res) => {
     return res.status(400).json({ message: 'Reload this bill before saving. A valid bill version is required.', code: 'BILL_VERSION_REQUIRED' })
   }
 
-  const paymentNotes = String(req.body.payment_notes || '').trim() || null
+  const paymentNotes = normalizeOptionalText(req.body.payment_notes, { field: 'Payment Notes', max: 500, multiline: true })
   const rawItems = Array.isArray(req.body.items) ? req.body.items : []
   const conn = await db.getConnection()
   try {
@@ -1103,9 +1291,8 @@ const requestBillingAdjustment = async (req, res) => {
   if (!preset || Number(preset.is_active) === 0) return res.status(400).json({ message: 'Select a valid discount preset.' })
   requestedAmount = Math.max(0, Number(req.body.requested_amount) || 0) || null
   if (requestedAmount && requestedAmount > Number(bill.subtotal || 0) + 0.001) return res.status(400).json({ message: 'Requested discount cannot exceed the bill subtotal.' })
-  const reason = String(req.body.reason || '').trim()
-  const reference = String(req.body.reference || '').trim() || null
-  if (!reason) return res.status(400).json({ message: 'A reason is required for administrator approval.' })
+  const reason = normalizeText(req.body.reason, { field: 'Approval Reason', required: true, max: 255, multiline: true })
+  const reference = normalizeOptionalText(req.body.reference, { field: 'Discount Reference', max: 120 })
 
   const [existing] = await db.query(
     `SELECT id FROM billing_adjustment_requests WHERE billing_id=? AND bill_version=? AND staff_id=? AND request_type=? AND status='pending'
@@ -1185,36 +1372,16 @@ const finalizeBill = async (req, res) => {
     if (!Array.isArray(bill.items) || bill.items.length === 0) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item before confirming.' }) }
 
     const directSupplies = bill.items.filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id) > 0)
-    for (const item of directSupplies) {
-      const [inventoryRows] = await conn.query('SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? LIMIT 1 FOR UPDATE', [item.source_inventory_id])
-      if (!inventoryRows.length) throw Object.assign(new Error(`Inventory item for ${item.service_name} is no longer available.`), { statusCode:400 })
-      const inventoryItem = inventoryRows[0]
-      const details = item.details || {}
-      const usageUnit = String(details?.unit || inventoryItem.unit || '').trim().toLowerCase()
-      const baseUnit = String(inventoryItem.base_unit || '').trim().toLowerCase()
-      const unitSize = Math.max(1, Number(inventoryItem.unit_size) || 1)
-      const requestedQty = Math.max(0, Number(item.quantity) || 0)
-      const packageQty = usageUnit && baseUnit && usageUnit === baseUnit ? requestedQty / unitSize : requestedQty
-      const consumption = await consumeInventoryFromLocationFEFO(inventoryItem.id, packageQty, 'Dispensing Area', conn, { fallbackLocation: 'Main Stockroom' })
-      if (!consumption.ok) { await conn.rollback(); return res.status(400).json({ message: `Not enough stock for ${inventoryItem.name}. ${consumption.message}`, code:'INSUFFICIENT_STOCK' }) }
-
-      let remainingUsageQty = requestedQty
-      for (const batch of consumption.consumed) {
-        const batchUsageQty = usageUnit && baseUnit && usageUnit === baseUnit ? Number(batch.quantity || 0) * unitSize : Number(batch.quantity || 0)
-        const allocatedUsage = Math.min(remainingUsageQty, batchUsageQty); remainingUsageQty = Math.max(0, remainingUsageQty - allocatedUsage)
-        const batchLabel = batch.batch_code || `Batch #${batch.batch_id}`
-        await conn.query(
-          `INSERT INTO billing_item_batch_usage (billing_id, billing_item_id, inventory_id, batch_id, package_quantity, usage_quantity, usage_unit_label, movement_type, source_location)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'dispensed', ?)`,
-          [bill.id, item.id || null, inventoryItem.id, batch.batch_id, Number(batch.quantity || 0), allocatedUsage, details?.unit || inventoryItem.unit, batch.location || 'Dispensing Area']
-        )
-        await conn.query(
-          `INSERT INTO inventory_logs (inventory_id, staff_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
-           VALUES (?, ?, ?, 'out', ?, ?, 'dispensed', 'billing_record', ?, ?, ?)`,
-          [inventoryItem.id, isAdminActor ? null : req.user.id, isAdminActor ? req.user.id : null, Number(batch.quantity || 0), `${batchLabel} dispensed for billing record ${bill.id}: ${item.service_name}`, String(bill.id), batch.batch_id, batch.location || 'Dispensing Area']
-        )
-      }
+    const supplyChecks = await validateStaffSupplyAvailability(directSupplies, conn)
+    const insufficientSupply = supplyChecks.find((item) => !item.sufficient)
+    if (insufficientSupply) {
+      await conn.rollback()
+      return res.status(409).json({
+        message: insufficientSupply.message || `Not enough stock for ${insufficientSupply.name}.`,
+        code: 'CHECKOUT_BATCH_STOCK_CHANGED',
+      })
     }
+
 
     const nextVersion = expectedVersion + 1
     const [updated] = await conn.query(
@@ -1223,7 +1390,7 @@ const finalizeBill = async (req, res) => {
     )
     if (Number(updated.affectedRows || 0) !== 1) throw Object.assign(new Error('This bill changed while it was being confirmed. Reload and try again.'), { statusCode:409, code:'BILL_VERSION_CONFLICT' })
     await conn.query("UPDATE billing_adjustment_requests SET status='expired', resolved_at=NOW(), admin_note=COALESCE(admin_note,'Bill was finalized before this request was used.') WHERE billing_id=? AND status='pending'", [billingId])
-    await writeAuditLog({ userId:req.user.id,userRole:actorRole,action:'billing.finalized',entityType:'billing_record',entityId:billingId,oldValues:{status:locked.status,version:expectedVersion},newValues:{status:'ready',version:nextVersion,total_amount:bill.total_amount,dispensed_items:directSupplies.length},ipAddress:req.ip||null }, conn)
+    await writeAuditLog({ userId:req.user.id,userRole:actorRole,action:'billing.finalized',entityType:'billing_record',entityId:billingId,oldValues:{status:locked.status,version:expectedVersion},newValues:{status:'ready',version:nextVersion,total_amount:bill.total_amount,pending_dispense_items:directSupplies.length},ipAddress:req.ip||null }, conn)
     await conn.commit()
   } catch (err) {
     await conn.rollback()
@@ -1239,8 +1406,8 @@ const payBill = async (req, res) => {
   const isAdminActor = actorRole === 'admin'
   const billingId = Number(req.params.id)
   const paymentMethod = String(req.body.payment_method || '').trim().toLowerCase()
-  const paymentNotes = String(req.body.payment_notes || '').trim() || null
-  const referenceNumber = String(req.body.reference_number || '').trim() || null
+  const paymentNotes = normalizeOptionalText(req.body.payment_notes, { field: 'Payment Notes', max: 500, multiline: true })
+  const referenceNumber = normalizeOptionalText(req.body.reference_number, { field: 'Reference Number', max: 120 })
   const idempotencyKey = String(req.body.idempotency_key || '').trim()
   if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
   if (!idempotencyKey || idempotencyKey.length > 100) return res.status(400).json({ message: 'A valid payment request key is required.' })
@@ -1310,6 +1477,21 @@ const payBill = async (req, res) => {
     const nextStatus = balanceAfter <= 0 ? 'paid' : 'partially_paid'
     const paidAt = getClinicDateTimeSql()
 
+    // Direct Medicine / Supply charges are physically dispensed only when the bill
+    // becomes fully paid. Consultation service consumables were already deducted by
+    // the Doctor workflow when the consultation was finalized, so they are never
+    // deducted a second time here.
+    let checkoutDispensed = []
+    if (nextStatus === 'paid') {
+      const billForDispense = await getBillingRecordWithItems(billingId, conn)
+      checkoutDispensed = await dispenseCheckoutSupplies({
+        bill: billForDispense,
+        actorRole,
+        userId: req.user.id,
+        executor: conn,
+      })
+    }
+
     await conn.query(
       `INSERT INTO billing_payments
        (billing_id, amount, payment_method, reference_number, amount_received, change_amount, receipt_number, status, notes, received_by_staff_id, received_by_admin_id, idempotency_key, paid_at)
@@ -1325,13 +1507,15 @@ const payBill = async (req, res) => {
     await writeAuditLog({
       userId: req.user.id, userRole: actorRole, action: 'billing.payment_received', entityType: 'billing_record', entityId: billingId,
       oldValues: { status: lockedBill.status, balance_amount: balance },
-      newValues: { status: nextStatus, payment_amount: requestedPayment, balance_amount: balanceAfter, payment_method: paymentMethod, receipt_number: receiptNumber },
+      newValues: { status: nextStatus, payment_amount: requestedPayment, balance_amount: balanceAfter, payment_method: paymentMethod, receipt_number: receiptNumber, checkout_items_dispensed: checkoutDispensed.length },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
     broadcast(['admin', 'staff'], 'billing_paid', { billingId, receiptNumber, status: nextStatus })
   } catch (err) {
-    await conn.rollback(); throw err
+    await conn.rollback()
+    if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || undefined })
+    throw err
   } finally { conn.release() }
   res.json(await getBillingRecordWithItems(billingId))
 }
@@ -1369,7 +1553,7 @@ const supplierSupportsClinic = (categoryValue, clinic) => String(categoryValue |
 
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
-  const [uoms] = await db.query('SELECT id,name,abbreviation FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
+  const [uoms] = await db.query('SELECT id,name,abbreviation,allow_decimal_quantity,decimal_precision FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
   const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name`, category ? [category] : [])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE is_active=1 ORDER BY sort_order,name')
   const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
@@ -1379,20 +1563,24 @@ const getInventoryMasterData = async (req, res) => {
 }
 
 const getInventory = async (req, res) => {
-  const [ids] = await db.query('SELECT id FROM inventory ORDER BY id')
+  const [ids] = await db.query('SELECT id FROM inventory WHERE archived_at IS NULL ORDER BY id')
   for (const row of ids) {
     await ensureInventoryLocationAllocations(row.id, db)
     await syncInventorySnapshot(row.id, db)
   }
-  const items = await loadInventoryRows()
+  const items = await loadInventoryRows(db, 'WHERE archived_at IS NULL')
   res.json(items)
 }
 
 const addInventoryItem = async (req, res) => {
+  const validationError = validateInventoryRequiredFields(req.body, { requireOpeningQuantity: true })
+  if (validationError) return res.status(400).json(validationError)
+
   let {
-    barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier, supplier_id,
+    barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id,
     expiration_date, batch_code, batch_lot_code, supplier_lot_number, location_type_id,
   } = normalizeInventoryPayload(req.body)
+  price = selling_price
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
 
@@ -1425,19 +1613,20 @@ const addInventoryItem = async (req, res) => {
     }
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, supplier, supplier_id, expiration_date, storage_location, location_type_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, 1, 0, threshold, price, supplier, supplier_id, null, null, location_type_id]
+       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location, location_type_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, 1, 0, threshold, price, selling_price, supplier, supplier_id, null, null, location_type_id]
     )
     let openingBatchId = null
     let openingLocation = 'Main Stockroom'
     if (stock > 0) {
       const received = await receiveInventoryBatch(result.insertId, {
         quantity: stock,
-        expiration_date,
+        expiration_date: req.body.no_expiry ? null : expiration_date,
         batch_code,
         supplier_lot_number,
-        unit_cost: price,
+        supplier_id,
+        unit_cost: 0,
         note: 'Opening stock',
         location: 'Main Stockroom',
       }, conn)
@@ -1467,7 +1656,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, item_type, barcode, uom, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: supplier_lot_number || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: supplier_lot_number || null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -1487,8 +1676,11 @@ const addInventoryItem = async (req, res) => {
 
 // FIX 2: Edit inventory item (name, barcode, category, unit, threshold, price, supplier)
 const updateInventoryItem = async (req, res) => {
+  const validationError = validateInventoryRequiredFields(req.body)
+  if (validationError) return res.status(400).json(validationError)
+
   let {
-    barcode, name, category, item_type, uom, dosage_form, strength, threshold, supplier, supplier_id, location_type_id,
+    barcode, name, category, item_type, uom, dosage_form, strength, threshold, selling_price, supplier, supplier_id, location_type_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1519,9 +1711,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, supplier=?, supplier_id=?, location_type_id=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?, location_type_id=?
        WHERE id=?`,
-      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, canonicalUom, canonicalUom, threshold, supplier, supplier_id, location_type_id, req.params.id]
+      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, canonicalUom, canonicalUom, threshold, selling_price, selling_price, supplier, supplier_id, location_type_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -1541,34 +1733,10 @@ const updateInventoryItem = async (req, res) => {
 
 // FIX 2: Delete inventory item
 const deleteInventoryItem = async (req, res) => {
-  const [rows] = await db.query('SELECT id, name, stock FROM inventory WHERE id = ?', [req.params.id])
-  if (rows.length === 0) return res.status(404).json({ message: 'Item not found.' })
-  if (Number(rows[0].stock || 0) > 0) {
-    return res.status(409).json({
-      message: 'This item still has batch stock. Record the appropriate batch stock-out/transfer first before deleting the item.',
-    })
-  }
-  const conn = await db.getConnection()
-  try {
-    await conn.beginTransaction()
-    await writeAuditLog({
-      userId: req.user.id,
-      userRole: 'staff',
-      action: 'inventory.item_deleted',
-      entityType: 'inventory_item',
-      entityId: req.params.id,
-      oldValues: { name: rows[0].name, stock: Number(rows[0].stock || 0) },
-      ipAddress: req.ip || null,
-    }, conn)
-    await conn.query('DELETE FROM inventory WHERE id = ?', [req.params.id])
-    await conn.commit()
-    res.json({ message: 'Inventory item deleted.' })
-  } catch (error) {
-    await conn.rollback()
-    throw error
-  } finally {
-    conn.release()
-  }
+  return res.status(403).json({
+    code: 'ADMIN_REQUIRED',
+    message: 'Only an administrator can archive or remove an inventory item.'
+  })
 }
 
 const updateStock = async (req, res) => {
@@ -1734,4 +1902,3 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
-

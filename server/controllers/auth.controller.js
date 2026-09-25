@@ -30,7 +30,7 @@ const findPatientByPhone = async (phone) => {
   if (!variants.length) return { normalizedPhone: null, rows: [] }
   const placeholders = variants.map(() => '?').join(', ')
   const [rows] = await db.query(
-    `SELECT id, full_name, email, phone
+    `SELECT id, full_name, email, phone, email_verified_at, phone_verified_at
      FROM patients
      WHERE ${NORMALIZED_PHONE_SQL} IN (${placeholders})
        AND COALESCE(is_walk_in, 0) = 0`,
@@ -43,7 +43,7 @@ const findPatientByEmail = async (email) => {
   const normalizedEmail = normalizeEmail(email)
   if (!normalizedEmail) return { normalizedEmail: null, rows: [] }
   const [rows] = await db.query(
-    `SELECT id, full_name, email, phone
+    `SELECT id, full_name, email, phone, email_verified_at, phone_verified_at
      FROM patients
      WHERE LOWER(email) = ?
        AND COALESCE(is_walk_in, 0) = 0`,
@@ -67,6 +67,13 @@ const maskPhone = (phone) => {
   return `${local.slice(0, 4)} ••• ${local.slice(-4)}`
 }
 
+
+const genericRecoveryResponse = (deliveryMethod, { email = '', phone = '' } = {}) => ({
+  message: 'If an account matches the information provided, a verification code will be sent.',
+  delivery_method: deliveryMethod,
+  masked_destination: deliveryMethod === 'sms' ? maskPhone(phone) : maskEmail(email),
+})
+
 const forgotPassword = async (req, res) => {
   const { email, phone, role } = req.body
   const config = ROLE_CONFIG[role]
@@ -74,68 +81,59 @@ const forgotPassword = async (req, res) => {
 
   const requestedMethod = String(req.body.delivery_method || '').toLowerCase()
   const deliveryMethod = role === 'patient' && requestedMethod === 'sms' ? 'sms' : 'email'
+  const normalizedInputEmail = normalizeEmail(email)
+  const normalizedInputPhone = normalizePhilippinePhone(phone)
+
+  if (deliveryMethod === 'sms' && !normalizedInputPhone) {
+    return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+  }
+  if (deliveryMethod === 'email' && !normalizedInputEmail) {
+    return res.status(400).json({ message: 'Enter a valid email address.' })
+  }
+
+  const generic = genericRecoveryResponse(deliveryMethod, {
+    email: normalizedInputEmail,
+    phone: normalizedInputPhone,
+  })
 
   let account = null
-  let identifier = null
+  let identifier = deliveryMethod === 'sms' ? normalizedInputPhone : normalizedInputEmail
 
   if (role === 'patient') {
-    if (deliveryMethod === 'sms') {
-      const patientMatch = await findPatientByPhone(phone)
-      if (!patientMatch.normalizedPhone) {
-        return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
-      }
-      identifier = patientMatch.normalizedPhone
-      if (patientMatch.rows.length === 1) account = patientMatch.rows[0]
+    const patientMatch = deliveryMethod === 'sms'
+      ? await findPatientByPhone(normalizedInputPhone)
+      : await findPatientByEmail(normalizedInputEmail)
+
+    if (patientMatch.rows.length !== 1) {
       if (patientMatch.rows.length > 1) {
-        return res.status(409).json({
-          code: 'RECOVERY_DUPLICATE_ACCOUNT',
-          message: 'Multiple patient records use this mobile number. Please contact the clinic for assistance.',
+        console.warn('[security] password recovery matched duplicate patient records', {
+          deliveryMethod,
+          identifier,
+          count: patientMatch.rows.length,
         })
       }
-    } else {
-      const patientMatch = await findPatientByEmail(email)
-      if (!patientMatch.normalizedEmail) {
-        return res.status(400).json({ message: 'Enter a valid email address.' })
-      }
-      identifier = patientMatch.normalizedEmail
-      if (patientMatch.rows.length === 1) account = patientMatch.rows[0]
-      if (patientMatch.rows.length > 1) {
-        return res.status(409).json({
-          code: 'RECOVERY_DUPLICATE_ACCOUNT',
-          message: 'Multiple patient records use this email address. Please contact the clinic for assistance.',
-        })
-      }
+      return res.json(generic)
     }
 
-    if (!account) {
-      return res.status(404).json({
-        code: 'RECOVERY_ACCOUNT_NOT_FOUND',
-        message: `No registered patient account was found with that ${deliveryMethod === 'sms' ? 'mobile number' : 'email address'}.`,
-      })
-    }
+    account = patientMatch.rows[0]
+    const channelVerified = deliveryMethod === 'sms'
+      ? Boolean(account.phone_verified_at)
+      : Boolean(account.email_verified_at)
+    if (!channelVerified) return res.json(generic)
   } else {
-    const normalizedEmail = normalizeEmail(email)
-    if (!normalizedEmail) return res.status(400).json({ message: 'Email and valid role are required.' })
-    identifier = normalizedEmail
     const [rows] = await db.query(
       `SELECT id, full_name, email FROM ${config.table} WHERE ${config.where}`,
-      [identifier]
+      [normalizedInputEmail]
     )
-    if (rows.length === 1) account = rows[0]
-
-    if (!account) {
-      return res.status(404).json({
-        code: 'RECOVERY_ACCOUNT_NOT_FOUND',
-        message: 'No active account was found with that email address.',
-      })
-    }
+    if (rows.length !== 1) return res.json(generic)
+    account = rows[0]
   }
 
   const otp = makeNumericCode()
   const expires = new Date(Date.now() + 10 * 60 * 1000)
 
-  // Only one active reset challenge per account/role. Switching from email to SMS
-  // invalidates the previous code instead of leaving multiple valid OTPs around.
+  // Only one password-reset challenge is active per account and role. This is
+  // separate from account_security_codes, whose purposes may coexist.
   await db.query('DELETE FROM password_resets WHERE role = ? AND account_id = ?', [role, account.id])
   await db.query(
     `INSERT INTO password_resets
@@ -151,6 +149,8 @@ const forgotPassword = async (req, res) => {
       await sendPasswordResetOtp(account.email, account.full_name, role, otp)
     }
   } catch (err) {
+    // Do not reveal account existence or provider state to an unauthenticated caller.
+    // The failed challenge is removed so a later retry can create a fresh code.
     console.error('[security] password-reset delivery failed', {
       role,
       accountId: account.id,
@@ -158,14 +158,9 @@ const forgotPassword = async (req, res) => {
       message: err.message,
     })
     await db.query('DELETE FROM password_resets WHERE role = ? AND account_id = ?', [role, account.id])
-    return res.status(502).json({ message: 'Verification code could not be sent. Please try again later.' })
   }
 
-  return res.json({
-    message: `Verification code sent by ${deliveryMethod === 'sms' ? 'SMS' : 'email'}.`,
-    delivery_method: deliveryMethod,
-    masked_destination: deliveryMethod === 'sms' ? maskPhone(account.phone) : maskEmail(account.email),
-  })
+  return res.json(generic)
 }
 
 const verifyOtp = async (req, res) => {
@@ -237,3 +232,6 @@ const resetPassword = async (req, res) => {
 }
 
 module.exports = { forgotPassword, verifyOtp, resetPassword }
+
+
+

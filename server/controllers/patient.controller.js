@@ -22,9 +22,10 @@ const {
   isValidDateOnly,
   validateBirthdate,
 } = require('../utils/patientProfile')
-const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
+const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
 const { writeAuditLog } = require('../utils/audit')
 const { listBillingCatalog } = require('../utils/billing')
+const { assertPlainObject, normalizeText } = require('../utils/inputValidation')
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
@@ -129,46 +130,51 @@ const findPatientsByPhone = async (phone, columns = '*') => {
 }
 
 const register = async (req, res) => {
-  const {
-    full_name,
-    email,
-    phone,
-    birthdate,
-    gender,
-    address,
-    password,
-    confirmPassword,
-    consent_given,
-    verification_method,
-  } = req.body
+  assertPlainObject(req.body)
+  const fullName = normalizeText(req.body.full_name, { field: 'Full Name', required: true, max: 150 })
+  const emailInput = normalizeText(req.body.email, { field: 'Email Address', required: true, max: 150 })
+  const phoneInput = normalizeText(req.body.phone, { field: 'Mobile Number', required: true, max: 20 })
+  const birthdate = normalizeText(req.body.birthdate, { field: 'Birthdate', required: true, max: 10 })
+  const gender = normalizeText(req.body.gender, { field: 'Gender', required: true, max: 10 })
+  const address = normalizeText(req.body.address, { field: 'Address', required: true, max: 500, multiline: true })
+  const password = normalizeText(req.body.password, { field: 'Password', required: true, max: 128 })
+  const confirmPassword = normalizeText(req.body.confirmPassword, { field: 'Confirm Password', required: true, max: 128 })
+  const method = normalizeText(req.body.verification_method || 'email', { field: 'Verification Method', required: true, max: 10 }).toLowerCase()
+  const consentGiven = req.body.consent_given === true || req.body.consent_given === 1 || req.body.consent_given === '1'
 
-  if (!full_name || !email || !phone || !birthdate || !gender || !address || !password) {
-    return res.status(400).json({ message: 'Full name, email, mobile number, birthdate, gender, address, and password are required.' })
+  if (!['Male', 'Female', 'Other'].includes(gender)) {
+    return res.status(400).json({ message: 'Gender must be Male, Female, or Other.', field: 'Gender' })
+  }
+  if (!['email', 'sms'].includes(method)) {
+    return res.status(400).json({ message: 'Verification method must be email or SMS.', field: 'Verification Method' })
   }
 
   const birthdateError = validateBirthdate(birthdate)
-  if (birthdateError) return res.status(400).json({ message: birthdateError })
-  const normalizedProfile = normalizePatientProfileInput({ email, birthdate, gender, address, receive_promotions: false })
+  if (birthdateError) return res.status(400).json({ message: birthdateError, field: 'Birthdate' })
+  const normalizedProfile = normalizePatientProfileInput({ email: emailInput, birthdate, gender, address, receive_promotions: false })
   if (!normalizedProfile.email || !normalizedProfile.birthdate || !normalizedProfile.gender || !normalizedProfile.address) {
     return res.status(400).json({ message: 'Complete all required patient information.' })
+  }
+  if (normalizedProfile.email.length > 150) {
+    return res.status(400).json({ message: 'Email Address must be 150 characters or fewer.', field: 'Email Address' })
   }
   const [existingEmail] = await db.query('SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1', [normalizedProfile.email])
   if (existingEmail.length) return res.status(409).json({ message: 'That email address is already linked to another patient account.' })
 
-  const normalizedPhone = normalizePhilippinePhone(phone)
+  const normalizedPhone = normalizePhilippinePhone(phoneInput)
   if (!normalizedPhone) {
-    return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+    return res.status(400).json({ message: 'Enter a valid Philippine mobile number.', field: 'Mobile Number' })
   }
 
   if (password !== confirmPassword) {
-    return res.status(400).json({ message: 'Passwords do not match.' })
+    return res.status(400).json({ message: 'Passwords do not match.', field: 'Confirm Password' })
   }
 
   const passwordError = validatePassword(password)
-  if (passwordError) return res.status(400).json({ message: passwordError })
+  if (passwordError) return res.status(400).json({ message: passwordError, field: 'Password' })
 
-  if (!consent_given) {
-    return res.status(400).json({ message: 'Data privacy consent is required.' })
+  if (!consentGiven) {
+    return res.status(400).json({ message: 'Data privacy consent is required.', field: 'Consent' })
   }
 
   const existing = await findPatientsByPhone(normalizedPhone, 'id, is_walk_in')
@@ -190,7 +196,7 @@ const register = async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 10)
   const code = makeNumericCode()
   const payload = JSON.stringify({
-    full_name: String(full_name).trim(),
+    full_name: fullName,
     email: normalizedProfile.email,
     phone: normalizedPhone,
     birthdate: normalizedProfile.birthdate,
@@ -199,6 +205,7 @@ const register = async (req, res) => {
     password: hashedPassword,
     consent_given: true,
     receive_promotions: 0,
+    verification_method: method,
   })
 
   await db.query(
@@ -214,19 +221,14 @@ const register = async (req, res) => {
     [normalizedPhone, hashSecret(code), payload, new Date(Date.now() + OTP_EXPIRY_MS)]
   )
 
-  const method = String(verification_method || 'email').trim().toLowerCase()
-  if (!['email', 'sms'].includes(method)) {
-    return res.status(400).json({ message: 'Verification method must be email or SMS.' })
-  }
-
   try {
     if (method === 'email') {
-      await sendVerificationCode(normalizedProfile.email, String(full_name).trim(), code)
+      await sendVerificationCode(normalizedProfile.email, fullName, code)
     } else {
       await sendPatientRegistrationOtp({
         phone: normalizedPhone,
         code,
-        fullName: full_name,
+        fullName,
       })
     }
   } catch (err) {
@@ -250,8 +252,10 @@ const register = async (req, res) => {
 }
 
 const resendRegistrationVerification = async (req, res) => {
-  const normalizedPhone = normalizePhilippinePhone(req.body.phone)
-  const method = String(req.body.method || 'email').toLowerCase()
+  assertPlainObject(req.body)
+  const phoneInput = normalizeText(req.body.phone, { field: 'Mobile Number', required: true, max: 20 })
+  const method = normalizeText(req.body.method || 'email', { field: 'Verification Method', required: true, max: 10 }).toLowerCase()
+  const normalizedPhone = normalizePhilippinePhone(phoneInput)
   if (!normalizedPhone || !['sms', 'email'].includes(method)) {
     return res.status(400).json({ message: 'A valid phone number and verification method are required.' })
   }
@@ -261,9 +265,10 @@ const resendRegistrationVerification = async (req, res) => {
   let payload
   try { payload = parseVerificationPayload(pending.payload) } catch { return res.status(400).json({ message: 'Registration data is no longer valid. Please register again.' }) }
   const code = makeNumericCode()
+  payload.verification_method = method
   await db.query(
-    'UPDATE patient_phone_verifications SET otp_code = ?, expires_at = ?, attempt_count = 0, last_sent_at = NOW() WHERE id = ?',
-    [hashSecret(code), new Date(Date.now() + OTP_EXPIRY_MS), pending.id]
+    'UPDATE patient_phone_verifications SET otp_code = ?, payload = ?, expires_at = ?, attempt_count = 0, last_sent_at = NOW() WHERE id = ?',
+    [hashSecret(code), JSON.stringify(payload), new Date(Date.now() + OTP_EXPIRY_MS), pending.id]
   )
   if (method === 'email') {
     if (!payload.email) return res.status(400).json({ message: 'No email address is attached to this registration.' })
@@ -280,8 +285,11 @@ const resendRegistrationVerification = async (req, res) => {
 }
 
 const verifyRegistration = async (req, res) => {
-  const normalizedPhone = normalizePhilippinePhone(req.body.phone)
-  const code = String(req.body.code || '').trim()
+  assertPlainObject(req.body)
+  const phoneInput = normalizeText(req.body.phone, { field: 'Mobile Number', required: true, max: 20 })
+  const code = normalizeText(req.body.code, { field: 'Verification Code', required: true, max: 6 })
+  const normalizedPhone = normalizePhilippinePhone(phoneInput)
+  if (!/^\d{6}$/.test(code)) return res.status(400).json({ message: 'Enter the complete 6-digit verification code.', field: 'Verification Code' })
 
   if (!normalizedPhone || !code) {
     return res.status(400).json({ message: 'Phone number and verification code are required.' })
@@ -328,24 +336,28 @@ const verifyRegistration = async (req, res) => {
     await db.query(
       `UPDATE patients
        SET full_name = ?, email = ?, phone = ?, birthdate = ?, gender = ?, sex = ?, address = ?, password = ?,
-           civil_status = NULL, consent_given = ?, consent_given_at = ?, receive_promotions = ?, is_profile_complete = 1
+           civil_status = NULL, consent_given = ?, consent_given_at = ?, receive_promotions = ?, is_profile_complete = 1,
+           email_verified_at = CASE WHEN ? = 'email' THEN NOW() ELSE email_verified_at END,
+           phone_verified_at = CASE WHEN ? = 'sms' THEN NOW() ELSE phone_verified_at END
        WHERE id = ?`,
       [
         payload.full_name, payload.email, normalizedPhone, payload.birthdate, payload.gender, payload.gender, payload.address,
         payload.password, payload.consent_given ? 1 : 0, payload.consent_given ? new Date() : null,
-        payload.receive_promotions ? 1 : 0, existing[0].id,
+        payload.receive_promotions ? 1 : 0, payload.verification_method || 'email', payload.verification_method || 'email', existing[0].id,
       ]
     )
     patientId = existing[0].id
   } else {
     const [result] = await db.query(
       `INSERT INTO patients
-        (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, consent_given, consent_given_at, receive_promotions, is_profile_complete)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, consent_given, consent_given_at, receive_promotions, is_profile_complete, email_verified_at, phone_verified_at)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       [
         payload.full_name, payload.birthdate, payload.gender, payload.gender, normalizedPhone, payload.address, payload.email,
         payload.password, payload.consent_given ? 1 : 0, payload.consent_given ? new Date() : null,
         payload.receive_promotions ? 1 : 0,
+        (payload.verification_method || 'email') === 'email' ? new Date() : null,
+        (payload.verification_method || 'email') === 'sms' ? new Date() : null,
       ]
     )
     patientId = result.insertId
@@ -372,7 +384,7 @@ const verifyRegistration = async (req, res) => {
 const login = async (req, res) => {
   const { phone, email, password } = req.body
   if ((!phone && !email) || !password) {
-    return res.status(400).json({ message: 'Phone number and password are required.' })
+    return res.status(400).json({ message: 'Email or mobile number and password are required.' })
   }
 
   let rows
@@ -388,19 +400,27 @@ const login = async (req, res) => {
       })
     }
   } else {
-    ;[rows] = await db.query('SELECT * FROM patients WHERE email = ?', [email])
+    ;[rows] = await db.query('SELECT * FROM patients WHERE LOWER(email) = LOWER(?)', [String(email || '').trim()])
   }
 
   if (rows.length === 0) {
     await writeAuditLog({ userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
-    return res.status(401).json({ message: 'Invalid phone number or password.' })
+    return res.status(401).json({ message: 'Invalid email/mobile number or password.' })
   }
 
   const patient = rows[0]
+  if (phone && !patient.phone_verified_at) {
+    await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'unverified_phone_login' }, ipAddress: req.ip || null }).catch(() => {})
+    return res.status(401).json({ message: 'This mobile number has not been verified for sign-in. Use your verified email address instead.' })
+  }
+  if (email && !patient.email_verified_at) {
+    await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'unverified_email_login' }, ipAddress: req.ip || null }).catch(() => {})
+    return res.status(401).json({ message: 'This email address has not been verified for sign-in. Use your verified mobile number instead.' })
+  }
   const match = await bcrypt.compare(password, patient.password)
   if (!match) {
     await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
-    return res.status(401).json({ message: 'Invalid phone number or password.' })
+    return res.status(401).json({ message: 'Invalid email/mobile number or password.' })
   }
 
   await issuePatientSession(res, patient.id)
@@ -461,6 +481,13 @@ const updateProfile = async (req, res) => {
   if (!normalized.birthdate || !normalized.gender || !normalized.address || !normalized.email) {
     return res.status(400).json({
       message: 'Birthdate, gender, address, and email are required.',
+    })
+  }
+
+  if (normalized.email && String(normalized.email).toLowerCase() !== String(patient.email || '').toLowerCase()) {
+    return res.status(409).json({
+      code: 'EMAIL_CHANGE_VERIFICATION_REQUIRED',
+      message: 'Email changes require a verified security flow. Your current verified email was kept unchanged.',
     })
   }
 
@@ -693,7 +720,8 @@ const cancelAppointment = async (req, res) => {
   }
 
   assertAppointmentTransition(rows[0].status, 'cancelled')
-  await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ?", [req.params.id])
+  const [updated] = await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ? AND patient_id = ? AND status = ?", [req.params.id, req.user.id, rows[0].status])
+  await assertAppointmentMutationApplied(updated, req.params.id)
   await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.cancelled', entityType: 'appointment', entityId: req.params.id, oldValues: { status: rows[0].status }, newValues: { status: 'cancelled' }, ipAddress: req.ip || null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
@@ -738,10 +766,11 @@ const rescheduleAppointment = async (req, res) => {
   await withAppointmentSlotLock({ doctorId: rows[0].doctor_id, date: normalizedDate, time: appointment_time }, async () => {
     const [[appointmentMeta]] = await db.query('SELECT clinic_type FROM appointments WHERE id = ? LIMIT 1', [req.params.id])
     await validateAppointmentSlot({ doctorId: rows[0].doctor_id, clinicType: appointmentMeta.clinic_type, date: normalizedDate, time: appointment_time, excludeAppointmentId: req.params.id })
-    await db.query(
-      `UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes) WHERE id = ?`,
-      [normalizedDate, appointment_time, notes?.trim() || null, req.params.id]
+    const [updated] = await db.query(
+      `UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes) WHERE id = ? AND patient_id = ? AND status = ?`,
+      [normalizedDate, appointment_time, notes?.trim() || null, req.params.id, req.user.id, rows[0].status]
     )
+    await assertAppointmentMutationApplied(updated, req.params.id)
   })
 
   const [details] = await db.query(
@@ -905,3 +934,6 @@ module.exports = {
   getDoctorUnavailableDatesController,
   getDoctorTakenSlots,
 }
+
+
+

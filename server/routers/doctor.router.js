@@ -4,7 +4,7 @@ const router      = express.Router()
 const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
 const requirePasswordChangeCompleted = require('../middlewares/passwordChange.middleware')
-const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimit.middleware')
+const { loginLimiter, otpRequestLimiter, otpVerifyLimiter, clinicalUploadLimiter, clinicalUploadStatusLimiter } = require('../middlewares/rateLimit.middleware')
 const {
   login, checkAuth, logout,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
@@ -48,8 +48,8 @@ router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
 router.get('/billing/catalog',                 getBillingCatalog)
-router.post('/uploads/clinical', express.raw({ type: ['image/png', 'image/jpeg'], limit: '10mb' }), uploadClinicalImage)
-router.post('/uploads/clinical/status',             getClinicalUploadScanStatus)
+router.post('/uploads/clinical', clinicalUploadLimiter, express.raw({ type: ['image/png', 'image/jpeg'], limit: '10mb' }), uploadClinicalImage)
+router.post('/uploads/clinical/status', clinicalUploadStatusLimiter, getClinicalUploadScanStatus)
 
 router.get('/patients/:id/history',          getPatientHistory)
 router.get('/inventory',                     getInventoryItems)
@@ -73,3 +73,6 @@ router.put('/schedule/unavailable-dates',      saveMyUnavailableDate)
 router.delete('/schedule/unavailable-dates/:date', deleteMyUnavailableDate)
 
 module.exports = router
+
+
+

@@ -8,6 +8,7 @@ const {
 } = require('./inventoryBatches')
 const { normalizeStockMovementType } = require('./workflowValidation')
 const { writeAuditLog } = require('./audit')
+const { normalizeOptionalText, normalizeNumber } = require('./inputValidation')
 
 const { resolveManualStockOutSelection } = require('./manualInventoryPolicy')
 
@@ -44,41 +45,94 @@ const resolveConfiguredMovementReason = async (type, value, executor) => {
     }
   }
 }
+const validateQuantityByUom = async (item, quantity, executor) => {
+  const [[policy]] = await executor.query(
+    `SELECT COALESCE(allow_decimal_quantity,0) AS allow_decimal_quantity,
+            COALESCE(decimal_precision,0) AS decimal_precision
+     FROM inventory_uoms WHERE LOWER(name)=LOWER(?) LIMIT 1`,
+    [item.uom || item.base_unit || item.unit || '']
+  ).catch(() => [[null]])
+  const allowDecimal = Number(policy?.allow_decimal_quantity || 0) === 1
+  const precision = allowDecimal ? Math.min(4, Math.max(0, Number(policy?.decimal_precision || 0))) : 0
+  const scale = 10 ** precision
+  if (!allowDecimal && Math.abs(quantity - Math.round(quantity)) > 0.000001) {
+    throw Object.assign(new Error(`${item.uom || item.unit || 'This unit'} only allows whole-number quantities.`), { statusCode: 400, code: 'INVENTORY_QUANTITY_PRECISION' })
+  }
+  if (allowDecimal && Math.abs(quantity * scale - Math.round(quantity * scale)) > 0.000001) {
+    throw Object.assign(new Error(`Quantity supports up to ${precision} decimal place${precision === 1 ? '' : 's'} for ${item.uom || item.unit || 'this unit'}.`), { statusCode: 400, code: 'INVENTORY_QUANTITY_PRECISION' })
+  }
+}
+
 const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole, actorId, ipAddress, executor }) => {
   const type = String(body.type || '').trim()
-  const qty = Number(body.qty)
-  if (!['in', 'out'].includes(type) || !Number.isFinite(qty) || qty <= 0) {
+  const qty = normalizeNumber(body.qty, { field: 'Quantity', required: true, min: 0.0001, max: 9999999999 })
+  if (!['in', 'out'].includes(type)) {
     const error = new Error('Choose Stock In or Stock Out and enter a quantity greater than zero.')
     error.statusCode = 400
     throw error
   }
   if (!['admin', 'staff'].includes(actorRole)) throw new Error('Unsupported inventory movement actor.')
 
-  const [rows] = await executor.query('SELECT id, name FROM inventory WHERE id = ?', [inventoryId])
+  const [rows] = await executor.query('SELECT id, name, category, item_type, uom, base_unit, unit, supplier_id, selling_price, archived_at FROM inventory WHERE id = ?', [inventoryId])
   if (!rows.length) {
     const error = new Error('Item not found.')
     error.statusCode = 404
     throw error
   }
   const item = rows[0]
+  if (item.archived_at) throw Object.assign(new Error('Archived inventory items cannot receive or issue stock.'), { statusCode: 409, code: 'INVENTORY_ARCHIVED' })
+  await validateQuantityByUom(item, qty, executor)
   const actorColumn = actorRole === 'admin' ? 'admin_id' : 'staff_id'
-  const note = String(body.note || '').trim()
+  const note = normalizeOptionalText(body.note, { field: 'Movement Note', max: 255, multiline: true }) || ''
   let auditValues
 
   if (type === 'in') {
+    const noExpiry = body.no_expiry === true || body.no_expiry === 1 || String(body.no_expiry || '').toLowerCase() === 'true'
+    if (item.item_type === 'medicine' && !String(body.expiration_date || '').trim()) {
+      const error = new Error('Batch Expiry is required for medicines.')
+      error.statusCode = 400
+      error.code = 'INVENTORY_EXPIRY_REQUIRED'
+      throw error
+    }
+    if (item.item_type === 'supplies' && !noExpiry && !String(body.expiration_date || '').trim()) {
+      const error = new Error('Enter the Batch Expiry or select “No expiry / Not applicable”.')
+      error.statusCode = 400
+      error.code = 'INVENTORY_EXPIRY_REQUIRED'
+      throw error
+    }
+    const lotMissing = body.supplier_lot_missing === true || body.supplier_lot_missing === 1 || String(body.supplier_lot_missing || '').toLowerCase() === 'true'
+    const supplierLotNumber = normalizeOptionalText(body.supplier_lot_number, { field: 'Supplier Lot Number', max: 120 }) || ''
+    if (!lotMissing && !supplierLotNumber) {
+      throw Object.assign(new Error('Supplier Lot Number is required unless the supplier did not provide one.'), { statusCode: 400, code: 'INVENTORY_SUPPLIER_LOT_REQUIRED' })
+    }
+    const supplierId = Number(body.supplier_id || item.supplier_id || 0)
+    if (!supplierId) throw Object.assign(new Error('Select the supplier for this receipt.'), { statusCode: 400, code: 'INVENTORY_SUPPLIER_REQUIRED' })
+    const [[supplier]] = await executor.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1', [supplierId])
+    if (!supplier || !String(supplier.category || '').split(',').map(v=>v.trim()).includes(item.category)) {
+      throw Object.assign(new Error('The selected supplier is not assigned to this item clinic.'), { statusCode: 400, code: 'SUPPLIER_CLINIC_MISMATCH' })
+    }
+    const sellingPrice = Number(item.selling_price)
+    if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+      const error = new Error('Set a Selling Price greater than ₱0.00 before receiving more stock for this item.')
+      error.statusCode = 400
+      error.code = 'INVENTORY_SELLING_PRICE_REQUIRED'
+      throw error
+    }
     const movementReason = await resolveConfiguredMovementReason('in', body.movement_reason, executor)
     const movementType = movementReason.code
     const received = await receiveInventoryBatch(inventoryId, {
       quantity: qty,
-      expiration_date: body.expiration_date,
+      expiration_date: noExpiry ? null : body.expiration_date,
       batch_code: body.batch_code,
-      supplier_lot_number: body.supplier_lot_number,
+      supplier_lot_number: lotMissing ? null : supplierLotNumber,
+      supplier_id: supplierId,
       note: note || 'Manual stock-in',
-      unit_cost: body.unit_cost,
+      // Acquisition cost is intentionally not tracked in the simplified inventory model.
+      unit_cost: 0,
       location_id: body.storage_location_id,
     }, executor)
-    // inventory.price is kept only as a compatibility snapshot of the latest receipt cost.
-    await executor.query('UPDATE inventory SET price=? WHERE id=?', [Math.max(0, Number(received.unit_cost || 0)), inventoryId])
+    // inventory.price is a legacy compatibility mirror of Selling Price.
+    await executor.query('UPDATE inventory SET price=selling_price WHERE id=?', [inventoryId])
     await syncInventorySnapshot(inventoryId, executor)
     await executor.query(
       `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, to_location)
@@ -89,6 +143,8 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
       type: 'in', movement_type: movementType, quantity: qty,
       batch_id: received.batch_id, batch_code: received.batch_code || null,
       supplier_lot_number: received.supplier_lot_number || null,
+      supplier_id: received.supplier_id || supplierId,
+      supplier_name: supplier?.name || null,
       expiration_date: received.expiration_date || null, location: received.location,
       existing_batch: received.existing, previous_batch_quantity: received.previous_quantity,
       new_batch_quantity: received.new_quantity, note: note || null,

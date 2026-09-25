@@ -40,6 +40,7 @@ import DoctorLayout             from './components/layouts/DoctorLayout'
 import Doctor_Dashboard         from './pages/doctorPage/Doctor_Dashboard'
 import Doctor_Appointments      from './pages/doctorPage/Doctor_Appointments'
 import Doctor_Consultation      from './pages/doctorPage/Doctor_Consultation'
+import Doctor_ConsultationHistory from './pages/doctorPage/Doctor_ConsultationHistory'
 import Doctor_Request           from './pages/doctorPage/Doctor_Request'
 import Doctor_StockTransferRequest from './pages/doctorPage/Doctor_StockTransferRequest'
 import Doctor_Schedule          from './pages/doctorPage/Doctor_Schedule'
@@ -150,6 +151,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='appointments'       element={<Doctor_Appointments />} />
         <Route path='daily-appointments' element={<Navigate to='/doctor/appointments' replace />} />
         <Route path='consultation'       element={<Doctor_Consultation />} />
+        <Route path='consultation-history' element={<Doctor_ConsultationHistory />} />
         <Route path='request'            element={<Doctor_Request />} />
         <Route path='request/stock-transfer' element={<Doctor_StockTransferRequest />} />
         <Route path='schedule'           element={<Doctor_Schedule />} />

@@ -2,6 +2,7 @@ const db = require('../db/connect')
 const { verifyUploadSecurityToken } = require('./cloudinarySecurity')
 
 const ALLOWED_SCAN_STATUSES = new Set(['approved', 'bypassed', 'legacy'])
+const MAX_PROGRESS_IMAGES = 5
 
 const normalizeScanStatus = (value) => {
   const status = String(value || '').trim().toLowerCase()
@@ -26,6 +27,14 @@ const normalizeConsultationImages = (images = []) => (
       .filter(Boolean)
     : []
 )
+
+const assertProgressImageLimit = (images = []) => {
+  if (images.length <= MAX_PROGRESS_IMAGES) return
+  throw Object.assign(
+    new Error(`A consultation can contain up to ${MAX_PROGRESS_IMAGES} progress images.`),
+    { statusCode: 400, code: 'PROGRESS_IMAGE_LIMIT' }
+  )
+}
 
 const loadImagesForConsultationIds = async (consultationIds = [], executor = db) => {
   const ids = Array.from(new Set(
@@ -57,6 +66,7 @@ const loadImagesForConsultationIds = async (consultationIds = [], executor = db)
 
 const authorizeConsultationImages = async ({ consultationId, appointmentId, doctorId, images = [], executor = db }) => {
   const normalized = normalizeConsultationImages(images)
+  assertProgressImageLimit(normalized)
   const [existingRows] = consultationId
     ? await executor.query(
       'SELECT image_url, security_scan_status FROM consultation_images WHERE consultation_id = ?',
@@ -92,6 +102,7 @@ const authorizeConsultationImages = async ({ consultationId, appointmentId, doct
 
 const syncConsultationImages = async (consultationId, images = [], executor = db) => {
   const normalizedImages = normalizeConsultationImages(images)
+  assertProgressImageLimit(normalizedImages)
   await executor.query('DELETE FROM consultation_images WHERE consultation_id = ?', [consultationId])
 
   for (const image of normalizedImages) {
@@ -111,3 +122,6 @@ module.exports = {
   authorizeConsultationImages,
   syncConsultationImages,
 }
+
+
+

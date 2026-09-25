@@ -29,7 +29,7 @@ const TABS = [
   { key: 'service_categories', label: 'Service Categories', Icon: MdCategory },
   { key: 'uoms', label: 'Units of Measure', Icon: MdInventory2 },
   { key: 'suppliers', label: 'Suppliers', Icon: MdLocalShipping },
-  { key: 'location_types', label: 'Location Types', Icon: MdPlace },
+  { key: 'location_types', label: 'Storage Classifications', Icon: MdPlace },
   { key: 'movement_reasons', label: 'Movement Reasons', Icon: MdSwapVert },
 ]
 
@@ -45,6 +45,15 @@ const ReferenceManager = ({ type, rows, onReload }) => {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
+
+
+  const nameMaxLength = {
+    service_categories: 120,
+    uoms: 80,
+    suppliers: 160,
+    location_types: 80,
+    movement_reasons: 120,
+  }[type] || 120
 
   const config = useMemo(() => ({
     service_categories: {
@@ -69,11 +78,11 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       description: 'Reusable supplier/company records with clinic assignment and contact details.',
     },
     location_types: {
-      title: 'Location Type',
-      plural: 'Location Types',
-      singular: 'location type',
+      title: 'Storage Classification',
+      plural: 'Storage Classifications',
+      singular: 'storage classification',
       save: saveInventoryLocationType,
-      description: 'Reusable Location Types assigned directly to inventory items. Add at least one before creating inventory items.',
+      description: 'Reusable Storage Classifications assigned directly to inventory items. Add at least one before creating inventory items.',
     },
     movement_reasons: {
       title: 'Movement Reason',
@@ -104,6 +113,8 @@ const ReferenceManager = ({ type, rows, onReload }) => {
         abbreviation: row?.abbreviation || '',
         is_active: row ? Number(row.is_active) : 1,
         sort_order: row?.sort_order ?? 0,
+        allow_decimal_quantity: row ? Number(row.allow_decimal_quantity || 0) : 0,
+        decimal_precision: row ? Number(row.decimal_precision || 0) : 0,
       })
     }
     if (type === 'suppliers') {
@@ -174,7 +185,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                 <th className="px-5 py-3">Name</th>
                 {type === 'service_categories' && <th className="px-5 py-3">Clinic</th>}
                 {type === 'service_categories' && <th className="px-5 py-3">Used By</th>}
-                {type === 'uoms' && <th className="px-5 py-3">Abbreviation</th>}
+                {type === 'uoms' && <><th className="px-5 py-3">Abbreviation</th><th className="px-5 py-3">Quantity Precision</th></>}
                 {type === 'suppliers' && <th className="px-5 py-3">Contact</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Address</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Clinic</th>}
@@ -190,7 +201,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                   <td className="px-5 py-4 font-semibold text-slate-800">{row.name}</td>
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.service_count || 0)} service{Number(row.service_count || 0) === 1 ? '' : 's'}</td>}
-                  {type === 'uoms' && <td className="px-5 py-4 text-slate-500">{row.abbreviation || '—'}</td>}
+                  {type === 'uoms' && <><td className="px-5 py-4 text-slate-500">{row.abbreviation || '—'}</td><td className="px-5 py-4 text-slate-500">{Number(row.allow_decimal_quantity) === 1 ? `Up to ${Number(row.decimal_precision || 2)} decimal place${Number(row.decimal_precision || 2) === 1 ? '' : 's'}` : 'Whole units only'}</td></>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500"><p className="font-semibold text-slate-700">{row.contact_person || '—'}</p><p className="mt-1 text-xs">{row.contact_number || 'No contact number'}</p></td>}
                   {type === 'suppliers' && <td className="max-w-xs px-5 py-4 text-slate-500">{row.address || '—'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{supplierClinicLabel(row.category)}</td>}
@@ -213,7 +224,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
         <div className="space-y-4">
           <label className="block">
             <span className="form-label">{type === 'suppliers' ? 'Company / Supplier Name *' : 'Name *'}</span>
-            <input className="form-control mt-1.5" value={form.name || ''} onChange={(e) => setForm((value) => ({ ...value, name: e.target.value }))} />
+            <input maxLength={nameMaxLength} className="form-control mt-1.5" value={form.name || ''} onChange={(e) => setForm((value) => ({ ...value, name: e.target.value }))} />
           </label>
 
           {type === 'service_categories' && (
@@ -230,25 +241,50 @@ const ReferenceManager = ({ type, rows, onReload }) => {
           )}
 
           {type === 'uoms' && (
-            <label className="block">
-              <span className="form-label">Abbreviation</span>
-              <input className="form-control mt-1.5" value={form.abbreviation || ''} onChange={(e) => setForm((value) => ({ ...value, abbreviation: e.target.value }))} placeholder="e.g. cap, pc, mL" />
-            </label>
+            <>
+              <label className="block">
+                <span className="form-label">Abbreviation</span>
+                <input maxLength={30} className="form-control mt-1.5" value={form.abbreviation || ''} onChange={(e) => setForm((value) => ({ ...value, abbreviation: e.target.value }))} placeholder="e.g. cap, pc, mL" />
+              </label>
+              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+                  checked={Number(form.allow_decimal_quantity) === 1}
+                  onChange={(e) => setForm((value) => ({ ...value, allow_decimal_quantity: e.target.checked ? 1 : 0, decimal_precision: e.target.checked ? Math.max(1, Number(value.decimal_precision || 2)) : 0 }))}
+                />
+                <span>
+                  <strong className="text-sm text-slate-800">Allow decimal quantities</strong>
+                  <span className="mt-0.5 block text-xs text-slate-500">Leave off for countable units such as pieces, tablets, capsules, boxes, or vials. Turn on only for measured units such as mL, grams, or meters.</span>
+                </span>
+              </label>
+              {Number(form.allow_decimal_quantity) === 1 && (
+                <label className="block">
+                  <span className="form-label">Decimal Places *</span>
+                  <select className="form-control mt-1.5" value={Math.max(1, Number(form.decimal_precision || 2))} onChange={(e) => setForm((value) => ({ ...value, decimal_precision: Number(e.target.value) }))}>
+                    <option value={1}>1 decimal place (0.1)</option>
+                    <option value={2}>2 decimal places (0.01)</option>
+                    <option value={3}>3 decimal places (0.001)</option>
+                    <option value={4}>4 decimal places (0.0001)</option>
+                  </select>
+                </label>
+              )}
+            </>
           )}
 
           {type === 'suppliers' && (
             <>
               <label className="block">
                 <span className="form-label">Contact Person / Spokesperson</span>
-                <input className="form-control mt-1.5" value={form.contact_person || ''} onChange={(e) => setForm((value) => ({ ...value, contact_person: e.target.value }))} placeholder="e.g. Juan Dela Cruz" />
+                <input maxLength={160} className="form-control mt-1.5" value={form.contact_person || ''} onChange={(e) => setForm((value) => ({ ...value, contact_person: e.target.value }))} placeholder="e.g. Juan Dela Cruz" />
               </label>
               <label className="block">
                 <span className="form-label">Contact Number</span>
-                <input className="form-control mt-1.5" value={form.contact_number || ''} onChange={(e) => setForm((value) => ({ ...value, contact_number: e.target.value }))} placeholder="Mobile or landline" />
+                <input maxLength={80} className="form-control mt-1.5" value={form.contact_number || ''} onChange={(e) => setForm((value) => ({ ...value, contact_number: e.target.value }))} placeholder="Mobile or landline" />
               </label>
               <label className="block">
                 <span className="form-label">Address</span>
-                <textarea rows={3} className="form-control mt-1.5 resize-none" value={form.address || ''} onChange={(e) => setForm((value) => ({ ...value, address: e.target.value }))} placeholder="Supplier/company address" />
+                <textarea maxLength={255} rows={3} className="form-control mt-1.5 resize-none" value={form.address || ''} onChange={(e) => setForm((value) => ({ ...value, address: e.target.value }))} placeholder="Supplier/company address" />
               </label>
               <fieldset className="block">
                 <legend className="form-label">Clinic *</legend>
@@ -313,8 +349,8 @@ const ReferenceManager = ({ type, rows, onReload }) => {
           </label>
 
           <div className="flex justify-end gap-2">
-            <button className="button-secondary" onClick={close}>Cancel</button>
-            <button className="button-primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="button-secondary" disabled={saving} onClick={close}>Cancel</button>
+            <button className="button-primary" disabled={saving || !String(form.name || '').trim()} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
           </div>
         </div>
       </Modal>
@@ -389,3 +425,6 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
+
+

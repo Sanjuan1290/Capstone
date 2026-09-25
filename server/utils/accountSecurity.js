@@ -31,8 +31,8 @@ const validatePassword = (password) => {
 
 const createSecurityCode = async ({ role, accountId, purpose, payload = null, executor = db }) => {
   const [existing] = await executor.query(
-    'SELECT id, last_sent_at, created_at FROM account_security_codes WHERE role = ? AND account_id = ? LIMIT 1',
-    [role, accountId]
+    'SELECT id, last_sent_at, created_at FROM account_security_codes WHERE role = ? AND account_id = ? AND purpose = ? LIMIT 1',
+    [role, accountId, purpose]
   )
   const lastSent = existing[0]?.last_sent_at || existing[0]?.created_at
   if (lastSent && Date.now() - new Date(lastSent).getTime() < RESEND_COOLDOWN_MS) {
@@ -44,7 +44,7 @@ const createSecurityCode = async ({ role, accountId, purpose, payload = null, ex
   const code = makeNumericCode()
   const hash = hashSecret(code)
   const expires = new Date(Date.now() + CODE_TTL_MS)
-  await executor.query('DELETE FROM account_security_codes WHERE role = ? AND account_id = ?', [role, accountId])
+  await executor.query('DELETE FROM account_security_codes WHERE role = ? AND account_id = ? AND purpose = ?', [role, accountId, purpose])
   await executor.query(
     `INSERT INTO account_security_codes
      (role, account_id, purpose, code, payload, expires_at, attempt_count, last_sent_at)
@@ -149,7 +149,7 @@ const confirmPatientPhoneChange = async (patientId, code, res = null) => {
   const verified = await verifySecurityCode({ role: 'patient', accountId: patientId, purpose: 'phone_change', code })
   const newPhone = normalizePhilippinePhone(verified.payload?.new_phone)
   if (!newPhone) throw new Error('The requested mobile number is no longer valid. Please start again.')
-  await db.query('UPDATE patients SET phone = ? WHERE id = ?', [newPhone, patientId])
+  await db.query('UPDATE patients SET phone = ?, phone_verified_at = NOW() WHERE id = ?', [newPhone, patientId])
   await revokeSessions('patient', patientId)
   if (res) await issueSession(res, 'patient', patientId)
   return newPhone
@@ -174,3 +174,6 @@ module.exports = {
   requestAdminMfa,
   verifyAdminMfa,
 }
+
+
+

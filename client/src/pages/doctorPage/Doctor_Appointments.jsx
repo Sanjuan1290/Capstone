@@ -115,7 +115,7 @@ const PrescriptionModal = ({ appointmentId, patientName, onClose, onOpenFullReco
                           <div>
                             <p className="font-bold text-slate-800">{rx.medicine || `Medicine ${index + 1}`}</p>
                             <p className="mt-1 text-xs text-slate-500">
-                              {[rx.dosage, rx.frequency, rx.duration].filter(Boolean).join(' · ') || 'No dosage instructions recorded.'}
+                              {[rx.dosage, rx.frequency].filter(Boolean).join(' · ') || 'No dosage instructions recorded.'}
                             </p>
                           </div>
                           <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-bold text-violet-700">#{index + 1}</span>
@@ -406,7 +406,6 @@ const Doctor_Appointments = () => {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
   const [viewMode, setViewMode] = useState('today')
   const [query, setQuery] = useState('')
-  const [showCompleted, setShowCompleted] = useState(false)
   const [summary, setSummary] = useState({ remainingToday: 0, completed: 0, upcomingCount: 0, totalToday: 0 })
   const today = getLocalDateOnly()
   const [dateFilter, setDateFilter] = useState(today)
@@ -535,7 +534,6 @@ const Doctor_Appointments = () => {
     navigate(`/doctor/consultation?id=${appointmentId}`)
   }
 
-  const completedToday = appointments.filter(a => a.status === 'completed').length
   const remainingToday = Number(summary.remainingToday || appointments.filter(a => ['confirmed','rescheduled','in-progress'].includes(a.status)).length)
   const upcomingCount = Number(summary.upcomingCount || (viewMode === 'upcoming' ? appointments.length : 0))
   const filteredAppointments = useMemo(() => {
@@ -543,11 +541,11 @@ const Doctor_Appointments = () => {
     return appointments.filter((appt) => {
       const matchesSearch = !needle || [appt.patient_name, appt.patient, appt.reason, appt.requested_service_name_snapshot]
         .filter(Boolean).some((value) => String(value).toLowerCase().includes(needle))
-      const matchesCompleted = viewMode !== 'today' || showCompleted || appt.status !== 'completed'
-      return matchesSearch && matchesCompleted
+      const matchesActiveToday = viewMode !== 'today' || appt.status !== 'completed'
+      return matchesSearch && matchesActiveToday
     })
-  }, [appointments, query, showCompleted, viewMode])
-  const appointmentPagination = useClientPagination(filteredAppointments, { initialPageSize: 10, resetDeps: [viewMode, dateFilter, query, showCompleted] })
+  }, [appointments, query, viewMode])
+  const appointmentPagination = useClientPagination(filteredAppointments, { initialPageSize: 10, resetDeps: [viewMode, dateFilter, query] })
   const walkInPagination = useClientPagination(walkInQueue, { initialPageSize: 8 })
 
   useEffect(() => {
@@ -582,7 +580,7 @@ const Doctor_Appointments = () => {
           <button type="button" onClick={() => setViewMode('today')} className={`rounded-2xl border p-4 text-left transition ${viewMode === 'today' ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">Today</p>
             <p className="mt-2 text-2xl font-black text-slate-900">{remainingToday} remaining</p>
-            <p className="mt-1 text-xs text-slate-500">{Number(summary.completed || completedToday)} completed today</p>
+            <p className="mt-1 text-xs text-slate-500">Appointments still requiring your attention today</p>
           </button>
           <button type="button" onClick={() => setViewMode('upcoming')} className={`rounded-2xl border p-4 text-left transition ${viewMode === 'upcoming' ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">Upcoming</p>
@@ -608,11 +606,6 @@ const Doctor_Appointments = () => {
                 <input value={query} onChange={(event) => setQuery(event.target.value)} className="form-control pl-11" placeholder="Search patient, service or reason..." />
               </div>
             </label>
-            {viewMode === 'today' && Number(summary.completed || completedToday) > 0 && (
-              <button type="button" onClick={() => setShowCompleted((value) => !value)} className="mt-3 text-xs font-bold text-violet-700">
-                {showCompleted ? 'Hide completed appointments' : `Show completed today (${Number(summary.completed || completedToday)})`}
-              </button>
-            )}
           </div>
         </div>
 

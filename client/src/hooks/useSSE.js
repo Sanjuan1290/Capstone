@@ -8,7 +8,7 @@ export function useSSE(role, userId, onMessage) {
     let retryTimeout
 
     const connect = () => {
-      es = new EventSource('/api/events', { withCredentials: true })
+      es = new EventSource(`/api/events/${encodeURIComponent(role)}`, { withCredentials: true })
 
       es.onmessage = (e) => {
         try {
@@ -33,3 +33,6 @@ export function useSSE(role, userId, onMessage) {
     }
   }, [role, userId, onMessage])
 }
+
+
+

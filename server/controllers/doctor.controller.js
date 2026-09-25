@@ -18,7 +18,7 @@ const {
 } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds, authorizeConsultationImages, syncConsultationImages } = require('../utils/consultationImages')
 const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
-const { consumeInventoryFromLocationFEFO, getInventoryLocationById } = require('../utils/inventoryBatches')
+const { consumeInventoryFromLocationFEFO, getInventoryLocationById, attachBatchesToInventory } = require('../utils/inventoryBatches')
 const { writeAuditLog } = require('../utils/audit')
 const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { callNextQueuePatient, setQueueState, normalizeQueueStatus, assertQueueTransition } = require('../utils/queueWorkflow')
@@ -34,6 +34,7 @@ const {
   hashUploadBuffer,
 } = require('../utils/cloudinarySecurity')
 const { loadConsultationAmendments, assertConsultationEditable } = require('../utils/consultationIntegrity')
+const { assertPlainObject, normalizeOptionalText, normalizeText } = require('../utils/inputValidation')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -106,8 +107,9 @@ const validateClinicalInventoryAvailability = async ({ billing, appointment }, c
        JOIN inventory_locations il ON il.id = ilb.location_id
        JOIN inventory_batches ib ON ib.id = ilb.batch_id
        WHERE ilb.inventory_id = ?
-         AND il.name IN (?, 'Main Stockroom')
+         AND il.name = ?
          AND ilb.quantity > 0 AND ib.quantity > 0
+         AND ib.archived_at IS NULL
          AND (ib.expiration_date IS NULL OR ib.expiration_date >= CURDATE())`,
       [entry.inventory_id, preferredLocation]
     )
@@ -119,8 +121,8 @@ const validateClinicalInventoryAvailability = async ({ billing, appointment }, c
     checks.push({ inventory_id: entry.inventory_id, name: inventory.name, requested: requestedUsageQty, available: availableUsageQty, unit: entry.unit_label || inventory.unit, sufficient })
     if (!sufficient) {
       throw Object.assign(
-        new Error(`${inventory.name} requires ${requestedUsageQty} ${entry.unit_label || inventory.unit || 'unit(s)'}, but only ${availableUsageQty} is currently available.`),
-        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, requested: requestedUsageQty, available: availableUsageQty }
+        new Error(`Insufficient stock in ${preferredLocation}. ${inventory.name} requires ${requestedUsageQty} ${entry.unit_label || inventory.unit || 'unit(s)'}, but only ${availableUsageQty} is available in this room. Request a stock transfer before completing this consultation.`),
+        { statusCode: 409, code: 'CLINICAL_ROOM_STOCK_REQUIRED', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: availableUsageQty, unit: entry.unit_label || inventory.unit || 'unit', location: preferredLocation }
       )
     }
   }
@@ -149,16 +151,19 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
       : requestedUsageQty
     if (packageQuantity <= 0) continue
 
-    // Consume FEFO inside the treatment room first, then Main Stockroom as a safe
-    // fallback. The exact source batch and source location are recorded below.
+    // Clinical use may consume only stock that was transferred into the treatment
+    // room. Main Stockroom is intentionally NOT a fallback; otherwise doctor stock
+    // requests/approvals can be bypassed and location accountability becomes false.
     const consumption = await consumeInventoryFromLocationFEFO(
       entry.inventory_id,
       packageQuantity,
       preferredLocation,
-      conn,
-      { fallbackLocation: 'Main Stockroom' }
+      conn
     )
-    if (!consumption.ok) throw Object.assign(new Error(`Not enough stock for ${inventory.name}. ${consumption.message}`), { statusCode: 409, code: 'INVENTORY_INSUFFICIENT' })
+    if (!consumption.ok) throw Object.assign(
+      new Error(`Insufficient stock in ${preferredLocation} for ${inventory.name}. Request a stock transfer before completing this consultation.`),
+      { statusCode: 409, code: 'CLINICAL_ROOM_STOCK_REQUIRED', inventory_id: entry.inventory_id, location: preferredLocation }
+    )
 
     const [usageResult] = await conn.query(
       `INSERT INTO consultation_inventory_usage
@@ -186,9 +191,9 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
 
       await conn.query(
         `INSERT INTO consultation_inventory_usage_batches
-         (consultation_usage_id, batch_id, package_quantity, usage_quantity, usage_unit_label, source_location)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [usageId, batch.batch_id, Number(batch.quantity || 0), allocatedUsage, entry.unit_label || inventory.unit, batch.location || preferredLocation]
+         (consultation_usage_id, batch_id, package_quantity, usage_quantity, usage_unit_label, source_location, source_location_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [usageId, batch.batch_id, Number(batch.quantity || 0), allocatedUsage, entry.unit_label || inventory.unit, batch.location || preferredLocation, batch.location_id || null]
       )
       await conn.query(
         `INSERT INTO inventory_logs
@@ -275,11 +280,17 @@ const getAppointments = async (req, res) => {
   let dateClause = 'a.appointment_date = ?'
   let dateParams = [requestedDate || today]
   let statuses = ['confirmed', 'in-progress', 'completed', 'rescheduled']
+  let orderDirection = 'ASC'
 
   if (scope === 'upcoming') {
     dateClause = 'a.appointment_date > ?'
     dateParams = [today]
     statuses = ['confirmed', 'rescheduled']
+  } else if (scope === 'history') {
+    dateClause = 'a.appointment_date <= ?'
+    dateParams = [today]
+    statuses = ['completed']
+    orderDirection = 'DESC'
   } else if (scope !== 'today' && scope !== 'date') {
     return res.status(400).json({ message: 'Unsupported appointment scope.' })
   }
@@ -294,14 +305,17 @@ const getAppointments = async (req, res) => {
             DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
             p.full_name AS patient_name, p.full_name AS patient,
             p.birthdate, p.sex AS patient_sex, p.phone AS patient_phone,
-            TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age
+            TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age,
+            c.id AS consultation_id, c.status AS consultation_status,
+            c.finalized_at AS consultation_finalized_at
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
+     LEFT JOIN consultations c ON c.appointment_id = a.id AND c.doctor_id = a.doctor_id
      WHERE a.doctor_id = ?
        AND ${dateClause}
        AND a.status IN (${placeholders})
-     ORDER BY a.appointment_date ASC, STR_TO_DATE(a.appointment_time, '%h:%i %p') ASC
-     LIMIT 100`,
+     ORDER BY a.appointment_date ${orderDirection}, STR_TO_DATE(a.appointment_time, '%h:%i %p') ${orderDirection}
+     LIMIT 300`,
     [req.user.id, ...dateParams, ...statuses]
   )
 
@@ -445,10 +459,22 @@ const startConsultation = async (req, res) => {
   res.json({ message: 'Consultation started.', queue: queueEntry })
 }
 
+const normalizeConsultationTextFields = (body) => {
+  assertPlainObject(body)
+  const diagnosis = normalizeOptionalText(body.diagnosis, { field: 'Diagnosis', max: 5000, multiline: true })
+  const prescription = normalizeOptionalText(body.prescription, { field: 'Prescription', max: 20000, multiline: true })
+  const notes = normalizeOptionalText(body.notes, { field: 'Clinical Notes', max: 5000, multiline: true })
+  if (prescription) {
+    let parsed
+    try { parsed = JSON.parse(prescription) } catch { throw Object.assign(new Error('Prescription data is invalid.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'Prescription data is invalid.' }) }
+    if (!Array.isArray(parsed)) throw Object.assign(new Error('Prescription data must be a list.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'Prescription data must be a list.' })
+    if (parsed.length > 30) throw Object.assign(new Error('A consultation can contain at most 30 prescription items.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'A consultation can contain at most 30 prescription items.' })
+  }
+  return { diagnosis, prescription, notes }
+}
+
 const buildConsultationPayload = (req) => ({
-  diagnosis: req.body.diagnosis || null,
-  prescription: req.body.prescription || null,
-  notes: req.body.notes || null,
+  ...normalizeConsultationTextFields(req.body),
   images: Object.prototype.hasOwnProperty.call(req.body, 'images') ? req.body.images : null,
   billableServices: Object.prototype.hasOwnProperty.call(req.body, 'billable_services') ? req.body.billable_services : null,
 })
@@ -539,7 +565,7 @@ const saveConsultationDraft = async (req, res) => {
 }
 
 const finalizeConsultation = async (req, res) => {
-  const { diagnosis, prescription, notes } = req.body
+  const { diagnosis, prescription, notes } = normalizeConsultationTextFields(req.body)
   const hasImagesPayload = Object.prototype.hasOwnProperty.call(req.body, 'images')
   const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
   const images = hasImagesPayload ? req.body.images : []
@@ -656,7 +682,7 @@ const finalizeConsultation = async (req, res) => {
     await conn.commit()
   } catch (err) {
     await conn.rollback()
-    if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || undefined })
+    if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || undefined, inventory_id: err.inventory_id, inventory_name: err.inventory_name, requested: err.requested, available: err.available, unit: err.unit, location: err.location })
     throw err
   } finally {
     conn.release()
@@ -739,7 +765,7 @@ const getConsultation = async (req, res) => {
 // ── NEW: Update (edit) a completed consultation ───────────────────────────────
 const updateConsultation = async (req, res) => {
   const { appointmentId } = req.params
-  const { diagnosis, prescription, notes } = req.body
+  const { diagnosis, prescription, notes } = normalizeConsultationTextFields(req.body)
   const hasImagesPayload = Object.prototype.hasOwnProperty.call(req.body, 'images')
   const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
   const conn = await db.getConnection()
@@ -806,10 +832,11 @@ const updateConsultation = async (req, res) => {
 
 const addConsultationAmendment = async (req, res) => {
   const appointmentId = Number(req.params.appointmentId)
-  const reason = String(req.body?.reason || '').trim()
-  const amendmentText = String(req.body?.amendment_text || '').trim()
-  if (!appointmentId || !reason || !amendmentText) {
-    return res.status(400).json({ message: 'Amendment reason and text are required.' })
+  assertPlainObject(req.body)
+  const reason = normalizeText(req.body.reason, { field: 'Amendment Reason', required: true, max: 255, multiline: true })
+  const amendmentText = normalizeText(req.body.amendment_text, { field: 'Amendment Text', required: true, max: 5000, multiline: true })
+  if (!appointmentId) {
+    return res.status(400).json({ message: 'A valid appointment is required.' })
   }
 
   const conn = await db.getConnection()
@@ -881,9 +908,9 @@ const getPatientHistory = async (req, res) => {
             a.clinic_type AS type, c.id AS consultation_id, c.diagnosis, c.prescription,
             c.notes, c.notes AS consultation_notes, c.consulted_at
      FROM appointments a LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.status IN ('completed','cancelled','no_show')
+     WHERE a.patient_id = ? AND a.doctor_id = ? AND a.status IN ('completed','cancelled','no_show')
      ORDER BY a.appointment_date DESC`,
-    [patientId]
+    [patientId, req.user.id]
   )
   const consultationIds = rows.map((row) => row.consultation_id)
   const imagesByConsultationId = await loadImagesForConsultationIds(consultationIds)
@@ -1002,7 +1029,8 @@ const getClinicalUploadScanStatus = async (req, res) => {
   if (!appointmentId || !assetId || !scanToken) {
     return res.status(400).json({ message: 'Appointment, Cloudinary asset ID, and scan verification are required.' })
   }
-  if (!await assertClinicalUploadAppointment(appointmentId, req.user.id)) {
+  const uploadAppointment = await getClinicalUploadAppointment(appointmentId, req.user.id)
+  if (!uploadAppointment) {
     return res.status(403).json({ message: 'You are not authorized to check this clinical image.' })
   }
 
@@ -1078,20 +1106,48 @@ const getBillingCatalog = async (req, res) => {
 }
 
 const getInventoryItems = async (req, res) => {
+  const [[doctor]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? LIMIT 1', [req.user.id])
+  const treatmentLocation = doctor?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
   const [rows] = await db.query(
     `SELECT i.id, i.name, i.category, COALESCE(i.item_type, 'medicine') AS item_type,
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS uom,
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS unit,
-            i.dosage_form, i.strength, i.stock, i.stock_base, i.threshold, i.price,
+            i.dosage_form, i.strength, i.stock, i.stock_base, i.threshold, i.selling_price,
+            COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal,
+            COALESCE(u.decimal_precision,0) AS uom_decimal_precision,
             COALESCE((SELECT SUM(ils.quantity)
                       FROM inventory_location_stock ils
                       JOIN inventory_locations il ON il.id=ils.location_id
-                      WHERE ils.inventory_id=i.id AND il.name='Main Stockroom'),0) AS main_stockroom_stock
+                      WHERE ils.inventory_id=i.id AND il.name='Main Stockroom'),0) AS main_stockroom_stock,
+            COALESCE((SELECT SUM(ils.quantity)
+                      FROM inventory_location_stock ils
+                      JOIN inventory_locations il ON il.id=ils.location_id
+                      WHERE ils.inventory_id=i.id AND il.name=?),0) AS treatment_room_stock,
+            ? AS treatment_room_name
      FROM inventory i
-     WHERE i.stock > 0
-     ORDER BY i.category, i.name`
+     LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
+     WHERE i.stock > 0 AND i.archived_at IS NULL
+     ORDER BY i.category, i.name`,
+    [treatmentLocation, treatmentLocation]
   )
-  res.json(rows)
+  const withBatches = await attachBatchesToInventory(rows, db)
+  const today = new Date().toISOString().slice(0, 10)
+  res.json(withBatches.map((item) => ({
+    ...item,
+    treatment_room_batches: (Array.isArray(item.batches) ? item.batches : [])
+      .filter((batch) => !batch.archived_at && Number(batch.quantity || 0) > 0 && (!batch.expiration_date || String(batch.expiration_date).slice(0, 10) >= today))
+      .flatMap((batch) => (Array.isArray(batch.locations) ? batch.locations : [])
+        .filter((location) => location.name === treatmentLocation && Number(location.quantity || 0) > 0)
+        .map((location) => ({
+          batch_id: Number(batch.id),
+          batch_code: batch.batch_code || `Batch #${batch.id}`,
+          expiration_date: batch.expiration_date || null,
+          available: Math.min(Number(batch.quantity || 0), Number(location.quantity || 0)),
+          location_id: Number(location.id || 0) || null,
+          location: location.name,
+        }))),
+    batches: undefined,
+  })))
 }
 
 // ── Supply Requests ───────────────────────────────────────────────────────────
@@ -1141,8 +1197,53 @@ const submitRequest = async (req, res) => {
     return res.status(400).json({ message: 'Select a valid treatment or dispensing destination.' })
   }
 
-  const [[inventory]] = await db.query('SELECT id FROM inventory WHERE id = ? LIMIT 1', [inventory_id])
+  const [[inventory]] = await db.query(
+    `SELECT i.id, i.name, i.category, COALESCE(i.item_type,'medicine') AS item_type,
+            COALESCE(i.uom,i.base_unit,i.unit,'') AS uom,
+            COALESCE(u.allow_decimal_quantity,0) AS allow_decimal_quantity,
+            COALESCE(u.decimal_precision,0) AS decimal_precision
+     FROM inventory i
+     LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
+     WHERE i.id = ? AND i.archived_at IS NULL LIMIT 1`,
+    [inventory_id]
+  )
   if (!inventory) return res.status(404).json({ message: 'Inventory item not found.' })
+
+  const precision = Number(inventory.allow_decimal_quantity) === 1 ? Math.min(4, Math.max(1, Number(inventory.decimal_precision || 2))) : 0
+  const factor = 10 ** precision
+  if (Math.abs(quantity * factor - Math.round(quantity * factor)) > 0.0000001) {
+    return res.status(400).json({
+      code: 'INVALID_UOM_PRECISION',
+      message: precision === 0
+        ? `${inventory.name} uses whole ${inventory.uom || 'units'} only.`
+        : `${inventory.name} allows at most ${precision} decimal place${precision === 1 ? '' : 's'}.`,
+    })
+  }
+  if (!String(reason || '').trim()) return res.status(400).json({ message: 'Transfer reason is required.' })
+  if (String(reason).trim().length > 500) return res.status(400).json({ message: 'Transfer reason must be 500 characters or fewer.' })
+
+  const [[doctorProfile]] = await db.query('SELECT clinic_type, specialty FROM doctors WHERE id=? LIMIT 1', [req.user.id])
+  const doctorClinic = doctorProfile?.clinic_type || (String(doctorProfile?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')
+  if (inventory.item_type === 'medicine' && inventory.category !== doctorClinic) {
+    return res.status(409).json({
+      code: 'SUPPLY_REQUEST_CLINIC_MISMATCH',
+      message: `${inventory.name} is assigned to the ${inventory.category === 'derma' ? 'Dermatology' : 'General Medicine'} clinic and cannot be requested for this doctor.`
+    })
+  }
+
+  const [duplicates] = await db.query(
+    `SELECT id, qty_requested, requested_at FROM supply_requests
+     WHERE doctor_id=? AND inventory_id=? AND destination_location_id=? AND status='pending'
+     ORDER BY requested_at DESC LIMIT 1`,
+    [req.user.id, Number(inventory_id), destination.id]
+  )
+  if (duplicates.length) {
+    return res.status(409).json({
+      code: 'DUPLICATE_SUPPLY_REQUEST',
+      existing_request_id: duplicates[0].id,
+      message: `A pending request for ${inventory.name} to ${destination.name} already exists. Update or wait for that request instead of creating a duplicate.`
+    })
+  }
 
   const [result] = await db.query(
     `INSERT INTO supply_requests
@@ -1324,4 +1425,5 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 

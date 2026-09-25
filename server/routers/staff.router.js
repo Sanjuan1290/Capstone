@@ -16,8 +16,8 @@ router.post('/login',     loginLimiter, staffCtrl.login)
 router.get('/check-auth', staffCtrl.checkAuth)
 router.post('/logout',    staffCtrl.logout)
 router.post('/security/password/required', ...baseAuth, commonCtrl.completeRequiredPasswordChange)
-router.post('/security/password/request-code', otpRequestLimiter, ...auth, commonCtrl.requestMyPasswordCode)
-router.post('/security/password/change', otpVerifyLimiter, ...auth, commonCtrl.changeMyPassword)
+router.post('/security/password/request-code', ...auth, otpRequestLimiter, commonCtrl.requestMyPasswordCode)
+router.post('/security/password/change', ...auth, otpVerifyLimiter, commonCtrl.changeMyPassword)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
@@ -84,3 +84,6 @@ router.get('/supply-requests',       ...auth, staffCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, staffCtrl.resolveSupplyRequest)
 
 module.exports = router
+
+
+

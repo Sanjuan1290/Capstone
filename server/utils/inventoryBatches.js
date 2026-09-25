@@ -121,16 +121,16 @@ const syncInventorySnapshot = async (inventoryId, executor = db) => {
 
 const addInventoryBatch = async (
   inventoryId,
-  { quantity, expiration_date, note = null, batch_code = null, supplier_lot_number = null, unit_cost = 0, location = MAIN_LOCATION, location_id = null },
+  { quantity, expiration_date, note = null, batch_code = null, supplier_lot_number = null, supplier_id = null, unit_cost = 0, location = MAIN_LOCATION, location_id = null },
   executor = db
 ) => {
   const batchQty = toPositiveNumber(quantity)
   if (batchQty <= 0) return null
 
   const [result] = await executor.query(
-    `INSERT INTO inventory_batches (inventory_id, quantity, expiration_date, note, batch_code, supplier_lot_number, unit_cost)
-     VALUES (?,?,?,?,?,?,?)`,
-    [inventoryId, batchQty, normalizeExpiryDate(expiration_date), note || null, normalizeBatchCode(batch_code), normalizeSupplierLotNumber(supplier_lot_number), Math.max(0, Number(unit_cost) || 0)]
+    `INSERT INTO inventory_batches (inventory_id, quantity, expiration_date, note, batch_code, supplier_lot_number, supplier_id, unit_cost)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    [inventoryId, batchQty, normalizeExpiryDate(expiration_date), note || null, normalizeBatchCode(batch_code), normalizeSupplierLotNumber(supplier_lot_number), Number(supplier_id) || null, Math.max(0, Number(unit_cost) || 0)]
   )
 
   // Location tables are created later during first schema migration. Ignore only that
@@ -181,6 +181,7 @@ const receiveInventoryBatch = async (
     existing_batch_id = null,
     batch_code = null,
     supplier_lot_number = null,
+    supplier_id = null,
     expiration_date = null,
     note = null,
     unit_cost = 0,
@@ -226,6 +227,7 @@ const receiveInventoryBatch = async (
     expiration_date,
     batch_code: resolvedBatchCode,
     supplier_lot_number,
+    supplier_id,
     note,
     unit_cost,
     location: locationName,
@@ -236,6 +238,7 @@ const receiveInventoryBatch = async (
     batch_id: batchId,
     batch_code: resolvedBatchCode,
     supplier_lot_number: normalizeSupplierLotNumber(supplier_lot_number),
+    supplier_id: Number(supplier_id) || null,
     expiration_date: normalizeExpiryDate(expiration_date),
     unit_cost: Math.max(0, Number(unit_cost) || 0),
     quantity_added: batchQty,
@@ -321,6 +324,7 @@ const consumeInventoryFromLocationFEFO = async (
         quantity: used,
         expiration_date: batch.expiration_date || null,
         location: candidate,
+        location_id: locationId,
       })
       remaining -= used
     }
@@ -382,7 +386,7 @@ const consumeInventoryFromLocationByBatches = async (
     if (Number(locationUpdate.affectedRows || 0) !== 1) throw Object.assign(new Error('Selected batch stock changed. Please reload and retry.'), { statusCode: 409 })
     const [batchUpdate] = await executor.query('UPDATE inventory_batches SET quantity = quantity - ? WHERE id = ? AND quantity >= ?', [selection.quantity, batch.id, selection.quantity])
     if (Number(batchUpdate.affectedRows || 0) !== 1) throw Object.assign(new Error('Selected batch stock changed. Please reload and retry.'), { statusCode: 409 })
-    consumed.push({ id: batch.id, batch_id: batch.id, batch_code: batch.batch_code || null, quantity: selection.quantity, expiration_date: batch.expiration_date || null, location: locationName })
+    consumed.push({ id: batch.id, batch_id: batch.id, batch_code: batch.batch_code || null, quantity: selection.quantity, expiration_date: batch.expiration_date || null, location: locationName, location_id: locationId })
   }
 
   await syncInventorySnapshot(inventoryId, executor)
@@ -449,9 +453,10 @@ const attachBatchesToInventory = async (items, executor = db) => {
   const ids = items.map((item) => item.id)
   const placeholders = ids.map(() => '?').join(', ')
   const [rows] = await executor.query(
-    `SELECT b.id, b.inventory_id, b.batch_code, b.supplier_lot_number, b.quantity, b.expiration_date, b.received_at, b.note, b.unit_cost, b.archived_at, b.archived_by_admin_id, b.archive_reason,
+    `SELECT b.id, b.inventory_id, b.batch_code, b.supplier_lot_number, b.supplier_id, sup.name AS supplier_name, b.quantity, b.expiration_date, b.received_at, b.note, b.unit_cost, b.archived_at, b.archived_by_admin_id, b.archive_reason,
             il.id AS location_id, il.name AS location_name, ilb.quantity AS location_quantity
      FROM inventory_batches b
+     LEFT JOIN inventory_suppliers sup ON sup.id=b.supplier_id
      LEFT JOIN inventory_location_batches ilb ON ilb.batch_id = b.id AND ilb.quantity > 0
      LEFT JOIN inventory_locations il ON il.id = ilb.location_id
      WHERE b.inventory_id IN (${placeholders})
@@ -465,7 +470,7 @@ const attachBatchesToInventory = async (items, executor = db) => {
   ).catch(async (error) => {
     if (error.code !== 'ER_NO_SUCH_TABLE') throw error
     return executor.query(
-      `SELECT id, inventory_id, NULL AS batch_code, NULL AS supplier_lot_number, quantity, expiration_date, received_at, note, unit_cost, archived_at, archived_by_admin_id, archive_reason,
+      `SELECT id, inventory_id, NULL AS batch_code, NULL AS supplier_lot_number, NULL AS supplier_id, NULL AS supplier_name, quantity, expiration_date, received_at, note, unit_cost, archived_at, archived_by_admin_id, archive_reason,
               NULL AS location_name, NULL AS location_quantity
        FROM inventory_batches
        WHERE inventory_id IN (${placeholders})
@@ -483,6 +488,8 @@ const attachBatchesToInventory = async (items, executor = db) => {
         inventory_id: row.inventory_id,
         batch_code: row.batch_code || null,
         supplier_lot_number: row.supplier_lot_number || null,
+        supplier_id: row.supplier_id || null,
+        supplier_name: row.supplier_name || null,
         quantity: Number(row.quantity || 0),
         expiration_date: row.expiration_date || null,
         received_at: row.received_at,
@@ -532,4 +539,7 @@ module.exports = {
   transferInventoryBatchesFEFO,
   attachBatchesToInventory,
 }
+
+
+
 

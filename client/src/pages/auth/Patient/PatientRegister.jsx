@@ -116,6 +116,7 @@ const RegistrationForm = ({ onSuccess }) => {
   const [error, setError] = useState('')
   const [birthdateError, setBirthdateError] = useState('')
   const [loading, setLoading] = useState(false)
+  const submitLock = useRef(false)
 
   const updateField = (event) => {
     const { name, type, checked, value } = event.target
@@ -126,6 +127,7 @@ const RegistrationForm = ({ onSuccess }) => {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    if (submitLock.current) return
     const birthdayError = validateBirthdate(form.birthdate)
     if (birthdayError) { setBirthdateError(birthdayError); return }
     const passwordError = getPasswordValidationError(form.password)
@@ -134,7 +136,11 @@ const RegistrationForm = ({ onSuccess }) => {
     if (!form.email.trim()) return setError('Email address is required.')
     if (!form.gender) return setError('Gender is required.')
     if (!form.address.trim()) return setError('Address is required.')
+    if (form.full_name.trim().length > 150) return setError('Full Name must be 150 characters or fewer.')
+    if (form.email.trim().length > 150) return setError('Email Address must be 150 characters or fewer.')
+    if (form.address.trim().length > 500) return setError('Address must be 500 characters or fewer.')
 
+    submitLock.current = true
     setLoading(true)
     try {
       const res = await fetch('/api/patient/register', {
@@ -145,7 +151,7 @@ const RegistrationForm = ({ onSuccess }) => {
       if (!res.ok) return setError(data.message || 'Registration failed.')
       onSuccess({ phone: data.phone || form.phone, email: data.email || form.email, method: data.verification_method || verificationMethod })
     } catch { setError('Cannot connect to server.') }
-    finally { setLoading(false) }
+    finally { submitLock.current = false; setLoading(false) }
   }
 
   return (
@@ -157,12 +163,12 @@ const RegistrationForm = ({ onSuccess }) => {
           <form onSubmit={handleSubmit} className="space-y-5 px-5 py-6 sm:px-8">
             {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2"><label className={LABEL_CLASS}>Full Name *</label><div className="relative"><MdPerson className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input name="full_name" value={form.full_name} onChange={updateField} required placeholder="e.g. Juan dela Cruz" className={`${INPUT_CLASS} pl-10`}/></div></div>
-              <div><label className={LABEL_CLASS}>Email Address *</label><div className="relative"><MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input type="email" name="email" value={form.email} onChange={updateField} required placeholder="juan@email.com" className={`${INPUT_CLASS} pl-10`}/></div></div>
+              <div className="sm:col-span-2"><label className={LABEL_CLASS}>Full Name *</label><div className="relative"><MdPerson className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input name="full_name" value={form.full_name} onChange={updateField} required maxLength={150} autoComplete="name" placeholder="e.g. Juan dela Cruz" className={`${INPUT_CLASS} pl-10`}/></div></div>
+              <div><label className={LABEL_CLASS}>Email Address *</label><div className="relative"><MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input type="email" name="email" value={form.email} onChange={updateField} required maxLength={150} autoComplete="email" placeholder="juan@email.com" className={`${INPUT_CLASS} pl-10`}/></div></div>
               <div><label className={LABEL_CLASS}>Mobile Number *</label><div className="relative"><MdPhone className="pointer-events-none absolute left-3.5 top-1/2 z-10 -translate-y-1/2 text-slate-400"/><PhilippinePhoneInput value={form.phone} onChange={(e) => updateField({ target: { name: 'phone', type: 'text', value: e.target.value } })} className="pl-7"/></div><p className="mt-1 text-[11px] text-slate-400">Enter a Philippine number in 09xx format.</p></div>
               <div><label className={LABEL_CLASS}>Birthdate *</label><input type="date" name="birthdate" value={form.birthdate} min={minBirthdate()} max={maxBirthdate()} onChange={updateField} required className={INPUT_CLASS}/>{birthdateError && <p className="mt-1 text-xs font-semibold text-red-500">{birthdateError}</p>}</div>
               <div><label className={LABEL_CLASS}>Gender *</label><select name="gender" value={form.gender} onChange={updateField} required className={INPUT_CLASS}><option value="">Select gender</option>{GENDER_OPTIONS.map((option)=><option key={option}>{option}</option>)}</select></div>
-              <div className="sm:col-span-2"><label className={LABEL_CLASS}>Address *</label><div className="relative"><MdHome className="absolute left-3.5 top-3.5 text-slate-400"/><textarea name="address" value={form.address} onChange={updateField} required rows={2} placeholder="House / Street / Barangay / City / Province" className={`${INPUT_CLASS} pl-10`}/></div></div>
+              <div className="sm:col-span-2"><label className={LABEL_CLASS}>Address *</label><div className="relative"><MdHome className="absolute left-3.5 top-3.5 text-slate-400"/><textarea name="address" value={form.address} onChange={updateField} required maxLength={500} rows={2} placeholder="House / Street / Barangay / City / Province" className={`${INPUT_CLASS} pl-10`}/></div></div>
             </div>
 
             <div className="border-t border-slate-100 pt-4"><p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Security</p><div className="grid gap-4 sm:grid-cols-2"><div><label className={LABEL_CLASS}>Password *</label><PasswordInput name="password" value={form.password} onChange={updateField} placeholder="8+ characters"/></div><div><label className={LABEL_CLASS}>Confirm Password *</label><PasswordInput name="confirmPassword" value={form.confirmPassword} onChange={updateField} placeholder="Retype password" preventPaste/>{form.confirmPassword && form.password !== form.confirmPassword && <p className="mt-1 text-xs text-red-500">Passwords do not match.</p>}<p className="mt-1 text-[11px] text-slate-400">Paste is disabled for confirmation.</p></div></div></div>
@@ -183,7 +189,7 @@ const RegistrationForm = ({ onSuccess }) => {
               </div>
             </div>
             <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600"><input type="checkbox" checked={consentGiven} onChange={(e)=>setConsentGiven(e.target.checked)} className="mt-1 h-4 w-4"/><span>I have read and agree to the <NavLink to="/privacy-policy" className="font-bold text-emerald-600">Privacy Policy</NavLink> and consent to processing of my personal data.</span></label>
-            <button type="submit" disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword || Boolean(birthdateError)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-50">{loading ? 'Sending...' : <>Send {verificationMethod === 'email' ? 'Email' : 'SMS'} Verification Code <MdArrowForward/></>}</button>
+            <button type="submit" aria-busy={loading} disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword || Boolean(birthdateError)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-50">{loading ? 'Sending...' : <>Send {verificationMethod === 'email' ? 'Email' : 'SMS'} Verification Code <MdArrowForward/></>}</button>
             <p className="text-center text-sm text-slate-400">Already have an account? <NavLink to="/patient/login" className="font-bold text-emerald-600">Sign in</NavLink></p>
           </form>
         </div>
@@ -209,12 +215,16 @@ const VerificationForm = ({ pendingPhone, pendingEmail, initialMethod = 'email',
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [switching, setSwitching] = useState(false)
+  const verifyLock = useRef(false)
+  const resendLock = useRef(false)
   const { login } = useAuth()
   const navigate = useNavigate()
 
   const destination = method === 'email' ? maskEmail(pendingEmail) : maskPhone(pendingPhone)
 
   const sendBy = async (nextMethod) => {
+    if (resendLock.current || verifyLock.current) return
+    resendLock.current = true
     setSwitching(true); setError(''); setCode('')
     try {
       const res = await fetch('/api/patient/register/resend', {
@@ -225,12 +235,14 @@ const VerificationForm = ({ pendingPhone, pendingEmail, initialMethod = 'email',
       if (!res.ok) return setError(data.message || 'Could not send another code.')
       setMethod(nextMethod)
     } catch { setError('Cannot connect to server.') }
-    finally { setSwitching(false) }
+    finally { resendLock.current = false; setSwitching(false) }
   }
 
   const handleVerify = async (event) => {
     event.preventDefault()
+    if (verifyLock.current || resendLock.current) return
     if (code.length < 6) return setError('Please enter the complete 6-digit code.')
+    verifyLock.current = true
     setError(''); setLoading(true)
     try {
       const res = await fetch('/api/patient/register/verify', {
@@ -241,7 +253,7 @@ const VerificationForm = ({ pendingPhone, pendingEmail, initialMethod = 'email',
       if (!res.ok) return setError(data.message || 'Verification failed.')
       login(data.user, 'patient'); navigate('/patient')
     } catch { setError('Cannot connect to server.') }
-    finally { setLoading(false) }
+    finally { verifyLock.current = false; setLoading(false) }
   }
 
   return (
@@ -258,7 +270,7 @@ const VerificationForm = ({ pendingPhone, pendingEmail, initialMethod = 'email',
           <form onSubmit={handleVerify} className="space-y-5 px-6 py-6">
             {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-600">{error}</div>}
             <div><label className="mb-3 block text-center text-xs font-bold uppercase tracking-wider text-slate-500">6-Digit Verification Code</label><OtpBoxes value={code} onChange={(next) => { setCode(next); setError('') }} /></div>
-            <button type="submit" disabled={loading || switching || code.length < 6} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60">{loading ? 'Verifying…' : <><MdCheckCircle /> Verify and Create Account</>}</button>
+            <button type="submit" aria-busy={loading} disabled={loading || switching || code.length < 6} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60">{loading ? 'Verifying…' : <><MdCheckCircle /> Verify and Create Account</>}</button>
             <div className="space-y-2 text-center text-sm">
               <button type="button" disabled={switching} onClick={() => sendBy(method === 'sms' ? 'email' : 'sms')} className="font-bold text-emerald-600 hover:text-emerald-700 disabled:opacity-50">{switching ? 'Sending…' : `Try another way — use ${method === 'sms' ? 'email' : 'SMS'}`}</button>
               <div><button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600"><MdArrowBack /> Change registration details</button></div>
@@ -287,3 +299,6 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
+
+
+

@@ -1219,7 +1219,7 @@ const ensureAppSchema = async () => {
       attempt_count INT NOT NULL DEFAULT 0,
       last_sent_at DATETIME NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uniq_account_security_code (role, account_id),
+      UNIQUE KEY uniq_account_security_code_purpose (role, account_id, purpose),
       INDEX idx_security_code_lookup (role, account_id, purpose, expires_at)
     )
   `)
@@ -1228,6 +1228,8 @@ const ensureAppSchema = async () => {
   await ensureColumn('account_security_codes', 'payload', 'TEXT NULL')
   await ensureColumn('account_security_codes', 'attempt_count', 'INT NOT NULL DEFAULT 0')
   await ensureColumn('account_security_codes', 'last_sent_at', 'DATETIME NULL')
+  await db.query('ALTER TABLE account_security_codes DROP INDEX uniq_account_security_code').catch(() => {})
+  await db.query('ALTER TABLE account_security_codes ADD UNIQUE KEY uniq_account_security_code_purpose (role, account_id, purpose)').catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS notifications (
@@ -1366,4 +1368,7 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
+
+
+
 

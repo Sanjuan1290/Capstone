@@ -40,6 +40,8 @@ const notifyRoles = async (roles, payload) => {
 }
 
 const getNotifications = async (role, userId = null, limit = 20) => {
+  const requested = Number(limit)
+  const safeLimit = Math.min(100, Math.max(1, Number.isFinite(requested) ? Math.floor(requested) : 20))
   const [rows] = await db.query(
     `SELECT *
      FROM notifications
@@ -47,7 +49,7 @@ const getNotifications = async (role, userId = null, limit = 20) => {
        AND (target_user_id IS NULL OR target_user_id = ?)
      ORDER BY created_at DESC
      LIMIT ?`,
-    [role, userId, Number(limit) || 20]
+    [role, userId, safeLimit]
   )
   return rows
 }
@@ -69,3 +71,6 @@ module.exports = {
   getNotifications,
   markNotificationRead,
 }
+
+
+

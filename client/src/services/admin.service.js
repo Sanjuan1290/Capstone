@@ -200,7 +200,7 @@ export const updateBillingPaymentSettings = (payload) =>
   })
 
 export const getStaff = () =>
-  fetch(`${BASE}/staff`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/staff`)
 
 export const createStaff = (payload) =>
   requestJson(`${BASE}/staff`, {
@@ -217,10 +217,10 @@ export const updateStaff = (id, payload) =>
   })
 
 export const toggleStaff = (id) =>
-  fetch(`${BASE}/staff/${id}/toggle`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/staff/${id}/toggle`, { method: 'PATCH' })
 
 export const getDoctors = () =>
-  fetch(`${BASE}/doctors`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/doctors`)
 
 export const createDoctor = (payload) =>
   requestJson(`${BASE}/doctors`, {
@@ -237,7 +237,7 @@ export const updateDoctor = (id, payload) =>
   })
 
 export const toggleDoctor = (id) =>
-  fetch(`${BASE}/doctors/${id}/toggle`, { method: 'PATCH', credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/doctors/${id}/toggle`, { method: 'PATCH' })
 
 export const getDoctorSchedules = (doctorId) =>
   requestJson(`${BASE}/doctors/${doctorId}/schedules`)
@@ -286,7 +286,7 @@ export const getReports = (params = {}) => {
 }
 
 export const getInventory = () =>
-  fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/inventory`)
 
 export const getInventoryLogs = (params = {}) => {
   const search = new URLSearchParams()
@@ -328,7 +328,7 @@ export const deleteInventoryItem = (id) =>
   })
 
 export const getSupplyRequests = () =>
-  fetch(`${BASE}/supply-requests`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/supply-requests`)
 
 export const resolveSupplyRequest = (id, status, note = '') =>
   requestJson(`${BASE}/supply-requests/${id}`, {
@@ -351,7 +351,7 @@ export const createWalkInPatient = (payload) =>
   })
 
 export const getQueue = (date = '') =>
-  fetch(`${BASE}/queue${date ? `?date=${date}` : ''}`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/queue${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 
 export const getQueuePrecheck = (patientId) => requestJson(`${BASE}/queue/precheck/${patientId}`)
 
@@ -420,3 +420,4 @@ export const confirmInventoryBatchAction = (batchId, code) =>
 
 export const getInventoryBatchHistory = (batchId) =>
   requestJson(`${BASE}/inventory/batches/${batchId}/history`)
+

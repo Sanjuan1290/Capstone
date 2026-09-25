@@ -85,6 +85,18 @@ const ALLOWED_TRANSITIONS = {
   completed: new Set(), cancelled: new Set(), no_show: new Set(),
 }
 
+
+const assertAppointmentMutationApplied = async (result, appointmentId, executor = db) => {
+  if (Number(result?.affectedRows || 0) === 1) return
+  const [[latest]] = await executor.query('SELECT status FROM appointments WHERE id = ? LIMIT 1', [appointmentId])
+  const currentStatus = latest?.status || 'unavailable'
+  const err = new Error(`This appointment changed while you were viewing it. Current status: ${currentStatus}. Refresh before taking another action.`)
+  err.statusCode = 409
+  err.code = 'APPOINTMENT_STATUS_CONFLICT'
+  err.current_status = currentStatus
+  throw err
+}
+
 const assertAppointmentTransition = (from, to) => {
   if (from === to) return
   if (!ALLOWED_TRANSITIONS[from]?.has(to)) {
@@ -94,5 +106,8 @@ const assertAppointmentTransition = (from, to) => {
   }
 }
 
-module.exports = { ACTIVE_SLOT_STATUSES, parseTimeToMinutes, validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition }
+module.exports = { ACTIVE_SLOT_STATUSES, parseTimeToMinutes, validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied }
+
+
+
 

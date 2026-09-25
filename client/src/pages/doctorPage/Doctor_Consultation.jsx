@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { uploadClinicalImageSigned, getClinicalImageScanStatus } from '../../services/portal.service'
@@ -26,7 +26,6 @@ import {
   MdFace,
   MdHistory,
   MdImage,
-  MdInventory2,
   MdLocalPharmacy,
   MdMedicalServices,
   MdNotes,
@@ -51,8 +50,13 @@ function formatDate(raw) {
 }
 
 const FREQUENCIES = ['Once daily', 'Twice daily', 'Three times daily', 'Every 8 hours', 'Every 12 hours', 'As needed (PRN)']
-const DURATIONS = ['3 days', '5 days', '7 days', '2 weeks', '1 month', '3 months', 'Ongoing']
 const isCustomOption = (value, options) => Boolean(value) && !options.includes(value)
+
+const normalizePrescription = (prescription = {}) => {
+  const next = { ...prescription }
+  delete next.duration
+  return next
+}
 
 const getMedicineUnit = (medicineName, inventoryItems = []) => (
   inventoryItems.find(
@@ -139,13 +143,14 @@ const Doctor_Consultation = () => {
 
   const [diagnosis, setDiagnosis] = useState('')
   const [notes, setNotes] = useState('')
-  const [prescriptions, setPrescriptions] = useState([{ medicine: '', dosage: '', frequency: '', duration: '', notes: '' }])
+  const [prescriptions, setPrescriptions] = useState([{ medicine: '', dosage: '', frequency: '', notes: '' }])
   const [progressImages, setProgressImages] = useState([])
   const [patientHistory, setPatientHistory] = useState([])
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState('consultation')
   const [inventoryItems, setInventoryItems] = useState([])
+  const [inventoryBlocker, setInventoryBlocker] = useState(null)
   const [billingCatalog, setBillingCatalog] = useState([])
   const [billableServices, setBillableServices] = useState([])
   const [clinicSettings, setClinicSettings] = useState(null)
@@ -186,12 +191,12 @@ const Doctor_Consultation = () => {
         ? JSON.parse(consult.prescription)
         : consult.prescription
       if (Array.isArray(rx) && rx.length > 0) {
-        setPrescriptions(rx)
+        setPrescriptions(rx.map(normalizePrescription))
       } else {
-        setPrescriptions([{ medicine: '', dosage: '', frequency: '', duration: '', notes: '' }])
+        setPrescriptions([{ medicine: '', dosage: '', frequency: '', notes: '' }])
       }
     } catch {
-      setPrescriptions([{ medicine: '', dosage: '', frequency: '', duration: '', notes: '' }])
+      setPrescriptions([{ medicine: '', dosage: '', frequency: '', notes: '' }])
     }
     const serviceItems = Array.isArray(consult?.billing?.items) ? consult.billing.items.filter((item) => item.item_type === 'service') : []
     setBillableServices(serviceItems.map((item) => {
@@ -296,10 +301,9 @@ const Doctor_Consultation = () => {
     )))
   )
 
-  const addRx = () => setPrescriptions((prev) => [...prev, { inventory_id: '', medicine: '', dosage: '', frequency: '', duration: '', notes: '' }])
+  const addRx = () => setPrescriptions((prev) => prev.length >= 30 ? prev : [...prev, { inventory_id: '', medicine: '', dosage: '', frequency: '', notes: '' }])
   const removeRx = (index) => setPrescriptions((prev) => prev.filter((_, rxIndex) => rxIndex !== index))
 
-  const addProgressImage = () => setProgressImages((prev) => [...prev, createBlankProgressImage()])
 
   const updateProgressImage = (index, field, value) => {
     setProgressImages((prev) => prev.map((image, imageIndex) => (
@@ -310,6 +314,7 @@ const Doctor_Consultation = () => {
   const removeProgressImage = (index) => {
     if (!window.confirm('Remove this progress image from the consultation? This change will be permanent once the consultation is saved.')) return
     setProgressImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index))
+    setImageUploadStatus({})
   }
 
   const setClinicalUploadStatus = (index, status) => {
@@ -326,8 +331,29 @@ const Doctor_Consultation = () => {
   }
 
   const handleUploadProgressImages = async (fileList) => {
-    const files = Array.from(fileList || [])
+    const requestedFiles = Array.from(fileList || [])
+    if (!requestedFiles.length) return
+
+    const validFiles = requestedFiles.filter((file) => (
+      ['image/png', 'image/jpeg'].includes(String(file.type || '').toLowerCase())
+      && Number(file.size || 0) <= 10 * 1024 * 1024
+    ))
+    if (validFiles.length !== requestedFiles.length) {
+      window.alert('Only PNG or JPG images up to 10 MB each can be uploaded.')
+    }
+
+    const remainingSlots = Math.max(0, 5 - progressImages.length)
+    if (remainingSlots === 0) {
+      window.alert('You can upload up to 5 progress images for this consultation.')
+      return
+    }
+
+    const files = validFiles.slice(0, remainingSlots)
+    if (validFiles.length > remainingSlots) {
+      window.alert(`Only ${remainingSlots} more progress image${remainingSlots === 1 ? '' : 's'} can be added. The maximum is 5.`)
+    }
     if (!files.length) return
+
     const start = progressImages.length
     setProgressImages((prev) => [...prev, ...files.map(() => createBlankProgressImage())])
     for (let offset = 0; offset < files.length; offset += 1) {
@@ -469,24 +495,57 @@ const Doctor_Consultation = () => {
     }
   }
 
-  const validateClinicalInventory = () => {
+  const clinicalDeductionPlan = useMemo(() => {
     const totals = new Map()
     for (const service of billableServices) for (const material of (service.materials || [])) {
-      const id = Number(material.inventory_id || 0); if (!id) continue
-      totals.set(id, (totals.get(id) || 0) + Math.max(0, Number(material.quantity || 0)))
+      const id = Number(material.inventory_id || 0)
+      const qty = Math.max(0, Number(material.quantity || 0))
+      if (!id || qty <= 0) continue
+      const current = totals.get(id) || { quantity: 0, unit: material.unit_label || null }
+      current.quantity += qty
+      if (!current.unit && material.unit_label) current.unit = material.unit_label
+      totals.set(id, current)
     }
-    for (const [id, qty] of totals) {
+    return Array.from(totals.entries()).map(([id, usage]) => {
       const item = inventoryItems.find((inv) => Number(inv.id) === id)
-      const available = Number(item?.stock || 0)
-      if (qty > available + 0.0001) return `${item?.name || 'Inventory item'} requires ${qty}, but only ${available} is available.`
-    }
-    return ''
+      let remaining = Number(usage.quantity || 0)
+      const allocations = []
+      const batches = [...(Array.isArray(item?.treatment_room_batches) ? item.treatment_room_batches : [])]
+        .sort((a, b) => {
+          const aExpiry = a.expiration_date ? String(a.expiration_date).slice(0, 10) : '9999-12-31'
+          const bExpiry = b.expiration_date ? String(b.expiration_date).slice(0, 10) : '9999-12-31'
+          return aExpiry.localeCompare(bExpiry) || Number(a.batch_id || 0) - Number(b.batch_id || 0)
+        })
+      for (const batch of batches) {
+        if (remaining <= 0) break
+        const available = Math.max(0, Number(batch.available || 0))
+        if (available <= 0) continue
+        const quantity = Math.min(remaining, available)
+        allocations.push({ ...batch, quantity })
+        remaining -= quantity
+      }
+      return {
+        inventory_id: id,
+        name: item?.name || 'Inventory item',
+        requested: Number(usage.quantity || 0),
+        available: Number(item?.treatment_room_stock || 0),
+        unit: usage.unit || item?.uom || item?.unit || 'unit',
+        location: item?.treatment_room_name || (appt?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'),
+        allocations,
+        shortage: Math.max(0, remaining),
+      }
+    })
+  }, [billableServices, inventoryItems, appt?.clinic_type])
+
+  const validateClinicalInventory = () => {
+    const blocked = clinicalDeductionPlan.find((entry) => entry.shortage > 0.0001)
+    return blocked || null
   }
 
   const buildPayload = () => ({
     diagnosis,
     notes,
-    prescription: JSON.stringify(prescriptions),
+    prescription: JSON.stringify(prescriptions.map(normalizePrescription)),
     images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
     billable_services: billableServices,
   })
@@ -516,7 +575,11 @@ const Doctor_Consultation = () => {
   const handleFinalize = async () => {
     if (!appt || consultationStatus === 'finalized') return
     const stockError = validateClinicalInventory()
-    if (stockError) { alert(stockError); return }
+    if (stockError) {
+      setInventoryBlocker(stockError)
+      return
+    }
+    setInventoryBlocker(null)
     if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct recorded medicines and consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
     setSaving(true)
     try {
@@ -529,7 +592,19 @@ const Doctor_Consultation = () => {
       setAppt((prev) => (prev ? { ...prev, status: 'completed' } : prev))
       await loadHistory(appt.patient_id)
     } catch (err) {
-      alert(err.message || 'Failed to complete consultation. The record has not been finalized.')
+      if (err.code === 'CLINICAL_ROOM_STOCK_REQUIRED' || err.code === 'INVENTORY_INSUFFICIENT') {
+        setInventoryBlocker({
+          inventory_id: err.inventory_id || null,
+          name: err.inventory_name || 'Required inventory item',
+          requested: err.requested,
+          available: err.available,
+          unit: err.unit || 'unit',
+          location: err.location || (appt?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'),
+          message: err.message,
+        })
+      } else {
+        alert(err.message || 'Failed to complete consultation. The record has not been finalized.')
+      }
     } finally {
       setSaving(false)
     }
@@ -701,6 +776,7 @@ const Doctor_Consultation = () => {
                   <textarea
                     value={diagnosis}
                     onChange={(e) => setDiagnosis(e.target.value)}
+                    maxLength={5000}
                     rows={3}
                     placeholder="e.g. Acne vulgaris (mild/moderate/severe)"
                     className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:border-violet-400 resize-none transition-colors"
@@ -711,6 +787,7 @@ const Doctor_Consultation = () => {
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
+                    maxLength={5000}
                     rows={3}
                     placeholder="Observations, findings, follow-up instructions..."
                     className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:border-violet-400 resize-none transition-colors"
@@ -720,114 +797,97 @@ const Doctor_Consultation = () => {
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <MdImage className="text-violet-500 text-[16px]" /> Progress Images
-                </h2>
-                <div className="flex items-center gap-2">
-                  <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-600 hover:bg-violet-100">
-                    <MdUpload className="text-[14px]" /> Add Images
-                    <input type="file" multiple accept="image/png,image/jpeg,.png,.jpg,.jpeg" className="hidden" disabled={uploadingIndex !== null} onChange={(e) => { const files = e.target.files; e.target.value = ''; handleUploadProgressImages(files) }} />
-                  </label>
-                  <button onClick={addProgressImage} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-50"><MdAdd className="inline text-[14px]" /> Blank</button>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <MdImage className="text-violet-500 text-[16px]" /> Progress Images
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500">Upload up to 5 PNG or JPG images for this consultation. Each image is security scanned before it is attached.</p>
                 </div>
+                <label className={`flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600 hover:bg-violet-100 ${uploadingIndex !== null || progressImages.length >= 5 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
+                  <MdUpload className="text-[14px]" /> {progressImages.length >= 5 ? '5 Images Uploaded' : 'Upload Progress Images'}
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                    className="hidden"
+                    disabled={uploadingIndex !== null || progressImages.length >= 5}
+                    onChange={(e) => { const files = e.target.files; e.target.value = ''; handleUploadProgressImages(files) }}
+                  />
+                </label>
               </div>
 
-              <p className="text-xs text-slate-500 mb-4">
-                Upload a clinical progress photo securely. Upload authorization is signed by the clinic server for this appointment.
-              </p>
-
-              {progressImages.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
-                  <MdImage className="mx-auto text-[30px] text-slate-300 mb-2" />
-                  <p className="text-sm font-semibold text-slate-600">No progress images yet</p>
-                  <p className="text-xs text-slate-400 mt-1">Add the first image to document the patient&apos;s progress.</p>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-bold text-violet-600">Progress Image #1</p>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-500">{progressImages.length}/5 images</span>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {progressImages.map((image, index) => (
-                    <div key={index} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-xs font-bold text-violet-600">Progress Image #{index + 1}</p>
-                        <button
-                          onClick={() => removeProgressImage(index)}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:bg-red-50 hover:text-red-500 transition-colors"
-                        >
-                          <MdClose className="text-[14px]" />
-                        </button>
-                      </div>
 
-                      <div className="mt-3 grid gap-4 lg:grid-cols-[160px_minmax(0,1fr)]">
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                {progressImages.length === 0 ? (
+                  <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center">
+                    <MdImage className="mx-auto mb-2 text-[30px] text-slate-300" />
+                    <p className="text-sm font-semibold text-slate-600">No progress images uploaded</p>
+                    <p className="mt-1 text-xs text-slate-400">Use Upload Progress Images to add up to 5 images for this visit.</p>
+                  </div>
+                ) : (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {progressImages.map((image, index) => (
+                      <div key={index} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                        <div className="relative">
                           {image.image_url ? (
-                            <img
-                              src={image.image_url}
-                              alt={image.caption || `Progress ${index + 1}`}
-                              className="h-40 w-full object-cover bg-slate-100"
-                            />
+                            <img src={image.image_url} alt={image.caption || `Progress image ${index + 1}`} className="h-40 w-full bg-slate-100 object-cover" />
                           ) : (
-                            <div className="h-40 flex flex-col items-center justify-center text-slate-300">
-                              <MdImage className="text-[34px] mb-2" />
-                              <p className="text-xs font-semibold">Preview</p>
+                            <div className="flex h-40 flex-col items-center justify-center bg-slate-50 text-slate-300">
+                              <MdImage className="mb-2 text-[34px]" />
+                              <p className="text-xs font-semibold">Preparing image...</p>
                             </div>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => removeProgressImage(index)}
+                            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg bg-white/95 text-slate-400 shadow-sm hover:bg-red-50 hover:text-red-500"
+                            aria-label={`Remove progress image ${index + 1}`}
+                          >
+                            <MdClose className="text-[14px]" />
+                          </button>
                         </div>
 
-                        <div className="space-y-3">
-                          <div className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2.5">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Secure Clinical Upload</p>
-                            <p className="mt-1 text-xs text-violet-700">
-                              {image.image_url
-                                ? image.security_scan_status === 'approved'
-                                  ? 'Security scan passed. Image is ready to save with this consultation.'
-                                  : image.security_scan_status === 'bypassed'
-                                    ? 'This image was uploaded without malware scanning after an explicit warning.'
-                                    : 'Legacy image. Malware scan status was not recorded when it was uploaded.'
-                                : 'Choose an image file below. The image is scanned for malware before it is attached.'}
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Upload Image</label>
-                            <label className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 ${uploadingIndex !== null ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}>
-                              <MdUpload className="text-[14px]" />
-                              {uploadingIndex === index ? 'Uploading & scanning...' : image.image_url ? 'Replace Image' : 'Choose File'}
-                              <input
-                                type="file"
-                                accept="image/png,image/jpeg,.png,.jpg,.jpeg"
-                                className="hidden"
-                                disabled={uploadingIndex !== null}
-                                onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; handleUploadProgressImage(index, file) }}
-                              />
+                        <div className="space-y-3 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Image {index + 1}</p>
+                            <label className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-slate-50 ${uploadingIndex !== null ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
+                              <MdUpload className="text-[12px]" /> {uploadingIndex === index ? 'Uploading...' : 'Replace'}
+                              <input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" className="hidden" disabled={uploadingIndex !== null} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; handleUploadProgressImage(index, file) }} />
                             </label>
                           </div>
 
                           {imageUploadStatus[index] && (
-                            <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${imageUploadStatus[index].tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : imageUploadStatus[index].tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800' : imageUploadStatus[index].tone === 'danger' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
+                            <div className={`rounded-lg border px-2.5 py-2 text-[11px] font-semibold ${imageUploadStatus[index].tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : imageUploadStatus[index].tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800' : imageUploadStatus[index].tone === 'danger' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
                               {imageUploadStatus[index].message}
                             </div>
                           )}
 
+                          {!imageUploadStatus[index] && image.image_url && (
+                            <p className={`text-[11px] font-semibold ${image.security_scan_status === 'approved' ? 'text-emerald-600' : image.security_scan_status === 'bypassed' ? 'text-amber-700' : 'text-slate-400'}`}>
+                              {image.security_scan_status === 'approved' ? 'Security scan passed.' : image.security_scan_status === 'bypassed' ? 'Uploaded without malware scanning.' : 'Legacy image.'}
+                            </p>
+                          )}
+
                           <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Caption</label>
+                            <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Caption</label>
                             <input
                               type="text"
                               value={image.caption}
                               onChange={(e) => updateProgressImage(index, 'caption', e.target.value)}
-                              placeholder="e.g. Before treatment, Week 2 follow-up"
-                              className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
+                              placeholder="e.g. Before treatment"
+                              className="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm focus:border-violet-400 focus:outline-none"
                             />
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-5">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Current Gallery</p>
-                <ProgressImageGallery images={progressImages} />
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -840,7 +900,7 @@ const Doctor_Consultation = () => {
                 const selected = billableServices.find((entry) => Number(entry.catalog_service_id) === Number(service.id))
                 return <div key={service.id} className={`rounded-2xl border p-4 ${selected ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-white'}`}>
                   <label className="flex cursor-pointer items-start gap-3"><input type="checkbox" disabled={isEditMode} checked={Boolean(selected)} onChange={() => toggleService(service)} className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold text-slate-800">{service.service_name}</p><p className="text-xs text-slate-500">{service.category || 'Clinic service'}</p></div></div></div></label>
-                  {selected && selected.materials?.length > 0 && <div className="mt-4 border-t border-violet-100 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Actual Material Usage</p><div className="grid gap-2 sm:grid-cols-2">{selected.materials.map((material, index) => <label key={`${material.inventory_id || material.material_name}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3"><span className="text-xs font-semibold text-slate-700">{material.material_name}</span><div className="mt-2 flex items-center gap-2"><input type="number" min="0" max={Number(inventoryItems.find((inv) => Number(inv.id) === Number(material.inventory_id))?.stock || 0)} step="0.01" disabled={isEditMode} value={material.quantity} onChange={(e) => { const stock = Number(inventoryItems.find((inv) => Number(inv.id) === Number(material.inventory_id))?.stock || 0); updateServiceMaterial(service.id, index, Math.min(stock, Math.max(0, Number(e.target.value) || 0))) }} className="form-control h-9" /><span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || 'unit'}</span></div><span className="mt-1 block text-[10px] text-slate-400">Available: {Number(inventoryItems.find((inv) => Number(inv.id) === Number(material.inventory_id))?.stock || 0)} {material.unit_label || 'unit'}</span></label>)}</div></div>}
+                  {selected && selected.materials?.length > 0 && <div className="mt-4 border-t border-violet-100 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Actual Material Usage</p><div className="grid gap-2 sm:grid-cols-2">{selected.materials.map((material, index) => { const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id)); const decimal = Number(inv?.uom_allow_decimal || 0) === 1; const precision = decimal ? Math.max(1, Number(inv?.uom_decimal_precision || 2)) : 0; const step = decimal ? 1 / (10 ** precision) : 1; const roomStock = Math.max(0, Number(inv?.treatment_room_stock || 0)); return <label key={`${material.inventory_id || material.material_name}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3"><span className="text-xs font-semibold text-slate-700">{material.material_name}</span><div className="mt-2 flex items-center gap-2"><input type="number" inputMode="decimal" min="0" max={roomStock} step={step} disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(service.id, index, Math.min(roomStock, Math.max(0, Number(e.target.value) || 0)))} className="form-control h-9" /><span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span></div></label> })}</div></div>}
                 </div>
               })}</div>}
             </div>
@@ -852,9 +912,10 @@ const Doctor_Consultation = () => {
                 </h2>
                 <button
                   onClick={addRx}
+                  disabled={prescriptions.length >= 30}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-600 bg-violet-50 border border-violet-200 hover:bg-violet-100 rounded-xl transition-colors"
                 >
-                  <MdAdd className="text-[14px]" /> Add Medicine
+                  <MdAdd className="text-[14px]" /> {prescriptions.length >= 30 ? '30 Medicine Limit Reached' : 'Add Medicine'}
                 </button>
               </div>
 
@@ -894,20 +955,16 @@ const Doctor_Consultation = () => {
                       >
                         <option value="">Select medicine from inventory...</option>
                         <optgroup label="General Medicine">
-                          {medicineItems.filter((item) => item.category === 'medical').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.stock} {item.uom || item.unit}</option>)}
+                          {medicineItems.filter((item) => item.category === 'medical').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                         </optgroup>
                         <optgroup label="Dermatology">
-                          {medicineItems.filter((item) => item.category === 'derma').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.stock} {item.uom || item.unit}</option>)}
+                          {medicineItems.filter((item) => item.category === 'derma').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                         </optgroup>
                         <option value="__other__">Other / Not in Inventory</option>
                       </select>
                       {(rx.inventory_id === '__other__' || (!rx.inventory_id && rx.medicine && !medicineItems.some((item) => item.name?.trim().toLowerCase() === String(rx.medicine).trim().toLowerCase()))) && (
-                        <div className="mt-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Medicine Name *</label><input type="text" value={rx.medicine} onChange={(e) => updateRx(index, 'medicine', e.target.value)} placeholder="Enter medicine name..." className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400" /></div>
+                        <div className="mt-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Medicine Name *</label><input type="text" value={rx.medicine} onChange={(e) => updateRx(index, 'medicine', e.target.value)} maxLength={160} placeholder="Enter medicine name..." className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400" /></div>
                       )}
-                      {rx.inventory_id && (() => {
-                        const found = medicineItems.find((item) => String(item.id) === String(rx.inventory_id))
-                        return found ? <p className={`text-[10px] mt-1 flex items-center gap-1 font-medium ${found.stock <= (found.threshold || 5) ? 'text-red-500' : 'text-emerald-600'}`}><MdInventory2 className="text-[11px]" />{found.stock} {found.uom || found.unit} in stock{found.stock <= (found.threshold || 5) && ' - Low stock!'}</p> : null
-                      })()}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -940,21 +997,15 @@ const Doctor_Consultation = () => {
                         <select value={isCustomOption(rx.frequency, FREQUENCIES) ? '__custom__' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value === '__custom__' ? 'Custom' : e.target.value)} className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400">
                           <option value="">Select...</option>{FREQUENCIES.map((frequency) => <option key={frequency}>{frequency}</option>)}<option value="__custom__">Custom…</option>
                         </select>
-                        {isCustomOption(rx.frequency, FREQUENCIES) && <input type="text" value={rx.frequency === 'Custom' ? '' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value || 'Custom')} placeholder="e.g. Every 6 hours" className="mt-2 w-full text-sm p-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:border-violet-400" />}
+                        {isCustomOption(rx.frequency, FREQUENCIES) && <input type="text" value={rx.frequency === 'Custom' ? '' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value || 'Custom')} maxLength={120} placeholder="e.g. Every 6 hours" className="mt-2 w-full text-sm p-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:border-violet-400" />}
                       </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Duration</label>
-                        <select value={isCustomOption(rx.duration, DURATIONS) ? '__custom__' : rx.duration} onChange={(e) => updateRx(index, 'duration', e.target.value === '__custom__' ? 'Custom' : e.target.value)} className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400">
-                          <option value="">Select...</option>{DURATIONS.map((duration) => <option key={duration}>{duration}</option>)}<option value="__custom__">Custom…</option>
-                        </select>
-                        {isCustomOption(rx.duration, DURATIONS) && <input type="text" value={rx.duration === 'Custom' ? '' : rx.duration} onChange={(e) => updateRx(index, 'duration', e.target.value || 'Custom')} placeholder="e.g. 10 days" className="mt-2 w-full text-sm p-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:border-violet-400" />}
-                      </div>
-                      <div>
+                      <div className="col-span-2">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Notes</label>
                         <input
                           type="text"
                           value={rx.notes}
                           onChange={(e) => updateRx(index, 'notes', e.target.value)}
+                          maxLength={500}
                           placeholder="e.g. Take after meals"
                           className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
                         />
@@ -987,8 +1038,8 @@ const Doctor_Consultation = () => {
                   </div>
                 )}
                 <div className="grid gap-3">
-                  <input value={amendmentReason} onChange={(e) => setAmendmentReason(e.target.value)} placeholder="Reason for amendment (required)" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400" />
-                  <textarea value={amendmentText} onChange={(e) => setAmendmentText(e.target.value)} rows={4} placeholder="Correction or additional clinical information..." className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400 resize-none" />
+                  <input maxLength={255} value={amendmentReason} onChange={(e) => setAmendmentReason(e.target.value)} placeholder="Reason for amendment (required)" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400" />
+                  <textarea maxLength={5000} value={amendmentText} onChange={(e) => setAmendmentText(e.target.value)} rows={4} placeholder="Correction or additional clinical information..." className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400 resize-none" />
                   <div className="flex justify-end">
                     <button onClick={handleAddAmendment} disabled={addingAmendment || !amendmentReason.trim() || !amendmentText.trim()} className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{addingAmendment ? 'Adding...' : 'Add Amendment'}</button>
                   </div>
@@ -996,6 +1047,20 @@ const Doctor_Consultation = () => {
               </div>
             ) : (
               <div className="space-y-3">
+                {clinicalDeductionPlan.length > 0 && (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                    <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-black text-slate-900">Inventory deduction on completion</p><p className="mt-1 text-xs text-slate-500">Expected FEFO batches are shown below. Stock is revalidated when you complete the consultation.</p></div><span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Preview</span></div>
+                    <div className="mt-3 space-y-3">{clinicalDeductionPlan.map((entry) => <div key={entry.inventory_id} className={`rounded-xl border bg-white p-3 ${entry.shortage > 0.0001 ? 'border-rose-200' : 'border-slate-200'}`}><div className="flex flex-wrap items-center justify-between gap-2"><strong>{entry.name}</strong><span className={`text-xs font-black ${entry.shortage > 0.0001 ? 'text-rose-700' : 'text-emerald-700'}`}>{entry.requested} {entry.unit}</span></div><p className="mt-1 text-xs text-slate-500">From {entry.location}</p>{entry.allocations.length > 0 ? <div className="mt-2 flex flex-wrap gap-2">{entry.allocations.map((allocation) => <span key={`${entry.inventory_id}-${allocation.batch_id}`} className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">{allocation.batch_code}: {allocation.quantity} {entry.unit}{allocation.expiration_date ? ` · exp ${String(allocation.expiration_date).slice(0,10)}` : ''}</span>)}</div> : <p className="mt-2 text-xs font-bold text-rose-700">No usable batch stock is available in this treatment room.</p>}{entry.shortage > 0.0001 && <p className="mt-2 text-xs font-bold text-rose-700">Short by {entry.shortage} {entry.unit}. Request a stock transfer before completion.</p>}</div>)}</div>
+                  </div>
+                )}
+                {inventoryBlocker && (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                    <p className="font-black">Stock transfer required before completing this consultation</p>
+                    <p className="mt-1">{inventoryBlocker.message || `${inventoryBlocker.name} requires ${inventoryBlocker.requested} ${inventoryBlocker.unit}, but only ${inventoryBlocker.available} are available in ${inventoryBlocker.location}.`}</p>
+                    <p className="mt-1 text-xs text-amber-800">Clinical use can only deduct stock already transferred into the treatment room. Main Stockroom is not used as an automatic fallback.</p>
+                    <button type="button" onClick={() => navigate('/doctor/request/stock-transfer')} className="mt-3 inline-flex items-center rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">Request Stock Transfer</button>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div>
                     {lastSavedAt ? <span className="font-semibold text-emerald-700">Draft saved at {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span> : <span className="text-slate-400">Draft autosaves every 25 seconds.</span>}
@@ -1004,7 +1069,6 @@ const Doctor_Consultation = () => {
                   <span className="text-slate-400">Saving a draft does not complete the visit or deduct inventory.</span>
                 </div>
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-                  <button onClick={async () => { const ok = await handleSave(); if (ok) navigate(-1) }} className="px-5 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">Save Draft & Exit</button>
                   <button onClick={() => handleSave()} disabled={saving || uploadingIndex !== null} className={`flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold rounded-xl transition-colors ${saved ? 'bg-emerald-500 text-white' : 'bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-50'}`}>
                     {saved ? <><MdCheck className="text-[15px]" /> Draft Saved</> : saving ? 'Saving...' : <><MdSave className="text-[15px]" /> Save Draft</>}
                   </button>
@@ -1139,3 +1203,6 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+
+
+

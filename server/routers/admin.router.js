@@ -15,15 +15,15 @@ router.post('/login',      loginLimiter, adminCtrl.login)
 router.post('/login/mfa',  otpVerifyLimiter, adminCtrl.verifyLoginMfa)
 router.get('/check-auth',  adminCtrl.checkAuth)
 router.post('/logout',     adminCtrl.logout)
-router.post('/security/password/request-code', otpRequestLimiter, ...auth, commonCtrl.requestMyPasswordCode)
-router.post('/security/password/change', otpVerifyLimiter, ...auth, commonCtrl.changeMyPassword)
+router.post('/security/password/request-code', ...auth, otpRequestLimiter, commonCtrl.requestMyPasswordCode)
+router.post('/security/password/change', ...auth, otpVerifyLimiter, commonCtrl.changeMyPassword)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
 router.get('/settings', ...auth, commonCtrl.getMySettings)
 router.put('/settings', ...auth, commonCtrl.saveMySettings)
-router.post('/settings/verification/request', ...auth, commonCtrl.requestMySettingsVerification)
-router.post('/settings/verification/confirm', ...auth, commonCtrl.confirmMySettingsVerification)
+router.post('/settings/verification/request', ...auth, otpRequestLimiter, commonCtrl.requestMySettingsVerification)
+router.post('/settings/verification/confirm', ...auth, otpVerifyLimiter, commonCtrl.confirmMySettingsVerification)
 router.get('/landing-page', ...auth, commonCtrl.getAdminLandingPage)
 router.put('/landing-page', ...auth, commonCtrl.saveAdminLandingPage)
 
@@ -128,8 +128,8 @@ router.get('/inventory/logs',         ...auth, adminCtrl.getInventoryLogs)
 router.post('/inventory',             ...auth, adminCtrl.addInventoryItem)
 router.patch('/inventory/:id/stock',  ...auth, adminCtrl.updateStock)
 router.get('/inventory/batches/:batchId/history', ...auth, adminCtrl.getInventoryBatchHistory)
-router.post('/inventory/batches/:batchId/action/request-code', otpRequestLimiter, ...auth, adminCtrl.requestInventoryBatchActionCode)
-router.post('/inventory/batches/:batchId/action/confirm', otpVerifyLimiter, ...auth, adminCtrl.confirmInventoryBatchAction)
+router.post('/inventory/batches/:batchId/action/request-code', ...auth, otpRequestLimiter, adminCtrl.requestInventoryBatchActionCode)
+router.post('/inventory/batches/:batchId/action/confirm', ...auth, otpVerifyLimiter, adminCtrl.confirmInventoryBatchAction)
 // FIX 5: Edit and Delete inventory items
 router.put('/inventory/:id',          ...auth, adminCtrl.updateInventoryItem)
 router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
@@ -139,3 +139,6 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
+
+
+

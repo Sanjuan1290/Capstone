@@ -87,17 +87,15 @@ const Admin_Billing = () => {
     if (!active.length) issues.push({ severity: 'warning', label: 'No active billing services are configured.', to: '/admin/billing/setup/services' })
     const freeCount = active.filter((service) => Number(service.default_price ?? service.patient_price ?? 0) <= 0).length
     if (freeCount) issues.push({ severity: 'warning', label: `${freeCount} active service${freeCount === 1 ? '' : 's'} ${freeCount === 1 ? 'has' : 'have'} a ₱0 patient price.`, to: '/admin/billing/setup/services' })
-    const belowCost = active.filter((service) => {
-      const patient = Number(service.default_price ?? service.patient_price ?? 0)
-      const cost = Number(service.materials_cost || 0) + Number(service.consultation_fee || 0)
-      return patient > 0 && cost > 0 && patient < cost
-    }).length
-    if (belowCost) issues.push({ severity: 'warning', label: `${belowCost} active service${belowCost === 1 ? '' : 's'} ${belowCost === 1 ? 'is' : 'are'} priced below estimated cost.`, to: '/admin/billing/setup/services' })
     const inventoryIds = new Set(inventory.map((item) => Number(item.id)))
     const missingLinks = active.reduce((count, service) => count + (Array.isArray(service.materials) ? service.materials.filter((m) => m.inventory_id && !inventoryIds.has(Number(m.inventory_id))).length : 0), 0)
     if (missingLinks) issues.push({ severity: 'warning', label: `${missingLinks} service consumable link${missingLinks === 1 ? '' : 's'} point${missingLinks === 1 ? 's' : ''} to missing inventory records.`, to: '/admin/billing/setup/services' })
-    const unpricedInventory = inventory.filter((item) => item.selling_price === null || item.selling_price === undefined || item.selling_price === '').length
-    if (unpricedInventory) issues.push({ severity: 'warning', label: `${unpricedInventory} inventory item${unpricedInventory === 1 ? '' : 's'} ${unpricedInventory === 1 ? 'has' : 'have'} no patient selling price for direct Checkout billing.`, to: '/admin/inventory' })
+    const unpricedInventoryItems = inventory.filter((item) => item.selling_price === null || item.selling_price === undefined || item.selling_price === '' || Number(item.selling_price) <= 0)
+    if (unpricedInventoryItems.length) {
+      const preview = unpricedInventoryItems.slice(0, 3).map((item) => item.name).filter(Boolean).join(', ')
+      const more = unpricedInventoryItems.length > 3 ? ` +${unpricedInventoryItems.length - 3} more` : ''
+      issues.push({ severity: 'warning', label: `${unpricedInventoryItems.length} inventory item${unpricedInventoryItems.length === 1 ? '' : 's'} ${unpricedInventoryItems.length === 1 ? 'has' : 'have'} no valid Selling Price${preview ? `: ${preview}${more}` : ''}. Set a price above ₱0.00 before direct Checkout billing.`, to: '/admin/inventory' })
+    }
     if (!String(clinic.receipt_title || '').trim()) issues.push({ severity: 'warning', label: 'Receipt title is not configured.', to: '/admin/billing/setup/receipt' })
     if (!String(clinic.clinic_name || '').trim()) issues.push({ severity: 'critical', label: 'Clinic identity is incomplete for receipts.', to: '/admin/clinic-settings' })
     return issues

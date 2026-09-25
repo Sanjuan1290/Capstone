@@ -1,22 +1,13 @@
 const db = require('../db/connect')
+const { normalizeText, normalizeOptionalText, normalizeNumber, makeValidationError } = require('./inputValidation')
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100
 
-const getInventoryBaseUnitCost = (item = {}) => {
-  // Inventory now stores cost directly in the item's single unit of measure.
-  return roundMoney(Math.max(0, Number(item.inventory_price ?? item.price) || 0))
-}
+const getInventoryBaseUnitCost = () => 0
 
-const getServiceMaterialUnitCost = (material = {}) => {
-  const linkedInventoryId = Number(material.inventory_id || 0)
-  const hasLiveInventoryPrice = linkedInventoryId > 0
-    && (material.inventory_price !== undefined || material.price !== undefined)
-  if (hasLiveInventoryPrice) return getInventoryBaseUnitCost(material)
-  if (material.unit_cost_override !== null && material.unit_cost_override !== undefined && material.unit_cost_override !== '') {
-    return Math.max(0, Number(material.unit_cost_override) || 0)
-  }
-  return getInventoryBaseUnitCost(material)
-}
+// CARAIT no longer treats Inventory Selling Price as acquisition/material cost.
+// Service pricing is configured explicitly; consumables affect stock only.
+const getServiceMaterialUnitCost = () => 0
 
 const parseJsonSafe = (value, fallback = null) => {
   if (!value) return fallback
@@ -112,27 +103,16 @@ const normalizeServiceMaterials = (materials = []) => (
 )
 
 const computeCatalogServicePricing = (service = {}) => {
-  const materials = Array.isArray(service.materials) ? service.materials : []
-  const profitPercentage = Math.max(0, Number(service.profit_percentage) || 0)
-  const consultationFee = Math.max(0, Number(service.consultation_fee) || 0)
-  const materialsCost = roundMoney(materials.reduce((sum, material) => {
-    const quantity = Math.max(0, Number(material?.quantity) || 0)
-    const unitCost = getServiceMaterialUnitCost(material)
-    return sum + roundMoney(quantity * unitCost)
-  }, 0))
-  const billableBase = roundMoney(materialsCost + consultationFee)
-  const profitAmount = roundMoney(billableBase * (profitPercentage / 100))
-  const suggestedPrice = roundMoney(billableBase + profitAmount)
-
+  const servicePrice = roundMoney(Math.max(0, Number(service.default_price ?? service.patient_price) || 0))
   return {
     ...service,
-    materials_cost: materialsCost,
-    consultation_fee: consultationFee,
-    profit_percentage: profitPercentage,
-    profit_amount: profitAmount,
-    suggested_price: suggestedPrice,
-    patient_price: Math.max(0, Number(service.default_price) || 0) || suggestedPrice,
-    default_price: Math.max(0, Number(service.default_price) || 0) || suggestedPrice,
+    materials_cost: 0,
+    consultation_fee: 0,
+    profit_percentage: 0,
+    profit_amount: 0,
+    suggested_price: servicePrice,
+    patient_price: servicePrice,
+    default_price: servicePrice,
   }
 }
 
@@ -157,7 +137,7 @@ const hydrateBillingCatalogRows = async (serviceRows = [], executor = db) => {
        i.unit AS inventory_unit,
        COALESCE(i.uom, i.base_unit, i.unit) AS inventory_base_unit,
        1 AS inventory_unit_size,
-       i.price AS inventory_price,
+       0 AS inventory_price,
        i.stock AS inventory_stock
      FROM billing_service_materials m
      LEFT JOIN inventory i ON i.id = m.inventory_id
@@ -261,7 +241,9 @@ const computeBillingTotals = ({ items = [], discount_amount = 0 }) => {
 }
 
 const normalizeBillingItems = async (items = [], executor = db) => {
-  const rawItems = Array.isArray(items) ? items : []
+  if (!Array.isArray(items)) throw makeValidationError('Billing items must be an array.', 'items')
+  if (items.length > 100) throw makeValidationError('A bill cannot contain more than 100 charge lines.', 'items')
+  const rawItems = items
   const requestedServiceIds = Array.from(new Set(
     rawItems
       .filter((item) => itemTypeFromRaw(item) === 'service')
@@ -297,21 +279,21 @@ const normalizeBillingItems = async (items = [], executor = db) => {
   return rawItems
     .map((item, index) => {
       const itemType = itemTypeFromRaw(item)
-      const quantity = Math.max(0, Number(item?.quantity) || 0)
-      if (quantity <= 0) return null
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw makeValidationError(`Charge line ${index + 1} must be an object.`, `items[${index}]`)
+      const quantity = normalizeNumber(item?.quantity, { field: `Charge ${index + 1} quantity`, required: true, min: 0.0001, max: 9999999999 })
 
       const base = {
         id: Number(item?.id) || null,
         source_type: String(item?.source_type || '').trim() || null,
         source_reference_id: Number(item?.source_reference_id) || null,
-        notes: String(item?.notes || '').trim() || null,
+        notes: normalizeOptionalText(item?.notes, { field: `Charge ${index + 1} notes`, max: 500, multiline: true }),
         sort_order: Number.isFinite(Number(item?.sort_order)) ? Number(item.sort_order) : index,
       }
 
       if (itemType === 'service') {
         const serviceId = Number(item?.catalog_service_id || item?.id || 0)
         const service = serviceMap.get(serviceId)
-        const fallbackName = String(item?.service_name || item?.name || '').trim()
+        const fallbackName = normalizeOptionalText(item?.service_name ?? item?.name, { field: `Service ${index + 1} name`, max: 180 }) || ''
 
         if (!service && !fallbackName) return null
 
@@ -332,15 +314,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           const unitCostOverride = material?.unit_cost_override === '' || material?.unit_cost_override === null || material?.unit_cost_override === undefined
             ? null
             : Math.max(0, Number(material.unit_cost_override) || 0)
-          const unitCost = getServiceMaterialUnitCost({
-            inventory_id: inventoryId,
-            unit_cost_override: unitCostOverride,
-            inventory_price: inventoryItem?.price ?? material?.inventory_price,
-            inventory_unit_size: 1,
-            inventory_base_unit: inventoryItem?.uom ?? inventoryItem?.base_unit ?? material?.inventory_base_unit,
-            unit_label: unitLabel,
-            inventory_unit: inventoryItem?.unit ?? material?.inventory_unit,
-          })
+          const unitCost = 0
           return {
             inventory_id: inventoryId,
             material_name: String(material?.material_name || inventoryItem?.name || material?.inventory_name || '').trim(),
@@ -352,19 +326,19 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           }
         }).filter((material) => material.material_name && material.quantity > 0)
 
-        const defaultMaterialsCost = roundMoney(normalizedMaterials.reduce((sum, material) => sum + Number(material.line_total || 0), 0))
-        const consultationFee = Number(service?.consultation_fee) || Number(item?.base_amount) || 0
-        const markupPercentage = Number(service?.profit_percentage) || Number(item?.markup_percentage) || 0
-        const suggestedPrice = roundMoney((defaultMaterialsCost + consultationFee) * (1 + markupPercentage / 100))
-        const catalogPatientPrice = Math.max(0, Number(service?.default_price) || 0) || suggestedPrice
+        const defaultMaterialsCost = 0
+        const consultationFee = 0
+        const markupPercentage = 0
+        const catalogPatientPrice = Math.max(0, Number(service?.default_price) || 0)
+        if (catalogPatientPrice <= 0) { const err = new Error(`${service?.service_name || fallbackName || 'Service'} does not have a valid Service Price.`); err.statusCode = 400; err.code = 'SERVICE_PRICE_REQUIRED'; throw err }
         const unitPrice = catalogPatientPrice
-        const baseAmount = roundMoney(defaultMaterialsCost + consultationFee)
+        const baseAmount = unitPrice
         const serviceDetails = {
           pricing: {
             materials_cost: defaultMaterialsCost,
             consultation_fee: consultationFee,
             markup_percentage: markupPercentage,
-            suggested_price: suggestedPrice,
+            suggested_price: catalogPatientPrice,
             patient_price: catalogPatientPrice,
             price_overridden: false,
             original_price: catalogPatientPrice,
@@ -381,7 +355,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           catalog_service_id: service?.id || (serviceId > 0 ? serviceId : null),
           source_inventory_id: null,
           category: String(service?.category || item?.category || '').trim() || null,
-          service_name: String(service?.service_name || fallbackName).trim(),
+          service_name: normalizeText(service?.service_name || fallbackName, { field: `Service ${index + 1} name`, required: true, max: 180 }),
           quantity,
           base_amount: baseAmount,
           markup_percentage: markupPercentage,
@@ -394,7 +368,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
       if (itemType === 'supply') {
         const inventoryId = Number(item?.source_inventory_id || item?.inventory_id || 0)
         const inventoryItem = inventoryMap.get(inventoryId)
-        const name = String(item?.service_name || item?.name || inventoryItem?.name || '').trim()
+        const name = normalizeOptionalText(item?.service_name ?? item?.name ?? inventoryItem?.name, { field: `Medicine / Supply ${index + 1} name`, max: 180 }) || ''
         if (!name) return null
 
         if (!inventoryItem) {
@@ -402,19 +376,24 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           err.statusCode = 400
           throw err
         }
-        if (inventoryItem.selling_price === null || inventoryItem.selling_price === undefined || inventoryItem.selling_price === '') {
-          const err = new Error(`${inventoryItem.name} does not have a patient selling price. Ask an administrator to configure it in Inventory before adding it to a bill.`)
+        if (inventoryItem.selling_price === null || inventoryItem.selling_price === undefined || inventoryItem.selling_price === '' || Number(inventoryItem.selling_price) <= 0) {
+          const err = new Error(`${inventoryItem.name} does not have a valid Selling Price. Set a price greater than ₱0.00 in Inventory before adding it to Checkout.`)
           err.statusCode = 400
           err.code = 'SELLING_PRICE_REQUIRED'
           throw err
         }
         const unitLabel = String(item?.unit_label || inventoryItem?.unit || '').trim() || null
         const unitPrice = Math.max(0, Number(inventoryItem.selling_price) || 0)
+        const requestedDetails = parseJsonSafe(item?.details_json || item?.details, {}) || {}
         const details = {
           source: 'inventory',
           inventory_id: inventoryId || null,
           inventory_name: inventoryItem?.name || name,
           unit: unitLabel,
+          batch_id: Number(requestedDetails.batch_id || 0) || null,
+          batch_code: String(requestedDetails.batch_code || '').trim() || null,
+          source_location_id: Number(requestedDetails.source_location_id || 0) || null,
+          source_location: String(requestedDetails.source_location || '').trim() || null,
         }
 
         return {
@@ -435,9 +414,9 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         }
       }
 
-      const serviceName = String(item?.service_name || item?.name || '').trim()
-      if (!serviceName) return null
-      const unitPrice = Math.max(0, Number(item?.unit_price ?? item?.default_price) || 0)
+      const serviceName = normalizeText(item?.service_name ?? item?.name, { field: `Custom charge ${index + 1} description`, required: true, max: 180 })
+      const unitPrice = normalizeNumber(item?.unit_price ?? item?.default_price, { field: `Custom charge ${index + 1} price`, required: true, min: 0.01, max: 99999999.99 })
+      if (unitPrice <= 0) { const err = new Error(`Custom charge “${serviceName}” must have a price greater than ₱0.00.`); err.statusCode = 400; err.code = 'ZERO_PRICE_CUSTOM_CHARGE'; throw err }
       const baseAmount = item?.base_amount === '' || item?.base_amount === null || item?.base_amount === undefined
         ? unitPrice
         : Math.max(0, Number(item.base_amount) || 0)
@@ -727,4 +706,3 @@ module.exports = {
   replaceStaffBillingItems,
   upsertDraftBillingForAppointment,
 }
-

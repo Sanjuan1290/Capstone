@@ -84,8 +84,12 @@ for (const role of ['admin', 'staff', 'doctor', 'patient']) {
   app.get(`/api/events/${role}`, authenticate(`${role}_token`), streamEvents)
 }
 
-// Backwards-compatible endpoint for older clients. New clients use /api/events/:role.
-app.get('/api/events', authenticate.any, streamEvents)
+// The generic stream was ambiguous when a browser held more than one role cookie.
+// Require every client to choose the role-scoped endpoint explicitly.
+app.get('/api/events', (req, res) => res.status(410).json({
+  code: 'SSE_ROLE_REQUIRED',
+  message: 'Use the role-specific realtime endpoint.',
+}))
 
 app.use('/api/patient', patientRouter)
 app.use('/api/admin', adminRouter)
@@ -108,18 +112,28 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err)
 
   const databaseSchemaCodes = new Set(['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE'])
+  const databaseInputCodes = new Set(['ER_DATA_TOO_LONG', 'ER_WARN_DATA_OUT_OF_RANGE', 'ER_TRUNCATED_WRONG_VALUE', 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD'])
   const schemaMismatch = databaseSchemaCodes.has(String(err.code || ''))
+  const databaseInputError = databaseInputCodes.has(String(err.code || ''))
   const payloadTooLarge = Number(err.status || err.statusCode) === 413 || String(err.type || '') === 'entity.too.large'
-  const status = schemaMismatch ? 503 : payloadTooLarge ? 413 : (Number(err.statusCode || err.status) || 500)
+  const status = schemaMismatch ? 503 : payloadTooLarge ? 413 : databaseInputError ? 400 : (Number(err.statusCode || err.status) || 500)
   const expose = status >= 400 && status < 500 && !/^ER_/.test(String(err.code || ''))
-  const responseCode = schemaMismatch ? 'SCHEMA_MIGRATION_REQUIRED' : payloadTooLarge ? 'FILE_TOO_LARGE' : (err.code && !/^ER_/.test(String(err.code)) ? err.code : undefined)
+  const responseCode = schemaMismatch
+    ? 'SCHEMA_MIGRATION_REQUIRED'
+    : payloadTooLarge
+      ? 'FILE_TOO_LARGE'
+      : databaseInputError
+        ? 'VALIDATION_ERROR'
+        : (err.code && !/^ER_/.test(String(err.code)) ? err.code : undefined)
   const message = schemaMismatch
     ? 'The database schema is out of date for this feature. Run `npm run migrate`, then restart the server.'
     : payloadTooLarge
       ? 'The uploaded file is larger than the allowed limit.'
-      : expose
-        ? (err.publicMessage || err.message || 'Request could not be completed.')
-        : 'Something went wrong while processing your request.'
+      : databaseInputError
+        ? 'One or more values are too long or invalid for this field. Review the form and try again.'
+        : expose
+          ? (err.publicMessage || err.message || 'Request could not be completed.')
+          : 'Something went wrong while processing your request.'
   res.status(status).json({ message, code: responseCode, request_id: requestId })
 })
 
@@ -148,4 +162,7 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
+
+
+
 

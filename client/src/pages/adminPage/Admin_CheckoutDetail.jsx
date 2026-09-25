@@ -22,6 +22,7 @@ import Modal from '../../components/ui/Modal'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { LoadingState, ErrorState } from '../../components/ui/PageState'
 import BillingStatusBadge from '../../components/billing/BillingStatusBadge'
+import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
 import { enabledPaymentMethods, formatMoney, paymentMethodLabel, roundMoney } from '../../utils/billingUi'
 import { printBillingReceipt } from '../../utils/billingReceipt'
 
@@ -36,7 +37,7 @@ const makeBlankItem = (itemType = 'custom') => ({
   quantity: 1,
   base_amount: 0,
   markup_percentage: 0,
-  unit_price: 0,
+  unit_price: '',
   notes: '',
   details: null,
 })
@@ -142,6 +143,8 @@ const Admin_CheckoutDetail = () => {
 
   const inventoryMap = useMemo(() => new Map(inventory.map((item) => [Number(item.id), item])), [inventory])
   const totals = totalsFor(draft)
+  const zeroPriceItems = (draft?.items || []).filter((item) => Number(item.unit_price || 0) <= 0)
+  const directCheckoutSupplyCount = (draft?.items || []).filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id || 0) > 0).length
   const paymentMethods = enabledPaymentMethods(paymentSettings)
   const selectedDiscount = discounts.find((item) => Number(item.id) === Number(selectedDiscountId)) || null
   const isDraft = ['draft', 'pending'].includes(bill?.status)
@@ -265,11 +268,10 @@ const Admin_CheckoutDetail = () => {
   const selectSupply = (index, value) => {
     const item = inventoryMap.get(Number(value))
     if (!item) return
-    if (item.selling_price === null || item.selling_price === undefined || item.selling_price === '') {
-      toast.error('This inventory item has no patient selling price. Ask an administrator to configure it first.')
+    if (item.selling_price === null || item.selling_price === undefined || item.selling_price === '' || Number(item.selling_price) <= 0) {
+      toast.warning('This inventory item has a missing or ₱0.00 Selling Price. Configure a valid price first.')
       return
     }
-    updateItem(index, 'source_inventory_id', item.id)
     markDraft((current) => ({
       ...current,
       items: current.items.map((row, i) => i === index ? {
@@ -278,10 +280,27 @@ const Admin_CheckoutDetail = () => {
         service_name: item.name || '',
         category: item.category || 'Medicine / Supply',
         unit_price: Number(item.selling_price || 0),
-        details: { ...(row.details || {}), unit: item.base_unit || item.unit || '' },
+        details: { unit: item.base_unit || item.unit || '', batch_id: null, batch_code: null, source_location_id: null, source_location: null },
       } : row),
     }))
   }
+
+  const selectSupplyBatch = (index, batch) => {
+    markDraft((current) => ({
+      ...current,
+      items: current.items.map((row, i) => i === index ? {
+        ...row,
+        details: {
+          ...(row.details || {}),
+          batch_id: batch?.id || null,
+          batch_code: batch?.batch_code || null,
+          source_location_id: batch?.source_location_id || null,
+          source_location: batch?.source_location || null,
+        },
+      } : row),
+    }))
+  }
+
 
   const discountNeedsApproval = false
   const discountPersistedApproval = Boolean(discountNeedsApproval && selectedDiscount
@@ -314,20 +333,25 @@ const Admin_CheckoutDetail = () => {
     if (invalidQuantity) return 'Every added charge must have a quantity greater than zero.'
     const invalidCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !String(item.notes || '').trim())
     if (invalidCustom) return 'Every custom charge needs a reason or note before continuing.'
+    const zeroPriceCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !(Number(item.unit_price) > 0))
+    if (zeroPriceCustom) return 'Every custom charge must have a price greater than ₱0.00.'
+    const longDescription = workingDraft.items.find((item) => item.source_type !== 'consultation' && String(item.service_name || '').trim().length > 180)
+    if (longDescription) return 'Charge descriptions must be 180 characters or fewer.'
+    const longNote = workingDraft.items.find((item) => item.source_type !== 'consultation' && String(item.notes || '').trim().length > 500)
+    if (longNote) return 'Charge notes must be 500 characters or fewer.'
     const invalidSupply = workingDraft.items.find((item) => item.item_type === 'supply' && !item.source_inventory_id)
     if (invalidSupply) return 'Select an inventory item for every Medicine / Supply charge.'
-    const totals = new Map()
     for (const item of workingDraft.items.filter((row) => row.item_type === 'supply' && row.source_inventory_id)) {
-      const id = Number(item.source_inventory_id)
-      totals.set(id, (totals.get(id) || 0) + Math.max(0, Number(item.quantity || 0)))
-    }
-    for (const [id, qty] of totals) {
-      const inv = inventoryMap.get(id)
-      const available = Number(inv?.stock || 0)
-      if (qty > available + 0.0001) return `${inv?.name || 'Inventory item'} requires ${qty}, but only ${available} is available.`
+      const inv = inventoryMap.get(Number(item.source_inventory_id))
+      const batches = getCheckoutBatchOptions(inv)
+      const selectedBatch = batches.find((batch) => batch.id === Number(item?.details?.batch_id || 0) && batch.source_location_id === Number(item?.details?.source_location_id || 0))
+      if (!selectedBatch || !item?.details?.source_location_id) return `Select the exact batch to dispense for ${inv?.name || item.service_name || 'this Medicine / Supply charge'}.`
+      const qty = Math.max(0, Number(item.quantity || 0))
+      if (qty > Number(selectedBatch.available || 0) + 0.0001) return `${inv?.name || 'Inventory item'} batch ${selectedBatch.batch_code} only has ${selectedBatch.available} available at ${selectedBatch.source_location}.`
     }
     return ''
   }
+
 
   const saveDraft = async ({ quiet = false, draftOverride = null } = {}) => {
     const workingDraft = draftOverride || draft
@@ -521,6 +545,9 @@ const Admin_CheckoutDetail = () => {
               <button className="button-secondary" onClick={() => setAddOpen(true)}><MdAdd /> Add Charge</button>
             </div>
 
+            {zeroPriceItems.length > 0 && <div className="mt-4 flex gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900"><MdWarning /> {zeroPriceItems.length} charge{zeroPriceItems.length === 1 ? '' : 's'} currently {zeroPriceItems.length === 1 ? 'has' : 'have'} a missing/₱0.00 price. Fix the price before continuing.</div>}
+            <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-3 text-xs font-semibold leading-relaxed text-sky-800">Service consumables recorded by the Doctor are already deducted when the consultation is completed. Additional Medicine / Supply charges added here are deducted from the exact selected batch only when the bill becomes fully paid.</div>
+
             <div className="mt-5 space-y-3">
               {draft.items.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">No charges yet.</div>}
               {draft.items.map((item, index) => {
@@ -545,17 +572,19 @@ const Admin_CheckoutDetail = () => {
                         <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
                       </div>
                     ) : item.item_type === 'supply' ? (
-                      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_110px_140px]">
-                        <label><span className="form-label">Medicine / Supply *</span><select className="form-control mt-1.5" value={item.source_inventory_id || ''} onChange={(e) => selectSupply(index, e.target.value)}><option value="">Select inventory item</option>{inventory.map((inv) => <option key={inv.id} value={inv.id} disabled={inv.selling_price === null || inv.selling_price === undefined}>{inv.name}{inv.selling_price === null || inv.selling_price === undefined ? ' — price not configured' : ` — ${formatMoney(inv.selling_price)}`}</option>)}</select></label>
-                        <label><span className="form-label">Qty</span><input type="number" min="0.01" max={Number(inventoryMap.get(Number(item.source_inventory_id))?.stock || 0)} step="0.01" className="form-control mt-1.5" value={item.quantity} onChange={(e) => { const inv = inventoryMap.get(Number(item.source_inventory_id)); const max = Number(inv?.stock || 0); updateItem(index, 'quantity', Math.min(max, Math.max(0, Number(e.target.value) || 0))) }} /><span className="mt-1 block text-[10px] text-slate-400">Available: {Number(inventoryMap.get(Number(item.source_inventory_id))?.stock || 0)} {inventoryMap.get(Number(item.source_inventory_id))?.uom || inventoryMap.get(Number(item.source_inventory_id))?.unit || 'unit(s)'}</span></label>
-                        <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-black">{formatMoney(item.unit_price)}</div></div>
-                      </div>
+                      <CheckoutSupplyEditor
+                        item={item}
+                        inventory={inventory}
+                        onSelectInventory={(value) => selectSupply(index, value)}
+                        onSelectBatch={(batch) => selectSupplyBatch(index, batch)}
+                        onQuantity={(value) => updateItem(index, 'quantity', Math.max(0, Number(value) || 0))}
+                      />
                     ) : (
                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_110px_140px]">
-                        <label><span className="form-label">Description *</span><input className="form-control mt-1.5" value={item.service_name} onChange={(e) => updateItem(index, 'service_name', e.target.value)} placeholder="e.g. Medical Certificate" /></label>
-                        <label><span className="form-label">Qty</span><input type="number" min="0.01" max={Number(inventoryMap.get(Number(item.source_inventory_id))?.stock || 0)} step="0.01" className="form-control mt-1.5" value={item.quantity} onChange={(e) => { const inv = inventoryMap.get(Number(item.source_inventory_id)); const max = Number(inv?.stock || 0); updateItem(index, 'quantity', Math.min(max, Math.max(0, Number(e.target.value) || 0))) }} /><span className="mt-1 block text-[10px] text-slate-400">Available: {Number(inventoryMap.get(Number(item.source_inventory_id))?.stock || 0)} {inventoryMap.get(Number(item.source_inventory_id))?.uom || inventoryMap.get(Number(item.source_inventory_id))?.unit || 'unit(s)'}</span></label>
-                        <label><span className="form-label">Amount *</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={item.unit_price} onChange={(e) => updateItem(index, 'unit_price', e.target.value)} /></label>
-                        <label className="sm:col-span-3"><span className="form-label">Reason / Notes *</span><textarea rows={2} className="form-control mt-1.5 resize-none" value={item.notes} onChange={(e) => updateItem(index, 'notes', e.target.value)} placeholder="Required for the billing audit trail" /></label>
+                        <label><span className="form-label">Description *</span><input maxLength={180} className="form-control mt-1.5" value={item.service_name} onChange={(e) => updateItem(index, 'service_name', e.target.value)} placeholder="e.g. Medical Certificate" /></label>
+                        <label><span className="form-label">Qty *</span><input type="number" inputMode="numeric" min="1" step="1" className="form-control mt-1.5" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', Math.max(0, Number(e.target.value) || 0))} /></label>
+                        <label><span className="form-label">Amount *</span><input type="number" inputMode="decimal" min="0.01" step="0.01" className={`form-control mt-1.5 ${Number(item.unit_price || 0) <= 0 ? 'border-rose-400 bg-rose-50' : ''}`} value={item.unit_price} onChange={(e) => updateItem(index, 'unit_price', e.target.value)} />{Number(item.unit_price || 0) <= 0 && <span className="mt-1 block text-[10px] font-bold text-amber-700">Price is required and must be greater than ₱0.00.</span>}</label>
+                        <label className="sm:col-span-3"><span className="form-label">Reason / Notes *</span><textarea maxLength={500} rows={2} className="form-control mt-1.5 resize-none" value={item.notes} onChange={(e) => updateItem(index, 'notes', e.target.value)} placeholder="Required for the billing audit trail" /></label>
                       </div>
                     )}
 
@@ -587,9 +616,9 @@ const Admin_CheckoutDetail = () => {
             <label className="mt-5 block"><span className="form-label">Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
             {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
               {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={draft.discount_amount} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, Math.max(0, Number(e.target.value || 0))) }))} /></label>}
-              {Number(selectedDiscount.requires_reference) === 1 && <label><span className="form-label">Reference / ID *</span><input className="form-control mt-1.5" value={discountReference} onChange={(e) => { setDiscountReference(e.target.value); setDirty(true) }} /></label>}
+              {Number(selectedDiscount.requires_reference) === 1 && <label><span className="form-label">Reference / ID *</span><input maxLength={120} className="form-control mt-1.5" value={discountReference} onChange={(e) => { setDiscountReference(e.target.value); setDirty(true) }} /></label>}
               {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
-                <label><span className="form-label">Reason for Adjustment *</span><textarea rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
+                <label><span className="form-label">Reason for Adjustment *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
                 {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Pending Staff adjustment request.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Apply Admin Discount'}</button>}
               </>}
               {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
@@ -599,7 +628,7 @@ const Admin_CheckoutDetail = () => {
             <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Charges</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
             <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Draft'}</button></div>
           </section>
-          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges and may dispense directly added medicine/supply inventory.</p></div></aside>
+          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges. Additional Medicine / Supply inventory is deducted from the selected batch only when the bill becomes fully paid.</p></div></aside>
         </div>
       )}
 
@@ -612,11 +641,11 @@ const Admin_CheckoutDetail = () => {
             <div className="mt-5"><p className="form-label">Payment Method</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{paymentMethods.map((method) => <button key={method.value} onClick={() => setDraft((current) => ({ ...current, payment_method: method.value, reference_number: '', amount_received: current.payment_amount || bill.balance_amount }))} className={`rounded-2xl border p-4 text-left font-black ${draft.payment_method === method.value ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 hover:bg-slate-50'}`}>{method.label}</button>)}</div>{paymentMethods.length === 0 && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">No payment methods are enabled. Ask an administrator to update Billing → Setup → Payment Methods.</div>}</div>
             {draft.payment_method && <div className="mt-5 space-y-4"><label><span className="form-label">Payment Amount</span><input type="number" min="0.01" max={bill.balance_amount} step="0.01" className="form-control mt-1.5" value={draft.payment_amount} onChange={(e) => setDraft((current) => ({ ...current, payment_amount: e.target.value, amount_received: current.payment_method === 'cash' ? e.target.value : current.amount_received }))} /></label>
               {draft.payment_method === 'cash' ? <label><span className="form-label">Cash Received</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={draft.amount_received} onChange={(e) => setDraft((current) => ({ ...current, amount_received: e.target.value }))} />{Number(draft.amount_received || 0) >= Number(draft.payment_amount || 0) && Number(draft.payment_amount || 0) > 0 && <span className="mt-2 block rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">Change: {formatMoney(Number(draft.amount_received || 0) - Number(draft.payment_amount || 0))}</span>}</label> : <>
-                <label><span className="form-label">Reference Number *</span><input className="form-control mt-1.5" value={draft.reference_number} onChange={(e) => setDraft((current) => ({ ...current, reference_number: e.target.value }))} /></label>
+                <label><span className="form-label">Reference Number *</span><input maxLength={120} className="form-control mt-1.5" value={draft.reference_number} onChange={(e) => setDraft((current) => ({ ...current, reference_number: e.target.value }))} /></label>
                 {['gcash', 'maya'].includes(draft.payment_method) && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center">{paymentSettings[`${draft.payment_method}_qr_mode`] === 'external' ? <p className="text-sm font-bold text-slate-700">Use the clinic's {paymentMethodLabel(draft.payment_method)} QR available at the front desk.</p> : paymentSettings[`${draft.payment_method}_qr_url`] ? <><img src={paymentSettings[`${draft.payment_method}_qr_url`]} alt={`${paymentMethodLabel(draft.payment_method)} QR`} className="mx-auto max-h-64 rounded-xl object-contain" /><p className="mt-3 text-sm font-bold">Scan to pay {formatMoney(draft.payment_amount)}</p></> : <p className="text-sm font-bold text-rose-700">This digital payment method is enabled but its QR instructions are incomplete. Ask an administrator to correct Billing Setup.</p>}</div>}
                 {draft.payment_method === 'bank_transfer' && <div className="rounded-2xl bg-slate-50 p-4 text-sm"><p><strong>Bank:</strong> {paymentSettings.bank_name || 'Not configured'}</p><p className="mt-1"><strong>Account Name:</strong> {paymentSettings.bank_account_name || '—'}</p><p className="mt-1"><strong>Account Number:</strong> {paymentSettings.bank_account_number || '—'}</p></div>}
               </>}
-              <label><span className="form-label">Payment Notes</span><textarea rows={2} className="form-control mt-1.5 resize-none" value={draft.payment_notes || ''} onChange={(e) => setDraft((current) => ({ ...current, payment_notes: e.target.value }))} /></label>
+              <label><span className="form-label">Payment Notes</span><textarea maxLength={500} rows={2} className="form-control mt-1.5 resize-none" value={draft.payment_notes || ''} onChange={(e) => setDraft((current) => ({ ...current, payment_notes: e.target.value }))} /></label>
             </div>}
           </section>
           <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
@@ -630,13 +659,13 @@ const Admin_CheckoutDetail = () => {
 
       <Modal open={Boolean(finalizePreview)} onClose={() => !finalizing && setFinalizePreview(null)} title="Confirm this bill?" description="This is the final review before charges are locked and direct medicines/supplies are dispensed." size="lg">
         {finalizePreview && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Total</p><p className="mt-1 text-xl font-black">{formatMoney(finalizePreview.total_amount)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Charges</p><p className="mt-1 text-xl font-black">{finalizePreview.charge_count}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Supply Items</p><p className="mt-1 text-xl font-black">{finalizePreview.supply_count}</p></div></div>
-          {finalizePreview.supplies?.length > 0 && <div className="rounded-2xl border border-slate-200"><div className="border-b border-slate-100 px-4 py-3 font-black">Inventory Preflight</div><div className="divide-y divide-slate-100">{finalizePreview.supplies.map((supply) => <div key={supply.billing_item_id} className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm"><div><strong>{supply.name}</strong><p className="mt-1 text-slate-500">Requested {supply.requested} {supply.unit || ''} · Available {supply.available} {supply.unit || ''}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-black ${supply.sufficient ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{supply.sufficient ? 'Available' : 'Insufficient Stock'}</span></div>)}</div></div>}
-          <div className={`rounded-2xl p-4 text-sm ${finalizePreview.can_finalize ? 'bg-amber-50 text-amber-900' : 'bg-rose-50 text-rose-900'}`}>{finalizePreview.can_finalize ? <><MdWarning className="mr-1 inline" /><strong>After confirmation:</strong> charges are locked, direct supply items are deducted from inventory, and later financial corrections require Admin action.</> : <><MdWarning className="mr-1 inline" /><strong>Cannot confirm this bill.</strong> Correct the insufficient inventory quantity or replenish stock first.</>}</div>
+          {finalizePreview.supplies?.length > 0 && <div className="rounded-2xl border border-slate-200"><div className="border-b border-slate-100 px-4 py-3 font-black">Inventory Preflight</div><div className="divide-y divide-slate-100">{finalizePreview.supplies.map((supply) => <div key={`${supply.inventory_id}-${supply.batch_id || 'batch'}-${supply.source_location || 'location'}`} className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm"><div><strong>{supply.name}</strong><p className="mt-1 text-slate-500">Batch {supply.batch_code || `#${supply.batch_id || '—'}`} · {supply.source_location || 'Location not selected'} · Requested {supply.requested} {supply.unit || ''} · Available {supply.available} {supply.unit || ''}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-black ${supply.sufficient ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{supply.sufficient ? 'Available' : 'Insufficient Stock'}</span></div>)}</div></div>}
+          <div className={`rounded-2xl p-4 text-sm ${finalizePreview.can_finalize ? 'bg-amber-50 text-amber-900' : 'bg-rose-50 text-rose-900'}`}>{finalizePreview.can_finalize ? <><MdWarning className="mr-1 inline" /><strong>After confirmation:</strong> charges are locked and selected batch stock is revalidated. Added Medicine / Supply items are automatically stocked out only when the bill becomes fully paid. Doctor service consumables were already deducted at consultation completion.</> : <><MdWarning className="mr-1 inline" /><strong>Cannot confirm this bill.</strong> Correct the insufficient inventory quantity or replenish stock first.</>}</div>
           <div className="flex justify-end gap-2"><button className="button-secondary" disabled={finalizing} onClick={() => setFinalizePreview(null)}>Go Back</button><button className="button-primary" disabled={finalizing || !finalizePreview.can_finalize} onClick={confirmFinalize}>{finalizing ? 'Confirming…' : `Confirm Bill — ${formatMoney(finalizePreview.total_amount)}`}</button></div>
         </div>}
       </Modal>
 
-      <ConfirmDialog open={paymentConfirm} title={Number(draft.payment_amount || 0) < Number(bill.balance_amount || 0) ? 'Record Partial Payment?' : 'Record Payment?'} message={`${paymentMethodLabel(draft.payment_method)} payment: ${formatMoney(draft.payment_amount)}. ${Number(draft.payment_amount || 0) < Number(bill.balance_amount || 0) ? `Remaining balance after payment: ${formatMoney(Number(bill.balance_amount || 0) - Number(draft.payment_amount || 0))}. ` : ''}${draft.payment_method === 'cash' ? `Cash received: ${formatMoney(draft.amount_received)}; change: ${formatMoney(Math.max(0, Number(draft.amount_received || 0) - Number(draft.payment_amount || 0)))}.` : `Reference: ${draft.reference_number || '—'}.`} Confirm that the payment was actually received before recording it.`} confirmLabel={paying ? 'Recording…' : `Record ${formatMoney(draft.payment_amount)}`} tone="primary" loading={paying} onCancel={() => !paying && setPaymentConfirm(false)} onConfirm={recordPayment} />
+      <ConfirmDialog open={paymentConfirm} title={Number(draft.payment_amount || 0) < Number(bill.balance_amount || 0) ? 'Record Partial Payment?' : 'Record Payment?'} message={`${paymentMethodLabel(draft.payment_method)} payment: ${formatMoney(draft.payment_amount)}. ${Number(draft.payment_amount || 0) < Number(bill.balance_amount || 0) ? `Remaining balance after payment: ${formatMoney(Number(bill.balance_amount || 0) - Number(draft.payment_amount || 0))}. ` : ''}${draft.payment_method === 'cash' ? `Cash received: ${formatMoney(draft.amount_received)}; change: ${formatMoney(Math.max(0, Number(draft.amount_received || 0) - Number(draft.payment_amount || 0)))}.` : `Reference: ${draft.reference_number || '—'}.`}${Number(draft.payment_amount || 0) >= Number(bill.balance_amount || 0) && directCheckoutSupplyCount > 0 ? ` This final payment will automatically stock out ${directCheckoutSupplyCount} added Medicine / Supply item${directCheckoutSupplyCount === 1 ? '' : 's'} from the selected batch${directCheckoutSupplyCount === 1 ? '' : 'es'}.` : ''} Confirm that the payment was actually received before recording it.`} confirmLabel={paying ? 'Recording…' : `Record ${formatMoney(draft.payment_amount)}`} tone="primary" loading={paying} onCancel={() => !paying && setPaymentConfirm(false)} onConfirm={recordPayment} />
     </div>
   )
 }

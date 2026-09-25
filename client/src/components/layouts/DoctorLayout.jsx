@@ -7,7 +7,7 @@ import {
   MdDashboard, MdCalendarToday, MdMedicalServices,
   MdInventory2, MdChevronLeft, MdLogout, MdPerson,
   MdSchedule, MdMenu, MdClose,
-  MdSettings, MdDarkMode, MdLightMode,
+  MdSettings, MdDarkMode, MdLightMode, MdHistory,
 } from "react-icons/md"
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -20,6 +20,7 @@ import { getDashboard } from '../../services/doctor.service'
 const sideNav = [
   { name: 'Dashboard',          path: '/doctor',                    icon: MdDashboard,     short: 'Home'     },
   { name: 'Appointments',       path: '/doctor/appointments',       icon: MdCalendarToday, short: 'Appts', badge: 'today' },
+  { name: 'Past Consultations', path: '/doctor/consultation-history', icon: MdHistory, short: 'History' },
   { name: 'My Schedule',        path: '/doctor/schedule',           icon: MdSchedule,      short: 'Hours'    },
   { name: 'Stock Transfers',    path: '/doctor/request',            icon: MdInventory2,    short: 'Transfer' },
 ]

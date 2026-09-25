@@ -273,3 +273,15 @@ a:focus-visible {
   body { background: #fff !important; color: #000 !important; }
   .toast-viewport, nav, aside, header button { display: none !important; }
 }
+
+/* Keep number inputs keyboard/mobile friendly without browser +/- spinner buttons. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

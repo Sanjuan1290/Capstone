@@ -130,15 +130,6 @@ const getLocationTotals = (item) => {
   return [...totals.entries()].map(([name,quantity])=>({name,quantity})).sort((a,b)=>b.quantity-a.quantity||a.name.localeCompare(b.name))
 }
 
-const getActiveBatchCostSummary = (item) => {
-  const active=(Array.isArray(item?.batches)?item.batches:[]).filter((batch)=>!batch.archived_at&&Number(batch.quantity||0)>0)
-  if(!active.length) return 'No active batch cost'
-  const costs=active.map((batch)=>Number(batch.unit_cost||0)).filter((value)=>Number.isFinite(value))
-  if(!costs.length) return 'No active batch cost'
-  const min=Math.min(...costs), max=Math.max(...costs)
-  return Math.abs(max-min)<0.0001?`PHP ${max.toFixed(2)}`:`PHP ${min.toFixed(2)} – ${max.toFixed(2)}`
-}
-
 const parseDateOnly = (value) => {
   const normalized = String(value || '').trim().slice(0, 10)
   const [year, month, day] = normalized.split('-').map(Number)
@@ -419,12 +410,14 @@ const CameraScanner = ({ onDetected, onClose }) => {
   )
 }
 
-const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSubmit, canManageSellingPrice = false, masterData = {}, existingItems = [] }) => {
+const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSubmit, canManageSellingPrice = true, masterData = {}, existingItems = [] }) => {
   const isEditing = Boolean(initialItem?.id)
   const [step, setStep] = useState(1)
   const [supplierChoice, setSupplierChoice] = useState(initialItem?.supplier_id ? String(initialItem.supplier_id) : '')
   const [barcodeScannerOpen, setBarcodeScannerOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [supplierLotMissing, setSupplierLotMissing] = useState(true)
+  const [noExpiry, setNoExpiry] = useState(false)
   const [form, setForm] = useState({
     barcode: initialItem?.barcode || initialBarcode || '',
     name: initialItem?.name || '',
@@ -433,7 +426,7 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     uom: initialItem?.uom || initialItem?.base_unit || initialItem?.unit || '',
     stock: String(isEditing ? 0 : (initialItem?.stock ?? 0)),
     threshold: String(initialItem?.threshold ?? 5),
-    price: String(initialItem?.price ?? 0),
+    price: String(initialItem?.selling_price ?? initialItem?.price ?? ''),
     selling_price: initialItem?.selling_price === null || initialItem?.selling_price === undefined ? '' : String(initialItem.selling_price),
     expiration_date: '',
     supplier_lot_number: '',
@@ -448,6 +441,8 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
   })).filter((entry) => entry.value)
   const locationTypes = (masterData.location_types || []).filter((entry) => Number(entry.is_active ?? 1) === 1)
   const selectedLocationType = locationTypes.find((entry) => Number(entry.id) === Number(form.location_type_id)) || null
+  const selectedUom = (masterData.uoms || []).find((entry) => String(entry.name || '').trim().toLowerCase() === String(form.uom || '').trim().toLowerCase()) || null
+  const quantityStep = Number(selectedUom?.allow_decimal_quantity || 0) === 1 ? (1 / (10 ** Math.max(0, Number(selectedUom?.decimal_precision || 0)))) : 1
   const update = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
   const normalizedBarcode = String(form.barcode || '').trim()
   const duplicateBarcode = normalizedBarcode
@@ -455,7 +450,11 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     : null
   const generatedItemPreview = getNextGeneratedItemCode(form.category, existingItems)
   const barcodePreview = normalizedBarcode || generatedItemPreview
-  const canSaveDetails = Boolean(form.name.trim() && form.category && form.item_type && form.uom && form.location_type_id && !duplicateBarcode)
+  const sellingPrice = Number(form.selling_price)
+  const thresholdValid = form.threshold !== '' && Number.isFinite(Number(form.threshold)) && Number(form.threshold) >= 0
+  const supplierValid = Boolean(supplierChoice)
+  const sellingPriceValid = Number.isFinite(sellingPrice) && sellingPrice > 0
+  const canSaveDetails = Boolean(form.name.trim() && form.category && form.item_type && form.uom && form.location_type_id && supplierValid && thresholdValid && sellingPriceValid && !duplicateBarcode)
 
   const handleScannedBarcode = (code) => {
     const normalized = String(code || '').trim()
@@ -464,25 +463,32 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
   }
 
   const handleSubmit = async () => {
-    if (!canSaveDetails) return
+    if (!canSaveDetails || submitting) return
     const supplierId = supplierChoice ? Number(supplierChoice) : null
     const supplierName = categorySuppliers.find((x) => Number(x.id) === supplierId)?.name || ''
-    await onSubmit({
-      ...form,
-      batch_code: '',
-      batch_lot_code: '',
-      supplier_lot_number: supplierLotMissing ? '' : form.supplier_lot_number.trim(),
-      supplier_id: supplierId,
-      supplier: supplierName,
-      unit: form.uom,
-      base_unit: form.uom,
-      unit_size: 1,
-      stock: isEditing ? 0 : Math.max(0, parseFloat(form.stock) || 0),
-      threshold: Math.max(0, parseFloat(form.threshold) || 0),
-      price: isEditing ? undefined : Math.max(0, parseFloat(form.price) || 0),
-      ...(canManageSellingPrice ? { selling_price: form.selling_price === '' ? null : Math.max(0, parseFloat(form.selling_price) || 0) } : {}),
-    })
-    onClose()
+    setSubmitting(true)
+    try {
+      await onSubmit({
+        ...form,
+        batch_code: '',
+        batch_lot_code: '',
+        supplier_lot_number: supplierLotMissing ? '' : form.supplier_lot_number.trim(),
+        supplier_lot_missing: supplierLotMissing,
+        no_expiry: noExpiry,
+        supplier_id: supplierId,
+        supplier: supplierName,
+        unit: form.uom,
+        base_unit: form.uom,
+        unit_size: 1,
+        stock: isEditing ? 0 : Math.max(0, parseFloat(form.stock) || 0),
+        threshold: Math.max(0, parseFloat(form.threshold) || 0),
+        price: sellingPrice,
+        selling_price: sellingPrice,
+      })
+      onClose()
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
@@ -490,7 +496,7 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
       <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
         <div>
           <p className="text-base font-bold text-slate-900">{title}</p>
-          <p className="mt-0.5 text-sm text-slate-500">{isEditing ? 'Edit product-level details only. Batch quantity, expiry and unit cost are managed in Manage Batches.' : 'Create the product, then record its opening batch.'}</p>
+          <p className="mt-0.5 text-sm text-slate-500">{isEditing ? 'Edit product-level details only. Batch quantity, expiry and supplier lot are managed in Manage Batches.' : 'Create the product, then record its opening batch.'}</p>
         </div>
         <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100" aria-label="Close"><MdClose/></button>
       </div>
@@ -502,12 +508,12 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
 
       <div className="max-h-[68vh] overflow-y-auto p-6">
         {(isEditing || step===1) ? <div className="grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2"><Field label="Item Name *"><input value={form.name} onChange={update('name')} className={inputClass} placeholder={form.item_type==='medicine'?'e.g. Amoxicillin 500mg':'e.g. Sterile Gauze Pad'}/></Field></div>
+          <div className="md:col-span-2"><Field label="Item Name *"><input maxLength={150} value={form.name} onChange={update('name')} className={inputClass} placeholder={form.item_type==='medicine'?'e.g. Amoxicillin 500mg':'e.g. Sterile Gauze Pad'}/></Field></div>
           <Field label="Category *"><select value={form.category} onChange={(e)=>{setForm(p=>({...p,category:e.target.value}));setSupplierChoice('')}} className={inputClass}>{CATEGORIES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
           <Field label="Type *"><select value={form.item_type} onChange={update('item_type')} className={inputClass}>{ITEM_TYPES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
           <div className="md:col-span-2">
             <Field label="Product Barcode"><div className="flex flex-col gap-2 sm:flex-row">
-              <input value={form.barcode} onChange={update('barcode')} className={`${inputClass} flex-1`} placeholder={`Leave blank to auto-generate ${form.category==='derma'?'DRM':'GMED'} code`} />
+              <input maxLength={50} value={form.barcode} onChange={update('barcode')} className={`${inputClass} flex-1`} placeholder={`Leave blank to auto-generate ${form.category==='derma'?'DRM':'GMED'} code`} />
               <button type="button" onClick={() => setBarcodeScannerOpen(true)} className="button-secondary shrink-0"><MdQrCodeScanner /> Scan Barcode</button>
               {form.barcode && <button type="button" onClick={() => setForm((current)=>({...current,barcode:''}))} className="button-secondary shrink-0">Use Auto Code</button>}
             </div></Field>
@@ -515,28 +521,27 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
             <div className="mt-3"><BarcodePreview value={barcodePreview} title={normalizedBarcode ? 'Product Barcode Preview' : 'Auto-generated Barcode Preview'} /></div>
           </div>
           <Field label="Unit of Measure *"><select value={form.uom} onChange={update('uom')} className={inputClass} disabled={!uomOptions.length}><option value="">{uomOptions.length ? 'Select unit of measure' : 'No units configured'}</option>{uomOptions.map((entry)=><option key={entry.id || entry.value} value={entry.value}>{entry.label}</option>)}</select></Field>
-          <Field label="Location Type *"><select value={form.location_type_id} onChange={update('location_type_id')} className={inputClass} disabled={!locationTypes.length}><option value="">{locationTypes.length ? 'Select location type' : 'No location types configured'}</option>{locationTypes.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></Field>
-          <Field label="Supplier"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={inputClass}><option value="">Select supplier (optional)</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Suppliers are managed in System Setup.</p></Field>
-          <Field label="Low Stock Alert"><input type="number" min="0" step="0.01" value={form.threshold} onChange={update('threshold')} className={inputClass}/></Field>
-          {canManageSellingPrice && <Field label="Patient Selling Price"><input type="number" min="0" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={inputClass} placeholder="Optional"/></Field>}
-          <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">Item details describe the product. <strong>Quantity, supplier lot, expiry and acquisition cost are batch-level information.</strong></div>
+          <Field label="Storage Classification *"><select value={form.location_type_id} onChange={update('location_type_id')} className={inputClass} disabled={!locationTypes.length}><option value="">{locationTypes.length ? 'Select storage classification' : 'No storage classifications configured'}</option>{locationTypes.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></Field>
+          <Field label="Supplier *"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={`${inputClass} ${!supplierChoice ? 'border-amber-300 bg-amber-50' : ''}`}><option value="">Select supplier</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Required. Suppliers are managed in System Setup.</p></Field>
+          <Field label="Low Stock Alert *"><input type="number" inputMode="decimal" min="0" step={quantityStep} value={form.threshold} onChange={update('threshold')} className={`${inputClass} ${!thresholdValid ? 'border-amber-300 bg-amber-50' : ''}`}/>{!thresholdValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter a low-stock alert quantity of 0 or greater.</p>}</Field>
+          {canManageSellingPrice && <Field label="Selling Price *"><input type="number" inputMode="decimal" min="0.01" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={`${inputClass} ${!sellingPriceValid ? 'border-red-300 bg-red-50' : ''}`} placeholder="e.g. 10.00"/>{!sellingPriceValid ? <p className="mt-1 text-xs font-semibold text-red-700">Selling Price is required and must be greater than ₱0.00.</p> : <p className="mt-1 text-xs text-slate-400">This is the amount charged when the item is added directly to patient Checkout.</p>}</Field>}
+          <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">Item details describe the product. <strong>Quantity, supplier lot and expiry are batch-level information. Selling Price belongs to the item.</strong></div>
         </div> : <div className="grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"><strong>{form.name}</strong><div className="mt-1 text-xs text-slate-500">{CATEGORIES.find(x=>x.value===form.category)?.label} · {ITEM_TYPES.find(x=>x.value===form.item_type)?.label} · Unit: {form.uom} · Location Type: {selectedLocationType?.name || 'Not selected'}</div></div>
-          <Field label="Opening Quantity"><input type="number" min="0" step="0.01" value={form.stock} onChange={update('stock')} className={inputClass}/></Field>
-          <Field label="Unit Cost"><input type="number" min="0" step="0.01" value={form.price} onChange={update('price')} className={inputClass}/></Field>
-          <Field label="Batch Expiry"><input type="date" value={form.expiration_date} onChange={update('expiration_date')} className={inputClass}/></Field>
+          <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"><strong>{form.name}</strong><div className="mt-1 text-xs text-slate-500">{CATEGORIES.find(x=>x.value===form.category)?.label} · {ITEM_TYPES.find(x=>x.value===form.item_type)?.label} · Unit: {form.uom} · Storage Classification: {selectedLocationType?.name || 'Not selected'}</div></div>
+          <Field label="Opening Quantity *"><input type="number" inputMode="decimal" min="0" step={quantityStep} value={form.stock} onChange={update('stock')} className={inputClass}/></Field>
+          <div><Field label={`Batch Expiry${Number(form.stock || 0) > 0 && form.item_type === 'medicine' ? ' *' : ''}`}><input type="date" value={form.expiration_date} onChange={update('expiration_date')} disabled={noExpiry} className={`${inputClass} ${Number(form.stock || 0) > 0 && !noExpiry && !form.expiration_date ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{form.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setForm((v)=>({...v,expiration_date:''}))}}/> No expiry / Not applicable</label>}{Number(form.stock || 0) > 0 && !noExpiry && !form.expiration_date && <p className="mt-1 text-xs font-semibold text-amber-700">{form.item_type === 'medicine' ? 'Expiry is required for medicines.' : 'Enter an expiry date or choose No expiry / Not applicable.'}</p>}</div>
           <div className="md:col-span-2 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <label className="flex items-start gap-3 text-sm font-semibold text-slate-700"><input type="checkbox" checked={supplierLotMissing} onChange={(e)=>setSupplierLotMissing(e.target.checked)} className="mt-1"/><span><strong>Supplier did not provide a lot number</strong><span className="mt-0.5 block text-xs font-normal text-slate-500">The system will still create its own internal batch barcode.</span></span></label>
-            {!supplierLotMissing && <Field label="Supplier Lot Number *"><input value={form.supplier_lot_number} onChange={update('supplier_lot_number')} className={inputClass} placeholder="e.g. LOT-A123"/></Field>}
+            {!supplierLotMissing && <Field label="Supplier Lot Number *"><input maxLength={120} value={form.supplier_lot_number} onChange={update('supplier_lot_number')} className={inputClass} placeholder="e.g. LOT-A123"/></Field>}
             <BarcodePreview value={`${barcodePreview}-B001`} title="Internal Batch Barcode Preview" />
             <p className="text-[11px] text-slate-400">Preview only. Every receipt receives a new internal batch code such as B001, B002, B003.</p>
           </div>
-          <div className="md:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>Opening stock is one receipt.</strong> Future Stock In transactions will always create a new batch so different expiry dates and unit costs never get mixed.</div>
+          <div className="md:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>Opening stock is one receipt.</strong> Future Stock In transactions always create a new batch so expiry dates and supplier lots never get mixed.</div>
         </div>}
       </div>
 
       <div className="flex gap-3 border-t border-slate-100 px-6 py-5">
-        {isEditing ? <><button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button><button onClick={handleSubmit} disabled={!canSaveDetails} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>Save Item Details</button></> : step===1 ? <><button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button><button onClick={()=>canSaveDetails&&setStep(2)} disabled={!canSaveDetails} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50">Next: Opening Batch</button></> : <><button onClick={()=>setStep(1)} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Back</button><button onClick={handleSubmit} disabled={Number(form.stock||0)>0 && !supplierLotMissing && !form.supplier_lot_number.trim()} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>Add Item</button></>}
+        {isEditing ? <><button onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button><button onClick={handleSubmit} disabled={!canSaveDetails || submitting} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? 'Saving…' : 'Save Item Details'}</button></> : step===1 ? <><button onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button><button onClick={()=>canSaveDetails&&setStep(2)} disabled={!canSaveDetails} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50">Next: Opening Batch</button></> : <><button onClick={()=>setStep(1)} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Back</button><button onClick={handleSubmit} disabled={submitting || !canSaveDetails || (Number(form.stock||0)>0 && !noExpiry && !form.expiration_date) || (Number(form.stock||0)>0 && !supplierLotMissing && !form.supplier_lot_number.trim())} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? 'Adding…' : 'Add Item'}</button></>}
       </div>
     </div>
     {barcodeScannerOpen && <CameraScanner onDetected={handleScannedBarcode} onClose={()=>setBarcodeScannerOpen(false)} />}
@@ -555,7 +560,7 @@ const LocationTypeModal = ({ onClose, onCreate }) => {
       await onCreate({ name: name.trim(), is_active: 1 })
       onClose()
     } catch (err) {
-      setError(err.message || 'Could not add location type.')
+      setError(err.message || 'Could not add storage classification.')
     } finally {
       setBusy(false)
     }
@@ -563,13 +568,13 @@ const LocationTypeModal = ({ onClose, onCreate }) => {
   return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4">
     <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
       <div className="flex justify-between">
-        <div><h3 className="font-bold text-slate-900">Add Location Type</h3><p className="mt-1 text-xs text-slate-500">Create a reusable location type for inventory items.</p></div>
+        <div><h3 className="font-bold text-slate-900">Add Storage Classification</h3><p className="mt-1 text-xs text-slate-500">Create a reusable storage classification for inventory items.</p></div>
         <button onClick={onClose}><MdClose/></button>
       </div>
       <div className="mt-5 grid gap-4">
-        <Field label="Location Type *"><input className={inputClass} value={name} onChange={(e)=>setName(e.target.value)} placeholder="e.g. Pharmacy, Refrigerator, Treatment Room"/></Field>
+        <Field label="Storage Classification *"><input maxLength={80} className={inputClass} value={name} onChange={(e)=>setName(e.target.value)} placeholder="e.g. Pharmacy, Refrigerator, Treatment Room"/></Field>
         {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
-        <div className="flex justify-end gap-2"><button className="button-secondary" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy || !name.trim()} onClick={save}>{busy ? 'Saving...' : 'Add Location Type'}</button></div>
+        <div className="flex justify-end gap-2"><button className="button-secondary" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy || !name.trim()} onClick={save}>{busy ? 'Saving...' : 'Add Storage Classification'}</button></div>
       </div>
     </div>
   </div>
@@ -604,7 +609,7 @@ const LocationTypesSection = ({ locationTypes = [], items = [], onAdd, onEdit })
       await onEdit(edit.id, form)
       setEdit(null)
     } catch (err) {
-      setError(err.message || 'Could not update location type.')
+      setError(err.message || 'Could not update storage classification.')
     } finally {
       setBusy(false)
     }
@@ -612,10 +617,10 @@ const LocationTypesSection = ({ locationTypes = [], items = [], onAdd, onEdit })
 
   return <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h2 className="text-lg font-bold text-slate-800">Location Types</h2><p className="mt-1 text-sm text-slate-500">Reusable location classifications assigned to inventory items. Add a type here before selecting it on an item.</p></div>
-      {onAdd && <button type="button" onClick={onAdd} className="button-primary"><MdAdd/> Add Location Type</button>}
+      <div><h2 className="text-lg font-bold text-slate-800">Storage Classifications</h2><p className="mt-1 text-sm text-slate-500">Reusable location classifications assigned to inventory items. Add a type here before selecting it on an item.</p></div>
+      {onAdd && <button type="button" onClick={onAdd} className="button-primary"><MdAdd/> Add Storage Classification</button>}
     </div>
-    <div className="mt-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><MdSearch className="text-slate-400"/><input className="w-full bg-transparent text-sm outline-none" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search location types..."/></div>
+    <div className="mt-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"><MdSearch className="text-slate-400"/><input className="w-full bg-transparent text-sm outline-none" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search storage classifications..."/></div>
 
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {paginated.map((entry) => {
@@ -630,10 +635,10 @@ const LocationTypesSection = ({ locationTypes = [], items = [], onAdd, onEdit })
       })}
     </div>
 
-    {!visible.length && <div className="mt-4 rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-400">No location types found. Add one before creating inventory items.</div>}
+    {!visible.length && <div className="mt-4 rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-400">No storage classifications found. Add one before creating inventory items.</div>}
 
     {visible.length > 0 && <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-      <p>Showing {((currentPage - 1) * LOCATION_TYPES_PER_PAGE) + 1}-{Math.min(currentPage * LOCATION_TYPES_PER_PAGE, visible.length)} of {visible.length} location types</p>
+      <p>Showing {((currentPage - 1) * LOCATION_TYPES_PER_PAGE) + 1}-{Math.min(currentPage * LOCATION_TYPES_PER_PAGE, visible.length)} of {visible.length} storage classifications</p>
       <div className="flex items-center gap-2">
         <button type="button" className="button-secondary" disabled={currentPage === 1} onClick={()=>setPage((value)=>Math.max(1,value-1))}>Previous</button>
         <span className="rounded-xl bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-500">Page {currentPage} of {totalPages}</span>
@@ -644,11 +649,11 @@ const LocationTypesSection = ({ locationTypes = [], items = [], onAdd, onEdit })
     {edit && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-4">
       <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between">
-          <div><h3 className="font-bold text-slate-900">Edit Location Type</h3><p className="mt-1 text-xs text-slate-500">Renaming keeps existing item assignments intact.</p></div>
+          <div><h3 className="font-bold text-slate-900">Edit Storage Classification</h3><p className="mt-1 text-xs text-slate-500">Renaming keeps existing item assignments intact.</p></div>
           <button type="button" onClick={()=>!busy && setEdit(null)}><MdClose/></button>
         </div>
         <div className="mt-5 space-y-4">
-          <Field label="Location Type *"><input className={inputClass} value={form.name} onChange={(e)=>setForm((value)=>({...value,name:e.target.value}))}/></Field>
+          <Field label="Storage Classification *"><input maxLength={80} className={inputClass} value={form.name} onChange={(e)=>setForm((value)=>({...value,name:e.target.value}))}/></Field>
           <Field label="Status"><select className={inputClass} value={form.is_active} onChange={(e)=>setForm((value)=>({...value,is_active:Number(e.target.value)}))}><option value={1}>Active</option><option value={0}>Inactive</option></select></Field>
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
           <div className="flex justify-end gap-2"><button type="button" className="button-secondary" disabled={busy} onClick={()=>setEdit(null)}>Cancel</button><button type="button" className="button-primary" disabled={busy || !form.name.trim()} onClick={save}>{busy ? 'Saving...' : 'Save Changes'}</button></div>
@@ -658,17 +663,19 @@ const LocationTypesSection = ({ locationTypes = [], items = [], onAdd, onEdit })
   </section>
 }
 
-const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReasons = [] }) => {
+const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReasons = [], suppliers = [] }) => {
   const type = initialType === 'out' ? 'out' : 'in'
   const [qty, setQty] = useState(type === 'in' ? '1' : '')
   const [note, setNote] = useState('')
   const [expirationDate, setExpirationDate] = useState('')
   const [supplierLot, setSupplierLot] = useState('')
   const [supplierLotMissing, setSupplierLotMissing] = useState(true)
+  const [supplierId, setSupplierId] = useState(item?.supplier_id ? String(item.supplier_id) : '')
+  const [noExpiry, setNoExpiry] = useState(false)
   const [movementReason, setMovementReason] = useState(type === 'in' ? 'received' : 'adjustment_out')
   const [stockOutSelectionKey, setStockOutSelectionKey] = useState('')
   const [batchScannerOpen, setBatchScannerOpen] = useState(false)
-  const [unitCost, setUnitCost] = useState(String(item?.price ?? 0))
+  const [busy, setBusy] = useState(false)
   const configuredStockInReasons = (Array.isArray(movementReasons) ? movementReasons : []).filter((reason) => reason.movement_type === 'in').map((reason) => ({ value: reason.code, label: reason.name, ...reason }))
   const configuredStockOutReasons = (Array.isArray(movementReasons) ? movementReasons : []).filter((reason) => reason.movement_type === 'out').map((reason) => ({ value: reason.code, label: reason.name, ...reason }))
   const stockInReasons = configuredStockInReasons.length ? configuredStockInReasons : DEFAULT_STOCK_IN_REASONS
@@ -687,6 +694,8 @@ const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReaso
   const numericQty = Math.max(0, Number(qty) || 0)
   const clinicStock = Number(item?.stock ?? 0)
   const internalBatchPreview = getNextBatchCodePreview(item)
+  const receiptSuppliers = (Array.isArray(suppliers) ? suppliers : []).filter((supplier)=>supplierSupportsClinic(supplier,item.category))
+  const qtyStep = Number(item?.uom_allow_decimal || 0) === 1 ? (1 / (10 ** Math.max(0, Number(item?.uom_decimal_precision || 0)))) : 1
 
   useEffect(() => {
     if (!reasons.some((reason) => reason.value === movementReason)) setMovementReason(reasons[0]?.value || '')
@@ -700,60 +709,70 @@ const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReaso
     setSupplierLotMissing(false)
   }
 
-  const stockInInvalid = type === 'in' && (numericQty <= 0 || !movementReason || (!supplierLotMissing && !supplierLot.trim()))
+  const stockInInvalid = type === 'in' && (numericQty <= 0 || !movementReason || !supplierId || (!noExpiry && !expirationDate) || (item?.item_type === 'medicine' && !expirationDate) || Number(item?.selling_price || 0) <= 0 || (!supplierLotMissing && !supplierLot.trim()))
   const stockOutInvalid = type === 'out' && (!movementReason || !selectedStockOut || numericQty <= 0 || numericQty > selectedStockOutAvailable)
 
-  const handleSave = () => onSubmit(type === 'in' ? {
-    type: 'in',
-    qty: numericQty,
-    note,
-    movement_reason: movementReason,
-    expiration_date: expirationDate,
-    batch_code: '',
-    supplier_lot_number: supplierLotMissing ? '' : supplierLot.trim(),
-    existing_batch_id: null,
-    unit_cost: Math.max(0, Number(unitCost) || 0),
-  } : {
-    type: 'out',
-    qty: numericQty,
-    batch_id: Number(selectedStockOutBatch?.id),
-    storage_location_id: selectedStockOut?.location?.id ? Number(selectedStockOut.location.id) : null,
-    movement_reason: movementReason,
-    note,
-  })
+  const handleSave = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await onSubmit(type === 'in' ? {
+        type: 'in',
+        qty: numericQty,
+        note: note.trim(),
+        movement_reason: movementReason,
+        expiration_date: noExpiry ? '' : expirationDate,
+        no_expiry: noExpiry,
+        supplier_id: Number(supplierId),
+        batch_code: '',
+        supplier_lot_number: supplierLotMissing ? '' : supplierLot.trim(),
+        supplier_lot_missing: supplierLotMissing,
+        existing_batch_id: null,
+      } : {
+        type: 'out',
+        qty: numericQty,
+        batch_id: Number(selectedStockOutBatch?.id),
+        storage_location_id: selectedStockOut?.location?.id ? Number(selectedStockOut.location.id) : null,
+        movement_reason: movementReason,
+        note: note.trim(),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
     <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
       <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
         <div><p className="text-base font-bold text-slate-900">{type === 'in' ? 'Stock In' : 'Stock Out'} · {item.name}</p><p className="mt-0.5 text-xs text-slate-500">Clinic-wide stock: {clinicStock} {item.uom || item.unit}</p></div>
-        <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100" aria-label="Close"><MdClose /></button>
+        <button onClick={onClose} disabled={busy} className="flex h-8 w-8 disabled:opacity-50 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100" aria-label="Close"><MdClose /></button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6"><div className="space-y-4">
         {type === 'in' ? <>
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>Every Stock In creates a new batch.</strong> This keeps each delivery's expiry date, supplier lot and unit cost separate.</div>
-          <Field label={`Quantity Received (${item.uom || item.unit}) *`}><input type="number" min="0.01" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className={inputClass}/></Field>
-          <Field label="Movement Reason *"><select value={movementReason} onChange={(e)=>setMovementReason(e.target.value)} className={inputClass}>{stockInReasons.map((reason)=><option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field>
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>Every Stock In creates a new batch.</strong> This keeps each delivery's expiry date and supplier lot separate. The item Selling Price stays the same across batches.</div>
+          <Field label={`Quantity Received (${item.uom || item.unit}) *`}><input type="number" inputMode="decimal" min={qtyStep} step={qtyStep} value={qty} onChange={(e) => setQty(e.target.value)} className={inputClass}/></Field>
+          <Field label="Movement Reason *"><select value={movementReason} onChange={(e)=>setMovementReason(e.target.value)} className={inputClass}>{stockInReasons.map((reason)=><option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field><Field label="Supplier for this receipt *"><select value={supplierId} onChange={(e)=>setSupplierId(e.target.value)} className={inputClass}><option value="">Select supplier</option>{receiptSuppliers.map((supplier)=><option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Defaults to the item preferred supplier, but each receipt records its actual supplier.</p></Field>
           <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"><input type="checkbox" checked={supplierLotMissing} onChange={(e)=>setSupplierLotMissing(e.target.checked)} className="mt-1"/><span><strong>Supplier did not provide a lot number</strong><span className="mt-0.5 block text-xs text-slate-500">An internal batch barcode is still generated automatically.</span></span></label>
-          {!supplierLotMissing && <Field label="Supplier Lot Number *"><div className="flex gap-2"><input value={supplierLot} onChange={(e)=>setSupplierLot(e.target.value)} className={`${inputClass} flex-1`} placeholder="e.g. LOT-A123"/><button type="button" onClick={()=>setBatchScannerOpen(true)} className="button-secondary shrink-0"><MdQrCodeScanner/> Scan</button></div></Field>}
-          <Field label="Batch Expiry"><input type="date" value={expirationDate} onChange={(e)=>setExpirationDate(e.target.value)} className={inputClass}/></Field>
-          <Field label="Unit Cost"><input type="number" min="0" step="0.01" value={unitCost} onChange={(e)=>setUnitCost(e.target.value)} className={inputClass}/></Field>
+          {!supplierLotMissing && <Field label="Supplier Lot Number *"><div className="flex gap-2"><input maxLength={120} value={supplierLot} onChange={(e)=>setSupplierLot(e.target.value)} className={`${inputClass} flex-1`} placeholder="e.g. LOT-A123"/><button type="button" onClick={()=>setBatchScannerOpen(true)} className="button-secondary shrink-0"><MdQrCodeScanner/> Scan</button></div></Field>}
+          <div><Field label={`Batch Expiry${item?.item_type === 'medicine' ? ' *' : ''}`}><input type="date" value={expirationDate} onChange={(e)=>setExpirationDate(e.target.value)} disabled={noExpiry} className={`${inputClass} ${!noExpiry && !expirationDate ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{item?.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setExpirationDate('')}}/> No expiry / Not applicable</label>}{!noExpiry && !expirationDate && <p className="mt-1 text-xs font-semibold text-amber-700">{item?.item_type === 'medicine' ? 'Expiry is required for medicines.' : 'Enter an expiry date or choose No expiry / Not applicable.'}</p>}</div>
+          <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800"><span className="font-semibold">Selling Price:</span> PHP {Number(item?.selling_price || 0).toFixed(2)} <span className="text-xs text-sky-600">(managed in Edit Item)</span></div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Internal Batch Barcode</p><div className="mt-2"><BarcodePreview value={internalBatchPreview} title="New Batch" compact/></div><p className="mt-2 text-xs text-slate-500">This internal code is unique to this receipt. Supplier lot is stored separately.</p></div>
-          <Field label="Reference / Delivery Note"><input value={note} onChange={(e)=>setNote(e.target.value)} className={inputClass} placeholder="e.g. Delivery receipt DR-1024"/></Field>
+          <Field label="Reference / Delivery Note"><input maxLength={255} value={note} onChange={(e)=>setNote(e.target.value)} className={inputClass} placeholder="e.g. Delivery receipt DR-1024"/></Field>
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">After Stock In</p><div className="mt-2 flex justify-between"><span>Current clinic stock</span><strong>{clinicStock}</strong></div><div className="mt-1 flex justify-between text-emerald-700"><span>Receiving</span><strong>+{numericQty}</strong></div><div className="mt-2 border-t border-slate-100 pt-2 flex justify-between"><span>New clinic stock</span><strong>{clinicStock + numericQty} {item.uom || item.unit}</strong></div></div>
         </> : <>
           {!stockOutOptions.length ? <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">There is no available batch stock to remove.</div> : <>
             <Field label="Stock Out From Batch / Location *"><select value={stockOutSelectionKey} onChange={(e)=>{setStockOutSelectionKey(e.target.value);setQty('')}} className={inputClass}><option value="">Select batch and location</option>{stockOutOptions.map((option)=>{const batch=option.batch;const supplierLot=batch.supplier_lot_number?` · Lot ${batch.supplier_lot_number}`:'';return <option key={option.key} value={option.key}>{batch.batch_code || `Batch #${batch.id}`}{supplierLot} · {option.location?.name || 'Main Stockroom'} · {option.available} {item.uom || item.unit}</option>})}</select></Field>
             {selectedStockOutBatch && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-sky-700">Selected Batch</p><p className="mt-1 font-mono text-sm font-bold text-slate-900">{selectedStockOutBatch.batch_code}</p>{selectedStockOutBatch.supplier_lot_number&&<p className="mt-1 text-xs text-slate-500">Supplier Lot: {selectedStockOutBatch.supplier_lot_number}</p>}</div><span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-sky-700">{selectedStockOutAvailable} available here</span></div><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Expiry</p><p className="mt-1 font-semibold text-slate-700">{selectedStockOutBatch.expiration_date?formatDate(selectedStockOutBatch.expiration_date):'No expiry'}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Location</p><p className="mt-1 font-semibold text-slate-700">{selectedStockOut?.location?.name || 'Main Stockroom'}</p></div></div></div>}
-            <Field label={`Quantity to Stock Out (${item.uom || item.unit}) *`}><input type="number" min="0.01" max={selectedStockOutAvailable||undefined} step="0.01" value={qty} onChange={(e)=>setQty(e.target.value)} className={inputClass} disabled={!selectedStockOut}/></Field>
+            <Field label={`Quantity to Stock Out (${item.uom || item.unit}) *`}><input type="number" inputMode="decimal" min={qtyStep} max={selectedStockOutAvailable||undefined} step={qtyStep} value={qty} onChange={(e)=>setQty(e.target.value)} className={inputClass} disabled={!selectedStockOut}/></Field>
             <Field label="Movement Reason *"><select value={movementReason} onChange={(e)=>setMovementReason(e.target.value)} className={inputClass}>{stockOutReasons.map((reason)=><option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field>
-            <Field label="Note"><input value={note} onChange={(e)=>setNote(e.target.value)} className={inputClass} placeholder="Optional explanation or reference"/></Field>
+            <Field label="Note"><input maxLength={255} value={note} onChange={(e)=>setNote(e.target.value)} className={inputClass} placeholder="Optional explanation or reference"/></Field>
             {selectedStockOut && <div className={`rounded-2xl border p-4 text-sm ${numericQty>selectedStockOutAvailable?'border-red-200 bg-red-50':'border-slate-200 bg-slate-50'}`}><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">After Stock Out</p><div className="mt-2 flex justify-between"><span>Location available</span><strong>{selectedStockOutAvailable}</strong></div><div className="mt-1 flex justify-between text-red-600"><span>Stocking out</span><strong>-{numericQty}</strong></div><div className="mt-2 border-t border-slate-200 pt-2 flex justify-between"><span>Location remaining</span><strong>{Math.max(0,selectedStockOutAvailable-numericQty)}</strong></div><div className="mt-1 flex justify-between"><span>Clinic remaining</span><strong>{Math.max(0,clinicStock-numericQty)} {item.uom || item.unit}</strong></div>{numericQty>selectedStockOutAvailable&&<p className="mt-2 text-xs font-bold text-red-600">Quantity exceeds the selected batch/location balance.</p>}</div>}
           </>}
         </>}
       </div></div>
 
-      <div className="shrink-0 border-t border-slate-100 bg-white px-6 pb-6 pt-4"><button onClick={handleSave} disabled={stockInInvalid || stockOutInvalid || (type==='out'&&!stockOutOptions.length)} className={`w-full rounded-2xl py-3 text-sm font-bold text-white disabled:opacity-40 ${type==='in'?'bg-emerald-600 hover:bg-emerald-700':'bg-red-600 hover:bg-red-700'}`}>{type==='in'?`Receive ${numericQty || ''} ${item.uom || item.unit}`:`Stock Out ${numericQty || ''} ${item.uom || item.unit}`}</button></div>
+      <div className="shrink-0 border-t border-slate-100 bg-white px-6 pb-6 pt-4"><button onClick={handleSave} disabled={busy || stockInInvalid || stockOutInvalid || (type==='out'&&!stockOutOptions.length)} className={`w-full rounded-2xl py-3 text-sm font-bold text-white disabled:opacity-40 ${type==='in'?'bg-emerald-600 hover:bg-emerald-700':'bg-red-600 hover:bg-red-700'}`}>{busy ? 'Saving…' : type==='in'?`Receive ${numericQty || ''} ${item.uom || item.unit}`:`Stock Out ${numericQty || ''} ${item.uom || item.unit}`}</button></div>
     </div>
     {batchScannerOpen && <CameraScanner onDetected={handleScannedLot} onClose={()=>setBatchScannerOpen(false)}/>} 
   </div>
@@ -778,7 +797,6 @@ const ProtectedBatchActionModal = ({ item, batch, action, onClose, onRequest, on
   const [targetQuantity,setTargetQuantity]=useState(String(Number(batch?.quantity || 0)))
   const [lotCode,setLotCode]=useState(getBatchLotSuffix(item,batch))
   const [expiry,setExpiry]=useState(batch?.expiration_date ? String(batch.expiration_date).slice(0,10) : '')
-  const [unitCost,setUnitCost]=useState(String(Number(batch?.unit_cost || 0)))
   const [note,setNote]=useState(batch?.note || '')
   const [supplierLot,setSupplierLot]=useState(batch?.supplier_lot_number || '')
   const labels={correct_quantity:'Correct Quantity',correct_details:'Edit Batch',archive:'Archive Batch',restore:'Restore Batch',delete:'Delete Batch'}
@@ -788,7 +806,7 @@ const ProtectedBatchActionModal = ({ item, batch, action, onClose, onRequest, on
     try{
       const payload={action,password,reason:reason.trim()}
       if(action==='correct_quantity') payload.target_quantity=Math.max(0,Number(targetQuantity)||0)
-      if(action==='correct_details') Object.assign(payload,{batch_lot_code:lotCode.trim(),supplier_lot_number:supplierLot.trim(),expiration_date:expiry,unit_cost:Math.max(0,Number(unitCost)||0),note:note.trim()})
+      if(action==='correct_details') Object.assign(payload,{batch_lot_code:lotCode.trim(),supplier_lot_number:supplierLot.trim(),expiration_date:expiry,note:note.trim()})
       await onRequest(batch.id,payload);setStep('code')
     }catch(err){setError(err.message||'Could not send verification code.')}finally{setBusy(false)}
   }
@@ -802,7 +820,7 @@ const ProtectedBatchActionModal = ({ item, batch, action, onClose, onRequest, on
     <div className="max-h-[70vh] overflow-y-auto p-6 space-y-4">
       {step==='details'?<>
         {action==='correct_quantity'&&<><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm"><span className="text-slate-500">Current Quantity</span><p className="mt-1 text-xl font-black text-slate-900">{Number(batch.quantity||0)} {item.uom||item.unit}</p></div><Field label="Correct Quantity *"><input type="number" min="0" step="0.01" value={targetQuantity} onChange={e=>setTargetQuantity(e.target.value)} className={inputClass}/><p className="mt-1 text-xs text-slate-400">The system records only the difference as Inventory Correction (+/-); it never rewrites history silently.</p></Field></>}
-        {action==='correct_details'&&<><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600"><strong>Internal batch barcode:</strong> {batch.batch_code||'—'}<br/>The internal suffix can be corrected without changing the product barcode.</div><Field label="Internal Batch Suffix *"><input value={lotCode} onChange={e=>setLotCode(e.target.value)} className={inputClass}/><p className="mt-1 text-xs text-slate-400">Final internal barcode: <strong>{item.barcode?`${item.barcode}-${lotCode}`:lotCode}</strong></p></Field><Field label="Supplier Lot Number"><input value={supplierLot} onChange={e=>setSupplierLot(e.target.value)} className={inputClass} placeholder="Optional supplier/manufacturer lot"/></Field><Field label="Batch Expiry"><input type="date" value={expiry} onChange={e=>setExpiry(e.target.value)} className={inputClass}/></Field><Field label="Unit Cost"><input type="number" min="0" step="0.01" value={unitCost} onChange={e=>setUnitCost(e.target.value)} className={inputClass}/></Field><Field label="Batch Note"><textarea value={note} onChange={e=>setNote(e.target.value)} rows={3} className={inputClass}/></Field></>}
+        {action==='correct_details'&&<><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600"><strong>Internal batch barcode:</strong> {batch.batch_code||'—'}<br/>The internal suffix can be corrected without changing the product barcode.</div><Field label="Internal Batch Suffix *"><input value={lotCode} onChange={e=>setLotCode(e.target.value)} className={inputClass}/><p className="mt-1 text-xs text-slate-400">Final internal barcode: <strong>{item.barcode?`${item.barcode}-${lotCode}`:lotCode}</strong></p></Field><Field label="Supplier Lot Number"><input value={supplierLot} onChange={e=>setSupplierLot(e.target.value)} className={inputClass} placeholder="Optional supplier/manufacturer lot"/></Field><Field label="Batch Expiry *"><input type="date" value={expiry} onChange={e=>setExpiry(e.target.value)} className={inputClass}/></Field><Field label="Batch Note"><textarea value={note} onChange={e=>setNote(e.target.value)} rows={3} className={inputClass}/></Field></>}
         {action==='archive'&&<div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Archiving hides this zero-stock batch from normal stock operations while preserving its history.</div>}
         {action==='restore'&&<div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800">Restoring makes this batch visible again for future stock operations.</div>}
         {action==='delete'&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Hard delete is allowed only when the batch has zero stock and absolutely no inventory, clinical, billing, or transfer history. Otherwise the backend will require Archive instead.</div>}
@@ -829,16 +847,16 @@ const BatchManagerModal = ({ item, onClose, onRequestAction, onConfirmAction, on
   const auditChanges=(row)=>{const oldValues=row?.old_values||{};const newValues=row?.new_values||{};return Object.keys(newValues).filter(key=>!['authorization','item_name','reason'].includes(key)&&formatAuditValue(oldValues[key])!==formatAuditValue(newValues[key])).map(key=>({key:key.replace(/_/g,' '),before:formatAuditValue(oldValues[key]),after:formatAuditValue(newValues[key])}))}
 
   return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 px-4"><div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-    <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="text-lg font-bold text-slate-900">Manage Batches</h3><p className="mt-1 text-xs text-slate-500">{item.name} · batch quantity, expiry, supplier lot and unit cost are managed here.</p></div><button onClick={onClose}><MdClose/></button></div>
-    <div className="grid gap-3 border-b border-slate-100 bg-slate-50 px-6 py-4 sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Product Barcode</p><p className="mt-1 font-mono text-sm font-bold text-slate-800">{item.barcode||'—'}</p></div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Clinic-wide Stock</p><p className="mt-1 text-sm font-black text-slate-800">{Number(item.stock||0)} {item.uom||item.unit}</p></div><div className="flex items-end justify-start sm:justify-end"><label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><input type="checkbox" checked={showHistorical} onChange={e=>setShowHistorical(e.target.checked)}/> Show depleted / archived</label></div></div>
-    <div className="flex-1 overflow-y-auto p-6 space-y-4">{visible.length?visible.map((batch)=>{const status=getBatchStatusMeta(batch);const locations=(Array.isArray(batch.locations)?batch.locations:[]).filter((location)=>Number(location.quantity||0)>0);return <div key={batch.id} className="rounded-3xl border border-slate-200 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-mono text-sm font-black text-slate-900">{batch.batch_code||`Batch #${batch.id}`}</p><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${status.tone}`}>{status.label}</span></div><div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Supplier Lot</p><p className="mt-1 font-semibold text-slate-700">{batch.supplier_lot_number||'Not provided'}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Quantity</p><p className="mt-1 font-semibold text-slate-700">{Number(batch.quantity||0)} {item.uom||item.unit}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Expiry</p><p className="mt-1 font-semibold text-slate-700">{batch.expiration_date?formatDate(batch.expiration_date):'No expiry'}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Unit Cost</p><p className="mt-1 font-semibold text-slate-700">PHP {Number(batch.unit_cost||0).toFixed(2)}</p></div></div>{locations.length>0&&<div className="mt-4"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Location Balance</p><div className="mt-2 flex flex-wrap gap-2">{locations.map((location)=><span key={`${batch.id}-${location.id||location.name}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>{location.name||'Location'}</strong> · {Number(location.quantity||0)} {item.uom||item.unit}</span>)}</div></div>}{batch.archive_reason&&<p className="mt-3 text-xs text-slate-400">Archive reason: {batch.archive_reason}</p>}</div><div className="flex flex-wrap gap-2"><button className="button-secondary" onClick={()=>openHistory(batch)}>View History</button>{!batch.archived_at&&<><button className="button-secondary" onClick={()=>setSelected({action:'correct_details',batch})}><MdEdit/> Edit Batch</button><button className="button-secondary" onClick={()=>setSelected({action:'correct_quantity',batch})}>Correct Quantity</button></>}{!batch.archived_at&&Number(batch.quantity||0)<=0&&<button className="button-secondary" onClick={()=>setSelected({action:'archive',batch})}>Archive</button>}{batch.archived_at&&<button className="button-secondary" onClick={()=>setSelected({action:'restore',batch})}>Restore</button>}{Number(batch.quantity||0)<=0&&<button className="button-danger" onClick={()=>setSelected({action:'delete',batch})}>Delete</button>}</div></div></div>}) : <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-400">No batches in this view.</div>}</div>
+    <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="text-lg font-bold text-slate-900">Manage Batches</h3><p className="mt-1 text-xs text-slate-500">{item.name} · batch quantity, expiry and supplier lot are managed here. Selling Price is managed on the item.</p></div><button onClick={onClose}><MdClose/></button></div>
+    <div className="border-b border-slate-100 bg-slate-50 px-6 py-4"><div className="grid gap-3 sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Product Barcode</p><p className="mt-1 font-mono text-sm font-bold text-slate-800">{item.barcode||'—'}</p></div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Clinic-wide Stock</p><p className="mt-1 text-sm font-black text-slate-800">{Number(item.stock||0)} {item.uom||item.unit}</p></div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Selling Price</p><p className={`mt-1 text-sm font-black ${Number(item.selling_price || 0) > 0 ? 'text-slate-800' : 'text-red-600'}`}>{Number(item.selling_price || 0) > 0 ? `PHP ${Number(item.selling_price).toFixed(2)}` : 'Not set'}</p></div></div><label className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><input type="checkbox" checked={showHistorical} onChange={e=>setShowHistorical(e.target.checked)}/> Show depleted / archived</label></div>
+    <div className="flex-1 overflow-y-auto p-6 space-y-4">{visible.length?visible.map((batch)=>{const status=getBatchStatusMeta(batch);const locations=(Array.isArray(batch.locations)?batch.locations:[]).filter((location)=>Number(location.quantity||0)>0);return <div key={batch.id} className="rounded-3xl border border-slate-200 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-mono text-sm font-black text-slate-900">{batch.batch_code||`Batch #${batch.id}`}</p><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${status.tone}`}>{status.label}</span></div><div className="mt-3 grid gap-3 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Supplier</p><p className="mt-1 font-semibold text-slate-700">{batch.supplier_name||'Not recorded'}</p><p className="mt-1 text-xs text-slate-400">Lot: {batch.supplier_lot_number||'Not provided'}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Quantity</p><p className="mt-1 font-semibold text-slate-700">{Number(batch.quantity||0)} {item.uom||item.unit}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Expiry</p><p className="mt-1 font-semibold text-slate-700">{batch.expiration_date?formatDate(batch.expiration_date):'No expiry'}</p></div></div>{locations.length>0&&<div className="mt-4"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Location Balance</p><div className="mt-2 flex flex-wrap gap-2">{locations.map((location)=><span key={`${batch.id}-${location.id||location.name}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>{location.name||'Location'}</strong> · {Number(location.quantity||0)} {item.uom||item.unit}</span>)}</div></div>}{batch.archive_reason&&<p className="mt-3 text-xs text-slate-400">Archive reason: {batch.archive_reason}</p>}</div><div className="flex flex-wrap gap-2"><button className="button-secondary" onClick={()=>openHistory(batch)}>View History</button>{!batch.archived_at&&<><button className="button-secondary" onClick={()=>setSelected({action:'correct_details',batch})}><MdEdit/> Edit Batch</button><button className="button-secondary" onClick={()=>setSelected({action:'correct_quantity',batch})}>Correct Quantity</button></>}{!batch.archived_at&&Number(batch.quantity||0)<=0&&<button className="button-secondary" onClick={()=>setSelected({action:'archive',batch})}>Archive</button>}{batch.archived_at&&<button className="button-secondary" onClick={()=>setSelected({action:'restore',batch})}>Restore</button>}{Number(batch.quantity||0)<=0&&<button className="button-danger" onClick={()=>setSelected({action:'delete',batch})}>Delete</button>}</div></div></div>}) : <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-400">No batches in this view.</div>}</div>
     <div className="border-t border-slate-100 p-5 flex justify-end"><button className="button-secondary" onClick={onClose}>Close</button></div>
     {selected&&<ProtectedBatchActionModal item={item} batch={selected.batch} action={selected.action} onClose={()=>setSelected(null)} onRequest={onRequestAction} onConfirm={onConfirmAction} onSuccess={(message)=>{setSelected(null);onChanged(message)}}/>}
     {historyBatch&&<div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 px-4"><div className="flex max-h-[82vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"><div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="font-bold text-slate-900">Batch History</h3><p className="mt-1 text-xs text-slate-500">{historyBatch.batch_code||`Batch #${historyBatch.id}`} · {item.name}</p></div><button onClick={()=>setHistoryBatch(null)}><MdClose/></button></div><div className="flex-1 overflow-y-auto p-6">{historyLoading?<div className="py-10 text-center text-sm text-slate-400">Loading history...</div>:historyError?<p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{historyError}</p>:<div className="space-y-6"><section><h4 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-400">Movements</h4>{historyData.movements.length?<div className="space-y-3">{historyData.movements.map((row)=><div key={`move-${row.id}`} className="rounded-2xl border border-slate-200 p-4 text-sm"><div className="flex justify-between gap-3"><strong className="text-slate-800">{String(row.movement_type||row.type||'movement').replace(/_/g,' ')}</strong><span className="text-xs text-slate-400">{row.logged_at?new Date(row.logged_at).toLocaleString('en-PH'):'—'}</span></div><p className="mt-1 text-slate-600">Qty: {Number(row.qty||0)} {item.uom||item.unit} · By: {row.performed_by||'System'} ({row.performed_by_role||'System'})</p>{row.from_location&&<p className="mt-1 text-xs text-slate-500">From: {row.from_location}</p>}{row.to_location&&<p className="mt-1 text-xs text-slate-500">To: {row.to_location}</p>}{row.note&&<p className="mt-1 text-xs text-slate-500">{row.note}</p>}</div>)}</div>:<p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">No stock movement history recorded.</p>}</section><section><h4 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-400">Protected Corrections & Actions</h4>{historyData.audit.length?<div className="space-y-3">{historyData.audit.map((row)=>{const changes=auditChanges(row);const reason=row?.new_values?.reason||row?.old_values?.reason;return <div key={`audit-${row.id}`} className="rounded-2xl border border-slate-200 p-4 text-sm"><div className="flex justify-between gap-3"><strong className="text-slate-800">{String(row.action||'batch action').replace(/^inventory\\./,'').replace(/_/g,' ')}</strong><span className="text-xs text-slate-400">{row.created_at?new Date(row.created_at).toLocaleString('en-PH'):'—'}</span></div>{changes.map((change)=><p key={change.key} className="mt-1 text-xs text-slate-600"><span className="font-semibold capitalize">{change.key}:</span> {change.before} → {change.after}</p>)}{reason&&<p className="mt-2 text-xs text-slate-500"><span className="font-semibold">Reason:</span> {reason}</p>}</div>})}</div>:<p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">No protected corrections recorded.</p>}</section></div>}</div><div className="border-t border-slate-100 p-5 flex justify-end"><button className="button-secondary" onClick={()=>setHistoryBatch(null)}>Close</button></div></div></div>}
   </div></div>
 }
 
-const Inventory = ({ services, canManageSellingPrice = false }) => {
+const Inventory = ({ services, canManageSellingPrice = true }) => {
   const toast = useToast()
   const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, createInventoryLocationType, updateInventoryLocationType, requestInventoryBatchActionCode, confirmInventoryBatchAction, getInventoryBatchHistory } = services
   const [items, setItems] = useState([])
@@ -931,9 +949,9 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
     if (!deleteCandidate?.id) return
     setDeleting(true)
     try {
-      await deleteInventoryItem(deleteCandidate.id)
+      const result = await deleteInventoryItem(deleteCandidate.id)
       setItems(prev => prev.filter(entry => entry.id !== deleteCandidate.id))
-      setFeedback({ type: 'success', message: `${deleteCandidate.name} was removed from inventory.` })
+      setFeedback({ type: 'success', message: result?.message || `${deleteCandidate.name} was removed from active inventory.` })
       setDeleteCandidate(null)
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Failed to remove inventory item.' })
@@ -1000,12 +1018,12 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
-          <p className="text-sm text-slate-500 mt-1">Batch-aware inventory with configurable Units of Measure and Location Types, generated barcodes, and single-unit stock tracking.</p>
+          <p className="text-sm text-slate-500 mt-1">Batch-aware inventory with configurable Units of Measure and Storage Classifications, generated barcodes, and single-unit stock tracking.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center"><MdRefresh className="text-[18px]" /></button>
           <button onClick={() => setScannerOpen(true)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 flex items-center gap-2"><MdQrCodeScanner /> Scan Barcode</button>
-          {createInventoryLocationType && <button onClick={() => setShowLocationType(true)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 flex items-center gap-2"><MdLocationOn /> Add Location Type</button>}<button title={masterData.uoms.length && hasActiveLocationType ? 'Add inventory item' : 'Configure at least one active Unit of Measure and Location Type first'} disabled={!masterData.uoms.length || !hasActiveLocationType} onClick={() => { setNewItemBarcode(''); setShowAdd(true) }} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"><MdAdd /> Add Item</button>
+          {createInventoryLocationType && <button onClick={() => setShowLocationType(true)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 flex items-center gap-2"><MdLocationOn /> Add Storage Classification</button>}<button title={masterData.uoms.length && hasActiveLocationType ? 'Add inventory item' : 'Configure at least one active Unit of Measure and Storage Classification first'} disabled={!masterData.uoms.length || !hasActiveLocationType} onClick={() => { setNewItemBarcode(''); setShowAdd(true) }} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"><MdAdd /> Add Item</button>
         </div>
       </div>
 
@@ -1020,7 +1038,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         </div>
       )}
 
-      {(!masterData.uoms.length || !hasActiveLocationType) && <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><strong>Inventory setup required.</strong> {!masterData.uoms.length ? 'Add at least one active Unit of Measure in Admin → System Setup. ' : ''}{!hasActiveLocationType ? 'Add at least one active Location Type before creating items.' : ''}</div>}
+      {(!masterData.uoms.length || !hasActiveLocationType) && <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><strong>Inventory setup required.</strong> {!masterData.uoms.length ? 'Add at least one active Unit of Measure in Admin → System Setup. ' : ''}{!hasActiveLocationType ? 'Add at least one active Storage Classification before creating items.' : ''}</div>}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
@@ -1048,8 +1066,8 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
             </button>
           ))}
         </div>
-        <select aria-label="Filter by location type" value={locationTypeFilter} onChange={(e)=>setLocationTypeFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 outline-none focus:border-sky-400">
-          <option value="All">All Location Types</option>
+        <select aria-label="Filter by storage classification" value={locationTypeFilter} onChange={(e)=>setLocationTypeFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 outline-none focus:border-sky-400">
+          <option value="All">All Storage Classifications</option>
           {(masterData.location_types || []).map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
         </select>
       </div>
@@ -1072,11 +1090,11 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {locationTotals.length ? locationTotals.slice(0,6).map((location)=><div key={location.name} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs"><p className="font-semibold text-slate-500">{location.name}</p><p className="mt-0.5 font-black text-slate-800">{location.quantity} {item.uom || item.unit}</p></div>) : <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-400">No location stock</div>}
                 </div>
-                <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.uom || item.unit} · Active batch cost: {getActiveBatchCostSummary(item)} · Patient price {item.selling_price === null || item.selling_price === undefined ? 'not configured' : `PHP ${Number(item.selling_price).toFixed(2)}`}</p>
+                <p className="text-xs text-slate-400">Low stock threshold: {item.threshold} {item.uom || item.unit} · Selling Price: {Number(item.selling_price || 0) > 0 ? `PHP ${Number(item.selling_price).toFixed(2)}` : 'Not set'}</p>{Number(item.selling_price || 0) <= 0 && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Selling Price is missing. Edit this item and set a price greater than ₱0.00 before it can be used for direct Checkout billing.</div>}
                 {item.barcode && <div className="max-w-sm pt-1"><BarcodePreview value={item.barcode} title="Item Barcode" compact /></div>}
                 <div className="flex flex-wrap gap-3 pt-1 text-xs">
                   <span className="inline-flex items-center gap-1 text-slate-500">
-                    <MdLocationOn className="text-[14px]" /> Location Type: {item.location_type_name || 'Not assigned'}
+                    <MdLocationOn className="text-[14px]" /> Storage Classification: {item.location_type_name || 'Not assigned'}
                   </span>
                   <span className={`inline-flex items-center gap-1 ${getExpiryMeta(item).tone}`}>
                     <MdCalendarToday className="text-[14px]" /> {getExpiryMeta(item).label}
@@ -1104,7 +1122,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
                 <button onClick={() => { setStockMode('out'); setStockItem(item) }} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 flex items-center gap-2"><MdInventory2 /> Stock Out</button>
                 <button onClick={() => setEditItem(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdEdit /> Edit Item</button>
                 {requestInventoryBatchActionCode && confirmInventoryBatchAction && <button onClick={()=>setBatchManagerItem(item)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-700 hover:bg-sky-100 flex items-center gap-2"><MdInventory2/> Manage Batches</button>}
-                <button onClick={() => handleDelete(item)} title="Delete item" className="w-11 h-11 rounded-2xl border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center"><MdDelete className="text-[18px]" /></button>
+                {deleteInventoryItem && <button onClick={() => handleDelete(item)} title="Archive / remove item" className="w-11 h-11 rounded-2xl border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center"><MdDelete className="text-[18px]" /></button>}
               </div>
             </div>
           </div>
@@ -1146,19 +1164,19 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         locationTypes={masterData.location_types || []}
         items={items}
         onAdd={createInventoryLocationType ? () => setShowLocationType(true) : null}
-        onEdit={updateInventoryLocationType ? async (id,payload) => { const updated=await updateInventoryLocationType(id,payload); setMasterData((prev)=>({...prev,location_types:prev.location_types.map((entry)=>Number(entry.id)===Number(id)?{...entry,...updated}:entry)})); setItems((prev)=>prev.map((item)=>Number(item.location_type_id)===Number(id)?{...item,location_type_name:updated.name}:item)); setFeedback({type:'success',message:'Location Type updated.'}) } : null}
+        onEdit={updateInventoryLocationType ? async (id,payload) => { const updated=await updateInventoryLocationType(id,payload); setMasterData((prev)=>({...prev,location_types:prev.location_types.map((entry)=>Number(entry.id)===Number(id)?{...entry,...updated}:entry)})); setItems((prev)=>prev.map((item)=>Number(item.location_type_id)===Number(id)?{...item,location_type_name:updated.name}:item)); setFeedback({type:'success',message:'Storage Classification updated.'}) } : null}
       />
 
-      {showLocationType && createInventoryLocationType && <LocationTypeModal onClose={() => setShowLocationType(false)} onCreate={async (payload) => { const created = await createInventoryLocationType(payload); setMasterData((prev)=>({ ...prev, location_types: [...prev.location_types, created].sort((a,b)=>String(a.name).localeCompare(String(b.name))) })); setFeedback({ type: 'success', message: `${created.name} Location Type added.` }) }} />}
+      {showLocationType && createInventoryLocationType && <LocationTypeModal onClose={() => setShowLocationType(false)} onCreate={async (payload) => { const created = await createInventoryLocationType(payload); setMasterData((prev)=>({ ...prev, location_types: [...prev.location_types, created].sort((a,b)=>String(a.name).localeCompare(String(b.name))) })); setFeedback({ type: 'success', message: `${created.name} Storage Classification added.` }) }} />}
       {showAdd && <ItemFormModal title="Add Item" initialBarcode={newItemBarcode} canManageSellingPrice={canManageSellingPrice} masterData={masterData} existingItems={items} onClose={() => { setShowAdd(false); setNewItemBarcode('') }} onSubmit={handleAdd} />}
       {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} masterData={masterData} existingItems={items} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
-      {stockItem && <StockModal item={stockItem} initialType={stockMode} movementReasons={masterData.movement_reasons || []} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} />}
+      {stockItem && <StockModal item={stockItem} initialType={stockMode} movementReasons={masterData.movement_reasons || []} suppliers={masterData.suppliers || []} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
       {batchManagerItem && requestInventoryBatchActionCode && confirmInventoryBatchAction && <BatchManagerModal item={batchManagerItem} onClose={()=>setBatchManagerItem(null)} onRequestAction={requestInventoryBatchActionCode} onConfirmAction={confirmInventoryBatchAction} onLoadHistory={getInventoryBatchHistory} onChanged={async (message)=>{setBatchManagerItem(null);await load();setFeedback({type:'success',message})}} />}
       <ConfirmDialog
         open={Boolean(deleteCandidate)}
         title="Remove inventory item?"
-        message={deleteCandidate ? `Remove ${deleteCandidate.name} from inventory? Items with remaining batch stock cannot be deleted.` : ''}
+        message={deleteCandidate ? `Remove ${deleteCandidate.name} from active inventory? Items with stock cannot be removed. If this item has historical stock, billing, transfer, or clinical records, CARAIT will archive it instead of deleting its history.` : ''}
         confirmLabel="Remove Item"
         loading={deleting}
         onCancel={() => !deleting && setDeleteCandidate(null)}
@@ -1169,4 +1187,5 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+
 

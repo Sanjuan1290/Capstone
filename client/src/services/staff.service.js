@@ -90,7 +90,7 @@ export const createWalkInPatient = (payload) =>
   })
 
 export const getPatientRecord = (id) =>
-  fetch(`${BASE}/patients/${id}`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/patients/${id}`)
 
 export const getBills = (params = {}) => {
   const normalized = typeof params === 'string' ? { status: params } : params
@@ -151,7 +151,7 @@ export const getBillingPaymentSettings = () =>
   requestJson(`${BASE}/billing-payment-settings`)
 
 export const getInventory = () =>
-  fetch(`${BASE}/inventory`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/inventory`)
 
 export const getInventoryMasterData = (category = '') =>
   requestJson(`${BASE}/inventory/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`)
@@ -206,7 +206,7 @@ export const getDoctorUnavailableDates = (doctorId, params = {}) => {
 }
 
 export const getSupplyRequests = () =>
-  fetch(`${BASE}/supply-requests`, { credentials: 'include' }).then(r => r.json())
+  requestJson(`${BASE}/supply-requests`)
 
 export const resolveSupplyRequest = (id, status, note = '') =>
   requestJson(`${BASE}/supply-requests/${id}`, {
@@ -219,3 +219,4 @@ export const createInventoryLocation = (payload) => requestJson(`${BASE}/invento
 export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
+
