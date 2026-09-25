@@ -23,6 +23,15 @@ const formatMoney = (value) => new Intl.NumberFormat('en-PH', {
 }).format(Number(value) || 0)
 
 const formatPercent = (value) => `${Math.round(Number(value) || 0)}%`
+const REPORT_RANGE_OPTIONS = [
+  ['today', 'Today'],
+  ['7days', '7 Days'],
+  ['30days', '30 Days'],
+  ['3months', '3 Months'],
+  ['6months', '6 Months'],
+  ['year', 'This Year'],
+  ['custom', 'Custom'],
+]
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -131,6 +140,10 @@ const Admin_Reports = () => {
   useEffect(() => { load() }, [appliedRange.startDate, appliedRange.endDate])
 
   const applyPreset = (nextPreset) => {
+    if (nextPreset === 'custom') {
+      setPreset('custom')
+      return
+    }
     const next = getPresetRange(nextPreset)
     setPreset(nextPreset)
     setDateRange(next)
@@ -271,17 +284,16 @@ const Admin_Reports = () => {
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap gap-2">
-          {[
-            ['today', 'Today'], ['7days', '7 Days'], ['30days', '30 Days'], ['3months', '3 Months'], ['6months', '6 Months'], ['year', 'This Year'],
-          ].map(([value, label]) => (
-            <button key={value} onClick={() => applyPreset(value)} className={`rounded-xl px-3 py-2 text-xs font-bold ${preset === value ? 'bg-[#0b1a2c] text-sky-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{label}</button>
-          ))}
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <label><span className="form-label">Start Date</span><input type="date" className="form-control mt-1.5" value={dateRange.startDate} onChange={(e) => setDateRange((current) => ({ ...current, startDate: e.target.value }))} /></label>
-          <label><span className="form-label">End Date</span><input type="date" className="form-control mt-1.5" value={dateRange.endDate} onChange={(e) => setDateRange((current) => ({ ...current, endDate: e.target.value }))} /></label>
-          <button onClick={applyCustomRange} className="button-primary">Apply Range</button>
+        <div className="grid gap-3 sm:grid-cols-[220px_1fr_1fr_auto] sm:items-end">
+          <label>
+            <span className="form-label">Date Range</span>
+            <select className="form-control mt-1.5" value={preset} onChange={(e) => applyPreset(e.target.value)}>
+              {REPORT_RANGE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label><span className="form-label">Start Date</span><input type="date" disabled={preset !== 'custom'} className="form-control mt-1.5 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500" value={dateRange.startDate} onChange={(e) => setDateRange((current) => ({ ...current, startDate: e.target.value }))} /></label>
+          <label><span className="form-label">End Date</span><input type="date" disabled={preset !== 'custom'} className="form-control mt-1.5 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500" value={dateRange.endDate} onChange={(e) => setDateRange((current) => ({ ...current, endDate: e.target.value }))} /></label>
+          <button onClick={applyCustomRange} disabled={preset !== 'custom'} className="button-primary disabled:cursor-not-allowed disabled:opacity-50">Apply Range</button>
         </div>
         <p className="mt-3 text-xs font-semibold text-slate-500">Selected period: {rangeLabel}</p>
       </section>

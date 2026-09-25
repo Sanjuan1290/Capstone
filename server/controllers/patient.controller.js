@@ -5,7 +5,7 @@ const generateCookie = require('../utils/generateCookie')
 const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
 const { validatePassword } = require('../utils/accountSecurity')
 const { makeNumericCode, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')
-const { sendAppointmentStatusEmail, sendVerificationCode } = require('../utils/emailService')
+const { sendAppointmentStatusEmail } = require('../utils/emailService')
 const { notifyRoles, createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
@@ -139,16 +139,12 @@ const register = async (req, res) => {
   const address = normalizeText(req.body.address, { field: 'Address', required: true, max: 500, multiline: true })
   const password = normalizeText(req.body.password, { field: 'Password', required: true, max: 128 })
   const confirmPassword = normalizeText(req.body.confirmPassword, { field: 'Confirm Password', required: true, max: 128 })
-  const method = normalizeText(req.body.verification_method || 'email', { field: 'Verification Method', required: true, max: 10 }).toLowerCase()
+  const method = 'sms'
   const consentGiven = req.body.consent_given === true || req.body.consent_given === 1 || req.body.consent_given === '1'
 
   if (!['Male', 'Female', 'Other'].includes(gender)) {
     return res.status(400).json({ message: 'Gender must be Male, Female, or Other.', field: 'Gender' })
   }
-  if (!['email', 'sms'].includes(method)) {
-    return res.status(400).json({ message: 'Verification method must be email or SMS.', field: 'Verification Method' })
-  }
-
   const birthdateError = validateBirthdate(birthdate)
   if (birthdateError) return res.status(400).json({ message: birthdateError, field: 'Birthdate' })
   const normalizedProfile = normalizePatientProfileInput({ email: emailInput, birthdate, gender, address, receive_promotions: false })
@@ -222,42 +218,37 @@ const register = async (req, res) => {
   )
 
   try {
-    if (method === 'email') {
-      await sendVerificationCode(normalizedProfile.email, fullName, code)
-    } else {
-      await sendPatientRegistrationOtp({
-        phone: normalizedPhone,
-        code,
-        fullName,
-      })
-    }
+    await sendPatientRegistrationOtp({
+      phone: normalizedPhone,
+      code,
+      fullName,
+    })
   } catch (err) {
-    console.error(`Patient registration OTP ${method} failed:`, {
+    console.error('Patient registration SMS OTP failed:', {
       message: err.message,
       statusCode: err.statusCode,
       responseBody: err.responseBody,
     })
 
     return res.status(502).json({
-      message: `Failed to send verification code by ${method === 'email' ? 'email' : 'SMS'}. Please try again later.`,
+      message: 'Failed to send the SMS verification code. Please try again later.',
     })
   }
 
   res.status(200).json({
-    message: `Verification code sent by ${method === 'email' ? 'email' : 'SMS'}.`,
+    message: 'SMS verification code sent.',
     phone: normalizedPhone,
-    email: normalizedProfile.email,
-    verification_method: method,
+    verification_method: 'sms',
   })
 }
 
 const resendRegistrationVerification = async (req, res) => {
   assertPlainObject(req.body)
   const phoneInput = normalizeText(req.body.phone, { field: 'Mobile Number', required: true, max: 20 })
-  const method = normalizeText(req.body.method || 'email', { field: 'Verification Method', required: true, max: 10 }).toLowerCase()
+  const method = 'sms'
   const normalizedPhone = normalizePhilippinePhone(phoneInput)
-  if (!normalizedPhone || !['sms', 'email'].includes(method)) {
-    return res.status(400).json({ message: 'A valid phone number and verification method are required.' })
+  if (!normalizedPhone) {
+    return res.status(400).json({ message: 'A valid Philippine mobile number is required.' })
   }
   const [rows] = await db.query('SELECT * FROM patient_phone_verifications WHERE phone = ? LIMIT 1', [normalizedPhone])
   if (!rows.length) return res.status(404).json({ message: 'No pending registration was found. Please register again.' })
@@ -270,17 +261,11 @@ const resendRegistrationVerification = async (req, res) => {
     'UPDATE patient_phone_verifications SET otp_code = ?, payload = ?, expires_at = ?, attempt_count = 0, last_sent_at = NOW() WHERE id = ?',
     [hashSecret(code), JSON.stringify(payload), new Date(Date.now() + OTP_EXPIRY_MS), pending.id]
   )
-  if (method === 'email') {
-    if (!payload.email) return res.status(400).json({ message: 'No email address is attached to this registration.' })
-    await sendVerificationCode(payload.email, payload.full_name, code)
-  } else {
-    await sendPatientRegistrationOtp({ phone: normalizedPhone, code, fullName: payload.full_name })
-  }
+  await sendPatientRegistrationOtp({ phone: normalizedPhone, code, fullName: payload.full_name })
   return res.json({
-    message: `Verification code sent by ${method === 'email' ? 'email' : 'SMS'}.`,
-    method,
+    message: 'SMS verification code sent.',
+    method: 'sms',
     phone: normalizedPhone,
-    email: payload.email || null,
   })
 }
 
@@ -337,13 +322,13 @@ const verifyRegistration = async (req, res) => {
       `UPDATE patients
        SET full_name = ?, email = ?, phone = ?, birthdate = ?, gender = ?, sex = ?, address = ?, password = ?,
            civil_status = NULL, consent_given = ?, consent_given_at = ?, receive_promotions = ?, is_profile_complete = 1,
-           email_verified_at = CASE WHEN ? = 'email' THEN NOW() ELSE email_verified_at END,
-           phone_verified_at = CASE WHEN ? = 'sms' THEN NOW() ELSE phone_verified_at END
+           email_verified_at = email_verified_at,
+           phone_verified_at = NOW()
        WHERE id = ?`,
       [
         payload.full_name, payload.email, normalizedPhone, payload.birthdate, payload.gender, payload.gender, payload.address,
         payload.password, payload.consent_given ? 1 : 0, payload.consent_given ? new Date() : null,
-        payload.receive_promotions ? 1 : 0, payload.verification_method || 'email', payload.verification_method || 'email', existing[0].id,
+        payload.receive_promotions ? 1 : 0, existing[0].id,
       ]
     )
     patientId = existing[0].id
@@ -356,8 +341,8 @@ const verifyRegistration = async (req, res) => {
         payload.full_name, payload.birthdate, payload.gender, payload.gender, normalizedPhone, payload.address, payload.email,
         payload.password, payload.consent_given ? 1 : 0, payload.consent_given ? new Date() : null,
         payload.receive_promotions ? 1 : 0,
-        (payload.verification_method || 'email') === 'email' ? new Date() : null,
-        (payload.verification_method || 'email') === 'sms' ? new Date() : null,
+        null,
+        new Date(),
       ]
     )
     patientId = result.insertId

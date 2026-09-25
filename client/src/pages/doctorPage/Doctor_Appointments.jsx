@@ -449,7 +449,6 @@ const Doctor_Appointments = () => {
     setLoading(true)
     setSelected(null)
     setMobileDetailOpen(false)
-    setShowCompleted(false)
     loadAppointments()
     loadSummary()
     const timer = window.setInterval(() => { loadAppointments(); loadSummary() }, viewMode === 'today' ? 15000 : 30000)

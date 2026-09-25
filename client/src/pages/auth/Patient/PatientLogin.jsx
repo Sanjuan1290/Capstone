@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { MdArrowForward, MdLock, MdPhone, MdVisibility, MdVisibilityOff } from 'react-icons/md'
+import { MdArrowForward, MdEmail, MdLock, MdPhone, MdVisibility, MdVisibilityOff } from 'react-icons/md'
 import { useAuth } from '../../../context/AuthContext'
 
 const PatientLogin = () => {
-  const [form, setForm] = useState({ phone: '', password: '' })
+  const [form, setForm] = useState({ identifier: '', password: '' })
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -26,7 +26,12 @@ const PatientLogin = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          password: form.password,
+          ...(String(form.identifier || '').includes('@')
+            ? { email: String(form.identifier || '').trim() }
+            : { phone: String(form.identifier || '').trim() }),
+        }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -59,7 +64,7 @@ const PatientLogin = () => {
         <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
           <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5">
             <h2 className="text-lg font-bold text-white">Welcome back</h2>
-            <p className="mt-0.5 text-sm text-emerald-100">Sign in using your mobile number</p>
+            <p className="mt-0.5 text-sm text-emerald-100">Sign in using your verified mobile number or email</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4 px-6 py-6">
@@ -70,16 +75,19 @@ const PatientLogin = () => {
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Phone Number</label>
+              <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Mobile Number or Email</label>
               <div className="relative">
-                <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
+                {String(form.identifier || '').includes('@')
+                  ? <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />
+                  : <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[18px] text-slate-400" />}
                 <input
                   required
-                  type="tel"
-                  name="phone"
-                  value={form.phone}
+                  type="text"
+                  name="identifier"
+                  value={form.identifier}
                   onChange={handleChange}
-                  placeholder="09XXXXXXXXX or +639XXXXXXXXX"
+                  autoComplete="username"
+                  placeholder="09XXXXXXXXX or you@email.com"
                   className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm transition-all placeholder-slate-300 focus:border-emerald-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400/10"
                 />
               </div>

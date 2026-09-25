@@ -122,7 +122,7 @@ const validateClinicalInventoryAvailability = async ({ billing, appointment }, c
     if (!sufficient) {
       throw Object.assign(
         new Error(`Insufficient stock in ${preferredLocation}. ${inventory.name} requires ${requestedUsageQty} ${entry.unit_label || inventory.unit || 'unit(s)'}, but only ${availableUsageQty} is available in this room. Request a stock transfer before completing this consultation.`),
-        { statusCode: 409, code: 'CLINICAL_ROOM_STOCK_REQUIRED', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: availableUsageQty, unit: entry.unit_label || inventory.unit || 'unit', location: preferredLocation }
+        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: availableUsageQty, unit: entry.unit_label || inventory.unit || 'unit', location: preferredLocation }
       )
     }
   }
@@ -162,7 +162,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
     )
     if (!consumption.ok) throw Object.assign(
       new Error(`Insufficient stock in ${preferredLocation} for ${inventory.name}. Request a stock transfer before completing this consultation.`),
-      { statusCode: 409, code: 'CLINICAL_ROOM_STOCK_REQUIRED', inventory_id: entry.inventory_id, location: preferredLocation }
+      { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, location: preferredLocation }
     )
 
     const [usageResult] = await conn.query(

@@ -13,6 +13,8 @@ import {
 } from 'react-icons/md'
 import Admin_PatientBooking from './Admin_PatientBooking'
 import Modal from '../../components/ui/Modal'
+import Pagination from '../../components/ui/Pagination'
+import useClientPagination from '../../hooks/useClientPagination'
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/PageState'
 import { useToast } from '../../components/ui/ToastProvider'
 import {
@@ -92,6 +94,8 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       description: 'Reusable reasons shown when recording Stock In or Stock Out. Built-in codes stay protected so existing inventory history remains valid.',
     },
   }[type]), [type])
+
+  const pagination = useClientPagination(rows, { initialPageSize: 10, resetDeps: [type] })
 
   const close = () => {
     setEditing(null)
@@ -178,7 +182,8 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       {!rows.length ? (
         <div className="p-5"><EmptyState title={`No ${config.plural.toLowerCase()} yet`} description="Add the first reusable option." /></div>
       ) : (
-        <div className="overflow-x-auto">
+        <div>
+          <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
               <tr>
@@ -196,7 +201,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((row) => (
+              {pagination.pageItems.map((row) => (
                 <tr key={row.id}>
                   <td className="px-5 py-4 font-semibold text-slate-800">{row.name}</td>
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
@@ -217,6 +222,8 @@ const ReferenceManager = ({ type, rows, onReload }) => {
               ))}
             </tbody>
           </table>
+          </div>
+          <Pagination {...pagination} total={rows.length} pageSizeOptions={[10, 25, 50]} />
         </div>
       )}
 

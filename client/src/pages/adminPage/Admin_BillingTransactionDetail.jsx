@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { MdArrowBack, MdBlock, MdPrint, MdReceiptLong, MdRefresh, MdUndo } from 'react-icons/md'
-import { getBillById, refundBillingPayment, voidBillingPayment, getBillingAdjustmentRequests } from '../../services/admin.service'
+import { MdArrowBack, MdBlock, MdLock, MdMail, MdPrint, MdReceiptLong, MdRefresh, MdUndo } from 'react-icons/md'
+import { confirmBillingPaymentAction, getBillById, refundBillingPayment, voidBillingPayment, getBillingAdjustmentRequests } from '../../services/admin.service'
 import { getClinicSettings } from '../../services/clinic.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import Modal from '../../components/ui/Modal'
@@ -24,6 +24,10 @@ const Admin_BillingTransactionDetail = () => {
   const [reason, setReason] = useState('')
   const [refundAmount, setRefundAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  const [authStep, setAuthStep] = useState('password')
+  const [adminPassword, setAdminPassword] = useState('')
+  const [verificationCode, setVerificationCode] = useState('')
+  const [verificationMessage, setVerificationMessage] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -49,18 +53,35 @@ const Admin_BillingTransactionDetail = () => {
     setPaymentAction({ payment, action })
     setReason('')
     setRefundAmount(action === 'refund' ? String(available) : '')
+    setAuthStep('password')
+    setAdminPassword('')
+    setVerificationCode('')
+    setVerificationMessage('')
+  }
+
+  const requestVerification = async () => {
+    if (!paymentAction?.payment?.id || !reason.trim() || !adminPassword) return
+    setBusy(true)
+    try {
+      const payload = { reason: reason.trim(), password: adminPassword }
+      const result = paymentAction.action === 'void'
+        ? await voidBillingPayment(paymentAction.payment.id, payload)
+        : await refundBillingPayment(paymentAction.payment.id, { ...payload, amount: Number(refundAmount) })
+      setVerificationMessage(result.message || 'Verification code sent to your administrator email.')
+      setVerificationCode('')
+      setAuthStep('code')
+    } catch (err) { toast.error(err.message || 'Could not verify administrator password.') }
+    finally { setBusy(false) }
   }
 
   const confirmAction = async () => {
-    if (!paymentAction?.payment?.id || !reason.trim()) return
+    if (!paymentAction?.payment?.id || verificationCode.length !== 6) return
     setBusy(true)
     try {
-      const updated = paymentAction.action === 'void'
-        ? await voidBillingPayment(paymentAction.payment.id, reason.trim())
-        : await refundBillingPayment(paymentAction.payment.id, { reason: reason.trim(), amount: Number(refundAmount) })
+      const updated = await confirmBillingPaymentAction(paymentAction.payment.id, verificationCode)
       setBill(updated)
       toast.success(paymentAction.action === 'void' ? 'Payment voided.' : 'Refund recorded.')
-      setPaymentAction(null); setReason(''); setRefundAmount('')
+      setPaymentAction(null); setReason(''); setRefundAmount(''); setAdminPassword(''); setVerificationCode(''); setVerificationMessage(''); setAuthStep('password')
     } catch (err) { toast.error(err.message || 'Payment action failed.') }
     finally { setBusy(false) }
   }
@@ -115,7 +136,25 @@ const Admin_BillingTransactionDetail = () => {
       </div>
 
       <Modal open={Boolean(paymentAction)} onClose={() => !busy && setPaymentAction(null)} closeDisabled={busy} title={paymentAction?.action === 'refund' ? 'Refund Payment' : 'Void Payment'} description={paymentAction?.payment?.receipt_number || ''} size="md">
-        {paymentAction && <div className="space-y-4">{paymentAction.action === 'refund' && <div><label className="block"><span className="form-label">Refund Amount</span><input type="number" min="0.01" step="0.01" max={Math.max(0, Number(paymentAction.payment.amount || 0) - Number(paymentAction.payment.refund_amount || 0))} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className="form-control mt-1.5" /></label><p className="mt-1.5 text-xs font-semibold text-slate-500">Maximum refundable: {formatMoney(Math.max(0, Number(paymentAction.payment.amount || 0) - Number(paymentAction.payment.refund_amount || 0)))}</p>{Number(refundAmount || 0) > Math.max(0, Number(paymentAction.payment.amount || 0) - Number(paymentAction.payment.refund_amount || 0)) && <p className="mt-1 text-xs font-bold text-rose-700">Refund cannot exceed the maximum refundable amount.</p>}</div>}<label className="block"><span className="form-label">Reason *</span><textarea rows={4} value={reason} onChange={(e) => setReason(e.target.value)} className="form-control mt-1.5 resize-none" placeholder="Enter a clear reason for the audit record." /></label><div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">This is a protected financial action and will remain visible in Audit Logs.</div><div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className="button-secondary" disabled={busy} onClick={() => setPaymentAction(null)}>Cancel</button><button className={paymentAction.action === 'void' ? 'button-danger' : 'button-primary'} disabled={busy || !reason.trim() || (paymentAction.action === 'refund' && (Number(refundAmount) <= 0 || Number(refundAmount) > Math.max(0, Number(paymentAction.payment.amount || 0) - Number(paymentAction.payment.refund_amount || 0))))} onClick={confirmAction}>{busy ? 'Working…' : paymentAction.action === 'refund' ? 'Confirm Refund' : 'Void Payment'}</button></div></div>}
+        {paymentAction && (
+          <div className="space-y-4">
+            {authStep === 'password' ? (
+              <>
+                {paymentAction.action === 'refund' && <div><label className="block"><span className="form-label">Refund Amount</span><input type="number" min="0.01" step="0.01" max={Math.max(0, Number(paymentAction.payment.amount || 0) - Number(paymentAction.payment.refund_amount || 0))} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className="form-control mt-1.5" /></label><p className="mt-1.5 text-xs font-semibold text-slate-500">Maximum refundable: {formatMoney(Math.max(0, Number(paymentAction.payment.amount || 0) - Number(paymentAction.payment.refund_amount || 0)))}</p>{Number(refundAmount || 0) > Math.max(0, Number(paymentAction.payment.amount || 0) - Number(paymentAction.payment.refund_amount || 0)) && <p className="mt-1 text-xs font-bold text-rose-700">Refund cannot exceed the maximum refundable amount.</p>}</div>}
+                <label className="block"><span className="form-label">Reason *</span><textarea rows={4} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} className="form-control mt-1.5 resize-none" placeholder="Enter a clear reason for the audit record." /></label>
+                <label className="block"><span className="form-label">Admin Password *</span><div className="relative"><MdLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input type="password" autoComplete="current-password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} className="form-control mt-1.5 pl-10" placeholder="Confirm your administrator password" /></div></label>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">This protected financial action requires your administrator password and a 6-digit code sent to the administrator email. The completed action remains visible in Audit Logs.</div>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className="button-secondary" disabled={busy} onClick={() => setPaymentAction(null)}>Cancel</button><button className={paymentAction.action === 'void' ? 'button-danger' : 'button-primary'} disabled={busy || !adminPassword || reason.trim().length < 5 || (paymentAction.action === 'refund' && (Number(refundAmount) <= 0 || Number(refundAmount) > Math.max(0, Number(paymentAction.payment.amount || 0) - Number(paymentAction.payment.refund_amount || 0))))} onClick={requestVerification}>{busy ? 'Checking…' : 'Verify Password & Send Code'}</button></div>
+              </>
+            ) : (
+              <>
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800"><div className="flex items-start gap-3"><MdMail className="mt-0.5 text-xl" /><div><p className="font-bold">Email verification required</p><p className="mt-1 text-xs">{verificationMessage || 'Enter the 6-digit code sent to your administrator email.'}</p></div></div></div>
+                <label className="block"><span className="form-label">6-Digit Verification Code *</span><input value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="form-control mt-1.5 text-center text-xl font-black tracking-[.35em]" placeholder="000000" /></label>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className="button-secondary" disabled={busy} onClick={() => { setAuthStep('password'); setVerificationCode('') }}>Back</button><button className={paymentAction.action === 'void' ? 'button-danger' : 'button-primary'} disabled={busy || verificationCode.length !== 6} onClick={confirmAction}>{busy ? 'Verifying…' : paymentAction.action === 'refund' ? 'Verify & Refund' : 'Verify & Void Payment'}</button></div>
+              </>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   )

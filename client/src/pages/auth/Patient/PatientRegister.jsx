@@ -112,7 +112,6 @@ const RegistrationForm = ({ onSuccess }) => {
     password: '', confirmPassword: '',
   })
   const [consentGiven, setConsentGiven] = useState(false)
-  const [verificationMethod, setVerificationMethod] = useState('email')
   const [error, setError] = useState('')
   const [birthdateError, setBirthdateError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -145,11 +144,11 @@ const RegistrationForm = ({ onSuccess }) => {
     try {
       const res = await fetch('/api/patient/register', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, consent_given: consentGiven, verification_method: verificationMethod }),
+        body: JSON.stringify({ ...form, consent_given: consentGiven, verification_method: 'sms' }),
       })
       const data = await res.json()
       if (!res.ok) return setError(data.message || 'Registration failed.')
-      onSuccess({ phone: data.phone || form.phone, email: data.email || form.email, method: data.verification_method || verificationMethod })
+      onSuccess({ phone: data.phone || form.phone })
     } catch { setError('Cannot connect to server.') }
     finally { submitLock.current = false; setLoading(false) }
   }
@@ -173,23 +172,14 @@ const RegistrationForm = ({ onSuccess }) => {
 
             <div className="border-t border-slate-100 pt-4"><p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Security</p><div className="grid gap-4 sm:grid-cols-2"><div><label className={LABEL_CLASS}>Password *</label><PasswordInput name="password" value={form.password} onChange={updateField} placeholder="8+ characters"/></div><div><label className={LABEL_CLASS}>Confirm Password *</label><PasswordInput name="confirmPassword" value={form.confirmPassword} onChange={updateField} placeholder="Retype password" preventPaste/>{form.confirmPassword && form.password !== form.confirmPassword && <p className="mt-1 text-xs text-red-500">Passwords do not match.</p>}<p className="mt-1 text-[11px] text-slate-400">Paste is disabled for confirmation.</p></div></div></div>
             <PasswordRequirements password={form.password}/>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className={LABEL_CLASS}>Verification Method *</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition-all ${verificationMethod === 'email' ? 'border-emerald-400 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>
-                  <input type="radio" name="verification_method" value="email" checked={verificationMethod === 'email'} onChange={() => setVerificationMethod('email')} className="h-4 w-4" />
-                  <MdEmail className="text-lg" />
-                  <span><span className="block text-sm font-bold">Email Verification</span><span className="block text-[11px] font-normal opacity-70">Send the 6-digit code to your email.</span></span>
-                </label>
-                <label className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition-all ${verificationMethod === 'sms' ? 'border-emerald-400 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>
-                  <input type="radio" name="verification_method" value="sms" checked={verificationMethod === 'sms'} onChange={() => setVerificationMethod('sms')} className="h-4 w-4" />
-                  <MdPhone className="text-lg" />
-                  <span><span className="block text-sm font-bold">SMS Verification</span><span className="block text-[11px] font-normal opacity-70">Send the 6-digit code to your mobile number.</span></span>
-                </label>
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+              <div className="flex items-start gap-3">
+                <MdPhone className="mt-0.5 text-lg" />
+                <div><p className="font-bold">SMS verification</p><p className="mt-0.5 text-xs text-emerald-700">A 6-digit code will be sent to your mobile number. Registration no longer uses email verification.</p></div>
               </div>
             </div>
             <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600"><input type="checkbox" checked={consentGiven} onChange={(e)=>setConsentGiven(e.target.checked)} className="mt-1 h-4 w-4"/><span>I have read and agree to the <NavLink to="/privacy-policy" className="font-bold text-emerald-600">Privacy Policy</NavLink> and consent to processing of my personal data.</span></label>
-            <button type="submit" aria-busy={loading} disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword || Boolean(birthdateError)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-50">{loading ? 'Sending...' : <>Send {verificationMethod === 'email' ? 'Email' : 'SMS'} Verification Code <MdArrowForward/></>}</button>
+            <button type="submit" aria-busy={loading} disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword || Boolean(birthdateError)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-50">{loading ? 'Sending...' : <>Send SMS Verification Code <MdArrowForward/></>}</button>
             <p className="text-center text-sm text-slate-400">Already have an account? <NavLink to="/patient/login" className="font-bold text-emerald-600">Sign in</NavLink></p>
           </form>
         </div>
@@ -198,44 +188,36 @@ const RegistrationForm = ({ onSuccess }) => {
   )
 }
 
-const maskEmail = (email = '') => {
-  const [name = '', domain = ''] = String(email).split('@')
-  if (!domain) return email
-  return `${name.slice(0, 2)}${'•'.repeat(Math.max(3, name.length - 2))}@${domain}`
-}
 const maskPhone = (phone = '') => {
   const digits = String(phone).replace(/\D/g, '')
   if (digits.length < 4) return phone
   return `${digits.slice(0, 2)}${'•'.repeat(Math.max(5, digits.length - 6))}${digits.slice(-4)}`
 }
 
-const VerificationForm = ({ pendingPhone, pendingEmail, initialMethod = 'email', onBack }) => {
+const VerificationForm = ({ pendingPhone, onBack }) => {
   const [code, setCode] = useState('')
-  const [method, setMethod] = useState(initialMethod)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [switching, setSwitching] = useState(false)
   const verifyLock = useRef(false)
   const resendLock = useRef(false)
   const { login } = useAuth()
   const navigate = useNavigate()
 
-  const destination = method === 'email' ? maskEmail(pendingEmail) : maskPhone(pendingPhone)
+  const destination = maskPhone(pendingPhone)
 
-  const sendBy = async (nextMethod) => {
+  const resendCode = async () => {
     if (resendLock.current || verifyLock.current) return
     resendLock.current = true
-    setSwitching(true); setError(''); setCode('')
+    setError(''); setCode('')
     try {
       const res = await fetch('/api/patient/register/resend', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: pendingPhone, method: nextMethod }),
+        body: JSON.stringify({ phone: pendingPhone }),
       })
       const data = await res.json()
-      if (!res.ok) return setError(data.message || 'Could not send another code.')
-      setMethod(nextMethod)
+      if (!res.ok) return setError(data.message || 'Could not send another SMS code.')
     } catch { setError('Cannot connect to server.') }
-    finally { resendLock.current = false; setSwitching(false) }
+    finally { resendLock.current = false }
   }
 
   const handleVerify = async (event) => {
@@ -263,16 +245,16 @@ const VerificationForm = ({ pendingPhone, pendingEmail, initialMethod = 'email',
         <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
           <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5 text-center">
             <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold text-white/70">Step 2 of 2</span>
-            <h2 className="mt-1 text-lg font-bold text-white">Verify Your {method === 'email' ? 'Email' : 'Mobile Number'}</h2>
-            <p className="mt-1 text-sm text-emerald-100">Code sent by {method === 'email' ? 'email' : 'SMS'} to</p>
+            <h2 className="mt-1 text-lg font-bold text-white">Verify Your Mobile Number</h2>
+            <p className="mt-1 text-sm text-emerald-100">SMS verification code sent to</p>
             <p className="text-sm font-bold text-white">{destination}</p>
           </div>
           <form onSubmit={handleVerify} className="space-y-5 px-6 py-6">
             {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-600">{error}</div>}
             <div><label className="mb-3 block text-center text-xs font-bold uppercase tracking-wider text-slate-500">6-Digit Verification Code</label><OtpBoxes value={code} onChange={(next) => { setCode(next); setError('') }} /></div>
-            <button type="submit" aria-busy={loading} disabled={loading || switching || code.length < 6} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60">{loading ? 'Verifying…' : <><MdCheckCircle /> Verify and Create Account</>}</button>
+            <button type="submit" aria-busy={loading} disabled={loading || code.length < 6} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-60">{loading ? 'Verifying…' : <><MdCheckCircle /> Verify and Create Account</>}</button>
             <div className="space-y-2 text-center text-sm">
-              <button type="button" disabled={switching} onClick={() => sendBy(method === 'sms' ? 'email' : 'sms')} className="font-bold text-emerald-600 hover:text-emerald-700 disabled:opacity-50">{switching ? 'Sending…' : `Try another way — use ${method === 'sms' ? 'email' : 'SMS'}`}</button>
+              <button type="button" onClick={resendCode} className="font-bold text-emerald-600 hover:text-emerald-700 disabled:opacity-50">Resend SMS code</button>
               <div><button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600"><MdArrowBack /> Change registration details</button></div>
             </div>
           </form>
@@ -288,8 +270,6 @@ const PatientRegister = () => {
     return (
       <VerificationForm
         pendingPhone={pendingRegistration.phone}
-        pendingEmail={pendingRegistration.email}
-        initialMethod={pendingRegistration.method}
         onBack={() => setPendingRegistration(null)}
       />
     )

@@ -2485,6 +2485,8 @@ const getInventoryBatchHistory = async (req, res) => {
 }
 
 const INVENTORY_BATCH_ACTION_PURPOSE = 'inventory_batch_action'
+const BILLING_PAYMENT_ACTION_PURPOSE = 'billing_payment_action'
+const BILLING_PAYMENT_ACTIONS = new Set(['void', 'refund'])
 const INVENTORY_BATCH_ACTIONS = new Set(['correct_quantity', 'correct_details', 'archive', 'restore', 'delete'])
 
 const maskEmailAddress = (email = '') => {
@@ -2928,72 +2930,165 @@ const getBillingReconciliation = async (req, res) => {
   })
 }
 
-const voidBillingPayment = async (req, res) => {
+const getBillingPaymentForProtectedAction = async (paymentId, executor = db, forUpdate = false) => {
+  const [rows] = await executor.query(
+    `SELECT bp.*, br.patient_id, br.total_amount AS billing_total_amount
+     FROM billing_payments bp
+     JOIN billing_records br ON br.id = bp.billing_id
+     WHERE bp.id = ?
+     ${forUpdate ? 'FOR UPDATE' : ''}`,
+    [paymentId]
+  )
+  return rows[0] || null
+}
+
+const normalizeBillingPaymentAction = (action, body, payment) => {
+  if (!BILLING_PAYMENT_ACTIONS.has(action)) throw Object.assign(new Error('Unsupported payment action.'), { statusCode: 400 })
+  const reason = String(body?.reason || '').trim()
+  if (reason.length < 5) throw Object.assign(new Error(`${action === 'refund' ? 'Refund' : 'Void'} reason must be at least 5 characters.`), { statusCode: 400 })
+  if (reason.length > 500) throw Object.assign(new Error('Reason must be 500 characters or fewer.'), { statusCode: 400 })
+  if (payment.status !== 'completed') throw Object.assign(new Error(`Only completed payments can be ${action === 'refund' ? 'refunded' : 'voided'}.`), { statusCode: 409 })
+
+  const available = Math.max(0, Number(payment.amount || 0) - Number(payment.refund_amount || 0))
+  if (action === 'void') {
+    if (Number(payment.refund_amount || 0) > 0) {
+      throw Object.assign(new Error('This payment already has a refund and can no longer be voided. Refund the remaining refundable amount instead.'), { statusCode: 409, code: 'PAYMENT_ALREADY_REFUNDED' })
+    }
+    return { reason }
+  }
+
+  const amount = body?.amount === undefined || body?.amount === null || body?.amount === '' ? available : Number(body.amount)
+  if (!Number.isFinite(amount) || amount <= 0 || amount > available + 0.001) {
+    throw Object.assign(new Error(`Refund amount must be greater than zero and cannot exceed the refundable amount of ₱${available.toFixed(2)}.`), { statusCode: 400, code: 'INVALID_REFUND_AMOUNT', max_refundable: available })
+  }
+  return { reason, amount: Math.round(amount * 100) / 100 }
+}
+
+const requestBillingPaymentActionCode = async (req, res, forcedAction = null) => {
   const paymentId = Number(req.params.paymentId)
-  const reason = String(req.body.reason || '').trim()
-  if (!reason) return res.status(400).json({ message: 'Void reason is required.' })
+  const action = forcedAction || String(req.body?.action || '').trim().toLowerCase()
+  if (!paymentId || !BILLING_PAYMENT_ACTIONS.has(action)) return res.status(400).json({ message: 'Select a valid payment action.' })
+
+  const payment = await getBillingPaymentForProtectedAction(paymentId)
+  if (!payment) return res.status(404).json({ message: 'Payment not found.' })
+
+  let requested
+  try { requested = normalizeBillingPaymentAction(action, req.body, payment) }
+  catch (error) { return res.status(error.statusCode || 400).json({ message: error.message, code: error.code || null, max_refundable: error.max_refundable }) }
+
+  const [[admin]] = await db.query('SELECT id,full_name,email,password FROM admins WHERE id=? LIMIT 1', [req.user.id])
+  if (!admin) return res.status(404).json({ message: 'Administrator account not found.' })
+  const password = String(req.body?.password || '')
+  if (!password) return res.status(400).json({ message: 'Admin password is required.' })
+  const passwordMatches = await bcrypt.compare(password, admin.password)
+  if (!passwordMatches) return res.status(401).json({ message: 'Admin password is incorrect.' })
+  if (!admin.email) return res.status(400).json({ message: 'The administrator account needs an email address for verification.' })
+
+  const authorizationPayload = {
+    action,
+    payment_id: payment.id,
+    billing_id: payment.billing_id,
+    old: {
+      status: payment.status,
+      amount: Number(payment.amount || 0),
+      refund_amount: Number(payment.refund_amount || 0),
+      reference_number: payment.reference_number || null,
+    },
+    requested,
+  }
+
+  try {
+    const code = await createSecurityCode({
+      role: 'admin', accountId: req.user.id, purpose: BILLING_PAYMENT_ACTION_PURPOSE, payload: authorizationPayload,
+    })
+    await sendAccountSecurityOtp(admin.email, admin.full_name, code)
+    await writeAuditLog({
+      userId:req.user.id,userRole:'admin',action:'billing.payment_action_verification_requested',entityType:'billing_payment',entityId:payment.id,
+      newValues:{ action, billing_id:payment.billing_id, reason:requested.reason, refund_amount:requested.amount || null },ipAddress:req.ip||null,
+    }).catch(() => {})
+    return res.json({
+      message: `Password verified. A 6-digit verification code was sent to ${maskEmailAddress(admin.email)}.`,
+      destination: maskEmailAddress(admin.email),
+      action,
+    })
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Could not send the verification code.' })
+  }
+}
+
+const voidBillingPayment = async (req, res) => requestBillingPaymentActionCode(req, res, 'void')
+const refundBillingPayment = async (req, res) => requestBillingPaymentActionCode(req, res, 'refund')
+
+const confirmBillingPaymentAction = async (req, res) => {
+  const routePaymentId = Number(req.params.paymentId)
+  const code = String(req.body?.code || '').trim()
+  if (!routePaymentId || !/^\d{6}$/.test(code)) return res.status(400).json({ message: 'Enter the 6-digit email verification code.' })
+
+  let verified
+  try {
+    verified = await verifySecurityCode({ role:'admin', accountId:req.user.id, purpose:BILLING_PAYMENT_ACTION_PURPOSE, code })
+  } catch (error) {
+    return res.status(400).json({ message: error.message || 'Invalid or expired verification code.' })
+  }
+
+  const authorization = verified.payload || {}
+  const action = String(authorization.action || '')
+  const paymentId = Number(authorization.payment_id)
+  if (!BILLING_PAYMENT_ACTIONS.has(action) || paymentId !== routePaymentId) {
+    return res.status(400).json({ message: 'This verification code does not authorize the selected payment action.' })
+  }
+
   const conn = await db.getConnection()
-  let billingId
+  let billingId = null
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query('SELECT * FROM billing_payments WHERE id=? FOR UPDATE', [paymentId])
-    if (!rows.length) { await conn.rollback(); return res.status(404).json({ message: 'Payment not found.' }) }
-    const payment = rows[0]; billingId = payment.billing_id
-    if (payment.status !== 'completed') { await conn.rollback(); return res.status(400).json({ message: 'Only completed payments can be voided.' }) }
-    if (Number(payment.refund_amount || 0) > 0) {
-      await conn.rollback()
-      return res.status(409).json({ code: 'PAYMENT_ALREADY_REFUNDED', message: 'This payment already has a refund and can no longer be voided. Refund the remaining refundable amount instead.' })
+    const payment = await getBillingPaymentForProtectedAction(paymentId, conn, true)
+    if (!payment) throw Object.assign(new Error('Payment not found.'), { statusCode: 404 })
+    billingId = payment.billing_id
+
+    const expected = authorization.old || {}
+    if (
+      String(payment.status || '') !== String(expected.status || '') ||
+      Math.abs(Number(payment.amount || 0) - Number(expected.amount || 0)) > 0.001 ||
+      Math.abs(Number(payment.refund_amount || 0) - Number(expected.refund_amount || 0)) > 0.001 ||
+      String(payment.reference_number || '') !== String(expected.reference_number || '')
+    ) {
+      throw Object.assign(new Error('This payment changed after verification was requested. Review the latest transaction and request a new code.'), { statusCode: 409, code: 'PAYMENT_CHANGED' })
     }
-    await conn.query(`UPDATE billing_payments SET status='voided', voided_at=NOW(), void_reason=? WHERE id=?`, [reason, paymentId])
+
+    const requested = authorization.requested || {}
+    const normalized = normalizeBillingPaymentAction(action, requested, payment)
+
+    if (action === 'void') {
+      await conn.query(`UPDATE billing_payments SET status='voided', voided_at=NOW(), void_reason=? WHERE id=?`, [normalized.reason, paymentId])
+    } else {
+      const nextRefund = Math.round((Number(payment.refund_amount || 0) + Number(normalized.amount || 0)) * 100) / 100
+      await conn.query(`UPDATE billing_payments SET refund_amount=?, refunded_at=NOW(), refund_reason=?, refunded_by_admin_id=? WHERE id=?`, [nextRefund, normalized.reason, req.user.id, paymentId])
+    }
+
     const bill = await getBillingRecordWithItems(billingId, conn)
     const paidAfter = Math.max(0, Number(bill.paid_amount || 0))
     const balanceAfter = Math.max(0, Number(bill.total_amount || 0) - paidAfter)
     const nextStatus = paidAfter <= 0 ? 'ready' : balanceAfter <= 0 ? 'paid' : 'partially_paid'
     await conn.query(`UPDATE billing_records SET status=?, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`, [nextStatus, nextStatus, billingId])
-    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.payment_voided',entityType:'billing_payment',entityId:paymentId,oldValues:{status:'completed',amount:payment.amount},newValues:{status:'voided',reason,billing_status:nextStatus},ipAddress:req.ip||null },conn)
-    await conn.commit()
-  } catch(e){
-    await conn.rollback()
-    if (e.statusCode && !res.headersSent) return res.status(e.statusCode).json({ message: e.message, code: e.code })
-    throw e
-  } finally { conn.release() }
-  broadcast(['admin','staff'], 'billing_payment_changed', { billingId, paymentId, action: 'voided' })
-  res.json(await getBillingRecordWithItems(billingId))
-}
 
-const refundBillingPayment = async (req, res) => {
-  const paymentId = Number(req.params.paymentId)
-  const reason = String(req.body.reason || '').trim()
-  if (!reason) return res.status(400).json({ message: 'Refund reason is required.' })
-  const conn = await db.getConnection(); let billingId
-  try {
-    await conn.beginTransaction()
-    const [rows] = await conn.query('SELECT * FROM billing_payments WHERE id=? FOR UPDATE',[paymentId])
-    if (!rows.length){ await conn.rollback(); return res.status(404).json({message:'Payment not found.'}) }
-    const payment=rows[0]; billingId=payment.billing_id
-    if(payment.status!=='completed'){ await conn.rollback(); return res.status(400).json({message:'Only completed payments can be refunded.'}) }
-    const available=Math.max(0,Number(payment.amount||0)-Number(payment.refund_amount||0))
-    const amount=req.body.amount===undefined||req.body.amount===null||req.body.amount===''?available:Number(req.body.amount)
-    if(!Number.isFinite(amount)||amount<=0||amount>available+0.001){
-      await conn.rollback()
-      return res.status(400).json({code:'INVALID_REFUND_AMOUNT',message:`Refund amount must be greater than zero and cannot exceed the refundable amount of ₱${available.toFixed(2)}.`,max_refundable:available})
+    if (action === 'void') {
+      await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.payment_voided',entityType:'billing_payment',entityId:paymentId,oldValues:{status:'completed',amount:payment.amount},newValues:{status:'voided',reason:normalized.reason,billing_status:nextStatus,authorization:'admin_password_email_code'},ipAddress:req.ip||null },conn)
+    } else {
+      const nextRefund = Math.round((Number(payment.refund_amount || 0) + Number(normalized.amount || 0)) * 100) / 100
+      await writeAuditLog({userId:req.user.id,userRole:'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:normalized.amount,reason:normalized.reason,billing_status:nextStatus,balance_after:balanceAfter,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
     }
-    const nextRefund=Math.round((Number(payment.refund_amount||0)+amount)*100)/100
-    await conn.query(`UPDATE billing_payments SET refund_amount=?, refunded_at=NOW(), refund_reason=?, refunded_by_admin_id=? WHERE id=?`,[nextRefund,reason,req.user.id,paymentId])
-    const bill=await getBillingRecordWithItems(billingId,conn)
-    const paidAfter=Math.max(0,Number(bill.paid_amount||0))
-    const balanceAfter=Math.max(0,Number(bill.total_amount||0)-paidAfter)
-    const nextStatus=paidAfter<=0?'ready':balanceAfter<=0?'paid':'partially_paid'
-    await conn.query(`UPDATE billing_records SET status=?, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`,[nextStatus,nextStatus,billingId])
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:amount,reason,billing_status:nextStatus,balance_after:balanceAfter},ipAddress:req.ip||null},conn)
+
     await conn.commit()
-  }catch(e){
-    await conn.rollback()
-    if (e.statusCode && !res.headersSent) return res.status(e.statusCode).json({ message: e.message, code: e.code })
-    throw e
-  }finally{conn.release()}
-  broadcast(['admin','staff'], 'billing_payment_changed', { billingId, paymentId, action: 'refunded' })
-  res.json(await getBillingRecordWithItems(billingId))
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Payment action failed.', code: error.code || null, max_refundable: error.max_refundable })
+  } finally {
+    conn.release()
+  }
+
+  broadcast(['admin','staff'], 'billing_payment_changed', { billingId, paymentId, action: action === 'void' ? 'voided' : 'refunded' })
+  return res.json(await getBillingRecordWithItems(billingId))
 }
 
 const getClinicSettingsAdmin = async (req,res) => {
@@ -3628,7 +3723,7 @@ module.exports = {
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
   getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
-  getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment,
+  getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment, confirmBillingPaymentAction,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
   getSystemSetup, saveBillingServiceCategory, saveInventoryUom, saveInventorySupplier, saveInventoryLocationType, saveInventoryMovementReason, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
   getReports, recordReportExport, getInventoryLogs, getInventoryBatchHistory,

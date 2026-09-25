@@ -76,8 +76,9 @@ export const getBills = (params = {}) => {
 
 export const getBillById = (id) => requestJson(`${BASE}/billing/${id}`)
 export const getBillingReconciliation = (date = '') => requestJson(`${BASE}/billing/reconciliation${date ? `?date=${encodeURIComponent(date)}` : ''}`)
-export const voidBillingPayment = (paymentId, reason) => requestJson(`${BASE}/billing/payments/${paymentId}/void`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) })
+export const voidBillingPayment = (paymentId, payload) => requestJson(`${BASE}/billing/payments/${paymentId}/void`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 export const refundBillingPayment = (paymentId, payload) => requestJson(`${BASE}/billing/payments/${paymentId}/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const confirmBillingPaymentAction = (paymentId, code) => requestJson(`${BASE}/billing/payments/${paymentId}/action/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
 export const getBillingAdjustmentRequests = (params = {}) => {
   const search = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') search.set(key, value) })

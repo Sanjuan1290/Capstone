@@ -40,7 +40,9 @@ export const LineChart = ({ data = [], xKey = 'label', yKey = 'value', valueForm
         <polyline points={points} fill="none" stroke="currentColor" className="text-emerald-500" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
         {data.map((row, index) => (
           <g key={`${row[xKey]}-${index}`}>
-            <circle cx={x(index)} cy={y(row[yKey])} r="5" fill="currentColor" className="text-emerald-500" />
+            <circle cx={x(index)} cy={y(row[yKey])} r="7" fill="currentColor" className="cursor-pointer text-emerald-500">
+              <title>{`${String(row[xKey] ?? '')}: ${valueFormatter(row[yKey])}`}</title>
+            </circle>
             <circle cx={x(index)} cy={y(row[yKey])} r="2" fill="white" />
             <text x={x(index)} y={height - 14} textAnchor="middle" className="fill-slate-500 text-[10px]">{String(row[xKey] ?? '')}</text>
           </g>
@@ -77,7 +79,9 @@ export const GroupedColumnChart = ({ data = [], xKey = 'label', series = [], emp
                 {series.map((item, seriesIndex) => {
                   const value = safeNumber(row[item.key])
                   const barHeight = (value / maxValue) * plotHeight
-                  return <rect key={item.key} x={start + seriesIndex * (barWidth + barGap)} y={top + plotHeight - barHeight} width={barWidth} height={Math.max(1, barHeight)} rx="4" fill="currentColor" className={item.textClass || 'text-sky-500'} />
+                  return <rect key={item.key} x={start + seriesIndex * (barWidth + barGap)} y={top + plotHeight - barHeight} width={barWidth} height={Math.max(1, barHeight)} rx="4" fill="currentColor" className={`cursor-pointer ${item.textClass || 'text-sky-500'}`}>
+                    <title>{`${String(row[xKey] ?? '')} · ${item.label}: ${shortNumber(value)}`}</title>
+                  </rect>
                 })}
                 <text x={center} y={height - 14} textAnchor="middle" className="fill-slate-500 text-[10px]">{String(row[xKey] ?? '')}</text>
               </g>
@@ -121,13 +125,15 @@ export const ComboChart = ({ data = [], xKey = 'label', columnKey = 'columns', l
             const barHeight = (value / maxColumn) * plotHeight
             return (
               <g key={`${row[xKey]}-${index}`}>
-                <rect x={pointX(index) - barWidth / 2} y={top + plotHeight - barHeight} width={barWidth} height={Math.max(1, barHeight)} rx="6" fill="currentColor" className="text-sky-500" />
+                <rect x={pointX(index) - barWidth / 2} y={top + plotHeight - barHeight} width={barWidth} height={Math.max(1, barHeight)} rx="6" fill="currentColor" className="cursor-pointer text-sky-500">
+                  <title>{`${String(row[xKey] ?? '')} · ${columnLabel}: ${shortNumber(value)}`}</title>
+                </rect>
                 <text x={pointX(index)} y={height - 14} textAnchor="middle" className="fill-slate-500 text-[10px]">{String(row[xKey] ?? '')}</text>
               </g>
             )
           })}
           <polyline points={linePoints} fill="none" stroke="currentColor" className="text-emerald-500" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-          {data.map((row, index) => <circle key={index} cx={pointX(index)} cy={lineY(row[lineKey])} r="4.5" fill="currentColor" className="text-emerald-500" />)}
+          {data.map((row, index) => <circle key={index} cx={pointX(index)} cy={lineY(row[lineKey])} r="6" fill="currentColor" className="cursor-pointer text-emerald-500"><title>{`${String(row[xKey] ?? '')} · ${lineLabel}: ${lineFormatter(row[lineKey])}`}</title></circle>)}
         </svg>
       </div>
     </div>
@@ -143,7 +149,7 @@ export const HorizontalBarChart = ({ data = [], labelKey = 'label', valueKey = '
         const value = safeNumber(row[valueKey])
         const width = Math.max(value > 0 ? 3 : 0, (value / maxValue) * 100)
         return (
-          <div key={`${row[labelKey]}-${index}`}>
+          <div key={`${row[labelKey]}-${index}`} title={`${String(row[labelKey] ?? '')}: ${valueFormatter(value)}`}>
             <div className="mb-1.5 flex items-center justify-between gap-4 text-sm">
               <span className="truncate font-semibold text-slate-700">{row[labelKey]}</span>
               <span className="shrink-0 font-black text-slate-900">{valueFormatter(value)}</span>
