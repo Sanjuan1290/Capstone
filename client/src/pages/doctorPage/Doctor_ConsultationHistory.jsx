@@ -115,4 +115,3 @@ const Doctor_ConsultationHistory = () => {
 }
 
 export default Doctor_ConsultationHistory
-

@@ -1,24 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import {
   MdAdd,
-  MdCategory,
   MdEdit,
-  MdInventory2,
-  MdLocalShipping,
-  MdPlace,
+  MdDelete,
+  MdWarningAmber,
   MdRefresh,
   MdSettings,
-  MdSwapVert,
 } from 'react-icons/md'
 import Admin_PatientBooking from './Admin_PatientBooking'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
+import SystemSetupTabs, { SYSTEM_SETUP_TABS } from '../../components/system/SystemSetupTabs'
 import useClientPagination from '../../hooks/useClientPagination'
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/PageState'
 import { useToast } from '../../components/ui/ToastProvider'
 import {
   getSystemSetup,
+  deleteBillingServiceCategory,
+  deleteInventoryUom,
   saveBillingServiceCategory,
   saveInventoryLocationType,
   saveInventoryMovementReason,
@@ -26,14 +26,7 @@ import {
   saveInventoryUom,
 } from '../../services/admin.service'
 
-const TABS = [
-  { key: 'visits', label: 'Patient Visits', Icon: MdSettings },
-  { key: 'service_categories', label: 'Service Categories', Icon: MdCategory },
-  { key: 'uoms', label: 'Units of Measure', Icon: MdInventory2 },
-  { key: 'suppliers', label: 'Suppliers', Icon: MdLocalShipping },
-  { key: 'location_types', label: 'Storage Classifications', Icon: MdPlace },
-  { key: 'movement_reasons', label: 'Movement Reasons', Icon: MdSwapVert },
-]
+const TABS = SYSTEM_SETUP_TABS.filter((item) => !['billing_setup'].includes(item.key))
 
 const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : 'General Medicine'
 const parseSupplierClinics = (value) => String(value || '').split(',').map((entry) => entry.trim()).filter((entry) => ['medical','derma'].includes(entry))
@@ -42,11 +35,13 @@ const supplierClinicLabel = (value) => {
   return clinics.length ? clinics.map(clinicLabel).join(', ') : '—'
 }
 
-const ReferenceManager = ({ type, rows, onReload }) => {
+const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
   const toast = useToast()
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
 
   const nameMaxLength = {
@@ -63,7 +58,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
       plural: 'Service Categories',
       singular: 'service category',
       save: saveBillingServiceCategory,
-      description: 'Categories only group actual services. They are shown alphabetically in Add Service; create bookable services separately under Billing → Setup → Services & Pricing.',
+      description: 'Categories only group actual services. They are shown alphabetically in Add Service; create bookable services under System Setup → Billing Setup → Services & Pricing.',
     },
     uoms: {
       title: 'Unit of Measure',
@@ -114,11 +109,9 @@ const ReferenceManager = ({ type, rows, onReload }) => {
     if (type === 'uoms') {
       setForm({
         name: row?.name || '',
-        abbreviation: row?.abbreviation || '',
         is_active: row ? Number(row.is_active) : 1,
         sort_order: row?.sort_order ?? 0,
         allow_decimal_quantity: row ? Number(row.allow_decimal_quantity || 0) : 0,
-        decimal_precision: row ? Number(row.decimal_precision || 0) : 0,
       })
     }
     if (type === 'suppliers') {
@@ -166,6 +159,32 @@ const ReferenceManager = ({ type, rows, onReload }) => {
     }
   }
 
+
+  const requestDelete = (row) => {
+    if (!['service_categories', 'uoms'].includes(type)) return
+    setDeleteTarget(row)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    const inUseCount = type === 'service_categories'
+      ? Number(deleteTarget.service_count || 0)
+      : Number(deleteTarget.inventory_count || 0)
+    if (inUseCount > 0) return
+    setDeleting(true)
+    try {
+      if (type === 'service_categories') await deleteBillingServiceCategory(deleteTarget.id)
+      else await deleteInventoryUom(deleteTarget.id)
+      toast.success(`${config.title} deleted.`)
+      setDeleteTarget(null)
+      await onReload()
+    } catch (err) {
+      toast.error(err.message || `Could not delete ${config.singular}.`)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
@@ -174,7 +193,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
           <p className="mt-1 max-w-3xl text-sm text-slate-500">{config.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {type === 'service_categories' && <Link className="button-secondary" to="/admin/billing/setup/services">Manage Services & Pricing</Link>}
+          {type === 'service_categories' && <Link className="button-secondary" to={`${portalBase}/system-setup/billing/services`}>Manage Services & Pricing</Link>}
           <button className="button-primary" onClick={() => open()}><MdAdd /> Add {config.title}</button>
         </div>
       </div>
@@ -190,7 +209,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                 <th className="px-5 py-3">Name</th>
                 {type === 'service_categories' && <th className="px-5 py-3">Clinic</th>}
                 {type === 'service_categories' && <th className="px-5 py-3">Used By</th>}
-                {type === 'uoms' && <><th className="px-5 py-3">Abbreviation</th><th className="px-5 py-3">Quantity Precision</th></>}
+                {type === 'uoms' && <><th className="px-5 py-3">Quantity Rule</th><th className="px-5 py-3">Used By</th></>}
                 {type === 'suppliers' && <th className="px-5 py-3">Contact</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Address</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Clinic</th>}
@@ -206,7 +225,7 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                   <td className="px-5 py-4 font-semibold text-slate-800">{row.name}</td>
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.service_count || 0)} service{Number(row.service_count || 0) === 1 ? '' : 's'}</td>}
-                  {type === 'uoms' && <><td className="px-5 py-4 text-slate-500">{row.abbreviation || '—'}</td><td className="px-5 py-4 text-slate-500">{Number(row.allow_decimal_quantity) === 1 ? `Up to ${Number(row.decimal_precision || 2)} decimal place${Number(row.decimal_precision || 2) === 1 ? '' : 's'}` : 'Whole units only'}</td></>}
+                  {type === 'uoms' && <><td className="px-5 py-4 text-slate-500">{Number(row.allow_decimal_quantity) === 1 ? 'Decimals allowed (2 places)' : 'Whole units only'}</td><td className="px-5 py-4 text-slate-500">{Number(row.inventory_count || 0)} inventory item{Number(row.inventory_count || 0) === 1 ? '' : 's'}</td></>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500"><p className="font-semibold text-slate-700">{row.contact_person || '—'}</p><p className="mt-1 text-xs">{row.contact_number || 'No contact number'}</p></td>}
                   {type === 'suppliers' && <td className="max-w-xs px-5 py-4 text-slate-500">{row.address || '—'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{supplierClinicLabel(row.category)}</td>}
@@ -217,7 +236,12 @@ const ReferenceManager = ({ type, rows, onReload }) => {
                       {Number(row.is_active) === 1 ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td className="px-5 py-4 text-right"><button className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button></td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="inline-flex flex-wrap justify-end gap-2">
+                      <button className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button>
+                      {['service_categories','uoms'].includes(type) && <button className="button-secondary !border-rose-200 !text-rose-600 hover:!bg-rose-50" onClick={() => requestDelete(row)}><MdDelete /> Delete</button>}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -248,35 +272,18 @@ const ReferenceManager = ({ type, rows, onReload }) => {
           )}
 
           {type === 'uoms' && (
-            <>
-              <label className="block">
-                <span className="form-label">Abbreviation</span>
-                <input maxLength={30} className="form-control mt-1.5" value={form.abbreviation || ''} onChange={(e) => setForm((value) => ({ ...value, abbreviation: e.target.value }))} placeholder="e.g. cap, pc, mL" />
-              </label>
-              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
-                  checked={Number(form.allow_decimal_quantity) === 1}
-                  onChange={(e) => setForm((value) => ({ ...value, allow_decimal_quantity: e.target.checked ? 1 : 0, decimal_precision: e.target.checked ? Math.max(1, Number(value.decimal_precision || 2)) : 0 }))}
-                />
-                <span>
-                  <strong className="text-sm text-slate-800">Allow decimal quantities</strong>
-                  <span className="mt-0.5 block text-xs text-slate-500">Leave off for countable units such as pieces, tablets, capsules, boxes, or vials. Turn on only for measured units such as mL, grams, or meters.</span>
-                </span>
-              </label>
-              {Number(form.allow_decimal_quantity) === 1 && (
-                <label className="block">
-                  <span className="form-label">Decimal Places *</span>
-                  <select className="form-control mt-1.5" value={Math.max(1, Number(form.decimal_precision || 2))} onChange={(e) => setForm((value) => ({ ...value, decimal_precision: Number(e.target.value) }))}>
-                    <option value={1}>1 decimal place (0.1)</option>
-                    <option value={2}>2 decimal places (0.01)</option>
-                    <option value={3}>3 decimal places (0.001)</option>
-                    <option value={4}>4 decimal places (0.0001)</option>
-                  </select>
-                </label>
-              )}
-            </>
+            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+                checked={Number(form.allow_decimal_quantity) === 1}
+                onChange={(e) => setForm((value) => ({ ...value, allow_decimal_quantity: e.target.checked ? 1 : 0 }))}
+              />
+              <span>
+                <strong className="text-sm text-slate-800">Allow decimal quantities</strong>
+                <span className="mt-0.5 block text-xs text-slate-500">Leave off for countable units such as pieces, tablets, capsules, boxes, or vials. When enabled, quantities always use up to 2 decimal places (0.01), which is intended for measured units such as mL, grams, liters, or meters.</span>
+              </span>
+            </label>
           )}
 
           {type === 'suppliers' && (
@@ -361,12 +368,42 @@ const ReferenceManager = ({ type, rows, onReload }) => {
           </div>
         </div>
       </Modal>
+
+      <Modal open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)} title={`Delete ${config.title}`} size="sm">
+        {deleteTarget && (() => {
+          const inUseCount = type === 'service_categories' ? Number(deleteTarget.service_count || 0) : Number(deleteTarget.inventory_count || 0)
+          const inUseLabel = type === 'service_categories'
+            ? `${inUseCount} service${inUseCount === 1 ? '' : 's'}`
+            : `${inUseCount} inventory item${inUseCount === 1 ? '' : 's'}`
+          return <div className="space-y-4">
+            <div className={`flex items-start gap-3 rounded-2xl border p-4 ${inUseCount > 0 ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}>
+              <MdWarningAmber className={`mt-0.5 shrink-0 text-xl ${inUseCount > 0 ? 'text-amber-600' : 'text-rose-600'}`} />
+              <div>
+                <p className="font-bold text-slate-900">{deleteTarget.name}</p>
+                {inUseCount > 0 ? (
+                  <p className="mt-1 text-sm text-slate-600">This {config.singular} is currently used by {inUseLabel} and cannot be permanently deleted. Edit it and set its status to <strong>Inactive</strong> instead so existing records remain valid.</p>
+                ) : (
+                  <p className="mt-1 text-sm text-slate-600">This {config.singular} is not in use. Permanent deletion cannot be undone.</p>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="button-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>{inUseCount > 0 ? 'Close' : 'Cancel'}</button>
+              {inUseCount > 0 ? (
+                <button className="button-primary" onClick={() => { setDeleteTarget(null); open(deleteTarget) }}>Edit & Deactivate</button>
+              ) : (
+                <button className="button-primary !bg-rose-600 hover:!bg-rose-700" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : `Delete ${config.title}`}</button>
+              )}
+            </div>
+          </div>
+        })()}
+      </Modal>
     </section>
   )
 }
 
 const Admin_SystemSetup = () => {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
   const validTab = TABS.some((item) => item.key === requestedTab) ? requestedTab : 'visits'
   const [tab, setTab] = useState(validTab)
@@ -394,29 +431,17 @@ const Admin_SystemSetup = () => {
     if (tab !== 'visits') load()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selectTab = (key) => {
-    setTab(key)
-    if (key === 'visits') setSearchParams({})
-    else setSearchParams({ tab: key })
-  }
-
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdSettings className="text-amber-500" /> System Setup</h1>
-          <p className="mt-1 text-sm text-slate-500">Manage patient visit options, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
+          <p className="mt-1 text-sm text-slate-500">Manage patient visit options, billing setup, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
         </div>
         {tab !== 'visits' && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
       </div>
 
-      <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2">
-        {TABS.map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => selectTab(key)} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === key ? 'bg-[#0b1a2c] text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
-            <Icon /> {label}
-          </button>
-        ))}
-      </div>
+      <SystemSetupTabs />
 
       {tab === 'visits' ? (
         <Admin_PatientBooking embedded />
@@ -425,14 +450,10 @@ const Admin_SystemSetup = () => {
       ) : error ? (
         <ErrorState message={error} onRetry={load} />
       ) : (
-        <ReferenceManager type={tab} rows={data[tab] || []} onReload={load} />
+        <ReferenceManager type={tab} rows={data[tab] || []} onReload={load} portalBase={portalBase} />
       )}
     </div>
   )
 }
 
 export default Admin_SystemSetup
-
-
-
-

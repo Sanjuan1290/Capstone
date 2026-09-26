@@ -9,7 +9,7 @@ const REQUIRED_TABLES = [
   'billing_adjustment_requests', 'inventory', 'inventory_uoms', 'inventory_suppliers', 'inventory_batches',
   'consultation_inventory_usage_batches', 'billing_item_batch_usage', 'inventory_locations', 'inventory_location_batches', 'inventory_location_stock',
   'supply_requests', 'audit_logs', 'audit_log_archives', 'notifications', 'landing_page_content', 'clinic_payment_settings',
-  'doctor_schedules', 'inventory_location_types', 'inventory_movement_reasons', 'billing_service_categories',
+  'doctor_schedules', 'inventory_location_types', 'inventory_movement_reasons', 'billing_service_categories', 'staff_permissions',
 ]
 
 const REQUIRED_COLUMNS = {
@@ -183,6 +183,3 @@ const run = async () => {
 }
 
 run()
-
-
-

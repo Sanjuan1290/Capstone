@@ -19,4 +19,3 @@ describe('queue workflow state machine', () => {
     expect(() => assertQueueTransition('called', 'waiting')).not.toThrow()
   })
 })
-

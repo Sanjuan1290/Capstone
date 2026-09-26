@@ -37,4 +37,3 @@ describe('manual stock-out policy', () => {
     expect(source).toContain('consumeInventoryFromLocationByBatches')
   })
 })
-

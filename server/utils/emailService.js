@@ -189,4 +189,3 @@ module.exports = {
   sendAdminMfaOtp,
   sendAccountSecurityOtp,
 }
-

@@ -61,5 +61,3 @@ CREATE TABLE IF NOT EXISTS inventory_location_types (
   UNIQUE KEY uniq_inventory_location_type_name (name),
   UNIQUE KEY uniq_inventory_location_type_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
-

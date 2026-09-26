@@ -133,4 +133,3 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
 }
 
 export default ScheduleDayCard
-

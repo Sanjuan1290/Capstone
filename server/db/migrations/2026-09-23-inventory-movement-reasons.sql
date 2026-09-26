@@ -31,4 +31,3 @@ ON DUPLICATE KEY UPDATE
   movement_type = VALUES(movement_type),
   requires_batch = VALUES(requires_batch),
   is_system = VALUES(is_system);
-

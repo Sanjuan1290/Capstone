@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { hasStaffPermission } from '../../config/staffPermissions'
 import { getDashboardStats, getAppointments } from '../../services/staff.service'
 import { getLocalDateOnly } from '../../utils/date'
 import {
@@ -22,6 +23,7 @@ const STATUS_CONFIG = {
 
 const Staff_Dashboard = () => {
   const { user } = useAuth()
+  const canAppointments = hasStaffPermission(user, 'appointments')
   const [stats,        setStats]        = useState(null)
   const [appointments, setAppointments] = useState([])
   const [loading,      setLoading]      = useState(true)
@@ -32,7 +34,7 @@ const Staff_Dashboard = () => {
 
   const load = () => {
     setLoading(true)
-    Promise.all([getDashboardStats(), getAppointments(today)])
+    Promise.all([getDashboardStats(), canAppointments ? getAppointments(today) : Promise.resolve([])])
       .then(([s, a]) => {
         setStats(s)
         setAppointments(Array.isArray(a) ? a : [])
@@ -41,18 +43,18 @@ const Staff_Dashboard = () => {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [today])
+  useEffect(() => { load() }, [today, canAppointments]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const confirmedCount = appointments.filter(a => a.status === "confirmed").length
   const pendingCount   = appointments.filter(a => a.status === "pending").length
 
   const quickLinks = [
-    { label: "Appointments",    path: "/staff/appointments",    icon: MdEventAvailable, color: "text-sky-600",     bg: "bg-sky-50"     },
-    { label: "Checkout",        path: "/staff/checkout",         icon: MdPayments,       color: "text-emerald-600", bg: "bg-emerald-50" },
-    { label: "Walk-in Queue",   path: "/staff/walkin",          icon: MdQueuePlayNext,  color: "text-emerald-600", bg: "bg-emerald-50" },
-    { label: "Patient Records", path: "/staff/patient-records", icon: MdPeople,         color: "text-violet-600",  bg: "bg-violet-50"  },
-    { label: "Inventory",       path: "/staff/inventory",       icon: MdInventory2,     color: "text-amber-600",   bg: "bg-amber-50"   },
-  ]
+    { permission: 'appointments', label: "Appointments", path: "/staff/appointments", icon: MdEventAvailable, color: "text-sky-600", bg: "bg-sky-50" },
+    { permission: 'checkout', label: "Checkout", path: "/staff/checkout", icon: MdPayments, color: "text-emerald-600", bg: "bg-emerald-50" },
+    { permission: 'appointments', label: "Walk-in Queue", path: "/staff/walkin", icon: MdQueuePlayNext, color: "text-emerald-600", bg: "bg-emerald-50" },
+    { permission: 'patient_records', label: "Patient Records", path: "/staff/patient-records", icon: MdPeople, color: "text-violet-600", bg: "bg-violet-50" },
+    { permission: 'inventory', label: "Inventory", path: "/staff/inventory", icon: MdInventory2, color: "text-amber-600", bg: "bg-amber-50" },
+  ].filter((item) => hasStaffPermission(user, item.permission))
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -78,9 +80,7 @@ const Staff_Dashboard = () => {
               Welcome, <span className="text-sky-400">{firstName}! 👋</span>
             </h1>
             <p className="text-slate-400 text-sm mt-1.5 leading-relaxed">
-              <span className="text-white font-semibold">{appointments.length} appointments</span> today —{' '}
-              <span className="text-emerald-400 font-semibold">{confirmedCount} confirmed</span>,{' '}
-              <span className="text-amber-400 font-semibold">{pendingCount} pending</span>
+              {canAppointments ? <><span className="text-white font-semibold">{appointments.length} appointments</span> today — <span className="text-emerald-400 font-semibold">{confirmedCount} confirmed</span>, <span className="text-amber-400 font-semibold">{pendingCount} pending</span></> : 'Your dashboard shows the clinic summaries included with your assigned access.'}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -88,10 +88,7 @@ const Staff_Dashboard = () => {
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
               <MdRefresh className="text-[18px]" />
             </button>
-            <NavLink to="/staff/appointments"
-              className="hidden sm:flex items-center gap-2 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
-              <MdEventAvailable className="text-[15px]" /> Appointments
-            </NavLink>
+            {canAppointments && <NavLink to="/staff/appointments" className="hidden sm:flex items-center gap-2 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors"><MdEventAvailable className="text-[15px]" /> Appointments</NavLink>}
           </div>
         </div>
       </div>
@@ -132,7 +129,7 @@ const Staff_Dashboard = () => {
       </div>
 
       {/* ── Today's Appointments ──────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      {canAppointments && <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <MdCalendarToday className="text-sky-500 text-[16px]" />
@@ -188,10 +185,9 @@ const Staff_Dashboard = () => {
             })}
           </div>
         )}
-      </div>
+      </div>}
     </div>
   )
 }
 
 export default Staff_Dashboard
-

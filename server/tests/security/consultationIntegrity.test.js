@@ -9,4 +9,3 @@ describe('clinical record integrity', () => {
     expect(() => assertConsultationEditable({ id: 1, status: 'finalized' })).toThrow(/finalized/i)
   })
 })
-

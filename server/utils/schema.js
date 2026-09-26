@@ -19,6 +19,20 @@ const ensureTable = async (sql) => {
   await db.query(sql)
 }
 
+const dropColumnIfExists = async (table, column) => {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?`,
+    [table, column]
+  )
+  if (Number(rows[0]?.count || 0) > 0) {
+    await db.query(`ALTER TABLE ${table} DROP COLUMN ${column}`)
+  }
+}
+
 const ensureIndex = async (table, indexName, columnsSql, { unique = false } = {}) => {
   const [rows] = await db.query(
     `SELECT COUNT(*) AS count FROM information_schema.STATISTICS
@@ -273,7 +287,6 @@ const ensureAppSchema = async () => {
     CREATE TABLE IF NOT EXISTS inventory_uoms (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(80) NOT NULL,
-      abbreviation VARCHAR(30) NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -283,6 +296,9 @@ const ensureAppSchema = async () => {
   `)
   await ensureColumn('inventory_uoms', 'allow_decimal_quantity', 'TINYINT(1) NOT NULL DEFAULT 0').catch(() => {})
   await ensureColumn('inventory_uoms', 'decimal_precision', 'TINYINT NOT NULL DEFAULT 0').catch(() => {})
+  // Abbreviations were removed from System Setup; UOM names are the single display label.
+  await dropColumnIfExists('inventory_uoms', 'abbreviation').catch(() => {})
+  await db.query('UPDATE inventory_uoms SET decimal_precision = CASE WHEN allow_decimal_quantity = 1 THEN 2 ELSE 0 END').catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_suppliers (
@@ -1243,6 +1259,34 @@ const ensureAppSchema = async () => {
   await ensureColumn('staff', 'must_change_password', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('staff', 'password_changed_at', "DATETIME NULL")
 
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS staff_permissions (
+      staff_id INT NOT NULL,
+      permission_key VARCHAR(50) NOT NULL,
+      granted TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (staff_id, permission_key),
+      KEY idx_staff_permissions_key (permission_key, granted),
+      CONSTRAINT fk_staff_permissions_staff FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE
+    )
+  `)
+  await db.query(`
+    INSERT IGNORE INTO staff_permissions (staff_id, permission_key, granted)
+    SELECT s.id, p.permission_key, 1
+    FROM staff s
+    JOIN (
+      SELECT 'dashboard' permission_key UNION ALL
+      SELECT 'appointments' UNION ALL
+      SELECT 'patient_records' UNION ALL
+      SELECT 'doctor_schedules' UNION ALL
+      SELECT 'checkout' UNION ALL
+      SELECT 'inventory' UNION ALL
+      SELECT 'stock_transfers'
+    ) p
+    WHERE NOT EXISTS (SELECT 1 FROM staff_permissions sp WHERE sp.staff_id=s.id)
+  `).catch(() => {})
+
   await ensureColumn('doctors', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('doctors', 'profile_image_url', "TEXT NULL")
   await ensureColumn('doctors', 'must_change_password', "TINYINT(1) NOT NULL DEFAULT 0")
@@ -1421,8 +1465,3 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
-
-
-
-
-

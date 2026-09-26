@@ -137,7 +137,10 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, d
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-sm text-slate-800 truncate">{doc.full_name||doc.name}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{doc.specialty||ct?.label}</p>
+            <div className="mt-1 space-y-0.5 text-xs text-slate-500">
+              <p><span className="font-semibold text-slate-600">Specialty:</span> {String(doc.specialty || '').trim() || 'Not specified'}</p>
+              <p><span className="font-semibold text-slate-600">Clinic:</span> {ct?.label || (doc.clinic_type === 'derma' ? 'Dermatology' : 'General Medicine')}</p>
+            </div>
             {(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).length>0 ? <p className="mt-1 text-[11px] text-emerald-600">{(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).slice(0,3).map(s=>s.day_of_week.slice(0,3)).join(', ')} · {scheduleSummary((doc.weekly_schedule||[]).find(s=>Number(s.is_active)!==0))}</p> : <p className="mt-1 text-[11px] font-semibold text-amber-600">No online schedule configured</p>}
             {doc.next_available && <p className="mt-1 text-[11px] font-bold text-emerald-700">Next available: {doc.next_available.date} · {doc.next_available.time}</p>}
           </div>
@@ -646,5 +649,3 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
-
-

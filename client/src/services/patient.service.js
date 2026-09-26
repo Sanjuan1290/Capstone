@@ -124,4 +124,3 @@ export const updatePatientProfile = async (payload) => {
   })
   return parseJson(res)
 }
-

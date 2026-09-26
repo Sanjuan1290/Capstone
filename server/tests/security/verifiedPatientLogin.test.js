@@ -13,4 +13,3 @@ describe('patient verified-channel login', () => {
     expect(source).toContain('phone_verified_at = NOW()')
   })
 })
-

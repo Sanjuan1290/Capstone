@@ -57,7 +57,7 @@ const createClinicalUploadSignature = ({ doctorId, appointmentId, patientId, cli
   }
 }
 
-const createPaymentQrUploadSignature = ({ adminId, provider, scanMode = 'scan' }) => {
+const createPaymentQrUploadSignature = ({ adminId, actorId, actorRole = 'admin', provider, scanMode = 'scan' }) => {
   const normalizedProvider = String(provider || '').trim().toLowerCase()
   if (!['gcash', 'maya'].includes(normalizedProvider)) {
     throw Object.assign(new Error('Payment QR provider must be GCash or Maya.'), { statusCode: 400 })
@@ -66,7 +66,12 @@ const createPaymentQrUploadSignature = ({ adminId, provider, scanMode = 'scan' }
   const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
   const timestamp = Math.floor(Date.now() / 1000)
   const baseFolder = String(process.env.CLOUDINARY_PAYMENT_FOLDER || 'carait-clinic/payment-qr').replace(/^\/+|\/+$/g, '')
-  const folder = `${baseFolder}/admin-${Number(adminId)}`
+  const uploaderId = Number(actorId ?? adminId)
+  const uploaderRole = String(actorRole || 'admin').toLowerCase() === 'staff' ? 'staff' : 'admin'
+  if (!Number.isFinite(uploaderId) || uploaderId <= 0) {
+    throw Object.assign(new Error('A valid payment QR uploader is required.'), { statusCode: 400 })
+  }
+  const folder = `${baseFolder}/${uploaderRole}-${uploaderId}`
   const publicId = `${normalizedProvider}-qr-${timestamp}`
   const normalizedScanMode = normalizeScanMode(scanMode)
   const params = withScanModeration({ folder, public_id: publicId, timestamp }, normalizedScanMode)
@@ -350,4 +355,3 @@ module.exports = {
   hasValidImageSignature,
   detectImageMime,
 }
-

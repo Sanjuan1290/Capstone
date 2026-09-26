@@ -47,13 +47,12 @@ const resolveConfiguredMovementReason = async (type, value, executor) => {
 }
 const validateQuantityByUom = async (item, quantity, executor) => {
   const [[policy]] = await executor.query(
-    `SELECT COALESCE(allow_decimal_quantity,0) AS allow_decimal_quantity,
-            COALESCE(decimal_precision,0) AS decimal_precision
+    `SELECT COALESCE(allow_decimal_quantity,0) AS allow_decimal_quantity
      FROM inventory_uoms WHERE LOWER(name)=LOWER(?) LIMIT 1`,
     [item.uom || item.base_unit || item.unit || '']
   ).catch(() => [[null]])
   const allowDecimal = Number(policy?.allow_decimal_quantity || 0) === 1
-  const precision = allowDecimal ? Math.min(4, Math.max(0, Number(policy?.decimal_precision || 0))) : 0
+  const precision = allowDecimal ? 2 : 0
   const scale = 10 ** precision
   if (!allowDecimal && Math.abs(quantity - Math.round(quantity)) > 0.000001) {
     throw Object.assign(new Error(`${item.uom || item.unit || 'This unit'} only allows whole-number quantities.`), { statusCode: 400, code: 'INVENTORY_QUANTITY_PRECISION' })
@@ -219,5 +218,3 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
 }
 
 module.exports = { applyManualInventoryMovement }
-
-

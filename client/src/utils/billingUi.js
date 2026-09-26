@@ -38,4 +38,3 @@ export const enabledPaymentMethods = (settings = {}) => [
   { value: 'maya', label: 'Maya', enabled: settings.maya_enabled !== 0 && settings.maya_enabled !== false },
   { value: 'bank_transfer', label: 'Bank Transfer', enabled: settings.bank_transfer_enabled !== 0 && settings.bank_transfer_enabled !== false },
 ].filter((method) => method.enabled)
-

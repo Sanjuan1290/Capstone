@@ -1114,7 +1114,6 @@ const getInventoryItems = async (req, res) => {
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS unit,
             i.dosage_form, i.strength, i.stock, i.stock_base, i.threshold, i.selling_price,
             COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal,
-            COALESCE(u.decimal_precision,0) AS uom_decimal_precision,
             COALESCE((SELECT SUM(ils.quantity)
                       FROM inventory_location_stock ils
                       JOIN inventory_locations il ON il.id=ils.location_id
@@ -1200,8 +1199,7 @@ const submitRequest = async (req, res) => {
   const [[inventory]] = await db.query(
     `SELECT i.id, i.name, i.category, COALESCE(i.item_type,'medicine') AS item_type,
             COALESCE(i.uom,i.base_unit,i.unit,'') AS uom,
-            COALESCE(u.allow_decimal_quantity,0) AS allow_decimal_quantity,
-            COALESCE(u.decimal_precision,0) AS decimal_precision
+            COALESCE(u.allow_decimal_quantity,0) AS allow_decimal_quantity
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
      WHERE i.id = ? AND i.archived_at IS NULL LIMIT 1`,
@@ -1209,7 +1207,7 @@ const submitRequest = async (req, res) => {
   )
   if (!inventory) return res.status(404).json({ message: 'Inventory item not found.' })
 
-  const precision = Number(inventory.allow_decimal_quantity) === 1 ? Math.min(4, Math.max(1, Number(inventory.decimal_precision || 2))) : 0
+  const precision = Number(inventory.allow_decimal_quantity) === 1 ? 2 : 0
   const factor = 10 ** precision
   if (Math.abs(quantity * factor - Math.round(quantity * factor)) > 0.0000001) {
     return res.status(400).json({
@@ -1441,6 +1439,3 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
-
-
-

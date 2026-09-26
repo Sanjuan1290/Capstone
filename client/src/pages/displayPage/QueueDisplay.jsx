@@ -299,4 +299,3 @@ const QueueDisplay = () => {
 }
 
 export default QueueDisplay
-

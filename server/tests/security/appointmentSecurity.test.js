@@ -22,4 +22,3 @@ describe('appointment server-side security', () => {
       .rejects.toThrow(/outside/i)
   })
 })
-

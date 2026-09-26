@@ -919,7 +919,3 @@ module.exports = {
   getDoctorUnavailableDatesController,
   getDoctorTakenSlots,
 }
-
-
-
-

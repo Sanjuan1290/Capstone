@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { MdArchive, MdHistory, MdRefresh, MdSearch, MdVisibility, MdEventAvailable, MdInventory2, MdSwapHoriz, MdCalendarMonth, MdPayments, MdSettings, MdSecurity } from 'react-icons/md'
 import { createAuditArchive, getAuditLogs } from '../../services/admin.service'
+import { useAuth } from '../../context/AuthContext'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -258,6 +259,9 @@ const auditPresentation = (row) => {
 }
 
 const Admin_AuditLogs = () => {
+  const { role } = useAuth()
+  const portalBase = role === 'staff' ? '/staff' : '/admin'
+  const canArchive = role === 'admin'
   const toast = useToast()
   const [data, setData] = useState({ items: [], pagination: { page: 1, totalPages: 1, total: 0, limit: 20 } })
   const [page, setPage] = useState(1)
@@ -300,7 +304,7 @@ const Admin_AuditLogs = () => {
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdHistory className="text-amber-500" /> Audit Logs</h1>
           <p className="mt-1 text-sm text-slate-500">A clear history of important clinic actions. Technical MFA handshake events are kept securely but hidden from this activity feed.</p>
         </div>
-        <div className="flex flex-wrap gap-2"><Link className="button-secondary" to="/admin/audit-logs/archive"><MdArchive /> View Archive</Link><button type="button" className="button-secondary" disabled={archiving} onClick={archiveEligible}><MdArchive /> {archiving ? 'Archiving…' : 'Archive 1+ Year Logs'}</button><button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
+        <div className="flex flex-wrap gap-2"><Link className="button-secondary" to={`${portalBase}/audit-logs/archive`}><MdArchive /> View Archive</Link>{canArchive && <button type="button" className="button-secondary" disabled={archiving} onClick={archiveEligible}><MdArchive /> {archiving ? 'Archiving…' : 'Archive 1+ Year Logs'}</button>}<button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -379,5 +383,3 @@ const Admin_AuditLogs = () => {
 }
 
 export default Admin_AuditLogs
-
-

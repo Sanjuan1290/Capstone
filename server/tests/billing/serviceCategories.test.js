@@ -16,12 +16,17 @@ describe('editable billing service categories', () => {
   })
 
   it('exposes Service Categories in Admin System Setup', () => {
-    const source = fs.readFileSync(
+    const setup = fs.readFileSync(
       path.join(projectRoot, 'client', 'src', 'pages', 'adminPage', 'Admin_SystemSetup.jsx'),
       'utf8'
     )
-    expect(source).toContain("key: 'service_categories'")
-    expect(source).toContain('saveBillingServiceCategory')
+    const tabs = fs.readFileSync(
+      path.join(projectRoot, 'client', 'src', 'components', 'system', 'SystemSetupTabs.jsx'),
+      'utf8'
+    )
+    expect(tabs).toContain("key: 'service_categories'")
+    expect(setup).toContain('SYSTEM_SETUP_TABS')
+    expect(setup).toContain('saveBillingServiceCategory')
   })
 
   it('requires the database-backed category reference in the billing catalog schema', () => {
@@ -31,4 +36,3 @@ describe('editable billing service categories', () => {
     expect(schema).toContain('fk_billing_service_category')
   })
 })
-

@@ -21,7 +21,6 @@ const GROUPS = [
     { name: 'Doctor Schedules', path: '/admin/doctor-schedules', icon: MdCalendarToday, short: 'Schedule' },
   ] },
   { label: 'Billing & Stock', items: [
-    { name: 'Checkout', path: '/admin/checkout', icon: MdPayments, short: 'Checkout' },
     { name: 'Billing', path: '/admin/billing', icon: MdPayments, short: 'Billing' },
     { name: 'Inventory', path: '/admin/inventory', icon: MdInventory2, short: 'Stock' },
     { name: 'Stock Transfers', path: '/admin/supply-requests', icon: MdInventory2, short: 'Transfer' },
@@ -94,4 +93,3 @@ const AdminLayout = () => {
 }
 
 export default AdminLayout
-

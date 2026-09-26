@@ -437,12 +437,12 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
   const uomOptions = (masterData.uoms || []).map((entry) => ({
     id: entry.id,
     value: String(entry.name || '').trim().toLowerCase(),
-    label: entry.abbreviation ? `${entry.name} (${entry.abbreviation})` : entry.name,
+    label: entry.name,
   })).filter((entry) => entry.value)
   const locationTypes = (masterData.location_types || []).filter((entry) => Number(entry.is_active ?? 1) === 1)
   const selectedLocationType = locationTypes.find((entry) => Number(entry.id) === Number(form.location_type_id)) || null
   const selectedUom = (masterData.uoms || []).find((entry) => String(entry.name || '').trim().toLowerCase() === String(form.uom || '').trim().toLowerCase()) || null
-  const quantityStep = Number(selectedUom?.allow_decimal_quantity || 0) === 1 ? (1 / (10 ** Math.max(0, Number(selectedUom?.decimal_precision || 0)))) : 1
+  const quantityStep = Number(selectedUom?.allow_decimal_quantity || 0) === 1 ? 0.01 : 1
   const update = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
   const normalizedBarcode = String(form.barcode || '').trim()
   const duplicateBarcode = normalizedBarcode
@@ -695,7 +695,7 @@ const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReaso
   const clinicStock = Number(item?.stock ?? 0)
   const internalBatchPreview = getNextBatchCodePreview(item)
   const receiptSuppliers = (Array.isArray(suppliers) ? suppliers : []).filter((supplier)=>supplierSupportsClinic(supplier,item.category))
-  const qtyStep = Number(item?.uom_allow_decimal || 0) === 1 ? (1 / (10 ** Math.max(0, Number(item?.uom_decimal_precision || 0)))) : 1
+  const qtyStep = Number(item?.uom_allow_decimal || 0) === 1 ? 0.01 : 1
 
   useEffect(() => {
     if (!reasons.some((reason) => reason.value === movementReason)) setMovementReason(reasons[0]?.value || '')
@@ -1187,6 +1187,3 @@ const Inventory = ({ services, canManageSellingPrice = true }) => {
 }
 
 export default Inventory
-
-
-

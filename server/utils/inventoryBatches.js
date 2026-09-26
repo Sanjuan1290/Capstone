@@ -539,8 +539,3 @@ module.exports = {
   transferInventoryBatchesFEFO,
   attachBatchesToInventory,
 }
-
-
-
-
-

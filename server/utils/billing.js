@@ -706,4 +706,3 @@ module.exports = {
   replaceStaffBillingItems,
   upsertDraftBillingForAppointment,
 }
-

@@ -51,6 +51,7 @@ const { writeAuditLog } = require('../utils/audit')
 const { normalizeText, normalizeOptionalText, normalizeNumber, normalizePositiveId, assertPlainObject } = require('../utils/inputValidation')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
 const { resolveDiscountForDraft, loadDiscountPreset } = require('../utils/billingSecurity')
+const { loadStaffPermissions } = require('../utils/staffPermissions')
 
 const makeTempPassword = () => makeTemporaryPassword(14)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
@@ -155,7 +156,7 @@ const resolveInventorySetupSelection = async ({ uom, location_type_id }, executo
     throw error
   }
   const [[uomRow]] = await executor.query(
-    'SELECT id,name,abbreviation FROM inventory_uoms WHERE LOWER(name)=? AND is_active=1 LIMIT 1',
+    'SELECT id,name FROM inventory_uoms WHERE LOWER(name)=? AND is_active=1 LIMIT 1',
     [String(uom).trim().toLowerCase()]
   )
   if (!uomRow) {
@@ -239,8 +240,7 @@ const findExistingPatientByPhone = async (phone) => {
 const loadInventoryRows = async (executor = db, whereClause = '', params = []) => {
   const [rows] = await executor.query(
     `SELECT i.*, lt.name AS location_type_name, lt.code AS location_type_code,
-            COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal,
-            COALESCE(u.decimal_precision,0) AS uom_decimal_precision
+            COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal
      FROM (
        SELECT *
        FROM inventory
@@ -281,9 +281,10 @@ const login = async (req, res) => {
   await issueSession(res, 'staff', staff.id)
   await writeAuditLog({ userId: staff.id, userRole: 'staff', action: 'auth.login_success', entityType: 'staff', entityId: staff.id, ipAddress: req.ip || null }).catch(() => {})
 
+  const permissions = await loadStaffPermissions(staff.id)
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: staff.id, full_name: staff.full_name, email: staff.email, role: 'staff', theme_preference: staff.theme_preference, profile_image_url: staff.profile_image_url, must_change_password: Boolean(staff.must_change_password) },
+    user: { id: staff.id, full_name: staff.full_name, email: staff.email, role: 'staff', theme_preference: staff.theme_preference, profile_image_url: staff.profile_image_url, must_change_password: Boolean(staff.must_change_password), permissions },
   })
 }
 
@@ -296,7 +297,8 @@ const checkAuth = async (req, res) => {
       "SELECT id, full_name, email, theme_preference, profile_image_url, must_change_password, password_changed_at FROM staff WHERE id = ? AND status = 'active'", [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
-    res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'staff' } })
+    const permissions = await loadStaffPermissions(decoded.id)
+    res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'staff', permissions } })
   } catch {
     res.status(200).json({ authenticated: false })
   }
@@ -1555,7 +1557,7 @@ const supplierSupportsClinic = (categoryValue, clinic) => String(categoryValue |
 
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
-  const [uoms] = await db.query('SELECT id,name,abbreviation,allow_decimal_quantity,decimal_precision FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
+  const [uoms] = await db.query('SELECT id,name,allow_decimal_quantity,decimal_precision FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
   const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name`, category ? [category] : [])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE is_active=1 ORDER BY sort_order,name')
   const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
@@ -1908,4 +1910,3 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
-

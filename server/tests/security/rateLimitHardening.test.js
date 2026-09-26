@@ -62,4 +62,3 @@ describe('rate limit hardening', () => {
     expect(blocked.body?.code).toBe('RATE_LIMITED')
   })
 })
-

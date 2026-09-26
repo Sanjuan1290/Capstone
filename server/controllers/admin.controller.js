@@ -62,6 +62,7 @@ const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
 const { applyManualInventoryMovement } = require('../utils/manualInventoryMovement')
 const { isValidQueueStatus } = require('../utils/workflowValidation')
+const { DEFAULT_STAFF_PERMISSIONS, loadStaffPermissions, replaceStaffPermissions, normalizeStaffPermissions, samePermissionSet } = require('../utils/staffPermissions')
 const {
   getActiveAppointmentConflict,
   getLastNoShowAppointment,
@@ -170,7 +171,7 @@ const resolveInventorySetupSelection = async ({ uom, location_type_id }, executo
     throw error
   }
   const [[uomRow]] = await executor.query(
-    'SELECT id,name,abbreviation FROM inventory_uoms WHERE LOWER(name)=? AND is_active=1 LIMIT 1',
+    'SELECT id,name FROM inventory_uoms WHERE LOWER(name)=? AND is_active=1 LIMIT 1',
     [String(uom).trim().toLowerCase()]
   )
   if (!uomRow) {
@@ -283,8 +284,7 @@ const saveBillingServiceMaterials = async (serviceId, materials, executor = db) 
 const loadInventoryRows = async (executor = db, whereClause = '', params = []) => {
   const [rows] = await executor.query(
     `SELECT i.*, lt.name AS location_type_name, lt.code AS location_type_code,
-            COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal,
-            COALESCE(u.decimal_precision,0) AS uom_decimal_precision
+            COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal
      FROM (
        SELECT *
        FROM inventory
@@ -361,19 +361,19 @@ const login = async (req, res) => {
 
   const [rows] = await db.query('SELECT * FROM admins WHERE email = ?', [email])
   if (rows.length === 0) {
-    await writeAuditLog({ userRole: 'admin', action: 'auth.login_failed', entityType: 'admin', newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
+    await writeAuditLog({ userRole: req.user?.role || 'admin', action: 'auth.login_failed', entityType: 'admin', newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
   }
   const admin = rows[0]
   const match = await bcrypt.compare(password, admin.password)
   if (!match) {
-    await writeAuditLog({ userId: admin.id, userRole: 'admin', action: 'auth.login_failed', entityType: 'admin', entityId: admin.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
+    await writeAuditLog({ userId: admin.id, userRole: req.user?.role || 'admin', action: 'auth.login_failed', entityType: 'admin', entityId: admin.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
   }
 
   if (String(process.env.ADMIN_MFA_ENABLED || 'true').toLowerCase() !== 'false') {
     await requestAdminMfa(admin)
-    await writeAuditLog({ userId: admin.id, userRole: 'admin', action: 'auth.mfa_challenge_sent', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
+    await writeAuditLog({ userId: admin.id, userRole: req.user?.role || 'admin', action: 'auth.mfa_challenge_sent', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
     const pendingToken = jwt.sign(
       { id: admin.id, role: 'admin_mfa', session_version: Number(admin.session_version || 1) },
       process.env.JWT_SECRET,
@@ -390,7 +390,7 @@ const login = async (req, res) => {
   }
 
   await issueSession(res, 'admin', admin.id)
-  await writeAuditLog({ userId: admin.id, userRole: 'admin', action: 'auth.login_success', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
+  await writeAuditLog({ userId: admin.id, userRole: req.user?.role || 'admin', action: 'auth.login_success', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
   return res.status(200).json({
     message: 'Login successful.',
     user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
@@ -409,8 +409,8 @@ const verifyLoginMfa = async (req, res) => {
     }
     await verifyAdminMfa(decoded.id, req.body?.code)
     await issueSession(res, 'admin', decoded.id)
-    await writeAuditLog({ userId: decoded.id, userRole: 'admin', action: 'auth.mfa_verified', entityType: 'admin', entityId: decoded.id, ipAddress: req.ip || null }).catch(() => {})
-    await writeAuditLog({ userId: decoded.id, userRole: 'admin', action: 'auth.login_success', entityType: 'admin', entityId: decoded.id, ipAddress: req.ip || null }).catch(() => {})
+    await writeAuditLog({ userId: decoded.id, userRole: req.user?.role || 'admin', action: 'auth.mfa_verified', entityType: 'admin', entityId: decoded.id, ipAddress: req.ip || null }).catch(() => {})
+    await writeAuditLog({ userId: decoded.id, userRole: req.user?.role || 'admin', action: 'auth.login_success', entityType: 'admin', entityId: decoded.id, ipAddress: req.ip || null }).catch(() => {})
     res.clearCookie('admin_mfa_pending', { path: '/' })
     const admin = rows[0]
     return res.json({
@@ -437,7 +437,7 @@ const checkAuth = async (req, res) => {
 }
 
 const logout = async (req, res) => {
-  await writeAuditLog({ userId: req.user?.id || null, userRole: 'admin', action: 'auth.logout', entityType: 'admin', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
+  await writeAuditLog({ userId: req.user?.id || null, userRole: req.user?.role || 'admin', action: 'auth.logout', entityType: 'admin', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
   res.clearCookie('admin_token', { path: '/' })
   res.clearCookie('admin_mfa_pending', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })
@@ -556,7 +556,7 @@ const confirmAppointment = async (req, res) => {
   assertAppointmentTransition(rows[0].status, 'confirmed')
   const [updated] = await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ? AND status = ?", [id, rows[0].status])
   await assertAppointmentMutationApplied(updated, id)
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'appointment.confirmed',entityType:'appointment',entityId:id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.confirmed',entityType:'appointment',entityId:id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -625,7 +625,7 @@ const cancelAppointment = async (req, res) => {
   assertAppointmentTransition(rows[0].status, 'cancelled')
   const [updated] = await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
   await assertAppointmentMutationApplied(updated, req.params.id)
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'appointment.cancelled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'cancelled'},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.cancelled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'cancelled'},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -677,7 +677,7 @@ const markAppointmentNoShow = async (req, res) => {
   assertAppointmentTransition(rows[0].status, 'no_show')
   const [updated] = await db.query("UPDATE appointments SET status = 'no_show' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
   await assertAppointmentMutationApplied(updated, req.params.id)
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'appointment.no_show',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'no_show'},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.no_show',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'no_show'},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -724,7 +724,7 @@ const rescheduleAppointment = async (req, res) => {
     )
     await assertAppointmentMutationApplied(updated, req.params.id)
   })
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -796,7 +796,7 @@ const createAppointment = async (req, res) => {
     return inserted
   })
   await writeAuditLog({
-    userId: req.user.id, userRole: 'admin', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId,
+    userId: req.user.id, userRole: req.user?.role || 'admin', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId,
     newValues: { patient_id, doctor_id, clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'admin_booking' }, ipAddress: req.ip || null,
   })
   const [rows] = await db.query(
@@ -967,7 +967,7 @@ const createWalkInPatient = async (req, res) => {
     [name, normalizedBirthdate, normalizedSex, normalizedSex, normalizedPhone, normalizedEmail, hashedPassword, String(consent_method || 'signed_intake_form')]
   )
   await db.query('INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)', [result.insertId, 'data_processing', req.ip || null])
-  await writeAuditLog({ userId: req.user.id, userRole: 'admin', action: 'patient.walkin_registered', entityType: 'patient', entityId: result.insertId, newValues: { full_name: name, phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex, consent_method }, ipAddress: req.ip || null })
+  await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'patient.walkin_registered', entityType: 'patient', entityId: result.insertId, newValues: { full_name: name, phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex, consent_method }, ipAddress: req.ip || null })
   res.status(201).json({ id: result.insertId, full_name: name, phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex })
 }
 
@@ -976,34 +976,65 @@ const createWalkInPatient = async (req, res) => {
 
 const getStaff = async (req, res) => {
   const [rows] = await db.query('SELECT id, full_name, email, phone, role, status, created_at FROM staff ORDER BY full_name')
-  res.json(rows)
+  const [permissionRows] = await db.query(
+    `SELECT staff_id, permission_key FROM staff_permissions
+     WHERE granted = 1 ORDER BY staff_id, permission_key`
+  ).catch(() => [[]])
+  const byStaff = new Map()
+  permissionRows.forEach((row) => {
+    const list = byStaff.get(Number(row.staff_id)) || []
+    list.push(row.permission_key)
+    byStaff.set(Number(row.staff_id), list)
+  })
+  res.json(rows.map((row) => ({ ...row, permissions: byStaff.get(Number(row.id)) || [] })))
 }
 
 const createStaff = async (req, res) => {
   const { full_name, email, phone } = req.body
+  let permissions
+  try {
+    const hasPermissionPayload = Object.prototype.hasOwnProperty.call(req.body || {}, 'permissions')
+    permissions = normalizeStaffPermissions(hasPermissionPayload ? req.body.permissions : DEFAULT_STAFF_PERMISSIONS, { requireOne: true })
+  } catch (error) { return res.status(error.statusCode || 400).json({ message: error.message, code: error.code }) }
   if (!full_name || !email || !phone)
     return res.status(400).json({ message: 'Name, email, and phone number are required.' })
   const normalizedPhone = normalizePhilippinePhone(phone)
   if (!normalizedPhone)
     return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
-  const [existing] = await db.query('SELECT id FROM staff WHERE email = ?', [email])
+  const [existing] = await db.query('SELECT id FROM staff WHERE email = ?', [String(email).trim()])
   if (existing.length > 0)
     return res.status(409).json({ message: 'Email already exists.' })
   const tempPassword = makeTempPassword()
   const hashed = await bcrypt.hash(tempPassword, 10)
-  const [result] = await db.query(
-    'INSERT INTO staff (full_name, email, phone, password, role, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
-    [full_name, email, normalizedPhone, hashed, 'staff', 'active']
-  )
-  const [rows] = await db.query('SELECT id, full_name, email, phone, role, status, created_at FROM staff WHERE id = ?', [result.insertId])
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.staff_created',entityType:'staff',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,status:'active',must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
+  const conn = await db.getConnection()
+  let staffId
+  try {
+    await conn.beginTransaction()
+    const [result] = await conn.query(
+      'INSERT INTO staff (full_name, email, phone, password, role, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
+      [String(full_name).trim(), String(email).trim(), normalizedPhone, hashed, 'staff', 'active']
+    )
+    staffId = result.insertId
+    await replaceStaffPermissions(staffId, permissions, conn)
+    await writeAuditLog({
+      userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.staff_created',entityType:'staff',entityId:staffId,
+      newValues:{full_name:String(full_name).trim(),email:String(email).trim(),phone:normalizedPhone,status:'active',must_change_password:true,permissions},
+      ipAddress:req.ip||null,
+    }, conn)
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    throw error
+  } finally { conn.release() }
+
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/staff/login`
-    await sendTempPassword(email, full_name, 'Staff', tempPassword, loginUrl)
+    await sendTempPassword(String(email).trim(), String(full_name).trim(), 'Staff', tempPassword, loginUrl)
   } catch (err) {
     console.error('⚠️ Staff email failed:', err.message)
   }
-  res.status(201).json(rows[0])
+  const [[row]] = await db.query('SELECT id, full_name, email, phone, role, status, created_at FROM staff WHERE id = ?', [staffId])
+  res.status(201).json({ ...row, permissions })
 }
 
 const toggleStaff = async (req, res) => {
@@ -1011,7 +1042,7 @@ const toggleStaff = async (req, res) => {
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   const newStatus = rows[0].status === 'active' ? 'inactive' : 'active'
   await db.query('UPDATE staff SET status = ?, session_version = COALESCE(session_version,1) + 1 WHERE id = ?', [newStatus, req.params.id])
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:`account.staff_${newStatus === 'active' ? 'enabled' : 'disabled'}`,entityType:'staff',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:newStatus,sessions_revoked:true},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:`account.staff_${newStatus === 'active' ? 'enabled' : 'disabled'}`,entityType:'staff',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:newStatus,sessions_revoked:true},ipAddress:req.ip||null }).catch(() => {})
   res.json({ status: newStatus })
 }
 
@@ -1025,18 +1056,41 @@ const updateStaff = async (req, res) => {
 
   const [rows] = await db.query('SELECT id, email FROM staff WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Staff account not found.' })
-
-  const [existing] = await db.query('SELECT id FROM staff WHERE email = ? AND id <> ?', [email, req.params.id])
+  const [existing] = await db.query('SELECT id FROM staff WHERE email = ? AND id <> ?', [String(email).trim(), req.params.id])
   if (existing.length > 0)
     return res.status(409).json({ message: 'That email is already in use by another staff account.' })
 
-  await db.query(
-    'UPDATE staff SET full_name = ?, email = ?, phone = ? WHERE id = ?',
-    [full_name.trim(), email.trim(), normalizedPhone, req.params.id]
-  )
+  let nextPermissions = null
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'permissions')) {
+    try { nextPermissions = normalizeStaffPermissions(req.body.permissions, { requireOne: true }) }
+    catch (error) { return res.status(error.statusCode || 400).json({ message: error.message, code: error.code }) }
+  }
+
+  const currentPermissions = await loadStaffPermissions(req.params.id)
+  const permissionChanged = nextPermissions ? !samePermissionSet(currentPermissions, nextPermissions) : false
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    await conn.query(
+      `UPDATE staff SET full_name = ?, email = ?, phone = ?,
+       session_version = session_version + ? WHERE id = ?`,
+      [String(full_name).trim(), String(email).trim(), normalizedPhone, permissionChanged ? 1 : 0, req.params.id]
+    )
+    if (nextPermissions) await replaceStaffPermissions(req.params.id, nextPermissions, conn)
+    await writeAuditLog({
+      userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.staff_updated',entityType:'staff',entityId:req.params.id,
+      oldValues: permissionChanged ? { permissions: currentPermissions } : null,
+      newValues:{full_name:String(full_name).trim(),email:String(email).trim(),phone:normalizedPhone,permissions:nextPermissions || currentPermissions,sessions_revoked:permissionChanged},
+      ipAddress:req.ip||null,
+    }, conn)
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    throw error
+  } finally { conn.release() }
+
   const [updated] = await db.query('SELECT id, full_name, email, phone, role, status, created_at FROM staff WHERE id = ?', [req.params.id])
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.staff_updated',entityType:'staff',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone},ipAddress:req.ip||null }).catch(() => {})
-  res.json(updated[0])
+  res.json({ ...updated[0], permissions: nextPermissions || currentPermissions })
 }
 
 // ── Doctors ───────────────────────────────────────────────────────────────────
@@ -1072,7 +1126,7 @@ const createDoctor = async (req, res) => {
   const [rows] = await db.query(
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,specialty,clinic_type,prc_license,is_active:true,must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,specialty,clinic_type,prc_license,is_active:true,must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/doctor/login`
     await sendTempPassword(email, full_name, 'Doctor', tempPassword, loginUrl)
@@ -1087,7 +1141,7 @@ const toggleDoctor = async (req, res) => {
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   const newVal = rows[0].is_active ? 0 : 1
   await db.query('UPDATE doctors SET is_active = ?, session_version = COALESCE(session_version,1) + 1 WHERE id = ?', [newVal, req.params.id])
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:`account.doctor_${newVal ? 'enabled' : 'disabled'}`,entityType:'doctor',entityId:req.params.id,oldValues:{is_active:rows[0].is_active},newValues:{is_active:newVal,sessions_revoked:true},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:`account.doctor_${newVal ? 'enabled' : 'disabled'}`,entityType:'doctor',entityId:req.params.id,oldValues:{is_active:rows[0].is_active},newValues:{is_active:newVal,sessions_revoked:true},ipAddress:req.ip||null }).catch(() => {})
   res.json({ is_active: newVal })
 }
 
@@ -1116,7 +1170,7 @@ const updateDoctor = async (req, res) => {
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?',
     [req.params.id]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,specialty,clinic_type,prc_license},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,specialty,clinic_type,prc_license},ipAddress:req.ip||null }).catch(() => {})
   res.json(updated[0])
 }
 
@@ -1316,7 +1370,7 @@ const saveDoctorUnavailableDateAdmin = async (req, res) => {
   )
   const [doctorRows] = await db.query('SELECT full_name FROM doctors WHERE id = ? LIMIT 1', [doctorId])
   await writeAuditLog({
-    userId: req.user.id, userRole: 'admin', action: 'schedule.unavailable_date_saved', entityType: 'doctor_unavailable_date', entityId: `${doctorId}:${unavailableDate}`,
+    userId: req.user.id, userRole: req.user?.role || 'admin', action: 'schedule.unavailable_date_saved', entityType: 'doctor_unavailable_date', entityId: `${doctorId}:${unavailableDate}`,
     newValues: { doctor_id: Number(doctorId), doctor_name: doctorRows[0]?.full_name || null, unavailable_date: unavailableDate, reason }, ipAddress: req.ip || null,
   }).catch(() => {})
 
@@ -1335,7 +1389,7 @@ const deleteDoctorUnavailableDateAdmin = async (req, res) => {
     [req.params.id, unavailableDate]
   )
   await writeAuditLog({
-    userId: req.user.id, userRole: 'admin', action: 'schedule.unavailable_date_removed', entityType: 'doctor_unavailable_date', entityId: `${req.params.id}:${unavailableDate}`,
+    userId: req.user.id, userRole: req.user?.role || 'admin', action: 'schedule.unavailable_date_removed', entityType: 'doctor_unavailable_date', entityId: `${req.params.id}:${unavailableDate}`,
     newValues: { doctor_id: Number(req.params.id), doctor_name: doctorRows[0]?.full_name || null, unavailable_date: unavailableDate }, ipAddress: req.ip || null,
   }).catch(() => {})
 
@@ -1382,7 +1436,7 @@ const createBillingCatalogService = async (req, res) => {
       ]
     )
     await saveBillingServiceMaterials(result.insertId, payload.materials, conn)
-    await writeAuditLog({ userId: req.user.id, userRole: 'admin', action: 'catalog.service_created', entityType: 'billing_service', entityId: result.insertId, newValues: payload, ipAddress: req.ip || null }, conn)
+    await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'catalog.service_created', entityType: 'billing_service', entityId: result.insertId, newValues: payload, ipAddress: req.ip || null }, conn)
     await conn.commit()
 
     const created = await getBillingCatalogServiceById(result.insertId)
@@ -1440,7 +1494,7 @@ const updateBillingCatalogService = async (req, res) => {
       ]
     )
     await saveBillingServiceMaterials(req.params.serviceId, payload.materials, conn)
-    await writeAuditLog({ userId: req.user.id, userRole: 'admin', action: 'catalog.service_updated', entityType: 'billing_service', entityId: req.params.serviceId, newValues: payload, ipAddress: req.ip || null }, conn)
+    await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'catalog.service_updated', entityType: 'billing_service', entityId: req.params.serviceId, newValues: payload, ipAddress: req.ip || null }, conn)
     await conn.commit()
 
     const updated = await getBillingCatalogServiceById(req.params.serviceId)
@@ -1469,17 +1523,18 @@ const deleteBillingCatalogService = async (req, res) => {
   )
   if (Number(usage?.count || 0) > 0) {
     await db.query('UPDATE billing_service_catalog SET is_active = 0 WHERE id = ?', [req.params.serviceId])
-    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.service_archived',entityType:'billing_service',entityId:req.params.serviceId,oldValues:{service_name:rows[0].service_name,is_active:1},newValues:{is_active:0,historical_usage:Number(usage.count)},ipAddress:req.ip||null }).catch(() => {})
+    await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.service_archived',entityType:'billing_service',entityId:req.params.serviceId,oldValues:{service_name:rows[0].service_name,is_active:1},newValues:{is_active:0,historical_usage:Number(usage.count)},ipAddress:req.ip||null }).catch(() => {})
     return res.json({ message: 'Service archived. Historical bills were preserved.', archived: true })
   }
 
   await db.query('DELETE FROM billing_service_catalog WHERE id = ?', [req.params.serviceId])
-  await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.service_deleted',entityType:'billing_service',entityId:req.params.serviceId,oldValues:rows[0],newValues:null,ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.service_deleted',entityType:'billing_service',entityId:req.params.serviceId,oldValues:rows[0],newValues:null,ipAddress:req.ip||null }).catch(() => {})
   res.json({ message: 'Service deleted.', archived: false })
 }
 
 
 const uploadPaymentQrImageAdmin = async (req, res) => {
+  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
   const provider = String(req.query?.provider || '').trim().toLowerCase()
   const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
   if (!['gcash', 'maya'].includes(provider)) {
@@ -1495,7 +1550,7 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
     try {
       const bypass = verifyUploadSecurityToken(String(req.query?.bypass_token || ''), {
         stage: 'bypass_authorized',
-        role: 'admin',
+        role: actorRole,
         user_id: req.user.id,
         context_type: 'payment_qr',
         context_id: provider,
@@ -1511,7 +1566,7 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
 
   let uploaded
   try {
-    const signed = createPaymentQrUploadSignature({ adminId: req.user.id, provider, scanMode })
+    const signed = createPaymentQrUploadSignature({ actorRole, actorId: req.user.id, provider, scanMode })
     uploaded = await cloudinaryUploadBuffer({
       buffer: req.body,
       mimeType: req.get('content-type'),
@@ -1527,7 +1582,7 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
         message: reason === 'usage_limit_reached'
           ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
           : 'The malware scanner is currently unavailable. Only continue if this QR image comes from a trusted source.',
-        bypass_token: issueBypassAuthorizationToken({ role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider, reason, fileHash }),
+        bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider, reason, fileHash }),
       })
     }
     return res.status(error.statusCode || 502).json({ message: error.message || 'QR image upload failed.' })
@@ -1535,12 +1590,12 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
 
   if (scanMode === 'bypass') {
     const securityToken = issueAcceptedUploadToken({
-      role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+      role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider,
       status: 'bypassed', assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id,
     })
     await writeAuditLog({
       userId: req.user.id,
-      userRole: 'admin',
+      userRole: req.user?.role || 'admin',
       action: 'security.payment_qr_scan_bypassed',
       entityType: 'clinic_payment_settings',
       entityId: '1',
@@ -1563,13 +1618,14 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
     asset_id: uploaded.asset_id,
     public_id: uploaded.public_id,
     scan_token: issueScanPendingToken({
-      role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+      role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider,
       assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id, fileHash,
     }),
   })
 }
 
 const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
+  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
   const assetId = String(req.body?.asset_id || '').trim()
   const provider = String(req.body?.provider || '').trim().toLowerCase()
   const scanToken = String(req.body?.scan_token || '').trim()
@@ -1581,7 +1637,7 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
   try {
     pending = verifyUploadSecurityToken(scanToken, {
       stage: 'scan_pending',
-      role: 'admin',
+      role: actorRole,
       user_id: req.user.id,
       context_type: 'payment_qr',
       context_id: provider,
@@ -1595,7 +1651,7 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
     status: 'unavailable',
     reason,
     message,
-    bypass_token: issueBypassAuthorizationToken({ role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider, reason, fileHash: pending.file_sha256 }),
+    bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider, reason, fileHash: pending.file_sha256 }),
   })
 
   try {
@@ -1607,7 +1663,7 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
       return res.json({
         ...result,
         security_token: issueAcceptedUploadToken({
-          role: 'admin', userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+          role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider,
           status: 'approved', assetId, url: result.secure_url || pending.url, publicId: result.public_id || pending.public_id,
         }),
       })
@@ -1615,7 +1671,7 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
     if (result.status === 'rejected') {
       await writeAuditLog({
         userId: req.user.id,
-        userRole: 'admin',
+        userRole: req.user?.role || 'admin',
         action: 'security.payment_qr_upload_blocked',
         entityType: 'clinic_payment_settings',
         entityId: '1',
@@ -1666,6 +1722,7 @@ const getPaymentSettingsAdmin = async (req, res) => {
 }
 
 const updatePaymentSettingsAdmin = async (req, res) => {
+  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
   const rawGcash = String(req.body.gcash_qr_url || '').trim()
   const rawMaya = String(req.body.maya_qr_url || '').trim()
   const gcashQrUrl = normalizeOptionalImageUrl(rawGcash)
@@ -1725,7 +1782,7 @@ const updatePaymentSettingsAdmin = async (req, res) => {
 
       const verified = verifyUploadSecurityToken(req.body[tokenKey], {
         stage: 'accepted',
-        role: 'admin',
+        role: actorRole,
         user_id: req.user.id,
         context_type: 'payment_qr',
         context_id: provider,
@@ -1778,11 +1835,11 @@ const updatePaymentSettingsAdmin = async (req, res) => {
          updated_by_admin_id = VALUES(updated_by_admin_id)`,
       [payload.cash_enabled, payload.gcash_enabled, payload.maya_enabled, payload.bank_transfer_enabled,
        payload.gcash_qr_url, payload.maya_qr_url, payload.gcash_qr_scan_status, payload.maya_qr_scan_status,
-       payload.gcash_qr_mode, payload.maya_qr_mode, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user.id]
+       payload.gcash_qr_mode, payload.maya_qr_mode, payload.bank_name, payload.bank_account_name, payload.bank_account_number, req.user?.role === 'admin' ? req.user.id : null]
     )
     await writeAuditLog({
       userId: req.user.id,
-      userRole: 'admin',
+      userRole: req.user?.role || 'admin',
       action: 'billing.payment_settings_updated',
       entityType: 'clinic_payment_settings',
       entityId: '1',
@@ -1807,7 +1864,7 @@ const recordReportExport = async (req, res) => {
   const endDate = String(req.body?.end_date || '').trim() || null
   await writeAuditLog({
     userId: req.user.id,
-    userRole: 'admin',
+    userRole: req.user?.role || 'admin',
     action: 'reports.exported',
     entityType: 'report',
     entityId: startDate && endDate ? `${startDate}:${endDate}` : null,
@@ -2145,7 +2202,7 @@ const nextInventoryBarcode = async (category, conn = db) => {
 
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
-  const [uoms] = await db.query('SELECT id,name,abbreviation,allow_decimal_quantity,decimal_precision FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
+  const [uoms] = await db.query('SELECT id,name,allow_decimal_quantity,decimal_precision FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
   const [suppliers] = await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name ASC`, category ? [category] : [])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY is_active DESC,sort_order,name')
   const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
@@ -2284,7 +2341,7 @@ const addInventoryItem = async (req, res) => {
     }
     await writeAuditLog({
       userId: req.user.id,
-      userRole: 'admin',
+      userRole: req.user?.role || 'admin',
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
@@ -2414,7 +2471,7 @@ const deleteInventoryItem = async (req, res) => {
       return res.status(409).json({ message: 'This inventory item changed while you were viewing it. Refresh and try again.' })
     }
     await writeAuditLog({
-      userId:req.user.id,userRole:'admin',action:'inventory.item_archived',entityType:'inventory_item',entityId:inventoryId,
+      userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.item_archived',entityType:'inventory_item',entityId:inventoryId,
       oldValues:{ name:item.name, stock:Number(item.stock||0), archived_at:null },
       newValues:{ archived:true, archive_reason:reason, history_count:historyCount },ipAddress:req.ip||null,
     }, conn)
@@ -2681,7 +2738,7 @@ const requestInventoryBatchActionCode = async (req, res) => {
     })
     await sendAccountSecurityOtp(admin.email, admin.full_name, code)
     await writeAuditLog({
-      userId:req.user.id,userRole:'admin',action:'inventory.batch_action_verification_requested',entityType:'inventory_batch',entityId:batch.id,
+      userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_action_verification_requested',entityType:'inventory_batch',entityId:batch.id,
       newValues:{ action, item_name:batch.item_name, batch_code:batch.batch_code || null, reason:payload.reason },ipAddress:req.ip||null,
     }).catch(() => {})
     res.json({ message: `Verification code sent to ${maskEmailAddress(admin.email)}.`, destination: maskEmailAddress(admin.email) })
@@ -2795,7 +2852,7 @@ const confirmInventoryBatchAction = async (req, res) => {
       await syncInventorySnapshot(batch.inventory_id, conn)
       await syncLocationSnapshot(batch.inventory_id, conn)
       await writeAuditLog({
-        userId:req.user.id,userRole:'admin',action:'inventory.batch_quantity_corrected',entityType:'inventory_batch',entityId:batch.id,
+        userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_quantity_corrected',entityType:'inventory_batch',entityId:batch.id,
         oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:current },
         newValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:target,adjustment:delta,reason,authorization:'admin_password_email_code' },
         ipAddress:req.ip||null,
@@ -2811,7 +2868,7 @@ const confirmInventoryBatchAction = async (req, res) => {
         [newCode,requested.supplier_lot_number || null,requested.expiration_date || null,requested.note || null,batch.id]
       )
       await writeAuditLog({
-        userId:req.user.id,userRole:'admin',action:'inventory.batch_details_corrected',entityType:'inventory_batch',entityId:batch.id,
+        userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_details_corrected',entityType:'inventory_batch',entityId:batch.id,
         oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,supplier_lot_number:batch.supplier_lot_number||null,expiration_date:currentExpiry,note:batch.note||null },
         newValues:{ item_name:batch.item_name,batch_code:newCode,supplier_lot_number:requested.supplier_lot_number||null,expiration_date:requested.expiration_date||null,note:requested.note||null,reason,authorization:'admin_password_email_code' },
         ipAddress:req.ip||null,
@@ -2820,16 +2877,16 @@ const confirmInventoryBatchAction = async (req, res) => {
       if (Number(batch.quantity||0)>0) throw Object.assign(new Error('Only a zero-stock batch can be archived.'), { statusCode:409 })
       if (batch.archived_at) throw Object.assign(new Error('This batch is already archived.'), { statusCode:409 })
       await conn.query('UPDATE inventory_batches SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=?', [req.user.id,reason,batch.id])
-      await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.batch_archived',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:null},newValues:{batch_code:batch.batch_code,archived_at:'now',reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_archived',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:null},newValues:{batch_code:batch.batch_code,archived_at:'now',reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
     } else if (action === 'restore') {
       if (!batch.archived_at) throw Object.assign(new Error('This batch is not archived.'), { statusCode:409 })
       await conn.query('UPDATE inventory_batches SET archived_at=NULL,archived_by_admin_id=NULL,archive_reason=NULL WHERE id=?', [batch.id])
-      await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.batch_restored',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:batch.archived_at,archive_reason:batch.archive_reason},newValues:{batch_code:batch.batch_code,archived_at:null,reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_restored',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:batch.archived_at,archive_reason:batch.archive_reason},newValues:{batch_code:batch.batch_code,archived_at:null,reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
     } else if (action === 'delete') {
       if (Number(batch.quantity||0)>0) throw Object.assign(new Error('A batch with remaining stock cannot be deleted.'), { statusCode:409 })
       const references = await getInventoryBatchReferenceCounts(batch.id, conn)
       if (batchHasProtectedHistory(references)) throw Object.assign(new Error('This batch has transaction history and cannot be hard deleted. Archive it instead.'), { statusCode:409, code:'BATCH_HAS_HISTORY' })
-      await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.batch_deleted',entityType:'inventory_batch',entityId:batch.id,oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,quantity:Number(batch.quantity||0),expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_deleted',entityType:'inventory_batch',entityId:batch.id,oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,quantity:Number(batch.quantity||0),expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
       await conn.query('DELETE FROM inventory_batches WHERE id=?', [batch.id])
       await syncInventorySnapshot(batch.inventory_id, conn)
       await syncLocationSnapshot(batch.inventory_id, conn)
@@ -3003,7 +3060,7 @@ const requestBillingPaymentActionCode = async (req, res, forcedAction = null) =>
     })
     await sendAccountSecurityOtp(admin.email, admin.full_name, code)
     await writeAuditLog({
-      userId:req.user.id,userRole:'admin',action:'billing.payment_action_verification_requested',entityType:'billing_payment',entityId:payment.id,
+      userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.payment_action_verification_requested',entityType:'billing_payment',entityId:payment.id,
       newValues:{ action, billing_id:payment.billing_id, reason:requested.reason, refund_amount:requested.amount || null },ipAddress:req.ip||null,
     }).catch(() => {})
     return res.json({
@@ -3073,10 +3130,10 @@ const confirmBillingPaymentAction = async (req, res) => {
     await conn.query(`UPDATE billing_records SET status=?, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`, [nextStatus, nextStatus, billingId])
 
     if (action === 'void') {
-      await writeAuditLog({ userId:req.user.id,userRole:'admin',action:'billing.payment_voided',entityType:'billing_payment',entityId:paymentId,oldValues:{status:'completed',amount:payment.amount},newValues:{status:'voided',reason:normalized.reason,billing_status:nextStatus,authorization:'admin_password_email_code'},ipAddress:req.ip||null },conn)
+      await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.payment_voided',entityType:'billing_payment',entityId:paymentId,oldValues:{status:'completed',amount:payment.amount},newValues:{status:'voided',reason:normalized.reason,billing_status:nextStatus,authorization:'admin_password_email_code'},ipAddress:req.ip||null },conn)
     } else {
       const nextRefund = Math.round((Number(payment.refund_amount || 0) + Number(normalized.amount || 0)) * 100) / 100
-      await writeAuditLog({userId:req.user.id,userRole:'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:normalized.amount,reason:normalized.reason,billing_status:nextStatus,balance_after:balanceAfter,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:normalized.amount,reason:normalized.reason,billing_status:nextStatus,balance_after:balanceAfter,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
     }
 
     await conn.commit()
@@ -3110,8 +3167,8 @@ const updateClinicSettingsAdmin = async (req,res) => {
   await db.query(`INSERT INTO clinic_settings (id,clinic_name,address,phone,email,report_footer,receipt_title,receipt_footer,updated_by_admin_id)
                   VALUES (1,?,?,?,?,?,?,?,?)
                   ON DUPLICATE KEY UPDATE clinic_name=VALUES(clinic_name),address=VALUES(address),phone=VALUES(phone),email=VALUES(email),report_footer=VALUES(report_footer),receipt_title=VALUES(receipt_title),receipt_footer=VALUES(receipt_footer),updated_by_admin_id=VALUES(updated_by_admin_id)`,
-                 [payload.clinic_name,payload.address,payload.phone,payload.email,payload.report_footer,payload.receipt_title,payload.receipt_footer,req.user.id])
-  await writeAuditLog({userId:req.user.id,userRole:'admin',action:'settings.clinic_updated',entityType:'clinic_settings',entityId:'1',oldValues:oldRows[0]||null,newValues:payload,ipAddress:req.ip||null})
+                 [payload.clinic_name,payload.address,payload.phone,payload.email,payload.report_footer,payload.receipt_title,payload.receipt_footer,req.user?.role === 'admin' ? req.user.id : null])
+  await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'settings.clinic_updated',entityType:'clinic_settings',entityId:'1',oldValues:oldRows[0]||null,newValues:payload,ipAddress:req.ip||null})
   const [rows]=await db.query('SELECT * FROM clinic_settings WHERE id=1 LIMIT 1');res.json(rows[0])
 }
 
@@ -3193,7 +3250,7 @@ const resolveBillingAdjustmentRequestAdmin = async (req, res) => {
       `UPDATE billing_adjustment_requests SET status=?, resolved_by_admin_id=?, resolved_at=NOW(), admin_note=? WHERE id=?`,
       [status, req.user.id, reason, id]
     )
-    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:`billing.adjustment_${status}`,entityType:'billing_adjustment_request',entityId:id,oldValues:{status:'pending'},newValues:{status,admin_note:reason,bill_version:request.bill_version},ipAddress:req.ip||null }, conn)
+    await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:`billing.adjustment_${status}`,entityType:'billing_adjustment_request',entityId:id,oldValues:{status:'pending'},newValues:{status,admin_note:reason,bill_version:request.bill_version},ipAddress:req.ip||null }, conn)
     await conn.commit()
   } catch (err) { await conn.rollback(); throw err } finally { conn.release() }
   broadcast(['admin', 'staff'], 'billing_adjustment_resolved', { requestId: id, status })
@@ -3220,7 +3277,7 @@ const saveDiscountPresetAdmin = async (req,res) => {
   let targetId=id
   if(id){ await db.query(`UPDATE discount_presets SET label=?,discount_type=?,value=?,requires_reference=?,requires_admin_approval=?,is_active=? WHERE id=?`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active,id]) }
   else { const [r]=await db.query(`INSERT INTO discount_presets (label,discount_type,value,requires_reference,requires_admin_approval,is_active) VALUES (?,?,?,?,?,?)`,[payload.label,payload.discount_type,payload.value,payload.requires_reference,payload.requires_admin_approval,payload.is_active]); targetId=r.insertId }
-  await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'billing.discount_preset_updated':'billing.discount_preset_created',entityType:'discount_preset',entityId:targetId,newValues:payload,ipAddress:req.ip||null})
+  await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:id?'billing.discount_preset_updated':'billing.discount_preset_created',entityType:'discount_preset',entityId:targetId,newValues:payload,ipAddress:req.ip||null})
   const [rows]=await db.query('SELECT * FROM discount_presets WHERE id=?',[targetId]);res.status(id?200:201).json(rows[0])
 }
 
@@ -3233,7 +3290,9 @@ const getSystemSetup = async (req, res) => {
               LEFT JOIN billing_service_catalog s ON s.category_id=c.id
               GROUP BY c.id,c.name,c.clinic_type,c.is_active
               ORDER BY c.name ASC`),
-    db.query('SELECT id,name,abbreviation,allow_decimal_quantity,decimal_precision,is_active,sort_order FROM inventory_uoms ORDER BY sort_order,name'),
+    db.query(`SELECT u.id,u.name,u.allow_decimal_quantity,u.decimal_precision,u.is_active,u.sort_order,
+                     (SELECT COUNT(*) FROM inventory i WHERE LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))=LOWER(u.name)) AS inventory_count
+              FROM inventory_uoms u ORDER BY u.sort_order,u.name`),
     db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers ORDER BY name ASC'),
     db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY sort_order,name'),
     db.query(`SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at
@@ -3311,7 +3370,7 @@ const saveBillingServiceCategory = async (req, res) => {
     )
     await writeAuditLog({
       userId:req.user.id,
-      userRole:'admin',
+      userRole:req.user?.role || 'admin',
       action:id?'system.service_category_updated':'system.service_category_created',
       entityType:'billing_service_category',
       entityId:targetId,
@@ -3335,27 +3394,88 @@ const saveBillingServiceCategory = async (req, res) => {
 const saveInventoryUom = async (req, res) => {
   const id = Number(req.params.id || 0)
   const name = normalizeText(req.body?.name, { field: 'Unit of Measure name', required: true, max: 80 })
-  const abbreviation = normalizeOptionalText(req.body?.abbreviation, { field: 'Unit of Measure abbreviation', max: 30 })
   const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
   const sortOrder = Number(req.body?.sort_order || 0)
   const allowDecimal = req.body?.allow_decimal_quantity === true || Number(req.body?.allow_decimal_quantity) === 1 ? 1 : 0
-  const decimalPrecision = allowDecimal ? Math.min(4, Math.max(1, Number(req.body?.decimal_precision || 2))) : 0
+  // CARAIT uses one fixed decimal policy: measured UOMs support 2 decimal places.
+  const decimalPrecision = allowDecimal ? 2 : 0
   if (!name) return res.status(400).json({ message: 'Unit of Measure name is required.' })
   try {
     let targetId = id
     if (id) {
-      await db.query('UPDATE inventory_uoms SET name=?,abbreviation=?,allow_decimal_quantity=?,decimal_precision=?,is_active=?,sort_order=? WHERE id=?', [name,abbreviation,allowDecimal,decimalPrecision,isActive,sortOrder,id])
+      const [[current]] = await db.query('SELECT id,name FROM inventory_uoms WHERE id=? LIMIT 1', [id])
+      if (!current) return res.status(404).json({ message: 'Unit of Measure not found.' })
+      if (String(current.name).toLowerCase() !== String(name).toLowerCase()) {
+        const [[usage]] = await db.query(`SELECT COUNT(*) AS total FROM inventory
+                                          WHERE LOWER(COALESCE(uom,base_unit,unit,''))=LOWER(?)`, [current.name])
+        if (Number(usage?.total || 0) > 0) {
+          return res.status(409).json({
+            code: 'UOM_NAME_IN_USE',
+            message: 'This Unit of Measure is already used by inventory items. Keep its name and edit only its decimal rule or status.',
+          })
+        }
+      }
+      await db.query('UPDATE inventory_uoms SET name=?,allow_decimal_quantity=?,decimal_precision=?,is_active=?,sort_order=? WHERE id=?', [name,allowDecimal,decimalPrecision,isActive,sortOrder,id])
     } else {
-      const [result] = await db.query('INSERT INTO inventory_uoms (name,abbreviation,allow_decimal_quantity,decimal_precision,is_active,sort_order) VALUES (?,?,?,?,?,?)', [name,abbreviation,allowDecimal,decimalPrecision,isActive,sortOrder])
+      const [result] = await db.query('INSERT INTO inventory_uoms (name,allow_decimal_quantity,decimal_precision,is_active,sort_order) VALUES (?,?,?,?,?)', [name,allowDecimal,decimalPrecision,isActive,sortOrder])
       targetId = result.insertId
     }
-    await writeAuditLog({ userId:req.user.id,userRole:'admin',action:id?'system.uom_updated':'system.uom_created',entityType:'inventory_uom',entityId:targetId,newValues:{name,abbreviation,allow_decimal_quantity:allowDecimal,decimal_precision:decimalPrecision,is_active:isActive},ipAddress:req.ip||null })
-    const [[row]] = await db.query('SELECT id,name,abbreviation,allow_decimal_quantity,decimal_precision,is_active,sort_order FROM inventory_uoms WHERE id=?',[targetId])
+    await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:id?'system.uom_updated':'system.uom_created',entityType:'inventory_uom',entityId:targetId,newValues:{name,allow_decimal_quantity:allowDecimal,decimal_precision:decimalPrecision,is_active:isActive},ipAddress:req.ip||null })
+    const [[row]] = await db.query('SELECT id,name,allow_decimal_quantity,decimal_precision,is_active,sort_order FROM inventory_uoms WHERE id=?',[targetId])
     res.status(id ? 200 : 201).json(row)
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That Unit of Measure already exists.' })
     throw err
   }
+}
+
+const deleteBillingServiceCategory = async (req, res) => {
+  const id = Number(req.params.id || 0)
+  if (!id) return res.status(400).json({ message: 'A valid Service Category is required.' })
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [[category]] = await conn.query('SELECT id,name,clinic_type,is_active FROM billing_service_categories WHERE id=? FOR UPDATE', [id])
+    if (!category) { await conn.rollback(); return res.status(404).json({ message: 'Service Category not found.' }) }
+    const [[usage]] = await conn.query('SELECT COUNT(*) AS total FROM billing_service_catalog WHERE category_id=?', [id])
+    const total = Number(usage?.total || 0)
+    if (total > 0) {
+      await conn.rollback()
+      return res.status(409).json({ code:'SERVICE_CATEGORY_IN_USE', service_count:total, message:`This Service Category is used by ${total} service${total === 1 ? '' : 's'} and cannot be permanently deleted. Deactivate it instead.` })
+    }
+    await conn.query('DELETE FROM billing_service_categories WHERE id=?', [id])
+    await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'system.service_category_deleted',entityType:'billing_service_category',entityId:id,oldValues:category,ipAddress:req.ip||null }, conn)
+    await conn.commit()
+    res.json({ message: 'Service Category deleted.' })
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    throw error
+  } finally { conn.release() }
+}
+
+const deleteInventoryUom = async (req, res) => {
+  const id = Number(req.params.id || 0)
+  if (!id) return res.status(400).json({ message: 'A valid Unit of Measure is required.' })
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [[uom]] = await conn.query('SELECT id,name,allow_decimal_quantity,decimal_precision,is_active,sort_order FROM inventory_uoms WHERE id=? FOR UPDATE', [id])
+    if (!uom) { await conn.rollback(); return res.status(404).json({ message: 'Unit of Measure not found.' }) }
+    const [[usage]] = await conn.query(`SELECT COUNT(*) AS total FROM inventory
+                                        WHERE LOWER(COALESCE(uom,base_unit,unit,''))=LOWER(?)`, [uom.name])
+    const total = Number(usage?.total || 0)
+    if (total > 0) {
+      await conn.rollback()
+      return res.status(409).json({ code:'UOM_IN_USE', inventory_count:total, message:`This Unit of Measure is used by ${total} inventory item${total === 1 ? '' : 's'} and cannot be permanently deleted. Deactivate it instead.` })
+    }
+    await conn.query('DELETE FROM inventory_uoms WHERE id=?', [id])
+    await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'system.uom_deleted',entityType:'inventory_uom',entityId:id,oldValues:uom,ipAddress:req.ip||null }, conn)
+    await conn.commit()
+    res.json({ message: 'Unit of Measure deleted.' })
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    throw error
+  } finally { conn.release() }
 }
 
 const saveInventorySupplier = async (req, res) => {
@@ -3396,7 +3516,7 @@ const saveInventorySupplier = async (req, res) => {
       targetId=result.insertId
     }
     const payload={name,contact_person:contactPerson,contact_number:contactNumber,address,category,clinics,is_active:isActive}
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:id?'system.supplier_updated':'system.supplier_created',entityType:'inventory_supplier',entityId:targetId,newValues:payload,ipAddress:req.ip||null})
+    await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:id?'system.supplier_updated':'system.supplier_created',entityType:'inventory_supplier',entityId:targetId,newValues:payload,ipAddress:req.ip||null})
     const [[row]]=await db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers WHERE id=?',[targetId])
     res.status(id?200:201).json(row)
   } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That supplier/company already exists with the same clinic coverage.'}); throw err }
@@ -3443,7 +3563,7 @@ const saveInventoryLocationType = async (req,res) => {
 
     await writeAuditLog({
       userId: req.user.id,
-      userRole: 'admin',
+      userRole: req.user?.role || 'admin',
       action: id ? 'system.location_type_updated' : 'system.location_type_created',
       entityType: 'inventory_location_type',
       entityId: targetId,
@@ -3544,7 +3664,7 @@ const saveInventoryMovementReason = async (req, res) => {
       [targetId]
     )
     await writeAuditLog({
-      userId:req.user.id,userRole:'admin',
+      userId:req.user.id,userRole:req.user?.role || 'admin',
       action:id?'system.movement_reason_updated':'system.movement_reason_created',
       entityType:'inventory_movement_reason',entityId:targetId,oldValues,newValues:row,ipAddress:req.ip||null,
     }, conn)
@@ -3584,7 +3704,7 @@ const updateInventoryLocation = async (req,res) => {
   }
   try{
     await db.query('UPDATE inventory_locations SET name=?,location_type=?,is_active=? WHERE id=?',[name,locationType,isActive,id])
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,oldValues:current,newValues:{name,location_type:locationType,is_active:isActive},ipAddress:req.ip||null})
+    await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,oldValues:current,newValues:{name,location_type:locationType,is_active:isActive},ipAddress:req.ip||null})
     const [[row]]=await db.query('SELECT * FROM inventory_locations WHERE id=?',[id]);res.json(row)
   }catch(err){if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That storage location name already exists.'});throw err}
 }
@@ -3599,7 +3719,7 @@ const deleteInventoryLocation = async (req,res) => {
     (SELECT COUNT(*) FROM supply_requests WHERE destination_location_id=?) AS total`,[id,id,id])
   if(Number(usage?.total||0)>0) return res.status(409).json({message:'This location has inventory or transaction history and cannot be deleted. Deactivate it instead.',code:'LOCATION_REFERENCED'})
   await db.query('DELETE FROM inventory_locations WHERE id=?',[id])
-  await writeAuditLog({userId:req.user.id,userRole:'admin',action:'inventory.location_deleted',entityType:'inventory_location',entityId:id,oldValues:current,ipAddress:req.ip||null})
+  await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.location_deleted',entityType:'inventory_location',entityId:id,oldValues:current,ipAddress:req.ip||null})
   res.json({message:'Storage location deleted.'})
 }
 
@@ -3630,7 +3750,7 @@ const archiveAuditLogs = async (req,res) => {
     const code=`ARC-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-6)}`
     const [result]=await conn.query('INSERT INTO audit_log_archives (archive_code,cutoff_at,log_count,archived_by_admin_id) VALUES (?,?,?,?)',[code,cutoffSql,Number(eligible.total),req.user.id])
     await conn.query('UPDATE audit_logs SET archive_id=?,archived_at=NOW() WHERE archive_id IS NULL AND created_at <= ?',[result.insertId,cutoffSql])
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'audit.archive_created',entityType:'audit_archive',entityId:result.insertId,newValues:{archive_code:code,log_count:Number(eligible.total),cutoff_at:cutoffSql},ipAddress:req.ip||null},conn)
+    await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'audit.archive_created',entityType:'audit_archive',entityId:result.insertId,newValues:{archive_code:code,log_count:Number(eligible.total),cutoff_at:cutoffSql},ipAddress:req.ip||null},conn)
     await conn.commit();res.status(201).json({id:result.insertId,archive_code:code,log_count:Number(eligible.total),cutoff_at:cutoffSql})
   }catch(err){await conn.rollback();throw err}finally{conn.release()}
 }
@@ -3643,7 +3763,7 @@ const deleteAuditArchive = async (req,res) => {
   try{
     await conn.beginTransaction();const [[archive]]=await conn.query('SELECT * FROM audit_log_archives WHERE id=? FOR UPDATE',[id]);if(!archive){await conn.rollback();return res.status(404).json({message:'Archive not found.'})}
     await conn.query('DELETE FROM audit_logs WHERE archive_id=?',[id]);await conn.query('DELETE FROM audit_log_archives WHERE id=?',[id])
-    await writeAuditLog({userId:req.user.id,userRole:'admin',action:'audit.archive_deleted',entityType:'audit_archive',entityId:id,oldValues:{archive_code:archive.archive_code,log_count:archive.log_count},newValues:{reason},ipAddress:req.ip||null},conn)
+    await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'audit.archive_deleted',entityType:'audit_archive',entityId:id,oldValues:{archive_code:archive.archive_code,log_count:archive.log_count},newValues:{reason},ipAddress:req.ip||null},conn)
     await conn.commit();res.json({message:'Archived audit log batch permanently deleted.'})
   }catch(err){await conn.rollback();throw err}finally{conn.release()}
 }
@@ -3725,10 +3845,8 @@ module.exports = {
   getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment, confirmBillingPaymentAction,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
-  getSystemSetup, saveBillingServiceCategory, saveInventoryUom, saveInventorySupplier, saveInventoryLocationType, saveInventoryMovementReason, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
+  getSystemSetup, saveBillingServiceCategory, deleteBillingServiceCategory, saveInventoryUom, deleteInventoryUom, saveInventorySupplier, saveInventoryLocationType, saveInventoryMovementReason, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
   getReports, recordReportExport, getInventoryLogs, getInventoryBatchHistory,
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
-
-

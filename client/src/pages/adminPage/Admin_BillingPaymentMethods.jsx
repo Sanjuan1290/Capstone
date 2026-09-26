@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { MdAccountBalance, MdCloudUpload, MdDeleteOutline, MdPayments, MdQrCode2, MdRefresh } from 'react-icons/md'
 import {
-  getBillingAdjustmentRequests,
   getBillingPaymentSettings,
   getPaymentQrUploadScanStatus,
   updateBillingPaymentSettings,
@@ -9,7 +8,6 @@ import {
 } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import { LoadingState, ErrorState } from '../../components/ui/PageState'
-import AdminBillingNav from '../../components/billing/AdminBillingNav'
 import BillingSetupNav from '../../components/billing/BillingSetupNav'
 
 const emptyForm = {
@@ -57,7 +55,6 @@ const ProviderCard = ({ provider, label, enabled, setEnabled, form, setForm, upl
 const Admin_BillingPaymentMethods = () => {
   const toast = useToast()
   const [form, setForm] = useState(emptyForm)
-  const [pendingCount, setPendingCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -70,9 +67,8 @@ const Admin_BillingPaymentMethods = () => {
   const load = async () => {
     setLoading(true); setError('')
     try {
-      const [settings, pending] = await Promise.all([getBillingPaymentSettings(), getBillingAdjustmentRequests({ status: 'pending' })])
+      const settings = await getBillingPaymentSettings()
       setForm({ ...emptyForm, ...settings, cash_enabled: asEnabled(settings?.cash_enabled), gcash_enabled: asEnabled(settings?.gcash_enabled), maya_enabled: asEnabled(settings?.maya_enabled), bank_transfer_enabled: asEnabled(settings?.bank_transfer_enabled), gcash_qr_security_token: '', maya_qr_security_token: '' })
-      setPendingCount(Number(pending?.pagination?.total ?? pending?.items?.length ?? pending?.length ?? 0))
       setDirty(false)
     } catch (err) { const message = err.message || 'Could not load payment methods.'; setError(message); toast.error(message) }
     finally { setLoading(false) }
@@ -143,8 +139,7 @@ const Admin_BillingPaymentMethods = () => {
   }
 
   return <div className="mx-auto w-full max-w-7xl space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPayments className="text-amber-500" /> Payment Methods</h1><p className="mt-1 text-sm text-slate-500">Choose exactly what Staff can accept during Checkout.</p></div><button className="button-secondary" onClick={load} disabled={loading || saving}><MdRefresh /> Refresh</button></div>
-    <AdminBillingNav pendingApprovals={pendingCount} /><BillingSetupNav />
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPayments className="text-amber-500" /> Payment Methods</h1><p className="mt-1 text-sm text-slate-500">Choose exactly what Staff can accept during Checkout.</p></div><button className="button-secondary" onClick={load} disabled={loading || saving}><MdRefresh /> Refresh</button></div><BillingSetupNav />
     {loading ? <LoadingState label="Loading payment methods..." /> : error ? <ErrorState message={error} onRetry={load} /> : <>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><h2 className="font-black text-slate-900">Cash</h2><p className="mt-1 text-sm text-slate-500">Allow Staff to collect cash and calculate change.</p></div><Toggle checked={form.cash_enabled} onChange={(value) => update('cash_enabled', value)} label="Enable Cash" /></div></section>
       <div className="grid gap-5 xl:grid-cols-2"><ProviderCard provider="gcash" label="GCash" enabled={form.gcash_enabled} setEnabled={(value) => update('gcash_enabled', value)} form={form} setForm={setForm} onDirty={() => setDirty(true)} uploading={uploading} status={uploadStatus.gcash} onUpload={handleUpload} onRemove={removeQr} /><ProviderCard provider="maya" label="Maya" enabled={form.maya_enabled} setEnabled={(value) => update('maya_enabled', value)} form={form} setForm={setForm} onDirty={() => setDirty(true)} uploading={uploading} status={uploadStatus.maya} onUpload={handleUpload} onRemove={removeQr} /></div>
@@ -156,4 +151,3 @@ const Admin_BillingPaymentMethods = () => {
 }
 
 export default Admin_BillingPaymentMethods
-

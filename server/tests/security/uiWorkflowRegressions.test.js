@@ -41,4 +41,25 @@ describe('September 25 UI/workflow regressions', () => {
     expect(login).toContain('Mobile Number or Email')
     expect(controller).toContain("const method = 'sms'")
   })
+
+
+  it('moves Billing Setup into System Setup and unifies Admin Checkout under Billing', () => {
+    const app = read('client', 'src', 'App.jsx')
+    const adminLayout = read('client', 'src', 'components', 'layouts', 'AdminLayout.jsx')
+    const billingNav = read('client', 'src', 'components', 'billing', 'AdminBillingNav.jsx')
+    const setupTabs = read('client', 'src', 'components', 'system', 'SystemSetupTabs.jsx')
+    const checkout = read('client', 'src', 'pages', 'adminPage', 'Admin_Checkout.jsx')
+
+    expect(setupTabs).toContain("label: 'Billing Setup'")
+    expect(setupTabs).toContain("suffix: '/system-setup/billing/services'")
+    expect(app).toContain("path='system-setup/billing'")
+    expect(app).toContain("path='billing/checkout/:billingId'")
+    expect(app).toContain("path='checkout' element={<Navigate to='/admin/billing?tab=checkout' replace />}")
+    expect(adminLayout).not.toContain("name: 'Checkout'")
+    expect(billingNav).toContain("label: 'Checkout'")
+    expect(billingNav).toContain("label: 'Overview'")
+    expect(billingNav).not.toContain("label: 'Setup'")
+    expect(checkout).toContain("/admin/billing/checkout/${bill.id}")
+  })
+
 })

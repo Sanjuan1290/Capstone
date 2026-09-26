@@ -7,4 +7,3 @@ describe('supply request resolution', () => {
     expect(isValidSupplyRequestResolution('pending')).toBe(false)
   })
 })
-

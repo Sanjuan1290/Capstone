@@ -246,7 +246,7 @@ const Admin_CheckoutDetail = () => {
 
   const handleBack = () => {
     if (dirty && !window.confirm('You have unsaved changes. Leave Checkout and discard them?')) return
-    navigate('/admin/checkout')
+    navigate('/admin/billing?tab=checkout')
   }
 
   const updateItem = (index, key, value) => markDraft((current) => ({
@@ -510,7 +510,7 @@ const Admin_CheckoutDetail = () => {
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <button className="button-secondary" onClick={() => printReceipt(lastPayment)}><MdPrint /> Print Receipt</button>
             {Number(bill.balance_amount || 0) > 0 && <button className="button-secondary" onClick={() => setPaymentSuccess(false)}>Collect Another Payment</button>}
-            <button className="button-primary" onClick={() => navigate('/admin/checkout')}>Next Patient →</button>
+            <button className="button-primary" onClick={() => navigate('/admin/billing?tab=checkout')}>Next Patient →</button>
           </div>
         </div>
       </div>
@@ -653,7 +653,7 @@ const Admin_CheckoutDetail = () => {
         </div>
       )}
 
-      {isPaid && <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate('/admin/checkout')}>Next Patient →</button></div>}
+      {isPaid && <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate('/admin/billing?tab=checkout')}>Next Patient →</button></div>}
 
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Charge" description="Clinical services come from the Doctor consultation. Staff may add only a medicine/supply or a traceable custom charge." size="md"><div className="grid gap-3 sm:grid-cols-2"><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-emerald-300 hover:bg-emerald-50" onClick={() => addType('supply')}><MdLocalPharmacy className="mx-auto text-3xl text-emerald-600" /><p className="mt-3 font-black">Medicine / Supply</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-violet-300 hover:bg-violet-50" onClick={() => addType('custom')}><MdAdd className="mx-auto text-3xl text-violet-600" /><p className="mt-3 font-black">Custom Charge</p></button></div><div className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800"><MdLock className="mr-1 inline" /> Missing a clinical service? Ask the Doctor to correct or amend the consultation rather than adding it at Checkout.</div></Modal>
 
@@ -671,4 +671,3 @@ const Admin_CheckoutDetail = () => {
 }
 
 export default Admin_CheckoutDetail
-

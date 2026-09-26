@@ -106,8 +106,10 @@ router.delete('/audit-logs/archive/:archiveId', ...auth, adminCtrl.deleteAuditAr
 router.get('/system-setup', ...auth, adminCtrl.getSystemSetup)
 router.post('/system-setup/service-categories', ...auth, adminCtrl.saveBillingServiceCategory)
 router.put('/system-setup/service-categories/:id', ...auth, adminCtrl.saveBillingServiceCategory)
+router.delete('/system-setup/service-categories/:id', ...auth, adminCtrl.deleteBillingServiceCategory)
 router.post('/system-setup/uoms', ...auth, adminCtrl.saveInventoryUom)
 router.put('/system-setup/uoms/:id', ...auth, adminCtrl.saveInventoryUom)
+router.delete('/system-setup/uoms/:id', ...auth, adminCtrl.deleteInventoryUom)
 router.post('/system-setup/suppliers', ...auth, adminCtrl.saveInventorySupplier)
 router.put('/system-setup/suppliers/:id', ...auth, adminCtrl.saveInventorySupplier)
 router.post('/system-setup/location-types', ...auth, adminCtrl.saveInventoryLocationType)
@@ -140,7 +142,3 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
-
-
-
-
