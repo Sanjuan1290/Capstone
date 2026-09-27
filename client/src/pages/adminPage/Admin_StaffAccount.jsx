@@ -201,8 +201,9 @@ const Admin_StaffAccount = ({ embedded = false }) => {
     setLoading(true); setError('')
     try {
       const rows = await getStaff()
-      setStaff(Array.isArray(rows) ? rows : [])
-      setSelected((current) => current ? (rows.find((row) => row.id === current.id) || null) : current)
+      const normalizedRows = Array.isArray(rows) ? rows : []
+      setStaff(normalizedRows)
+      setSelected((current) => current ? (normalizedRows.find((row) => row.id === current.id) || null) : current)
     } catch (err) { setError(err.message || 'Could not load staff accounts.') }
     finally { setLoading(false) }
   }
@@ -255,8 +256,8 @@ const Admin_StaffAccount = ({ embedded = false }) => {
           <div className="flex-1 overflow-y-auto">
             {loading ? <div className="p-6 text-sm text-slate-400">Loading Staff accounts…</div>
               : error ? <div className="p-6 text-sm text-red-600">{error}</div>
-                : !pagination.items.length ? <div className="p-8 text-center text-sm text-slate-400">No Staff accounts found.</div>
-                  : pagination.items.map((item) => {
+                : !pagination.pageItems.length ? <div className="p-8 text-center text-sm text-slate-400">No Staff accounts found.</div>
+                  : pagination.pageItems.map((item) => {
                     const active = item.status === 'active'
                     const permissionCount = normalizeStaffPermissions(item.permissions).length
                     return (

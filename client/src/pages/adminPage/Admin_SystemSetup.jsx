@@ -403,6 +403,8 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 }
 
 const Admin_SystemSetup = () => {
+  const location = useLocation()
+  const portalBase = location.pathname.startsWith('/staff') ? '/staff' : '/admin'
   const [searchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
   const validTab = TABS.some((item) => item.key === requestedTab) ? requestedTab : 'visits'
