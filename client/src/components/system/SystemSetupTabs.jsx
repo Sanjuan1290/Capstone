@@ -1,11 +1,12 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
-  MdCategory, MdInventory2, MdLocalShipping, MdPayments, MdPlace, MdSettings, MdSwapVert,
+  MdCategory, MdEventBusy, MdInventory2, MdLocalShipping, MdPayments, MdPlace, MdSettings, MdSwapVert,
 } from 'react-icons/md'
 
 export const SYSTEM_SETUP_TABS = [
   { key: 'visits', label: 'Patient Visits', Icon: MdSettings, suffix: '/system-setup' },
-  { key: 'billing_setup', label: 'Billing Setup', Icon: MdPayments, suffix: '/system-setup/billing/services' },
+  { key: 'cancellation_reasons', label: 'Reason for Cancellation', Icon: MdEventBusy, suffix: '/system-setup?tab=cancellation_reasons' },
+  { key: 'billing_setup', label: 'Services & Pricing Setup', Icon: MdPayments, suffix: '/system-setup/billing/services' },
   { key: 'service_categories', label: 'Service Categories', Icon: MdCategory, suffix: '/system-setup?tab=service_categories' },
   { key: 'uoms', label: 'Units of Measure', Icon: MdInventory2, suffix: '/system-setup?tab=uoms' },
   { key: 'suppliers', label: 'Suppliers', Icon: MdLocalShipping, suffix: '/system-setup?tab=suppliers' },

@@ -14,6 +14,7 @@ import {
   getPatients,
   getDoctors,
   getDoctorSchedules,
+  getAppointmentCancellationReasons,
 } from '../../services/admin.service'
 
 const adminServices = {
@@ -27,6 +28,7 @@ const adminServices = {
   getPatients,
   getDoctors,
   getDoctorSchedules,
+  getAppointmentCancellationReasons,
 }
 
 const Admin_Appointments = () => <Appointments services={adminServices} />

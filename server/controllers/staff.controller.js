@@ -42,7 +42,7 @@ const {
 } = require('../utils/appointmentPolicies')
 const { isValidPaymentMethod, requiresPaymentReference, makeReceiptNumber, calculatePaymentAmounts } = require('../utils/payments')
 const { isValidQueueStatus, isValidSupplyRequestResolution } = require('../utils/workflowValidation')
-const { resolveSupplyTransfer } = require('../utils/supplyTransfers')
+const { resolveSupplyTransfer, listSupplyTransferGroups } = require('../utils/supplyTransfers')
 const { applyManualInventoryMovement } = require('../utils/manualInventoryMovement')
 const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
 const { buildDoctorAvailabilitySummary, buildWalkInDoctorAvailability } = require('../utils/doctorAvailabilitySummary')
@@ -50,6 +50,7 @@ const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
 const { normalizeText, normalizeOptionalText, normalizeNumber, normalizePositiveId, assertPlainObject } = require('../utils/inputValidation')
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
+const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
 const { resolveDiscountForDraft, loadDiscountPreset } = require('../utils/billingSecurity')
 const { loadStaffPermissions } = require('../utils/staffPermissions')
 
@@ -62,6 +63,11 @@ const normalizeInventoryPayload = (body = {}) => {
   const category = ['medical','derma'].includes(String(body.category || '').trim()) ? String(body.category).trim() : 'medical'
   const itemType = ['medicine','supplies'].includes(String(body.item_type || '').trim()) ? String(body.item_type).trim() : 'supplies'
   const uom = String(body.uom || body.base_unit || body.unit || '').trim().toLowerCase()
+  const rawMeasurementValue = body.measurement_value
+  const measurementValue = rawMeasurementValue === '' || rawMeasurementValue === null || rawMeasurementValue === undefined ? null : Number(rawMeasurementValue)
+  const measurementUnit = String(body.measurement_unit || '').trim() || null
+  const legacyStrength = String(body.strength || '').trim() || null
+  const structuredStrength = Number.isFinite(measurementValue) && measurementValue > 0 && measurementUnit ? `${Number(measurementValue)} ${measurementUnit}` : null
   return {
     barcode: String(body.barcode || '').trim() || null,
     name: String(body.name || '').trim(),
@@ -69,7 +75,9 @@ const normalizeInventoryPayload = (body = {}) => {
     item_type: itemType,
     uom,
     dosage_form: null,
-    strength: null,
+    strength: structuredStrength || legacyStrength,
+    measurement_value: Number.isFinite(measurementValue) && measurementValue > 0 ? measurementValue : null,
+    measurement_unit: measurementUnit,
     unit: uom,
     base_unit: uom,
     unit_size: 1,
@@ -96,6 +104,16 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
     normalizeText(body.name, { field: 'Item Name', required: true, max: 150 })
     if (body.barcode !== undefined && body.barcode !== null && body.barcode !== '') normalizeText(body.barcode, { field: 'Product Barcode', max: 50 })
     if (body.supplier_lot_number !== undefined && body.supplier_lot_number !== null && body.supplier_lot_number !== '') normalizeText(body.supplier_lot_number, { field: 'Supplier Lot Number', max: 120 })
+    const measurementValueProvided = body.measurement_value !== undefined && body.measurement_value !== null && body.measurement_value !== ''
+    const measurementUnitProvided = String(body.measurement_unit || '').trim().length > 0
+    if (measurementValueProvided !== measurementUnitProvided) {
+      const error = new Error('Enter both Strength / Size and Measurement Unit, or leave both blank.')
+      error.code = 'INVENTORY_MEASUREMENT_INCOMPLETE'
+      error.field = measurementValueProvided ? 'measurement_unit' : 'measurement_value'
+      throw error
+    }
+    if (measurementValueProvided) normalizeNumber(body.measurement_value, { field: 'Strength / Size', required: true, min: 0.0001, max: 99999999.9999 })
+    if (measurementUnitProvided) normalizeText(body.measurement_unit, { field: 'Measurement Unit', required: true, max: 30 })
     normalizeNumber(body.threshold, { field: 'Low Stock Alert', required: true, min: 0, max: 9999999999 })
     normalizeNumber(body.selling_price, { field: 'Selling Price', required: true, min: 0.01, max: 99999999.99 })
     if (requireOpeningQuantity) normalizeNumber(body.stock, { field: 'Opening Quantity', required: true, min: 0, max: 9999999999 })
@@ -114,7 +132,7 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   if (!name) return { message: 'Item Name is required.', code: 'INVENTORY_NAME_REQUIRED' }
   if (!['medical', 'derma'].includes(category)) return { message: 'Select a valid Category.', code: 'INVENTORY_CATEGORY_REQUIRED' }
   if (!['medicine', 'supplies'].includes(itemType)) return { message: 'Select a valid Type.', code: 'INVENTORY_TYPE_REQUIRED' }
-  if (!uom) return { message: 'Unit of Measure is required.', code: 'INVENTORY_UOM_REQUIRED' }
+  if (!uom) return { message: 'Stock Unit is required.', code: 'INVENTORY_UOM_REQUIRED' }
   if (!locationTypeId) return { message: 'Location Type is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
   if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0) {
     return { message: 'Low Stock Alert is required and must be 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
@@ -150,7 +168,7 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
 
 const resolveInventorySetupSelection = async ({ uom, location_type_id }, executor = db) => {
   if (!String(uom || '').trim()) {
-    const error = new Error('Select a Unit of Measure configured in System Setup.')
+    const error = new Error('Select a Stock Unit configured under Units of Measure in System Setup.')
     error.statusCode = 400
     error.code = 'INVENTORY_UOM_REQUIRED'
     throw error
@@ -160,7 +178,7 @@ const resolveInventorySetupSelection = async ({ uom, location_type_id }, executo
     [String(uom).trim().toLowerCase()]
   )
   if (!uomRow) {
-    const error = new Error('That Unit of Measure is unavailable. Configure an active Unit of Measure in System Setup.')
+    const error = new Error('That Stock Unit is unavailable. Configure an active Unit of Measure in System Setup.')
     error.statusCode = 400
     error.code = 'INVENTORY_UOM_INVALID'
     throw error
@@ -498,10 +516,11 @@ const confirmAppointment = async (req, res) => {
 }
 
 const cancelAppointment = async (req, res) => {
+  const cancellation = await resolveCancellationInput(req.body)
   const [rows] = await db.query(
     `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
-            d.full_name AS doctor_name
+            d.id AS doctor_id, d.full_name AS doctor_name
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
      JOIN doctors d ON a.doctor_id = d.id
@@ -510,15 +529,21 @@ const cancelAppointment = async (req, res) => {
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   assertAppointmentTransition(rows[0].status, 'cancelled')
-  const [updated] = await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
+  const [updated] = await db.query(
+    `UPDATE appointments
+     SET status = 'cancelled', cancellation_reason_id = ?, cancellation_reason_snapshot = ?,
+         cancellation_details = ?, cancelled_by_role = 'staff', cancelled_by_user_id = ?, cancelled_at = NOW()
+     WHERE id = ? AND status = ?`,
+    [cancellation.cancellation_reason_id, cancellation.cancellation_reason_snapshot, cancellation.cancellation_details, req.user.id, req.params.id, rows[0].status]
+  )
   await assertAppointmentMutationApplied(updated, req.params.id)
-  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.cancelled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'cancelled'},ipAddress:req.ip||null}).catch(() => {})
+  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.cancelled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'cancelled',...cancellation},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
     type: 'appointment_cancelled',
     title: 'Appointment cancelled',
-    message: `Your appointment with ${rows[0].doctor_name} has been cancelled.`,
+    message: `Your appointment with ${rows[0].doctor_name} has been cancelled. Reason: ${cancellation.cancellation_reason_snapshot}.`,
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
@@ -539,11 +564,9 @@ const cancelAppointment = async (req, res) => {
     appointmentDate: rows[0].appointment_date,
     appointmentTime: rows[0].appointment_time,
     status: 'cancelled',
-  }).catch((err) => {
-    console.error('SMS patient appointment cancellation failed:', err.message)
-  })
-  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'cancelled' })
-  res.json({ message: 'Appointment cancelled.' })
+  }).catch((err) => console.error('SMS patient appointment cancellation failed:', err.message))
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'cancelled' })
+  res.json({ message: 'Appointment cancelled.', cancellation })
 }
 
 const markAppointmentNoShow = async (req, res) => {
@@ -661,6 +684,10 @@ const getAppointmentReasons = async (req, res) => {
   sql += ' ORDER BY label ASC'
   const [rows] = await db.query(sql, params)
   res.json(rows)
+}
+
+const getAppointmentCancellationReasons = async (req, res) => {
+  res.json(await listCancellationReasons({ activeOnly: true }))
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -1581,7 +1608,7 @@ const addInventoryItem = async (req, res) => {
   if (validationError) return res.status(400).json(validationError)
 
   let {
-    barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id,
+    barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id,
     expiration_date, batch_code, batch_lot_code, supplier_lot_number, location_type_id,
   } = normalizeInventoryPayload(req.body)
   price = selling_price
@@ -1617,9 +1644,9 @@ const addInventoryItem = async (req, res) => {
     }
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location, location_type_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, item_type, uom, dosage_form, strength, unit, base_unit, 1, 0, threshold, price, selling_price, supplier, supplier_id, null, null, location_type_id]
+       (barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location, location_type_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, 1, 0, threshold, price, selling_price, supplier, supplier_id, null, null, location_type_id]
     )
     let openingBatchId = null
     let openingLocation = 'Main Stockroom'
@@ -1660,7 +1687,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, item_type, barcode, uom, selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: supplier_lot_number || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, strength, measurement_value, measurement_unit, selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: supplier_lot_number || null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -1684,7 +1711,7 @@ const updateInventoryItem = async (req, res) => {
   if (validationError) return res.status(400).json(validationError)
 
   let {
-    barcode, name, category, item_type, uom, dosage_form, strength, threshold, selling_price, supplier, supplier_id, location_type_id,
+    barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, threshold, selling_price, supplier, supplier_id, location_type_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1719,9 +1746,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?, location_type_id=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, measurement_value=?, measurement_unit=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?, location_type_id=?
        WHERE id=?`,
-      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, canonicalUom, canonicalUom, threshold, selling_price, selling_price, supplier, supplier_id, location_type_id, req.params.id]
+      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, measurement_value, measurement_unit, canonicalUom, canonicalUom, threshold, selling_price, selling_price, supplier, supplier_id, location_type_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -1873,18 +1900,8 @@ const getDoctorUnavailableDatesForStaff = async (req, res) => {
 // ── Supply Requests ───────────────────────────────────────────────────────────
 
 const getSupplyRequests = async (req, res) => {
-  const [rows] = await db.query(
-    `SELECT sr.*, i.name AS item_name, i.category, i.unit, d.full_name AS doctor_name,
-            COALESCE(dest.name, sr.destination_location) AS destination_location,
-            COALESCE((SELECT SUM(ils.quantity) FROM inventory_location_stock ils JOIN inventory_locations ml ON ml.id=ils.location_id WHERE ils.inventory_id=i.id AND ml.name='Main Stockroom'),0) AS main_stockroom_stock,
-            COALESCE((SELECT SUM(ils.quantity) FROM inventory_location_stock ils WHERE ils.inventory_id=i.id AND ils.location_id=sr.destination_location_id),0) AS destination_stock
-     FROM supply_requests sr
-     JOIN inventory i ON sr.inventory_id = i.id
-     JOIN doctors d ON sr.doctor_id = d.id
-     LEFT JOIN inventory_locations dest ON dest.id=sr.destination_location_id
-     ORDER BY FIELD(sr.status,'pending','approved','rejected'), sr.requested_at DESC`
-  )
-  res.json(rows)
+  const groups = await listSupplyTransferGroups({ pendingFirst: true })
+  res.json(groups)
 }
 
 const resolveSupplyRequest = async (req, res) => {
@@ -1902,7 +1919,7 @@ const resolveSupplyRequest = async (req, res) => {
 module.exports = {
   login, checkAuth, logout,
   getDashboard,
-  getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, getAppointmentReasons,
+  getAppointments, createAppointment, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, getAppointmentReasons, getAppointmentCancellationReasons,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
   getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getPaymentSettingsForStaff,

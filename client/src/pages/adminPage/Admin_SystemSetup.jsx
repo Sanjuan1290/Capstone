@@ -17,6 +17,8 @@ import { LoadingState, ErrorState, EmptyState } from '../../components/ui/PageSt
 import { useToast } from '../../components/ui/ToastProvider'
 import {
   getSystemSetup,
+  deleteAppointmentCancellationReason,
+  saveAppointmentCancellationReason,
   deleteBillingServiceCategory,
   deleteInventoryUom,
   saveBillingServiceCategory,
@@ -50,22 +52,30 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
     suppliers: 160,
     location_types: 80,
     movement_reasons: 120,
+    cancellation_reasons: 120,
   }[type] || 120
 
   const config = useMemo(() => ({
+    cancellation_reasons: {
+      title: 'Reason for Cancellation',
+      plural: 'Reasons for Cancellation',
+      singular: 'cancellation reason',
+      save: saveAppointmentCancellationReason,
+      description: 'Reusable reasons shown whenever a Patient, Admin, or Staff member cancels an appointment. “Other” is always available separately and requires an explanation.',
+    },
     service_categories: {
       title: 'Service Category',
       plural: 'Service Categories',
       singular: 'service category',
       save: saveBillingServiceCategory,
-      description: 'Categories only group actual services. They are shown alphabetically in Add Service; create bookable services under System Setup → Billing Setup → Services & Pricing.',
+      description: 'Categories only group actual services. They are shown alphabetically in Add Service; create bookable services under System Setup → Services & Pricing Setup → Services & Pricing.',
     },
     uoms: {
       title: 'Unit of Measure',
       plural: 'Units of Measure',
       singular: 'unit',
       save: saveInventoryUom,
-      description: 'Reusable measurement options for inventory items.',
+      description: 'Reusable stock-unit options that define how inventory quantities are counted, such as capsule, bottle, piece, vial, or mL. Product strength/size is recorded separately on each inventory item.',
     },
     suppliers: {
       title: 'Supplier',
@@ -99,6 +109,13 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 
   const open = (row = null) => {
     setEditing(row)
+    if (type === 'cancellation_reasons') {
+      setForm({
+        name: row?.label || '',
+        is_active: row ? Number(row.is_active) : 1,
+        sort_order: row?.sort_order ?? 0,
+      })
+    }
     if (type === 'service_categories') {
       setForm({
         name: row?.name || '',
@@ -148,7 +165,10 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
     if (type === 'suppliers' && !(form.clinics || []).length) return toast.warning('Select at least one clinic.')
     setSaving(true)
     try {
-      await config.save({ ...form, name: String(form.name).trim() }, editing?.id || null)
+      const payload = type === 'cancellation_reasons'
+        ? { label: String(form.name).trim(), is_active: form.is_active, sort_order: Number(form.sort_order || 0) }
+        : { ...form, name: String(form.name).trim() }
+      await config.save(payload, editing?.id || null)
       toast.success(`${config.title} ${editing ? 'updated' : 'added'}.`)
       close()
       await onReload()
@@ -161,7 +181,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 
 
   const requestDelete = (row) => {
-    if (!['service_categories', 'uoms'].includes(type)) return
+    if (!['service_categories', 'uoms', 'cancellation_reasons'].includes(type)) return
     setDeleteTarget(row)
   }
 
@@ -169,11 +189,14 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
     if (!deleteTarget) return
     const inUseCount = type === 'service_categories'
       ? Number(deleteTarget.service_count || 0)
-      : Number(deleteTarget.inventory_count || 0)
+      : type === 'cancellation_reasons'
+        ? Number(deleteTarget.appointment_count || 0)
+        : Number(deleteTarget.inventory_count || 0)
     if (inUseCount > 0) return
     setDeleting(true)
     try {
       if (type === 'service_categories') await deleteBillingServiceCategory(deleteTarget.id)
+      else if (type === 'cancellation_reasons') await deleteAppointmentCancellationReason(deleteTarget.id)
       else await deleteInventoryUom(deleteTarget.id)
       toast.success(`${config.title} deleted.`)
       setDeleteTarget(null)
@@ -207,6 +230,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
               <tr>
                 <th className="px-5 py-3">Name</th>
+                {type === 'cancellation_reasons' && <><th className="px-5 py-3">Order</th><th className="px-5 py-3">Used By</th></>}
                 {type === 'service_categories' && <th className="px-5 py-3">Clinic</th>}
                 {type === 'service_categories' && <th className="px-5 py-3">Used By</th>}
                 {type === 'uoms' && <><th className="px-5 py-3">Quantity Rule</th><th className="px-5 py-3">Used By</th></>}
@@ -222,7 +246,8 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
             <tbody className="divide-y divide-slate-100">
               {pagination.pageItems.map((row) => (
                 <tr key={row.id}>
-                  <td className="px-5 py-4 font-semibold text-slate-800">{row.name}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-800">{row.label || row.name}</td>
+                  {type === 'cancellation_reasons' && <><td className="px-5 py-4 text-slate-500">{Number(row.sort_order || 0)}</td><td className="px-5 py-4 text-slate-500">{Number(row.appointment_count || 0)} appointment{Number(row.appointment_count || 0) === 1 ? '' : 's'}</td></>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.service_count || 0)} service{Number(row.service_count || 0) === 1 ? '' : 's'}</td>}
                   {type === 'uoms' && <><td className="px-5 py-4 text-slate-500">{Number(row.allow_decimal_quantity) === 1 ? 'Decimals allowed (2 places)' : 'Whole units only'}</td><td className="px-5 py-4 text-slate-500">{Number(row.inventory_count || 0)} inventory item{Number(row.inventory_count || 0) === 1 ? '' : 's'}</td></>}
@@ -239,7 +264,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                   <td className="px-5 py-4 text-right">
                     <div className="inline-flex flex-wrap justify-end gap-2">
                       <button className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button>
-                      {['service_categories','uoms'].includes(type) && <button className="button-secondary !border-rose-200 !text-rose-600 hover:!bg-rose-50" onClick={() => requestDelete(row)}><MdDelete /> Delete</button>}
+                      {['service_categories','uoms','cancellation_reasons'].includes(type) && <button className="button-secondary !border-rose-200 !text-rose-600 hover:!bg-rose-50" onClick={() => requestDelete(row)}><MdDelete /> Delete</button>}
                     </div>
                   </td>
                 </tr>
@@ -354,6 +379,14 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
             </>
           )}
 
+          {type === 'cancellation_reasons' && (
+            <label className="block">
+              <span className="form-label">Display Order</span>
+              <input type="number" min="0" max="9999" step="1" className="form-control mt-1.5" value={form.sort_order ?? 0} onChange={(e) => setForm((value) => ({ ...value, sort_order: Number(e.target.value) }))} />
+              <p className="mt-1 text-xs text-slate-400">Lower numbers appear first in the cancellation dropdown.</p>
+            </label>
+          )}
+
           <label className="block">
             <span className="form-label">Status</span>
             <select className="form-control mt-1.5" value={Number(form.is_active) === 0 ? 0 : 1} onChange={(e) => setForm((value) => ({ ...value, is_active: Number(e.target.value) }))}>
@@ -371,15 +404,21 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 
       <Modal open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)} title={`Delete ${config.title}`} size="sm">
         {deleteTarget && (() => {
-          const inUseCount = type === 'service_categories' ? Number(deleteTarget.service_count || 0) : Number(deleteTarget.inventory_count || 0)
+          const inUseCount = type === 'service_categories'
+            ? Number(deleteTarget.service_count || 0)
+            : type === 'cancellation_reasons'
+              ? Number(deleteTarget.appointment_count || 0)
+              : Number(deleteTarget.inventory_count || 0)
           const inUseLabel = type === 'service_categories'
             ? `${inUseCount} service${inUseCount === 1 ? '' : 's'}`
-            : `${inUseCount} inventory item${inUseCount === 1 ? '' : 's'}`
+            : type === 'cancellation_reasons'
+              ? `${inUseCount} appointment${inUseCount === 1 ? '' : 's'}`
+              : `${inUseCount} inventory item${inUseCount === 1 ? '' : 's'}`
           return <div className="space-y-4">
             <div className={`flex items-start gap-3 rounded-2xl border p-4 ${inUseCount > 0 ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}>
               <MdWarningAmber className={`mt-0.5 shrink-0 text-xl ${inUseCount > 0 ? 'text-amber-600' : 'text-rose-600'}`} />
               <div>
-                <p className="font-bold text-slate-900">{deleteTarget.name}</p>
+                <p className="font-bold text-slate-900">{deleteTarget.label || deleteTarget.name}</p>
                 {inUseCount > 0 ? (
                   <p className="mt-1 text-sm text-slate-600">This {config.singular} is currently used by {inUseLabel} and cannot be permanently deleted. Edit it and set its status to <strong>Inactive</strong> instead so existing records remain valid.</p>
                 ) : (
@@ -409,7 +448,7 @@ const Admin_SystemSetup = () => {
   const requestedTab = searchParams.get('tab')
   const validTab = TABS.some((item) => item.key === requestedTab) ? requestedTab : 'visits'
   const [tab, setTab] = useState(validTab)
-  const [data, setData] = useState({ service_categories: [], uoms: [], suppliers: [], location_types: [], movement_reasons: [] })
+  const [data, setData] = useState({ cancellation_reasons: [], service_categories: [], uoms: [], suppliers: [], location_types: [], movement_reasons: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -438,7 +477,7 @@ const Admin_SystemSetup = () => {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdSettings className="text-amber-500" /> System Setup</h1>
-          <p className="mt-1 text-sm text-slate-500">Manage patient visit options, billing setup, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
+          <p className="mt-1 text-sm text-slate-500">Manage patient visit options, cancellation reasons, services and pricing setup, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
         </div>
         {tab !== 'visits' && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
       </div>

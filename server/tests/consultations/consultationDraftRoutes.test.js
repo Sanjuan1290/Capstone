@@ -16,6 +16,8 @@ describe('consultation draft/finalize API contract', () => {
     const draftBlock = source.slice(draftStart, finalizeStart)
     const finalizeBlock = source.slice(finalizeStart, getStart)
     expect(draftBlock).not.toContain('consumeClinicalInventory')
+    expect(draftBlock).not.toContain('validateClinicalInventoryAvailability')
+    expect(finalizeBlock).toContain('validateClinicalInventoryAvailability')
     expect(finalizeBlock).toContain('consumeClinicalInventory')
     expect(finalizeBlock).toContain("status='finalized'")
   })

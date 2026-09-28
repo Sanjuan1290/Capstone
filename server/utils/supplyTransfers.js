@@ -3,102 +3,252 @@ const { writeAuditLog } = require('./audit')
 const { broadcast } = require('./sse')
 const { transferInventoryBatchesFEFO, MAIN_LOCATION, getInventoryLocationById } = require('./inventoryBatches')
 
+const groupTransferRows = (rows = []) => {
+  const groups = new Map()
+  for (const row of rows) {
+    const groupId = Number(row.request_group_id || row.group_id || row.id)
+    if (!groups.has(groupId)) {
+      groups.set(groupId, {
+        id: groupId,
+        doctor_id: Number(row.doctor_id),
+        doctor_name: row.doctor_name || null,
+        destination_location_id: Number(row.destination_location_id || 0) || null,
+        destination_location: row.destination_location || row.destination_location_snapshot || 'Doctor / Treatment Room',
+        reason: row.group_reason ?? row.reason ?? null,
+        status: row.group_status || row.status,
+        requested_at: row.group_requested_at || row.requested_at,
+        updated_at: row.group_updated_at || row.updated_at,
+        resolved_at: row.group_resolved_at || row.resolved_at || null,
+        resolved_by_role: row.resolved_by_role || null,
+        resolved_by_user_id: Number(row.resolved_by_user_id || 0) || null,
+        resolution_note: row.group_resolution_note ?? row.resolution_note ?? null,
+        items: [],
+      })
+    }
+    groups.get(groupId).items.push({
+      id: Number(row.line_id || row.supply_request_id || row.id),
+      inventory_id: Number(row.inventory_id),
+      item_name: row.item_name,
+      category: row.category || null,
+      item_type: row.item_type || null,
+      unit: row.unit || row.uom || 'unit',
+      qty_requested: Number(row.qty_requested || 0),
+      main_stockroom_stock: Number(row.main_stockroom_stock || 0),
+      destination_stock: Number(row.destination_stock || 0),
+      measurement_value: row.measurement_value === null || row.measurement_value === undefined ? null : Number(row.measurement_value),
+      measurement_unit: row.measurement_unit || null,
+    })
+  }
+
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    item_count: group.items.length,
+  }))
+}
+
+const listSupplyTransferGroups = async ({ doctorId = null, groupId = null, pendingFirst = false, executor = db } = {}) => {
+  const conditions = []
+  const params = []
+  if (Number(doctorId)) {
+    conditions.push('g.doctor_id = ?')
+    params.push(Number(doctorId))
+  }
+  if (Number(groupId)) {
+    conditions.push('g.id = ?')
+    params.push(Number(groupId))
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const order = pendingFirst
+    ? "ORDER BY FIELD(g.status,'pending','approved','rejected'), g.requested_at DESC, sr.id ASC"
+    : 'ORDER BY g.requested_at DESC, sr.id ASC'
+
+  const [rows] = await executor.query(
+    `SELECT
+       g.id AS request_group_id,
+       g.doctor_id,
+       d.full_name AS doctor_name,
+       g.destination_location_id,
+       COALESCE(dest.name, g.destination_location) AS destination_location,
+       g.reason AS group_reason,
+       g.status AS group_status,
+       g.requested_at AS group_requested_at,
+       g.updated_at AS group_updated_at,
+       g.resolved_at AS group_resolved_at,
+       g.resolved_by_role,
+       g.resolved_by_user_id,
+       g.resolution_note AS group_resolution_note,
+       sr.id AS line_id,
+       sr.inventory_id,
+       sr.qty_requested,
+       i.name AS item_name,
+       i.category,
+       COALESCE(i.item_type,'medicine') AS item_type,
+       COALESCE(i.uom,i.base_unit,i.unit,'unit') AS unit,
+       i.measurement_value,
+       i.measurement_unit,
+       COALESCE((
+         SELECT SUM(ils.quantity)
+         FROM inventory_location_stock ils
+         JOIN inventory_locations ml ON ml.id=ils.location_id
+         WHERE ils.inventory_id=i.id AND ml.name=?
+       ),0) AS main_stockroom_stock,
+       COALESCE((
+         SELECT SUM(ils.quantity)
+         FROM inventory_location_stock ils
+         WHERE ils.inventory_id=i.id AND ils.location_id=g.destination_location_id
+       ),0) AS destination_stock
+     FROM supply_request_groups g
+     JOIN supply_requests sr ON sr.request_group_id=g.id
+     JOIN inventory i ON i.id=sr.inventory_id
+     JOIN doctors d ON d.id=g.doctor_id
+     LEFT JOIN inventory_locations dest ON dest.id=g.destination_location_id
+     ${where}
+     ${order}`,
+    [MAIN_LOCATION, ...params]
+  )
+  return groupTransferRows(rows)
+}
+
 const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ipAddress, note = '' }) => {
   if (!['approved', 'rejected'].includes(String(status))) {
     return { statusCode: 400, body: { message: 'Status must be approved or rejected.' } }
   }
 
   const conn = await db.getConnection()
-  let request
+  let group
+  let itemResults = []
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query(
-      `SELECT sr.*, i.name AS item_name, i.stock AS total_stock, i.unit,
-              loc.name AS destination_location_name, loc.location_type AS destination_location_type
-       FROM supply_requests sr
-       JOIN inventory i ON i.id = sr.inventory_id
-       LEFT JOIN inventory_locations loc ON loc.id = sr.destination_location_id
-       WHERE sr.id = ?
+    const [groups] = await conn.query(
+      `SELECT g.*, d.full_name AS doctor_name,
+              COALESCE(loc.name, g.destination_location) AS destination_location_name,
+              loc.location_type AS destination_location_type
+       FROM supply_request_groups g
+       JOIN doctors d ON d.id=g.doctor_id
+       LEFT JOIN inventory_locations loc ON loc.id=g.destination_location_id
+       WHERE g.id=?
        FOR UPDATE`,
       [requestId]
     )
-    if (!rows.length) {
+    if (!groups.length) {
       await conn.rollback()
-      return { statusCode: 404, body: { message: 'Supply request not found.' } }
+      return { statusCode: 404, body: { message: 'Stock transfer request not found.' } }
+    }
+    group = groups[0]
+    if (group.status !== 'pending') {
+      await conn.rollback()
+      return { statusCode: 400, body: { message: 'Only pending stock transfer requests can be resolved.' } }
     }
 
-    request = rows[0]
-    if (request.status !== 'pending') {
+    const [lines] = await conn.query(
+      `SELECT sr.id, sr.inventory_id, sr.qty_requested,
+              i.name AS item_name,
+              COALESCE(i.uom,i.base_unit,i.unit,'unit') AS unit
+       FROM supply_requests sr
+       JOIN inventory i ON i.id=sr.inventory_id
+       WHERE sr.request_group_id=?
+       ORDER BY sr.id ASC
+       FOR UPDATE`,
+      [group.id]
+    )
+    if (!lines.length) {
       await conn.rollback()
-      return { statusCode: 400, body: { message: 'Only pending requests can be resolved.' } }
+      return { statusCode: 409, body: { message: 'This stock transfer request has no items.' } }
     }
 
-    let batchBreakdown = []
     let destinationRow = null
     if (status === 'approved') {
-      destinationRow = request.destination_location_id ? await getInventoryLocationById(request.destination_location_id, conn) : null
-      const destination = String(destinationRow?.name || request.destination_location_name || request.destination_location || '').trim()
-      if (!destinationRow || !['room','dispensing'].includes(String(destinationRow.location_type))) {
+      destinationRow = group.destination_location_id ? await getInventoryLocationById(group.destination_location_id, conn) : null
+      const destination = String(destinationRow?.name || group.destination_location_name || group.destination_location || '').trim()
+      if (!destinationRow || !['room', 'dispensing'].includes(String(destinationRow.location_type))) {
         await conn.rollback()
         return { statusCode: 400, body: { message: 'The requested inventory destination is no longer available.' } }
       }
-      const qty = Math.max(0, Number(request.qty_requested) || 0)
-      if (qty <= 0) {
-        await conn.rollback()
-        return { statusCode: 400, body: { message: 'Supply request quantity must be greater than zero.' } }
-      }
 
-      // Transfer location ownership per batch. This does NOT decrease clinic-wide
-      // inventory quantity; the same physical batch simply moves to another room.
-      const movement = await transferInventoryBatchesFEFO(
-        request.inventory_id,
-        qty,
-        MAIN_LOCATION,
-        destination,
-        conn
-      )
-      if (!movement.ok) {
-        await conn.rollback()
-        return { statusCode: 400, body: { message: `${request.item_name}: ${movement.message}` } }
-      }
-      batchBreakdown = movement.transferred
+      // Every line is transferred in this same transaction. If any line cannot be
+      // fulfilled, the transaction is rolled back so the request is all-or-nothing.
+      for (const line of lines) {
+        const qty = Math.max(0, Number(line.qty_requested) || 0)
+        if (qty <= 0) {
+          await conn.rollback()
+          return { statusCode: 400, body: { message: `${line.item_name} has an invalid requested quantity.` } }
+        }
 
-      const [transfer] = await conn.query(
-        `INSERT INTO inventory_transfers
-         (inventory_id, supply_request_id, from_location, to_location, quantity, transferred_by_role, transferred_by_user_id, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [request.inventory_id, request.id, MAIN_LOCATION, destination, qty, actorRole, actorId, request.reason || null]
-      )
-      request.transfer_id = transfer.insertId
-
-      for (const batch of batchBreakdown) {
-        await conn.query(
-          `INSERT INTO inventory_transfer_batches (transfer_id, batch_id, quantity, expiration_date)
-           VALUES (?, ?, ?, ?)`,
-          [transfer.insertId, batch.batch_id, batch.quantity, batch.expiration_date || null]
+        const movement = await transferInventoryBatchesFEFO(
+          line.inventory_id,
+          qty,
+          MAIN_LOCATION,
+          destination,
+          conn
         )
-      }
+        if (!movement.ok) {
+          await conn.rollback()
+          return {
+            statusCode: 409,
+            body: {
+              code: 'STOCK_TRANSFER_GROUP_INSUFFICIENT',
+              message: `${line.item_name}: ${movement.message}. No items in this request were transferred.`,
+              inventory_id: Number(line.inventory_id),
+              item_name: line.item_name,
+            },
+          }
+        }
 
-      // Keep one low-level transfer log per moved batch. Transfers are classified separately
-      // from true Stock Out in the inventory activity UI/reports.
-      const actorColumn = actorRole === 'admin' ? 'admin_id' : 'staff_id'
-      for (const batch of batchBreakdown) {
-        const label = batch.batch_code || `Batch #${batch.batch_id}`
-        await conn.query(
-          `INSERT INTO inventory_logs
-           (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id)
-           VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'supply_request', ?, ?)`,
-          [request.inventory_id, actorId, batch.quantity, `${label} moved from ${MAIN_LOCATION} to ${destination} for stock transfer request #${request.id}`, MAIN_LOCATION, destination, request.id, batch.batch_id]
+        const [transfer] = await conn.query(
+          `INSERT INTO inventory_transfers
+           (inventory_id, supply_request_id, from_location, to_location, quantity, transferred_by_role, transferred_by_user_id, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [line.inventory_id, line.id, MAIN_LOCATION, destination, qty, actorRole, actorId, group.reason || null]
         )
+
+        for (const batch of movement.transferred) {
+          await conn.query(
+            `INSERT INTO inventory_transfer_batches (transfer_id, batch_id, quantity, expiration_date)
+             VALUES (?, ?, ?, ?)`,
+            [transfer.insertId, batch.batch_id, batch.quantity, batch.expiration_date || null]
+          )
+        }
+
+        const actorColumn = actorRole === 'admin' ? 'admin_id' : 'staff_id'
+        for (const batch of movement.transferred) {
+          const label = batch.batch_code || `Batch #${batch.batch_id}`
+          await conn.query(
+            `INSERT INTO inventory_logs
+             (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id)
+             VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'supply_request', ?, ?)`,
+            [line.inventory_id, actorId, batch.quantity, `${label} moved from ${MAIN_LOCATION} to ${destination} for stock transfer request #${group.id} (line #${line.id})`, MAIN_LOCATION, destination, line.id, batch.batch_id]
+          )
+        }
+
+        itemResults.push({
+          supply_request_id: Number(line.id),
+          inventory_id: Number(line.inventory_id),
+          item_name: line.item_name,
+          quantity: qty,
+          unit: line.unit,
+          transfer_id: Number(transfer.insertId),
+          batches: movement.transferred.map((batch) => ({
+            batch_id: batch.batch_id,
+            batch_code: batch.batch_code,
+            expiration_date: batch.expiration_date,
+            quantity: batch.quantity,
+          })),
+        })
       }
     }
 
     const resolutionNote = String(note || '').trim() || null
     await conn.query(
+      `UPDATE supply_request_groups
+       SET status=?, resolved_at=NOW(), resolved_by_role=?, resolved_by_user_id=?, resolution_note=?, updated_at=NOW()
+       WHERE id=?`,
+      [status, actorRole, actorId, resolutionNote, group.id]
+    )
+    await conn.query(
       `UPDATE supply_requests
-       SET status = ?, resolved_at = NOW(), resolved_by_admin_id = ?, resolution_note = ?
-       WHERE id = ?`,
-      [status, actorRole === 'admin' ? actorId : null, resolutionNote, request.id]
+       SET status=?, resolved_at=NOW(), resolved_by_admin_id=?, resolution_note=?
+       WHERE request_group_id=?`,
+      [status, actorRole === 'admin' ? actorId : null, resolutionNote, group.id]
     )
 
     await writeAuditLog({
@@ -106,19 +256,19 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
       userRole: actorRole,
       action: `supply.request_${status}`,
       entityType: 'supply_request',
-      entityId: request.id,
+      entityId: group.id,
       oldValues: { status: 'pending' },
       newValues: {
         status,
-        destination_location_id: request.destination_location_id || null,
-        destination_location: destinationRow?.name || request.destination_location,
-        transfer_id: request.transfer_id || null,
+        item_count: lines.length,
+        destination_location_id: group.destination_location_id || null,
+        destination_location: destinationRow?.name || group.destination_location_name || group.destination_location,
         resolution_note: resolutionNote,
-        batches: batchBreakdown.map((batch) => ({
-          batch_id: batch.batch_id,
-          batch_code: batch.batch_code,
-          expiration_date: batch.expiration_date,
-          quantity: batch.quantity,
+        items: status === 'approved' ? itemResults : lines.map((line) => ({
+          supply_request_id: Number(line.id),
+          inventory_id: Number(line.inventory_id),
+          item_name: line.item_name,
+          quantity: Number(line.qty_requested),
         })),
       },
       ipAddress,
@@ -126,27 +276,29 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
 
     await conn.commit()
   } catch (error) {
-    await conn.rollback()
+    await conn.rollback().catch(() => {})
     throw error
   } finally {
     conn.release()
   }
 
-  broadcast(['admin', 'staff', `doctor_${request.doctor_id}`], 'supply_request_resolved', {
-    requestId: Number(request.id),
+  broadcast(['admin', 'staff', `doctor_${group.doctor_id}`], 'supply_request_resolved', {
+    requestId: Number(group.id),
     status,
-    doctorId: request.doctor_id,
+    doctorId: Number(group.doctor_id),
+    itemCount: itemResults.length || undefined,
   })
 
   return {
     statusCode: 200,
     body: {
       message: status === 'approved'
-        ? 'Stock transfer approved. Requested stock was moved from Main Stockroom to the destination automatically.'
-        : 'Supply request rejected.',
-      transfer_id: request.transfer_id || null,
+        ? `Stock transfer approved. ${itemResults.length} item${itemResults.length === 1 ? '' : 's'} were moved from Main Stockroom to the destination atomically.`
+        : 'Stock transfer request rejected.',
+      request_id: Number(group.id),
+      items: itemResults,
     },
   }
 }
 
-module.exports = { resolveSupplyTransfer }
+module.exports = { resolveSupplyTransfer, listSupplyTransferGroups, groupTransferRows }

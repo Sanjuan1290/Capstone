@@ -424,6 +424,9 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     category: ['medical','derma'].includes(initialItem?.category) ? initialItem.category : (String(initialItem?.category || '').toLowerCase().includes('derm') ? 'derma' : 'medical'),
     item_type: initialItem?.item_type || 'medicine',
     uom: initialItem?.uom || initialItem?.base_unit || initialItem?.unit || '',
+    measurement_value: initialItem?.measurement_value === null || initialItem?.measurement_value === undefined ? '' : String(initialItem.measurement_value),
+    measurement_unit: initialItem?.measurement_unit || '',
+    strength: initialItem?.measurement_value ? '' : (initialItem?.strength || ''),
     stock: String(isEditing ? 0 : (initialItem?.stock ?? 0)),
     threshold: String(initialItem?.threshold ?? 5),
     price: String(initialItem?.selling_price ?? initialItem?.price ?? ''),
@@ -453,7 +456,11 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
   const sellingPrice = Number(form.selling_price)
   const thresholdValid = form.threshold !== '' && Number.isFinite(Number(form.threshold)) && Number(form.threshold) >= 0
   const sellingPriceValid = Number.isFinite(sellingPrice) && sellingPrice > 0
-  const canSaveDetails = Boolean(form.name.trim() && form.category && form.item_type && form.uom && form.location_type_id && thresholdValid && sellingPriceValid && !duplicateBarcode)
+  const measurementValueProvided = String(form.measurement_value || '').trim() !== ''
+  const measurementUnitProvided = String(form.measurement_unit || '').trim() !== ''
+  const measurementValid = (!measurementValueProvided && !measurementUnitProvided) || (measurementValueProvided && measurementUnitProvided && Number.isFinite(Number(form.measurement_value)) && Number(form.measurement_value) > 0)
+  const measurementLabel = measurementValid && measurementValueProvided ? `${Number(form.measurement_value)} ${form.measurement_unit.trim()}` : ''
+  const canSaveDetails = Boolean(form.name.trim() && form.category && form.item_type && form.uom && form.location_type_id && thresholdValid && sellingPriceValid && measurementValid && !duplicateBarcode)
 
   const handleScannedBarcode = (code) => {
     const normalized = String(code || '').trim()
@@ -479,6 +486,9 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
         unit: form.uom,
         base_unit: form.uom,
         unit_size: 1,
+        measurement_value: measurementValueProvided ? Number(form.measurement_value) : null,
+        measurement_unit: measurementUnitProvided ? form.measurement_unit.trim() : null,
+        strength: measurementValueProvided && measurementUnitProvided ? measurementLabel : form.strength,
         stock: isEditing ? 0 : Math.max(0, parseFloat(form.stock) || 0),
         threshold: Math.max(0, parseFloat(form.threshold) || 0),
         price: sellingPrice,
@@ -519,15 +529,18 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
             {duplicateBarcode ? <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">This barcode is already registered to <strong>{duplicateBarcode.name}</strong>. Use the existing inventory item instead.</div> : <p className="mt-2 text-xs text-slate-400">The product barcode identifies the product. Batch barcodes are generated separately for each receipt.</p>}
             <div className="mt-3"><BarcodePreview value={barcodePreview} title={normalizedBarcode ? 'Product Barcode Preview' : 'Auto-generated Barcode Preview'} /></div>
           </div>
-          <Field label="Unit of Measure *"><select value={form.uom} onChange={update('uom')} className={inputClass} disabled={!uomOptions.length}><option value="">{uomOptions.length ? 'Select unit of measure' : 'No units configured'}</option>{uomOptions.map((entry)=><option key={entry.id || entry.value} value={entry.value}>{entry.label}</option>)}</select></Field>
+          <Field label="Stock Unit *" helper="How this item is counted in inventory, such as capsule, bottle, piece, vial, or mL."><select value={form.uom} onChange={update('uom')} className={inputClass} disabled={!uomOptions.length}><option value="">{uomOptions.length ? 'Select stock unit' : 'No units configured'}</option>{uomOptions.map((entry)=><option key={entry.id || entry.value} value={entry.value}>{entry.label}</option>)}</select></Field>
           <Field label="Storage Classification *"><select value={form.location_type_id} onChange={update('location_type_id')} className={inputClass} disabled={!locationTypes.length}><option value="">{locationTypes.length ? 'Select storage classification' : 'No storage classifications configured'}</option>{locationTypes.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></Field>
+          <Field label="Strength / Size per Stock Unit" helper="Optional product detail. Example: 500 mg per capsule or 500 mL per bottle. This does not change the inventory quantity."><input type="number" inputMode="decimal" min="0.0001" step="0.0001" value={form.measurement_value} onChange={update('measurement_value')} className={`${inputClass} ${!measurementValid ? 'border-amber-300 bg-amber-50' : ''}`} placeholder="e.g. 500" />{!measurementValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter both Strength / Size and Measurement Unit, or leave both blank.</p>}</Field>
+          <Field label="Measurement Unit" helper="The unit for the strength/size above, not the number of items in stock."><input list="inventory-measurement-units" maxLength={30} value={form.measurement_unit} onChange={update('measurement_unit')} className={`${inputClass} ${!measurementValid ? 'border-amber-300 bg-amber-50' : ''}`} placeholder="e.g. mg, mL, g" /><datalist id="inventory-measurement-units"><option value="mcg"/><option value="mg"/><option value="g"/><option value="kg"/><option value="mL"/><option value="L"/><option value="IU"/><option value="%"/><option value="units"/></datalist></Field>
+          {form.strength && !measurementValueProvided && !measurementUnitProvided && <div className="md:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800"><strong>Legacy strength:</strong> {form.strength}. Enter structured Strength / Size and Measurement Unit above when you are ready to replace this legacy value.</div>}
           <Field label="Preferred Supplier (optional)"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={inputClass}><option value="">No preferred supplier</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Optional product default. Every Stock In receipt records its actual supplier separately.</p></Field>
           <Field label="Low Stock Alert *"><input type="number" inputMode="decimal" min="0" step={quantityStep} value={form.threshold} onChange={update('threshold')} className={`${inputClass} ${!thresholdValid ? 'border-amber-300 bg-amber-50' : ''}`}/>{!thresholdValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter a low-stock alert quantity of 0 or greater.</p>}</Field>
           {canManageSellingPrice && <Field label="Selling Price *"><input type="number" inputMode="decimal" min="0.01" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={`${inputClass} ${!sellingPriceValid ? 'border-red-300 bg-red-50' : ''}`} placeholder="e.g. 10.00"/>{!sellingPriceValid ? <p className="mt-1 text-xs font-semibold text-red-700">Selling Price is required and must be greater than ₱0.00.</p> : <p className="mt-1 text-xs text-slate-400">This is the amount charged when the item is added directly to patient Checkout.</p>}</Field>}
-          <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">Item details describe the product. <strong>Quantity, supplier lot and expiry are batch-level information. Selling Price belongs to the item.</strong></div>
+          <div className="md:col-span-2 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">Item details describe the product. <strong>Stock Unit tells the system how inventory is counted; Strength / Size describes one stock unit. Opening Quantity, supplier lot and expiry are batch-level information.</strong></div>
         </div> : <div className="grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"><strong>{form.name}</strong><div className="mt-1 text-xs text-slate-500">{CATEGORIES.find(x=>x.value===form.category)?.label} · {ITEM_TYPES.find(x=>x.value===form.item_type)?.label} · Unit: {form.uom} · Storage Classification: {selectedLocationType?.name || 'Not selected'}</div></div>
-          <Field label="Opening Quantity *"><input type="number" inputMode="decimal" min="0" step={quantityStep} value={form.stock} onChange={update('stock')} className={inputClass}/></Field>
+          <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"><strong>{form.name}</strong><div className="mt-1 text-xs text-slate-500">{CATEGORIES.find(x=>x.value===form.category)?.label} · {ITEM_TYPES.find(x=>x.value===form.item_type)?.label} · Stock Unit: {form.uom}{measurementLabel ? ` · ${measurementLabel} per ${form.uom}` : ''} · Storage Classification: {selectedLocationType?.name || 'Not selected'}</div></div>
+          <Field label="Opening Quantity *" helper={`Number of ${form.uom || 'stock units'} received into Main Stockroom.`}><input type="number" inputMode="decimal" min="0" step={quantityStep} value={form.stock} onChange={update('stock')} className={inputClass}/></Field>
           {Number(form.stock || 0) > 0 && <Field label="Supplier for opening receipt *"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={`${inputClass} ${!supplierChoice ? 'border-amber-300 bg-amber-50' : ''}`}><option value="">Select supplier</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Required only because an opening batch is being received.</p></Field>}
           <div><Field label={`Batch Expiry${Number(form.stock || 0) > 0 && form.item_type === 'medicine' ? ' *' : ''}`}><input type="date" value={form.expiration_date} onChange={update('expiration_date')} disabled={noExpiry} className={`${inputClass} ${Number(form.stock || 0) > 0 && !noExpiry && !form.expiration_date ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{form.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setForm((v)=>({...v,expiration_date:''}))}}/> No expiry / Not applicable</label>}{Number(form.stock || 0) > 0 && !noExpiry && !form.expiration_date && <p className="mt-1 text-xs font-semibold text-amber-700">{form.item_type === 'medicine' ? 'Expiry is required for medicines.' : 'Enter an expiry date or choose No expiry / Not applicable.'}</p>}</div>
           <div className="md:col-span-2 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1087,6 +1100,7 @@ const Inventory = ({ services, canManageSellingPrice = true }) => {
                 <p className="text-sm text-slate-600">
                   <strong>{Number(item.stock ?? item.stock_base ?? 0)}</strong> {item.uom || item.base_unit || item.unit} in stock
                 </p>
+                {(item.measurement_value && item.measurement_unit) && <p className="text-xs font-semibold text-slate-500">Each {item.uom || item.unit || 'stock unit'}: {Number(item.measurement_value)} {item.measurement_unit}</p>}
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {locationTotals.length ? locationTotals.slice(0,6).map((location)=><div key={location.name} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs"><p className="font-semibold text-slate-500">{location.name}</p><p className="mt-0.5 font-black text-slate-800">{location.quantity} {item.uom || item.unit}</p></div>) : <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-400">No location stock</div>}
                 </div>

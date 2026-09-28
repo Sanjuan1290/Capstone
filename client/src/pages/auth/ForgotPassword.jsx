@@ -1,5 +1,5 @@
 // client/src/pages/auth/ForgotPassword.jsx
-// 4-step password recovery. Patient recovery defaults to email, with SMS as an alternate method.
+// 4-step role-aware password recovery. Patients recover by their verified SMS number; clinic roles recover by portal email.
 
 import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
@@ -22,6 +22,7 @@ const ROLE_CFG = {
   patient: { accent: '#10b981', light: '#ecfdf5', border: 'focus:border-emerald-400', ring: 'focus:ring-emerald-400/10', badge: 'Patient', btnClass: 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25' },
   doctor:  { accent: '#7c3aed', light: '#f5f3ff', border: 'focus:border-violet-400', ring: 'focus:ring-violet-400/10', badge: 'Doctor', btnClass: 'bg-violet-600 hover:bg-violet-700 shadow-violet-500/25' },
   staff:   { accent: '#0ea5e9', light: '#f0f9ff', border: 'focus:border-sky-400', ring: 'focus:ring-sky-400/10', badge: 'Staff', btnClass: 'bg-sky-500 hover:bg-sky-600 shadow-sky-500/25' },
+  admin:   { accent: '#f59e0b', light: '#fffbeb', border: 'focus:border-amber-400', ring: 'focus:ring-amber-400/10', badge: 'Admin', btnClass: 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/25' },
 }
 
 const OtpInput = ({ value, onChange, accent, light }) => {
@@ -113,7 +114,7 @@ const ForgotPassword = ({ role }) => {
   const isPatient = role === 'patient'
 
   const [step, setStep] = useState('request')
-  const [deliveryMethod, setDeliveryMethod] = useState('email')
+  const [deliveryMethod] = useState(isPatient ? 'sms' : 'email')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [maskedDestination, setMaskedDestination] = useState('')
@@ -134,17 +135,15 @@ const ForgotPassword = ({ role }) => {
     return () => clearTimeout(timer)
   }, [countdown])
 
-  const effectiveMethod = isPatient ? deliveryMethod : 'email'
+  const effectiveMethod = isPatient ? 'sms' : deliveryMethod
   const stepNum = { request: 0, otp: 1, reset: 2, done: 3 }[step]
   const loginPath = `/${role}/login`
   const recoveryLabel = effectiveMethod === 'sms' ? 'mobile number' : 'email address'
   const recoveryValue = effectiveMethod === 'sms' ? phone : email
-  const alternateLabel = effectiveMethod === 'sms' ? 'Use email instead' : 'Use mobile number instead'
 
   const inpClass = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 placeholder-slate-300 outline-none transition-all ${cfg.border} ${cfg.ring} focus:bg-white focus:ring-2`
 
-  const resetToRequest = ({ alternate = false } = {}) => {
-    if (alternate && isPatient) setDeliveryMethod((current) => current === 'email' ? 'sms' : 'email')
+  const resetToRequest = () => {
     setStep('request')
     setError('')
     setOtp('')
@@ -300,7 +299,9 @@ const ForgotPassword = ({ role }) => {
             {step === 'request' && (
               <form onSubmit={handleRequest} className="space-y-4">
                 <p className="text-center text-sm text-slate-500">
-                  Enter your {cfg.badge.toLowerCase()} {recoveryLabel} and we'll send a verification code.
+                  {isPatient
+                    ? 'Enter the mobile number verified during Patient registration. We will send the password-reset code by SMS.'
+                    : `Enter the email address registered to your ${cfg.badge} Portal account. We will validate it only against this portal.`}
                 </p>
 
                 <div>
@@ -340,21 +341,6 @@ const ForgotPassword = ({ role }) => {
                   )}
                 </button>
 
-                {isPatient && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeliveryMethod((current) => current === 'email' ? 'sms' : 'email')
-                      setError('')
-                    }}
-                    className="flex w-full items-center justify-center gap-1 text-xs font-semibold hover:underline"
-                    style={{ color: cfg.accent }}
-                  >
-                    {effectiveMethod === 'sms' ? <MdEmail /> : <MdPhone />}
-                    Try another way · {alternateLabel}
-                  </button>
-                )}
-
                 <p className="text-center text-sm text-slate-500">
                   Remember it?{' '}
                   <NavLink to={loginPath} className="font-bold hover:underline" style={{ color: cfg.accent }}>
@@ -372,6 +358,11 @@ const ForgotPassword = ({ role }) => {
                     <strong className="text-slate-800">{maskedDestination || recoveryValue}</strong>
                   </p>
                   <p className="mt-1 text-xs text-slate-400">Expires in 10 minutes</p>
+                  <p className="mt-2 text-xs text-slate-400">
+                    {isPatient
+                      ? 'If no SMS arrives, confirm that this is the mobile number verified on your Patient account.'
+                      : `If no email arrives, confirm that the address belongs to your ${cfg.badge} Portal account.`}
+                  </p>
                 </div>
 
                 {devOtp && (
@@ -422,18 +413,6 @@ const ForgotPassword = ({ role }) => {
                     <MdArrowBack className="text-[13px]" /> Change {recoveryLabel}
                   </button>
 
-                  {isPatient && (
-                    <>
-                      <span className="text-slate-200">|</span>
-                      <button
-                        onClick={() => resetToRequest({ alternate: true })}
-                        className="flex items-center gap-1 text-xs font-semibold hover:underline"
-                        style={{ color: cfg.accent }}
-                      >
-                        Try another way
-                      </button>
-                    </>
-                  )}
                 </div>
               </div>
             )}

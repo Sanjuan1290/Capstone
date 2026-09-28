@@ -88,10 +88,17 @@ export const bookAppointment = async (payload) => {
   return parseJson(res)
 }
 
-export const cancelAppointment = async (appointmentId) => {
+export const getAppointmentCancellationReasons = async () => {
+  const res = await fetch(`${BASE}/appointment-cancellation-reasons`, { credentials: 'include' })
+  return parseJson(res)
+}
+
+export const cancelAppointment = async (appointmentId, payload) => {
   const res = await fetch(`${BASE}/appointments/${appointmentId}/cancel`, {
     method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
+    body: JSON.stringify(payload || {}),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.message || 'Cancel failed')

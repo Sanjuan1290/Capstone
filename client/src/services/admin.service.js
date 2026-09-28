@@ -27,7 +27,7 @@ export const confirmAppointment = (id, payload = {}) =>
     body: JSON.stringify(payload),
   })
 
-export const cancelAppointment = (id) => requestJson(`${getAdminApiBase()}/appointments/${id}/cancel`, { method: 'PATCH' })
+export const cancelAppointment = (id, payload) => requestJson(`${getAdminApiBase()}/appointments/${id}/cancel`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) })
 
 export const markAppointmentNoShow = (id) => requestJson(`${getAdminApiBase()}/appointments/${id}/no-show`, { method: 'PATCH' })
 
@@ -47,6 +47,9 @@ export const createAppointment = (payload) =>
 
 export const getAppointmentReasons = () =>
   requestJson(`${getAdminApiBase()}/appointment-reasons`)
+
+export const getAppointmentCancellationReasons = () =>
+  requestJson(`${getAdminApiBase()}/appointment-cancellation-reasons`)
 
 export const createAppointmentReason = (payload) =>
   requestJson(`${getAdminApiBase()}/appointment-reasons`, {
@@ -375,6 +378,8 @@ export const createInventoryLocation = (payload) => requestJson(`${getAdminApiBa
 export const createInventorySupplier = (payload) => requestJson(`${getAdminApiBase()}/inventory/suppliers`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 export const getSystemSetup = () => requestJson(`${getAdminApiBase()}/system-setup`)
+export const saveAppointmentCancellationReason = (payload, id = null) => requestJson(`${getAdminApiBase()}/system-setup/cancellation-reasons${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const deleteAppointmentCancellationReason = (id) => requestJson(`${getAdminApiBase()}/system-setup/cancellation-reasons/${id}`, { method:'DELETE' })
 export const saveBillingServiceCategory = (payload, id = null) => requestJson(`${getAdminApiBase()}/system-setup/service-categories${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const deleteBillingServiceCategory = (id) => requestJson(`${getAdminApiBase()}/system-setup/service-categories/${id}`, { method:'DELETE' })
 export const saveInventoryUom = (payload, id = null) => requestJson(`${getAdminApiBase()}/system-setup/uoms${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })

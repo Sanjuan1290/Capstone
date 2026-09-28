@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { uploadClinicalImageSigned, getClinicalImageScanStatus } from '../../services/portal.service'
@@ -32,7 +32,6 @@ import {
   MdOpenInNew,
   MdPerson,
   MdPrint,
-  MdSave,
   MdUpload,
 } from 'react-icons/md'
 
@@ -54,15 +53,33 @@ const isCustomOption = (value, options) => Boolean(value) && !options.includes(v
 
 const normalizePrescription = (prescription = {}) => {
   const next = { ...prescription }
+  if (next.quantity === undefined || next.quantity === null || next.quantity === '') next.quantity = next.dosage ?? ''
+  delete next.dosage
   delete next.duration
   return next
 }
 
-const getMedicineUnit = (medicineName, inventoryItems = []) => (
-  inventoryItems.find(
-    (entry) => entry.name?.trim().toLowerCase() === String(medicineName || '').trim().toLowerCase()
-  )?.unit || ''
-)
+const getPrescriptionInventoryItem = (prescription, inventoryItems = []) => {
+  if (prescription?.inventory_id && prescription.inventory_id !== '__other__') {
+    const byId = inventoryItems.find((entry) => String(entry.id) === String(prescription.inventory_id))
+    if (byId) return byId
+  }
+  return inventoryItems.find((entry) => entry.name?.trim().toLowerCase() === String(prescription?.medicine || '').trim().toLowerCase()) || null
+}
+
+const getPrescriptionUnit = (prescription, inventoryItems = []) => prescription?.unit_label || getPrescriptionInventoryItem(prescription, inventoryItems)?.uom || getPrescriptionInventoryItem(prescription, inventoryItems)?.unit || ''
+
+const serializePrescription = (prescription, inventoryItems = []) => {
+  const next = normalizePrescription(prescription)
+  if (!next.unit_label) next.unit_label = getPrescriptionUnit(next, inventoryItems)
+  return next
+}
+
+const inventoryMeasurementLabel = (item) => {
+  if (!item?.measurement_value || !item?.measurement_unit) return ''
+  const stockUnit = item.uom || item.unit || 'unit'
+  return `${Number(item.measurement_value)} ${item.measurement_unit} per ${stockUnit}`
+}
 
 const createBlankProgressImage = () => ({
   image_url: '',
@@ -139,14 +156,13 @@ const Doctor_Consultation = () => {
 
   const [appt, setAppt] = useState(apptFromState || null)
   const [isEditMode, setIsEditMode] = useState(false)
-  const [initLoading, setInitLoading] = useState(!apptFromState && !!apptIdParam)
+  const [initLoading, setInitLoading] = useState(Boolean(apptFromState?.id || apptIdParam))
 
   const [diagnosis, setDiagnosis] = useState('')
   const [notes, setNotes] = useState('')
-  const [prescriptions, setPrescriptions] = useState([{ medicine: '', dosage: '', frequency: '', notes: '' }])
+  const [prescriptions, setPrescriptions] = useState([{ inventory_id: '', medicine: '', quantity: '', unit_label: '', frequency: '', notes: '' }])
   const [progressImages, setProgressImages] = useState([])
   const [patientHistory, setPatientHistory] = useState([])
-  const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState('consultation')
   const [inventoryItems, setInventoryItems] = useState([])
@@ -161,6 +177,13 @@ const Doctor_Consultation = () => {
   const [consultationStatus, setConsultationStatus] = useState('draft')
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState('')
+  const [autoSaveState, setAutoSaveState] = useState('idle')
+  const [autosaveReady, setAutosaveReady] = useState(false)
+  const autosaveInFlightRef = useRef(false)
+  const autosaveQueuedRef = useRef(false)
+  const lastSavedSignatureRef = useRef('')
+  const latestDraftRef = useRef({ signature: '', payload: null })
+  const finalizingRef = useRef(false)
   const [amendments, setAmendments] = useState([])
   const [amendmentReason, setAmendmentReason] = useState('')
   const [amendmentText, setAmendmentText] = useState('')
@@ -193,10 +216,10 @@ const Doctor_Consultation = () => {
       if (Array.isArray(rx) && rx.length > 0) {
         setPrescriptions(rx.map(normalizePrescription))
       } else {
-        setPrescriptions([{ medicine: '', dosage: '', frequency: '', notes: '' }])
+        setPrescriptions([{ inventory_id: '', medicine: '', quantity: '', unit_label: '', frequency: '', notes: '' }])
       }
     } catch {
-      setPrescriptions([{ medicine: '', dosage: '', frequency: '', notes: '' }])
+      setPrescriptions([{ inventory_id: '', medicine: '', quantity: '', unit_label: '', frequency: '', notes: '' }])
     }
     const serviceItems = Array.isArray(consult?.billing?.items) ? consult.billing.items.filter((item) => item.item_type === 'service') : []
     setBillableServices(serviceItems.map((item) => {
@@ -209,6 +232,7 @@ const Doctor_Consultation = () => {
   useEffect(() => {
     if (apptFromState || !apptIdParam) return
     setInitLoading(true)
+    setAutosaveReady(false)
     getConsultation(apptIdParam)
       .then((consult) => {
         setAppt({
@@ -231,17 +255,20 @@ const Doctor_Consultation = () => {
         setIsEditMode((consult.status || 'finalized') === 'finalized')
       })
       .catch(() => {})
-      .finally(() => setInitLoading(false))
+      .finally(() => { setAutosaveReady(true); setInitLoading(false) })
   }, [apptIdParam, apptFromState])
 
   useEffect(() => {
     if (!apptFromState?.id) return
+    setInitLoading(true)
+    setAutosaveReady(false)
     getConsultation(apptFromState.id)
       .then((consult) => applyConsultationData(consult))
       .catch(() => {
-        // A consultation does not exist until the doctor saves the first draft.
+        // A consultation does not exist until the doctor starts entering clinical information.
         if (apptFromState.status === 'completed') setIsEditMode(true)
       })
+      .finally(() => { setAutosaveReady(true); setInitLoading(false) })
   }, [apptFromState])
 
   useEffect(() => {
@@ -301,7 +328,7 @@ const Doctor_Consultation = () => {
     )))
   )
 
-  const addRx = () => setPrescriptions((prev) => prev.length >= 30 ? prev : [...prev, { inventory_id: '', medicine: '', dosage: '', frequency: '', notes: '' }])
+  const addRx = () => setPrescriptions((prev) => prev.length >= 30 ? prev : [...prev, { inventory_id: '', medicine: '', quantity: '', unit_label: '', frequency: '', notes: '' }])
   const removeRx = (index) => setPrescriptions((prev) => prev.filter((_, rxIndex) => rxIndex !== index))
 
 
@@ -542,35 +569,51 @@ const Doctor_Consultation = () => {
     return blocked || null
   }
 
-  const buildPayload = () => ({
+  const draftPayload = useMemo(() => ({
     diagnosis,
     notes,
-    prescription: JSON.stringify(prescriptions.map(normalizePrescription)),
+    prescription: JSON.stringify(prescriptions.map((entry) => serializePrescription(entry, inventoryItems))),
     images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
     billable_services: billableServices,
-  })
+  }), [diagnosis, notes, prescriptions, progressImages, billableServices, inventoryItems])
 
-  const handleSave = async ({ silent = false } = {}) => {
-    if (!appt || consultationStatus === 'finalized' || uploadingIndex !== null) return false
-    if (!silent) setSaving(true)
-    try {
-      await saveConsultationDraft(appt.id, buildPayload())
-      setConsultationStatus('draft')
-      setIsEditMode(false)
-      setSaved(true)
-      setLastSavedAt(new Date())
-      setAutoSaveError('')
-      if (!silent) setTimeout(() => setSaved(false), 2000)
-      await loadHistory(appt.patient_id)
-      return true
-    } catch (err) {
-      setAutoSaveError(err.message || 'Draft could not be saved.')
-      if (!silent) alert(err.message || 'Failed to save draft. Your changes are still on this page.')
+  const draftSignature = useMemo(() => JSON.stringify(draftPayload), [draftPayload])
+  latestDraftRef.current = { signature: draftSignature, payload: draftPayload }
+
+  const persistDraft = useCallback(async ({ force = false } = {}) => {
+    if (!appt?.id || consultationStatus === 'finalized' || !autosaveReady || uploadingIndex !== null || finalizingRef.current) return false
+    if (autosaveInFlightRef.current) {
+      autosaveQueuedRef.current = true
       return false
-    } finally {
-      if (!silent) setSaving(false)
     }
-  }
+
+    autosaveInFlightRef.current = true
+    let success = true
+    try {
+      let forceNext = force
+      do {
+        autosaveQueuedRef.current = false
+        const current = latestDraftRef.current
+        if (!current.payload || (!forceNext && current.signature === lastSavedSignatureRef.current)) break
+        forceNext = false
+        setAutoSaveState('saving')
+        await saveConsultationDraft(appt.id, current.payload)
+        lastSavedSignatureRef.current = current.signature
+        setConsultationStatus('draft')
+        setIsEditMode(false)
+        setLastSavedAt(new Date())
+        setAutoSaveError('')
+        setAutoSaveState('saved')
+      } while (autosaveQueuedRef.current || latestDraftRef.current.signature !== lastSavedSignatureRef.current)
+    } catch (err) {
+      success = false
+      setAutoSaveError(err.message || 'Consultation progress could not be saved.')
+      setAutoSaveState('error')
+    } finally {
+      autosaveInFlightRef.current = false
+    }
+    return success
+  }, [appt?.id, consultationStatus, autosaveReady, uploadingIndex])
 
   const handleFinalize = async () => {
     if (!appt || consultationStatus === 'finalized') return
@@ -581,14 +624,16 @@ const Doctor_Consultation = () => {
     }
     setInventoryBlocker(null)
     if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct recorded medicines and consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
+    finalizingRef.current = true
     setSaving(true)
     try {
-      await finalizeConsultation(appt.id, buildPayload())
+      await finalizeConsultation(appt.id, latestDraftRef.current.payload)
+      lastSavedSignatureRef.current = latestDraftRef.current.signature
       setConsultationStatus('finalized')
       setIsEditMode(true)
-      setSaved(true)
       setLastSavedAt(new Date())
       setAutoSaveError('')
+      setAutoSaveState('saved')
       setAppt((prev) => (prev ? { ...prev, status: 'completed' } : prev))
       await loadHistory(appt.patient_id)
     } catch (err) {
@@ -606,27 +651,39 @@ const Doctor_Consultation = () => {
         alert(err.message || 'Failed to complete consultation. The record has not been finalized.')
       }
     } finally {
+      finalizingRef.current = false
       setSaving(false)
     }
   }
 
+  // Save shortly after the doctor stops typing/changing fields. The timer is intentionally
+  // a timeout (not an interval tied to field dependencies), so edits do not keep resetting
+  // a long 25-second countdown and progress is persisted promptly.
   useEffect(() => {
-    if (!appt?.id || consultationStatus === 'finalized') return undefined
-    const timer = window.setInterval(() => {
-      handleSave({ silent: true })
-    }, 25000)
+    if (!appt?.id || consultationStatus === 'finalized' || !autosaveReady || uploadingIndex !== null) return undefined
+    if (draftSignature === lastSavedSignatureRef.current) return undefined
+    if (autoSaveState !== 'saving') setAutoSaveState('pending')
+    const timer = window.setTimeout(() => { persistDraft() }, 1500)
+    return () => window.clearTimeout(timer)
+  }, [appt?.id, consultationStatus, autosaveReady, uploadingIndex, draftSignature, persistDraft])
+
+  // Periodic fallback catches transient failures or a field that remained unsaved after a
+  // browser/network interruption without creating overlapping draft writes.
+  useEffect(() => {
+    if (!appt?.id || consultationStatus === 'finalized' || !autosaveReady) return undefined
+    const timer = window.setInterval(() => { persistDraft() }, 30000)
     return () => window.clearInterval(timer)
-  }, [appt?.id, consultationStatus, diagnosis, notes, prescriptions, progressImages, billableServices, uploadingIndex])
+  }, [appt?.id, consultationStatus, autosaveReady, persistDraft])
 
   useEffect(() => {
-    if (consultationStatus === 'finalized') return undefined
+    if (consultationStatus === 'finalized' || draftSignature === lastSavedSignatureRef.current) return undefined
     const beforeUnload = (event) => {
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', beforeUnload)
     return () => window.removeEventListener('beforeunload', beforeUnload)
-  }, [consultationStatus])
+  }, [consultationStatus, draftSignature])
 
   if (initLoading) {
     return (
@@ -945,20 +1002,20 @@ const Doctor_Consultation = () => {
                         onChange={(e) => {
                           const value = e.target.value
                           if (value === '__other__') {
-                            setPrescriptions((prev) => prev.map((entry, rxIndex) => rxIndex === index ? { ...entry, inventory_id: '__other__', medicine: '' } : entry))
+                            setPrescriptions((prev) => prev.map((entry, rxIndex) => rxIndex === index ? { ...entry, inventory_id: '__other__', medicine: '', unit_label: '' } : entry))
                             return
                           }
                           const selected = medicineItems.find((item) => String(item.id) === String(value))
-                          setPrescriptions((prev) => prev.map((entry, rxIndex) => rxIndex === index ? { ...entry, inventory_id: value, medicine: selected?.name || '' } : entry))
+                          setPrescriptions((prev) => prev.map((entry, rxIndex) => rxIndex === index ? { ...entry, inventory_id: value, medicine: selected?.name || '', unit_label: selected?.uom || selected?.unit || '' } : entry))
                         }}
                         className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400 transition-colors"
                       >
                         <option value="">Select medicine from inventory...</option>
                         <optgroup label="General Medicine">
-                          {medicineItems.filter((item) => item.category === 'medical').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                          {medicineItems.filter((item) => item.category === 'medical').map((item) => <option key={item.id} value={item.id}>{item.name}{inventoryMeasurementLabel(item) ? ` · ${inventoryMeasurementLabel(item)}` : ''}</option>)}
                         </optgroup>
                         <optgroup label="Dermatology">
-                          {medicineItems.filter((item) => item.category === 'derma').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                          {medicineItems.filter((item) => item.category === 'derma').map((item) => <option key={item.id} value={item.id}>{item.name}{inventoryMeasurementLabel(item) ? ` · ${inventoryMeasurementLabel(item)}` : ''}</option>)}
                         </optgroup>
                         <option value="__other__">Other / Not in Inventory</option>
                       </select>
@@ -969,26 +1026,27 @@ const Doctor_Consultation = () => {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Dosage</label>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Quantity to Prescribe</label>
                         <div className="flex items-center gap-2">
                           <input
                             type="number"
                             min="0"
-                            step="0.01"
-                            value={/^\d*\.?\d*$/.test(String(rx.dosage || '')) ? rx.dosage : ''}
-                            onChange={(e) => updateRx(index, 'dosage', e.target.value)}
+                            step={Number(getPrescriptionInventoryItem(rx, inventoryItems)?.uom_allow_decimal || 0) === 1 ? '0.01' : '1'}
+                            value={/^\d*\.?\d*$/.test(String(rx.quantity || '')) ? rx.quantity : ''}
+                            onChange={(e) => updateRx(index, 'quantity', e.target.value)}
                             placeholder="0"
                             className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
-                          {getMedicineUnit(rx.medicine, inventoryItems) && (
+                          {getPrescriptionUnit(rx, inventoryItems) && (
                             <span className="shrink-0 text-xs font-medium text-slate-500">
-                              {getMedicineUnit(rx.medicine, inventoryItems)}
+                              {getPrescriptionUnit(rx, inventoryItems)}
                             </span>
                           )}
                         </div>
-                        {rx.dosage && !/^\d*\.?\d*$/.test(String(rx.dosage || '')) && (
+                        <p className="mt-1 text-[10px] text-slate-400">Prescription quantity is a medical instruction and does not automatically deduct clinic inventory.</p>
+                        {rx.quantity && !/^\d*\.?\d*$/.test(String(rx.quantity || '')) && (
                           <p className="mt-1 text-[10px] text-amber-600">
-                            Existing dosage &quot;{rx.dosage}&quot; is not numeric. Update it to save changes.
+                            Legacy dosage value &quot;{rx.quantity}&quot; is not a numeric prescription quantity. Update it to save changes.
                           </p>
                         )}
                       </div>
@@ -1061,19 +1119,22 @@ const Doctor_Consultation = () => {
                     <button type="button" onClick={() => navigate('/doctor/request/stock-transfer')} className="mt-3 inline-flex items-center rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">Request Stock Transfer</button>
                   </div>
                 )}
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div>
-                    {lastSavedAt ? <span className="font-semibold text-emerald-700">Draft saved at {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span> : <span className="text-slate-400">Draft autosaves every 25 seconds.</span>}
-                    {autoSaveError && <span className="ml-2 font-semibold text-rose-600">{autoSaveError}</span>}
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      {autoSaveState === 'saving' && <span className="font-semibold text-sky-700">Saving consultation progress…</span>}
+                      {autoSaveState === 'pending' && <span className="font-semibold text-slate-600">Changes detected — saving automatically…</span>}
+                      {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Could not save — the system will retry automatically. {autoSaveError}</span>}
+                      {!['saving','pending','error'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
+                      {!['saving','pending','error'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
+                    </div>
+                    <span className="text-slate-400">Draft saving never deducts inventory.</span>
                   </div>
-                  <span className="text-slate-400">Saving a draft does not complete the visit or deduct inventory.</span>
+                  <p className="mt-1 text-slate-400">Treatment-room inventory availability is checked only when you complete the consultation.</p>
                 </div>
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-                  <button onClick={() => handleSave()} disabled={saving || uploadingIndex !== null} className={`flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold rounded-xl transition-colors ${saved ? 'bg-emerald-500 text-white' : 'bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-50'}`}>
-                    {saved ? <><MdCheck className="text-[15px]" /> Draft Saved</> : saving ? 'Saving...' : <><MdSave className="text-[15px]" /> Save Draft</>}
-                  </button>
-                  <button onClick={handleFinalize} disabled={saving || uploadingIndex !== null} className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
-                    <MdCheck className="text-[15px]" /> Complete Consultation
+                  <button onClick={handleFinalize} disabled={saving || uploadingIndex !== null || autoSaveState === 'saving'} className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
+                    <MdCheck className="text-[15px]" /> {saving ? 'Completing…' : 'Complete Consultation'}
                   </button>
                 </div>
               </div>
@@ -1125,7 +1186,7 @@ const Doctor_Consultation = () => {
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Rx</p>
                                 {rx.map((medicine, medicineIndex) => (
                                   <p key={medicineIndex} className="text-xs text-slate-600">
-                                    · {medicine.medicine} {medicine.dosage && `— ${medicine.dosage}`} {medicine.frequency && `(${medicine.frequency})`}
+                                    · {medicine.medicine} {(medicine.quantity ?? medicine.dosage) && `— ${medicine.quantity ?? medicine.dosage}${medicine.unit_label ? ` ${medicine.unit_label}` : ''}`} {medicine.frequency && `(${medicine.frequency})`}
                                   </p>
                                 ))}
                               </div>

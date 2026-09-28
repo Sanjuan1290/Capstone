@@ -192,6 +192,8 @@ const router = createBrowserRouter(createRoutesFromElements(
 
       {/* ── Admin auth ──────────────────────────────────── */}
       <Route path='/admin/login' element={<AdminLogin />} />
+      <Route path='/admin/forgot-password' element={<ForgotPassword role="admin" />} />
+      <Route path='/admin/reset-password' element={<ForgotPassword role="admin" />} />
 
       {/* ── Admin protected ─────────────────────────────── */}
       <Route path='/admin' element={<AdminRoute><AdminLayout /></AdminRoute>}>

@@ -70,6 +70,8 @@ const auditPresentation = (row) => {
   const scheduleDoctor = row.schedule_doctor_name || newValues.doctor_name || 'the doctor'
   const supplyDoctor = row.supply_doctor_name || newValues.doctor_name || 'the doctor'
   const supplyQty = row.supply_quantity ?? newValues.qty_requested ?? newValues.quantity
+  const supplyItems = Array.isArray(newValues.items) ? newValues.items : []
+  const supplyItemCount = Number(row.supply_item_count || newValues.item_count || supplyItems.length || 0)
   const supplyDestination = row.supply_destination || newValues.destination_location
   const statusChange = oldValues.status && newValues.status ? `${titleCase(oldValues.status)} → ${titleCase(newValues.status)}` : null
   const details = []
@@ -145,13 +147,19 @@ const auditPresentation = (row) => {
       break
     }
     case 'supply.request_created':
-      description = `${actor} requested ${quantityLabel(newValues.qty_requested)} ${itemName}${newValues.destination_location ? ` for ${newValues.destination_location}` : ''}.`
+      description = supplyItemCount > 1
+        ? `${actor} requested a stock transfer with ${supplyItemCount} inventory items${newValues.destination_location ? ` for ${newValues.destination_location}` : ''}.`
+        : `${actor} requested ${quantityLabel(newValues.qty_requested ?? supplyItems[0]?.qty_requested) || ''} ${supplyItems[0]?.item_name || itemName}${newValues.destination_location ? ` for ${newValues.destination_location}` : ''}.`
       break
     case 'supply.request_approved':
-      description = `${actor} approved ${supplyDoctor}'s stock transfer request${supplyQty ? ` for ${quantityLabel(supplyQty)} ${itemName}` : ''}${supplyDestination ? ` to ${supplyDestination}` : ''}.`
+      description = supplyItemCount > 1
+        ? `${actor} approved ${supplyDoctor}'s stock transfer request for ${supplyItemCount} inventory items${supplyDestination ? ` to ${supplyDestination}` : ''}.`
+        : `${actor} approved ${supplyDoctor}'s stock transfer request${supplyQty ? ` for ${quantityLabel(supplyQty)} ${itemName}` : ''}${supplyDestination ? ` to ${supplyDestination}` : ''}.`
       break
     case 'supply.request_rejected':
-      description = `${actor} rejected ${supplyDoctor}'s stock transfer request${supplyQty ? ` for ${quantityLabel(supplyQty)} ${itemName}` : ''}.`
+      description = supplyItemCount > 1
+        ? `${actor} rejected ${supplyDoctor}'s stock transfer request for ${supplyItemCount} inventory items.`
+        : `${actor} rejected ${supplyDoctor}'s stock transfer request${supplyQty ? ` for ${quantityLabel(supplyQty)} ${itemName}` : ''}.`
       break
     case 'billing.draft_updated':
       description = `${actor} updated the billing draft${row.billing_patient_name ? ` for ${row.billing_patient_name}` : ''}.`

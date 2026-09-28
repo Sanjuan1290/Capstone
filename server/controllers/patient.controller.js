@@ -26,6 +26,7 @@ const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTrans
 const { writeAuditLog } = require('../utils/audit')
 const { listBillingCatalog } = require('../utils/billing')
 const { assertPlainObject, normalizeText } = require('../utils/inputValidation')
+const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
@@ -695,33 +696,56 @@ const createAppointment = async (req, res) => {
 }
 
 const cancelAppointment = async (req, res) => {
+  const cancellation = await resolveCancellationInput(req.body)
   const [rows] = await db.query(
-    'SELECT id, status FROM appointments WHERE id = ? AND patient_id = ?',
+    'SELECT id, status, doctor_id, appointment_date, appointment_time FROM appointments WHERE id = ? AND patient_id = ?',
     [req.params.id, req.user.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
-  if (!['pending', 'confirmed'].includes(rows[0].status)) {
-    return res.status(400).json({ message: 'Only pending or confirmed appointments can be cancelled.' })
+  if (!['pending', 'confirmed', 'rescheduled'].includes(rows[0].status)) {
+    return res.status(400).json({ message: 'Only pending, confirmed, or rescheduled appointments can be cancelled.' })
   }
 
   assertAppointmentTransition(rows[0].status, 'cancelled')
-  const [updated] = await db.query("UPDATE appointments SET status = 'cancelled' WHERE id = ? AND patient_id = ? AND status = ?", [req.params.id, req.user.id, rows[0].status])
+  const [updated] = await db.query(
+    `UPDATE appointments
+     SET status = 'cancelled', cancellation_reason_id = ?, cancellation_reason_snapshot = ?,
+         cancellation_details = ?, cancelled_by_role = 'patient', cancelled_by_user_id = ?, cancelled_at = NOW()
+     WHERE id = ? AND patient_id = ? AND status = ?`,
+    [cancellation.cancellation_reason_id, cancellation.cancellation_reason_snapshot, cancellation.cancellation_details, req.user.id, req.params.id, req.user.id, rows[0].status]
+  )
   await assertAppointmentMutationApplied(updated, req.params.id)
-  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.cancelled', entityType: 'appointment', entityId: req.params.id, oldValues: { status: rows[0].status }, newValues: { status: 'cancelled' }, ipAddress: req.ip || null }).catch(() => {})
+  await writeAuditLog({
+    userId: req.user.id,
+    userRole: 'patient',
+    action: 'appointment.cancelled',
+    entityType: 'appointment',
+    entityId: req.params.id,
+    oldValues: { status: rows[0].status },
+    newValues: { status: 'cancelled', ...cancellation },
+    ipAddress: req.ip || null,
+  }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: req.user.id,
     type: 'appointment_cancelled',
     title: 'Appointment cancelled',
-    message: 'Your appointment has been cancelled.',
+    message: `Your appointment has been cancelled. Reason: ${cancellation.cancellation_reason_snapshot}.`,
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
-  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', {
+  await notifyRoles(['admin', 'staff'], {
+    type: 'appointment_cancelled',
+    title: 'Patient cancelled appointment',
+    message: `Appointment #${req.params.id} was cancelled by the patient. Reason: ${cancellation.cancellation_reason_snapshot}.`,
+    reference_type: 'appointment',
+    reference_id: req.params.id,
+  })
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${req.user.id}`], 'appointment_updated', {
     appointmentId: Number(req.params.id),
     status: 'cancelled',
   })
-  res.json({ message: 'Appointment cancelled.' })
+  res.json({ message: 'Appointment cancelled.', cancellation })
 }
 
 const rescheduleAppointment = async (req, res) => {
@@ -808,6 +832,10 @@ const rescheduleAppointment = async (req, res) => {
 
   await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.rescheduled', entityType: 'appointment', entityId: req.params.id, newValues: { appointment_date: normalizedDate, appointment_time, status: 'pending' }, ipAddress: req.ip || null }).catch(() => {})
   res.json({ message: 'Appointment rescheduled and returned to pending confirmation.' })
+}
+
+const getAppointmentCancellationReasons = async (req, res) => {
+  res.json(await listCancellationReasons({ activeOnly: true }))
 }
 
 const getDoctors = async (req, res) => {
@@ -912,6 +940,7 @@ module.exports = {
   cancelAppointment,
   rescheduleAppointment,
   getAppointmentReasons,
+  getAppointmentCancellationReasons,
   getBookingServices,
   getDoctors,
   getDoctorsAvailability,

@@ -115,7 +115,7 @@ const PrescriptionModal = ({ appointmentId, patientName, onClose, onOpenFullReco
                           <div>
                             <p className="font-bold text-slate-800">{rx.medicine || `Medicine ${index + 1}`}</p>
                             <p className="mt-1 text-xs text-slate-500">
-                              {[rx.dosage, rx.frequency].filter(Boolean).join(' · ') || 'No dosage instructions recorded.'}
+                              {[(rx.quantity ?? rx.dosage) && `Quantity: ${rx.quantity ?? rx.dosage}${rx.unit_label ? ` ${rx.unit_label}` : ''}`, rx.frequency].filter(Boolean).join(' · ') || 'No quantity/frequency instructions recorded.'}
                             </p>
                           </div>
                           <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-bold text-violet-700">#{index + 1}</span>

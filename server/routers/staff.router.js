@@ -40,6 +40,7 @@ router.patch('/appointments/:id/cancel',     ...auth, can('appointments'), staff
 router.patch('/appointments/:id/no-show',    ...auth, can('appointments'), staffCtrl.markAppointmentNoShow)
 router.patch('/appointments/:id/reschedule', ...auth, can('appointments'), staffCtrl.rescheduleAppointment)
 router.get('/appointment-reasons',           ...auth, can('appointments'), staffCtrl.getAppointmentReasons)
+router.get('/appointment-cancellation-reasons', ...auth, can('appointments'), staffCtrl.getAppointmentCancellationReasons)
 router.get('/queue',                         ...auth, can('appointments'), staffCtrl.getQueue)
 router.get('/queue/precheck/:patientId',     ...auth, can('appointments'), staffCtrl.getQueuePrecheck)
 router.post('/queue',                        ...auth, can('appointments'), staffCtrl.addToQueue)
@@ -105,6 +106,9 @@ router.put('/admin-access/landing-page', ...auth, can('landing_page'), commonCtr
 
 // ── System Setup ─────────────────────────────────────────────────────────────
 router.get('/admin-access/system-setup', ...auth, can('system_setup'), adminCtrl.getSystemSetup)
+router.post('/admin-access/system-setup/cancellation-reasons', ...auth, can('system_setup'), adminCtrl.saveAppointmentCancellationReason)
+router.put('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), adminCtrl.saveAppointmentCancellationReason)
+router.delete('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), adminCtrl.deleteAppointmentCancellationReason)
 router.post('/admin-access/system-setup/service-categories', ...auth, can('system_setup'), adminCtrl.saveBillingServiceCategory)
 router.put('/admin-access/system-setup/service-categories/:id', ...auth, can('system_setup'), adminCtrl.saveBillingServiceCategory)
 router.delete('/admin-access/system-setup/service-categories/:id', ...auth, can('system_setup'), adminCtrl.deleteBillingServiceCategory)

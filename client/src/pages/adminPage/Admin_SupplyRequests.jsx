@@ -5,7 +5,7 @@ const Admin_SupplyRequests = () => (
   <div className="mx-auto w-full max-w-7xl">
     <SupplyRequestReviewPanel
       title="Stock Transfer Requests"
-      subtitle="Approve requests to transfer stock per batch from Main Stockroom to the doctor or treatment room without counting it as clinical consumption."
+      subtitle="Review grouped Doctor requests. Approval transfers every requested item atomically from Main Stockroom to the selected room using FEFO batches."
       getRequests={getSupplyRequests}
       resolveRequest={resolveSupplyRequest}
       theme={{

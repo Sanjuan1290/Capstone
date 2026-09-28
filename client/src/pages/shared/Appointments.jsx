@@ -19,6 +19,7 @@ import {
 } from 'react-icons/md'
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 import { buildSlotsForScheduleDate } from '../../utils/schedule'
+import CancellationReasonModal from '../../components/appointments/CancellationReasonModal'
 
 const maxPatientBirthdate = () => new Date().toISOString().slice(0,10)
 const minPatientBirthdate = () => { const d = new Date(); d.setFullYear(d.getFullYear()-100); return d.toISOString().slice(0,10) }
@@ -293,6 +294,7 @@ const AppointmentViewModal = ({ appointment, onClose }) => {
           <div><span className="block text-xs text-slate-400">Status</span>{formatStatus(appointment.status)}</div>
           <div><span className="block text-xs text-slate-400">Phone</span>{appointment.patient_phone || '—'}</div>
           <div><span className="block text-xs text-slate-400">Email</span>{appointment.patient_email || '—'}</div>
+          {appointment.status === 'cancelled' && <div className="sm:col-span-2 rounded-2xl border border-red-100 bg-red-50 p-3"><span className="block text-xs font-bold text-red-500">Reason for Cancellation</span><p className="mt-1 font-semibold text-red-800">{appointment.cancellation_reason_snapshot || 'Not recorded'}</p>{appointment.cancellation_details && <p className="mt-1 text-xs text-red-700">{appointment.cancellation_details}</p>}</div>}
         </div>
       </div>
     </>
@@ -637,6 +639,7 @@ const Appointments = ({ services }) => {
   const [busyId, setBusyId] = useState(null)
   const [viewAppointment, setViewAppointment] = useState(null)
   const [rescheduleAppointment, setRescheduleAppointment] = useState(null)
+  const [cancelAppointmentTarget, setCancelAppointmentTarget] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
 
   const loadAppointments = useCallback(async () => {
@@ -667,7 +670,7 @@ const Appointments = ({ services }) => {
     const filtered = appointments.filter((appointment) => {
       const matchesTab = tab === 'all' || appointment.status === tab
       const searchNeedle = query.trim().toLowerCase()
-      const matchesSearch = !searchNeedle || [appointment.patient_name, appointment.patient, appointment.doctor, appointment.requested_service_name_snapshot, appointment.reason]
+      const matchesSearch = !searchNeedle || [appointment.patient_name, appointment.patient, appointment.doctor, appointment.requested_service_name_snapshot, appointment.reason, appointment.cancellation_reason_snapshot, appointment.cancellation_details]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(searchNeedle))
 
@@ -737,8 +740,17 @@ const Appointments = ({ services }) => {
     }
   })
   const handleCancel = (appointment) => {
-    if (!window.confirm('Cancel this appointment?')) return
-    runAction(appointment, () => services.cancelAppointment(appointment.id))
+    setCancelAppointmentTarget(appointment)
+  }
+  const confirmCancellation = async (payload) => {
+    if (!cancelAppointmentTarget) return
+    setBusyId(cancelAppointmentTarget.id)
+    try {
+      await services.cancelAppointment(cancelAppointmentTarget.id, payload)
+      await loadAppointments()
+    } finally {
+      setBusyId(null)
+    }
   }
   const handleNoShow = (appointment) => {
     if (!services.markAppointmentNoShow) return
@@ -929,6 +941,13 @@ const Appointments = ({ services }) => {
         />
       )}
       {viewAppointment && <AppointmentViewModal appointment={viewAppointment} onClose={() => setViewAppointment(null)} />}
+      <CancellationReasonModal
+        open={Boolean(cancelAppointmentTarget)}
+        appointment={cancelAppointmentTarget}
+        loadReasons={services.getAppointmentCancellationReasons}
+        onClose={() => setCancelAppointmentTarget(null)}
+        onConfirm={confirmCancellation}
+      />
       {showAdd && <AddAppointmentModal services={services} appointments={appointments} onClose={() => setShowAdd(false)} onCreated={loadAppointments} />}
     </div>
   )

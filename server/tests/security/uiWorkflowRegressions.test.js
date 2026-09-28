@@ -43,14 +43,14 @@ describe('September 25 UI/workflow regressions', () => {
   })
 
 
-  it('moves Billing Setup into System Setup and unifies Admin Checkout under Billing', () => {
+  it('moves Services & Pricing Setup into System Setup and unifies Admin Checkout under Billing', () => {
     const app = read('client', 'src', 'App.jsx')
     const adminLayout = read('client', 'src', 'components', 'layouts', 'AdminLayout.jsx')
     const billingNav = read('client', 'src', 'components', 'billing', 'AdminBillingNav.jsx')
     const setupTabs = read('client', 'src', 'components', 'system', 'SystemSetupTabs.jsx')
     const checkout = read('client', 'src', 'pages', 'adminPage', 'Admin_Checkout.jsx')
 
-    expect(setupTabs).toContain("label: 'Billing Setup'")
+    expect(setupTabs).toContain("label: 'Services & Pricing Setup'")
     expect(setupTabs).toContain("suffix: '/system-setup/billing/services'")
     expect(app).toContain("path='system-setup/billing'")
     expect(app).toContain("path='billing/checkout/:billingId'")

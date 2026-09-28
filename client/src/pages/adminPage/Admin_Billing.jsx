@@ -139,9 +139,9 @@ const Admin_Billing = () => {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-xl text-amber-700"><MdWarningAmber /></div>
-                  <div><h2 className="font-black text-amber-950">Billing Setup needs attention</h2><p className="mt-1 text-sm text-amber-800">Fix these items before they interrupt Staff during patient checkout.</p></div>
+                  <div><h2 className="font-black text-amber-950">Services & Pricing Setup needs attention</h2><p className="mt-1 text-sm text-amber-800">Fix these items before they interrupt Staff during patient checkout.</p></div>
                 </div>
-                <Link to="/admin/system-setup/billing/services" className="button-secondary"><MdSettings /> Review Billing Setup</Link>
+                <Link to="/admin/system-setup/billing/services" className="button-secondary"><MdSettings /> Review Services & Pricing Setup</Link>
               </div>
               <div className="mt-4 grid gap-2 lg:grid-cols-2">
                 {setupIssues.slice(0, 6).map((issue, index) => (
@@ -155,7 +155,7 @@ const Admin_Billing = () => {
             </section>
           ) : (
             <section className="flex items-center justify-between gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-              <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-xl text-emerald-700"><MdCheckCircle /></div><div><h2 className="font-black text-emerald-950">Billing Setup looks ready</h2><p className="mt-1 text-sm text-emerald-800">No blocking configuration issues were detected.</p></div></div>
+              <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-xl text-emerald-700"><MdCheckCircle /></div><div><h2 className="font-black text-emerald-950">Services & Pricing Setup looks ready</h2><p className="mt-1 text-sm text-emerald-800">No blocking configuration issues were detected.</p></div></div>
               <Link to="/admin/system-setup/billing/services" className="text-sm font-black text-emerald-800">Review Setup</Link>
             </section>
           )}

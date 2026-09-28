@@ -149,6 +149,12 @@ const VisitCard = ({ visit }) => {
               {visit.reason}
             </p>
           )}
+          {isCancelled && (visit.cancellation_reason_snapshot || visit.cancellation_details) && (
+            <div className="mt-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <p><span className="font-bold">Reason for cancellation:</span> {visit.cancellation_reason_snapshot || 'Not recorded'}</p>
+              {visit.cancellation_details && <p className="mt-1">{visit.cancellation_details}</p>}
+            </div>
+          )}
         </div>
       </div>
 
@@ -213,7 +219,7 @@ const VisitCard = ({ visit }) => {
                   <div key={index} className="bg-violet-50 border border-violet-100 rounded-xl px-3 py-2.5">
                     <p className="text-sm font-bold text-violet-800">{rx.medicine}</p>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-xs text-violet-600">
-                      {rx.dosage && <span>Dosage: {rx.dosage}</span>}
+                      {(rx.quantity ?? rx.dosage) && <span>Quantity: {rx.quantity ?? rx.dosage}{rx.unit_label ? ` ${rx.unit_label}` : ''}</span>}
                       {rx.frequency && <span>Sig: {rx.frequency}</span>}
                       {rx.duration && <span>For: {rx.duration}</span>}
                     </div>
@@ -266,6 +272,8 @@ const History = () => {
     return (
       (visit.doctor || visit.doctor_name || '').toLowerCase().includes(query) ||
       (visit.reason || '').toLowerCase().includes(query) ||
+      (visit.cancellation_reason_snapshot || '').toLowerCase().includes(query) ||
+      (visit.cancellation_details || '').toLowerCase().includes(query) ||
       (visit.diagnosis || '').toLowerCase().includes(query)
     )
   })

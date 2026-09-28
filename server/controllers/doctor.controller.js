@@ -35,6 +35,7 @@ const {
 } = require('../utils/cloudinarySecurity')
 const { loadConsultationAmendments, assertConsultationEditable } = require('../utils/consultationIntegrity')
 const { assertPlainObject, normalizeOptionalText, normalizeText } = require('../utils/inputValidation')
+const { listSupplyTransferGroups } = require('../utils/supplyTransfers')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -240,7 +241,7 @@ const getDashboard = async (req, res) => {
     [req.user.id]
   )
   const [[{ pendingRequests }]] = await db.query(
-    "SELECT COUNT(*) AS pendingRequests FROM supply_requests WHERE doctor_id = ? AND status = 'pending'",
+    "SELECT COUNT(*) AS pendingRequests FROM supply_request_groups WHERE doctor_id = ? AND status = 'pending'",
     [req.user.id]
   )
   const [walkInQueue] = await db.query(
@@ -462,13 +463,31 @@ const startConsultation = async (req, res) => {
 const normalizeConsultationTextFields = (body) => {
   assertPlainObject(body)
   const diagnosis = normalizeOptionalText(body.diagnosis, { field: 'Diagnosis', max: 5000, multiline: true })
-  const prescription = normalizeOptionalText(body.prescription, { field: 'Prescription', max: 20000, multiline: true })
+  let prescription = normalizeOptionalText(body.prescription, { field: 'Prescription', max: 20000, multiline: true })
   const notes = normalizeOptionalText(body.notes, { field: 'Clinical Notes', max: 5000, multiline: true })
   if (prescription) {
     let parsed
     try { parsed = JSON.parse(prescription) } catch { throw Object.assign(new Error('Prescription data is invalid.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'Prescription data is invalid.' }) }
     if (!Array.isArray(parsed)) throw Object.assign(new Error('Prescription data must be a list.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'Prescription data must be a list.' })
     if (parsed.length > 30) throw Object.assign(new Error('A consultation can contain at most 30 prescription items.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'A consultation can contain at most 30 prescription items.' })
+    const normalizedItems = parsed.map((item, index) => {
+      assertPlainObject(item)
+      const medicine = normalizeOptionalText(item.medicine, { field: `Prescription medicine ${index + 1}`, max: 160 }) || ''
+      const frequency = normalizeOptionalText(item.frequency, { field: `Prescription frequency ${index + 1}`, max: 120 }) || ''
+      const rxNotes = normalizeOptionalText(item.notes, { field: `Prescription notes ${index + 1}`, max: 500 }) || ''
+      const unitLabel = normalizeOptionalText(item.unit_label, { field: `Prescription unit ${index + 1}`, max: 50 }) || ''
+      const rawQuantity = item.quantity ?? item.dosage ?? ''
+      let quantity = ''
+      if (rawQuantity !== '' && rawQuantity !== null && rawQuantity !== undefined) {
+        const numericQuantity = Number(rawQuantity)
+        if (!Number.isFinite(numericQuantity) || numericQuantity < 0 || numericQuantity > 99999999.99) {
+          throw Object.assign(new Error(`Prescription quantity ${index + 1} must be a valid non-negative number.`), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: `Prescription quantity ${index + 1} must be a valid non-negative number.` })
+        }
+        quantity = String(numericQuantity)
+      }
+      return { inventory_id: item.inventory_id === '__other__' ? '__other__' : (Number(item.inventory_id) || ''), medicine, quantity, unit_label: unitLabel, frequency, notes: rxNotes }
+    })
+    prescription = JSON.stringify(normalizedItems)
   }
   return { diagnosis, prescription, notes }
 }
@@ -539,7 +558,8 @@ const saveConsultationDraft = async (req, res) => {
     } else {
       billing = await getBillingByAppointmentId(appointmentId, conn)
     }
-    await validateClinicalInventoryAvailability({ billing, appointment: appt }, conn)
+    // Draft/autosave must never depend on current treatment-room stock.
+    // Inventory is revalidated and consumed only when the consultation is finalized.
 
     await writeAuditLog({
       userId: req.user.id,
@@ -1112,7 +1132,7 @@ const getInventoryItems = async (req, res) => {
     `SELECT i.id, i.name, i.category, COALESCE(i.item_type, 'medicine') AS item_type,
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS uom,
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS unit,
-            i.dosage_form, i.strength, i.stock, i.stock_base, i.threshold, i.selling_price,
+            i.dosage_form, i.strength, i.measurement_value, i.measurement_unit, i.stock, i.stock_base, i.threshold, i.selling_price,
             COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal,
             COALESCE((SELECT SUM(ils.quantity)
                       FROM inventory_location_stock ils
@@ -1152,16 +1172,8 @@ const getInventoryItems = async (req, res) => {
 // ── Supply Requests ───────────────────────────────────────────────────────────
 
 const getMyRequests = async (req, res) => {
-  const [rows] = await db.query(
-    `SELECT sr.*, i.name AS item_name, i.unit, i.category,
-            COALESCE(loc.name, sr.destination_location) AS destination_location
-     FROM supply_requests sr
-     JOIN inventory i ON sr.inventory_id = i.id
-     LEFT JOIN inventory_locations loc ON loc.id = sr.destination_location_id
-     WHERE sr.doctor_id = ? ORDER BY sr.requested_at DESC`,
-    [req.user.id]
-  )
-  res.json(rows)
+  const groups = await listSupplyTransferGroups({ doctorId: req.user.id })
+  res.json(groups)
 }
 
 const getRequestLocations = async (req, res) => {
@@ -1175,16 +1187,34 @@ const getRequestLocations = async (req, res) => {
 }
 
 const submitRequest = async (req, res) => {
-  const { inventory_id, qty_requested, reason } = req.body
-  const quantity = Number(qty_requested)
-  if (!Number(inventory_id) || !Number.isFinite(quantity) || quantity <= 0) {
-    return res.status(400).json({ message: 'Inventory item and a positive quantity are required.' })
+  const reason = String(req.body?.reason || '').trim()
+  if (!reason) return res.status(400).json({ message: 'Transfer reason is required.' })
+  if (reason.length > 500) return res.status(400).json({ message: 'Transfer reason must be 500 characters or fewer.' })
+
+  const rawItems = Array.isArray(req.body?.items) && req.body.items.length
+    ? req.body.items
+    : [{ inventory_id: req.body?.inventory_id, qty_requested: req.body?.qty_requested }]
+  if (!rawItems.length || rawItems.length > 20) {
+    return res.status(400).json({ message: 'Add between 1 and 20 inventory items to the transfer request.' })
+  }
+
+  const requestedItems = rawItems.map((entry) => ({
+    inventory_id: Number(entry?.inventory_id),
+    qty_requested: Number(entry?.qty_requested),
+  }))
+  if (requestedItems.some((entry) => !entry.inventory_id || !Number.isFinite(entry.qty_requested) || entry.qty_requested <= 0)) {
+    return res.status(400).json({ message: 'Every transfer item needs a valid inventory item and positive quantity.' })
+  }
+  const uniqueIds = new Set(requestedItems.map((entry) => entry.inventory_id))
+  if (uniqueIds.size !== requestedItems.length) {
+    return res.status(400).json({ code: 'DUPLICATE_TRANSFER_ITEM', message: 'Each inventory item can only appear once in a stock transfer request.' })
   }
 
   let destination = await getInventoryLocationById(req.body.destination_location_id)
+  const [[doctorProfile]] = await db.query('SELECT clinic_type, specialty FROM doctors WHERE id=? LIMIT 1', [req.user.id])
+  const doctorClinic = doctorProfile?.clinic_type || (String(doctorProfile?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')
   if (!destination) {
-    const [[doctorRow]] = await db.query('SELECT specialty, clinic_type FROM doctors WHERE id = ? LIMIT 1', [req.user.id])
-    const defaultDestination = (doctorRow?.clinic_type || (String(doctorRow?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')) === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
+    const defaultDestination = doctorClinic === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
     const [[defaultRow]] = await db.query(
       `SELECT id, name, location_type FROM inventory_locations
        WHERE name = ? AND COALESCE(is_active,1)=1 LIMIT 1`,
@@ -1196,77 +1226,112 @@ const submitRequest = async (req, res) => {
     return res.status(400).json({ message: 'Select a valid treatment or dispensing destination.' })
   }
 
-  const [[inventory]] = await db.query(
+  const ids = requestedItems.map((entry) => entry.inventory_id)
+  const placeholders = ids.map(() => '?').join(',')
+  const [inventoryRows] = await db.query(
     `SELECT i.id, i.name, i.category, COALESCE(i.item_type,'medicine') AS item_type,
-            COALESCE(i.uom,i.base_unit,i.unit,'') AS uom,
-            COALESCE(u.allow_decimal_quantity,0) AS allow_decimal_quantity
+            COALESCE(i.uom,i.base_unit,i.unit,'unit') AS uom,
+            COALESCE(u.allow_decimal_quantity,0) AS allow_decimal_quantity,
+            COALESCE((SELECT SUM(ils.quantity)
+              FROM inventory_location_stock ils
+              JOIN inventory_locations il ON il.id=ils.location_id
+              WHERE ils.inventory_id=i.id AND il.name='Main Stockroom'),0) AS main_stockroom_stock
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
-     WHERE i.id = ? AND i.archived_at IS NULL LIMIT 1`,
-    [inventory_id]
+     WHERE i.id IN (${placeholders}) AND i.archived_at IS NULL`,
+    ids
   )
-  if (!inventory) return res.status(404).json({ message: 'Inventory item not found.' })
+  if (inventoryRows.length !== ids.length) return res.status(404).json({ message: 'One or more inventory items are unavailable.' })
+  const inventoryMap = new Map(inventoryRows.map((row) => [Number(row.id), row]))
 
-  const precision = Number(inventory.allow_decimal_quantity) === 1 ? 2 : 0
-  const factor = 10 ** precision
-  if (Math.abs(quantity * factor - Math.round(quantity * factor)) > 0.0000001) {
-    return res.status(400).json({
-      code: 'INVALID_UOM_PRECISION',
-      message: precision === 0
-        ? `${inventory.name} uses whole ${inventory.uom || 'units'} only.`
-        : `${inventory.name} allows at most ${precision} decimal place${precision === 1 ? '' : 's'}.`,
-    })
+  for (const entry of requestedItems) {
+    const inventory = inventoryMap.get(entry.inventory_id)
+    const precision = Number(inventory.allow_decimal_quantity) === 1 ? 2 : 0
+    const factor = 10 ** precision
+    if (Math.abs(entry.qty_requested * factor - Math.round(entry.qty_requested * factor)) > 0.0000001) {
+      return res.status(400).json({
+        code: 'INVALID_UOM_PRECISION',
+        message: precision === 0
+          ? `${inventory.name} uses whole ${inventory.uom || 'units'} only.`
+          : `${inventory.name} allows at most ${precision} decimal places.`,
+      })
+    }
+    if (inventory.item_type === 'medicine' && inventory.category !== doctorClinic) {
+      return res.status(409).json({
+        code: 'SUPPLY_REQUEST_CLINIC_MISMATCH',
+        message: `${inventory.name} is assigned to the ${inventory.category === 'derma' ? 'Dermatology' : 'General Medicine'} clinic and cannot be requested for this doctor.`,
+      })
+    }
+    if (entry.qty_requested > Number(inventory.main_stockroom_stock || 0)) {
+      return res.status(409).json({
+        code: 'INSUFFICIENT_MAIN_STOCKROOM_STOCK',
+        inventory_id: inventory.id,
+        message: `${inventory.name} only has ${Number(inventory.main_stockroom_stock || 0)} ${inventory.uom || 'units'} available in Main Stockroom.`,
+      })
+    }
   }
-  if (!String(reason || '').trim()) return res.status(400).json({ message: 'Transfer reason is required.' })
-  if (String(reason).trim().length > 500) return res.status(400).json({ message: 'Transfer reason must be 500 characters or fewer.' })
 
-  const [[doctorProfile]] = await db.query('SELECT clinic_type, specialty FROM doctors WHERE id=? LIMIT 1', [req.user.id])
-  const doctorClinic = doctorProfile?.clinic_type || (String(doctorProfile?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')
-  if (inventory.item_type === 'medicine' && inventory.category !== doctorClinic) {
-    return res.status(409).json({
-      code: 'SUPPLY_REQUEST_CLINIC_MISMATCH',
-      message: `${inventory.name} is assigned to the ${inventory.category === 'derma' ? 'Dermatology' : 'General Medicine'} clinic and cannot be requested for this doctor.`
-    })
-  }
-
-  // Serialize request creation per doctor so two tabs cannot both pass the
-  // duplicate-pending check before either insert commits.
   const conn = await db.getConnection()
-  let result
-  let rows
+  let groupId
   try {
     await conn.beginTransaction()
     await conn.query('SELECT id FROM doctors WHERE id=? FOR UPDATE', [req.user.id])
+
     const [duplicates] = await conn.query(
-      `SELECT id, qty_requested, requested_at FROM supply_requests
-       WHERE doctor_id=? AND inventory_id=? AND destination_location_id=? AND status='pending'
-       ORDER BY requested_at DESC LIMIT 1`,
-      [req.user.id, Number(inventory_id), destination.id]
+      `SELECT g.id AS request_id, sr.inventory_id, i.name AS item_name
+       FROM supply_request_groups g
+       JOIN supply_requests sr ON sr.request_group_id=g.id
+       JOIN inventory i ON i.id=sr.inventory_id
+       WHERE g.doctor_id=? AND g.destination_location_id=? AND g.status='pending'
+         AND sr.inventory_id IN (${placeholders})
+       ORDER BY g.requested_at DESC`,
+      [req.user.id, destination.id, ...ids]
     )
     if (duplicates.length) {
       await conn.rollback()
       return res.status(409).json({
         code: 'DUPLICATE_SUPPLY_REQUEST',
-        existing_request_id: duplicates[0].id,
-        message: `A pending request for ${inventory.name} to ${destination.name} already exists. Update or wait for that request instead of creating a duplicate.`
+        existing_request_id: Number(duplicates[0].request_id),
+        message: `A pending request already includes ${duplicates[0].item_name} for ${destination.name}. Resolve that request before requesting the same item again.`,
       })
     }
 
-    ;[result] = await conn.query(
-      `INSERT INTO supply_requests
-       (doctor_id, inventory_id, qty_requested, reason, destination_location, destination_location_id)
-       VALUES (?,?,?,?,?,?)`,
-      [req.user.id, inventory_id, quantity, reason || null, destination.name, destination.id]
+    const [groupResult] = await conn.query(
+      `INSERT INTO supply_request_groups
+       (doctor_id, destination_location_id, destination_location, reason, status)
+       VALUES (?,?,?,?, 'pending')`,
+      [req.user.id, destination.id, destination.name, reason]
     )
-    ;[rows] = await conn.query(
-      `SELECT sr.*, i.name AS item_name, i.unit, loc.name AS destination_location
-       FROM supply_requests sr
-       JOIN inventory i ON sr.inventory_id = i.id
-       LEFT JOIN inventory_locations loc ON loc.id = sr.destination_location_id
-       WHERE sr.id = ?`,
-      [result.insertId]
-    )
-    await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'supply.request_created', entityType: 'supply_request', entityId: result.insertId, newValues: { inventory_id: Number(inventory_id), qty_requested: quantity, destination_location_id: destination.id, destination_location: destination.name, reason: reason || null }, ipAddress: req.ip || null }, conn)
+    groupId = Number(groupResult.insertId)
+
+    for (const entry of requestedItems) {
+      await conn.query(
+        `INSERT INTO supply_requests
+         (request_group_id, doctor_id, inventory_id, qty_requested, reason, destination_location, destination_location_id, status)
+         VALUES (?,?,?,?,?,?,?,'pending')`,
+        [groupId, req.user.id, entry.inventory_id, entry.qty_requested, reason, destination.name, destination.id]
+      )
+    }
+
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'doctor',
+      action: 'supply.request_created',
+      entityType: 'supply_request',
+      entityId: groupId,
+      newValues: {
+        destination_location_id: destination.id,
+        destination_location: destination.name,
+        reason,
+        item_count: requestedItems.length,
+        items: requestedItems.map((entry) => ({
+          inventory_id: entry.inventory_id,
+          item_name: inventoryMap.get(entry.inventory_id)?.name,
+          qty_requested: entry.qty_requested,
+        })),
+      },
+      ipAddress: req.ip || null,
+    }, conn)
     await conn.commit()
   } catch (error) {
     await conn.rollback().catch(() => {})
@@ -1274,11 +1339,28 @@ const submitRequest = async (req, res) => {
   } finally {
     conn.release()
   }
+
+  const [created] = await listSupplyTransferGroups({ doctorId: req.user.id, groupId })
+  const itemSummary = requestedItems.length === 1
+    ? `${requestedItems[0].qty_requested} ${inventoryMap.get(requestedItems[0].inventory_id)?.uom || 'unit'} of ${inventoryMap.get(requestedItems[0].inventory_id)?.name}`
+    : `${requestedItems.length} inventory items`
   for (const target_role of ['staff','admin']) {
-    await createNotification({ target_role, type: 'supply_request', title: 'Doctor supply transfer request', message: `Requested ${quantity} ${rows[0].unit}(s) of ${rows[0].item_name} for ${destination.name}.`, reference_type: 'supply_request', reference_id: result.insertId })
+    await createNotification({
+      target_role,
+      type: 'supply_request',
+      title: 'Doctor stock transfer request',
+      message: `Requested ${itemSummary} for ${destination.name}.`,
+      reference_type: 'supply_request',
+      reference_id: groupId,
+    })
   }
-  broadcast(['staff', 'admin', `doctor_${req.user.id}`], 'supply_request_resolved', { requestId: result.insertId, status: 'pending', doctorId: req.user.id })
-  res.status(201).json(rows[0])
+  broadcast(['staff', 'admin', `doctor_${req.user.id}`], 'supply_request_resolved', {
+    requestId: groupId,
+    status: 'pending',
+    doctorId: req.user.id,
+    itemCount: requestedItems.length,
+  })
+  res.status(201).json(created)
 }
 
 // ── Doctor's Queue Control ────────────────────────────────────────────────────

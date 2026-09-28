@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import useClientPagination from '../../hooks/useClientPagination'
-import { getMyAppointments, cancelAppointment } from '../../services/patient.service'
+import { getMyAppointments, cancelAppointment, getAppointmentCancellationReasons } from '../../services/patient.service'
 import {
   MdCalendarToday, MdAccessTime, MdFace,
   MdMedicalServices, MdSearch, MdClose,
@@ -16,6 +16,7 @@ import {
 } from "react-icons/md"
 import { NavLink } from "react-router-dom"
 import { parseDateOnly } from '../../utils/date'
+import CancellationReasonModal from '../../components/appointments/CancellationReasonModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDate(raw) {
@@ -49,7 +50,7 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
   if (!appt) return null
   const cfg      = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
   const Icon     = appt.type === 'derma' ? MdFace : MdMedicalServices
-  const isActive = appt.status === 'confirmed' || appt.status === 'pending'
+  const isActive = ['confirmed', 'pending', 'rescheduled'].includes(appt.status)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
@@ -175,7 +176,7 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
 const AppointmentCard = ({ appt, onSelect, onCancel }) => {
   const cfg      = STATUS_CONFIG[appt.status] || STATUS_CONFIG.pending
   const Icon     = appt.type === 'derma' ? MdFace : MdMedicalServices
-  const isActive = appt.status === 'confirmed' || appt.status === 'pending'
+  const isActive = ['confirmed', 'pending', 'rescheduled'].includes(appt.status)
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
@@ -257,6 +258,7 @@ const MyAppointments = () => {
   const [activeTab,    setActiveTab]    = useState('all')
   const [search,       setSearch]       = useState('')
   const [modal,        setModal]        = useState(null)
+  const [cancelTarget, setCancelTarget] = useState(null)
 
   useEffect(() => {
     getMyAppointments()
@@ -271,15 +273,18 @@ const MyAppointments = () => {
       .finally(() => setLoadingData(false))
   }, [])
 
-  const handleCancel = async (appointmentId) => {
-    if (!confirm('Cancel this appointment?')) return
-    try {
-      await cancelAppointment(appointmentId)
-      setAppointments(prev => prev.filter(a => a.id !== appointmentId))
-      if (modal?.id === appointmentId) setModal(null)
-    } catch (err) {
-      alert(err.message)
-    }
+  const handleCancel = (appointmentOrId) => {
+    const target = typeof appointmentOrId === 'object'
+      ? appointmentOrId
+      : appointments.find((item) => String(item.id) === String(appointmentOrId))
+    if (target) setCancelTarget(target)
+  }
+
+  const confirmCancellation = async (payload) => {
+    if (!cancelTarget) return
+    await cancelAppointment(cancelTarget.id, payload)
+    setAppointments(prev => prev.filter(a => a.id !== cancelTarget.id))
+    if (modal?.id === cancelTarget.id) setModal(null)
   }
 
   const counts = TABS.reduce((acc, t) => {
@@ -402,6 +407,13 @@ const MyAppointments = () => {
       {modal && (
         <DetailModal appt={modal} onClose={() => setModal(null)} onCancel={handleCancel} />
       )}
+      <CancellationReasonModal
+        open={Boolean(cancelTarget)}
+        appointment={cancelTarget}
+        loadReasons={getAppointmentCancellationReasons}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={confirmCancellation}
+      />
     </div>
   )
 }

@@ -273,6 +273,10 @@ const ensureAppSchema = async () => {
   // for backwards compatibility; new workflows use item_type + uom directly.
   await ensureColumn('inventory', 'item_type', "VARCHAR(20) NOT NULL DEFAULT 'supplies'").catch(() => {})
   await ensureColumn('inventory', 'uom', 'VARCHAR(50) NULL').catch(() => {})
+  // Stock quantity is counted in `uom`. Product strength/size is separate metadata
+  // describing one stock unit (for example: 500 mg per capsule or 500 mL per bottle).
+  await ensureColumn('inventory', 'measurement_value', 'DECIMAL(12,4) NULL').catch(() => {})
+  await ensureColumn('inventory', 'measurement_unit', 'VARCHAR(30) NULL').catch(() => {})
   await ensureColumn('inventory', 'supplier_id', 'INT NULL').catch(() => {})
   await ensureColumn('inventory_suppliers', 'contact_person', 'VARCHAR(160) NULL').catch(() => {})
   await ensureColumn('inventory_suppliers', 'contact_number', 'VARCHAR(80) NULL').catch(() => {})
@@ -443,6 +447,28 @@ const ensureAppSchema = async () => {
   `)
 
   await ensureColumn('consultation_images', 'security_scan_status', "VARCHAR(20) NOT NULL DEFAULT 'legacy' AFTER caption")
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS appointment_cancellation_reasons (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      label VARCHAR(120) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_appointment_cancellation_reason_label (label)
+    )
+  `)
+
+  await db.query(`
+    INSERT IGNORE INTO appointment_cancellation_reasons (label, is_active, sort_order)
+    VALUES
+      ('Schedule conflict', 1, 10),
+      ('Feeling better / consultation no longer needed', 1, 20),
+      ('Transportation issue', 1, 30),
+      ('Financial reason', 1, 40),
+      ('Booked another schedule', 1, 50)
+  `)
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS appointment_reason_options (
@@ -853,6 +879,12 @@ const ensureAppSchema = async () => {
   await ensureColumn('appointments', 'requested_service_id', 'INT NULL')
   await ensureColumn('appointments', 'requested_service_name_snapshot', 'VARCHAR(180) NULL')
   await ensureColumn('appointments', 'requested_service_price_snapshot', 'DECIMAL(10,2) NULL')
+  await ensureColumn('appointments', 'cancellation_reason_id', 'INT NULL')
+  await ensureColumn('appointments', 'cancellation_reason_snapshot', 'VARCHAR(120) NULL')
+  await ensureColumn('appointments', 'cancellation_details', 'VARCHAR(500) NULL')
+  await ensureColumn('appointments', 'cancelled_by_role', 'VARCHAR(20) NULL')
+  await ensureColumn('appointments', 'cancelled_by_user_id', 'INT NULL')
+  await ensureColumn('appointments', 'cancelled_at', 'DATETIME NULL')
 
   await ensureColumn('queue', 'called_at', 'DATETIME NULL')
   await ensureColumn('queue', 'consultation_started_at', 'DATETIME NULL')
@@ -869,6 +901,7 @@ const ensureAppSchema = async () => {
   await db.query("ALTER TABLE doctors MODIFY COLUMN clinic_type ENUM('medical','derma') NOT NULL")
 
   await ensureForeignKey('appointments', 'fk_appointments_requested_service', 'ALTER TABLE appointments ADD CONSTRAINT fk_appointments_requested_service FOREIGN KEY (requested_service_id) REFERENCES billing_service_catalog(id) ON DELETE SET NULL')
+  await ensureForeignKey('appointments', 'fk_appointments_cancellation_reason', 'ALTER TABLE appointments ADD CONSTRAINT fk_appointments_cancellation_reason FOREIGN KEY (cancellation_reason_id) REFERENCES appointment_cancellation_reasons(id) ON DELETE SET NULL')
   await ensureForeignKey('queue', 'fk_queue_appointment', 'ALTER TABLE queue ADD CONSTRAINT fk_queue_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL')
 
   await ensureColumn('patients', 'consent_method', 'VARCHAR(40) NULL')
@@ -923,7 +956,8 @@ const ensureAppSchema = async () => {
   await ensureColumn('billing_payments', 'refund_reason', 'TEXT NULL')
   await ensureColumn('billing_payments', 'refunded_by_admin_id', 'INT NULL')
 
-  await ensureColumn('inventory_logs', 'movement_type', "VARCHAR(40) NOT NULL DEFAULT 'adjustment'")
+  await ensureColumn('inventory_logs', 'movement_type', "VARCHAR(80) NOT NULL DEFAULT 'adjustment'")
+  await db.query("ALTER TABLE inventory_logs MODIFY COLUMN movement_type VARCHAR(80) NOT NULL DEFAULT 'adjustment'")
   await ensureColumn('inventory_logs', 'from_location', 'VARCHAR(120) NULL')
   await ensureColumn('inventory_logs', 'to_location', 'VARCHAR(120) NULL')
   await ensureColumn('inventory_logs', 'reference_type', 'VARCHAR(50) NULL')
@@ -932,11 +966,57 @@ const ensureAppSchema = async () => {
   await db.query('ALTER TABLE inventory_logs MODIFY COLUMN qty DECIMAL(12,2) NOT NULL').catch(() => {})
   await db.query('ALTER TABLE queue ADD UNIQUE KEY uniq_queue_doctor_day_number (queue_date, doctor_id, queue_number)').catch(() => {})
 
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS supply_request_groups (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      doctor_id INT NOT NULL,
+      destination_location_id INT NULL,
+      destination_location VARCHAR(120) NOT NULL DEFAULT 'Doctor / Treatment Room',
+      reason TEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      resolved_at DATETIME NULL,
+      resolved_by_role VARCHAR(20) NULL,
+      resolved_by_user_id INT NULL,
+      resolution_note TEXT NULL,
+      INDEX idx_supply_request_groups_status (status, requested_at),
+      INDEX idx_supply_request_groups_doctor (doctor_id, status, requested_at),
+      INDEX idx_supply_request_groups_destination (destination_location_id),
+      CONSTRAINT fk_supply_request_groups_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE,
+      CONSTRAINT fk_supply_request_groups_destination FOREIGN KEY (destination_location_id) REFERENCES inventory_locations(id) ON DELETE SET NULL
+    )
+  `)
+  await ensureIndex('supply_request_groups', 'idx_supply_request_groups_status', 'status, requested_at').catch(() => {})
+  await ensureIndex('supply_request_groups', 'idx_supply_request_groups_doctor', 'doctor_id, status, requested_at').catch(() => {})
+  await ensureIndex('supply_request_groups', 'idx_supply_request_groups_destination', 'destination_location_id').catch(() => {})
+  await db.query('ALTER TABLE supply_request_groups ADD CONSTRAINT fk_supply_request_groups_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE').catch(() => {})
+  await db.query('ALTER TABLE supply_request_groups ADD CONSTRAINT fk_supply_request_groups_destination FOREIGN KEY (destination_location_id) REFERENCES inventory_locations(id) ON DELETE SET NULL').catch(() => {})
+  await ensureColumn('supply_requests', 'request_group_id', 'BIGINT NULL')
+  await db.query('ALTER TABLE supply_requests MODIFY COLUMN qty_requested DECIMAL(12,2) NOT NULL').catch(() => {})
   await ensureColumn('supply_requests', 'destination_location', "VARCHAR(120) NOT NULL DEFAULT 'Doctor / Treatment Room'")
   await ensureColumn('supply_requests', 'destination_location_id', 'INT NULL')
   await ensureColumn('supply_requests', 'resolved_at', 'DATETIME NULL')
   await ensureColumn('supply_requests', 'resolved_by_admin_id', 'INT NULL')
   await ensureColumn('supply_requests', 'resolution_note', 'TEXT NULL')
+  await db.query(`
+    INSERT IGNORE INTO supply_request_groups
+      (id, doctor_id, destination_location_id, destination_location, reason, status, requested_at, updated_at, resolved_at, resolved_by_role, resolved_by_user_id, resolution_note)
+    SELECT sr.id, sr.doctor_id, sr.destination_location_id, sr.destination_location, sr.reason, sr.status, sr.requested_at, sr.updated_at, sr.resolved_at,
+           CASE WHEN sr.resolved_by_admin_id IS NOT NULL THEN 'admin' ELSE NULL END, sr.resolved_by_admin_id, sr.resolution_note
+    FROM supply_requests sr
+    WHERE sr.request_group_id IS NULL
+  `).catch(() => {})
+  await db.query(`
+    UPDATE supply_requests sr
+    JOIN supply_request_groups g ON g.id=sr.id
+    SET sr.request_group_id=g.id
+    WHERE sr.request_group_id IS NULL AND sr.id > 0
+  `).catch(() => {})
+  await db.query('ALTER TABLE supply_requests MODIFY COLUMN request_group_id BIGINT NOT NULL').catch(() => {})
+  await ensureIndex('supply_requests', 'idx_supply_request_group', 'request_group_id').catch(() => {})
+  await ensureIndex('supply_requests', 'uniq_supply_request_group_item', 'request_group_id, inventory_id', { unique: true }).catch(() => {})
+  await db.query('ALTER TABLE supply_requests ADD CONSTRAINT fk_supply_request_group FOREIGN KEY (request_group_id) REFERENCES supply_request_groups(id) ON DELETE CASCADE').catch(() => {})
 
   await ensureColumn('audit_logs', 'archive_id', 'BIGINT NULL').catch(() => {})
   await ensureColumn('audit_logs', 'archived_at', 'DATETIME NULL').catch(() => {})
@@ -1393,6 +1473,9 @@ const ensureAppSchema = async () => {
     )
   `)
   await db.query('ALTER TABLE password_resets MODIFY COLUMN email VARCHAR(255) NULL').catch(() => {})
+  // Recovery supports patient, doctor, staff, and admin. Use VARCHAR rather than a stale ENUM
+  // so adding/removing portal roles is controlled by ROLE_CONFIG instead of a DB enum mismatch.
+  await db.query('ALTER TABLE password_resets MODIFY COLUMN role VARCHAR(20) NOT NULL').catch(() => {})
   await ensureColumn('password_resets', 'identifier', 'VARCHAR(120) NULL')
   await ensureColumn('password_resets', 'account_id', 'INT NULL')
   await ensureColumn('password_resets', 'attempt_count', 'INT NOT NULL DEFAULT 0')

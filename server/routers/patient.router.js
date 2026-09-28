@@ -10,7 +10,7 @@ const {
   register, verifyRegistration, resendRegistrationVerification, login, checkAuth, logout,
   getProfileStatus, updateProfile,
   getAppointments, getHistory,
-  createAppointment, cancelAppointment, rescheduleAppointment,
+  createAppointment, cancelAppointment, rescheduleAppointment, getAppointmentCancellationReasons,
   getAppointmentReasons, getBookingServices, getDoctors, getDoctorsAvailability, getDoctorSchedule, getDoctorUnavailableDatesController, getDoctorTakenSlots,
 } = require('../controllers/patient.controller')
 const commonCtrl = require('../controllers/common.controller')
@@ -41,6 +41,7 @@ router.get('/appointments',                        getAppointments)
 router.post('/appointments',                       createAppointment)
 router.get('/appointments/history',                getHistory)
 router.get('/appointment-reasons',                 getAppointmentReasons)
+router.get('/appointment-cancellation-reasons',    getAppointmentCancellationReasons)
 router.get('/booking-services',                     getBookingServices)
 router.patch('/appointments/:id/cancel',           cancelAppointment)
 router.patch('/appointments/:id/reschedule',       rescheduleAppointment)

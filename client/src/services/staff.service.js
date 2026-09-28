@@ -33,7 +33,7 @@ export const confirmAppointment = (id, payload = {}) =>
     body: JSON.stringify(payload),
   })
 
-export const cancelAppointment = (id) => requestJson(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH' })
+export const cancelAppointment = (id, payload) => requestJson(`${BASE}/appointments/${id}/cancel`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) })
 
 export const markAppointmentNoShow = (id) => requestJson(`${BASE}/appointments/${id}/no-show`, { method: 'PATCH' })
 
@@ -56,6 +56,8 @@ export const getAppointmentReasons = (clinicType = '') => {
   const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
   return requestJson(`${BASE}/appointment-reasons${query}`)
 }
+
+export const getAppointmentCancellationReasons = () => requestJson(`${BASE}/appointment-cancellation-reasons`)
 
 export const getWalkInAvailableDoctors = (clinicType) =>
   requestJson(`${BASE}/walk-in/doctors?clinic_type=${encodeURIComponent(clinicType || '')}`)
