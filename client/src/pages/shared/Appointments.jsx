@@ -640,6 +640,8 @@ const Appointments = ({ services }) => {
   const [viewAppointment, setViewAppointment] = useState(null)
   const [rescheduleAppointment, setRescheduleAppointment] = useState(null)
   const [cancelAppointmentTarget, setCancelAppointmentTarget] = useState(null)
+  const [inventoryConfirmTarget, setInventoryConfirmTarget] = useState(null)
+  const [inventoryOverrideReason, setInventoryOverrideReason] = useState('')
   const [showAdd, setShowAdd] = useState(false)
 
   const loadAppointments = useCallback(async () => {
@@ -722,23 +724,67 @@ const Appointments = ({ services }) => {
     }
   }
 
-  const handleConfirm = (appointment) => runAction(appointment, async () => {
+  const confirmWithPolicyWarnings = async (appointment, payload = {}) => {
     try {
-      return await services.confirmAppointment(appointment.id)
+      return await services.confirmAppointment(appointment.id, payload)
     } catch (err) {
       if (err.code === 'NO_SHOW_WARNING') {
         const lastNoShow = err.last_no_show
         const detail = lastNoShow
           ? `Last no-show: ${lastNoShow.appointment_date} at ${lastNoShow.appointment_time} with ${lastNoShow.doctor_name}.`
           : 'This patient has a previous no-show appointment.'
-        const proceed = window.confirm(`${err.message}\n\n${detail}\n\nPolicy reminder: ${err.policy}\n\nConfirm this appointment anyway?`)
-        if (proceed) {
-          return services.confirmAppointment(appointment.id, { override_no_show_warning: true })
-        }
+        const proceed = window.confirm(`${err.message}
+
+${detail}
+
+Policy reminder: ${err.policy}
+
+Confirm this appointment anyway?`)
+        if (proceed) return services.confirmAppointment(appointment.id, { ...payload, override_no_show_warning: true })
       }
       throw err
     }
-  })
+  }
+
+  const handleConfirm = async (appointment) => {
+    setBusyId(appointment.id)
+    try {
+      const readiness = services.getAppointmentInventoryReadiness
+        ? await services.getAppointmentInventoryReadiness(appointment.id)
+        : null
+      if (readiness && ['transfer_needed','shortage'].includes(readiness.status)) {
+        setInventoryConfirmTarget({ appointment, readiness })
+        setInventoryOverrideReason('')
+        return
+      }
+      await confirmWithPolicyWarnings(appointment)
+      await loadAppointments()
+    } catch (err) {
+      alert(err.message || 'Could not confirm appointment.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const confirmDespiteInventoryWarning = async () => {
+    const target = inventoryConfirmTarget
+    if (!target) return
+    if (target.readiness.status === 'shortage' && !inventoryOverrideReason.trim()) return
+    setBusyId(target.appointment.id)
+    try {
+      await confirmWithPolicyWarnings(target.appointment, {
+        override_inventory_warning: true,
+        inventory_override_reason: inventoryOverrideReason.trim() || undefined,
+      })
+      setInventoryConfirmTarget(null)
+      setInventoryOverrideReason('')
+      await loadAppointments()
+    } catch (err) {
+      alert(err.message || 'Could not confirm appointment.')
+    } finally {
+      setBusyId(null)
+    }
+  }
   const handleCancel = (appointment) => {
     setCancelAppointmentTarget(appointment)
   }
@@ -941,6 +987,18 @@ const Appointments = ({ services }) => {
         />
       )}
       {viewAppointment && <AppointmentViewModal appointment={viewAppointment} onClose={() => setViewAppointment(null)} />}
+      {inventoryConfirmTarget && (
+        <>
+          <div className="fixed inset-0 z-[70] bg-black/50" onClick={() => setInventoryConfirmTarget(null)} />
+          <div className="fixed left-1/2 top-1/2 z-[80] max-h-[85vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4"><div><h3 className="text-lg font-black text-slate-900">Inventory Readiness Check</h3><p className="mt-1 text-sm text-slate-500">{inventoryConfirmTarget.readiness.status === 'shortage' ? 'The clinic is short on one or more expected consumables.' : `Some expected consumables must be transferred to ${inventoryConfirmTarget.readiness.treatment_room}.`}</p></div><button onClick={() => setInventoryConfirmTarget(null)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><MdClose /></button></div>
+            <div className="mt-4 space-y-2">{inventoryConfirmTarget.readiness.lines.map((line) => <div key={line.inventory_id} className={`rounded-2xl border p-4 ${line.status === 'ready' ? 'border-emerald-200 bg-emerald-50' : line.status === 'transfer_needed' ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold text-slate-900">{line.name}</p><p className="text-xs text-slate-500">Required: {line.required} {line.unit} · {inventoryConfirmTarget.readiness.treatment_room}: {line.treatment_room_stock} · Main Stockroom: {line.main_stockroom_stock}</p></div><span className={`text-xs font-black ${line.status === 'ready' ? 'text-emerald-700' : line.status === 'transfer_needed' ? 'text-amber-700' : 'text-rose-700'}`}>{line.status === 'ready' ? 'Ready' : line.status === 'transfer_needed' ? `Transfer ${line.suggested_transfer} ${line.unit}` : `Clinic short ${line.clinic_shortage} ${line.unit}`}</span></div></div>)}</div>
+            {inventoryConfirmTarget.readiness.status === 'shortage' && <label className="mt-4 block"><span className="form-label">Reason for confirming despite shortage *</span><textarea rows={3} maxLength={500} className="form-control mt-1.5" value={inventoryOverrideReason} onChange={(e) => setInventoryOverrideReason(e.target.value)} placeholder="e.g. Supplier delivery is scheduled before the appointment" /></label>}
+            <p className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800">Confirming does not reserve inventory. Stock is revalidated again when the consultation is completed.</p>
+            <div className="mt-5 flex justify-end gap-2"><button className="button-secondary" onClick={() => setInventoryConfirmTarget(null)}>Go Back</button><button className="button-primary" disabled={busyId === inventoryConfirmTarget.appointment.id || (inventoryConfirmTarget.readiness.status === 'shortage' && !inventoryOverrideReason.trim())} onClick={confirmDespiteInventoryWarning}>{inventoryConfirmTarget.readiness.status === 'shortage' ? 'Confirm Anyway' : 'Confirm & Flag for Transfer'}</button></div>
+          </div>
+        </>
+      )}
       <CancellationReasonModal
         open={Boolean(cancelAppointmentTarget)}
         appointment={cancelAppointmentTarget}

@@ -25,6 +25,8 @@ export const getAppointments = (dateOrParams = '') => {
   return requestJson(`${BASE}/appointments${query}`)
 }
 
+export const getAppointmentInventoryReadiness = (id) => requestJson(`${BASE}/appointments/${id}/inventory-readiness`)
+
 export const confirmAppointment = (id, payload = {}) =>
   requestJson(`${BASE}/appointments/${id}/confirm`, {
     method: 'PATCH',

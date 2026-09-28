@@ -38,6 +38,7 @@ router.get('/appointment-cancellation-reasons', ...auth, adminCtrl.getAppointmen
 router.post('/appointment-reasons',            ...auth, adminCtrl.createAppointmentReasonOption)
 router.put('/appointment-reasons/:reasonId',   ...auth, adminCtrl.updateAppointmentReasonOption)
 router.delete('/appointment-reasons/:reasonId',...auth, adminCtrl.deleteAppointmentReasonOption)
+router.get('/appointments/:id/inventory-readiness', ...auth, adminCtrl.getAppointmentInventoryReadinessForPortal)
 router.patch('/appointments/:id/confirm',      ...auth, adminCtrl.confirmAppointment)
 router.patch('/appointments/:id/cancel',       ...auth, adminCtrl.cancelAppointment)
 router.patch('/appointments/:id/no-show',      ...auth, adminCtrl.markAppointmentNoShow)

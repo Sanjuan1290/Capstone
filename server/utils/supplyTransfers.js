@@ -12,6 +12,13 @@ const groupTransferRows = (rows = []) => {
         id: groupId,
         doctor_id: Number(row.doctor_id),
         doctor_name: row.doctor_name || null,
+        appointment_id: Number(row.appointment_id || 0) || null,
+        consultation_id: Number(row.consultation_id || 0) || null,
+        appointment_status: row.appointment_status || null,
+        appointment_date: row.appointment_date || null,
+        appointment_time: row.appointment_time || null,
+        patient_name: row.patient_name || null,
+        requested_service_name: row.requested_service_name || null,
         destination_location_id: Number(row.destination_location_id || 0) || null,
         destination_location: row.destination_location || row.destination_location_snapshot || 'Doctor / Treatment Room',
         reason: row.group_reason ?? row.reason ?? null,
@@ -67,6 +74,13 @@ const listSupplyTransferGroups = async ({ doctorId = null, groupId = null, pendi
        g.id AS request_group_id,
        g.doctor_id,
        d.full_name AS doctor_name,
+       g.appointment_id,
+       g.consultation_id,
+       a.status AS appointment_status,
+       DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,
+       a.appointment_time,
+       p.full_name AS patient_name,
+       COALESCE(bsc.service_name,a.requested_service_name_snapshot) AS requested_service_name,
        g.destination_location_id,
        COALESCE(dest.name, g.destination_location) AS destination_location,
        g.reason AS group_reason,
@@ -87,20 +101,27 @@ const listSupplyTransferGroups = async ({ doctorId = null, groupId = null, pendi
        i.measurement_value,
        i.measurement_unit,
        COALESCE((
-         SELECT SUM(ils.quantity)
-         FROM inventory_location_stock ils
-         JOIN inventory_locations ml ON ml.id=ils.location_id
-         WHERE ils.inventory_id=i.id AND ml.name=?
+         SELECT SUM(ilb.quantity)
+         FROM inventory_location_batches ilb
+         JOIN inventory_locations ml ON ml.id=ilb.location_id
+         JOIN inventory_batches ib ON ib.id=ilb.batch_id
+         WHERE ilb.inventory_id=i.id AND ml.name=? AND ilb.quantity>0 AND ib.quantity>0
+           AND ib.archived_at IS NULL AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())
        ),0) AS main_stockroom_stock,
        COALESCE((
-         SELECT SUM(ils.quantity)
-         FROM inventory_location_stock ils
-         WHERE ils.inventory_id=i.id AND ils.location_id=g.destination_location_id
+         SELECT SUM(ilb.quantity)
+         FROM inventory_location_batches ilb
+         JOIN inventory_batches ib ON ib.id=ilb.batch_id
+         WHERE ilb.inventory_id=i.id AND ilb.location_id=g.destination_location_id AND ilb.quantity>0 AND ib.quantity>0
+           AND ib.archived_at IS NULL AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())
        ),0) AS destination_stock
      FROM supply_request_groups g
      JOIN supply_requests sr ON sr.request_group_id=g.id
      JOIN inventory i ON i.id=sr.inventory_id
      JOIN doctors d ON d.id=g.doctor_id
+     LEFT JOIN appointments a ON a.id=g.appointment_id
+     LEFT JOIN patients p ON p.id=a.patient_id
+     LEFT JOIN billing_service_catalog bsc ON bsc.id=a.requested_service_id
      LEFT JOIN inventory_locations dest ON dest.id=g.destination_location_id
      ${where}
      ${order}`,
@@ -121,10 +142,16 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
     await conn.beginTransaction()
     const [groups] = await conn.query(
       `SELECT g.*, d.full_name AS doctor_name,
+              a.status AS appointment_status,
+              p.full_name AS patient_name,
+              COALESCE(bsc.service_name,a.requested_service_name_snapshot) AS requested_service_name,
               COALESCE(loc.name, g.destination_location) AS destination_location_name,
               loc.location_type AS destination_location_type
        FROM supply_request_groups g
        JOIN doctors d ON d.id=g.doctor_id
+       LEFT JOIN appointments a ON a.id=g.appointment_id
+       LEFT JOIN patients p ON p.id=a.patient_id
+       LEFT JOIN billing_service_catalog bsc ON bsc.id=a.requested_service_id
        LEFT JOIN inventory_locations loc ON loc.id=g.destination_location_id
        WHERE g.id=?
        FOR UPDATE`,
@@ -138,6 +165,10 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
     if (group.status !== 'pending') {
       await conn.rollback()
       return { statusCode: 400, body: { message: 'Only pending stock transfer requests can be resolved.' } }
+    }
+    if (group.appointment_id && !['confirmed','rescheduled','in-progress'].includes(String(group.appointment_status || ''))) {
+      await conn.rollback()
+      return { statusCode: 409, body: { code: 'TRANSFER_APPOINTMENT_NOT_ACTIVE', message: 'This stock transfer is linked to an appointment that is no longer active. Reject the request instead of transferring stock.' } }
     }
 
     const [lines] = await conn.query(
@@ -260,6 +291,10 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
       oldValues: { status: 'pending' },
       newValues: {
         status,
+        appointment_id: group.appointment_id || null,
+        consultation_id: group.consultation_id || null,
+        patient_name: group.patient_name || null,
+        requested_service_name: group.requested_service_name || null,
         item_count: lines.length,
         destination_location_id: group.destination_location_id || null,
         destination_location: destinationRow?.name || group.destination_location_name || group.destination_location,
@@ -296,6 +331,8 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
         ? `Stock transfer approved. ${itemResults.length} item${itemResults.length === 1 ? '' : 's'} were moved from Main Stockroom to the destination atomically.`
         : 'Stock transfer request rejected.',
       request_id: Number(group.id),
+      appointment_id: Number(group.appointment_id || 0) || null,
+      consultation_id: Number(group.consultation_id || 0) || null,
       items: itemResults,
     },
   }

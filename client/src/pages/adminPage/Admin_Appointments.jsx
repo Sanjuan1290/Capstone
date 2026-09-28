@@ -5,6 +5,7 @@
 import Appointments from '../shared/Appointments'
 import {
   getAppointments,
+  getAppointmentInventoryReadiness,
   confirmAppointment,
   cancelAppointment,
   markAppointmentNoShow,
@@ -19,6 +20,7 @@ import {
 
 const adminServices = {
   getAppointments,
+  getAppointmentInventoryReadiness,
   confirmAppointment,
   cancelAppointment,
   markAppointmentNoShow,

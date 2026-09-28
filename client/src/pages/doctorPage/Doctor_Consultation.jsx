@@ -1116,7 +1116,7 @@ const Doctor_Consultation = () => {
                     <p className="font-black">Stock transfer required before completing this consultation</p>
                     <p className="mt-1">{inventoryBlocker.message || `${inventoryBlocker.name} requires ${inventoryBlocker.requested} ${inventoryBlocker.unit}, but only ${inventoryBlocker.available} are available in ${inventoryBlocker.location}.`}</p>
                     <p className="mt-1 text-xs text-amber-800">Clinical use can only deduct stock already transferred into the treatment room. Main Stockroom is not used as an automatic fallback.</p>
-                    <button type="button" onClick={() => navigate('/doctor/request/stock-transfer')} className="mt-3 inline-flex items-center rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">Request Stock Transfer</button>
+                    <button type="button" onClick={() => navigate(`/doctor/request/stock-transfer?appointment_id=${appt.id}`)} className="mt-3 inline-flex items-center rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">Request Missing Stock</button>
                   </div>
                 )}
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs">

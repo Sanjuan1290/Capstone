@@ -61,6 +61,7 @@ const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTrans
 const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
 const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { resolveSupplyTransfer, listSupplyTransferGroups } = require('../utils/supplyTransfers')
+const { getAppointmentInventoryReadiness } = require('../utils/inventoryReadiness')
 const { applyManualInventoryMovement } = require('../utils/manualInventoryMovement')
 const { isValidQueueStatus } = require('../utils/workflowValidation')
 const { DEFAULT_STAFF_PERMISSIONS, loadStaffPermissions, replaceStaffPermissions, normalizeStaffPermissions, samePermissionSet } = require('../utils/staffPermissions')
@@ -554,6 +555,12 @@ const getAppointments = async (req, res) => {
   res.json(rows)
 }
 
+const getAppointmentInventoryReadinessForPortal = async (req, res) => {
+  const readiness = await getAppointmentInventoryReadiness(req.params.id)
+  if (!readiness) return res.status(404).json({ message: 'Appointment not found.' })
+  res.json(readiness)
+}
+
 const confirmAppointment = async (req, res) => {
   const { id } = req.params
   const [rows] = await db.query(
@@ -567,6 +574,20 @@ const confirmAppointment = async (req, res) => {
     [id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  const inventoryReadiness = await getAppointmentInventoryReadiness(req.params.id)
+  if (inventoryReadiness && ['transfer_needed','shortage'].includes(inventoryReadiness.status) && !req.body?.override_inventory_warning) {
+    return res.status(409).json({
+      code: 'INVENTORY_READINESS_WARNING',
+      message: inventoryReadiness.status === 'shortage'
+        ? 'This appointment needs consumables that are currently short across the treatment room and Main Stockroom.'
+        : `Some expected consumables must be transferred to ${inventoryReadiness.treatment_room} before the consultation can be completed.`,
+      readiness: inventoryReadiness,
+    })
+  }
+  const inventoryOverrideReason = String(req.body?.inventory_override_reason || '').trim()
+  if (inventoryReadiness?.status === 'shortage' && req.body?.override_inventory_warning && !inventoryOverrideReason) {
+    return res.status(400).json({ code: 'INVENTORY_OVERRIDE_REASON_REQUIRED', message: 'Enter a reason before confirming an appointment with a clinic-wide inventory shortage.' })
+  }
   const lastNoShow = await getLastNoShowAppointment(rows[0].patient_id)
   if (lastNoShow && !req.body?.override_no_show_warning) {
     return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
@@ -574,7 +595,7 @@ const confirmAppointment = async (req, res) => {
   assertAppointmentTransition(rows[0].status, 'confirmed')
   const [updated] = await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ? AND status = ?", [id, rows[0].status])
   await assertAppointmentMutationApplied(updated, id)
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.confirmed',entityType:'appointment',entityId:id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.confirmed',entityType:'appointment',entityId:id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',inventory_readiness:inventoryReadiness?.status||'unknown',inventory_override_reason:inventoryOverrideReason||null},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
     target_user_id: rows[0].patient_id,
@@ -593,6 +614,20 @@ const confirmAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: id,
   })
+  if (inventoryReadiness && ['transfer_needed','shortage'].includes(inventoryReadiness.status)) {
+    const shortages = inventoryReadiness.lines.filter((line) => line.status !== 'ready')
+    await createNotification({
+      target_role: 'doctor',
+      target_user_id: rows[0].doctor_id,
+      type: 'inventory_preparation_needed',
+      title: 'Inventory preparation needed',
+      message: `${rows[0].patient_name}'s confirmed appointment has ${shortages.length} expected consumable${shortages.length === 1 ? '' : 's'} that ${inventoryReadiness.status === 'shortage' ? 'need restocking or transfer' : `must be transferred to ${inventoryReadiness.treatment_room}`}.`,
+      reference_type: 'appointment',
+      reference_id: Number(req.params.id),
+      link: `/doctor/request/stock-transfer?appointment_id=${req.params.id}`,
+    }).catch(() => {})
+  }
+
   await sendAppointmentStatusEmail({
     to: rows[0].patient_email,
     patient_name: rows[0].patient_name,
@@ -3936,7 +3971,7 @@ const getAuditLogs = async (req,res) => {
 module.exports = {
   login, verifyLoginMfa, checkAuth, logout,
   getDashboard,
-  getAppointments, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, createAppointment,
+  getAppointments, getAppointmentInventoryReadinessForPortal, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, createAppointment,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord,
   createWalkInPatient,

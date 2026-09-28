@@ -285,3 +285,20 @@ input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+
+/* Portal sidebar scrollbar: stays visually inside the dark sidebar edge. */
+.portal-sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+  scrollbar-gutter: stable;
+}
+.portal-sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.portal-sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.portal-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.42);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+.portal-sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(203, 213, 225, 0.62); }

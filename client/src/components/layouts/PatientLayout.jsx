@@ -151,7 +151,7 @@ const PatientLayout = () => {
         </div>
 
         {/* Nav links */}
-        <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
+        <nav className="portal-sidebar-scroll flex-1 px-3 space-y-0.5 overflow-y-auto">
           {sideNav.map(item => <NavItem key={item.path} {...item} />)}
         </nav>
 

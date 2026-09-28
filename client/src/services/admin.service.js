@@ -19,6 +19,8 @@ export const getDashboard = () => requestJson(`${getAdminApiBase()}/dashboard`)
 
 export const getAppointments = (params = '') => requestJson(`${getAdminApiBase()}/appointments${params}`)
 
+export const getAppointmentInventoryReadiness = (id) => requestJson(`${getAdminApiBase()}/appointments/${id}/inventory-readiness`)
+
 export const confirmAppointment = (id, payload = {}) =>
   requestJson(`${getAdminApiBase()}/appointments/${id}/confirm`, {
     method: 'PATCH',

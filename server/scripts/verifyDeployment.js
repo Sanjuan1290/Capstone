@@ -24,7 +24,7 @@ const REQUIRED_COLUMNS = {
   consultation_images: ['security_scan_status'],
   clinic_payment_settings: ['cash_enabled', 'gcash_enabled', 'maya_enabled', 'bank_transfer_enabled', 'gcash_qr_scan_status', 'maya_qr_scan_status'],
   supply_requests: ['request_group_id', 'destination_location_id'],
-  supply_request_groups: ['doctor_id', 'destination_location_id', 'destination_location', 'reason', 'status', 'requested_at', 'resolved_by_role', 'resolved_by_user_id', 'resolution_note'],
+  supply_request_groups: ['doctor_id', 'appointment_id', 'consultation_id', 'destination_location_id', 'destination_location', 'reason', 'status', 'requested_at', 'resolved_by_role', 'resolved_by_user_id', 'resolution_note'],
   password_resets: ['attempt_count', 'last_sent_at', 'verified_at'],
   patient_phone_verifications: ['attempt_count', 'last_sent_at'],
   billing_service_materials: ['bundled_in_service_price', 'cost_snapshot'],
@@ -132,7 +132,7 @@ const run = async () => {
        FROM information_schema.TABLE_CONSTRAINTS
        WHERE CONSTRAINT_SCHEMA = ?
          AND CONSTRAINT_TYPE = 'FOREIGN KEY'
-         AND CONSTRAINT_NAME IN ('fk_appointments_requested_service','fk_appointments_cancellation_reason','fk_queue_appointment','fk_billing_service_category','fk_inventory_batches_supplier','fk_billing_usage_source_location','fk_consultation_usage_source_location','fk_supply_request_group','fk_supply_request_groups_doctor','fk_supply_request_groups_destination')`,
+         AND CONSTRAINT_NAME IN ('fk_appointments_requested_service','fk_appointments_cancellation_reason','fk_queue_appointment','fk_billing_service_category','fk_inventory_batches_supplier','fk_billing_usage_source_location','fk_consultation_usage_source_location','fk_supply_request_group','fk_supply_request_groups_doctor','fk_supply_request_groups_appointment','fk_supply_request_groups_consultation','fk_supply_request_groups_destination')`,
       [process.env.DB_NAME]
     )
     const constraints = new Set(constraintRows.map((row) => `${row.TABLE_NAME}.${row.CONSTRAINT_NAME}`))
@@ -146,6 +146,8 @@ const run = async () => {
       'consultation_inventory_usage_batches.fk_consultation_usage_source_location',
       'supply_requests.fk_supply_request_group',
       'supply_request_groups.fk_supply_request_groups_doctor',
+      'supply_request_groups.fk_supply_request_groups_appointment',
+      'supply_request_groups.fk_supply_request_groups_consultation',
       'supply_request_groups.fk_supply_request_groups_destination',
     ]
     const missingConstraints = requiredConstraints.filter((key) => !constraints.has(key))

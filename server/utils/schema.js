@@ -970,6 +970,8 @@ const ensureAppSchema = async () => {
     CREATE TABLE IF NOT EXISTS supply_request_groups (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
       doctor_id INT NOT NULL,
+      appointment_id INT NULL,
+      consultation_id INT NULL,
       destination_location_id INT NULL,
       destination_location VARCHAR(120) NOT NULL DEFAULT 'Doctor / Treatment Room',
       reason TEXT NULL,
@@ -982,15 +984,23 @@ const ensureAppSchema = async () => {
       resolution_note TEXT NULL,
       INDEX idx_supply_request_groups_status (status, requested_at),
       INDEX idx_supply_request_groups_doctor (doctor_id, status, requested_at),
+      INDEX idx_supply_request_groups_appointment (appointment_id, status, requested_at),
       INDEX idx_supply_request_groups_destination (destination_location_id),
       CONSTRAINT fk_supply_request_groups_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE,
+      CONSTRAINT fk_supply_request_groups_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL,
+      CONSTRAINT fk_supply_request_groups_consultation FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE SET NULL,
       CONSTRAINT fk_supply_request_groups_destination FOREIGN KEY (destination_location_id) REFERENCES inventory_locations(id) ON DELETE SET NULL
     )
   `)
+  await ensureColumn('supply_request_groups', 'appointment_id', 'INT NULL')
+  await ensureColumn('supply_request_groups', 'consultation_id', 'INT NULL')
   await ensureIndex('supply_request_groups', 'idx_supply_request_groups_status', 'status, requested_at').catch(() => {})
   await ensureIndex('supply_request_groups', 'idx_supply_request_groups_doctor', 'doctor_id, status, requested_at').catch(() => {})
+  await ensureIndex('supply_request_groups', 'idx_supply_request_groups_appointment', 'appointment_id, status, requested_at').catch(() => {})
   await ensureIndex('supply_request_groups', 'idx_supply_request_groups_destination', 'destination_location_id').catch(() => {})
   await db.query('ALTER TABLE supply_request_groups ADD CONSTRAINT fk_supply_request_groups_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE').catch(() => {})
+  await db.query('ALTER TABLE supply_request_groups ADD CONSTRAINT fk_supply_request_groups_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL').catch(() => {})
+  await db.query('ALTER TABLE supply_request_groups ADD CONSTRAINT fk_supply_request_groups_consultation FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE SET NULL').catch(() => {})
   await db.query('ALTER TABLE supply_request_groups ADD CONSTRAINT fk_supply_request_groups_destination FOREIGN KEY (destination_location_id) REFERENCES inventory_locations(id) ON DELETE SET NULL').catch(() => {})
   await ensureColumn('supply_requests', 'request_group_id', 'BIGINT NULL')
   await db.query('ALTER TABLE supply_requests MODIFY COLUMN qty_requested DECIMAL(12,2) NOT NULL').catch(() => {})

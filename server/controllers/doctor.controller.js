@@ -36,6 +36,7 @@ const {
 const { loadConsultationAmendments, assertConsultationEditable } = require('../utils/consultationIntegrity')
 const { assertPlainObject, normalizeOptionalText, normalizeText } = require('../utils/inputValidation')
 const { listSupplyTransferGroups } = require('../utils/supplyTransfers')
+const { getAppointmentInventoryReadiness, getBillingInventoryReadiness } = require('../utils/inventoryReadiness')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -84,50 +85,25 @@ const logout = async (req, res) => {
 }
 
 const validateClinicalInventoryAvailability = async ({ billing, appointment }, conn) => {
-  if (!billing?.id || !Array.isArray(billing.items)) return []
-  const usage = collectInventoryUsageFromBillingItems(billing.items)
-  const preferredLocation = appointment?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
-  const checks = []
-  for (const entry of usage) {
-    const [[inventory]] = await conn.query(
-      'SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? LIMIT 1',
-      [entry.inventory_id]
+  const readiness = await getBillingInventoryReadiness({ billing, appointment, executor: conn })
+  const blocker = readiness.lines.find((line) => line.status !== 'ready')
+  if (blocker) {
+    throw Object.assign(
+      new Error(`Insufficient stock in ${readiness.treatment_room}. ${blocker.name} requires ${blocker.required} ${blocker.unit}, but only ${blocker.treatment_room_stock} is available in this room. Request a stock transfer before completing this consultation.`),
+      {
+        statusCode: 409,
+        code: 'INVENTORY_INSUFFICIENT',
+        inventory_id: blocker.inventory_id,
+        inventory_name: blocker.name,
+        requested: blocker.required,
+        available: blocker.treatment_room_stock,
+        unit: blocker.unit,
+        location: readiness.treatment_room,
+        readiness,
+      }
     )
-    if (!inventory) continue
-    const unitLabel = String(entry.unit_label || inventory.unit || '').toLowerCase()
-    const baseUnit = String(inventory.base_unit || inventory.unit || '').toLowerCase()
-    const packageUnit = String(inventory.unit || '').toLowerCase()
-    const unitSize = Math.max(1, Number(inventory.unit_size) || 1)
-    const requestedUsageQty = Number(entry.quantity || 0)
-    const requestedPackages = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
-      ? requestedUsageQty / unitSize
-      : requestedUsageQty
-    const [[stock]] = await conn.query(
-      `SELECT COALESCE(SUM(ilb.quantity),0) AS available_packages
-       FROM inventory_location_batches ilb
-       JOIN inventory_locations il ON il.id = ilb.location_id
-       JOIN inventory_batches ib ON ib.id = ilb.batch_id
-       WHERE ilb.inventory_id = ?
-         AND il.name = ?
-         AND ilb.quantity > 0 AND ib.quantity > 0
-         AND ib.archived_at IS NULL
-         AND (ib.expiration_date IS NULL OR ib.expiration_date >= CURDATE())`,
-      [entry.inventory_id, preferredLocation]
-    )
-    const availablePackages = Number(stock?.available_packages || 0)
-    const availableUsageQty = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
-      ? availablePackages * unitSize
-      : availablePackages
-    const sufficient = availablePackages + 0.0001 >= requestedPackages
-    checks.push({ inventory_id: entry.inventory_id, name: inventory.name, requested: requestedUsageQty, available: availableUsageQty, unit: entry.unit_label || inventory.unit, sufficient })
-    if (!sufficient) {
-      throw Object.assign(
-        new Error(`Insufficient stock in ${preferredLocation}. ${inventory.name} requires ${requestedUsageQty} ${entry.unit_label || inventory.unit || 'unit(s)'}, but only ${availableUsageQty} is available in this room. Request a stock transfer before completing this consultation.`),
-        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: availableUsageQty, unit: entry.unit_label || inventory.unit || 'unit', location: preferredLocation }
-      )
-    }
   }
-  return checks
+  return readiness.lines
 }
 
 const consumeClinicalInventory = async ({ billing, consultationId, doctorId, appointment }, conn) => {
@@ -1186,10 +1162,56 @@ const getRequestLocations = async (req, res) => {
   res.json(rows)
 }
 
+
+const getTransferAppointments = async (req, res) => {
+  const [rows] = await db.query(
+    `SELECT a.id, a.status, a.clinic_type,
+            DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,
+            a.appointment_time, a.requested_service_id, a.requested_service_name_snapshot,
+            p.full_name AS patient_name,
+            c.id AS consultation_id, c.status AS consultation_status
+     FROM appointments a
+     JOIN patients p ON p.id=a.patient_id
+     LEFT JOIN consultations c ON c.appointment_id=a.id AND c.doctor_id=a.doctor_id
+     WHERE a.doctor_id=?
+       AND a.status IN ('confirmed','rescheduled','in-progress')
+       AND a.appointment_date>=CURDATE()
+     ORDER BY a.appointment_date ASC, STR_TO_DATE(a.appointment_time,'%h:%i %p') ASC
+     LIMIT 200`,
+    [req.user.id]
+  )
+  res.json(rows)
+}
+
+const getAppointmentInventoryReadinessForDoctor = async (req, res) => {
+  const readiness = await getAppointmentInventoryReadiness(req.params.id, { doctorId: req.user.id })
+  if (!readiness) return res.status(404).json({ message: 'Appointment not found.' })
+  if (!['confirmed','rescheduled','in-progress'].includes(String(readiness.appointment.status))) {
+    return res.status(409).json({ code: 'TRANSFER_APPOINTMENT_NOT_ACTIVE', message: 'Stock transfers can only be linked to an active confirmed or ongoing appointment.' })
+  }
+  res.json(readiness)
+}
+
 const submitRequest = async (req, res) => {
   const reason = String(req.body?.reason || '').trim()
   if (!reason) return res.status(400).json({ message: 'Transfer reason is required.' })
   if (reason.length > 500) return res.status(400).json({ message: 'Transfer reason must be 500 characters or fewer.' })
+
+  const appointmentId = Number(req.body?.appointment_id || 0)
+  if (!appointmentId) return res.status(400).json({ message: 'Select the active appointment or consultation this stock transfer is for.' })
+  const readiness = await getAppointmentInventoryReadiness(appointmentId, { doctorId: req.user.id })
+  if (!readiness) return res.status(404).json({ message: 'The selected appointment was not found.' })
+  if (!['confirmed','rescheduled','in-progress'].includes(String(readiness.appointment.status))) {
+    return res.status(409).json({ code: 'TRANSFER_APPOINTMENT_NOT_ACTIVE', message: 'Completed, cancelled, no-show, and pending appointments cannot receive stock transfer requests.' })
+  }
+  const [[consultationRow]] = await db.query(
+    `SELECT id, status FROM consultations WHERE appointment_id=? AND doctor_id=? LIMIT 1`,
+    [appointmentId, req.user.id]
+  )
+  if (consultationRow && String(consultationRow.status) === 'finalized') {
+    return res.status(409).json({ code: 'TRANSFER_CONSULTATION_FINALIZED', message: 'This consultation is already finalized and cannot receive another preparation transfer.' })
+  }
+  const consultationId = Number(consultationRow?.id || 0) || null
 
   const rawItems = Array.isArray(req.body?.items) && req.body.items.length
     ? req.body.items
@@ -1232,10 +1254,12 @@ const submitRequest = async (req, res) => {
     `SELECT i.id, i.name, i.category, COALESCE(i.item_type,'medicine') AS item_type,
             COALESCE(i.uom,i.base_unit,i.unit,'unit') AS uom,
             COALESCE(u.allow_decimal_quantity,0) AS allow_decimal_quantity,
-            COALESCE((SELECT SUM(ils.quantity)
-              FROM inventory_location_stock ils
-              JOIN inventory_locations il ON il.id=ils.location_id
-              WHERE ils.inventory_id=i.id AND il.name='Main Stockroom'),0) AS main_stockroom_stock
+            COALESCE((SELECT SUM(ilb.quantity)
+              FROM inventory_location_batches ilb
+              JOIN inventory_locations il ON il.id=ilb.location_id
+              JOIN inventory_batches ib ON ib.id=ilb.batch_id
+              WHERE ilb.inventory_id=i.id AND il.name='Main Stockroom' AND ilb.quantity>0 AND ib.quantity>0
+                AND ib.archived_at IS NULL AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())),0) AS main_stockroom_stock
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
      WHERE i.id IN (${placeholders}) AND i.archived_at IS NULL`,
@@ -1282,10 +1306,10 @@ const submitRequest = async (req, res) => {
        FROM supply_request_groups g
        JOIN supply_requests sr ON sr.request_group_id=g.id
        JOIN inventory i ON i.id=sr.inventory_id
-       WHERE g.doctor_id=? AND g.destination_location_id=? AND g.status='pending'
+       WHERE g.doctor_id=? AND g.appointment_id=? AND g.destination_location_id=? AND g.status='pending'
          AND sr.inventory_id IN (${placeholders})
        ORDER BY g.requested_at DESC`,
-      [req.user.id, destination.id, ...ids]
+      [req.user.id, appointmentId, destination.id, ...ids]
     )
     if (duplicates.length) {
       await conn.rollback()
@@ -1298,9 +1322,9 @@ const submitRequest = async (req, res) => {
 
     const [groupResult] = await conn.query(
       `INSERT INTO supply_request_groups
-       (doctor_id, destination_location_id, destination_location, reason, status)
-       VALUES (?,?,?,?, 'pending')`,
-      [req.user.id, destination.id, destination.name, reason]
+       (doctor_id, appointment_id, consultation_id, destination_location_id, destination_location, reason, status)
+       VALUES (?,?,?,?,?,?, 'pending')`,
+      [req.user.id, appointmentId, consultationId, destination.id, destination.name, reason]
     )
     groupId = Number(groupResult.insertId)
 
@@ -1320,6 +1344,8 @@ const submitRequest = async (req, res) => {
       entityType: 'supply_request',
       entityId: groupId,
       newValues: {
+        appointment_id: appointmentId,
+        consultation_id: consultationId,
         destination_location_id: destination.id,
         destination_location: destination.name,
         reason,
@@ -1349,7 +1375,7 @@ const submitRequest = async (req, res) => {
       target_role,
       type: 'supply_request',
       title: 'Doctor stock transfer request',
-      message: `Requested ${itemSummary} for ${destination.name}.`,
+      message: `Requested ${itemSummary} for ${destination.name} · ${readiness.appointment.patient_name} · ${readiness.appointment.requested_service_name || 'Appointment'}.`,
       reference_type: 'supply_request',
       reference_id: groupId,
     })
@@ -1516,7 +1542,7 @@ module.exports = {
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
   getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
-  getInventoryItems, getMyRequests, getRequestLocations, submitRequest,
+  getInventoryItems, getMyRequests, getRequestLocations, getTransferAppointments, getAppointmentInventoryReadinessForDoctor, submitRequest,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,

@@ -35,6 +35,7 @@ router.get('/dashboard', ...auth, can('dashboard'), staffCtrl.getDashboard)
 // ── Appointments + Walk-in Queue (one permission) ────────────────────────────
 router.get('/appointments',                  ...auth, can('appointments'), staffCtrl.getAppointments)
 router.post('/appointments',                 ...auth, can('appointments'), staffCtrl.createAppointment)
+router.get('/appointments/:id/inventory-readiness', ...auth, can('appointments'), staffCtrl.getAppointmentInventoryReadinessForPortal)
 router.patch('/appointments/:id/confirm',    ...auth, can('appointments'), staffCtrl.confirmAppointment)
 router.patch('/appointments/:id/cancel',     ...auth, can('appointments'), staffCtrl.cancelAppointment)
 router.patch('/appointments/:id/no-show',    ...auth, can('appointments'), staffCtrl.markAppointmentNoShow)

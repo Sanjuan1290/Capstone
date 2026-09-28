@@ -116,7 +116,7 @@ const StaffLayout = () => {
         <div className={`mx-3 mt-4 rounded-xl border border-white/5 bg-white/5 p-3 ${collapsed ? 'hidden' : ''}`}>
           <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/20"><MdPerson className="text-sky-400" /></div><div className="min-w-0"><p className="truncate text-sm font-bold text-white">{user?.full_name || 'Staff'}</p><p className="text-[10px] uppercase tracking-wider text-sky-400">{Array.isArray(user?.permissions) ? user.permissions.length : 0} permissions</p></div></div>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 py-3">
+        <nav className="portal-sidebar-scroll flex-1 overflow-y-auto px-3 py-3">
           {groups.map((group) => <div key={group.label} className="mb-3"><p className={`mb-1 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 ${collapsed ? 'sr-only' : ''}`}>{group.label}</p>{group.items.map((item) => <Item key={item.path} item={item} />)}</div>)}
         </nav>
         <div className="border-t border-white/5 px-3 py-4"><button onClick={logout} disabled={loggingOut} className="flex w-full items-center gap-3 rounded-xl bg-red-500/15 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/25 hover:text-red-300"><MdLogout /><span className={collapsed ? 'hidden' : ''}>{loggingOut ? 'Logging out…' : 'Logout'}</span></button></div>

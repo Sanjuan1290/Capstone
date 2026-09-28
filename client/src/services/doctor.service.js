@@ -79,6 +79,10 @@ export const getInventoryLocations = () =>
 export const getMyRequests = () =>
   requestJson(`${BASE}/requests`)
 
+export const getTransferAppointments = () => requestJson(`${BASE}/transfer-appointments`)
+
+export const getAppointmentInventoryReadiness = (appointmentId) => requestJson(`${BASE}/appointments/${appointmentId}/inventory-readiness`)
+
 export const submitRequest = (payload) =>
   requestJson(`${BASE}/requests`, {
     method: 'POST',
