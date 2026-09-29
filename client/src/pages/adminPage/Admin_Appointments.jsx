@@ -1,6 +1,5 @@
 // client/src/pages/adminPage/Admin_Appointments.jsx
-// Thin wrapper — passes admin service functions to the shared Appointments component.
-// Route stays: /admin/appointments
+// Thin wrapper — passes Admin appointment services to the shared Appointments component.
 
 import Appointments from '../shared/Appointments'
 import {
@@ -16,6 +15,8 @@ import {
   getDoctors,
   getDoctorSchedules,
   getAppointmentCancellationReasons,
+  getAppointmentAvailableSlots,
+  getBookingServices,
 } from '../../services/admin.service'
 
 const adminServices = {
@@ -31,9 +32,10 @@ const adminServices = {
   getDoctors,
   getDoctorSchedules,
   getAppointmentCancellationReasons,
+  getAppointmentAvailableSlots,
+  getBookingServices,
 }
 
 const Admin_Appointments = () => <Appointments services={adminServices} />
 
 export default Admin_Appointments
-

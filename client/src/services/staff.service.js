@@ -53,6 +53,20 @@ export const createAppointment = (payload) =>
     body: JSON.stringify(payload),
   })
 
+export const getAppointmentAvailableSlots = (doctorId, { date = '', serviceId = '', appointmentId = '', clinicType = '' } = {}) => {
+  const search = new URLSearchParams()
+  if (date) search.set('date', date)
+  if (serviceId) search.set('service_id', String(serviceId))
+  if (appointmentId) search.set('appointment_id', String(appointmentId))
+  if (clinicType) search.set('clinic_type', clinicType)
+  return requestJson(`${BASE}/doctors/${doctorId}/available-slots?${search.toString()}`)
+}
+
+export const getBookingServices = (clinicType = '') => {
+  const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
+  return requestJson(`${BASE}/appointments/booking-services${query}`)
+}
+
 
 export const getAppointmentReasons = (clinicType = '') => {
   const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
@@ -223,4 +237,6 @@ export const createInventoryLocation = (payload) => requestJson(`${BASE}/invento
 export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
+
+
 

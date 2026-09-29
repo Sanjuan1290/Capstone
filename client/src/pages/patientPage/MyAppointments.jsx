@@ -18,6 +18,7 @@ import { doctorClinicLabel } from '../../utils/doctor'
 import { NavLink } from "react-router-dom"
 import { parseDateOnly } from '../../utils/date'
 import CancellationReasonModal from '../../components/appointments/CancellationReasonModal'
+import { formatAppointmentRange, formatDurationMinutes, getReservedDurationMinutes } from '../../utils/appointmentTime'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatDate(raw) {
@@ -96,7 +97,7 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
                   <MdAccessTime className="text-[11px]" /> Time
                 </p>
                 <p className="text-sm font-semibold text-slate-800">
-                  {appt.appointment_time || appt.time || '—'}
+                  {formatAppointmentRange(appt)}
                 </p>
               </div>
             </div>
@@ -109,7 +110,7 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
               <p className="text-[11px] text-slate-400 flex items-center gap-1 mb-0.5">
                 <MdPerson className="text-[11px]" /> Reason for Visit
               </p>
-              {appt.requested_service_name_snapshot && <p className="mb-2 text-sm font-bold text-sky-700">{appt.requested_service_name_snapshot}</p>}
+              {appt.requested_service_name_snapshot && <p className="mb-2 text-sm font-bold text-sky-700">{appt.requested_service_name_snapshot} <span className="font-semibold text-slate-400">· {formatDurationMinutes(getReservedDurationMinutes(appt))}</span></p>}
               <p className="text-sm font-semibold text-slate-800">{appt.reason || '—'}</p>
             </div>
             <div>
@@ -204,7 +205,7 @@ const AppointmentCard = ({ appt, onSelect, onCancel }) => {
           </span>
           <span className="flex items-center gap-1">
             <MdAccessTime className="text-[11px]" />
-            {appt.appointment_time || appt.time || '—'}
+            {formatAppointmentRange(appt)}
           </span>
         </div>
 
@@ -244,7 +245,7 @@ const NextAppointmentBanner = ({ appt }) => {
           </div>
           <div className="mt-1">
             <p className="text-[10px] text-white/50 uppercase tracking-wide mb-0.5">Time</p>
-            <p className="text-xs font-semibold">{appt.appointment_time || appt.time || '—'}</p>
+            <p className="text-xs font-semibold">{formatAppointmentRange(appt)}</p>
           </div>
         </div>
       </div>
@@ -420,4 +421,6 @@ const MyAppointments = () => {
 }
 
 export default MyAppointments
+
+
 

@@ -47,6 +47,26 @@ export const createAppointment = (payload) =>
     body: JSON.stringify(payload),
   })
 
+
+export const getAppointmentAvailableSlots = (doctorId, { date = '', serviceId = '', appointmentId = '', clinicType = '' } = {}) => {
+  const search = new URLSearchParams()
+  if (date) search.set('date', date)
+  if (serviceId) search.set('service_id', String(serviceId))
+  if (appointmentId) search.set('appointment_id', String(appointmentId))
+  if (clinicType) search.set('clinic_type', clinicType)
+  return requestJson(`${getAdminApiBase()}/doctors/${doctorId}/available-slots?${search.toString()}`)
+}
+
+export const getBookingServices = (clinicType = '') => {
+  const search = new URLSearchParams()
+  if (clinicType) search.set('clinic_type', clinicType)
+  const query = search.toString()
+  return requestJson(`${getAdminApiBase()}/billing/catalog${query ? `?${query}` : ''}`)
+}
+
+export const getBookingPolicy = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`)
+export const updateBookingPolicy = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
 export const getAppointmentReasons = () =>
   requestJson(`${getAdminApiBase()}/appointment-reasons`)
 
@@ -430,4 +450,3 @@ export const confirmInventoryBatchAction = (batchId, code) =>
 
 export const getInventoryBatchHistory = (batchId) =>
   requestJson(`${getAdminApiBase()}/inventory/batches/${batchId}/history`)
-

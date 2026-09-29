@@ -109,6 +109,7 @@ const sendAppointmentStatusEmail = async ({
     confirmed: ['Your Appointment Has Been Confirmed', 'Appointment Confirmed', '#059669', 'Your clinic appointment has been successfully confirmed.'],
     cancelled: ['Your Appointment Has Been Cancelled', 'Appointment Cancelled', '#dc2626', 'Your clinic appointment has been cancelled.'],
     rescheduled: ['Your Appointment Has Been Rescheduled', 'Appointment Rescheduled', '#0284c7', 'Your clinic appointment schedule has been updated.'],
+    rejected: ['Your Appointment Request Was Not Confirmed', 'Appointment Request Released', '#b45309', 'Your appointment request was not confirmed before the clinic confirmation deadline, so the requested time has been released.'],
   }
 
   const cfg = statusMap[status]
@@ -189,4 +190,3 @@ module.exports = {
   sendAdminMfaOtp,
   sendAccountSecurityOtp,
 }
-

@@ -15,7 +15,7 @@ const stockUnit = (item) => item?.uom || item?.unit || item?.base_unit || 'unit'
 const qtyStep = (item) => Number(item?.uom_allow_decimal) === 1 ? 0.01 : 1
 const statusLabel = (value) => value === 'in-progress' ? 'In Consultation' : value === 'rescheduled' ? 'Rescheduled' : 'Confirmed'
 
-const Doctor_StockTransferRequest = () => {
+const Doctor_StockTransferRequest = ()  => {
   const navigate = useNavigate()
   const toast = useToast()
   const [searchParams] = useSearchParams()
@@ -164,7 +164,7 @@ const Doctor_StockTransferRequest = () => {
         </div>
 
         <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="flex items-center justify-between gap-3"><div><h2 className="font-black text-slate-900">Items to Transfer</h2><p className="mt-1 text-xs text-slate-500">Transferred quantities prepare the room; they are not automatically billed to the patient.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600">{selected.length} selected</span></div>
+          <div className="flex items-center justify-between gap-3"><div><h2 className="font-black text-slate-900">Items to Transfer</h2><p className="mt-1 text-xs text-slate-500">Add multiple items to one request. Transferred quantities prepare the room; they are not automatically billed to the patient.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600">{selected.length} selected</span></div>
           {selected.length ? <div className="mt-4 space-y-2">{selected.map((entry) => <div key={entry.inventory_id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-[1fr_180px_auto] sm:items-center"><div><p className="font-bold text-slate-900">{entry.item_name}</p><p className="mt-1 text-xs text-slate-500">Main Stockroom: {entry.max} {entry.unit}</p></div><label><span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Quantity ({entry.unit})</span><input type="number" min={entry.step} max={entry.max || undefined} step={entry.step} className="form-control mt-1" value={entry.qty_requested} onChange={(e) => updateQty(entry.inventory_id, e.target.value)} /></label><button type="button" onClick={() => removeItem(entry.inventory_id)} className="button-secondary !border-rose-200 !text-rose-600" title="Remove item"><MdDelete /></button></div>)}</div> : <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">No items added yet.</div>}
         </section>
 

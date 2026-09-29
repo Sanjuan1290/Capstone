@@ -34,7 +34,7 @@ export const STAFF_PERMISSION_GROUPS = [
     description: 'Access account directories and clinic configuration.',
     permissions: [
       { key: 'accounts', label: 'Accounts', short: 'Staff + Doctor directory', description: 'View Staff and Doctor account information. Creating accounts and changing Staff permissions remain Administrator-only.' },
-      { key: 'system_setup', label: 'System Setup', short: 'Clinic configuration', description: 'Manage Patient Visits, Services & Pricing Setup, Service Categories, Units of Measure, Suppliers, Storage Classifications, and Movement Reasons.' },
+      { key: 'system_setup', label: 'System Setup', short: 'Clinic configuration', description: 'Manage Patient Visits, Services & Pricing Setup, Service Categories, Suppliers, Storage Locations, and Movement Reasons.' },
     ],
   },
   {
@@ -67,4 +67,5 @@ export const STAFF_PERMISSION_MAP = Object.fromEntries(STAFF_PERMISSIONS.map((it
 
 export const normalizeStaffPermissions = (value) => [...new Set((Array.isArray(value) ? value : []).filter((key) => STAFF_PERMISSION_KEYS.includes(key)))]
 export const hasStaffPermission = (user, key) => normalizeStaffPermissions(user?.permissions).includes(key)
+
 

@@ -73,6 +73,16 @@ export const getDoctorUnavailableDates = async (doctorId, params = {}) => {
   return res.json()
 }
 
+export const getDoctorAvailableSlots = async (doctorId, { date = '', serviceId = '', appointmentId = '', clinicType = '' } = {}) => {
+  const params = new URLSearchParams()
+  if (date) params.set('date', date)
+  if (serviceId) params.set('service_id', String(serviceId))
+  if (appointmentId) params.set('appointment_id', String(appointmentId))
+  if (clinicType) params.set('clinic_type', clinicType)
+  const res = await fetch(`${BASE}/doctors/${doctorId}/available-slots?${params.toString()}`, { credentials: 'include' })
+  return parseJson(res)
+}
+
 export const getDoctorTakenSlots = async (doctorId, date, options = {}) => {
   const params = new URLSearchParams({ date })
   if (options.excludeAppointmentId) {
@@ -136,4 +146,6 @@ export const updatePatientProfile = async (payload) => {
   })
   return parseJson(res)
 }
+
+
 

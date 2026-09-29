@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MdBusiness, MdCloudUpload, MdEdit, MdPhoneAndroid, MdSave, MdVerifiedUser } from 'react-icons/md'
+import { MdBusiness, MdCloudUpload, MdEdit, MdPhoneAndroid, MdSave, MdVerifiedUser, MdWarningAmber } from 'react-icons/md'
 import PhilippinePhoneInput, { formatPhilippinePhone } from '../../components/ui/PhilippinePhoneInput'
 import Modal from '../../components/ui/Modal'
 import {
   confirmPatientPhoneChange,
+  confirmPatientEmailVerification,
   getSettings,
+  requestPatientEmailVerificationCode,
   requestPatientPhoneChangeCode,
   updateSettings,
   uploadToCloudinary,
@@ -45,6 +47,10 @@ const SettingsPage = () => {
   const [adminVerifyCode, setAdminVerifyCode] = useState('')
   const [adminPendingProfile, setAdminPendingProfile] = useState(null)
   const [adminVerifyMessage, setAdminVerifyMessage] = useState('')
+  const [emailVerifyOpen, setEmailVerifyOpen] = useState(false)
+  const [emailVerifyCode, setEmailVerifyCode] = useState('')
+  const [emailVerifyBusy, setEmailVerifyBusy] = useState(false)
+  const [emailVerifyMessage, setEmailVerifyMessage] = useState('')
 
   const loadSettings = async () => {
     if (!role) return
@@ -172,10 +178,67 @@ const SettingsPage = () => {
     finally { setPhoneBusy(false) }
   }
 
+  const sendEmailVerificationCode = async () => {
+    if (role !== 'patient' || !form?.email) return
+    setEmailVerifyBusy(true); setEmailVerifyMessage('')
+    try {
+      const result = await requestPatientEmailVerificationCode()
+      if (result?.already_verified) {
+        const verifiedAt = result?.email_verified_at || new Date().toISOString()
+        setForm((prev) => ({ ...prev, email_verified_at: prev?.email_verified_at || verifiedAt }))
+        setOriginal((prev) => ({ ...prev, email_verified_at: prev?.email_verified_at || verifiedAt }))
+        setUser((prev) => prev ? { ...prev, email_verified_at: prev.email_verified_at || verifiedAt } : prev)
+        setEmailVerifyOpen(false)
+        return
+      }
+      setEmailVerifyCode('')
+      setEmailVerifyMessage(result?.message || 'Verification code sent to your email.')
+      setEmailVerifyOpen(true)
+    } catch (err) {
+      setEmailVerifyMessage(err.message || 'Could not send the verification code.')
+      setEmailVerifyOpen(true)
+    } finally {
+      setEmailVerifyBusy(false)
+    }
+  }
+
+  const confirmEmailVerification = async () => {
+    if (emailVerifyCode.length !== 6) return setEmailVerifyMessage('Enter the 6-digit verification code.')
+    setEmailVerifyBusy(true); setEmailVerifyMessage('')
+    try {
+      const result = await confirmPatientEmailVerification(emailVerifyCode)
+      const verifiedAt = result?.email_verified_at || new Date().toISOString()
+      setForm((prev) => ({ ...prev, email_verified_at: verifiedAt }))
+      setOriginal((prev) => ({ ...prev, email_verified_at: verifiedAt }))
+      setUser((prev) => prev ? { ...prev, email_verified_at: verifiedAt } : prev)
+      setEmailVerifyOpen(false)
+      setEmailVerifyCode('')
+      setEmailVerifyMessage('')
+    } catch (err) {
+      setEmailVerifyMessage(err.message || 'The verification code could not be confirmed.')
+    } finally {
+      setEmailVerifyBusy(false)
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6">
       <div><h1 className="text-2xl font-bold text-slate-800">Settings</h1><p className="mt-1 text-sm text-slate-500">Manage account information and security. Appearance is controlled from the header.</p></div>
       {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
+      {role === 'patient' && form.email && !form.email_verified_at && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <MdWarningAmber className="mt-0.5 shrink-0 text-xl text-amber-600" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold">Email not verified</p>
+              <p className="mt-1 text-sm text-amber-800">Your email address <strong>{form.email}</strong> has not been verified yet. You can still sign in normally, but please verify your email to help keep your account secure.</p>
+            </div>
+          </div>
+          <button type="button" onClick={sendEmailVerificationCode} disabled={emailVerifyBusy} className="button-primary shrink-0 justify-center">
+            <MdVerifiedUser /> {emailVerifyBusy ? 'Sending...' : 'Verify Email'}
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <aside className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6">
@@ -220,6 +283,21 @@ const SettingsPage = () => {
         </div>
       </Modal>
 
+      <Modal open={emailVerifyOpen} onClose={() => !emailVerifyBusy && setEmailVerifyOpen(false)} title="Verify Email Address" description={`Enter the 6-digit verification code sent to ${form.email}.`} size="md">
+        <div className="space-y-4">
+          <label className="block">
+            <span className="form-label">6-Digit Verification Code</span>
+            <input value={emailVerifyCode} onChange={(e)=>setEmailVerifyCode(e.target.value.replace(/\D/g,'').slice(0,6))} inputMode="numeric" maxLength={6} autoComplete="one-time-code" className="form-control mt-1.5 text-center text-xl font-black tracking-[.35em]" placeholder="000000" />
+          </label>
+          {emailVerifyMessage && <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{emailVerifyMessage}</p>}
+          <button type="button" onClick={sendEmailVerificationCode} disabled={emailVerifyBusy} className="text-xs font-bold text-sky-700 hover:underline">{emailVerifyBusy ? 'Sending...' : 'Resend verification code'}</button>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="button-secondary" disabled={emailVerifyBusy} onClick={()=>setEmailVerifyOpen(false)}>Cancel</button>
+            <button type="button" className="button-primary" disabled={emailVerifyBusy || emailVerifyCode.length !== 6} onClick={confirmEmailVerification}>{emailVerifyBusy ? 'Verifying...' : 'Verify Email'}</button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal open={phoneModalOpen} onClose={() => !phoneBusy && setPhoneModalOpen(false)} title="Change Mobile Number" description="The new mobile number must be verified before it replaces your current number." size="md">
         <div className="space-y-4">{phoneStep === 'number' ? <><div><label className="form-label">New Mobile Number</label><PhilippinePhoneInput value={newPhone} onChange={(e)=>setNewPhone(e.target.value)}/><p className="mt-2 text-xs text-slate-500">We will send a 6-digit verification code to this number.</p></div><button type="button" onClick={sendPhoneCode} disabled={phoneBusy} className="button-primary w-full justify-center"><MdVerifiedUser/> {phoneBusy?'Sending...':'Send Verification Code'}</button></> : <><div><label className="form-label">Verification Code</label><input value={phoneCode} onChange={(e)=>setPhoneCode(e.target.value.replace(/\D/g,'').slice(0,6))} inputMode="numeric" maxLength={6} className="form-control text-center text-lg font-black tracking-[.35em]"/></div><div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setPhoneStep('number')} className="button-secondary justify-center">Back</button><button type="button" onClick={confirmPhoneCode} disabled={phoneBusy} className="button-primary justify-center">{phoneBusy?'Verifying...':'Verify & Change'}</button></div></>}{phoneMessage && <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">{phoneMessage}</p>}</div>
       </Modal>
@@ -228,4 +306,5 @@ const SettingsPage = () => {
 }
 
 export default SettingsPage
+
 

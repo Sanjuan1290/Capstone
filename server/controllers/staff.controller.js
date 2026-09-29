@@ -50,7 +50,9 @@ const { buildDoctorAvailabilitySummary, buildWalkInDoctorAvailability } = requir
 const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
 const { normalizeText, normalizeOptionalText, normalizeNumber, normalizePositiveId, assertPlainObject } = require('../utils/inputValidation')
-const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
+const { validateAppointmentSlot, getAvailableAppointmentSlots, getAppointmentReservedDuration, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
+const { loadBookingSettings, roundReservedDurationMinutes } = require('../utils/bookingPolicy')
+const { expirePendingAppointments } = require('../utils/pendingAppointmentExpiry')
 const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
 const { resolveDiscountForDraft, loadDiscountPreset } = require('../utils/billingSecurity')
 const { loadStaffPermissions } = require('../utils/staffPermissions')
@@ -64,7 +66,7 @@ const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+'
 const normalizeInventoryPayload = (body = {}) => {
   const category = ['medical','derma'].includes(String(body.category || '').trim()) ? String(body.category).trim() : 'medical'
   const itemType = ['medicine','supplies'].includes(String(body.item_type || '').trim()) ? String(body.item_type).trim() : 'supplies'
-  const uom = String(body.uom || body.base_unit || body.unit || '').trim().toLowerCase()
+  const uom = 'unit'
   const rawMeasurementValue = body.measurement_value
   const measurementValue = rawMeasurementValue === '' || rawMeasurementValue === null || rawMeasurementValue === undefined ? null : Number(rawMeasurementValue)
   const measurementUnit = String(body.measurement_unit || '').trim() || null
@@ -100,12 +102,11 @@ const normalizeInventoryPayload = (body = {}) => {
 }
 
 
-const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = false } = {}) => {
+const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = false, requireSellingPrice = true } = {}) => {
   try {
     assertPlainObject(body)
     normalizeText(body.name, { field: 'Item Name', required: true, max: 150 })
     if (body.barcode !== undefined && body.barcode !== null && body.barcode !== '') normalizeText(body.barcode, { field: 'Product Barcode', max: 50 })
-    if (body.supplier_lot_number !== undefined && body.supplier_lot_number !== null && body.supplier_lot_number !== '') normalizeText(body.supplier_lot_number, { field: 'Supplier Lot Number', max: 120 })
     const measurementValueProvided = body.measurement_value !== undefined && body.measurement_value !== null && body.measurement_value !== ''
     const measurementUnitProvided = String(body.measurement_unit || '').trim().length > 0
     if (measurementValueProvided !== measurementUnitProvided) {
@@ -117,7 +118,7 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
     if (measurementValueProvided) normalizeNumber(body.measurement_value, { field: 'Strength / Size', required: true, min: 0.0001, max: 99999999.9999 })
     if (measurementUnitProvided) normalizeText(body.measurement_unit, { field: 'Measurement Unit', required: true, max: 30 })
     normalizeNumber(body.threshold, { field: 'Low Stock Alert', required: true, min: 0, max: 9999999999 })
-    normalizeNumber(body.selling_price, { field: 'Selling Price', required: true, min: 0.01, max: 99999999.99 })
+    if (requireSellingPrice) normalizeNumber(body.selling_price, { field: 'Selling Price', required: true, min: 0.01, max: 99999999.99 })
     if (requireOpeningQuantity) normalizeNumber(body.stock, { field: 'Opening Quantity', required: true, min: 0, max: 9999999999 })
   } catch (err) {
     return { message: err.message, code: err.code || 'VALIDATION_ERROR', field: err.field || null }
@@ -125,7 +126,6 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   const name = String(body.name || '').trim()
   const category = String(body.category || '').trim()
   const itemType = String(body.item_type || '').trim()
-  const uom = String(body.uom || body.base_unit || body.unit || '').trim()
   const locationTypeId = Number(body.location_type_id)
   const supplierId = Number(body.supplier_id) || null
   const thresholdRaw = body.threshold
@@ -134,23 +134,20 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   if (!name) return { message: 'Item Name is required.', code: 'INVENTORY_NAME_REQUIRED' }
   if (!['medical', 'derma'].includes(category)) return { message: 'Select a valid Category.', code: 'INVENTORY_CATEGORY_REQUIRED' }
   if (!['medicine', 'supplies'].includes(itemType)) return { message: 'Select a valid Type.', code: 'INVENTORY_TYPE_REQUIRED' }
-  if (!uom) return { message: 'Stock Unit is required.', code: 'INVENTORY_UOM_REQUIRED' }
-  if (!locationTypeId) return { message: 'Location Type is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
-  if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0) {
-    return { message: 'Low Stock Alert is required and must be 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
+  if (!locationTypeId) return { message: 'Storage Location is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
+  if (!supplierId) return { message: 'Supplier is required.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
+  if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0 || !Number.isInteger(Number(thresholdRaw))) {
+    return { message: 'Low Stock Alert is required and must be a whole number of 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
   }
-  if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+  if (requireSellingPrice && (!Number.isFinite(sellingPrice) || sellingPrice <= 0)) {
     return { message: 'Selling Price is required and must be greater than ₱0.00.', code: 'INVENTORY_SELLING_PRICE_REQUIRED' }
   }
 
   if (requireOpeningQuantity) {
-    if (body.stock === '' || body.stock === null || body.stock === undefined || !Number.isFinite(Number(body.stock)) || Number(body.stock) < 0) {
-      return { message: 'Opening Quantity is required and must be 0 or greater.', code: 'INVENTORY_OPENING_QUANTITY_REQUIRED' }
+    if (body.stock === '' || body.stock === null || body.stock === undefined || !Number.isFinite(Number(body.stock)) || Number(body.stock) < 0 || !Number.isInteger(Number(body.stock))) {
+      return { message: 'Opening Quantity is required and must be a whole number of 0 or greater.', code: 'INVENTORY_OPENING_QUANTITY_REQUIRED' }
     }
     if (Number(body.stock) > 0) {
-      if (!supplierId) {
-        return { message: 'Select the supplier for the opening receipt.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
-      }
       const noExpiry = body.no_expiry === true || body.no_expiry === 1 || String(body.no_expiry || '').toLowerCase() === 'true'
       if (itemType === 'medicine' && !String(body.expiration_date || '').trim()) {
         return { message: 'Batch Expiry is required for medicines.', code: 'INVENTORY_EXPIRY_REQUIRED' }
@@ -158,37 +155,29 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
       if (itemType === 'supplies' && !noExpiry && !String(body.expiration_date || '').trim()) {
         return { message: 'Enter the Batch Expiry or select “No expiry / Not applicable”.', code: 'INVENTORY_EXPIRY_REQUIRED' }
       }
-      const lotMissing = body.supplier_lot_missing === true || body.supplier_lot_missing === 1 || String(body.supplier_lot_missing || '').toLowerCase() === 'true'
-      if (!lotMissing && !String(body.supplier_lot_number || '').trim()) {
-        return { message: 'Supplier Lot Number is required unless the supplier did not provide one.', code: 'INVENTORY_SUPPLIER_LOT_REQUIRED' }
-      }
     }
   }
 
   return null
 }
 
-const resolveInventorySetupSelection = async ({ uom, location_type_id }, executor = db) => {
-  if (!String(uom || '').trim()) {
-    const error = new Error('Select a Stock Unit configured under Units of Measure in System Setup.')
-    error.statusCode = 400
-    error.code = 'INVENTORY_UOM_REQUIRED'
-    throw error
-  }
-  const [[uomRow]] = await executor.query(
-    'SELECT id,name FROM inventory_uoms WHERE LOWER(name)=? AND is_active=1 LIMIT 1',
-    [String(uom).trim().toLowerCase()]
-  )
-  if (!uomRow) {
-    const error = new Error('That Stock Unit is unavailable. Configure an active Unit of Measure in System Setup.')
-    error.statusCode = 400
-    error.code = 'INVENTORY_UOM_INVALID'
-    throw error
-  }
+const hasStaffPricingMutation = (body = {}) => ['selling_price', 'price'].some((key) => (
+  Object.prototype.hasOwnProperty.call(body || {}, key)
+  && body[key] !== undefined
+  && body[key] !== null
+  && body[key] !== ''
+))
 
+const rejectStaffPricingMutation = (req, res) => {
+  if (!hasStaffPricingMutation(req.body)) return false
+  res.status(403).json({ code: 'ADMIN_PRICING_REQUIRED', message: 'Only Admin can change inventory Selling Price.' })
+  return true
+}
+
+const resolveInventorySetupSelection = async ({ location_type_id }, executor = db) => {
   const locationTypeId = Number(location_type_id)
   if (!locationTypeId) {
-    const error = new Error('Select a Location Type configured in System Setup.')
+    const error = new Error('Select a Storage Location configured in System Setup.')
     error.statusCode = 400
     error.code = 'INVENTORY_LOCATION_TYPE_REQUIRED'
     throw error
@@ -198,14 +187,14 @@ const resolveInventorySetupSelection = async ({ uom, location_type_id }, executo
     [locationTypeId]
   )
   if (!locationType) {
-    const error = new Error('That Location Type is unavailable. Configure an active Location Type in System Setup.')
+    const error = new Error('That Storage Location is unavailable. Configure an active Storage Location in System Setup.')
     error.statusCode = 400
     error.code = 'INVENTORY_LOCATION_TYPE_INVALID'
     throw error
   }
 
   return {
-    uom: String(uomRow.name || '').trim().toLowerCase(),
+    uom: 'unit',
     locationType,
   }
 }
@@ -353,6 +342,7 @@ const getDashboard = async (req, res) => {
 // ── Appointments ──────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
+  await expirePendingAppointments().catch(() => {})
   const { date } = req.query
   const requestedSort = String(req.query.sort || '')
   const sort = ['visit_time', 'created_at', 'updated_at'].includes(requestedSort) ? requestedSort : (date ? 'visit_time' : 'created_at')
@@ -385,63 +375,51 @@ const getAppointments = async (req, res) => {
 }
 
 const createAppointment = async (req, res) => {
-  const { patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes } = req.body
-  if (!patient_id || !doctor_id || !clinic_type || !appointment_date || !appointment_time)
-    return res.status(400).json({ message: 'Missing required fields.' })
+  const { patient_id, doctor_id, clinic_type, requested_service_id, reason, appointment_date, appointment_time, notes } = req.body
+  if (!patient_id || !doctor_id || !clinic_type || !requested_service_id || !appointment_date || !appointment_time) {
+    return res.status(400).json({ message: 'Patient, doctor, clinic, service, date, and time are required.' })
+  }
   const normalizedDate = toDateOnly(appointment_date)
-  if (!isValidDateOnly(normalizedDate))
-    return res.status(400).json({ message: 'Invalid appointment date.' })
-  if (normalizedDate < getTodayDateOnly())
-    return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
+  if (!isValidDateOnly(normalizedDate)) return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly()) return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
+
+  const [[service]] = await db.query(
+    `SELECT id, service_name, clinic_type, default_price, average_duration_minutes, is_active
+     FROM billing_service_catalog WHERE id = ? LIMIT 1`, [requested_service_id])
+  if (!service || Number(service.is_active) !== 1 || ![clinic_type, 'all'].includes(String(service.clinic_type || ''))) {
+    return res.status(409).json({ message: 'Select an active service for the selected clinic.' })
+  }
+  const settings = await loadBookingSettings()
+  const averageDurationMinutes = Number(service.average_duration_minutes || 60)
+  const reservedDurationMinutes = roundReservedDurationMinutes(averageDurationMinutes, settings.booking_start_interval_minutes)
 
   const lastNoShow = await getLastNoShowAppointment(patient_id)
-  if (lastNoShow && !req.body?.override_no_show_warning) {
-    return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
-  }
+  if (lastNoShow && !req.body?.override_no_show_warning) return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
 
   const [activeWithDoctor] = await db.query(
-    `SELECT id
-     FROM appointments
-     WHERE patient_id = ? AND doctor_id = ?
-       AND status IN ('pending','confirmed','rescheduled','in-progress')
-     LIMIT 1`,
+    `SELECT id FROM appointments WHERE patient_id = ? AND doctor_id = ? AND status IN ('pending','confirmed','rescheduled','in-progress') LIMIT 1`,
     [patient_id, doctor_id]
   )
-  if (activeWithDoctor.length > 0) {
-    return res.status(409).json({
-      message: 'This patient already has an active appointment with this doctor.',
-    })
-  }
+  if (activeWithDoctor.length) return res.status(409).json({ message: 'This patient already has an active appointment with this doctor.' })
 
-  const result = await withAppointmentSlotLock({ doctorId: doctor_id, date: normalizedDate, time: appointment_time }, async () => {
-    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time })
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id }, async () => {
+    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
     const [inserted] = await db.query(
-      'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes, appointment_source) VALUES (?,?,?,?,?,?,?,?)',
-      [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null, 'staff_booking']
+      `INSERT INTO appointments
+       (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
+        requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot,
+        reason, appointment_date, appointment_time, notes, appointment_source)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [patient_id, doctor_id, clinic_type, service.id, service.service_name, service.default_price,
+       averageDurationMinutes, reservedDurationMinutes, reason || null, normalizedDate, appointment_time, notes || null, 'staff_booking']
     )
     return inserted
   })
-  await writeAuditLog({
-    userId: req.user.id, userRole: 'staff', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId,
-    newValues: { patient_id, doctor_id, clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'staff_booking' }, ipAddress: req.ip || null,
-  })
-  const [rows] = await db.query(
-    `SELECT p.full_name AS patient_name, d.id AS doctor_id, d.full_name AS doctor_name, d.phone AS doctor_phone
-     FROM appointments a
-     JOIN patients p ON a.patient_id = p.id
-     JOIN doctors d ON a.doctor_id = d.id
-     WHERE a.id = ?`,
-    [result.insertId]
-  )
-  await notifyRoles(['admin', 'staff'], {
-    type: 'appointment_booked',
-    title: 'New patient booking',
-    message: `${rows[0].patient_name} booked an appointment with ${rows[0].doctor_name} on ${normalizedDate} at ${appointment_time}.`,
-    reference_type: 'appointment',
-    reference_id: result.insertId,
-  })
-  broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
-  res.status(201).json({ message: 'Appointment created.', id: result.insertId })
+  await writeAuditLog({ userId:req.user.id,userRole:'staff',action:'appointment.created',entityType:'appointment',entityId:result.insertId,newValues:{patient_id,doctor_id,clinic_type,requested_service_id:Number(service.id),requested_service_name:service.service_name,appointment_date:normalizedDate,appointment_time,appointment_source:'staff_booking',reserved_duration_minutes:reservedDurationMinutes},ipAddress:req.ip||null })
+  const [rows] = await db.query(`SELECT p.full_name AS patient_name,d.id AS doctor_id,d.full_name AS doctor_name,d.phone AS doctor_phone FROM appointments a JOIN patients p ON a.patient_id=p.id JOIN doctors d ON a.doctor_id=d.id WHERE a.id=?`,[result.insertId])
+  await notifyRoles(['admin','staff'],{type:'appointment_booked',title:'New patient booking',message:`${rows[0].patient_name} booked an appointment with ${rows[0].doctor_name} on ${normalizedDate} at ${appointment_time}.`,reference_type:'appointment',reference_id:result.insertId})
+  broadcast(['admin','staff'],'appointment_updated',{appointmentId:result.insertId,status:'pending'})
+  res.status(201).json({ message:'Appointment created.', id:result.insertId })
 }
 
 const getAppointmentInventoryReadinessForPortal = async (req, res) => {
@@ -451,6 +429,7 @@ const getAppointmentInventoryReadinessForPortal = async (req, res) => {
 }
 
 const confirmAppointment = async (req, res) => {
+  await expirePendingAppointments({ appointmentId: req.params.id }).catch(() => {})
   const [rows] = await db.query(
     `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
@@ -481,7 +460,7 @@ const confirmAppointment = async (req, res) => {
     return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
   }
   assertAppointmentTransition(rows[0].status, 'confirmed')
-  const [updated] = await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
+  const [updated] = await db.query("UPDATE appointments SET status = 'confirmed', confirmation_deadline_at = NULL WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
   await assertAppointmentMutationApplied(updated, req.params.id)
   await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.confirmed',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',inventory_readiness:inventoryReadiness?.status||'unknown',inventory_override_reason:inventoryOverrideReason||null},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
@@ -638,70 +617,60 @@ const markAppointmentNoShow = async (req, res) => {
 }
 
 const rescheduleAppointment = async (req, res) => {
+  await expirePendingAppointments({ appointmentId: req.params.id }).catch(() => {})
   const { appointment_date, appointment_time } = req.body
-  if (!appointment_date || !appointment_time)
-    return res.status(400).json({ message: 'Date and time required.' })
+  if (!appointment_date || !appointment_time) return res.status(400).json({ message: 'Date and time required.' })
   const normalizedDate = toDateOnly(appointment_date)
-  if (!isValidDateOnly(normalizedDate))
-    return res.status(400).json({ message: 'Invalid appointment date.' })
-  if (normalizedDate < getTodayDateOnly())
-    return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
+  if (!isValidDateOnly(normalizedDate)) return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly()) return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
   const [rows] = await db.query(
-    `SELECT a.id, a.doctor_id, a.status, a.clinic_type,
-            p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
-            d.full_name AS doctor_name
-     FROM appointments a
-     JOIN patients p ON a.patient_id = p.id
-     JOIN doctors d ON a.doctor_id = d.id
-     WHERE a.id = ?`,
+    `SELECT a.id,a.doctor_id,a.status,a.clinic_type,a.reserved_duration_minutes_snapshot,a.requested_service_duration_minutes_snapshot,
+            p.id AS patient_id,p.email AS patient_email,p.phone AS patient_phone,p.full_name AS patient_name,d.full_name AS doctor_name
+     FROM appointments a JOIN patients p ON a.patient_id=p.id JOIN doctors d ON a.doctor_id=d.id WHERE a.id=?`,
     [req.params.id]
   )
-  if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
-  if (!['pending', 'confirmed', 'rescheduled'].includes(rows[0].status)) {
-    return res.status(400).json({ message: 'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
-  }
+  if (!rows.length) return res.status(404).json({ message: 'Not found.' })
+  if (!['pending','confirmed','rescheduled'].includes(rows[0].status)) return res.status(400).json({ message:'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
+  const settings=await loadBookingSettings()
+  const durationMinutes=getAppointmentReservedDuration(rows[0])
+  assertAppointmentTransition(rows[0].status,'rescheduled')
+  await withAppointmentSlotLock({doctorId:rows[0].doctor_id},async()=>{
+    await validateAppointmentSlot({doctorId:rows[0].doctor_id,clinicType:rows[0].clinic_type,date:normalizedDate,time:appointment_time,durationMinutes,startIntervalMinutes:settings.booking_start_interval_minutes,excludeAppointmentId:req.params.id})
+    const [updated]=await db.query("UPDATE appointments SET appointment_date=?,appointment_time=?,status='confirmed',confirmation_deadline_at=NULL WHERE id=? AND status=?",[normalizedDate,appointment_time,req.params.id,rows[0].status])
+    await assertAppointmentMutationApplied(updated,req.params.id)
+  })
+  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time,duration_minutes:durationMinutes},ipAddress:req.ip||null}).catch(()=>{})
+  await createNotification({target_role:'patient',target_user_id:rows[0].patient_id,type:'appointment_rescheduled',title:'Appointment rescheduled',message:`Your appointment with ${rows[0].doctor_name} was moved to ${normalizedDate} at ${appointment_time}.`,reference_type:'appointment',reference_id:req.params.id})
+  await sendAppointmentStatusEmail({to:rows[0].patient_email,patient_name:rows[0].patient_name,doctor_name:rows[0].doctor_name,appointment_date:normalizedDate,appointment_time,clinic_type:rows[0].clinic_type,status:'rescheduled'}).catch(()=>{})
+  await sendPatientAppointmentStatusSms({patientId:rows[0].patient_id,patientPhone:rows[0].patient_phone,patientName:rows[0].patient_name,doctorName:rows[0].doctor_name,appointmentDate:normalizedDate,appointmentTime:appointment_time,status:'rescheduled'}).catch((err)=>console.error('SMS patient appointment reschedule failed:',err.message))
+  broadcast(['admin','staff',`patient_${rows[0].patient_id}`],'appointment_updated',{appointmentId:Number(req.params.id),status:'confirmed'})
+  res.json({message:'Appointment rescheduled.'})
+}
 
-  assertAppointmentTransition(rows[0].status, 'rescheduled')
-  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id, date: normalizedDate, time: appointment_time }, async () => {
-    await validateAppointmentSlot({ doctorId: rows[0].doctor_id, clinicType: rows[0].clinic_type, date: normalizedDate, time: appointment_time, excludeAppointmentId: req.params.id })
-    const [updated] = await db.query(
-      "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=? AND status=?",
-      [normalizedDate, appointment_time, req.params.id, rows[0].status]
-    )
-    await assertAppointmentMutationApplied(updated, req.params.id)
-  })
-  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time},ipAddress:req.ip||null}).catch(() => {})
-  await createNotification({
-    target_role: 'patient',
-    target_user_id: rows[0].patient_id,
-    type: 'appointment_rescheduled',
-    title: 'Appointment rescheduled',
-    message: `Your appointment with ${rows[0].doctor_name} was moved to ${normalizedDate} at ${appointment_time}.`,
-    reference_type: 'appointment',
-    reference_id: req.params.id,
-  })
-  await sendAppointmentStatusEmail({
-    to: rows[0].patient_email,
-    patient_name: rows[0].patient_name,
-    doctor_name: rows[0].doctor_name,
-    appointment_date: normalizedDate,
-    appointment_time,
-    clinic_type: rows[0].clinic_type,
-    status: 'rescheduled',
-  }).catch(() => {})
-  await sendPatientAppointmentStatusSms({
-    patientId: rows[0].patient_id,
-    patientPhone: rows[0].patient_phone,
-    patientName: rows[0].patient_name,
-    doctorName: rows[0].doctor_name,
-    appointmentDate: normalizedDate,
-    appointmentTime: appointment_time,
-    status: 'rescheduled',
-  }).catch((err) => {
-    console.error('SMS patient appointment reschedule failed:', err.message)
-  })
-  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
-  res.json({ message: 'Appointment rescheduled.' })
+const getAppointmentAvailableSlotsForStaff = async (req, res) => {
+  const date = toDateOnly(req.query.date)
+  if (!isValidDateOnly(date)) return res.status(400).json({ message: 'A valid date is required.' })
+  const doctorId = Number(req.params.id)
+  const appointmentId = Number(req.query.appointment_id)
+  const settings = await loadBookingSettings()
+  let clinicType = String(req.query.clinic_type || '').trim()
+  let durationMinutes = 60
+  let excludeAppointmentId = null
+  if (appointmentId > 0) {
+    const [[appointment]] = await db.query(`SELECT doctor_id,clinic_type,reserved_duration_minutes_snapshot,requested_service_duration_minutes_snapshot FROM appointments WHERE id=? LIMIT 1`,[appointmentId])
+    if (!appointment || Number(appointment.doctor_id)!==doctorId) return res.status(404).json({ message:'Appointment not found for this doctor.' })
+    clinicType=appointment.clinic_type
+    durationMinutes=getAppointmentReservedDuration(appointment)
+    excludeAppointmentId=appointmentId
+  } else {
+    const serviceId=Number(req.query.service_id)
+    if (!serviceId || !['medical','derma'].includes(clinicType)) return res.status(400).json({ message:'Clinic and service are required.' })
+    const [[service]]=await db.query(`SELECT id,clinic_type,average_duration_minutes,is_active FROM billing_service_catalog WHERE id=? LIMIT 1`,[serviceId])
+    if (!service || Number(service.is_active)!==1 || ![clinicType,'all'].includes(String(service.clinic_type||''))) return res.status(409).json({ message:'The selected service is unavailable for this clinic.' })
+    durationMinutes=roundReservedDurationMinutes(Number(service.average_duration_minutes||60),settings.booking_start_interval_minutes)
+  }
+  const slots=await getAvailableAppointmentSlots({doctorId,clinicType,date,durationMinutes,startIntervalMinutes:settings.booking_start_interval_minutes,excludeAppointmentId})
+  res.json({slots,reserved_duration_minutes:durationMinutes,booking_start_interval_minutes:settings.booking_start_interval_minutes})
 }
 
 const getAppointmentReasons = async (req, res) => {
@@ -1620,13 +1589,12 @@ const supplierSupportsClinic = (categoryValue, clinic) => String(categoryValue |
 
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
-  const [uoms] = await db.query('SELECT id,name,allow_decimal_quantity,decimal_precision FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
   const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name`, category ? [category] : [])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE is_active=1 ORDER BY sort_order,name')
   const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
                                             FROM inventory_movement_reasons WHERE is_active=1
                                             ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`)
-  res.json({ uoms, suppliers, location_types: locationTypes, movement_reasons: movementReasons })
+  res.json({ suppliers, location_types: locationTypes, movement_reasons: movementReasons })
 }
 
 const getInventory = async (req, res) => {
@@ -1640,14 +1608,17 @@ const getInventory = async (req, res) => {
 }
 
 const addInventoryItem = async (req, res) => {
-  const validationError = validateInventoryRequiredFields(req.body, { requireOpeningQuantity: true })
+  if (rejectStaffPricingMutation(req, res)) return
+  const validationError = validateInventoryRequiredFields(req.body, { requireOpeningQuantity: true, requireSellingPrice: false })
   if (validationError) return res.status(400).json(validationError)
 
   let {
     barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id,
     expiration_date, batch_code, batch_lot_code, supplier_lot_number, location_type_id,
   } = normalizeInventoryPayload(req.body)
-  price = selling_price
+  // Staff may create inventory records, but pricing is Admin-only.
+  price = null
+  selling_price = null
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
 
@@ -1660,13 +1631,13 @@ const addInventoryItem = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const setupSelection = await resolveInventorySetupSelection({ uom, location_type_id }, conn)
+    const setupSelection = await resolveInventorySetupSelection({ location_type_id }, conn)
     uom = setupSelection.uom
     unit = uom
     base_unit = uom
     location_type_id = setupSelection.locationType.id
     if (!barcode) barcode = await nextInventoryBarcode(category, conn)
-    // Every receipt gets its own internal batch code. Supplier lot is stored separately.
+    // Every receipt gets its own internal batch code automatically.
     batch_code = null
     if (supplier_id) {
       const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
@@ -1691,7 +1662,7 @@ const addInventoryItem = async (req, res) => {
         quantity: stock,
         expiration_date: req.body.no_expiry ? null : expiration_date,
         batch_code,
-        supplier_lot_number,
+        supplier_lot_number: null,
         supplier_id,
         unit_cost: 0,
         note: 'Opening stock',
@@ -1723,7 +1694,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, item_type, barcode, uom, strength, measurement_value, measurement_unit, selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: supplier_lot_number || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, strength, measurement_value, measurement_unit, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -1743,7 +1714,8 @@ const addInventoryItem = async (req, res) => {
 
 // FIX 2: Edit inventory item (name, barcode, category, unit, threshold, price, supplier)
 const updateInventoryItem = async (req, res) => {
-  const validationError = validateInventoryRequiredFields(req.body)
+  if (rejectStaffPricingMutation(req, res)) return
+  const validationError = validateInventoryRequiredFields(req.body, { requireSellingPrice: false })
   if (validationError) return res.status(400).json(validationError)
 
   let {
@@ -1765,7 +1737,7 @@ const updateInventoryItem = async (req, res) => {
       return res.status(409).json({ code: 'INVENTORY_ARCHIVED', message: 'Archived inventory items cannot be edited.' })
     }
 
-    const setupSelection = await resolveInventorySetupSelection({ uom, location_type_id }, conn)
+    const setupSelection = await resolveInventorySetupSelection({ location_type_id }, conn)
     const canonicalUom = setupSelection.uom
     location_type_id = setupSelection.locationType.id
 
@@ -1782,9 +1754,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, measurement_value=?, measurement_unit=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?, location_type_id=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, measurement_value=?, measurement_unit=?, unit=?, base_unit=?, unit_size=1, threshold=?, supplier=?, supplier_id=?, location_type_id=?
        WHERE id=?`,
-      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, measurement_value, measurement_unit, canonicalUom, canonicalUom, threshold, selling_price, selling_price, supplier, supplier_id, location_type_id, req.params.id]
+      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, measurement_value, measurement_unit, canonicalUom, canonicalUom, threshold, supplier, supplier_id, location_type_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -1960,7 +1932,8 @@ module.exports = {
   getPatients, getPatientRecord, createWalkInPatient,
   getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getPaymentSettingsForStaff,
   getInventory, getInventoryMasterData, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, getInventoryLocations, createInventoryLocation, updateInventoryLocation,
-  getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff,
+  getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 

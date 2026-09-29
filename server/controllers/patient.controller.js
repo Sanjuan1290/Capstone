@@ -22,7 +22,9 @@ const {
   isValidDateOnly,
   validateBirthdate,
 } = require('../utils/patientProfile')
-const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
+const { validateAppointmentSlot, getAvailableAppointmentSlots, getAppointmentReservedDuration, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
+const { loadBookingSettings, roundReservedDurationMinutes, buildConfirmationDeadlineSql } = require('../utils/bookingPolicy')
+const { expirePendingAppointments } = require('../utils/pendingAppointmentExpiry')
 const { writeAuditLog } = require('../utils/audit')
 const { listBillingCatalog } = require('../utils/billing')
 const { assertPlainObject, normalizeText } = require('../utils/inputValidation')
@@ -37,6 +39,7 @@ const buildPatientAuthUser = (patient) => ({
   id: patient.id,
   full_name: patient.full_name,
   email: patient.email,
+  email_verified_at: patient.email_verified_at || null,
   phone: patient.phone,
   gender: patient.gender || patient.sex || null,
   role: 'patient',
@@ -52,6 +55,7 @@ const loadPatientById = async (id) => {
        id,
        full_name,
        email,
+       email_verified_at,
        phone,
        birthdate,
        gender,
@@ -401,10 +405,6 @@ const login = async (req, res) => {
     await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'unverified_phone_login' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'This mobile number has not been verified for sign-in. Use your verified email address instead.' })
   }
-  if (email && !patient.email_verified_at) {
-    await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'unverified_email_login' }, ipAddress: req.ip || null }).catch(() => {})
-    return res.status(401).json({ message: 'This email address has not been verified for sign-in. Use your verified mobile number instead.' })
-  }
   const match = await bcrypt.compare(password, patient.password)
   if (!match) {
     await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
@@ -519,6 +519,7 @@ const updateProfile = async (req, res) => {
 }
 
 const getAppointments = async (req, res) => {
+  await expirePendingAppointments().catch(() => {})
   const [rows] = await db.query(
     `SELECT
        a.*,
@@ -552,6 +553,7 @@ const getAppointments = async (req, res) => {
 }
 
 const getHistory = async (req, res) => {
+  await expirePendingAppointments().catch(() => {})
   const [rows] = await db.query(
     `SELECT
        a.*,
@@ -575,7 +577,7 @@ const getHistory = async (req, res) => {
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.status IN ('completed', 'cancelled', 'no_show')
+     WHERE a.patient_id = ? AND a.status IN ('completed', 'cancelled', 'no_show', 'rejected')
      ORDER BY a.appointment_date DESC`,
     [req.user.id]
   )
@@ -602,6 +604,8 @@ const getBookingServices = async (req, res) => {
     service_name: service.service_name,
     clinic_type: service.clinic_type,
     default_price: Number(service.default_price || 0),
+    average_duration_minutes: Number(service.average_duration_minutes || 60),
+    reserved_duration_minutes: roundReservedDurationMinutes(Number(service.average_duration_minutes || 60)),
   })))
 }
 
@@ -628,7 +632,7 @@ const createAppointment = async (req, res) => {
   }
 
   const [serviceRows] = await db.query(
-    `SELECT id, service_name, clinic_type, default_price, is_active
+    `SELECT id, service_name, clinic_type, default_price, average_duration_minutes, is_active
      FROM billing_service_catalog
      WHERE id = ? LIMIT 1`,
     [requested_service_id]
@@ -669,13 +673,35 @@ const createAppointment = async (req, res) => {
   )
   if (activeWithDoctor.length) return res.status(409).json({ message: 'You already have an active appointment with this doctor. Please wait for completion or cancel it first.' })
 
-  const result = await withAppointmentSlotLock({ doctorId: doctor_id, date: normalizedDate, time: appointment_time }, async () => {
-    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time })
+  const bookingSettings = await loadBookingSettings()
+  const averageDurationMinutes = Number(requestedService.average_duration_minutes || 60)
+  const reservedDurationMinutes = roundReservedDurationMinutes(averageDurationMinutes, bookingSettings.booking_start_interval_minutes)
+  const confirmationDeadline = buildConfirmationDeadlineSql({
+    date: normalizedDate,
+    time: appointment_time,
+    cutoffMinutes: bookingSettings.pending_confirmation_cutoff_minutes,
+  })
+
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id }, async () => {
+    await validateAppointmentSlot({
+      doctorId: doctor_id,
+      clinicType: clinic_type,
+      date: normalizedDate,
+      time: appointment_time,
+      durationMinutes: reservedDurationMinutes,
+      startIntervalMinutes: bookingSettings.booking_start_interval_minutes,
+      enforceLeadTime: true,
+      minLeadMinutes: bookingSettings.online_min_lead_minutes,
+    })
     const [inserted] = await db.query(
       `INSERT INTO appointments
-       (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot, reason, appointment_date, appointment_time, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.id, doctor_id, clinic_type, requestedService.id, requestedService.service_name, requestedService.default_price, storedReason, normalizedDate, appointment_time, notes || null]
+       (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
+        requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot, confirmation_deadline_at,
+        reason, appointment_date, appointment_time, notes, appointment_source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online')`,
+      [req.user.id, doctor_id, clinic_type, requestedService.id, requestedService.service_name, requestedService.default_price,
+       averageDurationMinutes, reservedDurationMinutes, confirmationDeadline,
+       storedReason, normalizedDate, appointment_time, notes || null]
     )
     return inserted
   })
@@ -777,34 +803,51 @@ const cancelAppointment = async (req, res) => {
 
 const rescheduleAppointment = async (req, res) => {
   const { appointment_date, appointment_time, notes } = req.body
-  if (!appointment_date || !appointment_time) {
-    return res.status(400).json({ message: 'Date and time required.' })
-  }
+  if (!appointment_date || !appointment_time) return res.status(400).json({ message: 'Date and time required.' })
 
   const normalizedDate = toDateOnly(appointment_date)
-  if (!isValidDateOnly(normalizedDate)) {
-    return res.status(400).json({ message: 'Invalid appointment date.' })
-  }
-  if (normalizedDate < getTodayDateOnly()) {
-    return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
-  }
+  if (!isValidDateOnly(normalizedDate)) return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly()) return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
 
   const [rows] = await db.query(
-    'SELECT id, doctor_id, status FROM appointments WHERE id = ? AND patient_id = ?',
+    `SELECT id, doctor_id, status, clinic_type,
+            requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot
+     FROM appointments WHERE id = ? AND patient_id = ?`,
     [req.params.id, req.user.id]
   )
-  if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  if (!rows.length) return res.status(404).json({ message: 'Appointment not found.' })
   if (!['pending', 'confirmed'].includes(rows[0].status)) {
     return res.status(400).json({ message: 'Only pending or confirmed appointments can be rescheduled.' })
   }
 
+  const settings = await loadBookingSettings()
+  const durationMinutes = getAppointmentReservedDuration(rows[0])
+  const confirmationDeadline = buildConfirmationDeadlineSql({
+    date: normalizedDate,
+    time: appointment_time,
+    cutoffMinutes: settings.pending_confirmation_cutoff_minutes,
+  })
+
   assertAppointmentTransition(rows[0].status, 'rescheduled')
-  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id, date: normalizedDate, time: appointment_time }, async () => {
-    const [[appointmentMeta]] = await db.query('SELECT clinic_type FROM appointments WHERE id = ? LIMIT 1', [req.params.id])
-    await validateAppointmentSlot({ doctorId: rows[0].doctor_id, clinicType: appointmentMeta.clinic_type, date: normalizedDate, time: appointment_time, excludeAppointmentId: req.params.id })
+  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id }, async () => {
+    await validateAppointmentSlot({
+      doctorId: rows[0].doctor_id,
+      clinicType: rows[0].clinic_type,
+      date: normalizedDate,
+      time: appointment_time,
+      durationMinutes,
+      startIntervalMinutes: settings.booking_start_interval_minutes,
+      excludeAppointmentId: req.params.id,
+      enforceLeadTime: true,
+      minLeadMinutes: settings.online_min_lead_minutes,
+    })
     const [updated] = await db.query(
-      `UPDATE appointments SET appointment_date = ?, appointment_time = ?, status = 'pending', notes = COALESCE(?, notes) WHERE id = ? AND patient_id = ? AND status = ?`,
-      [normalizedDate, appointment_time, notes?.trim() || null, req.params.id, req.user.id, rows[0].status]
+      `UPDATE appointments
+       SET appointment_date = ?, appointment_time = ?, status = 'pending',
+           confirmation_deadline_at = ?, rejected_at = NULL, rejected_by_role = NULL, rejection_reason = NULL,
+           notes = COALESCE(?, notes)
+       WHERE id = ? AND patient_id = ? AND status = ?`,
+      [normalizedDate, appointment_time, confirmationDeadline, notes?.trim() || null, req.params.id, req.user.id, rows[0].status]
     )
     await assertAppointmentMutationApplied(updated, req.params.id)
   })
@@ -817,10 +860,7 @@ const rescheduleAppointment = async (req, res) => {
      WHERE a.id = ?`,
     [req.params.id]
   )
-
-  if (details.length === 0) {
-    return res.status(404).json({ message: 'Appointment not found.' })
-  }
+  if (!details.length) return res.status(404).json({ message: 'Appointment not found.' })
 
   if (details[0].patient_email) {
     await sendAppointmentStatusEmail({
@@ -841,23 +881,13 @@ const rescheduleAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
-
   await createNotification({
-    target_role: 'patient',
-    target_user_id: req.user.id,
-    type: 'appointment_rescheduled',
-    title: 'Reschedule submitted',
+    target_role: 'patient', target_user_id: req.user.id, type: 'appointment_rescheduled', title: 'Reschedule submitted',
     message: `Your new schedule (${normalizedDate} at ${appointment_time}) is pending confirmation.`,
-    reference_type: 'appointment',
-    reference_id: req.params.id,
+    reference_type: 'appointment', reference_id: req.params.id,
   })
-
-  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', {
-    appointmentId: Number(req.params.id),
-    status: 'pending',
-  })
-
-  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.rescheduled', entityType: 'appointment', entityId: req.params.id, newValues: { appointment_date: normalizedDate, appointment_time, status: 'pending' }, ipAddress: req.ip || null }).catch(() => {})
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'pending' })
+  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.rescheduled', entityType: 'appointment', entityId: req.params.id, newValues: { appointment_date: normalizedDate, appointment_time, status: 'pending', confirmation_deadline_at: confirmationDeadline }, ipAddress: req.ip || null }).catch(() => {})
   res.json({ message: 'Appointment rescheduled and returned to pending confirmation.' })
 }
 
@@ -924,6 +954,66 @@ const getDoctorUnavailableDatesController = async (req, res) => {
   res.json(rows)
 }
 
+const getDoctorAvailableSlots = async (req, res) => {
+  const normalizedDate = toDateOnly(req.query.date)
+  if (!isValidDateOnly(normalizedDate)) return res.status(400).json({ message: 'A valid date is required.' })
+  const clinicTypeInput = String(req.query.clinic_type || '').trim()
+  const serviceId = Number(req.query.service_id)
+  const appointmentId = Number(req.query.appointment_id)
+  const settings = await loadBookingSettings()
+  let clinicType = clinicTypeInput
+  let averageDurationMinutes = 60
+  let reservedDurationMinutes = 60
+  let excludeAppointmentId = null
+
+  if (appointmentId > 0) {
+    const [[appointment]] = await db.query(
+      `SELECT doctor_id, clinic_type, requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot
+       FROM appointments WHERE id = ? AND patient_id = ? LIMIT 1`,
+      [appointmentId, req.user.id]
+    )
+    if (!appointment || Number(appointment.doctor_id) !== Number(req.params.id)) {
+      return res.status(404).json({ message: 'Appointment not found for this doctor.' })
+    }
+    clinicType = appointment.clinic_type
+    averageDurationMinutes = Number(appointment.requested_service_duration_minutes_snapshot || 60)
+    reservedDurationMinutes = getAppointmentReservedDuration(appointment)
+    excludeAppointmentId = appointmentId
+  } else {
+    if (!['medical', 'derma'].includes(clinicType) || !serviceId) {
+      return res.status(400).json({ message: 'Clinic and service are required to load available times.' })
+    }
+    const [[service]] = await db.query(
+      `SELECT id, clinic_type, average_duration_minutes, is_active
+       FROM billing_service_catalog WHERE id = ? LIMIT 1`,
+      [serviceId]
+    )
+    if (!service || Number(service.is_active) !== 1 || ![clinicType, 'all'].includes(String(service.clinic_type || ''))) {
+      return res.status(409).json({ message: 'The selected service is no longer available for this clinic.' })
+    }
+    averageDurationMinutes = Number(service.average_duration_minutes || 60)
+    reservedDurationMinutes = roundReservedDurationMinutes(averageDurationMinutes, settings.booking_start_interval_minutes)
+  }
+
+  const slots = await getAvailableAppointmentSlots({
+    doctorId: req.params.id,
+    clinicType,
+    date: normalizedDate,
+    durationMinutes: reservedDurationMinutes,
+    startIntervalMinutes: settings.booking_start_interval_minutes,
+    excludeAppointmentId,
+    enforceLeadTime: true,
+    minLeadMinutes: settings.online_min_lead_minutes,
+  })
+  res.json({
+    slots,
+    average_duration_minutes: averageDurationMinutes,
+    reserved_duration_minutes: reservedDurationMinutes,
+    booking_start_interval_minutes: settings.booking_start_interval_minutes,
+    online_min_lead_minutes: settings.online_min_lead_minutes,
+  })
+}
+
 const getDoctorTakenSlots = async (req, res) => {
   const normalizedDate = toDateOnly(req.query.date)
   if (!isValidDateOnly(normalizedDate)) {
@@ -977,6 +1067,8 @@ module.exports = {
   getDoctorsAvailability,
   getDoctorSchedule,
   getDoctorUnavailableDatesController,
+  getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 

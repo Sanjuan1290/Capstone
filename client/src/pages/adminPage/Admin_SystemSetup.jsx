@@ -20,12 +20,10 @@ import {
   deleteAppointmentCancellationReason,
   saveAppointmentCancellationReason,
   deleteBillingServiceCategory,
-  deleteInventoryUom,
   saveBillingServiceCategory,
   saveInventoryLocationType,
   saveInventoryMovementReason,
   saveInventorySupplier,
-  saveInventoryUom,
 } from '../../services/admin.service'
 
 const TABS = SYSTEM_SETUP_TABS.filter((item) => !['billing_setup'].includes(item.key))
@@ -48,7 +46,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 
   const nameMaxLength = {
     service_categories: 120,
-    uoms: 80,
     suppliers: 160,
     location_types: 80,
     movement_reasons: 120,
@@ -70,13 +67,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
       save: saveBillingServiceCategory,
       description: 'Categories only group actual services. They are shown alphabetically in Add Service; create bookable services under System Setup → Services & Pricing Setup → Services & Pricing.',
     },
-    uoms: {
-      title: 'Unit of Measure',
-      plural: 'Units of Measure',
-      singular: 'unit',
-      save: saveInventoryUom,
-      description: 'Reusable stock-unit options that define how inventory quantities are counted, such as capsule, bottle, piece, vial, or mL. Product strength/size is recorded separately on each inventory item.',
-    },
     suppliers: {
       title: 'Supplier',
       plural: 'Suppliers',
@@ -85,11 +75,11 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
       description: 'Reusable supplier/company records with clinic assignment and contact details.',
     },
     location_types: {
-      title: 'Storage Classification',
-      plural: 'Storage Classifications',
-      singular: 'storage classification',
+      title: 'Storage Location',
+      plural: 'Storage Locations',
+      singular: 'storage location',
       save: saveInventoryLocationType,
-      description: 'Reusable Storage Classifications assigned directly to inventory items. Add at least one before creating inventory items.',
+      description: 'Reusable Storage Locations assigned directly to inventory items. Add at least one before creating inventory items.',
     },
     movement_reasons: {
       title: 'Movement Reason',
@@ -121,14 +111,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
         name: row?.name || '',
         clinic_type: row?.clinic_type || 'medical',
         is_active: row ? Number(row.is_active) : 1,
-      })
-    }
-    if (type === 'uoms') {
-      setForm({
-        name: row?.name || '',
-        is_active: row ? Number(row.is_active) : 1,
-        sort_order: row?.sort_order ?? 0,
-        allow_decimal_quantity: row ? Number(row.allow_decimal_quantity || 0) : 0,
       })
     }
     if (type === 'suppliers') {
@@ -181,7 +163,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 
 
   const requestDelete = (row) => {
-    if (!['service_categories', 'uoms', 'cancellation_reasons'].includes(type)) return
+    if (!['service_categories', 'cancellation_reasons'].includes(type)) return
     setDeleteTarget(row)
   }
 
@@ -189,15 +171,12 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
     if (!deleteTarget) return
     const inUseCount = type === 'service_categories'
       ? Number(deleteTarget.service_count || 0)
-      : type === 'cancellation_reasons'
-        ? Number(deleteTarget.appointment_count || 0)
-        : Number(deleteTarget.inventory_count || 0)
+      : Number(deleteTarget.appointment_count || 0)
     if (inUseCount > 0) return
     setDeleting(true)
     try {
       if (type === 'service_categories') await deleteBillingServiceCategory(deleteTarget.id)
-      else if (type === 'cancellation_reasons') await deleteAppointmentCancellationReason(deleteTarget.id)
-      else await deleteInventoryUom(deleteTarget.id)
+      else await deleteAppointmentCancellationReason(deleteTarget.id)
       toast.success(`${config.title} deleted.`)
       setDeleteTarget(null)
       await onReload()
@@ -233,7 +212,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                 {type === 'cancellation_reasons' && <><th className="px-5 py-3">Order</th><th className="px-5 py-3">Used By</th></>}
                 {type === 'service_categories' && <th className="px-5 py-3">Clinic</th>}
                 {type === 'service_categories' && <th className="px-5 py-3">Used By</th>}
-                {type === 'uoms' && <><th className="px-5 py-3">Quantity Rule</th><th className="px-5 py-3">Used By</th></>}
                 {type === 'suppliers' && <th className="px-5 py-3">Contact</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Address</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Clinic</th>}
@@ -250,7 +228,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                   {type === 'cancellation_reasons' && <><td className="px-5 py-4 text-slate-500">{Number(row.sort_order || 0)}</td><td className="px-5 py-4 text-slate-500">{Number(row.appointment_count || 0)} appointment{Number(row.appointment_count || 0) === 1 ? '' : 's'}</td></>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.service_count || 0)} service{Number(row.service_count || 0) === 1 ? '' : 's'}</td>}
-                  {type === 'uoms' && <><td className="px-5 py-4 text-slate-500">{Number(row.allow_decimal_quantity) === 1 ? 'Decimals allowed (2 places)' : 'Whole units only'}</td><td className="px-5 py-4 text-slate-500">{Number(row.inventory_count || 0)} inventory item{Number(row.inventory_count || 0) === 1 ? '' : 's'}</td></>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500"><p className="font-semibold text-slate-700">{row.contact_person || '—'}</p><p className="mt-1 text-xs">{row.contact_number || 'No contact number'}</p></td>}
                   {type === 'suppliers' && <td className="max-w-xs px-5 py-4 text-slate-500">{row.address || '—'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{supplierClinicLabel(row.category)}</td>}
@@ -264,7 +241,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                   <td className="px-5 py-4 text-right">
                     <div className="inline-flex flex-wrap justify-end gap-2">
                       <button className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button>
-                      {['service_categories','uoms','cancellation_reasons'].includes(type) && <button className="button-secondary !border-rose-200 !text-rose-600 hover:!bg-rose-50" onClick={() => requestDelete(row)}><MdDelete /> Delete</button>}
+                      {['service_categories','cancellation_reasons'].includes(type) && <button className="button-secondary !border-rose-200 !text-rose-600 hover:!bg-rose-50" onClick={() => requestDelete(row)}><MdDelete /> Delete</button>}
                     </div>
                   </td>
                 </tr>
@@ -296,20 +273,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
             </>
           )}
 
-          {type === 'uoms' && (
-            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <input
-                type="checkbox"
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
-                checked={Number(form.allow_decimal_quantity) === 1}
-                onChange={(e) => setForm((value) => ({ ...value, allow_decimal_quantity: e.target.checked ? 1 : 0 }))}
-              />
-              <span>
-                <strong className="text-sm text-slate-800">Allow decimal quantities</strong>
-                <span className="mt-0.5 block text-xs text-slate-500">Leave off for countable units such as pieces, tablets, capsules, boxes, or vials. When enabled, quantities always use up to 2 decimal places (0.01), which is intended for measured units such as mL, grams, liters, or meters.</span>
-              </span>
-            </label>
-          )}
 
           {type === 'suppliers' && (
             <>
@@ -406,14 +369,10 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
         {deleteTarget && (() => {
           const inUseCount = type === 'service_categories'
             ? Number(deleteTarget.service_count || 0)
-            : type === 'cancellation_reasons'
-              ? Number(deleteTarget.appointment_count || 0)
-              : Number(deleteTarget.inventory_count || 0)
+            : Number(deleteTarget.appointment_count || 0)
           const inUseLabel = type === 'service_categories'
             ? `${inUseCount} service${inUseCount === 1 ? '' : 's'}`
-            : type === 'cancellation_reasons'
-              ? `${inUseCount} appointment${inUseCount === 1 ? '' : 's'}`
-              : `${inUseCount} inventory item${inUseCount === 1 ? '' : 's'}`
+            : `${inUseCount} appointment${inUseCount === 1 ? '' : 's'}`
           return <div className="space-y-4">
             <div className={`flex items-start gap-3 rounded-2xl border p-4 ${inUseCount > 0 ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}>
               <MdWarningAmber className={`mt-0.5 shrink-0 text-xl ${inUseCount > 0 ? 'text-amber-600' : 'text-rose-600'}`} />
@@ -448,7 +407,7 @@ const Admin_SystemSetup = () => {
   const requestedTab = searchParams.get('tab')
   const validTab = TABS.some((item) => item.key === requestedTab) ? requestedTab : 'visits'
   const [tab, setTab] = useState(validTab)
-  const [data, setData] = useState({ cancellation_reasons: [], service_categories: [], uoms: [], suppliers: [], location_types: [], movement_reasons: [] })
+  const [data, setData] = useState({ cancellation_reasons: [], service_categories: [], suppliers: [], location_types: [], movement_reasons: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -498,4 +457,5 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
 

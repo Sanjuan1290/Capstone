@@ -35,6 +35,7 @@ router.get('/dashboard', ...auth, can('dashboard'), staffCtrl.getDashboard)
 // ── Appointments + Walk-in Queue (one permission) ────────────────────────────
 router.get('/appointments',                  ...auth, can('appointments'), staffCtrl.getAppointments)
 router.post('/appointments',                 ...auth, can('appointments'), staffCtrl.createAppointment)
+router.get('/appointments/booking-services', ...auth, can('appointments'), staffCtrl.getBillingCatalogForStaff)
 router.get('/appointments/:id/inventory-readiness', ...auth, can('appointments'), staffCtrl.getAppointmentInventoryReadinessForPortal)
 router.patch('/appointments/:id/confirm',    ...auth, can('appointments'), staffCtrl.confirmAppointment)
 router.patch('/appointments/:id/cancel',     ...auth, can('appointments'), staffCtrl.cancelAppointment)
@@ -84,6 +85,7 @@ router.get('/walk-in/doctors', ...auth, can('appointments'), staffCtrl.getWalkIn
 router.get('/doctors/:id/schedules', ...auth, canAny('appointments', 'doctor_schedules'), staffCtrl.getDoctorSchedules)
 router.get('/doctors/:id/availability', ...auth, canAny('appointments', 'doctor_schedules'), staffCtrl.getDoctorAvailabilityForStaff)
 router.get('/doctors/:id/unavailable-dates', ...auth, canAny('appointments', 'doctor_schedules'), staffCtrl.getDoctorUnavailableDatesForStaff)
+router.get('/doctors/:id/available-slots', ...auth, canAny('appointments', 'doctor_schedules'), staffCtrl.getAppointmentAvailableSlotsForStaff)
 
 // ── Stock Transfers ──────────────────────────────────────────────────────────
 router.get('/supply-requests',       ...auth, can('stock_transfers'), staffCtrl.getSupplyRequests)
@@ -107,6 +109,8 @@ router.put('/admin-access/landing-page', ...auth, can('landing_page'), commonCtr
 
 // ── System Setup ─────────────────────────────────────────────────────────────
 router.get('/admin-access/system-setup', ...auth, can('system_setup'), adminCtrl.getSystemSetup)
+router.get('/admin-access/system-setup/booking-policy', ...auth, can('system_setup'), adminCtrl.getBookingPolicyAdmin)
+router.put('/admin-access/system-setup/booking-policy', ...auth, can('system_setup'), adminCtrl.updateBookingPolicyAdmin)
 router.post('/admin-access/system-setup/cancellation-reasons', ...auth, can('system_setup'), adminCtrl.saveAppointmentCancellationReason)
 router.put('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), adminCtrl.saveAppointmentCancellationReason)
 router.delete('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), adminCtrl.deleteAppointmentCancellationReason)
@@ -144,4 +148,3 @@ router.put('/admin-access/clinic-settings', ...auth, can('system_setup'), adminC
 router.get('/admin-access/inventory', ...auth, can('system_setup'), adminCtrl.getInventory)
 
 module.exports = router
-

@@ -1,6 +1,7 @@
 const db = require('../db/connect')
 const { sendAppointmentReminder } = require('./emailService')
 const { markOverdueAppointments } = require('./appointments')
+const { expirePendingAppointments } = require('./pendingAppointmentExpiry')
 const { getTodayDateOnly, addDaysDateOnly, getNextClinicRunAt, CLINIC_TIMEZONE } = require('./date')
 
 async function sendTomorrowReminders() {
@@ -54,9 +55,12 @@ function scheduleDaily(fn, hour = 8, minute = 0) {
 }
 
 scheduleDaily(sendTomorrowReminders)
+expirePendingAppointments().catch(err => console.error('[Appointments] Pending expiry sync error:', err.message))
+setInterval(() => {
+  expirePendingAppointments().catch(err => console.error('[Appointments] Pending expiry sync error:', err.message))
+}, 60 * 1000)
 setInterval(() => {
   markOverdueAppointments().catch(err => console.error('[Appointments] Overdue sync error:', err.message))
 }, 15 * 60 * 1000)
 
 module.exports = { sendTomorrowReminders, scheduleDaily }
-

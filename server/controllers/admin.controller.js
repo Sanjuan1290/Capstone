@@ -57,7 +57,9 @@ const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
 const { setQueueState } = require('../utils/queueWorkflow')
 const { writeAuditLog } = require('../utils/audit')
 const { normalizeText, normalizeOptionalText, normalizeNumber, normalizePositiveId, assertPlainObject } = require('../utils/inputValidation')
-const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
+const { validateAppointmentSlot, getAvailableAppointmentSlots, getAppointmentReservedDuration, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
+const { loadBookingSettings, saveBookingSettings, validateAverageDurationMinutes, roundReservedDurationMinutes } = require('../utils/bookingPolicy')
+const { expirePendingAppointments } = require('../utils/pendingAppointmentExpiry')
 const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
 const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { resolveSupplyTransfer, listSupplyTransferGroups } = require('../utils/supplyTransfers')
@@ -80,7 +82,7 @@ const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+'
 const normalizeInventoryPayload = (body = {}) => {
   const category = ['medical','derma'].includes(String(body.category || '').trim()) ? String(body.category).trim() : 'medical'
   const itemType = ['medicine','supplies'].includes(String(body.item_type || '').trim()) ? String(body.item_type).trim() : 'supplies'
-  const uom = String(body.uom || body.base_unit || body.unit || '').trim().toLowerCase()
+  const uom = 'unit'
   const rawMeasurementValue = body.measurement_value
   const measurementValue = rawMeasurementValue === '' || rawMeasurementValue === null || rawMeasurementValue === undefined ? null : Number(rawMeasurementValue)
   const measurementUnit = String(body.measurement_unit || '').trim() || null
@@ -121,7 +123,6 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
     assertPlainObject(body)
     normalizeText(body.name, { field: 'Item Name', required: true, max: 150 })
     if (body.barcode !== undefined && body.barcode !== null && body.barcode !== '') normalizeText(body.barcode, { field: 'Product Barcode', max: 50 })
-    if (body.supplier_lot_number !== undefined && body.supplier_lot_number !== null && body.supplier_lot_number !== '') normalizeText(body.supplier_lot_number, { field: 'Supplier Lot Number', max: 120 })
     const measurementValueProvided = body.measurement_value !== undefined && body.measurement_value !== null && body.measurement_value !== ''
     const measurementUnitProvided = String(body.measurement_unit || '').trim().length > 0
     if (measurementValueProvided !== measurementUnitProvided) {
@@ -141,7 +142,6 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   const name = String(body.name || '').trim()
   const category = String(body.category || '').trim()
   const itemType = String(body.item_type || '').trim()
-  const uom = String(body.uom || body.base_unit || body.unit || '').trim()
   const locationTypeId = Number(body.location_type_id)
   const supplierId = Number(body.supplier_id) || null
   const thresholdRaw = body.threshold
@@ -150,23 +150,20 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   if (!name) return { message: 'Item Name is required.', code: 'INVENTORY_NAME_REQUIRED' }
   if (!['medical', 'derma'].includes(category)) return { message: 'Select a valid Category.', code: 'INVENTORY_CATEGORY_REQUIRED' }
   if (!['medicine', 'supplies'].includes(itemType)) return { message: 'Select a valid Type.', code: 'INVENTORY_TYPE_REQUIRED' }
-  if (!uom) return { message: 'Stock Unit is required.', code: 'INVENTORY_UOM_REQUIRED' }
-  if (!locationTypeId) return { message: 'Location Type is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
-  if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0) {
-    return { message: 'Low Stock Alert is required and must be 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
+  if (!locationTypeId) return { message: 'Storage Location is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
+  if (!supplierId) return { message: 'Supplier is required.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
+  if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0 || !Number.isInteger(Number(thresholdRaw))) {
+    return { message: 'Low Stock Alert is required and must be a whole number of 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
   }
   if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
     return { message: 'Selling Price is required and must be greater than ₱0.00.', code: 'INVENTORY_SELLING_PRICE_REQUIRED' }
   }
 
   if (requireOpeningQuantity) {
-    if (body.stock === '' || body.stock === null || body.stock === undefined || !Number.isFinite(Number(body.stock)) || Number(body.stock) < 0) {
-      return { message: 'Opening Quantity is required and must be 0 or greater.', code: 'INVENTORY_OPENING_QUANTITY_REQUIRED' }
+    if (body.stock === '' || body.stock === null || body.stock === undefined || !Number.isFinite(Number(body.stock)) || Number(body.stock) < 0 || !Number.isInteger(Number(body.stock))) {
+      return { message: 'Opening Quantity is required and must be a whole number of 0 or greater.', code: 'INVENTORY_OPENING_QUANTITY_REQUIRED' }
     }
     if (Number(body.stock) > 0) {
-      if (!supplierId) {
-        return { message: 'Select the supplier for the opening receipt.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
-      }
       const noExpiry = body.no_expiry === true || body.no_expiry === 1 || String(body.no_expiry || '').toLowerCase() === 'true'
       if (itemType === 'medicine' && !String(body.expiration_date || '').trim()) {
         return { message: 'Batch Expiry is required for medicines.', code: 'INVENTORY_EXPIRY_REQUIRED' }
@@ -174,37 +171,16 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
       if (itemType === 'supplies' && !noExpiry && !String(body.expiration_date || '').trim()) {
         return { message: 'Enter the Batch Expiry or select “No expiry / Not applicable”.', code: 'INVENTORY_EXPIRY_REQUIRED' }
       }
-      const lotMissing = body.supplier_lot_missing === true || body.supplier_lot_missing === 1 || String(body.supplier_lot_missing || '').toLowerCase() === 'true'
-      if (!lotMissing && !String(body.supplier_lot_number || '').trim()) {
-        return { message: 'Supplier Lot Number is required unless the supplier did not provide one.', code: 'INVENTORY_SUPPLIER_LOT_REQUIRED' }
-      }
     }
   }
 
   return null
 }
 
-const resolveInventorySetupSelection = async ({ uom, location_type_id }, executor = db) => {
-  if (!String(uom || '').trim()) {
-    const error = new Error('Select a Stock Unit configured under Units of Measure in System Setup.')
-    error.statusCode = 400
-    error.code = 'INVENTORY_UOM_REQUIRED'
-    throw error
-  }
-  const [[uomRow]] = await executor.query(
-    'SELECT id,name FROM inventory_uoms WHERE LOWER(name)=? AND is_active=1 LIMIT 1',
-    [String(uom).trim().toLowerCase()]
-  )
-  if (!uomRow) {
-    const error = new Error('That Stock Unit is unavailable. Configure an active Unit of Measure in System Setup.')
-    error.statusCode = 400
-    error.code = 'INVENTORY_UOM_INVALID'
-    throw error
-  }
-
+const resolveInventorySetupSelection = async ({ location_type_id }, executor = db) => {
   const locationTypeId = Number(location_type_id)
   if (!locationTypeId) {
-    const error = new Error('Select a Location Type configured in System Setup.')
+    const error = new Error('Select a Storage Location configured in System Setup.')
     error.statusCode = 400
     error.code = 'INVENTORY_LOCATION_TYPE_REQUIRED'
     throw error
@@ -214,14 +190,14 @@ const resolveInventorySetupSelection = async ({ uom, location_type_id }, executo
     [locationTypeId]
   )
   if (!locationType) {
-    const error = new Error('That Location Type is unavailable. Configure an active Location Type in System Setup.')
+    const error = new Error('That Storage Location is unavailable. Configure an active Storage Location in System Setup.')
     error.statusCode = 400
     error.code = 'INVENTORY_LOCATION_TYPE_INVALID'
     throw error
   }
 
   return {
-    uom: String(uomRow.name || '').trim().toLowerCase(),
+    uom: 'unit',
     locationType,
   }
 }
@@ -232,7 +208,8 @@ const normalizeBillingCatalogPayload = (body = {}) => ({
   service_name: String(body.service_name || '').trim(),
   clinic_type: ['all', 'medical', 'derma'].includes(body.clinic_type) ? body.clinic_type : 'all',
   default_price: Math.max(0, Number(body.default_price ?? body.patient_price) || 0),
-  consultation_fee: 0,
+  consultation_fee: Math.max(0, Number(body.consultation_fee ?? body.base_service_price) || 0),
+  average_duration_minutes: validateAverageDurationMinutes(body.average_duration_minutes, { fallback: 60 }),
   profit_percentage: 0,
   is_active: body.is_active === 0 ? 0 : 1,
   sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
@@ -280,6 +257,72 @@ const resolveBillingServiceCategory = async (payload, executor = db, { allowInac
   return category
 }
 
+const applyServiceConsumablePricing = async (payload, executor = db) => {
+  const baseServicePrice = Math.max(0, Number(payload.consultation_fee || 0))
+  if (!(baseServicePrice > 0)) {
+    const error = new Error('Service Price is required and must be greater than ₱0.00.')
+    error.statusCode = 400
+    error.code = 'SERVICE_PRICE_REQUIRED'
+    throw error
+  }
+
+  const materials = Array.isArray(payload.materials) ? payload.materials : []
+  const ids = [...new Set(materials.map((material) => Number(material.inventory_id || 0)).filter(Boolean))]
+  const inventoryById = new Map()
+
+  if (ids.length) {
+    const placeholders = ids.map(() => '?').join(',')
+    const [rows] = await executor.query(
+      `SELECT id,name,category,selling_price,archived_at FROM inventory WHERE id IN (${placeholders})`,
+      ids
+    )
+    rows.forEach((row) => inventoryById.set(Number(row.id), row))
+  }
+
+  let consumablesTotal = 0
+  for (const material of materials) {
+    const inventoryId = Number(material.inventory_id || 0)
+    if (!inventoryId) {
+      const error = new Error('Every consumable must be linked to an inventory item.')
+      error.statusCode = 400
+      error.code = 'SERVICE_CONSUMABLE_INVENTORY_REQUIRED'
+      throw error
+    }
+    const item = inventoryById.get(inventoryId)
+    if (!item || item.archived_at) {
+      const error = new Error('A selected consumable is no longer available in Inventory.')
+      error.statusCode = 409
+      error.code = 'SERVICE_CONSUMABLE_UNAVAILABLE'
+      throw error
+    }
+    if (item.category && item.category !== payload.clinic_type) {
+      const error = new Error(`${item.name} belongs to a different clinic and cannot be used for this service.`)
+      error.statusCode = 409
+      error.code = 'SERVICE_CONSUMABLE_CLINIC_MISMATCH'
+      throw error
+    }
+    const quantity = Number(material.quantity || 0)
+    if (!(quantity > 0) || !Number.isInteger(quantity)) {
+      const error = new Error(`Consumable quantity for ${item.name} must be a whole number greater than zero.`)
+      error.statusCode = 400
+      error.code = 'SERVICE_CONSUMABLE_QUANTITY_INVALID'
+      throw error
+    }
+    const sellingPrice = Number(item.selling_price || 0)
+    if (!(sellingPrice > 0)) {
+      const error = new Error(`Set a Selling Price for ${item.name} before using it as a service consumable.`)
+      error.statusCode = 400
+      error.code = 'SERVICE_CONSUMABLE_PRICE_REQUIRED'
+      throw error
+    }
+    consumablesTotal += sellingPrice * quantity
+  }
+
+  payload.consultation_fee = Math.round(baseServicePrice * 100) / 100
+  payload.default_price = Math.round((baseServicePrice + consumablesTotal) * 100) / 100
+  return payload
+}
+
 const saveBillingServiceMaterials = async (serviceId, materials, executor = db) => {
   await executor.query('DELETE FROM billing_service_materials WHERE billing_service_id = ?', [serviceId])
 
@@ -302,10 +345,50 @@ const saveBillingServiceMaterials = async (serviceId, materials, executor = db) 
   }
 }
 
+const requireAdminPricingAccess = (req, res) => {
+  if (req.user?.role === 'admin') return true
+  res.status(403).json({ code: 'ADMIN_PRICING_REQUIRED', message: 'Only Admin can create, remove, or change Services & Pricing.' })
+  return false
+}
+
+const recalculateLinkedServicePatientPrices = async (inventoryId, executor = db) => {
+  const [services] = await executor.query(
+    `SELECT DISTINCT s.id, s.service_name, s.consultation_fee
+     FROM billing_service_catalog s
+     JOIN billing_service_materials m ON m.billing_service_id = s.id
+     WHERE m.inventory_id = ?`,
+    [inventoryId]
+  )
+
+  const updated = []
+  for (const service of services) {
+    const baseServicePrice = Number(service.consultation_fee || 0)
+    // Legacy services with no stored base Service Price cannot be safely decomposed.
+    if (!(baseServicePrice > 0)) continue
+    const [[totals]] = await executor.query(
+      `SELECT COALESCE(SUM(m.quantity * COALESCE(i.selling_price,0)),0) AS consumables_total
+       FROM billing_service_materials m
+       JOIN inventory i ON i.id = m.inventory_id
+       WHERE m.billing_service_id = ?`,
+      [service.id]
+    )
+    const consumablesTotal = Number(totals?.consumables_total || 0)
+    const patientPrice = Math.round((baseServicePrice + consumablesTotal) * 100) / 100
+    await executor.query('UPDATE billing_service_catalog SET default_price = ? WHERE id = ?', [patientPrice, service.id])
+    updated.push({ id: Number(service.id), service_name: service.service_name, service_price: baseServicePrice, patient_price: patientPrice })
+  }
+  return updated
+}
+
 const loadInventoryRows = async (executor = db, whereClause = '', params = []) => {
   const [rows] = await executor.query(
     `SELECT i.*, lt.name AS location_type_name, lt.code AS location_type_code,
-            COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal
+            COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal,
+            (SELECT COUNT(DISTINCT m.billing_service_id) FROM billing_service_materials m WHERE m.inventory_id = i.id) AS linked_service_count,
+            (SELECT GROUP_CONCAT(DISTINCT s.service_name ORDER BY s.service_name SEPARATOR '||')
+             FROM billing_service_materials m2
+             JOIN billing_service_catalog s ON s.id = m2.billing_service_id
+             WHERE m2.inventory_id = i.id) AS linked_service_names
      FROM (
        SELECT *
        FROM inventory
@@ -529,6 +612,7 @@ const getDashboard = async (req, res) => {
 // ── Appointments ──────────────────────────────────────────────────────────────
 
 const getAppointments = async (req, res) => {
+  await expirePendingAppointments().catch(() => {})
   const { date } = req.query
   const requestedSort = String(req.query.sort || '')
   const sort = ['visit_time', 'created_at', 'updated_at'].includes(requestedSort) ? requestedSort : (date ? 'visit_time' : 'created_at')
@@ -568,6 +652,7 @@ const getAppointmentInventoryReadinessForPortal = async (req, res) => {
 
 const confirmAppointment = async (req, res) => {
   const { id } = req.params
+  await expirePendingAppointments({ appointmentId: id }).catch(() => {})
   const [rows] = await db.query(
     `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
@@ -598,7 +683,7 @@ const confirmAppointment = async (req, res) => {
     return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
   }
   assertAppointmentTransition(rows[0].status, 'confirmed')
-  const [updated] = await db.query("UPDATE appointments SET status = 'confirmed' WHERE id = ? AND status = ?", [id, rows[0].status])
+  const [updated] = await db.query("UPDATE appointments SET status = 'confirmed', confirmation_deadline_at = NULL WHERE id = ? AND status = ?", [id, rows[0].status])
   await assertAppointmentMutationApplied(updated, id)
   await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.confirmed',entityType:'appointment',entityId:id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',inventory_readiness:inventoryReadiness?.status||'unknown',inventory_override_reason:inventoryOverrideReason||null},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
@@ -757,16 +842,15 @@ const markAppointmentNoShow = async (req, res) => {
 }
 
 const rescheduleAppointment = async (req, res) => {
+  await expirePendingAppointments({ appointmentId: req.params.id }).catch(() => {})
   const { appointment_date, appointment_time } = req.body
-  if (!appointment_date || !appointment_time)
-    return res.status(400).json({ message: 'Date and time required.' })
+  if (!appointment_date || !appointment_time) return res.status(400).json({ message: 'Date and time required.' })
   const normalizedDate = toDateOnly(appointment_date)
-  if (!isValidDateOnly(normalizedDate))
-    return res.status(400).json({ message: 'Invalid appointment date.' })
-  if (normalizedDate < getTodayDateOnly())
-    return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
+  if (!isValidDateOnly(normalizedDate)) return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly()) return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
   const [rows] = await db.query(
     `SELECT a.id, a.doctor_id, a.status, a.clinic_type,
+            a.reserved_duration_minutes_snapshot, a.requested_service_duration_minutes_snapshot,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.full_name AS doctor_name
      FROM appointments a
@@ -775,112 +859,88 @@ const rescheduleAppointment = async (req, res) => {
      WHERE a.id = ?`,
     [req.params.id]
   )
-  if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  if (!rows.length) return res.status(404).json({ message: 'Appointment not found.' })
   if (!['pending', 'confirmed', 'rescheduled'].includes(rows[0].status)) {
     return res.status(400).json({ message: 'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
   }
 
+  const settings = await loadBookingSettings()
+  const durationMinutes = getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status, 'rescheduled')
-  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id, date: normalizedDate, time: appointment_time }, async () => {
-    await validateAppointmentSlot({ doctorId: rows[0].doctor_id, clinicType: rows[0].clinic_type, date: normalizedDate, time: appointment_time, excludeAppointmentId: req.params.id })
+  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id }, async () => {
+    await validateAppointmentSlot({
+      doctorId: rows[0].doctor_id,
+      clinicType: rows[0].clinic_type,
+      date: normalizedDate,
+      time: appointment_time,
+      durationMinutes,
+      startIntervalMinutes: settings.booking_start_interval_minutes,
+      excludeAppointmentId: req.params.id,
+    })
     const [updated] = await db.query(
-      "UPDATE appointments SET appointment_date=?, appointment_time=?, status='confirmed' WHERE id=? AND status=?",
+      `UPDATE appointments
+       SET appointment_date=?, appointment_time=?, status='confirmed', confirmation_deadline_at=NULL
+       WHERE id=? AND status=?`,
       [normalizedDate, appointment_time, req.params.id, rows[0].status]
     )
     await assertAppointmentMutationApplied(updated, req.params.id)
   })
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time},ipAddress:req.ip||null }).catch(() => {})
-  await createNotification({
-    target_role: 'patient',
-    target_user_id: rows[0].patient_id,
-    type: 'appointment_rescheduled',
-    title: 'Appointment rescheduled',
-    message: `Your appointment with ${rows[0].doctor_name} was moved to ${normalizedDate} at ${appointment_time}.`,
-    reference_type: 'appointment',
-    reference_id: req.params.id,
-  })
-  await sendAppointmentStatusEmail({
-    to: rows[0].patient_email,
-    patient_name: rows[0].patient_name,
-    doctor_name: rows[0].doctor_name,
-    appointment_date: normalizedDate,
-    appointment_time,
-    clinic_type: rows[0].clinic_type,
-    status: 'rescheduled',
-  }).catch(() => {})
-  await sendPatientAppointmentStatusSms({
-    patientId: rows[0].patient_id,
-    patientPhone: rows[0].patient_phone,
-    patientName: rows[0].patient_name,
-    doctorName: rows[0].doctor_name,
-    appointmentDate: normalizedDate,
-    appointmentTime: appointment_time,
-    status: 'rescheduled',
-  }).catch((err) => {
-    console.error('SMS patient appointment reschedule failed:', err.message)
-  })
-  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.rescheduled',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed',appointment_date:normalizedDate,appointment_time,duration_minutes:durationMinutes},ipAddress:req.ip||null }).catch(() => {})
+  await createNotification({ target_role:'patient', target_user_id:rows[0].patient_id, type:'appointment_rescheduled', title:'Appointment rescheduled', message:`Your appointment with ${rows[0].doctor_name} was moved to ${normalizedDate} at ${appointment_time}.`, reference_type:'appointment', reference_id:req.params.id })
+  await sendAppointmentStatusEmail({ to:rows[0].patient_email, patient_name:rows[0].patient_name, doctor_name:rows[0].doctor_name, appointment_date:normalizedDate, appointment_time, clinic_type:rows[0].clinic_type, status:'rescheduled' }).catch(() => {})
+  await sendPatientAppointmentStatusSms({ patientId:rows[0].patient_id, patientPhone:rows[0].patient_phone, patientName:rows[0].patient_name, doctorName:rows[0].doctor_name, appointmentDate:normalizedDate, appointmentTime:appointment_time, status:'rescheduled' }).catch((err)=>console.error('SMS patient appointment reschedule failed:',err.message))
+  broadcast(['admin','staff',`patient_${rows[0].patient_id}`],'appointment_updated',{appointmentId:Number(req.params.id),status:'confirmed'})
   res.json({ message: 'Appointment rescheduled.' })
 }
 
 const createAppointment = async (req, res) => {
-  const { patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes } = req.body
-  if (!patient_id || !doctor_id || !clinic_type || !appointment_date || !appointment_time)
-    return res.status(400).json({ message: 'Missing required fields.' })
+  const { patient_id, doctor_id, clinic_type, requested_service_id, reason, appointment_date, appointment_time, notes } = req.body
+  if (!patient_id || !doctor_id || !clinic_type || !requested_service_id || !appointment_date || !appointment_time) {
+    return res.status(400).json({ message: 'Patient, doctor, clinic, service, date, and time are required.' })
+  }
   const normalizedDate = toDateOnly(appointment_date)
-  if (!isValidDateOnly(normalizedDate))
-    return res.status(400).json({ message: 'Invalid appointment date.' })
-  if (normalizedDate < getTodayDateOnly())
-    return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
+  if (!isValidDateOnly(normalizedDate)) return res.status(400).json({ message: 'Invalid appointment date.' })
+  if (normalizedDate < getTodayDateOnly()) return res.status(400).json({ message: 'Cannot create an appointment in the past.' })
+
+  const [[service]] = await db.query(
+    `SELECT id, service_name, clinic_type, default_price, average_duration_minutes, is_active
+     FROM billing_service_catalog WHERE id = ? LIMIT 1`,
+    [requested_service_id]
+  )
+  if (!service || Number(service.is_active) !== 1 || ![clinic_type, 'all'].includes(String(service.clinic_type || ''))) {
+    return res.status(409).json({ message: 'Select an active service for the selected clinic.' })
+  }
+  const settings = await loadBookingSettings()
+  const averageDurationMinutes = Number(service.average_duration_minutes || 60)
+  const reservedDurationMinutes = roundReservedDurationMinutes(averageDurationMinutes, settings.booking_start_interval_minutes)
 
   const lastNoShow = await getLastNoShowAppointment(patient_id)
-  if (lastNoShow && !req.body?.override_no_show_warning) {
-    return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
-  }
+  if (lastNoShow && !req.body?.override_no_show_warning) return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
 
   const [activeWithDoctor] = await db.query(
-    `SELECT id
-     FROM appointments
-     WHERE patient_id = ? AND doctor_id = ?
-       AND status IN ('pending','confirmed','rescheduled','in-progress')
-     LIMIT 1`,
+    `SELECT id FROM appointments WHERE patient_id = ? AND doctor_id = ? AND status IN ('pending','confirmed','rescheduled','in-progress') LIMIT 1`,
     [patient_id, doctor_id]
   )
-  if (activeWithDoctor.length > 0) {
-    return res.status(409).json({
-      message: 'This patient already has an active appointment with this doctor.',
-    })
-  }
+  if (activeWithDoctor.length) return res.status(409).json({ message: 'This patient already has an active appointment with this doctor.' })
 
-  const result = await withAppointmentSlotLock({ doctorId: doctor_id, date: normalizedDate, time: appointment_time }, async () => {
-    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time })
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id }, async () => {
+    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
     const [inserted] = await db.query(
-      'INSERT INTO appointments (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, notes, appointment_source) VALUES (?,?,?,?,?,?,?,?)',
-      [patient_id, doctor_id, clinic_type, reason || null, normalizedDate, appointment_time, notes || null, 'admin_booking']
+      `INSERT INTO appointments
+       (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
+        requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot,
+        reason, appointment_date, appointment_time, notes, appointment_source)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [patient_id, doctor_id, clinic_type, service.id, service.service_name, service.default_price,
+       averageDurationMinutes, reservedDurationMinutes, reason || null, normalizedDate, appointment_time, notes || null, 'admin_booking']
     )
     return inserted
   })
-  await writeAuditLog({
-    userId: req.user.id, userRole: req.user?.role || 'admin', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId,
-    newValues: { patient_id, doctor_id, clinic_type, appointment_date: normalizedDate, appointment_time, appointment_source: 'admin_booking' }, ipAddress: req.ip || null,
-  })
-  const [rows] = await db.query(
-    `SELECT p.full_name AS patient_name, d.id AS doctor_id, d.full_name AS doctor_name, d.phone AS doctor_phone
-     FROM appointments a
-     JOIN patients p ON a.patient_id = p.id
-     JOIN doctors d ON a.doctor_id = d.id
-     WHERE a.id = ?`,
-    [result.insertId]
-  )
-  await notifyRoles(['admin', 'staff'], {
-    type: 'appointment_booked',
-    title: 'New patient booking',
-    message: `${rows[0].patient_name} booked an appointment with ${rows[0].doctor_name} on ${normalizedDate} at ${appointment_time}.`,
-    reference_type: 'appointment',
-    reference_id: result.insertId,
-  })
-  broadcast(['admin', 'staff'], 'appointment_updated', { appointmentId: result.insertId, status: 'pending' })
-  res.status(201).json({ message: 'Appointment created.', id: result.insertId })
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role||'admin',action:'appointment.created',entityType:'appointment',entityId:result.insertId,newValues:{patient_id,doctor_id,clinic_type,requested_service_id:Number(service.id),requested_service_name:service.service_name,appointment_date:normalizedDate,appointment_time,appointment_source:'admin_booking',reserved_duration_minutes:reservedDurationMinutes},ipAddress:req.ip||null })
+  const [rows] = await db.query(`SELECT p.full_name AS patient_name,d.id AS doctor_id,d.full_name AS doctor_name,d.phone AS doctor_phone FROM appointments a JOIN patients p ON a.patient_id=p.id JOIN doctors d ON a.doctor_id=d.id WHERE a.id=?`,[result.insertId])
+  await notifyRoles(['admin','staff'],{type:'appointment_booked',title:'New patient booking',message:`${rows[0].patient_name} booked an appointment with ${rows[0].doctor_name} on ${normalizedDate} at ${appointment_time}.`,reference_type:'appointment',reference_id:result.insertId})
+  broadcast(['admin','staff'],'appointment_updated',{appointmentId:result.insertId,status:'pending'})
+  res.status(201).json({ message:'Appointment created.', id:result.insertId })
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -1551,6 +1611,46 @@ const deleteDoctorUnavailableDateAdmin = async (req, res) => {
   res.json({ message: 'Unavailable date removed.' })
 }
 
+const getBookingPolicyAdmin = async (req, res) => {
+  res.json(await loadBookingSettings())
+}
+
+const updateBookingPolicyAdmin = async (req, res) => {
+  const settings = await saveBookingSettings(req.body, { role: req.user?.role || 'admin', userId: req.user?.id || null })
+  await writeAuditLog({ userId:req.user?.id||null,userRole:req.user?.role||'admin',action:'booking.policy_updated',entityType:'booking_settings',entityId:1,newValues:settings,ipAddress:req.ip||null }).catch(()=>{})
+  res.json({ ...settings, message: 'Booking policy updated.' })
+}
+
+const getAppointmentAvailableSlotsAdmin = async (req, res) => {
+  const date = toDateOnly(req.query.date)
+  if (!isValidDateOnly(date)) return res.status(400).json({ message: 'A valid date is required.' })
+  const doctorId = Number(req.params.id)
+  const appointmentId = Number(req.query.appointment_id)
+  const settings = await loadBookingSettings()
+  let clinicType = String(req.query.clinic_type || '').trim()
+  let durationMinutes = 60
+  let excludeAppointmentId = null
+
+  if (appointmentId > 0) {
+    const [[appointment]] = await db.query(
+      `SELECT doctor_id, clinic_type, reserved_duration_minutes_snapshot, requested_service_duration_minutes_snapshot
+       FROM appointments WHERE id = ? LIMIT 1`, [appointmentId])
+    if (!appointment || Number(appointment.doctor_id) !== doctorId) return res.status(404).json({ message: 'Appointment not found for this doctor.' })
+    clinicType = appointment.clinic_type
+    durationMinutes = getAppointmentReservedDuration(appointment)
+    excludeAppointmentId = appointmentId
+  } else {
+    const serviceId = Number(req.query.service_id)
+    if (!serviceId || !['medical','derma'].includes(clinicType)) return res.status(400).json({ message: 'Clinic and service are required.' })
+    const [[service]] = await db.query(`SELECT id,clinic_type,average_duration_minutes,is_active FROM billing_service_catalog WHERE id=? LIMIT 1`,[serviceId])
+    if (!service || Number(service.is_active)!==1 || ![clinicType,'all'].includes(String(service.clinic_type||''))) return res.status(409).json({ message: 'The selected service is unavailable for this clinic.' })
+    durationMinutes = roundReservedDurationMinutes(Number(service.average_duration_minutes||60),settings.booking_start_interval_minutes)
+  }
+
+  const slots = await getAvailableAppointmentSlots({ doctorId, clinicType, date, durationMinutes, startIntervalMinutes:settings.booking_start_interval_minutes, excludeAppointmentId })
+  res.json({ slots, reserved_duration_minutes:durationMinutes, booking_start_interval_minutes:settings.booking_start_interval_minutes })
+}
+
 const getBillingCatalogAdmin = async (req, res) => {
   const rows = await listBillingCatalog({
     clinicType: String(req.query.clinic_type || '').trim() || undefined,
@@ -1560,11 +1660,12 @@ const getBillingCatalogAdmin = async (req, res) => {
 }
 
 const createBillingCatalogService = async (req, res) => {
+  if (!requireAdminPricingAccess(req, res)) return
   const payload = normalizeBillingCatalogPayload(req.body)
   if (!payload.service_name) {
     return res.status(400).json({ message: 'Service name is required.' })
   }
-  if (payload.default_price <= 0) return res.status(400).json({ code:'SERVICE_PRICE_REQUIRED', message:'Service Price is required and must be greater than ₱0.00.' })
+  if (payload.consultation_fee <= 0) return res.status(400).json({ code:'SERVICE_PRICE_REQUIRED', message:'Service Price is required and must be greater than ₱0.00.' })
 
   const conn = await db.getConnection()
   try {
@@ -1572,11 +1673,12 @@ const createBillingCatalogService = async (req, res) => {
     const category = await resolveBillingServiceCategory(payload, conn)
     payload.category_id = category.id
     payload.category = category.name
+    await applyServiceConsumablePricing(payload, conn)
 
     const [result] = await conn.query(
       `INSERT INTO billing_service_catalog
-       (category_id, category, service_name, clinic_type, default_price, consultation_fee, profit_percentage, is_active, sort_order, pricing_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (category_id, category, service_name, clinic_type, default_price, consultation_fee, average_duration_minutes, profit_percentage, is_active, sort_order, pricing_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.category_id,
         payload.category,
@@ -1584,6 +1686,7 @@ const createBillingCatalogService = async (req, res) => {
         payload.clinic_type,
         payload.default_price,
         payload.consultation_fee,
+        payload.average_duration_minutes,
         payload.profit_percentage,
         payload.is_active,
         payload.sort_order,
@@ -1608,11 +1711,12 @@ const createBillingCatalogService = async (req, res) => {
 }
 
 const updateBillingCatalogService = async (req, res) => {
+  if (!requireAdminPricingAccess(req, res)) return
   const payload = normalizeBillingCatalogPayload(req.body)
   if (!payload.service_name) {
     return res.status(400).json({ message: 'Service name is required.' })
   }
-  if (payload.default_price <= 0) return res.status(400).json({ code:'SERVICE_PRICE_REQUIRED', message:'Service Price is required and must be greater than ₱0.00.' })
+  if (payload.consultation_fee <= 0) return res.status(400).json({ code:'SERVICE_PRICE_REQUIRED', message:'Service Price is required and must be greater than ₱0.00.' })
 
   const conn = await db.getConnection()
   try {
@@ -1629,10 +1733,11 @@ const updateBillingCatalogService = async (req, res) => {
     const category = await resolveBillingServiceCategory(payload, conn, { allowInactiveId: existingRows[0].category_id })
     payload.category_id = category.id
     payload.category = category.name
+    await applyServiceConsumablePricing(payload, conn)
 
     await conn.query(
       `UPDATE billing_service_catalog
-       SET category_id = ?, category = ?, service_name = ?, clinic_type = ?, default_price = ?, consultation_fee = ?, profit_percentage = ?, is_active = ?, sort_order = ?, pricing_notes = ?
+       SET category_id = ?, category = ?, service_name = ?, clinic_type = ?, default_price = ?, consultation_fee = ?, average_duration_minutes = ?, profit_percentage = ?, is_active = ?, sort_order = ?, pricing_notes = ?
        WHERE id = ?`,
       [
         payload.category_id,
@@ -1641,6 +1746,7 @@ const updateBillingCatalogService = async (req, res) => {
         payload.clinic_type,
         payload.default_price,
         payload.consultation_fee,
+        payload.average_duration_minutes,
         payload.profit_percentage,
         payload.is_active,
         payload.sort_order,
@@ -1666,6 +1772,7 @@ const updateBillingCatalogService = async (req, res) => {
 }
 
 const deleteBillingCatalogService = async (req, res) => {
+  if (!requireAdminPricingAccess(req, res)) return
   const [rows] = await db.query('SELECT id, service_name FROM billing_service_catalog WHERE id = ? LIMIT 1', [req.params.serviceId])
   if (rows.length === 0) {
     return res.status(404).json({ message: 'Billing service not found.' })
@@ -2357,13 +2464,12 @@ const nextInventoryBarcode = async (category, conn = db) => {
 
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
-  const [uoms] = await db.query('SELECT id,name,allow_decimal_quantity,decimal_precision FROM inventory_uoms WHERE is_active=1 ORDER BY sort_order,name')
   const [suppliers] = await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name ASC`, category ? [category] : [])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY is_active DESC,sort_order,name')
   const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
                                             FROM inventory_movement_reasons WHERE is_active=1
                                             ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`)
-  res.json({ uoms, suppliers, location_types: locationTypes, movement_reasons: movementReasons })
+  res.json({ suppliers, location_types: locationTypes, movement_reasons: movementReasons })
 }
 
 const createInventoryLocation = async (req, res) => {
@@ -2437,13 +2543,13 @@ const addInventoryItem = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const setupSelection = await resolveInventorySetupSelection({ uom, location_type_id }, conn)
+    const setupSelection = await resolveInventorySetupSelection({ location_type_id }, conn)
     uom = setupSelection.uom
     unit = uom
     base_unit = uom
     location_type_id = setupSelection.locationType.id
     if (!barcode) barcode = await nextInventoryBarcode(category, conn)
-    // Every receipt gets its own internal batch code. Supplier lot is stored separately.
+    // Every receipt gets its own internal batch code automatically.
     batch_code = null
     if (supplier_id) {
       const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
@@ -2468,7 +2574,7 @@ const addInventoryItem = async (req, res) => {
         quantity: stock,
         expiration_date: req.body.no_expiry ? null : expiration_date,
         batch_code,
-        supplier_lot_number,
+        supplier_lot_number: null,
         supplier_id,
         unit_cost: 0,
         note: 'Opening stock',
@@ -2500,7 +2606,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, item_type, barcode, uom, dosage_form, strength, measurement_value, measurement_unit, selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: supplier_lot_number || null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, dosage_form, strength, measurement_value, measurement_unit, selling_price, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -2542,7 +2648,7 @@ const updateInventoryItem = async (req, res) => {
       return res.status(409).json({ code: 'INVENTORY_ARCHIVED', message: 'Archived inventory items cannot be edited.' })
     }
 
-    const setupSelection = await resolveInventorySetupSelection({ uom, location_type_id }, conn)
+    const setupSelection = await resolveInventorySetupSelection({ location_type_id }, conn)
     const canonicalUom = setupSelection.uom
     location_type_id = setupSelection.locationType.id
 
@@ -2557,6 +2663,9 @@ const updateInventoryItem = async (req, res) => {
       supplier = supplierRow.name
     }
 
+    const previousSellingPrice = Number(currentRows[0].selling_price || 0)
+    const sellingPriceChanged = Math.abs(Number(selling_price || 0) - previousSellingPrice) > 0.0001
+
     await conn.query(
       `UPDATE inventory
        SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, measurement_value=?, measurement_unit=?, unit=?, base_unit=?, unit_size=1, threshold=?, price=?, selling_price=?, supplier=?, supplier_id=?, location_type_id=?
@@ -2564,9 +2673,20 @@ const updateInventoryItem = async (req, res) => {
       [barcode, name, category, item_type, canonicalUom, dosage_form, strength, measurement_value, measurement_unit, canonicalUom, canonicalUom, threshold, selling_price, selling_price, supplier, supplier_id, location_type_id, req.params.id]
     )
     await syncInventorySnapshot(req.params.id, conn)
+    const pricingImpact = sellingPriceChanged ? await recalculateLinkedServicePatientPrices(req.params.id, conn) : []
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: req.user?.role || 'admin',
+      action: 'inventory.item_updated',
+      entityType: 'inventory_item',
+      entityId: req.params.id,
+      oldValues: { name: currentRows[0].name, selling_price: currentRows[0].selling_price },
+      newValues: { name, selling_price, linked_service_prices_recalculated: pricingImpact },
+      ipAddress: req.ip || null,
+    }, conn)
     await conn.commit()
     const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
-    res.json(updated[0])
+    res.json({ ...updated[0], pricing_impact: pricingImpact })
   } catch (err) {
     await conn.rollback()
     if (err?.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || null })
@@ -3604,7 +3724,7 @@ const deleteBillingServiceCategory = async (req, res) => {
 
 const deleteInventoryUom = async (req, res) => {
   const id = Number(req.params.id || 0)
-  if (!id) return res.status(400).json({ message: 'A valid Stock Unit is required.' })
+  if (!id) return res.status(400).json({ message: 'A valid Unit of Measure is required.' })
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
@@ -3673,7 +3793,7 @@ const saveInventorySupplier = async (req, res) => {
 
 const saveInventoryLocationType = async (req,res) => {
   const id = Number(req.params.id || 0)
-  const name = normalizeText(req.body?.name, { field: 'Storage Classification name', required: true, max: 80 })
+  const name = normalizeText(req.body?.name, { field: 'Storage Location name', required: true, max: 80 })
   const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
   const sortOrder = normalizeNumber(req.body?.sort_order ?? 0, { field: 'Sort Order', min: -999999, max: 999999, integer: true }) ?? 0
 
@@ -3683,13 +3803,13 @@ const saveInventoryLocationType = async (req,res) => {
 
     if (id) {
       const [[existing]] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE id=?', [id])
-      if (!existing) return res.status(404).json({ message: 'Location Type not found.' })
+      if (!existing) return res.status(404).json({ message: 'Storage Location not found.' })
 
       if (!isActive) {
         const [[usage]] = await db.query('SELECT COUNT(*) AS total FROM inventory WHERE location_type_id=?', [id])
         if (Number(usage?.total || 0) > 0) {
           return res.status(409).json({
-            message: 'This Location Type is assigned to inventory items. Reassign those items before deactivating it.',
+            message: 'This Storage Location is assigned to inventory items. Reassign those items before deactivating it.',
             code: 'LOCATION_TYPE_IN_USE',
           })
         }
@@ -3702,7 +3822,7 @@ const saveInventoryLocationType = async (req,res) => {
       )
     } else {
       code = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-      if (!code) return res.status(400).json({ message: 'Enter a valid Location Type name.' })
+      if (!code) return res.status(400).json({ message: 'Enter a valid Storage Location name.' })
       const [result] = await db.query(
         'INSERT INTO inventory_location_types (name,code,is_active,sort_order) VALUES (?,?,?,?)',
         [name, code, isActive, sortOrder]
@@ -3726,7 +3846,7 @@ const saveInventoryLocationType = async (req,res) => {
     )
     res.status(id ? 200 : 201).json(row)
   } catch (err) {
-    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That Location Type already exists.' })
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That Storage Location already exists.' })
     throw err
   }
 }
@@ -3991,8 +4111,9 @@ module.exports = {
   getAppointmentReasonOptions, createAppointmentReasonOption, updateAppointmentReasonOption, deleteAppointmentReasonOption, getAppointmentCancellationReasons,
   getDoctors, createDoctor, toggleDoctor, updateDoctor,
   getDoctorSchedules, saveDaySchedule,
-  getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin,
+  getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin, getAppointmentAvailableSlotsAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
+  getBookingPolicyAdmin, updateBookingPolicyAdmin,
   getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment, confirmBillingPaymentAction,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
@@ -4001,4 +4122,3 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
-

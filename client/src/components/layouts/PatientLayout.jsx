@@ -31,6 +31,7 @@ const PatientLayout = () => {
   const navigate  = useNavigate()
   const { user, logout: clearAuth } = useAuth()
   const { theme, toggleTheme } = useTheme()
+  const settingsActionCount = user?.email && !user?.email_verified_at ? 1 : 0
   const handleSSEMessage = useCallback((eventName) => {
     if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
@@ -207,8 +208,9 @@ const PatientLayout = () => {
             <button onClick={toggleTheme} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
               {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
             </button>
-            <NavLink data-tour="patient-settings" to="/patient/settings" className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
+            <NavLink data-tour="patient-settings" to="/patient/settings" aria-label={settingsActionCount ? `Settings — ${settingsActionCount} action required` : 'Settings'} className="relative w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
               <MdSettings className="text-[18px]" />
+              {settingsActionCount > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-black leading-none text-white ring-2 ring-white">{settingsActionCount > 9 ? '9+' : settingsActionCount}</span>}
             </NavLink>
             <div className="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-100">
               <ProfileAvatar user={user} size="sm" />
@@ -265,4 +267,3 @@ const PatientLayout = () => {
 }
 
 export default PatientLayout
-

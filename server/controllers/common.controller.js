@@ -164,6 +164,91 @@ const confirmMyPhoneChange = async (req, res) => {
   } catch (err) { res.status(err.statusCode || 400).json({ message: err.message }) }
 }
 
+
+const requestMyEmailVerification = async (req, res) => {
+  if (req.user.role !== 'patient') return res.status(403).json({ message: 'Patient account required.' })
+  try {
+    const [[patient]] = await db.query(
+      'SELECT id, full_name, email, email_verified_at FROM patients WHERE id = ? LIMIT 1',
+      [req.user.id]
+    )
+    if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
+    if (!patient.email) return res.status(400).json({ message: 'Add an email address in Settings before requesting verification.' })
+    if (patient.email_verified_at) {
+      return res.json({ message: 'Your email address is already verified.', already_verified: true, email_verified_at: patient.email_verified_at })
+    }
+
+    const email = String(patient.email).trim().toLowerCase()
+    const code = await createSecurityCode({
+      role: 'patient',
+      accountId: req.user.id,
+      purpose: 'patient_email_verification',
+      payload: { email },
+    })
+    await sendAccountSecurityOtp(email, patient.full_name, code)
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'patient',
+      action: 'security.email_verification_requested',
+      entityType: 'patient',
+      entityId: req.user.id,
+      newValues: { email },
+      ipAddress: req.ip || null,
+    }).catch(() => {})
+    res.json({ message: `Verification code sent to ${email}.` })
+  } catch (err) {
+    res.status(err.statusCode || 400).json({ message: err.message })
+  }
+}
+
+const confirmMyEmailVerification = async (req, res) => {
+  if (req.user.role !== 'patient') return res.status(403).json({ message: 'Patient account required.' })
+  try {
+    const verified = await verifySecurityCode({
+      role: 'patient',
+      accountId: req.user.id,
+      purpose: 'patient_email_verification',
+      code: req.body?.code,
+    })
+    const [[patient]] = await db.query(
+      'SELECT id, email, email_verified_at FROM patients WHERE id = ? LIMIT 1',
+      [req.user.id]
+    )
+    if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
+
+    const currentEmail = String(patient.email || '').trim().toLowerCase()
+    const requestedEmail = String(verified.payload?.email || '').trim().toLowerCase()
+    if (!currentEmail || !requestedEmail || currentEmail !== requestedEmail) {
+      return res.status(409).json({
+        code: 'EMAIL_VERIFICATION_RESTART_REQUIRED',
+        message: 'Your email address changed after this code was sent. Request a new verification code.',
+      })
+    }
+
+    await db.query('UPDATE patients SET email_verified_at = NOW() WHERE id = ?', [req.user.id])
+    const [[updated]] = await db.query(
+      'SELECT email, email_verified_at FROM patients WHERE id = ? LIMIT 1',
+      [req.user.id]
+    )
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: 'patient',
+      action: 'security.email_verified',
+      entityType: 'patient',
+      entityId: req.user.id,
+      newValues: { email: currentEmail },
+      ipAddress: req.ip || null,
+    }).catch(() => {})
+    res.json({
+      message: 'Email address verified successfully.',
+      email: updated?.email || currentEmail,
+      email_verified_at: updated?.email_verified_at || new Date().toISOString(),
+    })
+  } catch (err) {
+    res.status(err.statusCode || 400).json({ message: err.message })
+  }
+}
+
 const completePatientOnboarding = async (req, res) => {
   if (req.user.role !== 'patient') return res.status(403).json({ message: 'Patient account required.' })
   await db.query('UPDATE patients SET onboarding_completed_at = COALESCE(onboarding_completed_at, NOW()) WHERE id = ?', [req.user.id])
@@ -184,9 +269,10 @@ module.exports = {
   completePatientOnboarding,
   requestMyPhoneChange,
   confirmMyPhoneChange,
+  requestMyEmailVerification,
+  confirmMyEmailVerification,
   getPublicLandingPage,
   getPublicClinicSettings,
   getAdminLandingPage,
   saveAdminLandingPage,
 }
-

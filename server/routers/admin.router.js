@@ -69,6 +69,7 @@ router.put('/doctors/:id',                ...auth, adminCtrl.updateDoctor)
 router.get('/doctors/:id/schedules',      ...auth, adminCtrl.getDoctorSchedules)
 router.put('/doctors/:id/schedules',      ...auth, adminCtrl.saveDaySchedule)
 router.get('/doctors/:id/unavailable-dates', ...auth, adminCtrl.getDoctorUnavailableDatesAdmin)
+router.get('/doctors/:id/available-slots', ...auth, adminCtrl.getAppointmentAvailableSlotsAdmin)
 router.put('/doctors/:id/unavailable-dates', ...auth, adminCtrl.saveDoctorUnavailableDateAdmin)
 router.delete('/doctors/:id/unavailable-dates/:date', ...auth, adminCtrl.deleteDoctorUnavailableDateAdmin)
 
@@ -106,6 +107,8 @@ router.post('/audit-logs/archive', ...auth, adminCtrl.archiveAuditLogs)
 router.get('/audit-logs/archive/:archiveId', ...auth, adminCtrl.getAuditArchiveDetail)
 router.delete('/audit-logs/archive/:archiveId', ...auth, adminCtrl.deleteAuditArchive)
 router.get('/system-setup', ...auth, adminCtrl.getSystemSetup)
+router.get('/system-setup/booking-policy', ...auth, adminCtrl.getBookingPolicyAdmin)
+router.put('/system-setup/booking-policy', ...auth, adminCtrl.updateBookingPolicyAdmin)
 router.post('/system-setup/cancellation-reasons', ...auth, adminCtrl.saveAppointmentCancellationReason)
 router.put('/system-setup/cancellation-reasons/:id', ...auth, adminCtrl.saveAppointmentCancellationReason)
 router.delete('/system-setup/cancellation-reasons/:id', ...auth, adminCtrl.deleteAppointmentCancellationReason)
@@ -147,4 +150,3 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
-

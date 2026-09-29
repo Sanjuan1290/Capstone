@@ -11,6 +11,7 @@ import {
 } from "react-icons/md"
 import { NavLink } from "react-router-dom"
 import { parseDateOnly } from "../../utils/date"
+import { formatAppointmentRange, formatDurationMinutes, getReservedDurationMinutes } from "../../utils/appointmentTime"
 
 function formatDate(raw) {
   if (!raw) return "—"
@@ -230,9 +231,15 @@ const PatientDashboard = () => {
                   <MdAccessTime className="text-[11px]" /> Time
                 </p>
                 <p className="text-sm font-bold text-slate-800">
-                  {upcoming.appointment_time || upcoming.time}
+                  {formatAppointmentRange(upcoming)}
                 </p>
               </div>
+              {upcoming.requested_service_name_snapshot && (
+                <div className="col-span-2 bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] text-slate-400 mb-1">Service</p>
+                  <p className="text-sm font-semibold text-slate-700">{upcoming.requested_service_name_snapshot} · {formatDurationMinutes(getReservedDurationMinutes(upcoming))}</p>
+                </div>
+              )}
               {upcoming.reason && (
                 <div className="col-span-2 bg-slate-50 rounded-xl p-3">
                   <p className="text-[10px] text-slate-400 mb-1">Reason</p>
@@ -317,4 +324,6 @@ const PatientDashboard = () => {
 }
 
 export default PatientDashboard
+
+
 

@@ -4,21 +4,29 @@ const path = require('path')
 const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', '..', '..', ...parts), 'utf8')
 
 describe('September 28 Batch 2 — inventory semantics, services setup, and prescription quantity', () => {
-  it('separates stock unit from per-unit strength/size in inventory', () => {
+  it('uses generic whole units, requires Supplier, and removes Unit of Measure configuration from the inventory UI', () => {
     const ui = read('client', 'src', 'pages', 'shared', 'Inventory.jsx')
+    const tabs = read('client', 'src', 'components', 'system', 'SystemSetupTabs.jsx')
+    const setup = read('client', 'src', 'pages', 'adminPage', 'Admin_SystemSetup.jsx')
     const schema = read('server', 'utils', 'schema.js')
     const admin = read('server', 'controllers', 'admin.controller.js')
     const staff = read('server', 'controllers', 'staff.controller.js')
 
-    expect(ui).toContain('Stock Unit *')
-    expect(ui).toContain('Strength / Size per Stock Unit')
-    expect(ui).toContain('measurement_value')
-    expect(ui).toContain('measurement_unit')
-    expect(ui).toContain('This does not change the inventory quantity.')
+    expect(ui).not.toContain('Unit of Measure *')
+    expect(ui).not.toContain('Units of Measure')
+    expect(ui).toContain("uom: 'unit'")
+    expect(ui).toContain('Supplier *')
+    expect(ui).toContain('Storage Location *')
+    expect(ui).toContain('Opening Quantity *')
+    expect(ui).toContain('Opening Batch Expiry')
+    expect(tabs).not.toContain("key: 'uoms'")
+    expect(setup).not.toContain("type === 'uoms'")
     expect(schema).toContain("ensureColumn('inventory', 'measurement_value', 'DECIMAL(12,4) NULL')")
     expect(schema).toContain("ensureColumn('inventory', 'measurement_unit', 'VARCHAR(30) NULL')")
-    expect(admin).toContain('measurement_value, measurement_unit')
-    expect(staff).toContain('measurement_value, measurement_unit')
+    expect(admin).toContain("const uom = 'unit'")
+    expect(staff).toContain("const uom = 'unit'")
+    expect(admin).toContain("message: 'Supplier is required.'")
+    expect(staff).toContain("message: 'Supplier is required.'")
   })
 
   it('renames the visible setup area without changing its stable internal route', () => {
@@ -32,12 +40,43 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     expect(permissions).toContain('Services & Pricing Setup')
   })
 
-  it('explains consumable quantity versus its read-only stock unit', () => {
+  it('tracks service consumables as generic whole units and adds their Selling Price to the Service Price', () => {
     const source = read('client', 'src', 'pages', 'adminPage', 'Admin_BillingServiceForm.jsx')
+    const controller = read('server', 'controllers', 'admin.controller.js')
+    const inventory = read('client', 'src', 'pages', 'shared', 'Inventory.jsx')
     expect(source).toContain('Quantity Used *')
-    expect(source).toContain('Stock Unit')
-    expect(source).toContain('intentionally read-only here')
-    expect(source).toContain('Inherited from Inventory')
+    expect(source).toContain('whole units')
+    expect(source).toContain('Consumable Price')
+    expect(source).toContain('Total Patient Price')
+    expect(source).toContain('consultation_fee: servicePrice')
+    expect(source).not.toContain('Unit of Measure')
+    expect(source).not.toContain('uom_allow_decimal')
+    expect(controller).toContain('applyServiceConsumablePricing')
+    expect(controller).toContain('payload.default_price = Math.round((baseServicePrice + consumablesTotal) * 100) / 100')
+    expect(controller).toContain('SERVICE_CONSUMABLE_CLINIC_MISMATCH')
+    expect(source).toContain("materials: []")
+    expect(source).toContain('This inventory item does not belong to the selected clinic')
+    expect(inventory).not.toContain('Use Auto Code')
+  })
+
+  it('keeps Service Price separate from calculated patient total and restricts pricing changes to Admin', () => {
+    const catalog = read('client', 'src', 'pages', 'adminPage', 'Admin_BillingCatalog.jsx')
+    const serviceForm = read('client', 'src', 'pages', 'adminPage', 'Admin_BillingServiceForm.jsx')
+    const inventory = read('client', 'src', 'pages', 'shared', 'Inventory.jsx')
+    const staffInventory = read('client', 'src', 'pages', 'staffPage', 'Staff_Inventory.jsx')
+    const admin = read('server', 'controllers', 'admin.controller.js')
+    const staff = read('server', 'controllers', 'staff.controller.js')
+
+    expect(catalog).toContain('Service Price</th>')
+    expect(catalog).toContain('formatMoney(servicePrice(service))')
+    expect(serviceForm).toContain('Services & Pricing is Admin-only')
+    expect(inventory).toContain('Changing this Selling Price affects linked service totals')
+    expect(inventory).toContain('Only Admin can change inventory pricing')
+    expect(staffInventory).toContain('canManageSellingPrice={false}')
+    expect(admin).toContain('recalculateLinkedServicePatientPrices')
+    expect(admin).toContain("code: 'ADMIN_PRICING_REQUIRED'")
+    expect(staff).toContain("code: 'ADMIN_PRICING_REQUIRED'")
+    expect(staff).not.toContain('threshold=?, price=?, selling_price=?, supplier=?')
   })
 
   it('uses prescription quantity while keeping legacy dosage readable', () => {
@@ -55,4 +94,5 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     expect(print).toContain('r.quantity??r.dosage')
   })
 })
+
 

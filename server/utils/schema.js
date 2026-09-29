@@ -256,6 +256,8 @@ const seedInventoryAndBillingMaterials = async () => {
 const ensureAppSchema = async () => {
   await ensureColumn('appointments', 'status', "VARCHAR(32) NOT NULL DEFAULT 'pending'")
     .catch(() => {})
+  // Appointment status must remain extensible (for example automatic 'rejected' booking requests).
+  await db.query("ALTER TABLE appointments MODIFY COLUMN status VARCHAR(32) NOT NULL DEFAULT 'pending'").catch(() => {})
 
   // Doctor schedules support normal same-day hours, overnight shifts, and a full
   // 24-hour calendar day. These flags keep the meaning explicit instead of
@@ -535,6 +537,8 @@ const ensureAppSchema = async () => {
 
   await ensureColumn('billing_service_catalog', 'profit_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 20.00')
   await ensureColumn('billing_service_catalog', 'consultation_fee', 'DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER default_price')
+  await ensureColumn('billing_service_catalog', 'average_duration_minutes', 'INT NOT NULL DEFAULT 60 AFTER consultation_fee')
+  await db.query(`UPDATE billing_service_catalog SET average_duration_minutes = 60 WHERE average_duration_minutes IS NULL OR average_duration_minutes < 15 OR average_duration_minutes > 480 OR MOD(average_duration_minutes,15) <> 0`).catch(() => {})
   await ensureColumn('billing_service_catalog', 'category_id', 'INT NULL AFTER id')
   // default_price is the clinic's explicit patient-facing selling price.
   await ensureColumn('billing_service_catalog', 'pricing_notes', 'VARCHAR(255) NULL')
@@ -878,6 +882,40 @@ const ensureAppSchema = async () => {
   await ensureColumn('appointments', 'requested_service_id', 'INT NULL')
   await ensureColumn('appointments', 'requested_service_name_snapshot', 'VARCHAR(180) NULL')
   await ensureColumn('appointments', 'requested_service_price_snapshot', 'DECIMAL(10,2) NULL')
+  await ensureColumn('appointments', 'requested_service_duration_minutes_snapshot', 'INT NULL')
+  await ensureColumn('appointments', 'reserved_duration_minutes_snapshot', 'INT NULL')
+  await ensureColumn('appointments', 'confirmation_deadline_at', 'DATETIME NULL')
+  await ensureColumn('appointments', 'rejected_at', 'DATETIME NULL')
+  await ensureColumn('appointments', 'rejected_by_role', 'VARCHAR(20) NULL')
+  await ensureColumn('appointments', 'rejection_reason', 'VARCHAR(120) NULL')
+  await ensureIndex('appointments', 'idx_appointments_confirmation_deadline', 'status, appointment_source, confirmation_deadline_at').catch(() => {})
+  await db.query(`
+    UPDATE appointments a
+    LEFT JOIN billing_service_catalog bsc ON bsc.id = a.requested_service_id
+    SET a.requested_service_duration_minutes_snapshot = COALESCE(NULLIF(a.requested_service_duration_minutes_snapshot,0), bsc.average_duration_minutes, 60),
+        a.reserved_duration_minutes_snapshot = COALESCE(NULLIF(a.reserved_duration_minutes_snapshot,0), CEIL(COALESCE(NULLIF(a.requested_service_duration_minutes_snapshot,0), bsc.average_duration_minutes, 60) / 30) * 30)
+    WHERE a.requested_service_duration_minutes_snapshot IS NULL
+       OR a.requested_service_duration_minutes_snapshot <= 0
+       OR a.reserved_duration_minutes_snapshot IS NULL
+       OR a.reserved_duration_minutes_snapshot <= 0
+  `).catch(() => {})
+
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS booking_settings (
+      id TINYINT NOT NULL PRIMARY KEY,
+      online_min_lead_minutes INT NOT NULL DEFAULT 120,
+      pending_confirmation_cutoff_minutes INT NOT NULL DEFAULT 60,
+      booking_start_interval_minutes INT NOT NULL DEFAULT 30,
+      updated_by_role VARCHAR(20) NULL,
+      updated_by_user_id INT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `)
+  await db.query(`
+    INSERT INTO booking_settings (id, online_min_lead_minutes, pending_confirmation_cutoff_minutes, booking_start_interval_minutes)
+    VALUES (1,120,60,30)
+    ON DUPLICATE KEY UPDATE id=id
+  `).catch(() => {})
   await ensureColumn('appointments', 'cancellation_reason_id', 'INT NULL')
   await ensureColumn('appointments', 'cancellation_reason_snapshot', 'VARCHAR(120) NULL')
   await ensureColumn('appointments', 'cancellation_details', 'VARCHAR(500) NULL')
@@ -1339,7 +1377,7 @@ const ensureAppSchema = async () => {
   await ensureColumn('patients', 'onboarding_completed_at', "DATETIME NULL")
   await ensureColumn('patients', 'email_verified_at', 'DATETIME NULL').catch(() => {})
   await ensureColumn('patients', 'phone_verified_at', 'DATETIME NULL').catch(() => {})
-  await db.query(`UPDATE patients SET email_verified_at=COALESCE(email_verified_at, created_at, NOW()) WHERE COALESCE(is_walk_in,0)=0 AND email IS NOT NULL AND TRIM(email)<>'' AND email_verified_at IS NULL`).catch(() => {})
+  // Keep email_verified_at NULL until an explicit email verification flow confirms the address.
   await db.query("ALTER TABLE patients MODIFY COLUMN sex ENUM('Male','Female','Other') NULL").catch(() => {})
   await ensureColumn('queue', 'appointment_id', 'INT NULL').catch(() => {})
 
@@ -1557,4 +1595,5 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
+
 

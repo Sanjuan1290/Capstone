@@ -64,7 +64,7 @@ const PatientLogin = () => {
         <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
           <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5">
             <h2 className="text-lg font-bold text-white">Welcome back</h2>
-            <p className="mt-0.5 text-sm text-emerald-100">Sign in using your verified mobile number or email</p>
+            <p className="mt-0.5 text-sm text-emerald-100">Sign in using your mobile number or email</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4 px-6 py-6">
@@ -156,4 +156,5 @@ const PatientLogin = () => {
 }
 
 export default PatientLogin
+
 

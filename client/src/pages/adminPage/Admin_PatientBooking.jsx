@@ -6,6 +6,8 @@ import {
   createAppointmentReason,
   updateAppointmentReason,
   deleteAppointmentReason,
+  getBookingPolicy,
+  updateBookingPolicy,
 } from '../../services/admin.service'
 import {
   MdAdd,
@@ -35,6 +37,17 @@ const clinicLabel = (value) => (
   CLINIC_TYPES.find((item) => item.value === value)?.label || value
 )
 
+const durationLabel = (minutes) => {
+  const total = Math.max(0, Number(minutes) || 0)
+  const hours = Math.floor(total / 60)
+  const mins = total % 60
+  if (!hours) return `${mins} minute${mins === 1 ? '' : 's'}`
+  if (!mins) return `${hours} hour${hours === 1 ? '' : 's'}`
+  return `${hours} hour${hours === 1 ? '' : 's'} ${mins} minutes`
+}
+
+const BOOKING_POLICY_MINUTE_OPTIONS = Array.from({ length: 48 }, (_, index) => (index + 1) * 30)
+
 const Admin_PatientBooking = () => {
   const [reasons, setReasons] = useState([])
   const [loading, setLoading] = useState(true)
@@ -44,6 +57,10 @@ const Admin_PatientBooking = () => {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
+  const [bookingPolicy, setBookingPolicy] = useState({ online_min_lead_minutes: 120, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
+  const [savedBookingPolicy, setSavedBookingPolicy] = useState({ online_min_lead_minutes: 120, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
+  const [editingPolicy, setEditingPolicy] = useState(false)
+  const [savingPolicy, setSavingPolicy] = useState(false)
 
   const loadReasons = async () => {
     setLoading(true)
@@ -57,9 +74,71 @@ const Admin_PatientBooking = () => {
     }
   }
 
+  const loadPolicy = async () => {
+    try {
+      const data = await getBookingPolicy()
+      const loadedPolicy = {
+        online_min_lead_minutes: Number(data?.online_min_lead_minutes ?? 120),
+        pending_confirmation_cutoff_minutes: Number(data?.pending_confirmation_cutoff_minutes ?? 60),
+        booking_start_interval_minutes: 30,
+      }
+      setBookingPolicy(loadedPolicy)
+      setSavedBookingPolicy(loadedPolicy)
+      setEditingPolicy(false)
+    } catch (err) {
+      console.error('Failed to load booking policy:', err)
+    }
+  }
+
   useEffect(() => {
     loadReasons()
+    loadPolicy()
   }, [])
+
+  const policyError = useMemo(() => {
+    const notice = Number(bookingPolicy.online_min_lead_minutes)
+    const cutoff = Number(bookingPolicy.pending_confirmation_cutoff_minutes)
+    if (!Number.isInteger(notice) || notice < 30 || notice > 1440 || notice % 30 !== 0) {
+      return 'Minimum online booking notice must be 30 minutes to 24 hours in 30-minute increments.'
+    }
+    if (!Number.isInteger(cutoff) || cutoff < 30 || cutoff > 1440 || cutoff % 30 !== 0) {
+      return 'Pending confirmation cutoff must be 30 minutes to 24 hours in 30-minute increments.'
+    }
+    if (cutoff >= notice) return 'Pending confirmation cutoff must be less than the minimum online booking notice so Staff has time to review the request.'
+    return ''
+  }, [bookingPolicy.online_min_lead_minutes, bookingPolicy.pending_confirmation_cutoff_minutes])
+
+  const startPolicyEdit = () => {
+    setBookingPolicy({ ...savedBookingPolicy })
+    setEditingPolicy(true)
+  }
+
+  const cancelPolicyEdit = () => {
+    setBookingPolicy({ ...savedBookingPolicy })
+    setEditingPolicy(false)
+  }
+
+  const savePolicy = async () => {
+    if (!editingPolicy) return
+    if (policyError) { alert(policyError); return }
+    setSavingPolicy(true)
+    try {
+      const saved = await updateBookingPolicy(bookingPolicy)
+      const nextPolicy = {
+        online_min_lead_minutes: Number(saved?.online_min_lead_minutes ?? bookingPolicy.online_min_lead_minutes),
+        pending_confirmation_cutoff_minutes: Number(saved?.pending_confirmation_cutoff_minutes ?? bookingPolicy.pending_confirmation_cutoff_minutes),
+        booking_start_interval_minutes: 30,
+      }
+      setBookingPolicy(nextPolicy)
+      setSavedBookingPolicy(nextPolicy)
+      setEditingPolicy(false)
+      alert('Booking policy updated.')
+    } catch (err) {
+      alert(err.message || 'Failed to update booking policy.')
+    } finally {
+      setSavingPolicy(false)
+    }
+  }
 
   const filteredReasons = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -156,13 +235,52 @@ const Admin_PatientBooking = () => {
           </p>
         </div>
         <button
-          onClick={loadReasons}
+          onClick={() => { loadReasons(); loadPolicy() }}
           className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
         >
           <MdRefresh className="text-[16px]" /> Refresh
         </button>
       </div>
 
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-black text-slate-800">Online Booking Policy</h2>
+            <p className="mt-1 text-xs text-slate-500">Controls how much advance notice patients need and how long Staff has to confirm a pending online request. Adjustable values can only be changed in 30-minute increments.</p>
+          </div>
+          {!editingPolicy ? (
+            <button onClick={startPolicyEdit} className="button-secondary"><MdEdit /> Edit Booking Policy</button>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button onClick={cancelPolicyEdit} disabled={savingPolicy} className="button-secondary">Cancel</button>
+              <button onClick={savePolicy} disabled={savingPolicy || Boolean(policyError)} className="button-primary">{savingPolicy ? 'Saving…' : 'Save Booking Policy'}</button>
+            </div>
+          )}
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <label>
+            <span className="form-label">Minimum Online Booking Notice</span>
+            <select disabled={!editingPolicy} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.online_min_lead_minutes} onChange={(e)=>setBookingPolicy((current)=>({...current,online_min_lead_minutes:Number(e.target.value)}))}>
+              {BOOKING_POLICY_MINUTE_OPTIONS.map((minutes)=><option key={minutes} value={minutes}>{durationLabel(minutes)}</option>)}
+            </select>
+            <span className="form-helper">{durationLabel(bookingPolicy.online_min_lead_minutes)} before the appointment. Adjust only in 30-minute increments. Default: 2 hours.</span>
+          </label>
+          <label>
+            <span className="form-label">Pending Confirmation Cutoff</span>
+            <select disabled={!editingPolicy} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.pending_confirmation_cutoff_minutes} onChange={(e)=>setBookingPolicy((current)=>({...current,pending_confirmation_cutoff_minutes:Number(e.target.value)}))}>
+              {BOOKING_POLICY_MINUTE_OPTIONS.map((minutes)=><option key={minutes} value={minutes}>{durationLabel(minutes)}</option>)}
+            </select>
+            <span className="form-helper">Auto-reject if still pending {durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)} before the appointment. Adjust only in 30-minute increments. Default: 1 hour.</span>
+          </label>
+          <div>
+            <span className="form-label">Booking Start Interval</span>
+            <div className="form-control mt-1.5 bg-slate-50 font-bold text-slate-700">30 minutes</div>
+            <span className="form-helper">Fixed at 30 minutes. Available start times move in 30-minute increments; service duration determines how many blocks are reserved.</span>
+          </div>
+        </div>
+        {editingPolicy && policyError ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{policyError}</div> : <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">Patients must book at least <strong>{durationLabel(bookingPolicy.online_min_lead_minutes)}</strong> ahead. If Staff has not confirmed the request by <strong>{durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)}</strong> before its start time, the system automatically marks it Rejected and releases the slot.</div>}
+      </section>
 
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
         <p className="font-bold">Built-in fallback: Other</p>
@@ -388,4 +506,3 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
-

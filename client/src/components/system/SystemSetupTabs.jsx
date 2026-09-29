@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
-  MdCategory, MdEventBusy, MdInventory2, MdLocalShipping, MdPayments, MdPlace, MdSettings, MdSwapVert,
+  MdCategory, MdEventBusy, MdLocalShipping, MdPayments, MdPlace, MdSettings, MdSwapVert,
 } from 'react-icons/md'
 
 export const SYSTEM_SETUP_TABS = [
@@ -8,9 +8,8 @@ export const SYSTEM_SETUP_TABS = [
   { key: 'cancellation_reasons', label: 'Reason for Cancellation', Icon: MdEventBusy, suffix: '/system-setup?tab=cancellation_reasons' },
   { key: 'billing_setup', label: 'Services & Pricing Setup', Icon: MdPayments, suffix: '/system-setup/billing/services' },
   { key: 'service_categories', label: 'Service Categories', Icon: MdCategory, suffix: '/system-setup?tab=service_categories' },
-  { key: 'uoms', label: 'Units of Measure', Icon: MdInventory2, suffix: '/system-setup?tab=uoms' },
   { key: 'suppliers', label: 'Suppliers', Icon: MdLocalShipping, suffix: '/system-setup?tab=suppliers' },
-  { key: 'location_types', label: 'Storage Classifications', Icon: MdPlace, suffix: '/system-setup?tab=location_types' },
+  { key: 'location_types', label: 'Storage Locations', Icon: MdPlace, suffix: '/system-setup?tab=location_types' },
   { key: 'movement_reasons', label: 'Movement Reasons', Icon: MdSwapVert, suffix: '/system-setup?tab=movement_reasons' },
 ]
 
@@ -18,7 +17,7 @@ const SystemSetupTabs = () => {
   const location = useLocation()
   const base = location.pathname.startsWith('/staff') ? '/staff' : '/admin'
   const requestedTab = new URLSearchParams(location.search).get('tab')
-  const activeKey = location.pathname.includes('/system-setup/billing') ? 'billing_setup' : requestedTab || 'visits'
+  const activeKey = location.pathname.includes('/system-setup/billing') ? 'billing_setup' : (SYSTEM_SETUP_TABS.some((tab) => tab.key === requestedTab) ? requestedTab : 'visits')
 
   return (
     <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2">
@@ -32,4 +31,5 @@ const SystemSetupTabs = () => {
 }
 
 export default SystemSetupTabs
+
 

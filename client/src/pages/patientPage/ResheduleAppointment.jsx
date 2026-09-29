@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  getMyAppointments, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, rescheduleAppointment,
+  getMyAppointments, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, rescheduleAppointment,
 } from '../../services/patient.service'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdCalendarToday,
@@ -12,10 +12,10 @@ import {
   MdSwapHoriz, MdEventAvailable,
 } from 'react-icons/md'
 import {
-  buildSlotsForScheduleDate,
   buildUnavailableDateSet,
   isDoctorAvailableOnDate,
 } from '../../utils/schedule'
+import { formatAppointmentRange, formatAppointmentTimeRange, formatDurationMinutes, getReservedDurationMinutes } from '../../utils/appointmentTime'
 
 const MONTHS = ['January','February','March','April','May','June',
   'July','August','September','October','November','December']
@@ -67,7 +67,10 @@ const CurrentCard = ({ appt }) => {
         <p className="text-xs font-bold text-amber-600 uppercase tracking-wide">Current Appointment</p>
         <p className="text-sm font-semibold text-slate-800 truncate">{appt.doctor_name || appt.doctor}</p>
         <p className="text-xs text-slate-500 mt-0.5">
-          {appt.appointment_date || appt.date} · {appt.appointment_time || appt.time}
+          {appt.appointment_date || appt.date} · {formatAppointmentRange(appt)}
+        </p>
+        <p className="text-[11px] font-semibold text-amber-700 mt-1">
+          {appt.requested_service_name_snapshot || 'Service'} · {formatDurationMinutes(getReservedDurationMinutes(appt))} reserved
         </p>
       </div>
       <MdSwapHoriz className="text-amber-400 text-[22px] shrink-0" />
@@ -133,14 +136,10 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
     }
     let cancelled = false
 
-    getDoctorTakenSlots(appt.doctor_id, dateStr, { excludeAppointmentId: appt.id })
-      .then((reservedSlots) => {
+    getDoctorAvailableSlots(appt.doctor_id, { date: dateStr, appointmentId: appt.id, clinicType: appt.clinic_type })
+      .then((result) => {
         if (cancelled) return
-        const available = buildSlotsForScheduleDate(dateStr, schedule, {
-          takenSlots: Array.isArray(reservedSlots) ? reservedSlots : [],
-          unavailableDates,
-        })
-
+        const available = Array.isArray(result?.slots) ? result.slots : []
         setTimeSlots(available)
         if (time && !available.includes(time)) setTime('')
       })
@@ -286,7 +285,7 @@ const StepConfirm = ({ current, newDate, newTime, reason }) => {
 
         {[
           { label: 'New Date', value: dateStr, icon: MdCalendarToday },
-          { label: 'New Time', value: newTime || '—', icon: MdAccessTime },
+          { label: 'New Time', value: newTime ? formatAppointmentTimeRange(newTime, getReservedDurationMinutes(current)) : '—', icon: MdAccessTime },
           { label: 'Reason',   value: reason || '—', icon: MdEventAvailable },
         ].map(({ label, value, icon: I }) => (
           <div key={label} className="flex items-start gap-3">
@@ -315,9 +314,9 @@ const SuccessScreen = ({ navigate }) => (
     <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-5">
       <MdCheck className="text-emerald-500 text-[40px]" />
     </div>
-    <h2 className="text-xl font-bold text-slate-800 mb-2">Appointment Rescheduled!</h2>
+    <h2 className="text-xl font-bold text-slate-800 mb-2">Reschedule Request Submitted!</h2>
     <p className="text-sm text-slate-500 max-w-xs mb-7">
-      Your appointment has been updated. Check <strong>My Appointments</strong> for the new schedule.
+      Your new time is pending clinic confirmation. Check <strong>My Appointments</strong> for the updated status.
     </p>
     <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
       <button onClick={() => navigate('/patient/appointments')}
@@ -457,4 +456,3 @@ const RescheduleAppointment = () => {
 }
 
 export default RescheduleAppointment
-

@@ -11,7 +11,7 @@ const {
   getProfileStatus, updateProfile,
   getAppointments, getHistory,
   createAppointment, cancelAppointment, rescheduleAppointment, getAppointmentCancellationReasons,
-  getAppointmentReasons, getBookingReadiness, getBookingServices, getDoctors, getDoctorsAvailability, getDoctorSchedule, getDoctorUnavailableDatesController, getDoctorTakenSlots,
+  getAppointmentReasons, getBookingReadiness, getBookingServices, getDoctors, getDoctorsAvailability, getDoctorSchedule, getDoctorUnavailableDatesController, getDoctorAvailableSlots, getDoctorTakenSlots,
 } = require('../controllers/patient.controller')
 const commonCtrl = require('../controllers/common.controller')
 
@@ -29,6 +29,8 @@ router.post('/security/password/request-code', otpRequestLimiter, commonCtrl.req
 router.post('/security/password/change', otpVerifyLimiter, commonCtrl.changeMyPassword)
 router.post('/security/phone/request-code', otpRequestLimiter, commonCtrl.requestMyPhoneChange)
 router.post('/security/phone/change', otpVerifyLimiter, commonCtrl.confirmMyPhoneChange)
+router.post('/security/email/request-code', otpRequestLimiter, commonCtrl.requestMyEmailVerification)
+router.post('/security/email/verify', otpVerifyLimiter, commonCtrl.confirmMyEmailVerification)
 router.patch('/onboarding/complete', commonCtrl.completePatientOnboarding)
 router.get('/notifications',                        commonCtrl.listNotifications)
 router.patch('/notifications/read-all',             commonCtrl.readAllNotifications)
@@ -50,7 +52,7 @@ router.get('/doctors',                             getDoctors)
 router.get('/doctors/availability',                getDoctorsAvailability)
 router.get('/doctors/:id/schedule',                getDoctorSchedule)
 router.get('/doctors/:id/unavailable-dates',       getDoctorUnavailableDatesController)
+router.get('/doctors/:id/available-slots',          getDoctorAvailableSlots)
 router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router
-

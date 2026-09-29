@@ -1,6 +1,5 @@
 // client/src/pages/staffPage/Staff_Appointments.jsx
-// Thin wrapper — passes staff service functions to the shared Appointments component.
-// Route stays: /staff/appointments
+// Thin wrapper — passes Staff appointment services to the shared Appointments component.
 
 import Appointments from '../shared/Appointments'
 import {
@@ -16,6 +15,8 @@ import {
   getDoctors,
   getDoctorSchedules,
   getAppointmentCancellationReasons,
+  getAppointmentAvailableSlots,
+  getBookingServices,
 } from '../../services/staff.service'
 
 const staffServices = {
@@ -31,9 +32,10 @@ const staffServices = {
   getDoctors,
   getDoctorSchedules,
   getAppointmentCancellationReasons,
+  getAppointmentAvailableSlots,
+  getBookingServices,
 }
 
 const Staff_Appointments = () => <Appointments services={staffServices} />
 
 export default Staff_Appointments
-

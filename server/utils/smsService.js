@@ -143,6 +143,7 @@ const sendPatientAppointmentStatusSms = async ({
     cancelled: `Carait Clinic: Hi ${patientLabel}, your appointment with Dr. ${cleanDoctorName} on ${appointmentDate} at ${appointmentTime} has been cancelled.`,
     rescheduled: `Carait Clinic: Hi ${patientLabel}, your appointment with Dr. ${cleanDoctorName} was moved to ${appointmentDate} at ${appointmentTime}.`,
     no_show: `Carait Clinic: Your appointment on ${appointmentDate} at ${appointmentTime} was marked no-show. Please contact the clinic before booking again.`,
+    rejected: `Carait Clinic: Hi ${patientLabel}, your appointment request on ${appointmentDate} at ${appointmentTime} was not confirmed in time and the slot was released.`,
   }
 
   const baseMessage = statusMessages[status] || `Carait Clinic appointment update: ${appointmentDate} at ${appointmentTime}.`
@@ -169,4 +170,3 @@ module.exports = {
   sendDoctorAppointmentSms,
   sendPatientAppointmentStatusSms,
 }
-

@@ -18,6 +18,7 @@ import {
   MdSearch,
 } from 'react-icons/md'
 import { doctorClinicLabel } from '../../utils/doctor'
+import { formatAppointmentRange, formatDurationMinutes, getReservedDurationMinutes } from '../../utils/appointmentTime'
 
 function formatDate(raw) {
   if (!raw) return '—'
@@ -107,11 +108,19 @@ const VisitCard = ({ visit }) => {
   }
 
   const progressImages = Array.isArray(visit.progress_images) ? visit.progress_images.filter((image) => image?.image_url) : []
+  const statusMeta = {
+    completed: { label: 'Completed', badge: 'bg-slate-100 text-slate-500 border-slate-200', card: 'border-slate-200 shadow-sm' },
+    cancelled: { label: 'Cancelled', badge: 'bg-red-50 text-red-500 border-red-200', card: 'border-red-100 opacity-70' },
+    rejected: { label: 'Rejected', badge: 'bg-violet-50 text-violet-700 border-violet-200', card: 'border-violet-100 bg-violet-50/20' },
+    no_show: { label: 'No Show', badge: 'bg-amber-50 text-amber-700 border-amber-200', card: 'border-amber-100 bg-amber-50/20' },
+  }[visit.status] || { label: String(visit.status || 'History').replace(/_/g, ' '), badge: 'bg-slate-100 text-slate-500 border-slate-200', card: 'border-slate-200 shadow-sm' }
   const isCancelled = visit.status === 'cancelled'
-  const hasDetails = visit.diagnosis || visit.consultation_notes || prescriptions.length > 0 || progressImages.length > 0
+  const isRejected = visit.status === 'rejected'
+  const isCompleted = visit.status === 'completed'
+  const hasDetails = isCompleted && (visit.diagnosis || visit.consultation_notes || prescriptions.length > 0 || progressImages.length > 0)
 
   return (
-    <div className={`bg-white rounded-2xl border overflow-hidden transition-all ${isCancelled ? 'border-red-100 opacity-70' : 'border-slate-200 shadow-sm'}`}>
+    <div className={`bg-white rounded-2xl border overflow-hidden transition-all ${statusMeta.card}`}>
       <div className="flex items-start gap-3 p-4">
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${visit.type === 'derma' ? 'bg-emerald-50' : 'bg-slate-100'}`}>
           <Icon className={`text-[18px] ${visit.type === 'derma' ? 'text-emerald-600' : 'text-slate-500'}`} />
@@ -125,12 +134,8 @@ const VisitCard = ({ visit }) => {
                 {doctorClinicLabel(visit)}
               </p>
             </div>
-            <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0 ${
-              isCancelled
-                ? 'bg-red-50 text-red-500 border-red-200'
-                : 'bg-slate-100 text-slate-500 border-slate-200'
-            }`}>
-              {isCancelled ? 'Cancelled' : 'Completed'}
+            <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0 ${statusMeta.badge}`}>
+              {statusMeta.label}
             </span>
           </div>
 
@@ -141,9 +146,15 @@ const VisitCard = ({ visit }) => {
             </span>
             <span className="flex items-center gap-1">
               <MdAccessTime className="text-[11px]" />
-              {visit.appointment_time || visit.time || '—'}
+              {formatAppointmentRange(visit)}
             </span>
           </div>
+
+          {visit.requested_service_name_snapshot && (
+            <p className="mt-1.5 text-[11px] font-semibold text-sky-700">
+              {visit.requested_service_name_snapshot} · {formatDurationMinutes(getReservedDurationMinutes(visit))}
+            </p>
+          )}
 
           {visit.reason && (
             <p className="text-xs text-slate-500 mt-1.5 bg-slate-50 rounded-lg px-2.5 py-1.5 inline-block">
@@ -156,10 +167,16 @@ const VisitCard = ({ visit }) => {
               {visit.cancellation_details && <p className="mt-1">{visit.cancellation_details}</p>}
             </div>
           )}
+          {isRejected && (
+            <div className="mt-2 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-800">
+              <p><span className="font-bold">Reason:</span> {visit.rejection_reason === 'confirmation_timeout' ? 'The clinic confirmation deadline passed before Staff confirmed this request.' : (visit.rejection_reason || 'Appointment request was not confirmed.')}</p>
+              <p className="mt-1">The requested time was released and can be booked again.</p>
+            </div>
+          )}
         </div>
       </div>
 
-      {!isCancelled && visit.diagnosis && !expanded && (
+      {isCompleted && visit.diagnosis && !expanded && (
         <div className="px-4 pb-3">
           <p className="text-xs font-semibold text-slate-700 truncate">
             Dx: <span className="font-normal text-slate-600">{visit.diagnosis}</span>
@@ -167,7 +184,7 @@ const VisitCard = ({ visit }) => {
         </div>
       )}
 
-      {!isCancelled && progressImages.length > 0 && !expanded && (
+      {isCompleted && progressImages.length > 0 && !expanded && (
         <div className="px-4 pb-3">
           <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
             <img
@@ -188,7 +205,7 @@ const VisitCard = ({ visit }) => {
         </div>
       )}
 
-      {expanded && !isCancelled && hasDetails && (
+      {expanded && isCompleted && hasDetails && (
         <div className="px-4 pb-4 space-y-3 border-t border-slate-100 pt-3">
           {visit.diagnosis && (
             <div>
@@ -242,7 +259,7 @@ const VisitCard = ({ visit }) => {
         </div>
       )}
 
-      {!isCancelled && hasDetails && (
+      {isCompleted && hasDetails && (
         <button
           onClick={() => setExpanded(!expanded)}
           className="w-full flex items-center justify-center gap-1 py-2.5 text-[11px] font-bold text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-t border-slate-100 transition-colors"
@@ -282,8 +299,9 @@ const History = () => {
   const historyPagination = useClientPagination(filtered, { resetDeps: [search] })
   const grouped = groupByMonth(historyPagination.pageItems)
   const months = Object.keys(grouped)
-  const completed = history.filter((visit) => visit.status !== 'cancelled').length
+  const completed = history.filter((visit) => visit.status === 'completed').length
   const cancelled = history.filter((visit) => visit.status === 'cancelled').length
+  const rejected = history.filter((visit) => visit.status === 'rejected').length
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
@@ -297,7 +315,7 @@ const History = () => {
       </div>
 
       {!loading && history.length > 0 && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
             <p className="text-3xl font-black text-emerald-600">{completed}</p>
             <p className="text-xs text-slate-400 font-medium mt-0.5">Completed</p>
@@ -305,6 +323,10 @@ const History = () => {
           <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
             <p className="text-3xl font-black text-red-400">{cancelled}</p>
             <p className="text-xs text-slate-400 font-medium mt-0.5">Cancelled</p>
+          </div>
+          <div className="bg-white border border-violet-200 rounded-2xl p-4 text-center shadow-sm">
+            <p className="text-3xl font-black text-violet-600">{rejected}</p>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">Rejected</p>
           </div>
         </div>
       )}
@@ -374,4 +396,3 @@ const History = () => {
 }
 
 export default History
-

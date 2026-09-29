@@ -67,7 +67,7 @@ const BookingReadinessPanel = ({ readiness }) => (
         const firstWarning = status?.warnings?.[0]
         const actionCode = firstIssue || firstWarning
         const baseAction = BOOKING_ISSUE_ACTIONS[actionCode]
-        const action = baseAction && actionCode === 'NO_ACTIVE_SERVICE'
+        const action = baseAction && firstIssue === 'NO_ACTIVE_SERVICE'
           ? { ...baseAction, path: `${baseAction.path}?clinic=${id}` }
           : baseAction
         return (
@@ -316,4 +316,5 @@ const Admin_Dashboard = () => {
 }
 
 export default Admin_Dashboard
+
 

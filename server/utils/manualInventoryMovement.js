@@ -45,20 +45,9 @@ const resolveConfiguredMovementReason = async (type, value, executor) => {
     }
   }
 }
-const validateQuantityByUom = async (item, quantity, executor) => {
-  const [[policy]] = await executor.query(
-    `SELECT COALESCE(allow_decimal_quantity,0) AS allow_decimal_quantity
-     FROM inventory_uoms WHERE LOWER(name)=LOWER(?) LIMIT 1`,
-    [item.uom || item.base_unit || item.unit || '']
-  ).catch(() => [[null]])
-  const allowDecimal = Number(policy?.allow_decimal_quantity || 0) === 1
-  const precision = allowDecimal ? 2 : 0
-  const scale = 10 ** precision
-  if (!allowDecimal && Math.abs(quantity - Math.round(quantity)) > 0.000001) {
-    throw Object.assign(new Error(`${item.uom || item.unit || 'This unit'} only allows whole-number quantities.`), { statusCode: 400, code: 'INVENTORY_QUANTITY_PRECISION' })
-  }
-  if (allowDecimal && Math.abs(quantity * scale - Math.round(quantity * scale)) > 0.000001) {
-    throw Object.assign(new Error(`Quantity supports up to ${precision} decimal place${precision === 1 ? '' : 's'} for ${item.uom || item.unit || 'this unit'}.`), { statusCode: 400, code: 'INVENTORY_QUANTITY_PRECISION' })
+const validateInventoryQuantity = (quantity) => {
+  if (!Number.isInteger(Number(quantity))) {
+    throw Object.assign(new Error('Inventory quantities must be whole units.'), { statusCode: 400, code: 'INVENTORY_QUANTITY_PRECISION' })
   }
 }
 
@@ -80,7 +69,7 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
   }
   const item = rows[0]
   if (item.archived_at) throw Object.assign(new Error('Archived inventory items cannot receive or issue stock.'), { statusCode: 409, code: 'INVENTORY_ARCHIVED' })
-  await validateQuantityByUom(item, qty, executor)
+  validateInventoryQuantity(qty)
   const actorColumn = actorRole === 'admin' ? 'admin_id' : 'staff_id'
   const note = normalizeOptionalText(body.note, { field: 'Movement Note', max: 255, multiline: true }) || ''
   let auditValues
@@ -98,11 +87,6 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
       error.statusCode = 400
       error.code = 'INVENTORY_EXPIRY_REQUIRED'
       throw error
-    }
-    const lotMissing = body.supplier_lot_missing === true || body.supplier_lot_missing === 1 || String(body.supplier_lot_missing || '').toLowerCase() === 'true'
-    const supplierLotNumber = normalizeOptionalText(body.supplier_lot_number, { field: 'Supplier Lot Number', max: 120 }) || ''
-    if (!lotMissing && !supplierLotNumber) {
-      throw Object.assign(new Error('Supplier Lot Number is required unless the supplier did not provide one.'), { statusCode: 400, code: 'INVENTORY_SUPPLIER_LOT_REQUIRED' })
     }
     const supplierId = Number(body.supplier_id || item.supplier_id || 0)
     if (!supplierId) throw Object.assign(new Error('Select the supplier for this receipt.'), { statusCode: 400, code: 'INVENTORY_SUPPLIER_REQUIRED' })
@@ -123,7 +107,7 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
       quantity: qty,
       expiration_date: noExpiry ? null : body.expiration_date,
       batch_code: body.batch_code,
-      supplier_lot_number: lotMissing ? null : supplierLotNumber,
+      supplier_lot_number: null,
       supplier_id: supplierId,
       note: note || 'Manual stock-in',
       // Acquisition cost is intentionally not tracked in the simplified inventory model.
@@ -218,4 +202,5 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
 }
 
 module.exports = { applyManualInventoryMovement }
+
 

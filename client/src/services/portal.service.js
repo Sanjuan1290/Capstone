@@ -53,6 +53,18 @@ export const confirmPatientPhoneChange = (code) =>
     body: JSON.stringify({ code }),
   })
 
+
+export const requestPatientEmailVerificationCode = () =>
+  request('patient', '/security/email/request-code', {
+    method: 'POST',
+  })
+
+export const confirmPatientEmailVerification = (code) =>
+  request('patient', '/security/email/verify', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  })
+
 export const getClinicalImageScanStatus = async (appointmentId, assetId, scanToken) => {
   const response = await fetch('/api/doctor/uploads/clinical/status', {
     method: 'POST',
@@ -129,4 +141,3 @@ export const uploadClinicalImageSigned = async (file, appointmentId, { scanMode 
     throw error
   }
 }
-

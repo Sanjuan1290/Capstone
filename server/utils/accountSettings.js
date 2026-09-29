@@ -12,7 +12,7 @@ const selectFieldsByRole = {
   admin: 'id, full_name, email, theme_preference, profile_image_url',
   staff: 'id, full_name, email, phone, theme_preference, profile_image_url',
   doctor: 'id, full_name, email, phone, clinic_type, theme_preference, profile_image_url',
-  patient: 'id, full_name, email, phone, address, COALESCE(gender, sex) AS gender, COALESCE(gender, sex) AS sex, DATE_FORMAT(birthdate, "%Y-%m-%d") AS birthdate, receive_promotions, is_profile_complete, theme_preference, profile_image_url',
+  patient: 'id, full_name, email, email_verified_at, phone, address, COALESCE(gender, sex) AS gender, COALESCE(gender, sex) AS sex, DATE_FORMAT(birthdate, "%Y-%m-%d") AS birthdate, receive_promotions, is_profile_complete, theme_preference, profile_image_url',
 }
 
 const getSettings = async (role, id) => {
@@ -64,11 +64,12 @@ const updateSettings = async (role, id, payload) => {
       address: nextValues.address,
       email: nextValues.email,
     })
+    const emailChanged = String(nextValues.email || '').trim().toLowerCase() !== String(current.email || '').trim().toLowerCase()
 
     await db.query(
       `UPDATE patients
        SET full_name = ?, phone = ?, address = ?, civil_status = NULL, gender = ?, sex = ?, birthdate = ?, email = ?,
-           receive_promotions = ?, is_profile_complete = ?, theme_preference = ?, profile_image_url = ?
+           email_verified_at = ?, receive_promotions = ?, is_profile_complete = ?, theme_preference = ?, profile_image_url = ?
        WHERE id = ?`,
       [
         nextValues.full_name,
@@ -78,6 +79,7 @@ const updateSettings = async (role, id, payload) => {
         nextValues.gender,
         nextValues.birthdate,
         nextValues.email,
+        emailChanged ? null : current.email_verified_at,
         nextValues.receive_promotions ? 1 : 0,
         status.is_profile_complete ? 1 : 0,
         nextValues.theme_preference,
@@ -104,4 +106,5 @@ module.exports = {
   getSettings,
   updateSettings,
 }
+
 

@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
-  getAppointmentReasons, getBookingReadiness, getBookingServices, getDoctorsAvailability, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, bookAppointment,
+  getAppointmentReasons, getBookingReadiness, getBookingServices, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import {
@@ -13,8 +13,8 @@ import {
   MdArrowForward, MdWarning, MdRefresh,
 } from 'react-icons/md'
 import { getLocalDateOnly } from '../../utils/date'
+import { formatAppointmentTimeRange } from '../../utils/appointmentTime'
 import {
-  buildSlotsForScheduleDate,
   buildUnavailableDateSet,
   isDoctorAvailableOnDate,
   scheduleSummary,
@@ -34,6 +34,7 @@ function getDaysInMonth(y, m) { return new Date(y, m+1, 0).getDate() }
 function getFirstDay(y, m)    { return new Date(y, m, 1).getDay() }
 function pad(n) { return String(n).padStart(2, '0') }
 function toISO(y, m, d) { return `${y}-${pad(m+1)}-${pad(d)}` }
+function formatDuration(minutes) { const total=Number(minutes||60); const h=Math.floor(total/60), m=total%60; return [h?`${h} hr${h===1?'':'s'}`:'',m?`${m} min`:''].filter(Boolean).join(' ') }
 
 // ── Step bar ──────────────────────────────────────────────────────────────────
 const StepBar = ({ current }) => (
@@ -145,7 +146,7 @@ const StepService = ({ clinicType, value, onChange, services, loading, error, on
           </div>
           <div className="shrink-0 text-right">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Standard Price</p>
-            <p className="text-sm font-black text-emerald-700">₱{Number(service.default_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <div className="text-right"><p className="text-sm font-black text-emerald-700">₱{Number(service.default_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p><p className="mt-1 text-[10px] font-semibold text-slate-400">{formatDuration(service.average_duration_minutes)} average · {formatDuration(service.reserved_duration_minutes)} reserved</p></div>
           </div>
         </div>
       </button>
@@ -385,7 +386,7 @@ const StepConfirm = ({ form, policyAccepted, onPolicyAcceptedChange }) => {
         {[
           { label: 'Service', value: form.service?.service_name, icon: MdMedicalServices },
           { label: 'Date',   value: dateLabel,   icon: MdCalendarToday },
-          { label: 'Time',   value: form.time,   icon: MdAccessTime    },
+          { label: 'Time',   value: form.time ? formatAppointmentTimeRange(form.time, form.service?.reserved_duration_minutes || 60) : '', icon: MdAccessTime },
           { label: 'Reason', value: form.reason === 'Other' && form.reasonDetails ? `Other — ${form.reasonDetails}` : form.reason, icon: MdPerson },
         ].filter(r=>r.value).map(({ label, value, icon: I }) => (
           <div key={label} className="flex items-center gap-3 mb-3 last:mb-0">
@@ -436,9 +437,9 @@ const SuccessScreen = ({ onReset }) => (
     <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-5">
       <MdCheck className="text-emerald-500 text-[40px]" />
     </div>
-    <h2 className="text-xl font-bold text-slate-800 mb-2">Appointment Booked!</h2>
+    <h2 className="text-xl font-bold text-slate-800 mb-2">Appointment Request Submitted!</h2>
     <p className="text-sm text-slate-500 max-w-xs mb-8 leading-relaxed">
-      Your appointment has been scheduled. You can view it in <strong>My Appointments</strong>.
+      Your requested time is pending clinic confirmation. You can track the status in <strong>My Appointments</strong>.
     </p>
     <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
       <button onClick={onReset}
@@ -580,32 +581,30 @@ const BookAppointment = () => {
   }, [form.doctor])
 
   useEffect(() => {
-    if (!form.doctor || !form.date || !doctorSchedules.length) { setTimeSlots([]); return }
+    if (!form.doctor || !form.service || !form.date || !doctorSchedules.length) { setTimeSlots([]); return }
     if (!isDoctorAvailableOnDate(form.date, doctorSchedules, doctorUnavailableDates)) {
       setTimeSlots([])
       return
     }
 
     let cancelled = false
-
-    getDoctorTakenSlots(form.doctor.id, form.date)
-      .then((reservedSlots) => {
+    getDoctorAvailableSlots(form.doctor.id, {
+      date: form.date,
+      serviceId: form.service.id,
+      clinicType: form.clinicType,
+    })
+      .then((result) => {
         if (cancelled) return
-        const available = buildSlotsForScheduleDate(form.date, doctorSchedules, {
-          takenSlots: Array.isArray(reservedSlots) ? reservedSlots : [],
-          unavailableDates: doctorUnavailableDates,
-        })
-
+        const available = Array.isArray(result?.slots) ? result.slots : []
         setTimeSlots(available)
         setForm((prev) => (prev.time && !available.includes(prev.time) ? { ...prev, time: '' } : prev))
       })
       .catch(() => {
-        if (cancelled) return
-        setTimeSlots([])
+        if (!cancelled) setTimeSlots([])
       })
 
     return () => { cancelled = true }
-  }, [form.date, form.doctor, doctorSchedules, doctorUnavailableDates])
+  }, [form.date, form.doctor, form.service, form.clinicType, doctorSchedules, doctorUnavailableDates])
 
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
@@ -737,4 +736,3 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
-
