@@ -17,7 +17,7 @@ describe('Batch 6F empty service workflow', () => {
     expect(source).toContain('missingActiveClinics')
     expect(source).toContain('Add {clinicLabel(clinic)} Service')
     expect(source).toContain('No services configured yet')
-    expect(source).toContain('No {clinicLabel(filter)} services configured')
+    expect(source).toContain('No ${clinicLabel(filter)} services configured')
     expect(source).toContain("['medical', 'all'].includes(service.clinic_type)")
   })
 

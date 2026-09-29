@@ -139,7 +139,42 @@ const RescheduleDrawer = ({ appointment, services, onClose, onSave }) => {
   },[appointment,date,services])
 
   const handleSubmit=async()=>{ if(!date||!time||date<getLocalDateOnly())return; setSaving(true); try{await onSave(date,time);onClose()}finally{setSaving(false)} }
-  return <><div className="fixed inset-0 z-40 bg-black/40" onClick={onClose}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl"><div className="mb-4 flex items-center justify-between"><div><p className="text-sm font-bold text-slate-800">Reschedule Appointment</p><p className="text-xs text-slate-500">{appointment.patient_name||appointment.patient}</p><p className="mt-1 text-[11px] font-semibold text-sky-700">{appointment.requested_service_name_snapshot || 'Service'} · {formatDurationMinutes(getReservedDurationMinutes(appointment))} reserved</p></div><button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><MdClose/></button></div><div className="space-y-4"><label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date</span><input type="date" value={date} onChange={(e)=>{setDate(e.target.value);setTime('')}} min={getLocalDateOnly()} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"/></label><div><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Time</span><TimeSlotPicker date={date} value={time} onChange={setTime} availableSlots={availableSlots} loading={slotsLoading} emptyMessage="No start time can fit the full service duration on this date."/></div></div><div className="mt-5 flex gap-3"><button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button><button onClick={handleSubmit} disabled={!date||!time||saving} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-60">{saving?'Saving...':'Save'}</button></div></div></>
+
+  return <>
+    <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose}/>
+    <div className="fixed inset-x-0 bottom-0 z-50 flex max-h-[92vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:max-h-[88vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
+      <div className="shrink-0 border-b border-slate-100 p-5 pb-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-slate-800">Reschedule Appointment</p>
+            <p className="text-xs text-slate-500">{appointment.patient_name||appointment.patient}</p>
+            <p className="mt-1 text-[11px] font-semibold text-sky-700">{appointment.requested_service_name_snapshot || 'Service'} · {formatDurationMinutes(getReservedDurationMinutes(appointment))} reserved</p>
+          </div>
+          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><MdClose/></button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+        <div className="space-y-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date</span>
+            <input type="date" value={date} onChange={(e)=>{setDate(e.target.value);setTime('')}} min={getLocalDateOnly()} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"/>
+          </label>
+          <div>
+            <span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Time</span>
+            <TimeSlotPicker date={date} value={time} onChange={setTime} availableSlots={availableSlots} loading={slotsLoading} emptyMessage="No start time can fit the full service duration on this date."/>
+          </div>
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-slate-100 bg-white p-5 pt-4">
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Cancel</button>
+          <button onClick={handleSubmit} disabled={!date||!time||saving} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-60">{saving?'Saving...':'Save'}</button>
+        </div>
+      </div>
+    </div>
+  </>
 }
 
 const AppointmentViewModal = ({ appointment, onClose }) => {
@@ -499,8 +534,6 @@ const Appointments = ({ services }) => {
   const [viewAppointment, setViewAppointment] = useState(null)
   const [rescheduleAppointment, setRescheduleAppointment] = useState(null)
   const [cancelAppointmentTarget, setCancelAppointmentTarget] = useState(null)
-  const [inventoryConfirmTarget, setInventoryConfirmTarget] = useState(null)
-  const [inventoryOverrideReason, setInventoryOverrideReason] = useState('')
   const [showAdd, setShowAdd] = useState(false)
 
   const loadAppointments = useCallback(async () => {
@@ -608,35 +641,7 @@ Confirm this appointment anyway?`)
   const handleConfirm = async (appointment) => {
     setBusyId(appointment.id)
     try {
-      const readiness = services.getAppointmentInventoryReadiness
-        ? await services.getAppointmentInventoryReadiness(appointment.id)
-        : null
-      if (readiness && ['transfer_needed','shortage'].includes(readiness.status)) {
-        setInventoryConfirmTarget({ appointment, readiness })
-        setInventoryOverrideReason('')
-        return
-      }
       await confirmWithPolicyWarnings(appointment)
-      await loadAppointments()
-    } catch (err) {
-      alert(err.message || 'Could not confirm appointment.')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const confirmDespiteInventoryWarning = async () => {
-    const target = inventoryConfirmTarget
-    if (!target) return
-    if (target.readiness.status === 'shortage' && !inventoryOverrideReason.trim()) return
-    setBusyId(target.appointment.id)
-    try {
-      await confirmWithPolicyWarnings(target.appointment, {
-        override_inventory_warning: true,
-        inventory_override_reason: inventoryOverrideReason.trim() || undefined,
-      })
-      setInventoryConfirmTarget(null)
-      setInventoryOverrideReason('')
       await loadAppointments()
     } catch (err) {
       alert(err.message || 'Could not confirm appointment.')
@@ -847,18 +852,6 @@ Confirm this appointment anyway?`)
         />
       )}
       {viewAppointment && <AppointmentViewModal appointment={viewAppointment} onClose={() => setViewAppointment(null)} />}
-      {inventoryConfirmTarget && (
-        <>
-          <div className="fixed inset-0 z-[70] bg-black/50" onClick={() => setInventoryConfirmTarget(null)} />
-          <div className="fixed left-1/2 top-1/2 z-[80] max-h-[85vh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4"><div><h3 className="text-lg font-black text-slate-900">Inventory Readiness Check</h3><p className="mt-1 text-sm text-slate-500">{inventoryConfirmTarget.readiness.status === 'shortage' ? 'The clinic is short on one or more expected consumables.' : `Some expected consumables must be transferred to ${inventoryConfirmTarget.readiness.treatment_room}.`}</p></div><button onClick={() => setInventoryConfirmTarget(null)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"><MdClose /></button></div>
-            <div className="mt-4 space-y-2">{inventoryConfirmTarget.readiness.lines.map((line) => <div key={line.inventory_id} className={`rounded-2xl border p-4 ${line.status === 'ready' ? 'border-emerald-200 bg-emerald-50' : line.status === 'transfer_needed' ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold text-slate-900">{line.name}</p><p className="text-xs text-slate-500">Required: {line.required} {line.unit} · {inventoryConfirmTarget.readiness.treatment_room}: {line.treatment_room_stock} · Main Stockroom: {line.main_stockroom_stock}</p></div><span className={`text-xs font-black ${line.status === 'ready' ? 'text-emerald-700' : line.status === 'transfer_needed' ? 'text-amber-700' : 'text-rose-700'}`}>{line.status === 'ready' ? 'Ready' : line.status === 'transfer_needed' ? `Transfer ${line.suggested_transfer} ${line.unit}` : `Clinic short ${line.clinic_shortage} ${line.unit}`}</span></div></div>)}</div>
-            {inventoryConfirmTarget.readiness.status === 'shortage' && <label className="mt-4 block"><span className="form-label">Reason for confirming despite shortage *</span><textarea rows={3} maxLength={500} className="form-control mt-1.5" value={inventoryOverrideReason} onChange={(e) => setInventoryOverrideReason(e.target.value)} placeholder="e.g. Supplier delivery is scheduled before the appointment" /></label>}
-            <p className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800">Confirming does not reserve inventory. Stock is revalidated again when the consultation is completed.</p>
-            <div className="mt-5 flex justify-end gap-2"><button className="button-secondary" onClick={() => setInventoryConfirmTarget(null)}>Go Back</button><button className="button-primary" disabled={busyId === inventoryConfirmTarget.appointment.id || (inventoryConfirmTarget.readiness.status === 'shortage' && !inventoryOverrideReason.trim())} onClick={confirmDespiteInventoryWarning}>{inventoryConfirmTarget.readiness.status === 'shortage' ? 'Confirm Anyway' : 'Confirm & Flag for Transfer'}</button></div>
-          </div>
-        </>
-      )}
       <CancellationReasonModal
         open={Boolean(cancelAppointmentTarget)}
         appointment={cancelAppointmentTarget}

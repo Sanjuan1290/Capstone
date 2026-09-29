@@ -36,7 +36,7 @@ const {
 const { loadConsultationAmendments, assertConsultationEditable } = require('../utils/consultationIntegrity')
 const { assertPlainObject, normalizeOptionalText, normalizeText } = require('../utils/inputValidation')
 const { listSupplyTransferGroups } = require('../utils/supplyTransfers')
-const { getAppointmentInventoryReadiness, getBillingInventoryReadiness } = require('../utils/inventoryReadiness')
+const { getAppointmentInventoryReadiness } = require('../utils/inventoryReadiness')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -84,28 +84,6 @@ const logout = async (req, res) => {
   res.status(200).json({ message: 'Logged out.' })
 }
 
-const validateClinicalInventoryAvailability = async ({ billing, appointment }, conn) => {
-  const readiness = await getBillingInventoryReadiness({ billing, appointment, executor: conn })
-  const blocker = readiness.lines.find((line) => line.status !== 'ready')
-  if (blocker) {
-    throw Object.assign(
-      new Error(`Insufficient stock in ${readiness.treatment_room}. ${blocker.name} requires ${blocker.required} ${blocker.unit}, but only ${blocker.treatment_room_stock} is available in this room. Request a stock transfer before completing this consultation.`),
-      {
-        statusCode: 409,
-        code: 'INVENTORY_INSUFFICIENT',
-        inventory_id: blocker.inventory_id,
-        inventory_name: blocker.name,
-        requested: blocker.required,
-        available: blocker.treatment_room_stock,
-        unit: blocker.unit,
-        location: readiness.treatment_room,
-        readiness,
-      }
-    )
-  }
-  return readiness.lines
-}
-
 const consumeClinicalInventory = async ({ billing, consultationId, doctorId, appointment }, conn) => {
   if (!billing?.id || billing.clinical_inventory_consumed_at || !Array.isArray(billing.items)) return
   const usage = collectInventoryUsageFromBillingItems(billing.items)
@@ -128,19 +106,26 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
       : requestedUsageQty
     if (packageQuantity <= 0) continue
 
-    // Clinical use may consume only stock that was transferred into the treatment
-    // room. Main Stockroom is intentionally NOT a fallback; otherwise doctor stock
-    // requests/approvals can be bypassed and location accountability becomes false.
+    // Inventory is never reserved or pre-validated when an appointment is confirmed.
+    // Actual recorded usage is deducted only when the consultation is finalized.
+    // Prefer treatment-room stock for location accuracy, then use Main Stockroom as
+    // a fallback so a separate pre-consultation transfer is not required.
     const consumption = await consumeInventoryFromLocationFEFO(
       entry.inventory_id,
       packageQuantity,
       preferredLocation,
-      conn
+      conn,
+      { fallbackLocation: 'Main Stockroom' }
     )
-    if (!consumption.ok) throw Object.assign(
-      new Error(`Insufficient stock in ${preferredLocation} for ${inventory.name}. Request a stock transfer before completing this consultation.`),
-      { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, location: preferredLocation }
-    )
+    if (!consumption.ok) {
+      const shortageUsageQty = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
+        ? Number(consumption.shortage || 0) * unitSize
+        : Number(consumption.shortage || 0)
+      throw Object.assign(
+        new Error(`Not enough clinic stock is available to deduct the recorded usage for ${inventory.name}. Update the actual usage or restock the item before completing this consultation.`),
+        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: Math.max(0, requestedUsageQty - shortageUsageQty), unit: entry.unit_label || inventory.unit || 'unit', location: `${preferredLocation} / Main Stockroom` }
+      )
+    }
 
     const [usageResult] = await conn.query(
       `INSERT INTO consultation_inventory_usage
@@ -642,7 +627,6 @@ const finalizeConsultation = async (req, res) => {
       consultationId,
       items: billableServices,
     }, conn)
-    await validateClinicalInventoryAvailability({ billing, appointment: appt }, conn)
     await consumeClinicalInventory({ billing, consultationId, doctorId: req.user.id, appointment: appt }, conn)
 
     await conn.query(
@@ -1550,4 +1534,6 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
+
 

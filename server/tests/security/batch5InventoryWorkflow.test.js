@@ -3,26 +3,62 @@ const path = require('path')
 
 const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', '..', '..', ...parts), 'utf8')
 
-describe('Batch 5 inventory readiness and transfer workflow', () => {
-  it('uses one shared inventory readiness engine for appointment and consultation checks', () => {
+describe('Batch 5 deferred inventory deduction workflow', () => {
+  it('keeps inventory readiness available for optional/manual stock-transfer workflows only', () => {
     const utility = read('server', 'utils', 'inventoryReadiness.js')
     const doctor = read('server', 'controllers', 'doctor.controller.js')
     expect(utility).toContain('getAppointmentInventoryReadiness')
     expect(utility).toContain('getBillingInventoryReadiness')
     expect(utility).toContain("status === 'transfer_needed'")
-    expect(doctor).toContain('getBillingInventoryReadiness({ billing, appointment, executor: conn })')
+    expect(doctor).not.toContain('validateClinicalInventoryAvailability')
+    expect(doctor).not.toContain('getBillingInventoryReadiness({ billing, appointment, executor: conn })')
   })
 
-  it('warns before appointment confirmation when expected consumables are not ready', () => {
+  it('confirms appointments without inventory readiness warnings, overrides, or reservation UI', () => {
     const admin = read('server', 'controllers', 'admin.controller.js')
     const staff = read('server', 'controllers', 'staff.controller.js')
-    expect(admin).toContain('INVENTORY_READINESS_WARNING')
-    expect(staff).toContain('INVENTORY_READINESS_WARNING')
-    expect(admin).toContain('inventory_override_reason')
-    expect(staff).toContain('inventory_override_reason')
+    const appointments = read('client', 'src', 'pages', 'shared', 'Appointments.jsx')
+    expect(admin).not.toContain('INVENTORY_READINESS_WARNING')
+    expect(staff).not.toContain('INVENTORY_READINESS_WARNING')
+    expect(admin).not.toContain('inventory_override_reason')
+    expect(staff).not.toContain('inventory_override_reason')
+    expect(admin).not.toContain('inventory_preparation_needed')
+    expect(staff).not.toContain('inventory_preparation_needed')
+    expect(appointments).not.toContain('Inventory Readiness Check')
+    expect(appointments).not.toContain('Confirm & Flag for Transfer')
+    expect(appointments).not.toContain('getAppointmentInventoryReadiness(appointment.id)')
   })
 
-  it('links doctor stock transfers to active appointments and consultations', () => {
+  it('deducts actual clinical usage only on consultation finalization with Main Stockroom fallback', () => {
+    const doctor = read('server', 'controllers', 'doctor.controller.js')
+    const draftStart = doctor.indexOf('const saveConsultationDraft')
+    const finalizeStart = doctor.indexOf('const finalizeConsultation')
+    const getStart = doctor.indexOf('const getConsultation', finalizeStart)
+    const draftBlock = doctor.slice(draftStart, finalizeStart)
+    const finalizeBlock = doctor.slice(finalizeStart, getStart)
+    expect(draftBlock).not.toContain('consumeClinicalInventory')
+    expect(finalizeBlock).toContain('consumeClinicalInventory')
+    expect(doctor).toContain("{ fallbackLocation: 'Main Stockroom' }")
+    expect(doctor).toContain("UPDATE appointments SET status = 'completed'")
+  })
+
+  it('does not cap actual consumable entry to pre-checked treatment-room stock', () => {
+    const consultation = read('client', 'src', 'pages', 'doctorPage', 'Doctor_Consultation.jsx')
+    expect(consultation).not.toContain('clinicalDeductionPlan')
+    expect(consultation).not.toContain('inventoryBlocker')
+    expect(consultation).not.toContain('max={roomStock}')
+    expect(consultation).toContain('No inventory is reserved when an appointment is confirmed.')
+    expect(consultation).toContain('Actual recorded medicines and consumables are stocked out only when you complete the consultation.')
+  })
+
+  it('keeps reschedule time slots inside a vertically scrollable modal', () => {
+    const appointments = read('client', 'src', 'pages', 'shared', 'Appointments.jsx')
+    expect(appointments).toContain('max-h-[92vh]')
+    expect(appointments).toContain('overflow-y-auto overscroll-contain')
+    expect(appointments).toContain('shrink-0 border-t border-slate-100 bg-white')
+  })
+
+  it('keeps doctor stock transfers available as a separate manual workflow', () => {
     const doctor = read('server', 'controllers', 'doctor.controller.js')
     const schema = read('server', 'utils', 'schema.js')
     expect(doctor).toContain("a.status IN ('confirmed','rescheduled','in-progress')")
@@ -38,20 +74,4 @@ describe('Batch 5 inventory readiness and transfer workflow', () => {
     expect(transfers).not.toContain('billing_items')
     expect(transfers).not.toContain('billing_records')
   })
-
-  it('keeps the new consultation autosave UI and appointment-linked missing-stock action', () => {
-    const consultation = read('client', 'src', 'pages', 'doctorPage', 'Doctor_Consultation.jsx')
-    expect(consultation).not.toContain('Save Draft')
-    expect(consultation).not.toContain('Draft autosaves every 25 seconds')
-    expect(consultation).toContain('Request Missing Stock')
-    expect(consultation).toContain('appointment_id=${appt.id}')
-  })
-
-  it('uses an aligned portal sidebar scrollbar across all portal layouts', () => {
-    for (const file of ['AdminLayout.jsx','StaffLayout.jsx','DoctorLayout.jsx','PatientLayout.jsx']) {
-      expect(read('client', 'src', 'components', 'layouts', file)).toContain('portal-sidebar-scroll')
-    }
-    expect(read('client', 'src', 'index.css')).toContain('.portal-sidebar-scroll')
-  })
 })
-

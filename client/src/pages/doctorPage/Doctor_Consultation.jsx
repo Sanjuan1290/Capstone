@@ -167,7 +167,6 @@ const Doctor_Consultation = () => {
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState('consultation')
   const [inventoryItems, setInventoryItems] = useState([])
-  const [inventoryBlocker, setInventoryBlocker] = useState(null)
   const [billingCatalog, setBillingCatalog] = useState([])
   const [billableServices, setBillableServices] = useState([])
   const [clinicSettings, setClinicSettings] = useState(null)
@@ -523,53 +522,6 @@ const Doctor_Consultation = () => {
     }
   }
 
-  const clinicalDeductionPlan = useMemo(() => {
-    const totals = new Map()
-    for (const service of billableServices) for (const material of (service.materials || [])) {
-      const id = Number(material.inventory_id || 0)
-      const qty = Math.max(0, Number(material.quantity || 0))
-      if (!id || qty <= 0) continue
-      const current = totals.get(id) || { quantity: 0, unit: material.unit_label || null }
-      current.quantity += qty
-      if (!current.unit && material.unit_label) current.unit = material.unit_label
-      totals.set(id, current)
-    }
-    return Array.from(totals.entries()).map(([id, usage]) => {
-      const item = inventoryItems.find((inv) => Number(inv.id) === id)
-      let remaining = Number(usage.quantity || 0)
-      const allocations = []
-      const batches = [...(Array.isArray(item?.treatment_room_batches) ? item.treatment_room_batches : [])]
-        .sort((a, b) => {
-          const aExpiry = a.expiration_date ? String(a.expiration_date).slice(0, 10) : '9999-12-31'
-          const bExpiry = b.expiration_date ? String(b.expiration_date).slice(0, 10) : '9999-12-31'
-          return aExpiry.localeCompare(bExpiry) || Number(a.batch_id || 0) - Number(b.batch_id || 0)
-        })
-      for (const batch of batches) {
-        if (remaining <= 0) break
-        const available = Math.max(0, Number(batch.available || 0))
-        if (available <= 0) continue
-        const quantity = Math.min(remaining, available)
-        allocations.push({ ...batch, quantity })
-        remaining -= quantity
-      }
-      return {
-        inventory_id: id,
-        name: item?.name || 'Inventory item',
-        requested: Number(usage.quantity || 0),
-        available: Number(item?.treatment_room_stock || 0),
-        unit: usage.unit || item?.uom || item?.unit || 'unit',
-        location: item?.treatment_room_name || (appt?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'),
-        allocations,
-        shortage: Math.max(0, remaining),
-      }
-    })
-  }, [billableServices, inventoryItems, appt?.clinic_type])
-
-  const validateClinicalInventory = () => {
-    const blocked = clinicalDeductionPlan.find((entry) => entry.shortage > 0.0001)
-    return blocked || null
-  }
-
   const draftPayload = useMemo(() => ({
     diagnosis,
     notes,
@@ -618,12 +570,6 @@ const Doctor_Consultation = () => {
 
   const handleFinalize = async () => {
     if (!appt || consultationStatus === 'finalized') return
-    const stockError = validateClinicalInventory()
-    if (stockError) {
-      setInventoryBlocker(stockError)
-      return
-    }
-    setInventoryBlocker(null)
     if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct recorded medicines and consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
     finalizingRef.current = true
     setSaving(true)
@@ -638,19 +584,7 @@ const Doctor_Consultation = () => {
       setAppt((prev) => (prev ? { ...prev, status: 'completed' } : prev))
       await loadHistory(appt.patient_id)
     } catch (err) {
-      if (err.code === 'CLINICAL_ROOM_STOCK_REQUIRED' || err.code === 'INVENTORY_INSUFFICIENT') {
-        setInventoryBlocker({
-          inventory_id: err.inventory_id || null,
-          name: err.inventory_name || 'Required inventory item',
-          requested: err.requested,
-          available: err.available,
-          unit: err.unit || 'unit',
-          location: err.location || (appt?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'),
-          message: err.message,
-        })
-      } else {
-        alert(err.message || 'Failed to complete consultation. The record has not been finalized.')
-      }
+      alert(err.message || 'Failed to complete consultation. The record has not been finalized.')
     } finally {
       finalizingRef.current = false
       setSaving(false)
@@ -958,7 +892,7 @@ const Doctor_Consultation = () => {
                 const selected = billableServices.find((entry) => Number(entry.catalog_service_id) === Number(service.id))
                 return <div key={service.id} className={`rounded-2xl border p-4 ${selected ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-white'}`}>
                   <label className="flex cursor-pointer items-start gap-3"><input type="checkbox" disabled={isEditMode} checked={Boolean(selected)} onChange={() => toggleService(service)} className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold text-slate-800">{service.service_name}</p><p className="text-xs text-slate-500">{service.category || 'Clinic service'}</p></div></div></div></label>
-                  {selected && selected.materials?.length > 0 && <div className="mt-4 border-t border-violet-100 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Actual Material Usage</p><div className="grid gap-2 sm:grid-cols-2">{selected.materials.map((material, index) => { const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id)); const decimal = Number(inv?.uom_allow_decimal || 0) === 1; const step = decimal ? 0.01 : 1; const roomStock = Math.max(0, Number(inv?.treatment_room_stock || 0)); return <label key={`${material.inventory_id || material.material_name}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3"><span className="text-xs font-semibold text-slate-700">{material.material_name}</span><div className="mt-2 flex items-center gap-2"><input type="number" inputMode="decimal" min="0" max={roomStock} step={step} disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(service.id, index, Math.min(roomStock, Math.max(0, Number(e.target.value) || 0)))} className="form-control h-9" /><span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span></div></label> })}</div></div>}
+                  {selected && selected.materials?.length > 0 && <div className="mt-4 border-t border-violet-100 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Actual Material Usage</p><div className="grid gap-2 sm:grid-cols-2">{selected.materials.map((material, index) => { const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id)); const decimal = Number(inv?.uom_allow_decimal || 0) === 1; const step = decimal ? 0.01 : 1; return <label key={`${material.inventory_id || material.material_name}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3"><span className="text-xs font-semibold text-slate-700">{material.material_name}</span><div className="mt-2 flex items-center gap-2"><input type="number" inputMode="decimal" min="0" step={step} disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(service.id, index, Math.max(0, Number(e.target.value) || 0))} className="form-control h-9" /><span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span></div></label> })}</div></div>}
                 </div>
               })}</div>}
             </div>
@@ -1106,20 +1040,6 @@ const Doctor_Consultation = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {clinicalDeductionPlan.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                    <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-black text-slate-900">Inventory deduction on completion</p><p className="mt-1 text-xs text-slate-500">Expected FEFO batches are shown below. Stock is revalidated when you complete the consultation.</p></div><span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Preview</span></div>
-                    <div className="mt-3 space-y-3">{clinicalDeductionPlan.map((entry) => <div key={entry.inventory_id} className={`rounded-xl border bg-white p-3 ${entry.shortage > 0.0001 ? 'border-rose-200' : 'border-slate-200'}`}><div className="flex flex-wrap items-center justify-between gap-2"><strong>{entry.name}</strong><span className={`text-xs font-black ${entry.shortage > 0.0001 ? 'text-rose-700' : 'text-emerald-700'}`}>{entry.requested} {entry.unit}</span></div><p className="mt-1 text-xs text-slate-500">From {entry.location}</p>{entry.allocations.length > 0 ? <div className="mt-2 flex flex-wrap gap-2">{entry.allocations.map((allocation) => <span key={`${entry.inventory_id}-${allocation.batch_id}`} className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">{allocation.batch_code}: {allocation.quantity} {entry.unit}{allocation.expiration_date ? ` · exp ${String(allocation.expiration_date).slice(0,10)}` : ''}</span>)}</div> : <p className="mt-2 text-xs font-bold text-rose-700">No usable batch stock is available in this treatment room.</p>}{entry.shortage > 0.0001 && <p className="mt-2 text-xs font-bold text-rose-700">Short by {entry.shortage} {entry.unit}. Request a stock transfer before completion.</p>}</div>)}</div>
-                  </div>
-                )}
-                {inventoryBlocker && (
-                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-                    <p className="font-black">Stock transfer required before completing this consultation</p>
-                    <p className="mt-1">{inventoryBlocker.message || `${inventoryBlocker.name} requires ${inventoryBlocker.requested} ${inventoryBlocker.unit}, but only ${inventoryBlocker.available} are available in ${inventoryBlocker.location}.`}</p>
-                    <p className="mt-1 text-xs text-amber-800">Clinical use can only deduct stock already transferred into the treatment room. Main Stockroom is not used as an automatic fallback.</p>
-                    <button type="button" onClick={() => navigate(`/doctor/request/stock-transfer?appointment_id=${appt.id}`)} className="mt-3 inline-flex items-center rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">Request Missing Stock</button>
-                  </div>
-                )}
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -1129,9 +1049,9 @@ const Doctor_Consultation = () => {
                       {!['saving','pending','error'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
                       {!['saving','pending','error'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
                     </div>
-                    <span className="text-slate-400">Draft saving never deducts inventory.</span>
+                    <span className="text-slate-400">No inventory is reserved when an appointment is confirmed.</span>
                   </div>
-                  <p className="mt-1 text-slate-400">Treatment-room inventory availability is checked only when you complete the consultation.</p>
+                  <p className="mt-1 text-slate-400">Actual recorded medicines and consumables are stocked out only when you complete the consultation. Treatment-room stock is used first, with Main Stockroom as fallback.</p>
                 </div>
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                   <button onClick={handleFinalize} disabled={saving || uploadingIndex !== null || autoSaveState === 'saving'} className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
@@ -1265,4 +1185,6 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+
+
 

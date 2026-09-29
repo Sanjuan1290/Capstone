@@ -11,28 +11,29 @@ describe('September 26 Batch 1 — System Setup and booking cleanup', () => {
     expect(source).not.toContain('Specialty:')
   })
 
-  it('supports safe delete actions for Service Categories and Units of Measure', () => {
+  it('keeps safe Service Category deletion while Units of Measure stay removed from System Setup', () => {
     const ui = read('client', 'src', 'pages', 'adminPage', 'Admin_SystemSetup.jsx')
     const router = read('server', 'routers', 'admin.router.js')
     const controller = read('server', 'controllers', 'admin.controller.js')
+
     expect(ui).toContain('deleteBillingServiceCategory')
-    expect(ui).toContain('deleteInventoryUom')
     expect(ui).toContain('Edit & Deactivate')
     expect(router).toContain("router.delete('/system-setup/service-categories/:id'")
-    expect(router).toContain("router.delete('/system-setup/uoms/:id'")
     expect(controller).toContain("code:'SERVICE_CATEGORY_IN_USE'")
-    expect(controller).toContain("code:'UOM_IN_USE'")
+
+    // Current product rule: Inventory uses generic unit/units and UOM is no longer
+    // authored from System Setup. Legacy backend compatibility may remain.
+    expect(ui).not.toContain('deleteInventoryUom')
+    expect(ui).not.toContain('saveInventoryUom')
+    expect(ui).not.toContain('Units of Measure')
   })
 
-  it('uses one UOM name and a fixed two-decimal policy', () => {
+  it('does not expose legacy UOM authoring controls', () => {
     const ui = read('client', 'src', 'pages', 'adminPage', 'Admin_SystemSetup.jsx')
-    const controller = read('server', 'controllers', 'admin.controller.js')
-    const schema = read('server', 'utils', 'schema.js')
+
     expect(ui).not.toContain('Decimal Places *')
     expect(ui).not.toContain('Abbreviation')
-    expect(ui).toContain('always use up to 2 decimal places (0.01)')
-    expect(controller).toContain('const decimalPrecision = allowDecimal ? 2 : 0')
-    expect(schema).toContain("dropColumnIfExists('inventory_uoms', 'abbreviation')")
+    expect(ui).not.toContain('Allow Decimal Quantity')
+    expect(ui).not.toContain('always use up to 2 decimal places (0.01)')
   })
 })
-

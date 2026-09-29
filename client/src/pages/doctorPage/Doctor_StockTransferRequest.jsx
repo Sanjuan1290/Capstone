@@ -15,7 +15,7 @@ const stockUnit = (item) => item?.uom || item?.unit || item?.base_unit || 'unit'
 const qtyStep = (item) => Number(item?.uom_allow_decimal) === 1 ? 0.01 : 1
 const statusLabel = (value) => value === 'in-progress' ? 'In Consultation' : value === 'rescheduled' ? 'Rescheduled' : 'Confirmed'
 
-const Doctor_StockTransferRequest = ()  => {
+const Doctor_StockTransferRequest = () => {
   const navigate = useNavigate()
   const toast = useToast()
   const [searchParams] = useSearchParams()
@@ -179,4 +179,3 @@ const Doctor_StockTransferRequest = ()  => {
 }
 
 export default Doctor_StockTransferRequest
-

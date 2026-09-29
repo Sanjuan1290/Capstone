@@ -37,14 +37,16 @@ describe('Batch 1 recovery and consultation autosave regressions', () => {
     const finalizeBlock = doctorController.slice(finalizeStart, doctorController.indexOf('const getConsultation', finalizeStart))
 
     expect(draftBlock).not.toContain('validateClinicalInventoryAvailability')
-    expect(finalizeBlock).toContain('validateClinicalInventoryAvailability')
+    expect(finalizeBlock).not.toContain('validateClinicalInventoryAvailability')
     expect(finalizeBlock).toContain('consumeClinicalInventory')
     expect(consultation).toContain('window.setTimeout(() => { persistDraft() }, 1500)')
     expect(consultation).toContain('window.setInterval(() => { persistDraft() }, 30000)')
     expect(consultation).toContain('Consultation progress saves automatically as you work.')
-    expect(consultation).toContain('Treatment-room inventory availability is checked only when you complete the consultation.')
+    expect(consultation).toContain('Actual recorded medicines and consumables are stocked out only when you complete the consultation.')
     expect(consultation).not.toContain('Save Draft</')
     expect(consultation).not.toContain('Draft autosaves every 25 seconds.')
   })
 })
+
+
 
