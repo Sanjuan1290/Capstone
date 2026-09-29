@@ -23,6 +23,11 @@ export const getMyHistory = async () => {
 }
 
 
+export const getBookingReadiness = async () => {
+  const res = await fetch(`${BASE}/booking-readiness`, { credentials: 'include' })
+  return parseJson(res)
+}
+
 export const getBookingServices = async (clinicType = '') => {
   const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
   const res = await fetch(`${BASE}/booking-services${query}`, { credentials: 'include' })
@@ -131,3 +136,4 @@ export const updatePatientProfile = async (payload) => {
   })
   return parseJson(res)
 }
+

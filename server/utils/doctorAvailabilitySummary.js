@@ -8,11 +8,9 @@ const {
 } = require('./scheduleWindows')
 
 const clinicMatchesDoctor = (clinicType, doctor) => {
-  if (!clinicType) return true
-  const explicit = String(doctor?.clinic_type || '').trim()
-  if (['medical', 'derma'].includes(explicit)) return clinicType === explicit
-  const isDerma = String(doctor?.specialty || '').toLowerCase().includes('derm')
-  return clinicType === 'derma' ? isDerma : clinicType === 'medical' ? !isDerma : false
+  const assignedClinic = String(doctor?.clinic_type || '').trim()
+  if (!['medical', 'derma'].includes(assignedClinic)) return false
+  return !clinicType || clinicType === assignedClinic
 }
 
 const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days = 7, doctorId = null } = {}, executor = db) => {
@@ -197,3 +195,4 @@ module.exports = {
   buildWalkInDoctorAvailability,
   formatSlotLabel,
 }
+

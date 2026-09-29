@@ -10,6 +10,7 @@ import {
   updateSettings,
   uploadToCloudinary,
 } from '../../services/portal.service'
+import { doctorClinicLabel } from '../../utils/doctor'
 import { getClinicSettings, updateClinicSettings } from '../../services/admin.service'
 import { useAuth } from '../../context/AuthContext'
 import ProfileAvatar from '../../components/ProfileAvatar'
@@ -67,7 +68,7 @@ const SettingsPage = () => {
       ['Email', form.email || '—'],
     ]
     if ('phone' in form) rows.push(['Mobile Number', formatPhilippinePhone(form.phone)])
-    if (role === 'doctor') rows.push(['Specialty', form.specialty || '—'])
+    if (role === 'doctor') rows.push(['Clinic Assignment', doctorClinicLabel(form)])
     if (role === 'patient') rows.push(['Birthdate', form.birthdate || '—'], ['Gender', form.gender || '—'], ['Address', form.address || '—'])
     return rows
   }, [form, role])
@@ -192,7 +193,7 @@ const SettingsPage = () => {
               {'email' in form && <label className="space-y-1.5"><span className="form-label">Email {['patient','admin'].includes(role) ? '*' : ''}</span><input type="email" required={['patient','admin'].includes(role)} value={form.email || ''} onChange={onChange('email')} className="form-control"/>{role === 'admin' && <span className="form-helper">Saving personal information requires verification. Email changes are verified at both your current and new email addresses.</span>}</label>}
               {'phone' in form && role !== 'patient' && <label className="space-y-1.5"><span className="form-label">Phone</span><PhilippinePhoneInput value={form.phone || ''} onChange={onChange('phone')}/></label>}
               {role === 'patient' && <div className="space-y-1.5"><span className="form-label">Mobile Number *</span><PhilippinePhoneInput value={form.phone || ''} disabled/><button type="button" onClick={openPhoneChange} className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700"><MdPhoneAndroid/> Change mobile number securely</button></div>}
-              {role === 'doctor' && <label className="space-y-1.5 md:col-span-2"><span className="form-label">Specialty</span><input value={form.specialty || ''} onChange={onChange('specialty')} className="form-control"/></label>}
+              {role === 'doctor' && <div className="space-y-1.5 md:col-span-2"><span className="form-label">Clinic Assignment</span><div className="form-control bg-slate-100 text-slate-600">{doctorClinicLabel(form)}</div><span className="form-helper">Clinic Assignment is managed by an Administrator.</span></div>}
               {role === 'patient' && <>
                 <label className="space-y-1.5"><span className="form-label">Birthdate *</span><input type="date" min={minBirthdate()} max={today()} value={form.birthdate || ''} onChange={onChange('birthdate')} className="form-control"/>{birthdateError && <span className="form-error">{birthdateError}</span>}</label>
                 <label className="space-y-1.5"><span className="form-label">Gender *</span><select value={form.gender || ''} onChange={onChange('gender')} className="form-control"><option value="">Select gender</option>{GENDER_OPTIONS.map((x)=><option key={x}>{x}</option>)}</select></label>
@@ -227,3 +228,4 @@ const SettingsPage = () => {
 }
 
 export default SettingsPage
+

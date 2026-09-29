@@ -17,6 +17,7 @@ import {
   MdOpenInNew,
   MdSearch,
 } from 'react-icons/md'
+import { doctorClinicLabel } from '../../utils/doctor'
 
 function formatDate(raw) {
   if (!raw) return '—'
@@ -121,7 +122,7 @@ const VisitCard = ({ visit }) => {
             <div className="min-w-0">
               <p className="text-sm font-bold text-slate-800 truncate">{visit.doctor || visit.doctor_name}</p>
               <p className="text-xs text-slate-400 mt-0.5 truncate">
-                {visit.specialty || (visit.type === 'derma' ? 'Dermatology' : 'General Medicine')}
+                {doctorClinicLabel(visit)}
               </p>
             </div>
             <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0 ${
@@ -373,3 +374,4 @@ const History = () => {
 }
 
 export default History
+

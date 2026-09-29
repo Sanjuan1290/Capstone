@@ -430,3 +430,4 @@ export const confirmInventoryBatchAction = (batchId, code) =>
 
 export const getInventoryBatchHistory = (batchId) =>
   requestJson(`${getAdminApiBase()}/inventory/batches/${batchId}/history`)
+

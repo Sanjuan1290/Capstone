@@ -17,6 +17,7 @@ import {
   MdRefresh,
   MdSearch,
 } from 'react-icons/md'
+import { doctorClinicLabel } from '../../utils/doctor'
 import {
   addToQueue,
   createWalkInPatient,
@@ -82,7 +83,7 @@ const DoctorPicker = ({ doctors, loading, error, selectedDoctorId, onSelect, onR
           : <div className="mt-2 grid gap-2 sm:grid-cols-2">{doctors.map((doctor) => {
             const selected = Number(selectedDoctorId) === Number(doctor.id)
             return <button key={doctor.id} type="button" disabled={!doctor.available_now} onClick={() => onSelect(String(doctor.id))} className={`rounded-2xl border-2 p-4 text-left transition ${selected ? 'border-sky-400 bg-sky-50' : doctor.available_now ? 'border-slate-200 bg-white hover:border-sky-200 hover:bg-sky-50/40' : 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-65'}`}>
-              <div className="flex items-start justify-between gap-2"><div><p className="font-black text-slate-900">{doctor.full_name || doctor.name}</p><p className="mt-0.5 text-xs text-slate-500">{doctor.specialty || 'Doctor'}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${doctor.available_now ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>{doctor.available_now ? 'AVAILABLE NOW' : 'UNAVAILABLE'}</span></div>
+              <div className="flex items-start justify-between gap-2"><div><p className="font-black text-slate-900">{doctor.full_name || doctor.name}</p><p className="mt-0.5 text-xs text-slate-500">{doctorClinicLabel(doctor)}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${doctor.available_now ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>{doctor.available_now ? 'AVAILABLE NOW' : 'UNAVAILABLE'}</span></div>
               {doctor.available_now ? <div className="mt-3 space-y-1 text-xs text-slate-600"><p><MdAccessTime className="mr-1 inline" />{doctor.current_schedule || 'On duty now'}</p><p><MdEventAvailable className="mr-1 inline" />Next open slot: <strong>{doctor.next_available_slot}</strong></p><p>Current walk-in queue: <strong>{doctor.active_queue_count || 0}</strong></p></div> : <p className="mt-3 text-xs font-semibold text-slate-500">{doctor.availability_reason || 'Not currently available.'}</p>}
             </button>
           })}</div>}
@@ -213,6 +214,7 @@ const WalkInModal = ({ onClose, onSuccess }) => {
     if (mode === 'new' && (!form.full_name.trim() || !form.phone.trim() || !form.birthdate)) return 'Full name, mobile number, and birthdate are required for a new patient.'
     if (mode === 'new' && !form.consent_given) return 'Confirm that the patient provided data-processing consent.'
     if (!form.reason.trim()) return 'Select a reason for visit.'
+    if (form.reason === 'Other' && !form.reason_notes.trim()) return 'Describe the reason for visit when selecting Other.'
     if (!Number(form.doctor_id)) return 'Select an available doctor.'
     return ''
   }
@@ -243,7 +245,7 @@ const WalkInModal = ({ onClose, onSuccess }) => {
       }
 
       const reason = form.reason === 'Other'
-        ? (form.reason_notes.trim() || 'Other concern')
+        ? `Other — ${form.reason_notes.trim()}`
         : `${form.reason}${form.reason_notes.trim() ? ` — ${form.reason_notes.trim()}` : ''}`
 
       const payload = checkIn && precheck?.today_appointment?.id
@@ -280,7 +282,7 @@ const WalkInModal = ({ onClose, onSuccess }) => {
   const upcoming = precheck?.upcoming_appointment
   const patientName = mode === 'existing' ? (patient?.full_name || patient?.name || '') : form.full_name.trim()
   const selectedDoctor = doctors.find((doctor) => Number(doctor.id) === Number(form.doctor_id))
-  const reasonLabel = form.reason === 'Other' ? (form.reason_notes.trim() || 'Other concern') : `${form.reason}${form.reason_notes.trim() ? ` — ${form.reason_notes.trim()}` : ''}`
+  const reasonLabel = form.reason === 'Other' ? `Other — ${form.reason_notes.trim()}` : `${form.reason}${form.reason_notes.trim() ? ` — ${form.reason_notes.trim()}` : ''}`
 
   return <>
     <div className="fixed inset-0 z-40 bg-black/40" onClick={saving ? undefined : onClose} />
@@ -302,7 +304,7 @@ const WalkInModal = ({ onClose, onSuccess }) => {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label><span className="form-label">Clinic *</span><select className="form-control mt-1.5" value={form.clinic_type} onChange={(e) => changeClinic(e.target.value)}><option value="medical">General Medicine</option><option value="derma">Dermatology</option></select></label>
-            <label><span className="form-label">Reason for Visit *</span><select className="form-control mt-1.5" value={form.reason} disabled={loadingReasons || Boolean(reasonError) || reasonOptions.length === 0} onChange={(e) => update('reason', e.target.value)}><option value="">{loadingReasons ? 'Loading reasons…' : reasonError ? 'Could not load reasons' : reasonOptions.length ? 'Select reason' : 'No reasons configured'}</option>{reasonOptions.map((reason) => <option key={reason.id} value={reason.label}>{reason.label}</option>)}</select>{reasonError ? <p className="mt-1 text-xs font-semibold text-rose-700">{reasonError} <button type="button" className="font-black underline" onClick={() => loadVisitOptions(form.clinic_type)}>Try again</button></p> : !loadingReasons && reasonOptions.length === 0 && <p className="mt-1 text-xs font-semibold text-amber-700">No active Patient Visit reasons are configured for {clinicLabel(form.clinic_type)}. Ask Admin to update System Setup → Patient Visits.</p>}</label>
+            <label><span className="form-label">Reason for Visit *</span><select className="form-control mt-1.5" value={form.reason} disabled={loadingReasons || Boolean(reasonError) || reasonOptions.length === 0} onChange={(e) => update('reason', e.target.value)}><option value="">{loadingReasons ? 'Loading reasons…' : reasonError ? 'Could not load reasons' : reasonOptions.length ? 'Select reason' : 'Loading fallback reason…'}</option>{reasonOptions.map((reason) => <option key={reason.id} value={reason.label}>{reason.label}</option>)}</select>{reasonError ? <p className="mt-1 text-xs font-semibold text-rose-700">{reasonError} <button type="button" className="font-black underline" onClick={() => loadVisitOptions(form.clinic_type)}>Try again</button></p> : !loadingReasons && reasonOptions.length === 1 && reasonOptions[0]?.label === 'Other' && <p className="mt-1 text-xs font-semibold text-amber-700">No custom reasons are configured for {clinicLabel(form.clinic_type)}. Other remains available and requires an explanation.</p>}</label>
             <label className="sm:col-span-2"><span className="form-label">Additional Notes</span><input className="form-control mt-1.5" value={form.reason_notes} onChange={(e) => update('reason_notes', e.target.value)} placeholder="Optional symptoms, context, or patient preference" /></label>
             <DoctorPicker doctors={doctors} loading={loadingDoctors} error={doctorError} selectedDoctorId={form.doctor_id} onSelect={(id) => update('doctor_id', id)} onRefresh={() => loadVisitOptions(form.clinic_type)} />
           </div>
@@ -343,3 +345,4 @@ const StaffWalkInQueue = () => {
 }
 
 export default StaffWalkInQueue
+

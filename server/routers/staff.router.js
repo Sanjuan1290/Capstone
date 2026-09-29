@@ -144,3 +144,4 @@ router.put('/admin-access/clinic-settings', ...auth, can('system_setup'), adminC
 router.get('/admin-access/inventory', ...auth, can('system_setup'), adminCtrl.getInventory)
 
 module.exports = router
+

@@ -47,3 +47,4 @@ describe('Batch 1 recovery and consultation autosave regressions', () => {
     expect(consultation).not.toContain('Draft autosaves every 25 seconds.')
   })
 })
+

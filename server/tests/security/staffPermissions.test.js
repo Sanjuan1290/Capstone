@@ -77,3 +77,4 @@ describe('Staff permission access control', () => {
     expect(archive).toContain("const canDelete=role==='admin'")
   })
 })
+

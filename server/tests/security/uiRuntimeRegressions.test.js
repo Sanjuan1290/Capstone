@@ -18,3 +18,4 @@ describe('UI runtime regression guards', () => {
     expect(source).toContain('portalBase={portalBase}')
   })
 })
+

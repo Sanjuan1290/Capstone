@@ -7,6 +7,7 @@ import {
   saveDaySchedule,
   saveDoctorUnavailableDate,
 } from '../../services/admin.service'
+import { doctorClinicLabel } from '../../utils/doctor'
 import {
   MdCalendarToday, MdFace, MdMedicalServices,
   MdExpandMore, MdSchedule, MdEventBusy, MdSearch, MdWarningAmber,
@@ -14,7 +15,7 @@ import {
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 import ScheduleDayCard from '../../components/schedule/ScheduleDayCard'
 
-const isDermaDoctor = (doctor) => (doctor?.clinic_type || doctor?.type || (String(doctor?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')) === 'derma'
+const isDermaDoctor = (doctor) => (doctor?.clinic_type || doctor?.type) === 'derma'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -185,7 +186,7 @@ const Admin_DoctorSchedules = () => {
   const getForDay = (day) => schedules.find((schedule) => schedule.day_of_week === day)
   const activeDays = DAYS.filter((day) => getForDay(day)?.is_active)
   const inactiveDays = DAYS.filter((day) => !getForDay(day)?.is_active)
-  const filteredDoctors = doctors.filter((doctor) => { const q=doctorSearch.trim().toLowerCase(); return !q || String(doctor.full_name||doctor.name||'').toLowerCase().includes(q) || String(doctor.specialty||'').toLowerCase().includes(q) })
+  const filteredDoctors = doctors.filter((doctor) => { const q=doctorSearch.trim().toLowerCase(); return !q || String(doctor.full_name||doctor.name||'').toLowerCase().includes(q) || doctorClinicLabel(doctor).toLowerCase().includes(q) })
 
   if (loading) {
     return (
@@ -205,7 +206,7 @@ const Admin_DoctorSchedules = () => {
       </div>
 
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Search Doctor</p><div className="relative mt-2"><input value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Search by name or specialty..." className="form-control pl-9"/></div></div>
+        <div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Search Doctor</p><div className="relative mt-2"><input value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Search by name or clinic assignment..." className="form-control pl-9"/></div></div>
         <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Select Doctor</p>
 
         <div className="relative sm:hidden">
@@ -276,7 +277,7 @@ const Admin_DoctorSchedules = () => {
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate font-bold text-slate-800">{selected.full_name || selected.name}</p>
-            <p className="text-xs text-slate-500">{selected.specialty || 'General Medicine'}</p>
+            <p className="text-xs text-slate-500">{doctorClinicLabel(selected)}</p>
           </div>
           <div className="shrink-0 text-right">
             <div className="flex items-center gap-6">
@@ -337,3 +338,4 @@ const Admin_DoctorSchedules = () => {
 }
 
 export default Admin_DoctorSchedules
+

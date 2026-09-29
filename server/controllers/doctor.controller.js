@@ -1233,8 +1233,11 @@ const submitRequest = async (req, res) => {
   }
 
   let destination = await getInventoryLocationById(req.body.destination_location_id)
-  const [[doctorProfile]] = await db.query('SELECT clinic_type, specialty FROM doctors WHERE id=? LIMIT 1', [req.user.id])
-  const doctorClinic = doctorProfile?.clinic_type || (String(doctorProfile?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')
+  const [[doctorProfile]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? LIMIT 1', [req.user.id])
+  const doctorClinic = String(doctorProfile?.clinic_type || '')
+  if (!['medical', 'derma'].includes(doctorClinic)) {
+    return res.status(409).json({ code: 'DOCTOR_CLINIC_ASSIGNMENT_REQUIRED', message: 'Your doctor account does not have a valid clinic assignment. Ask an administrator to update the account before requesting stock.' })
+  }
   if (!destination) {
     const defaultDestination = doctorClinic === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
     const [[defaultRow]] = await db.query(
@@ -1547,3 +1550,4 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+

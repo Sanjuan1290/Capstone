@@ -1201,3 +1201,4 @@ const Inventory = ({ services, canManageSellingPrice = true }) => {
 }
 
 export default Inventory
+

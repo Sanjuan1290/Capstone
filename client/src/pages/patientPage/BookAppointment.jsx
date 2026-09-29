@@ -4,12 +4,13 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
-  getAppointmentReasons, getBookingServices, getDoctorsAvailability, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, bookAppointment,
+  getAppointmentReasons, getBookingReadiness, getBookingServices, getDoctorsAvailability, getDoctorSchedule, getDoctorTakenSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
+import { doctorClinicLabel } from '../../utils/doctor'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
   MdCalendarToday, MdAccessTime, MdPerson, MdAdd,
-  MdArrowForward,
+  MdArrowForward, MdWarning, MdRefresh,
 } from 'react-icons/md'
 import { getLocalDateOnly } from '../../utils/date'
 import {
@@ -60,35 +61,66 @@ const StepBar = ({ current }) => (
 )
 
 // ── Step 1: Clinic type ───────────────────────────────────────────────────────
-const StepClinicType = ({ value, onChange }) => (
+const StepClinicType = ({ value, onChange, readiness, loading, error, onRetry }) => (
   <div className="space-y-3">
     <div>
       <h2 className="text-lg font-bold text-slate-800">Choose Clinic Type</h2>
       <p className="text-sm text-slate-500 mt-0.5">Which type of consultation do you need?</p>
     </div>
-    {CLINIC_TYPES.map(({ id, label, desc, Icon, from, to, light, border, check }) => (
-      <button key={id} onClick={() => onChange(id)}
-        className={`w-full flex items-center gap-4 p-5 rounded-2xl border-2 text-left transition-all
-          active:scale-[0.99]
-          ${value===id ? `${border} ${light}` : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 bg-gradient-to-br ${from} ${to}`}>
-          <Icon className="text-white text-[22px]" />
-        </div>
-        <div className="flex-1 text-left">
-          <p className="font-bold text-sm text-slate-800">{label}</p>
-          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{desc}</p>
-        </div>
-        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
-          ${value===id ? `${check} border-transparent` : 'border-slate-300 bg-white'}`}>
-          {value===id && <MdCheck className="text-white text-[13px]" />}
-        </div>
-      </button>
-    ))}
+    {error && (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="flex items-start gap-2"><MdWarning className="mt-0.5 shrink-0" /><div className="flex-1"><p className="font-bold">We couldn't check online booking availability.</p><p className="mt-1 text-xs text-red-600">{error}</p></div><button type="button" onClick={onRetry} className="inline-flex items-center gap-1 font-bold"><MdRefresh /> Retry</button></div>
+      </div>
+    )}
+    {CLINIC_TYPES.map(({ id, label, desc, Icon, from, to, light, border, check }) => {
+      const status = readiness?.[id]
+      const bookable = Boolean(status?.bookable)
+      const disabled = loading || Boolean(error) || !bookable
+      return (
+        <button key={id} type="button" disabled={disabled} onClick={() => bookable && onChange(id)}
+          className={`w-full flex items-center gap-4 p-5 rounded-2xl border-2 text-left transition-all
+            ${disabled ? 'cursor-not-allowed opacity-70' : 'active:scale-[0.99]'}
+            ${value===id ? `${border} ${light}` : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 bg-gradient-to-br ${from} ${to}`}>
+            <Icon className="text-white text-[22px]" />
+          </div>
+          <div className="flex-1 text-left">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-bold text-sm text-slate-800">{label}</p>
+              {loading ? <span className="text-[10px] font-bold text-slate-400">Checking…</span> : status && (
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${bookable ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                  {bookable ? 'Online booking available' : 'Setup incomplete'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{desc}</p>
+            {!loading && status && !bookable && (
+              <p className="mt-2 text-xs font-semibold text-amber-700">{status.issue_messages?.[0] || 'Online booking is not available for this clinic yet.'}</p>
+            )}
+            {!loading && status && bookable && status.warning_messages?.[0] && (
+              <p className="mt-2 text-xs font-semibold text-amber-700">{status.warning_messages[0]}</p>
+            )}
+            {!loading && status && (
+              <p className="mt-1 text-[10px] text-slate-400">
+                {status.schedulable_doctors} scheduled doctor{status.schedulable_doctors === 1 ? '' : 's'} · {status.active_services} service{status.active_services === 1 ? '' : 's'} · {status.visit_reasons} custom visit reason{status.visit_reasons === 1 ? '' : 's'} · Other always available
+              </p>
+            )}
+          </div>
+          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
+            ${value===id ? `${check} border-transparent` : 'border-slate-300 bg-white'}`}>
+            {value===id && <MdCheck className="text-white text-[13px]" />}
+          </div>
+        </button>
+      )
+    })}
+    {!loading && readiness && !readiness.medical?.bookable && !readiness.derma?.bookable && (
+      <p className="rounded-xl bg-slate-50 px-4 py-3 text-center text-xs text-slate-500">Online booking is temporarily unavailable while the clinic completes its booking setup. Please contact the clinic for assistance.</p>
+    )}
   </div>
 )
 
 // ── Step 2: Service ───────────────────────────────────────────────────────────
-const StepService = ({ value, onChange, services, loading, error, onRetry }) => (
+const StepService = ({ clinicType, value, onChange, services, loading, error, onRetry, onBackToClinic }) => (
   <div className="space-y-3">
     <div>
       <h2 className="text-lg font-bold text-slate-800">Choose a Service</h2>
@@ -96,7 +128,14 @@ const StepService = ({ value, onChange, services, loading, error, onRetry }) => 
     </div>
     {loading && <div className="py-10 text-center text-sm text-slate-400">Loading clinic services…</div>}
     {!loading && error && <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-center text-sm text-red-600">We couldn't load services.<button onClick={onRetry} className="ml-2 font-bold">Try again</button></div>}
-    {!loading && !error && services.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-700">No services are currently available for online booking in this clinic.</p><p className="mt-1 text-xs text-slate-400">Please contact the clinic for assistance or choose another clinic type.</p></div>}
+    {!loading && !error && services.length === 0 && (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
+        <MdWarning className="mx-auto text-2xl text-amber-500" />
+        <p className="mt-2 font-bold text-slate-800">No active {doctorClinicLabel(clinicType)} services are available for online booking.</p>
+        <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-slate-500">The clinic may still provide this type of care, but an Administrator must configure at least one active service before it can be booked online.</p>
+        <button type="button" onClick={onBackToClinic} className="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><MdChevronLeft /> Choose Another Clinic</button>
+      </div>
+    )}
     {!loading && !error && services.map((service) => (
       <button key={service.id} onClick={() => onChange(service)} className={`w-full rounded-2xl border-2 p-4 text-left transition-all ${Number(value?.id)===Number(service.id) ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
         <div className="flex items-start justify-between gap-4">
@@ -137,9 +176,8 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, d
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-sm text-slate-800 truncate">{doc.full_name||doc.name}</p>
-            <div className="mt-1 space-y-0.5 text-xs text-slate-500">
-              <p><span className="font-semibold text-slate-600">Specialty:</span> {String(doc.specialty || '').trim() || 'Not specified'}</p>
-              <p><span className="font-semibold text-slate-600">Clinic:</span> {ct?.label || (doc.clinic_type === 'derma' ? 'Dermatology' : 'General Medicine')}</p>
+            <div className="mt-1 text-xs text-slate-500">
+              <p><span className="font-semibold text-slate-600">Clinic Assignment:</span> {ct?.label || doctorClinicLabel(doc)}</p>
             </div>
             {(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).length>0 ? <p className="mt-1 text-[11px] text-emerald-600">{(doc.weekly_schedule||[]).filter(s=>Number(s.is_active)!==0).slice(0,3).map(s=>s.day_of_week.slice(0,3)).join(', ')} · {scheduleSummary((doc.weekly_schedule||[]).find(s=>Number(s.is_active)!==0))}</p> : <p className="mt-1 text-[11px] font-semibold text-amber-600">No online schedule configured</p>}
             {doc.next_available && <p className="mt-1 text-[11px] font-bold text-emerald-700">Next available: {doc.next_available.date} · {doc.next_available.time}</p>}
@@ -269,7 +307,7 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
 }
 
 // ── Step 5: Details ───────────────────────────────────────────────────────────
-const StepDetails = ({ reason, notes, reasonOptions, loadingReasons, onReasonChange, onNotesChange }) => (
+const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadingReasons, onReasonChange, onReasonDetailsChange, onNotesChange }) => (
   <div className="space-y-4">
     <div>
       <h2 className="text-lg font-bold text-slate-800">Visit Details</h2>
@@ -291,7 +329,22 @@ const StepDetails = ({ reason, notes, reasonOptions, loadingReasons, onReasonCha
       {loadingReasons && (
         <p className="mt-2 text-xs text-slate-400">Loading reason options…</p>
       )}
+      {!loadingReasons && reasonOptions?.length === 1 && reasonOptions[0]?.label === 'Other' && (
+        <p className="mt-2 text-xs font-semibold text-amber-700">No custom visit reasons are configured yet. You can still continue by selecting Other and explaining your concern.</p>
+      )}
     </div>
+    {reason === 'Other' && (
+      <div>
+        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+          Please Describe Your Reason <span className="text-red-400">*</span>
+        </label>
+        <textarea value={reasonDetails} onChange={e => onReasonDetailsChange(e.target.value)} rows={3}
+          maxLength={180}
+          placeholder="Briefly describe what you would like the doctor to check…"
+          className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 transition-all resize-none" />
+        <p className="mt-1 text-[11px] text-slate-400">Required when you choose Other.</p>
+      </div>
+    )}
     <div>
       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
         Additional Notes <span className="normal-case font-normal text-slate-300">(optional)</span>
@@ -333,7 +386,7 @@ const StepConfirm = ({ form, policyAccepted, onPolicyAcceptedChange }) => {
           { label: 'Service', value: form.service?.service_name, icon: MdMedicalServices },
           { label: 'Date',   value: dateLabel,   icon: MdCalendarToday },
           { label: 'Time',   value: form.time,   icon: MdAccessTime    },
-          { label: 'Reason', value: form.reason, icon: MdPerson        },
+          { label: 'Reason', value: form.reason === 'Other' && form.reasonDetails ? `Other — ${form.reasonDetails}` : form.reason, icon: MdPerson },
         ].filter(r=>r.value).map(({ label, value, icon: I }) => (
           <div key={label} className="flex items-center gap-3 mb-3 last:mb-0">
             <I className="text-white/40 text-[14px] shrink-0" />
@@ -405,7 +458,7 @@ const BookAppointment = () => {
   const [step, setStep] = useState(0)
   const [done, setDone] = useState(false)
   const [form, setForm] = useState({
-    clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', notes: '',
+    clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '', notes: '',
   })
   const [policyAccepted, setPolicyAccepted] = useState(false)
   const [doctorList,      setDoctorList]      = useState({ medical: [], derma: [] })
@@ -420,19 +473,42 @@ const BookAppointment = () => {
   const [services, setServices] = useState([])
   const [loadingServices, setLoadingServices] = useState(false)
   const [serviceError, setServiceError] = useState('')
+  const [bookingReadiness, setBookingReadiness] = useState(null)
+  const [loadingReadiness, setLoadingReadiness] = useState(true)
+  const [readinessError, setReadinessError] = useState('')
+
+  const loadBookingReadiness = async () => {
+    setLoadingReadiness(true)
+    setReadinessError('')
+    try {
+      const result = await getBookingReadiness()
+      setBookingReadiness(result || null)
+      setForm((current) => {
+        if (!current.clinicType || result?.[current.clinicType]?.bookable) return current
+        return { ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' }
+      })
+    } catch (err) {
+      setBookingReadiness(null)
+      setReadinessError(err.message || 'Failed to check online booking availability.')
+    } finally {
+      setLoadingReadiness(false)
+    }
+  }
+
+  useEffect(() => { loadBookingReadiness() }, [])
 
   const loadDoctors = async () => {
     setLoadingDoctors(true); setDoctorError('')
     try {
       const summary = await getDoctorsAvailability({ startDate: getLocalDateOnly(), days: 7 })
       const enriched = Array.isArray(summary?.doctors) ? summary.doctors : []
-      const doctorClinic = (d) => d.clinic_type || (String(d.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')
+      const doctorClinic = (d) => String(d.clinic_type || '')
       const derma = enriched.filter(d => doctorClinic(d) === 'derma' && d.weekly_schedule.some(x => Number(x.is_active)!==0))
       const medical = enriched.filter(d => doctorClinic(d) === 'medical' && d.weekly_schedule.some(x => Number(x.is_active)!==0))
       setDoctorList({ medical, derma })
       const preDoctor = Number(searchParams.get('doctor')); const preClinic = searchParams.get('clinic')
       if (preDoctor && ['medical','derma'].includes(preClinic)) {
-        const found = enriched.find(d => Number(d.id)===preDoctor)
+        const found = enriched.find(d => Number(d.id)===preDoctor && String(d.clinic_type || '') === preClinic)
         if (found) setForm(f => ({...f, clinicType:preClinic, doctor:found}))
       }
     } catch (err) { setDoctorError(err.message || 'Failed to load doctors.'); setDoctorList({medical:[],derma:[]}) }
@@ -440,12 +516,21 @@ const BookAppointment = () => {
   }
   useEffect(() => { loadDoctors() }, [])
 
+  useEffect(() => {
+    if (!form.clinicType || !bookingReadiness) return
+    if (bookingReadiness?.[form.clinicType]?.bookable) return
+    setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' }))
+    setStep(0)
+  }, [bookingReadiness, form.clinicType])
+
   const loadServices = async () => {
     if (!form.clinicType) { setServices([]); return }
     setLoadingServices(true); setServiceError('')
     try {
       const rows = await getBookingServices(form.clinicType)
-      setServices(Array.isArray(rows) ? rows : [])
+      const normalizedRows = Array.isArray(rows) ? rows : []
+      setServices(normalizedRows)
+      if (normalizedRows.length === 0) await loadBookingReadiness()
     } catch (err) {
       setServices([])
       setServiceError(err.message || 'Failed to load clinic services.')
@@ -525,11 +610,11 @@ const BookAppointment = () => {
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
   const canNext = () => {
-    if (step===0) return !!form.clinicType
+    if (step===0) return !!form.clinicType && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
     if (step===1) return !!form.service
     if (step===2) return !!form.doctor
     if (step===3) return !!form.date && !!form.time
-    if (step===4) return !!form.reason
+    if (step===4) return !!form.reason && (form.reason !== 'Other' || form.reasonDetails.trim().length >= 2)
     if (step===5) return policyAccepted
     return true
   }
@@ -546,6 +631,7 @@ const BookAppointment = () => {
         clinic_type:      form.clinicType,
         requested_service_id: form.service.id,
         reason:           form.reason,
+        reason_details:   form.reason === 'Other' ? form.reasonDetails.trim() : '',
         appointment_date: form.date,
         appointment_time: form.time,
         notes:            form.notes || '',
@@ -560,7 +646,7 @@ const BookAppointment = () => {
     setStep(0); setDone(false)
     setTimeSlots([]); setDoctorSchedules([])
     setPolicyAccepted(false)
-    setForm({ clinicType:'', service:null, doctor:null, date:null, time:'', reason:'', notes:'' })
+    setForm({ clinicType:'', service:null, doctor:null, date:null, time:'', reason:'', reasonDetails:'', notes:'' })
   }
 
   return (
@@ -600,8 +686,8 @@ const BookAppointment = () => {
             <SuccessScreen onReset={handleReset} />
           ) : (
             <>
-              {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: null, date: null, time: '' }))} />}
-              {step===1 && <StepService value={form.service} onChange={set('service')} services={services} loading={loadingServices} error={serviceError} onRetry={loadServices} />}
+              {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' }))} readiness={bookingReadiness} loading={loadingReadiness} error={readinessError} onRetry={loadBookingReadiness} />}
+              {step===1 && <StepService clinicType={form.clinicType} value={form.service} onChange={set('service')} services={services} loading={loadingServices} error={serviceError} onRetry={loadServices} onBackToClinic={() => { setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' })); setStep(0); loadBookingReadiness() }} />}
               {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={set('doctor')} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
               {step===3 && (
                 <StepSchedule
@@ -615,10 +701,12 @@ const BookAppointment = () => {
               {step===4 && (
                 <StepDetails
                   reason={form.reason}
+                  reasonDetails={form.reasonDetails}
                   notes={form.notes}
                   reasonOptions={reasonOptions}
                   loadingReasons={loadingReasons}
-                  onReasonChange={set('reason')}
+                  onReasonChange={(nextReason) => setForm((current) => ({ ...current, reason: nextReason, reasonDetails: nextReason === 'Other' ? current.reasonDetails : '' }))}
+                  onReasonDetailsChange={set('reasonDetails')}
                   onNotesChange={set('notes')}
                 />
               )}
@@ -649,3 +737,4 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+

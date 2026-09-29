@@ -14,7 +14,7 @@ describe('appointment server-side security', () => {
   it('rejects a time outside the doctor schedule even when the client submits it manually', async () => {
     const executor = {
       query: vi.fn()
-        .mockResolvedValueOnce([[{ id: 2, full_name: 'Dr Test', specialty: 'General Medicine' }]])
+        .mockResolvedValueOnce([[{ id: 2, full_name: 'Dr Test', specialty: 'General Medicine', clinic_type: 'medical' }]])
         .mockResolvedValueOnce([[]])
         .mockResolvedValueOnce([[{ start_time: '08:00:00', end_time: '17:00:00', slot_duration_mins: 60 }]]),
     }
@@ -22,3 +22,4 @@ describe('appointment server-side security', () => {
       .rejects.toThrow(/outside/i)
   })
 })
+

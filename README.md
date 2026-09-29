@@ -332,3 +332,21 @@ restore-media-assets.sh    # macOS/Linux
 ```
 
 Run the appropriate helper on a network-enabled machine to restore the exact original public images before final production deployment, or copy those images from your existing local CAPSTONE project. The restoration scripts intentionally do not replace the new `client/public/logo.png`.
+
+
+
+---
+
+## Batch 6 final booking/account cleanup (2026-09-29)
+
+This cumulative package also includes Batch 6A-6H:
+
+- simplified Patient SMS registration UI while keeping SMS OTP,
+- authoritative Doctor Clinic Assignment (`medical` / `derma`),
+- normalized Doctor portal labels,
+- online-booking readiness by clinic,
+- safe empty-service recovery,
+- always-available **Other** Patient Visit reason with required explanation, and
+- final regression guards covering the connected workflow.
+
+Custom visit reasons are optional for booking continuity because **Other** is a built-in fallback. Active Doctor + active Doctor Schedule + active Service remain required for a clinic to be online-bookable.

@@ -218,3 +218,4 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
 }
 
 module.exports = { applyManualInventoryMovement }
+

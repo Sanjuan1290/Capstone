@@ -11,7 +11,7 @@ const TABLE_MAP = {
 const selectFieldsByRole = {
   admin: 'id, full_name, email, theme_preference, profile_image_url',
   staff: 'id, full_name, email, phone, theme_preference, profile_image_url',
-  doctor: 'id, full_name, email, phone, specialty, theme_preference, profile_image_url',
+  doctor: 'id, full_name, email, phone, clinic_type, theme_preference, profile_image_url',
   patient: 'id, full_name, email, phone, address, COALESCE(gender, sex) AS gender, COALESCE(gender, sex) AS sex, DATE_FORMAT(birthdate, "%Y-%m-%d") AS birthdate, receive_promotions, is_profile_complete, theme_preference, profile_image_url',
 }
 
@@ -27,7 +27,7 @@ const updateSettings = async (role, id, payload) => {
   const allowedByRole = {
     admin: ['full_name', 'email', 'theme_preference', 'profile_image_url'],
     staff: ['full_name', 'phone', 'theme_preference', 'profile_image_url'],
-    doctor: ['full_name', 'phone', 'specialty', 'theme_preference', 'profile_image_url'],
+    doctor: ['full_name', 'phone', 'theme_preference', 'profile_image_url'],
     patient: ['full_name', 'address', 'gender', 'birthdate', 'theme_preference', 'profile_image_url', 'email', 'receive_promotions'],
   }
 
@@ -104,3 +104,4 @@ module.exports = {
   getSettings,
   updateSettings,
 }
+

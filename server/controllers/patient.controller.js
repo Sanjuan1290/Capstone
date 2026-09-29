@@ -27,6 +27,8 @@ const { writeAuditLog } = require('../utils/audit')
 const { listBillingCatalog } = require('../utils/billing')
 const { assertPlainObject, normalizeText } = require('../utils/inputValidation')
 const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
+const { getOnlineBookingReadiness } = require('../utils/bookingReadiness')
+const { isOtherVisitReason, withSystemOtherVisitReason } = require('../utils/appointmentReasons')
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
@@ -584,6 +586,10 @@ const getHistory = async (req, res) => {
   })))
 }
 
+const getBookingReadiness = async (req, res) => {
+  res.json(await getOnlineBookingReadiness())
+}
+
 const getBookingServices = async (req, res) => {
   const clinicType = String(req.query.clinic_type || '').trim()
   if (clinicType && !['medical', 'derma'].includes(clinicType)) {
@@ -600,7 +606,7 @@ const getBookingServices = async (req, res) => {
 }
 
 const createAppointment = async (req, res) => {
-  const { doctor_id, clinic_type, requested_service_id, reason, appointment_date, appointment_time, notes } = req.body
+  const { doctor_id, clinic_type, requested_service_id, reason, reason_details, appointment_date, appointment_time, notes } = req.body
   if (!doctor_id || !clinic_type || !requested_service_id || !appointment_date || !appointment_time) {
     return res.status(400).json({ message: 'Missing required fields.' })
   }
@@ -635,6 +641,27 @@ const createAppointment = async (req, res) => {
     return res.status(409).json({ message: 'The selected service does not belong to this clinic.' })
   }
 
+  const selectedReason = normalizeText(reason, { field: 'Reason for visit', required: true, max: 120 })
+  let storedReason = selectedReason
+  if (isOtherVisitReason(selectedReason)) {
+    const details = normalizeText(reason_details, { field: 'Other reason explanation', required: true, min: 2, max: 180, multiline: true })
+    storedReason = `Other — ${details}`
+  } else {
+    const [reasonRows] = await db.query(
+      `SELECT id, label
+       FROM appointment_reason_options
+       WHERE is_active = 1
+         AND LOWER(TRIM(label)) = LOWER(?)
+         AND (clinic_type = ? OR clinic_type = 'all')
+       LIMIT 1`,
+      [selectedReason, clinic_type]
+    )
+    if (!reasonRows.length) {
+      return res.status(409).json({ code: 'VISIT_REASON_UNAVAILABLE', message: 'The selected reason for visit is no longer available. Please choose another reason.' })
+    }
+    storedReason = reasonRows[0].label
+  }
+
   const [activeWithDoctor] = await db.query(
     `SELECT id FROM appointments WHERE patient_id = ? AND doctor_id = ?
      AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress') LIMIT 1`,
@@ -648,7 +675,7 @@ const createAppointment = async (req, res) => {
       `INSERT INTO appointments
        (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot, reason, appointment_date, appointment_time, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [req.user.id, doctor_id, clinic_type, requestedService.id, requestedService.service_name, requestedService.default_price, reason, normalizedDate, appointment_time, notes || null]
+      [req.user.id, doctor_id, clinic_type, requestedService.id, requestedService.service_name, requestedService.default_price, storedReason, normalizedDate, appointment_time, notes || null]
     )
     return inserted
   })
@@ -847,6 +874,9 @@ const getDoctors = async (req, res) => {
 
 const getAppointmentReasons = async (req, res) => {
   const clinicType = String(req.query.clinic_type || '').trim()
+  if (clinicType && !['medical', 'derma'].includes(clinicType)) {
+    return res.status(400).json({ message: 'Invalid clinic type.' })
+  }
   const params = []
   let sql = `
     SELECT id, label, clinic_type, is_active, sort_order
@@ -862,7 +892,7 @@ const getAppointmentReasons = async (req, res) => {
   sql += ' ORDER BY label ASC'
 
   const [rows] = await db.query(sql, params)
-  res.json(rows)
+  res.json(withSystemOtherVisitReason(rows))
 }
 
 const getDoctorsAvailability = async (req, res) => {
@@ -941,6 +971,7 @@ module.exports = {
   rescheduleAppointment,
   getAppointmentReasons,
   getAppointmentCancellationReasons,
+  getBookingReadiness,
   getBookingServices,
   getDoctors,
   getDoctorsAvailability,
@@ -948,3 +979,4 @@ module.exports = {
   getDoctorUnavailableDatesController,
   getDoctorTakenSlots,
 }
+

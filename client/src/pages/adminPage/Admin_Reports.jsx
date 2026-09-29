@@ -11,6 +11,7 @@ import {
   MdTrendingUp,
   MdWarningAmber,
 } from 'react-icons/md'
+import { doctorClinicLabel } from '../../utils/doctor'
 import { getReports, recordReportExport } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import { ErrorState, LoadingState } from '../../components/ui/PageState'
@@ -203,7 +204,7 @@ const Admin_Reports = () => {
       const completion = Number(doctor.appointments || 0)
         ? Math.round((Number(doctor.completed || 0) / Number(doctor.appointments || 1)) * 100)
         : 0
-      return `<tr><td>${escapeHtml(doctor.name)}</td><td>${escapeHtml(doctor.specialty || '')}</td><td>${escapeHtml(doctor.appointments || 0)}</td><td>${escapeHtml(doctor.patients || 0)}</td><td>${escapeHtml(doctor.completed || 0)}</td><td>${completion}%</td></tr>`
+      return `<tr><td>${escapeHtml(doctor.name)}</td><td>${escapeHtml(doctorClinicLabel(doctor))}</td><td>${escapeHtml(doctor.appointments || 0)}</td><td>${escapeHtml(doctor.patients || 0)}</td><td>${escapeHtml(doctor.completed || 0)}</td><td>${completion}%</td></tr>`
     }).join('')
     const serviceRows = report.services.map((row) => `<tr><td>${escapeHtml(row.service_name)}</td><td>${escapeHtml(row.bills)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(formatMoney(row.gross_billed_amount))}</td></tr>`).join('')
     const paymentRows = report.payments.map((row) => `<tr><td>${escapeHtml(titleCase(row.payment_method))}</td><td>${escapeHtml(row.transactions)}</td><td>${escapeHtml(formatMoney(row.amount))}</td></tr>`).join('')
@@ -242,7 +243,7 @@ const Admin_Reports = () => {
       <h2>3. Collection Trend</h2><table><thead><tr><th>Month</th><th>Transactions</th><th>Net Collection</th></tr></thead><tbody>${revenueRows || '<tr><td colspan="3">No collections.</td></tr>'}</tbody></table>
       <h2>4. Appointment Summary</h2><table><thead><tr><th>Month</th><th>Appointments</th><th>Medical</th><th>Dermatology</th><th>Patients</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="5">No appointments.</td></tr>'}</tbody></table>
       <h2>Appointment Source</h2><table><thead><tr><th>Source</th><th>Visits</th></tr></thead><tbody>${sourceRows || '<tr><td colspan="2">No data.</td></tr>'}</tbody></table>
-      <h2>5. Doctor Activity</h2><table><thead><tr><th>Doctor</th><th>Specialty</th><th>Appointments</th><th>Unique Patients</th><th>Completed</th><th>Completion</th></tr></thead><tbody>${doctorRows || '<tr><td colspan="6">No doctor activity.</td></tr>'}</tbody></table>
+      <h2>5. Doctor Activity</h2><table><thead><tr><th>Doctor</th><th>Clinic Assignment</th><th>Appointments</th><th>Unique Patients</th><th>Completed</th><th>Completion</th></tr></thead><tbody>${doctorRows || '<tr><td colspan="6">No doctor activity.</td></tr>'}</tbody></table>
       <h2>6. Billing Detail</h2><table><thead><tr><th>Payment Method</th><th>Transactions</th><th>Collected</th></tr></thead><tbody>${paymentRows || '<tr><td colspan="3">No payments.</td></tr>'}</tbody></table>
       <h2>Top Services by Gross Billed Amount</h2><table><thead><tr><th>Service</th><th>Bills</th><th>Qty</th><th>Gross Billed</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="4">No billed services.</td></tr>'}</tbody></table>
       <h2>7. Inventory Movement</h2><table><thead><tr><th>Movement</th><th>Actions</th><th>Quantity</th></tr></thead><tbody>${inventoryRows || '<tr><td colspan="3">No stock movement.</td></tr>'}</tbody></table>
@@ -369,10 +370,10 @@ const Admin_Reports = () => {
       <Section title="Doctor Activity" subtitle="Completion rate is completed appointments ÷ all appointments for that doctor.">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-400"><tr><th className="px-3 py-3">Doctor</th><th className="px-3 py-3">Specialty</th><th className="px-3 py-3 text-right">Appointments</th><th className="px-3 py-3 text-right">Patients</th><th className="px-3 py-3 text-right">Completed</th><th className="px-3 py-3 text-right">Completion</th></tr></thead>
+            <thead className="border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-400"><tr><th className="px-3 py-3">Doctor</th><th className="px-3 py-3">Clinic Assignment</th><th className="px-3 py-3 text-right">Appointments</th><th className="px-3 py-3 text-right">Patients</th><th className="px-3 py-3 text-right">Completed</th><th className="px-3 py-3 text-right">Completion</th></tr></thead>
             <tbody className="divide-y divide-slate-100">{report.doctors.map((doctor) => {
               const rate = Number(doctor.appointments || 0) ? (Number(doctor.completed || 0) / Number(doctor.appointments || 1)) * 100 : 0
-              return <tr key={doctor.name}><td className="px-3 py-3 font-bold text-slate-800">{doctor.name}</td><td className="px-3 py-3 text-slate-500">{doctor.specialty}</td><td className="px-3 py-3 text-right">{doctor.appointments}</td><td className="px-3 py-3 text-right">{doctor.patients}</td><td className="px-3 py-3 text-right">{doctor.completed}</td><td className="px-3 py-3 text-right font-bold">{formatPercent(rate)}</td></tr>
+              return <tr key={doctor.name}><td className="px-3 py-3 font-bold text-slate-800">{doctor.name}</td><td className="px-3 py-3 text-slate-500">{doctorClinicLabel(doctor)}</td><td className="px-3 py-3 text-right">{doctor.appointments}</td><td className="px-3 py-3 text-right">{doctor.patients}</td><td className="px-3 py-3 text-right">{doctor.completed}</td><td className="px-3 py-3 text-right font-bold">{formatPercent(rate)}</td></tr>
             })}</tbody>
           </table>
         </div>
@@ -424,3 +425,4 @@ const Admin_Reports = () => {
 }
 
 export default Admin_Reports
+

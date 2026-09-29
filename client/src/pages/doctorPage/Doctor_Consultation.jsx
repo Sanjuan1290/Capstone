@@ -13,6 +13,7 @@ import {
   getBillingCatalog,
   addConsultationAmendment,
 } from '../../services/doctor.service'
+import { doctorClinicLabel } from '../../utils/doctor'
 import { getClinicSettings } from '../../services/clinic.service'
 import { printConsultationRecord } from '../../utils/consultationPrint'
 import {
@@ -744,7 +745,7 @@ const Doctor_Consultation = () => {
             <MdEdit className="text-[14px]" /> Edit / Amend Record
           </button>}
           <button
-            onClick={() => printConsultationRecord({ patient: currentPatient, diagnosis, notes, prescriptions, doctorName: user?.full_name || user?.name || 'Doctor', specialty: user?.specialty || '', prcLicense: user?.prc_license || '', date: formatDate(appt?.appointment_date || new Date().toISOString()), clinic: clinicSettings, services: billableServices })}
+            onClick={() => printConsultationRecord({ patient: currentPatient, diagnosis, notes, prescriptions, doctorName: user?.full_name || user?.name || 'Doctor', clinicAssignment: doctorClinicLabel(user), prcLicense: user?.prc_license || '', date: formatDate(appt?.appointment_date || new Date().toISOString()), clinic: clinicSettings, services: billableServices })}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
           >
             <MdPrint className="text-[14px]" /> Print
@@ -1264,3 +1265,4 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+

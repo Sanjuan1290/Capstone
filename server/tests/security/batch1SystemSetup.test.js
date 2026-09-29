@@ -4,11 +4,11 @@ const path = require('path')
 const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', '..', '..', ...parts), 'utf8')
 
 describe('September 26 Batch 1 — System Setup and booking cleanup', () => {
-  it('shows explicit Specialty and Clinic labels during patient doctor selection', () => {
+  it('shows the authoritative Clinic Assignment during patient doctor selection', () => {
     const source = read('client', 'src', 'pages', 'patientPage', 'BookAppointment.jsx')
-    expect(source).toContain('Specialty:')
-    expect(source).toContain('Clinic:')
-    expect(source).toContain("String(doc.specialty || '').trim() || 'Not specified'")
+    expect(source).toContain('Clinic Assignment:')
+    expect(source).toContain('doctorClinicLabel(doc)')
+    expect(source).not.toContain('Specialty:')
   })
 
   it('supports safe delete actions for Service Categories and Units of Measure', () => {
@@ -35,3 +35,4 @@ describe('September 26 Batch 1 — System Setup and booking cleanup', () => {
     expect(schema).toContain("dropColumnIfExists('inventory_uoms', 'abbreviation')")
   })
 })
+

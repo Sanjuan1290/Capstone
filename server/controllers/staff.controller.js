@@ -54,6 +54,7 @@ const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTrans
 const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
 const { resolveDiscountForDraft, loadDiscountPreset } = require('../utils/billingSecurity')
 const { loadStaffPermissions } = require('../utils/staffPermissions')
+const { withSystemOtherVisitReason } = require('../utils/appointmentReasons')
 
 const makeTempPassword = () => makeTemporaryPassword(14)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
@@ -718,7 +719,7 @@ const getAppointmentReasons = async (req, res) => {
   }
   sql += ' ORDER BY label ASC'
   const [rows] = await db.query(sql, params)
-  res.json(rows)
+  res.json(withSystemOtherVisitReason(rows))
 }
 
 const getAppointmentCancellationReasons = async (req, res) => {
@@ -1962,3 +1963,4 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+

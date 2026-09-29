@@ -4,6 +4,7 @@ import { MdCalendarToday, MdEventBusy, MdRefresh } from 'react-icons/md'
 import { getDoctorsAvailability } from '../../services/patient.service'
 import { getLocalDateOnly } from '../../utils/date'
 import { scheduleSummary } from '../../utils/schedule'
+import { doctorClinicLabel } from '../../utils/doctor'
 
 const fmtDate = (date) => new Date(`${date}T00:00:00`).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })
 const DoctorAvailability = () => {
@@ -57,7 +58,7 @@ const DoctorAvailability = () => {
       {doctors.map((doctor) => {
         const active = Array.isArray(doctor.weekly_schedule) ? doctor.weekly_schedule : []
         const isOpen = expanded === doctor.id
-        const clinicType = doctor.clinic_type || (String(doctor.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')
+        const clinicType = doctor.clinic_type
         return (
           <div key={doctor.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
@@ -66,7 +67,7 @@ const DoctorAvailability = () => {
               </div>
               <div className="min-w-0 flex-1">
                 <h2 className="font-black text-slate-900">{doctor.full_name}</h2>
-                <p className="text-sm text-slate-500">{doctor.specialty || 'Clinic Doctor'}</p>
+                <p className="text-sm text-slate-500">{doctorClinicLabel(doctor)}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {active.length > 0 ? active.map((schedule) => (
                     <span key={schedule.day_of_week} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
@@ -118,3 +119,4 @@ const DoctorAvailability = () => {
 }
 
 export default DoctorAvailability
+

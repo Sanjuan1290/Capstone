@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { MdAdd, MdArrowBack, MdCheck, MdClose, MdDelete, MdPayments } from 'react-icons/md'
 import { createBillingCatalogService, deleteBillingCatalogService, getBillingCatalog, getInventory, getSystemSetup, updateBillingCatalogService } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -24,9 +24,11 @@ const Admin_BillingServiceForm = () => {
   const editing = Boolean(serviceId)
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const portalBase = location.pathname.startsWith('/staff') ? '/staff' : '/admin'
+  const requestedClinic = ['medical', 'derma'].includes(searchParams.get('clinic')) ? searchParams.get('clinic') : 'medical'
   const toast = useToast()
-  const [form, setForm] = useState(blank)
+  const [form, setForm] = useState(() => ({ ...blank, clinic_type: requestedClinic }))
   const [inventory, setInventory] = useState([])
   const [serviceCategories, setServiceCategories] = useState([])
   const [loading, setLoading] = useState(true)
@@ -143,3 +145,4 @@ const Admin_BillingServiceForm = () => {
 }
 
 export default Admin_BillingServiceForm
+

@@ -1,5 +1,5 @@
 // client/src/pages/adminPage/Admin_DoctorAccount.jsx
-// REDESIGNED: Split list+detail, amber theme, doctor add modal with specialty
+// Doctor account management uses Clinic Assignment as the operational classification.
 
 import { useEffect, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
@@ -18,7 +18,7 @@ const CLINIC_ASSIGNMENTS = [
 
 // ── Add Modal ──────────────────────────────────────────────────────────────────
 const AddModal = ({ onClose, onAdd }) => {
-  const [form,    setForm]    = useState({ full_name: '', specialty: '', clinic_type: 'medical', email: '', phone: '', prc_license: '' })
+  const [form,    setForm]    = useState({ full_name: '', clinic_type: 'medical', email: '', phone: '', prc_license: '' })
   const [sub,     setSub]     = useState(false)
   const [error,   setError]   = useState('')
   const valid = form.full_name.trim() && form.email.trim() && form.phone.trim() && form.prc_license.trim()
@@ -79,12 +79,6 @@ const AddModal = ({ onClose, onAdd }) => {
             <p className="mt-1 text-xs text-slate-400">Determines which clinic appointments and walk-ins this doctor can receive.</p>
           </div>
 
-          <div>
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinical Specialty <span className="text-slate-300 normal-case font-normal">(optional)</span></label>
-            <input value={form.specialty} onChange={set('specialty')} placeholder="e.g. Family Medicine, Dermatology"
-              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400" />
-            <p className="mt-1 text-xs text-slate-400">Shown on the doctor profile. It no longer controls routing.</p>
-          </div>
 
           {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>}
         </div>
@@ -106,8 +100,7 @@ const EditModal = ({ doctor, onClose, onSave }) => {
     full_name: doctor?.full_name || '',
     email: doctor?.email || '',
     phone: doctor?.phone || '',
-    specialty: doctor?.specialty || '',
-    clinic_type: doctor?.clinic_type || doctor?.type || (String(doctor?.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical'),
+    clinic_type: doctor?.clinic_type || doctor?.type || 'medical',
     prc_license: doctor?.prc_license || '',
   })
   const [submitting, setSubmitting] = useState(false)
@@ -163,11 +156,6 @@ const EditModal = ({ doctor, onClose, onSave }) => {
               {CLINIC_ASSIGNMENTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </div>
-          <div>
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Clinical Specialty</label>
-            <input value={form.specialty} onChange={e => setForm(prev => ({ ...prev, specialty: e.target.value }))} placeholder="e.g. Family Medicine"
-              className="w-full text-sm bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-amber-400" />
-          </div>
           {error && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>}
         </div>
         <div className="px-6 pb-6 flex gap-3">
@@ -184,7 +172,7 @@ const EditModal = ({ doctor, onClose, onSave }) => {
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 const DetailPanel = ({ doctor, onClose, onToggle, onEdit }) => {
   if (!doctor) return null
-  const isDerma = (doctor.clinic_type || doctor.type || (String(doctor.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')) === 'derma'
+  const isDerma = (doctor.clinic_type || doctor.type) === 'derma'
   const Icon     = isDerma ? MdFace : MdMedicalServices
   const isActive = doctor.is_active === 1
   const joined   = doctor.created_at ? new Date(doctor.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'
@@ -200,7 +188,7 @@ const DetailPanel = ({ doctor, onClose, onToggle, onEdit }) => {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-slate-800 truncate">{doctor.full_name}</p>
-          <p className="text-xs text-slate-500">{doctor.clinic_type === 'derma' ? 'Dermatology' : 'General Medicine'}{doctor.specialty ? ` · ${doctor.specialty}` : ''} · <span className="font-mono">#{doctor.id}</span></p>
+          <p className="text-xs text-slate-500">{doctor.clinic_type === 'derma' ? 'Dermatology' : 'General Medicine'} · <span className="font-mono">#{doctor.id}</span></p>
         </div>
         <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0
           ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
@@ -286,7 +274,8 @@ const Admin_DoctorAccount = () => {
   const filtered = doctors.filter(d =>
     !search ||
     (d.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (d.specialty || '').toLowerCase().includes(search.toLowerCase())
+    (d.email || '').toLowerCase().includes(search.toLowerCase()) ||
+    (d.clinic_type === 'derma' ? 'dermatology' : 'general medicine').includes(search.toLowerCase())
   )
 
   const doctorPagination = useClientPagination(filtered, { resetDeps: [search] })
@@ -314,7 +303,7 @@ const Admin_DoctorAccount = () => {
             <div className="relative">
               <MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]" />
               <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Search name or specialty…"
+                placeholder="Search name, email, or clinic…"
                 className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm
                   focus:outline-none focus:border-amber-400 transition-colors" />
               {search && (
@@ -333,7 +322,7 @@ const Admin_DoctorAccount = () => {
             ) : filtered.length === 0 ? (
               <div className="py-16 text-center text-sm text-slate-400 px-6">No doctors found.</div>
             ) : doctorPagination.pageItems.map(doc => {
-              const isDerma = (doc.clinic_type || doc.type || (String(doc.specialty || '').toLowerCase().includes('derm') ? 'derma' : 'medical')) === 'derma'
+              const isDerma = (doc.clinic_type || doc.type) === 'derma'
               const DIcon    = isDerma ? MdFace : MdMedicalServices
               const isActive = doc.is_active === 1
               return (
@@ -346,7 +335,7 @@ const Admin_DoctorAccount = () => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-slate-800 truncate">{doc.full_name}</p>
-                    <p className="text-xs text-slate-500 truncate">{doc.specialty}</p>
+                    <p className="text-xs text-slate-500 truncate">{isDerma ? 'Dermatology' : 'General Medicine'}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full
@@ -392,3 +381,4 @@ const Admin_DoctorAccount = () => {
 }
 
 export default Admin_DoctorAccount
+

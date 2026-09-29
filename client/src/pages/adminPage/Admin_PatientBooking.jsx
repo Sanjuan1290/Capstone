@@ -101,6 +101,10 @@ const Admin_PatientBooking = () => {
       alert('Reason label is required.')
       return
     }
+    if (payload.label.toLowerCase() === 'other') {
+      alert('Other is built into booking and always requires an explanation. You do not need to add it here.')
+      return
+    }
 
     setSaving(true)
     try {
@@ -157,6 +161,12 @@ const Admin_PatientBooking = () => {
         >
           <MdRefresh className="text-[16px]" /> Refresh
         </button>
+      </div>
+
+
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <p className="font-bold">Built-in fallback: Other</p>
+        <p className="mt-1 text-xs leading-relaxed">Other is always available in Patient and Staff booking even when this list is empty. Anyone who selects it must explain the reason for the visit, so you do not need to create an Other option here.</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -378,3 +388,4 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
+

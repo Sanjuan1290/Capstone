@@ -348,10 +348,7 @@ const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => 
     return () => window.clearTimeout(timeout)
   }, [mode, search, selectedPatient, services])
 
-  const filteredDoctors = doctors.filter((doctor) => {
-    const specialty = (doctor.specialty || '').toLowerCase()
-    return form.clinic_type === 'derma' ? specialty.includes('derm') : !specialty.includes('derm')
-  })
+  const filteredDoctors = doctors.filter((doctor) => String(doctor.clinic_type || doctor.type || '') === form.clinic_type)
   const selectedDoctor = doctors.find((doctor) => String(doctor.id) === String(form.doctor_id))
 
   useEffect(() => {
@@ -1012,3 +1009,4 @@ Confirm this appointment anyway?`)
 }
 
 export default Appointments
+

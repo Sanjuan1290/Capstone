@@ -496,8 +496,7 @@ const ensureAppSchema = async () => {
       ('Acne Treatment', 'derma', 1, 70),
       ('Rash / Allergy', 'derma', 1, 80),
       ('Hair / Scalp Concern', 'derma', 1, 90),
-      ('Nail Concern', 'derma', 1, 100),
-      ('Other', 'all', 1, 110)
+      ('Nail Concern', 'derma', 1, 100)
     `)
   }
 
@@ -1558,3 +1557,4 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
+

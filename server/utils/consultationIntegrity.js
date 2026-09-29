@@ -28,3 +28,4 @@ const assertConsultationEditable = (consultation) => {
 }
 
 module.exports = { loadConsultationAmendments, assertConsultationEditable }
+

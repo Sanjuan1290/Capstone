@@ -54,3 +54,4 @@ describe('Batch 5 inventory readiness and transfer workflow', () => {
     expect(read('client', 'src', 'index.css')).toContain('.portal-sidebar-scroll')
   })
 })
+

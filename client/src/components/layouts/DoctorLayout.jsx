@@ -13,6 +13,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
+import { doctorClinicLabel } from '../../utils/doctor'
 import { useSSE } from '../../hooks/useSSE'
 import { playNotificationSound } from '../../utils/notificationSound'
 import { getDashboard } from '../../services/doctor.service'
@@ -151,7 +152,7 @@ const DoctorLayout = () => {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-bold text-white truncate">{user?.full_name || 'Doctor'}</p>
-              <p className="text-[10px] text-violet-400 font-semibold truncate">{user?.specialty || 'Physician'}</p>
+              <p className="text-[10px] text-violet-400 font-semibold truncate">{doctorClinicLabel(user)}</p>
             </div>
           </div>
         </div>
@@ -224,7 +225,7 @@ const DoctorLayout = () => {
               <ProfileAvatar user={user} size="sm" />
               <div className="leading-tight">
                 <p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Doctor'}</p>
-                <p className="text-[10px] text-slate-400">{user?.specialty || 'Physician'}</p>
+                <p className="text-[10px] text-slate-400">{doctorClinicLabel(user)}</p>
               </div>
             </div>
             <button onClick={handleLogout} disabled={loggingOut}
@@ -274,3 +275,4 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
+

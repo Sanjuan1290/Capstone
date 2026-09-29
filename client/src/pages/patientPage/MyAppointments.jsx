@@ -14,6 +14,7 @@ import {
   MdCheckCircle, MdSchedule, MdPhone, MdEmail,
   MdHome, MdCake, MdWc, MdHistory
 } from "react-icons/md"
+import { doctorClinicLabel } from '../../utils/doctor'
 import { NavLink } from "react-router-dom"
 import { parseDateOnly } from '../../utils/date'
 import CancellationReasonModal from '../../components/appointments/CancellationReasonModal'
@@ -66,7 +67,7 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-slate-800 truncate">{appt.doctor || appt.doctor_name}</p>
-            <p className="text-xs text-slate-500">{appt.clinic || appt.specialty}</p>
+            <p className="text-xs text-slate-500">{appt.clinic || doctorClinicLabel(appt)}</p>
           </div>
           <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0 ${cfg.badge}`}>
             {cfg.label}
@@ -419,3 +420,4 @@ const MyAppointments = () => {
 }
 
 export default MyAppointments
+

@@ -12,8 +12,9 @@ import {
   MdBarChart, MdCalendarToday, MdChevronRight, MdRefresh,
   MdAccessTime, MdFace, MdTrendingUp, MdTrendingDown,
   MdWarning, MdAdminPanelSettings, MdEdit,
-  MdPayments,
+  MdPayments, MdCheckCircle,
 } from 'react-icons/md'
+import { doctorClinicLabel } from '../../utils/doctor'
 
 const POLL_MS = 30_000
 
@@ -25,6 +26,18 @@ const STATUS_CFG = {
   completed:    { label: 'Completed',   badge: 'bg-slate-100  text-slate-500   border-slate-200'   },
 }
 
+const BOOKING_CLINICS = [
+  { id: 'medical', label: 'General Medicine', Icon: MdMedicalServices },
+  { id: 'derma', label: 'Dermatology', Icon: MdFace },
+]
+
+const BOOKING_ISSUE_ACTIONS = {
+  NO_ACTIVE_DOCTOR: { label: 'Manage Doctors', path: '/admin/doctor-accounts' },
+  NO_ONLINE_SCHEDULE: { label: 'Manage Schedules', path: '/admin/doctor-schedules' },
+  NO_ACTIVE_SERVICE: { label: 'Configure Services', path: '/admin/system-setup/billing/services' },
+  NO_VISIT_REASON: { label: 'Configure Visit Reasons', path: '/admin/system-setup' },
+}
+
 const LiveDot = ({ lastUpdated }) => (
   <div className="flex items-center gap-1.5">
     <span className="relative flex h-2 w-2">
@@ -34,6 +47,59 @@ const LiveDot = ({ lastUpdated }) => (
     <span className="text-[11px] text-slate-400 font-medium">
       Live · {lastUpdated ? new Date(lastUpdated).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
     </span>
+  </div>
+)
+
+const BookingReadinessPanel = ({ readiness }) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="text-sm font-bold text-slate-800">Online Booking Readiness</h2>
+        <p className="mt-1 text-xs text-slate-500">Each clinic needs an active doctor, an online schedule, and an active service. Custom visit reasons are recommended; Other is always available as a required-explanation fallback.</p>
+      </div>
+      <NavLink to="/admin/system-setup/billing/services" className="text-xs font-bold text-amber-600 hover:text-amber-700">Review setup</NavLink>
+    </div>
+    <div className="grid gap-3 lg:grid-cols-2">
+      {BOOKING_CLINICS.map(({ id, label, Icon }) => {
+        const status = readiness?.[id]
+        const bookable = Boolean(status?.bookable)
+        const firstIssue = status?.issues?.[0]
+        const firstWarning = status?.warnings?.[0]
+        const actionCode = firstIssue || firstWarning
+        const baseAction = BOOKING_ISSUE_ACTIONS[actionCode]
+        const action = baseAction && actionCode === 'NO_ACTIVE_SERVICE'
+          ? { ...baseAction, path: `${baseAction.path}?clinic=${id}` }
+          : baseAction
+        return (
+          <div key={id} className={`rounded-2xl border p-4 ${bookable ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
+            <div className="flex items-start gap-3">
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${bookable ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}><Icon className="text-xl" /></div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-bold text-slate-900">{label}</p>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black ${bookable ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                    {bookable ? <MdCheckCircle /> : <MdWarning />} {bookable ? 'Ready' : 'Setup incomplete'}
+                  </span>
+                </div>
+                {status ? (
+                  <>
+                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-slate-600 sm:grid-cols-4">
+                      <span><strong>{status.active_doctors}</strong> doctor{status.active_doctors === 1 ? '' : 's'}</span>
+                      <span><strong>{status.schedulable_doctors}</strong> scheduled</span>
+                      <span><strong>{status.active_services}</strong> service{status.active_services === 1 ? '' : 's'}</span>
+                      <span><strong>{status.visit_reasons}</strong> custom reason{status.visit_reasons === 1 ? '' : 's'}</span>
+                    </div>
+                    {!bookable && <p className="mt-2 text-xs font-semibold text-amber-800">{status.issue_messages?.[0] || 'Complete this clinic setup before enabling patient online booking.'}</p>}
+                    {bookable && status.warning_messages?.[0] && <p className="mt-2 text-xs font-semibold text-amber-800">{status.warning_messages[0]}</p>}
+                    {action && <NavLink to={action.path} className="mt-3 inline-flex rounded-xl border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100">{action.label}</NavLink>}
+                  </>
+                ) : <p className="mt-2 text-xs text-slate-400">Readiness data is unavailable.</p>}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
   </div>
 )
 
@@ -135,6 +201,8 @@ const Admin_Dashboard = () => {
         ))}
       </div>
 
+      <BookingReadinessPanel readiness={dashStats?.bookingReadiness} />
+
       {/* ── Main 2-col ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-5">
 
@@ -200,7 +268,7 @@ const Admin_Dashboard = () => {
                   <div className={`w-2 h-2 rounded-full shrink-0 ${doc.status === 'on-duty' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-slate-800 truncate">{doc.name}</p>
-                    <p className="text-[10px] text-slate-400">{doc.specialty}</p>
+                    <p className="text-[10px] text-slate-400">{doctorClinicLabel(doc)}</p>
                   </div>
                   {doc.status === 'on-duty'
                     ? <span className="text-[10px] font-semibold text-slate-500 shrink-0">{doc.done}/{doc.patients} done</span>
@@ -248,3 +316,4 @@ const Admin_Dashboard = () => {
 }
 
 export default Admin_Dashboard
+

@@ -63,6 +63,8 @@ const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { resolveSupplyTransfer, listSupplyTransferGroups } = require('../utils/supplyTransfers')
 const { getAppointmentInventoryReadiness } = require('../utils/inventoryReadiness')
 const { applyManualInventoryMovement } = require('../utils/manualInventoryMovement')
+const { getOnlineBookingReadiness } = require('../utils/bookingReadiness')
+const { isOtherVisitReason } = require('../utils/appointmentReasons')
 const { isValidQueueStatus } = require('../utils/workflowValidation')
 const { DEFAULT_STAFF_PERMISSIONS, loadStaffPermissions, replaceStaffPermissions, normalizeStaffPermissions, samePermissionSet } = require('../utils/staffPermissions')
 const {
@@ -483,7 +485,7 @@ const getDashboard = async (req, res) => {
     `SELECT
        d.id,
        d.full_name                    AS name,
-       d.specialty,
+       d.clinic_type,
        COUNT(a.id)                    AS patients,
        SUM(a.status = 'completed')    AS done,
        'on-duty'                      AS status
@@ -499,14 +501,16 @@ const getDashboard = async (req, res) => {
   const onDutyIds = new Set(onDutyRows.map(r => r.id))
 
   const [allDoctors] = await db.query(
-    'SELECT id, full_name AS name, specialty FROM doctors WHERE is_active = 1 ORDER BY full_name'
+    'SELECT id, full_name AS name, clinic_type FROM doctors WHERE is_active = 1 ORDER BY full_name'
   )
+
+  const bookingReadiness = await getOnlineBookingReadiness()
 
   const doctorStatus = allDoctors.map(doc => {
     const onDuty = onDutyRows.find(r => r.id === doc.id)
     return onDuty
       ? { ...onDuty }
-      : { id: doc.id, name: doc.name, specialty: doc.specialty, patients: 0, done: 0, status: 'off-duty' }
+      : { id: doc.id, name: doc.name, clinic_type: doc.clinic_type, patients: 0, done: 0, status: 'off-duty' }
   })
 
   res.json({
@@ -518,6 +522,7 @@ const getDashboard = async (req, res) => {
     totalStaff,
     totalDoctors,
     doctorStatus,          // FIX 1: populated
+    bookingReadiness,
   })
 }
 
@@ -1165,7 +1170,7 @@ const getDoctors = async (req, res) => {
 }
 
 const createDoctor = async (req, res) => {
-  const { full_name, email, phone, specialty, clinic_type, prc_license } = req.body
+  const { full_name, email, phone, clinic_type, prc_license } = req.body
   if (!full_name || !email || !phone)
     return res.status(400).json({ message: 'Name, email, and phone number are required.' })
   const normalizedPhone = normalizePhilippinePhone(phone)
@@ -1180,13 +1185,13 @@ const createDoctor = async (req, res) => {
   const hashed = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
     // FIX 3: save prc_license (requires migration_add_prc_license.sql)
-    'INSERT INTO doctors (full_name, email, phone, specialty, clinic_type, prc_license, password, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
-    [full_name, email, normalizedPhone, specialty?.trim() || null, clinic_type, prc_license || null, hashed]
+    'INSERT INTO doctors (full_name, email, phone, clinic_type, prc_license, password, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
+    [full_name, email, normalizedPhone, clinic_type, prc_license || null, hashed]
   )
   const [rows] = await db.query(
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,specialty,clinic_type,prc_license,is_active:true,must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,clinic_type,prc_license,is_active:true,must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/doctor/login`
     await sendTempPassword(email, full_name, 'Doctor', tempPassword, loginUrl)
@@ -1206,7 +1211,7 @@ const toggleDoctor = async (req, res) => {
 }
 
 const updateDoctor = async (req, res) => {
-  const { full_name, email, phone, specialty, clinic_type, prc_license } = req.body
+  const { full_name, email, phone, clinic_type, prc_license } = req.body
   if (!full_name || !email || !phone)
     return res.status(400).json({ message: 'Name, email, and phone number are required.' })
   const normalizedPhone = normalizePhilippinePhone(phone)
@@ -1223,14 +1228,14 @@ const updateDoctor = async (req, res) => {
     return res.status(409).json({ message: 'That email is already in use by another doctor account.' })
 
   await db.query(
-    'UPDATE doctors SET full_name = ?, email = ?, phone = ?, specialty = ?, clinic_type = ?, prc_license = ? WHERE id = ?',
-    [full_name.trim(), email.trim(), normalizedPhone, specialty?.trim() || null, clinic_type, prc_license?.trim() || null, req.params.id]
+    'UPDATE doctors SET full_name = ?, email = ?, phone = ?, clinic_type = ?, prc_license = ? WHERE id = ?',
+    [full_name.trim(), email.trim(), normalizedPhone, clinic_type, prc_license?.trim() || null, req.params.id]
   )
   const [updated] = await db.query(
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?',
     [req.params.id]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,specialty,clinic_type,prc_license},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,clinic_type,prc_license},ipAddress:req.ip||null }).catch(() => {})
   res.json(updated[0])
 }
 
@@ -1240,6 +1245,7 @@ const getAppointmentReasonOptions = async (req, res) => {
   const [rows] = await db.query(
     `SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at
      FROM appointment_reason_options
+     WHERE LOWER(TRIM(label)) <> 'other'
      ORDER BY label ASC`
   )
   res.json(rows)
@@ -1251,6 +1257,9 @@ const createAppointmentReasonOption = async (req, res) => {
 
   if (!label) {
     return res.status(400).json({ message: 'Reason label is required.' })
+  }
+  if (isOtherVisitReason(label)) {
+    return res.status(400).json({ code: 'SYSTEM_VISIT_REASON_RESERVED', message: 'Other is built into booking and always requires an explanation. You do not need to configure it here.' })
   }
 
   try {
@@ -1279,6 +1288,9 @@ const updateAppointmentReasonOption = async (req, res) => {
 
   if (!label) {
     return res.status(400).json({ message: 'Reason label is required.' })
+  }
+  if (isOtherVisitReason(label)) {
+    return res.status(400).json({ code: 'SYSTEM_VISIT_REASON_RESERVED', message: 'Other is built into booking and always requires an explanation. You do not need to configure it here.' })
   }
 
   try {
@@ -2070,12 +2082,12 @@ const getReports = async (req, res) => {
      GROUP BY COALESCE(appointment_source, 'online') ORDER BY value DESC`, dateParams)
 
   const [topDoctors] = await db.query(
-    `SELECT d.full_name AS name, d.specialty, d.clinic_type, (d.clinic_type = 'derma') AS is_derma,
+    `SELECT d.full_name AS name, d.clinic_type, (d.clinic_type = 'derma') AS is_derma,
             COUNT(*) AS appointments, COUNT(DISTINCT a.patient_id) AS patients,
             SUM(a.status = 'completed') AS completed
      FROM appointments a JOIN doctors d ON a.doctor_id = d.id
      WHERE a.appointment_date BETWEEN ? AND ?
-     GROUP BY d.id, d.full_name, d.specialty, d.clinic_type
+     GROUP BY d.id, d.full_name, d.clinic_type
      ORDER BY appointments DESC, patients DESC LIMIT 10`, dateParams)
 
   const [[newReturning]] = await db.query(
@@ -3989,3 +4001,4 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+

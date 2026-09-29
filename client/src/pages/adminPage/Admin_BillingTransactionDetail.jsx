@@ -11,6 +11,7 @@ import BillingStatusBadge from '../../components/billing/BillingStatusBadge'
 import { formatMoney, paymentMethodLabel } from '../../utils/billingUi'
 import { formatDateOnly } from '../../utils/date'
 import { printBillingReceipt } from '../../utils/billingReceipt'
+import { doctorClinicLabel } from '../../utils/doctor'
 
 const Admin_BillingTransactionDetail = () => {
   const { billingId } = useParams()
@@ -103,9 +104,9 @@ const Admin_BillingTransactionDetail = () => {
             <h2 className="text-sm font-black uppercase tracking-widest text-slate-400">Visit</h2>
             <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div><p className="text-xs font-bold text-slate-400">Patient</p><p className="mt-1 font-bold text-slate-900">{bill.patient_name}</p><p className="text-xs text-slate-500">{bill.patient_phone || 'No phone'}</p></div>
-              <div><p className="text-xs font-bold text-slate-400">Doctor</p><p className="mt-1 font-bold text-slate-900">{bill.doctor_name}</p><p className="text-xs text-slate-500">{bill.doctor_specialty || '—'}</p></div>
+              <div><p className="text-xs font-bold text-slate-400">Doctor</p><p className="mt-1 font-bold text-slate-900">{bill.doctor_name}</p><p className="text-xs text-slate-500">{doctorClinicLabel(bill)}</p></div>
               <div><p className="text-xs font-bold text-slate-400">Date & Time</p><p className="mt-1 font-bold text-slate-900">{formatDateOnly(bill.appointment_date)}</p><p className="text-xs text-slate-500">{bill.appointment_time}</p></div>
-              <div><p className="text-xs font-bold text-slate-400">Reason</p><p className="mt-1 font-bold text-slate-900">{bill.appointment_reason || '—'}</p><p className="text-xs text-slate-500">{bill.clinic_type || 'Clinic visit'}</p></div>
+              <div><p className="text-xs font-bold text-slate-400">Reason</p><p className="mt-1 font-bold text-slate-900">{bill.appointment_reason || '—'}</p><p className="text-xs text-slate-500">{doctorClinicLabel(bill)}</p></div>
             </div>
           </section>
 
@@ -161,3 +162,4 @@ const Admin_BillingTransactionDetail = () => {
 }
 
 export default Admin_BillingTransactionDetail
+

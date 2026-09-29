@@ -5,10 +5,8 @@ const { parseTimeToMinutes, formatSlotLabel, isTimeCoveredByWeeklySchedule } = r
 const ACTIVE_SLOT_STATUSES = ['pending', 'confirmed', 'rescheduled', 'in-progress']
 
 const clinicMatchesDoctor = (clinicType, doctor) => {
-  const explicit = String(doctor?.clinic_type || '').trim()
-  if (['medical','derma'].includes(explicit)) return clinicType === explicit
-  const isDerma = String(doctor?.specialty || '').toLowerCase().includes('derm')
-  return clinicType === 'derma' ? isDerma : clinicType === 'medical' ? !isDerma : false
+  const assignedClinic = String(doctor?.clinic_type || '').trim()
+  return ['medical', 'derma'].includes(assignedClinic) && clinicType === assignedClinic
 }
 
 const validateAppointmentSlot = async ({ doctorId, clinicType, date, time, excludeAppointmentId = null, executor = db }) => {
@@ -107,3 +105,4 @@ const assertAppointmentTransition = (from, to) => {
 }
 
 module.exports = { ACTIVE_SLOT_STATUSES, parseTimeToMinutes, validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied }
+

@@ -25,3 +25,4 @@ const Staff_Home = () => {
   return next ? <Navigate to={next[1]} replace /> : <Navigate to="/staff/settings" replace />
 }
 export default Staff_Home
+

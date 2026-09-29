@@ -36,3 +36,4 @@ const staffServices = {
 const Staff_Appointments = () => <Appointments services={staffServices} />
 
 export default Staff_Appointments
+
