@@ -57,6 +57,7 @@ const { listCancellationReasons, resolveCancellationInput } = require('../utils/
 const { resolveDiscountForDraft, loadDiscountPreset } = require('../utils/billingSecurity')
 const { loadStaffPermissions } = require('../utils/staffPermissions')
 const { withSystemOtherVisitReason } = require('../utils/appointmentReasons')
+const { verifyUploadSecurityToken } = require('../utils/cloudinarySecurity')
 
 const makeTempPassword = () => makeTemporaryPassword(14)
 const toDateOnly = (value) => String(value || '').trim().slice(0, 10)
@@ -1175,18 +1176,18 @@ const updateBill = async (req, res) => {
 
     // Consultation-owned lines are server-owned clinical facts. Checkout never round-trips
     // or mutates them; Staff/Admin may only add non-service charges and billing-level fields.
-    const consultationItems = (currentBill.items || []).filter((item) => item.source_type === 'consultation')
+    const consultationItems = (currentBill.items || []).filter((item) => ['consultation', 'consultation_extra'].includes(item.source_type))
     const protectedIds = new Set(consultationItems.map((item) => Number(item.id)))
     const securedConsultationItems = consultationItems.map((existing) => ({
       ...existing,
       id: Number(existing.id),
-      source_type: 'consultation',
+      source_type: existing.source_type === 'consultation_extra' ? 'consultation_extra' : 'consultation',
       source_reference_id: existing.source_reference_id || currentBill.consultation_id || null,
       unit_price: Number(existing.unit_price || 0),
       line_total: Math.round(Number(existing.quantity || 0) * Number(existing.unit_price || 0) * 100) / 100,
     }))
 
-    const staffRawItems = rawItems.filter((item) => !protectedIds.has(Number(item?.id || 0)) && String(item?.source_type || '') !== 'consultation')
+    const staffRawItems = rawItems.filter((item) => !protectedIds.has(Number(item?.id || 0)) && !['consultation', 'consultation_extra'].includes(String(item?.source_type || '')))
     if (staffRawItems.some((item) => String(item?.item_type || '').toLowerCase() === 'service' || Number(item?.catalog_service_id || 0) > 0)) {
       await conn.rollback()
       return res.status(400).json({ message: 'Clinic services must come from the Doctor consultation. Staff can add only Medicine / Supply or Custom Charge items at Checkout.', code: 'STAFF_SERVICE_NOT_ALLOWED' })
@@ -1226,17 +1227,50 @@ const updateBill = async (req, res) => {
       subtotal: subtotalOnly.subtotal,
       presetId: req.body.discount_preset_id,
       reference: req.body.discount_reference,
+      referenceImageUrl: req.body.discount_reference_image_url,
       requestedAmount: req.body.discount_amount,
     }, conn, { allowDirectAdmin: isAdminActor })
+    let discountReferenceImageUrl = null
+    if (discount.preset && Number(discount.preset.requires_reference) === 1) {
+      discountReferenceImageUrl = normalizeOptionalText(req.body.discount_reference_image_url, { field: 'Discount Proof Image', max: 500 })
+      if (!discountReferenceImageUrl) {
+        await conn.rollback()
+        return res.status(400).json({ message: `${discount.preset.label} discount requires an uploaded reference / ID proof image.`, code: 'DISCOUNT_PROOF_REQUIRED' })
+      }
+      const sameAsSaved = String(currentBill.discount_reference_image_url || '') === String(discountReferenceImageUrl)
+      let trustedFromApprovedRequest = false
+      if (!sameAsSaved && !isAdminActor) {
+        const [[approvedProof]] = await conn.query(
+          `SELECT id FROM billing_adjustment_requests
+           WHERE billing_id=? AND bill_version=? AND request_type='discount' AND status='approved'
+             AND discount_preset_id=? AND reference_image_url=?
+           ORDER BY resolved_at DESC, id DESC LIMIT 1`,
+          [billingId, expectedVersion, discount.preset.id, discountReferenceImageUrl]
+        )
+        trustedFromApprovedRequest = Boolean(approvedProof)
+      }
+      if (!sameAsSaved && !trustedFromApprovedRequest) {
+        try {
+          verifyUploadSecurityToken(String(req.body.discount_reference_security_token || ''), {
+            stage: 'accepted', role: actorRole, user_id: req.user.id,
+            context_type: 'discount_proof', context_id: billingId, url: discountReferenceImageUrl,
+          })
+        } catch (error) {
+          await conn.rollback()
+          return res.status(error.statusCode || 400).json({ message: error.message || 'Upload the discount proof image again before saving this bill.', code: error.code || 'DISCOUNT_PROOF_INVALID' })
+        }
+      }
+    }
+
     const totals = computeBillingTotals({ items: allItems, discount_amount: discount.amount })
     const nextVersion = expectedVersion + 1
 
     await replaceStaffBillingItems(billingId, securedConsultationItems, normalizedStaffItems, conn)
     const [billUpdate] = await conn.query(
       `UPDATE billing_records
-       SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_reference = ?, discount_amount = ?, total_amount = ?, payment_notes = ?, version = ?
+       SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_reference = ?, discount_reference_image_url = ?, discount_amount = ?, total_amount = ?, payment_notes = ?, version = ?
        WHERE id = ? AND version = ?`,
-      [totals.subtotal, discount.type, discount.label, discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, totals.discount_amount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
+      [totals.subtotal, discount.type, discount.label, discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, discount.preset ? discountReferenceImageUrl : null, totals.discount_amount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
     )
     if (Number(billUpdate.affectedRows || 0) !== 1) {
       const err = new Error('This bill changed while it was being saved. Reload the latest version and try again.')
@@ -1302,6 +1336,18 @@ const requestBillingAdjustment = async (req, res) => {
   if (requestedAmount && requestedAmount > Number(bill.subtotal || 0) + 0.001) return res.status(400).json({ message: 'Requested discount cannot exceed the bill subtotal.' })
   const reason = normalizeText(req.body.reason, { field: 'Approval Reason', required: true, max: 255, multiline: true })
   const reference = normalizeOptionalText(req.body.reference, { field: 'Discount Reference', max: 120 })
+  const referenceImageUrl = normalizeOptionalText(req.body.reference_image_url, { field: 'Discount Proof Image', max: 500 })
+  if (Number(preset.requires_reference) === 1) {
+    if (!referenceImageUrl) return res.status(400).json({ message: `${preset.label} discount requires an uploaded reference / ID proof image.`, code: 'DISCOUNT_PROOF_REQUIRED' })
+    try {
+      verifyUploadSecurityToken(String(req.body.reference_security_token || ''), {
+        stage: 'accepted', role: 'staff', user_id: req.user.id,
+        context_type: 'discount_proof', context_id: billingId, url: referenceImageUrl,
+      })
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ message: error.message || 'Upload the discount proof image again before requesting approval.', code: error.code || 'DISCOUNT_PROOF_INVALID' })
+    }
+  }
 
   const [existing] = await db.query(
     `SELECT id FROM billing_adjustment_requests WHERE billing_id=? AND bill_version=? AND staff_id=? AND request_type=? AND status='pending'
@@ -1312,11 +1358,11 @@ const requestBillingAdjustment = async (req, res) => {
 
   const [result] = await db.query(
     `INSERT INTO billing_adjustment_requests
-     (billing_id, bill_version, staff_id, request_type, discount_preset_id, catalog_service_id, requested_amount, requested_price, reference_text, reason, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-    [billingId, currentVersion, req.user.id, type, discountPresetId, catalogServiceId, requestedAmount, requestedPrice, reference, reason]
+     (billing_id, bill_version, staff_id, request_type, discount_preset_id, catalog_service_id, requested_amount, requested_price, reference_text, reference_image_url, reason, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [billingId, currentVersion, req.user.id, type, discountPresetId, catalogServiceId, requestedAmount, requestedPrice, reference, referenceImageUrl, reason]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:'staff',action:`billing.${type}_approval_requested`,entityType:'billing_adjustment_request',entityId:result.insertId,newValues:{billing_id:billingId,bill_version:currentVersion,discount_preset_id:discountPresetId,catalog_service_id:catalogServiceId,requested_amount:requestedAmount,requested_price:requestedPrice,reason},ipAddress:req.ip||null })
+  await writeAuditLog({ userId:req.user.id,userRole:'staff',action:`billing.${type}_approval_requested`,entityType:'billing_adjustment_request',entityId:result.insertId,newValues:{billing_id:billingId,bill_version:currentVersion,discount_preset_id:discountPresetId,catalog_service_id:catalogServiceId,requested_amount:requestedAmount,requested_price:requestedPrice,reference_image_url:referenceImageUrl,reason},ipAddress:req.ip||null })
   broadcast(['admin'], 'billing_adjustment_requested', { requestId: result.insertId, billingId })
   res.status(201).json({ message: 'Administrator approval requested.', id: result.insertId, bill_version: currentVersion })
 }

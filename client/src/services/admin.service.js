@@ -1,4 +1,5 @@
 import { makeSecurityScanError, waitForSecurityScan } from './cloudinaryScan'
+import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/admin.service.js
 
 const getAdminApiBase = () => (typeof window !== 'undefined' && (window.location.pathname.startsWith('/staff') || sessionStorage.getItem('auth_role') === 'staff') ? '/api/staff/admin-access' : '/api/admin')
@@ -433,6 +434,12 @@ export const getAdminBillAdjustmentRequests = (id) => requestJson(`${getAdminApi
 export const getAdminDiscountPresets = () => requestJson(`${getAdminApiBase()}/billing/discount-presets`)
 
 export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ clinicType })
+export const uploadAdminDiscountProofImage = (file, billingId, options = {}) => uploadDiscountProofViaApi({
+  file, billingId, ...options,
+  uploadUrl: `${getAdminApiBase()}/billing/discount-proof/upload`,
+  statusUrl: `${getAdminApiBase()}/billing/discount-proof/upload-status`,
+})
+
 
 export const requestInventoryBatchActionCode = (batchId, payload) =>
   requestJson(`${getAdminApiBase()}/inventory/batches/${batchId}/action/request-code`, {

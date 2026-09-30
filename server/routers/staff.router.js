@@ -66,6 +66,8 @@ router.get('/billing/:id/finalize-preview', ...auth, can('checkout'), staffCtrl.
 router.post('/billing/:id/finalize', ...auth, can('checkout'), staffCtrl.finalizeBill)
 router.post('/billing/:id/pay', ...auth, can('checkout'), staffCtrl.payBill)
 router.post('/billing/:id/confirm-payment', ...auth, can('checkout'), staffCtrl.confirmBillPayment)
+router.post('/billing/discount-proof/upload', ...auth, can('checkout'), express.raw({ type: ['image/png', 'image/jpeg'], limit: '5mb' }), adminCtrl.uploadDiscountProofImageAdmin)
+router.post('/billing/discount-proof/upload-status', ...auth, can('checkout'), adminCtrl.getDiscountProofUploadScanStatusAdmin)
 router.get('/billing-payment-settings', ...auth, can('checkout'), staffCtrl.getPaymentSettingsForStaff)
 
 // ── Inventory ────────────────────────────────────────────────────────────────

@@ -42,7 +42,7 @@ describe('Batch 1 recovery and consultation autosave regressions', () => {
     expect(consultation).toContain('window.setTimeout(() => { persistDraft() }, 1500)')
     expect(consultation).toContain('window.setInterval(() => { persistDraft() }, 30000)')
     expect(consultation).toContain('Consultation progress saves automatically as you work.')
-    expect(consultation).toContain('Actual recorded medicines and consumables are stocked out only when you complete the consultation.')
+    expect(consultation).toContain('Fixed service consumables and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory.')
     expect(consultation).not.toContain('Save Draft</')
     expect(consultation).not.toContain('Draft autosaves every 25 seconds.')
   })

@@ -15,11 +15,26 @@ describe('appointment server-side security', () => {
     const executor = {
       query: vi.fn()
         .mockResolvedValueOnce([[{ id: 2, full_name: 'Dr Test', specialty: 'General Medicine', clinic_type: 'medical' }]])
-        .mockResolvedValueOnce([[]])
-        .mockResolvedValueOnce([[{ start_time: '08:00:00', end_time: '17:00:00', slot_duration_mins: 60 }]]),
+        .mockResolvedValueOnce([[{
+          day_of_week: 'Friday',
+          start_time: '08:00:00',
+          end_time: '17:00:00',
+          slot_duration_mins: 60,
+          is_active: 1,
+          spans_next_day: 0,
+          is_24_hours: 0,
+        }]])
+        .mockResolvedValueOnce([[]]),
     }
-    await expect(validateAppointmentSlot({ doctorId: 2, clinicType: 'medical', date: '2026-08-28', time: '2:37 AM', executor }))
-      .rejects.toThrow(/outside/i)
+
+    await expect(validateAppointmentSlot({
+      doctorId: 2,
+      clinicType: 'medical',
+      date: '2026-08-28',
+      time: '2:37 AM',
+      executor,
+    })).rejects.toMatchObject({
+      code: 'APPOINTMENT_DURATION_OUTSIDE_SCHEDULE',
+    })
   })
 })
-

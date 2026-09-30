@@ -1,4 +1,4 @@
-jest.mock('../../db/connect', () => ({ query: jest.fn() }))
+vi.mock('../../db/connect', () => ({ query: vi.fn() }))
 
 const {
   normalizeBookingSettings,

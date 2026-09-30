@@ -89,8 +89,14 @@ const uploadClinicalImageToServer = async (file, appointmentId, scanMode = 'scan
     },
     body: file,
   })
-  const data = await response.json()
-  if (!response.ok) { const err = new Error(data.message || 'Clinical image upload failed.'); Object.assign(err, data); throw err }
+  const responseText = await response.text()
+  let data = {}
+  try { data = responseText ? JSON.parse(responseText) : {} } catch { data = { message: responseText || '' } }
+  if (!response.ok) {
+    const err = new Error(data.message || `Clinical image upload failed (HTTP ${response.status}).`)
+    Object.assign(err, data, { status: response.status })
+    throw err
+  }
   return data
 }
 

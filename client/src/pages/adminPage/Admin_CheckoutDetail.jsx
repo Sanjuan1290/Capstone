@@ -15,6 +15,7 @@ import {
   getInventory,
   payAdminCheckoutBill as payBill,
   updateAdminCheckoutBill as updateBill,
+  uploadAdminDiscountProofImage as uploadDiscountProofImage,
 } from '../../services/admin.service'
 import { getClinicSettings } from '../../services/clinic.service'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -23,6 +24,7 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { LoadingState, ErrorState } from '../../components/ui/PageState'
 import BillingStatusBadge from '../../components/billing/BillingStatusBadge'
 import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
+import DiscountProofField from '../../components/billing/DiscountProofField'
 import { enabledPaymentMethods, formatMoney, paymentMethodLabel, roundMoney } from '../../utils/billingUi'
 import { printBillingReceipt } from '../../utils/billingReceipt'
 
@@ -68,7 +70,9 @@ const normalizeBill = (bill) => ({
   })) : [],
 })
 
-const serializeItems = (items = []) => items.filter((item) => item.source_type !== 'consultation').map((item, index) => ({
+const isProtectedConsultationLine = (item) => ['consultation', 'consultation_extra'].includes(String(item?.source_type || ''))
+
+const serializeItems = (items = []) => items.filter((item) => !isProtectedConsultationLine(item)).map((item, index) => ({
   id: item.id || null,
   item_type: item.item_type,
   source_type: item.source_type,
@@ -123,6 +127,7 @@ const Admin_CheckoutDetail = () => {
   const [clinicSettings, setClinicSettings] = useState({})
   const [selectedDiscountId, setSelectedDiscountId] = useState('')
   const [discountReference, setDiscountReference] = useState('')
+  const [discountProof, setDiscountProof] = useState({ url: '', security_token: '' })
   const [discountReason, setDiscountReason] = useState('')
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -167,6 +172,7 @@ const Admin_CheckoutDetail = () => {
     if (discountRequest?.discount_preset_id) {
       setSelectedDiscountId(String(discountRequest.discount_preset_id))
       setDiscountReference(discountRequest.reference_text || '')
+      setDiscountProof({ url: discountRequest.reference_image_url || current.discount_reference_image_url || '', security_token: '' })
       setDiscountReason(discountRequest.reason || '')
       if (discountRequest.requested_amount) {
         setDraft((value) => value ? { ...value, discount_amount: Number(discountRequest.requested_amount) } : value)
@@ -179,6 +185,7 @@ const Admin_CheckoutDetail = () => {
     ))
     setSelectedDiscountId(preset ? String(preset.id) : '')
     setDiscountReference(current.discount_reference || '')
+    setDiscountProof({ url: current.discount_reference_image_url || '', security_token: '' })
     setDiscountReason('')
   }
 
@@ -261,7 +268,7 @@ const Admin_CheckoutDetail = () => {
 
   const removeItem = (index) => {
     const item = draft.items[index]
-    if (item?.source_type === 'consultation') return
+    if (isProtectedConsultationLine(item)) return
     markDraft((current) => ({ ...current, items: current.items.filter((_, i) => i !== index) }))
   }
 
@@ -315,6 +322,7 @@ const Admin_CheckoutDetail = () => {
     const preset = discounts.find((item) => Number(item.id) === Number(value)) || null
     setSelectedDiscountId(value)
     setDiscountReference('')
+    setDiscountProof({ url: '', security_token: '' })
     setDiscountReason('')
     markDraft((current) => {
       if (!preset) return { ...current, discount_amount: 0 }
@@ -327,21 +335,21 @@ const Admin_CheckoutDetail = () => {
 
   const validateReviewCharges = (workingDraft = draft) => {
     if (!workingDraft) return 'Bill is not ready.'
-    const invalidName = workingDraft.items.find((item) => item.source_type !== 'consultation' && !String(item.service_name || '').trim())
+    const invalidName = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && !String(item.service_name || '').trim())
     if (invalidName) return 'Enter a description for every added charge.'
-    const invalidQuantity = workingDraft.items.find((item) => item.source_type !== 'consultation' && !(Number(item.quantity) > 0))
+    const invalidQuantity = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && !(Number(item.quantity) > 0))
     if (invalidQuantity) return 'Every added charge must have a quantity greater than zero.'
     const invalidCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !String(item.notes || '').trim())
     if (invalidCustom) return 'Every custom charge needs a reason or note before continuing.'
     const zeroPriceCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !(Number(item.unit_price) > 0))
     if (zeroPriceCustom) return 'Every custom charge must have a price greater than ₱0.00.'
-    const longDescription = workingDraft.items.find((item) => item.source_type !== 'consultation' && String(item.service_name || '').trim().length > 180)
+    const longDescription = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && String(item.service_name || '').trim().length > 180)
     if (longDescription) return 'Charge descriptions must be 180 characters or fewer.'
-    const longNote = workingDraft.items.find((item) => item.source_type !== 'consultation' && String(item.notes || '').trim().length > 500)
+    const longNote = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && String(item.notes || '').trim().length > 500)
     if (longNote) return 'Charge notes must be 500 characters or fewer.'
-    const invalidSupply = workingDraft.items.find((item) => item.item_type === 'supply' && !item.source_inventory_id)
+    const invalidSupply = workingDraft.items.find((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && !item.source_inventory_id)
     if (invalidSupply) return 'Select an inventory item for every Medicine / Supply charge.'
-    for (const item of workingDraft.items.filter((row) => row.item_type === 'supply' && row.source_inventory_id)) {
+    for (const item of workingDraft.items.filter((row) => row.item_type === 'supply' && row.source_type === 'staff_supply' && row.source_inventory_id)) {
       const inv = inventoryMap.get(Number(item.source_inventory_id))
       const batches = getCheckoutBatchOptions(inv)
       const selectedBatch = batches.find((batch) => batch.id === Number(item?.details?.batch_id || 0) && batch.source_location_id === Number(item?.details?.source_location_id || 0))
@@ -364,7 +372,9 @@ const Admin_CheckoutDetail = () => {
         expected_version: currentVersion,
         items: serializeItems(workingDraft.items),
         discount_preset_id: selectedDiscountId || null,
-        discount_reference: discountReference || null,
+        discount_reference: null,
+        discount_reference_image_url: discountProof.url || null,
+        discount_reference_security_token: discountProof.security_token || null,
         discount_amount: workingDraft.discount_amount,
         payment_notes: workingDraft.payment_notes || null,
       })
@@ -374,13 +384,13 @@ const Admin_CheckoutDetail = () => {
       setVersionConflict(false)
       const requests = await getBillingAdjustmentRequests(billingId)
       setAdjustments(Array.isArray(requests) ? requests : [])
-      if (!quiet) toast.success('Draft saved.')
+      if (!quiet) toast.success('Billing review saved.')
       return updated
     } catch (err) {
       if (err.code === 'BILL_VERSION_CONFLICT' || /updated by another user|changed while/i.test(err.message || '')) {
         setVersionConflict(true)
       }
-      toast.error(err.message || 'Draft could not be saved.')
+      toast.error(err.message || 'Billing review could not be saved.')
       return null
     } finally {
       setSaving(false)
@@ -546,28 +556,27 @@ const Admin_CheckoutDetail = () => {
             </div>
 
             {zeroPriceItems.length > 0 && <div className="mt-4 flex gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900"><MdWarning /> {zeroPriceItems.length} charge{zeroPriceItems.length === 1 ? '' : 's'} currently {zeroPriceItems.length === 1 ? 'has' : 'have'} a missing/₱0.00 price. Fix the price before continuing.</div>}
-            <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-3 text-xs font-semibold leading-relaxed text-sky-800">Service consumables recorded by the Doctor are already deducted when the consultation is completed. Additional Medicine / Supply charges added here are deducted from the exact selected batch only when the bill becomes fully paid.</div>
 
             <div className="mt-5 space-y-3">
               {draft.items.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">No charges yet.</div>}
               {draft.items.map((item, index) => {
-                const protectedLine = item.source_type === 'consultation'
+                const protectedLine = isProtectedConsultationLine(item)
                 return (
                   <div key={item.id || `new-${index}`} className={`rounded-2xl border p-4 ${protectedLine ? 'border-sky-100 bg-sky-50/50' : 'border-slate-200'}`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-black text-slate-900">{item.service_name || (item.item_type === 'supply' ? 'Medicine / Supply' : 'Custom Charge')}</p>
-                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> From Consultation</span>}
+                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Consumable · From Consultation' : 'From Consultation'}</span>}
                         </div>
-                        {protectedLine && <p className="mt-1 text-xs text-slate-500">Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.</p>}
+                        {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
                       </div>
                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
                     </div>
 
                     {protectedLine ? (
                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px_140px]">
-                        <div><span className="form-label">Service</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
+                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Consumable' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
                         <div><span className="form-label">Qty</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.quantity}</div></div>
                         <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
                       </div>
@@ -602,7 +611,7 @@ const Admin_CheckoutDetail = () => {
               <h2 className="font-black text-slate-900">Charge Summary</h2>
               <div className="mt-4 space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Current Total</span><strong>{formatMoney(totals.total)}</strong></div></div>
               <button className="button-primary mt-5 w-full justify-center" disabled={draft.items.length === 0} onClick={proceedToReview}>Continue to Confirm Bill →</button>
-              <button className="button-secondary mt-2 w-full justify-center" disabled={saving || !dirty} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Draft'}</button>
+              <button className="button-secondary mt-2 w-full justify-center" disabled={saving || !dirty} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button>
             </div>
           </aside>
         </div>
@@ -616,7 +625,7 @@ const Admin_CheckoutDetail = () => {
             <label className="mt-5 block"><span className="form-label">Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
             {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
               {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={draft.discount_amount} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, Math.max(0, Number(e.target.value || 0))) }))} /></label>}
-              {Number(selectedDiscount.requires_reference) === 1 && <label><span className="form-label">Reference / ID *</span><input maxLength={120} className="form-control mt-1.5" value={discountReference} onChange={(e) => { setDiscountReference(e.target.value); setDirty(true) }} /></label>}
+              {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
               {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
                 <label><span className="form-label">Reason for Adjustment *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
                 {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Pending Staff adjustment request.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Apply Admin Discount'}</button>}
@@ -626,7 +635,7 @@ const Admin_CheckoutDetail = () => {
               {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
             </div>}
             <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Charges</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
-            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Draft'}</button></div>
+            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button></div>
           </section>
           <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges. Additional Medicine / Supply inventory is deducted from the selected batch only when the bill becomes fully paid.</p></div></aside>
         </div>
@@ -660,7 +669,7 @@ const Admin_CheckoutDetail = () => {
       <Modal open={Boolean(finalizePreview)} onClose={() => !finalizing && setFinalizePreview(null)} title="Confirm this bill?" description="This is the final review before charges are locked and direct medicines/supplies are dispensed." size="lg">
         {finalizePreview && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Total</p><p className="mt-1 text-xl font-black">{formatMoney(finalizePreview.total_amount)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Charges</p><p className="mt-1 text-xl font-black">{finalizePreview.charge_count}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Supply Items</p><p className="mt-1 text-xl font-black">{finalizePreview.supply_count}</p></div></div>
           {finalizePreview.supplies?.length > 0 && <div className="rounded-2xl border border-slate-200"><div className="border-b border-slate-100 px-4 py-3 font-black">Inventory Preflight</div><div className="divide-y divide-slate-100">{finalizePreview.supplies.map((supply) => <div key={`${supply.inventory_id}-${supply.batch_id || 'batch'}-${supply.source_location || 'location'}`} className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm"><div><strong>{supply.name}</strong><p className="mt-1 text-slate-500">Batch {supply.batch_code || `#${supply.batch_id || '—'}`} · {supply.source_location || 'Location not selected'} · Requested {supply.requested} {supply.unit || ''} · Available {supply.available} {supply.unit || ''}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-black ${supply.sufficient ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{supply.sufficient ? 'Available' : 'Insufficient Stock'}</span></div>)}</div></div>}
-          <div className={`rounded-2xl p-4 text-sm ${finalizePreview.can_finalize ? 'bg-amber-50 text-amber-900' : 'bg-rose-50 text-rose-900'}`}>{finalizePreview.can_finalize ? <><MdWarning className="mr-1 inline" /><strong>After confirmation:</strong> charges are locked and selected batch stock is revalidated. Added Medicine / Supply items are automatically stocked out only when the bill becomes fully paid. Doctor service consumables were already deducted at consultation completion.</> : <><MdWarning className="mr-1 inline" /><strong>Cannot confirm this bill.</strong> Correct the insufficient inventory quantity or replenish stock first.</>}</div>
+          <div className={`rounded-2xl p-4 text-sm ${finalizePreview.can_finalize ? 'bg-amber-50 text-amber-900' : 'bg-rose-50 text-rose-900'}`}>{finalizePreview.can_finalize ? <><MdWarning className="mr-1 inline" /><strong>After confirmation:</strong> charges are locked. Medicine / Supply items manually added at Checkout are stocked out only when the bill becomes fully paid.</> : <><MdWarning className="mr-1 inline" /><strong>Cannot confirm this bill.</strong> Correct the insufficient inventory quantity or replenish stock first.</>}</div>
           <div className="flex justify-end gap-2"><button className="button-secondary" disabled={finalizing} onClick={() => setFinalizePreview(null)}>Go Back</button><button className="button-primary" disabled={finalizing || !finalizePreview.can_finalize} onClick={confirmFinalize}>{finalizing ? 'Confirming…' : `Confirm Bill — ${formatMoney(finalizePreview.total_amount)}`}</button></div>
         </div>}
       </Modal>
@@ -671,4 +680,5 @@ const Admin_CheckoutDetail = () => {
 }
 
 export default Admin_CheckoutDetail
+
 

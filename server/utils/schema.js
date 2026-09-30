@@ -414,10 +414,25 @@ const ensureAppSchema = async () => {
   await db.query(`INSERT IGNORE INTO inventory_barcode_sequences (category,last_number) VALUES ('medical',0),('derma',0)`).catch(() => {})
 
   await ensureColumn('consultations', 'status', "VARCHAR(20) NOT NULL DEFAULT 'draft'").catch(() => {})
+  await ensureColumn('consultations', 'prescription_status', "VARCHAR(20) NOT NULL DEFAULT 'not_recorded'").catch(() => {})
   await ensureColumn('consultations', 'finalized_at', 'DATETIME NULL').catch(() => {})
   await ensureColumn('consultations', 'finalized_by_doctor_id', 'INT NULL').catch(() => {})
   await ensureColumn('consultations', 'updated_at', 'DATETIME NULL').catch(() => {})
   await db.query("UPDATE consultations SET status='finalized', finalized_at=COALESCE(finalized_at, consulted_at), finalized_by_doctor_id=COALESCE(finalized_by_doctor_id, doctor_id) WHERE status IS NULL OR status='' OR (status='draft' AND appointment_id IN (SELECT id FROM appointments WHERE status='completed'))").catch(() => {})
+  await db.query(`
+    UPDATE consultations
+    SET prescription_status = CASE
+      WHEN prescription IS NOT NULL
+       AND TRIM(prescription) <> ''
+       AND (CASE WHEN JSON_VALID(prescription) THEN JSON_LENGTH(prescription) ELSE 0 END) > 0 THEN 'prescribed'
+      WHEN status = 'finalized' THEN 'none'
+      ELSE 'not_recorded'
+    END
+    WHERE prescription_status IS NULL
+       OR prescription_status = ''
+       OR prescription_status NOT IN ('not_recorded','prescribed','none')
+       OR prescription_status = 'not_recorded'
+  `).catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS consultation_amendments (
@@ -977,6 +992,7 @@ const ensureAppSchema = async () => {
   // Legacy price is now only a compatibility mirror of an explicitly reviewed selling_price.
   await db.query(`UPDATE inventory SET price=selling_price WHERE selling_price IS NOT NULL AND selling_price > 0 AND (price IS NULL OR ABS(price-selling_price)>0.0001)`).catch(() => {})
   await ensureColumn('billing_records', 'discount_reference', 'VARCHAR(160) NULL')
+  await ensureColumn('billing_records', 'discount_reference_image_url', 'VARCHAR(500) NULL AFTER discount_reference')
   await ensureColumn('billing_records', 'finalized_at', 'DATETIME NULL')
   await ensureColumn('billing_records', 'finalized_by_staff_id', 'INT NULL')
   await ensureColumn('billing_records', 'finalized_by_admin_id', 'INT NULL')
@@ -1564,6 +1580,7 @@ const ensureAppSchema = async () => {
       requested_amount DECIMAL(10,2) NULL,
       requested_price DECIMAL(10,2) NULL,
       reference_text VARCHAR(160) NULL,
+      reference_image_url VARCHAR(500) NULL,
       reason VARCHAR(255) NOT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
       resolved_by_admin_id INT NULL,
@@ -1578,6 +1595,7 @@ const ensureAppSchema = async () => {
     )
   `)
   await ensureColumn('billing_adjustment_requests', 'bill_version', 'INT NOT NULL DEFAULT 1 AFTER billing_id')
+  await ensureColumn('billing_adjustment_requests', 'reference_image_url', 'VARCHAR(500) NULL AFTER reference_text')
   await db.query("ALTER TABLE billing_adjustment_requests MODIFY COLUMN status VARCHAR(20) NOT NULL DEFAULT 'pending'").catch(() => {})
   await ensureIndex('billing_payments', 'idx_billing_payment_reference', 'payment_method, reference_number').catch(() => {})
 

@@ -26,11 +26,11 @@ const STATUS_CONFIG = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const BILL_STATUS = {
-  draft: { label: 'Draft', tone: 'bg-slate-100 text-slate-600 border-slate-200' },
-  pending: { label: 'Draft', tone: 'bg-slate-100 text-slate-600 border-slate-200' },
-  ready: { label: 'Ready', tone: 'bg-sky-50 text-sky-700 border-sky-200' },
-  partially_paid: { label: 'Partially Paid', tone: 'bg-amber-50 text-amber-700 border-amber-200' },
-  paid: { label: 'Paid', tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  draft: { label: 'Needs Review', tone: 'bg-slate-100 text-slate-600 border-slate-200' },
+  pending: { label: 'Needs Review', tone: 'bg-slate-100 text-slate-600 border-slate-200' },
+  ready: { label: 'Ready to Collect', tone: 'bg-sky-50 text-sky-700 border-sky-200' },
+  partially_paid: { label: 'Balance Remaining', tone: 'bg-amber-50 text-amber-700 border-amber-200' },
+  paid: { label: 'Completed', tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   voided: { label: 'Voided', tone: 'bg-rose-50 text-rose-700 border-rose-200' },
   refunded: { label: 'Refunded', tone: 'bg-violet-50 text-violet-700 border-violet-200' },
 }
@@ -451,4 +451,5 @@ const Admin_PatientRecord = () => {
 }
 
 export default Admin_PatientRecord
+
 

@@ -17,7 +17,7 @@ const {
   countActiveAppointmentsOnDate,
 } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds, authorizeConsultationImages, syncConsultationImages } = require('../utils/consultationImages')
-const { listBillingCatalog, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
+const { listBillingCatalog, getBillingCatalogServiceById, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
 const { consumeInventoryFromLocationFEFO, getInventoryLocationById, attachBatchesToInventory } = require('../utils/inventoryBatches')
 const { writeAuditLog } = require('../utils/audit')
 const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
@@ -421,36 +421,146 @@ const startConsultation = async (req, res) => {
   res.json({ message: 'Consultation started.', queue: queueEntry })
 }
 
-const normalizeConsultationTextFields = (body) => {
+const PRESCRIPTION_STATUSES = new Set(['not_recorded', 'prescribed', 'none'])
+
+const makeConsultationValidationError = (message, code = 'VALIDATION_ERROR') => Object.assign(
+  new Error(message),
+  { statusCode: 400, code, publicMessage: message }
+)
+
+const normalizeConsultationTextFields = (body, { requirePrescriptionDecision = false } = {}) => {
   assertPlainObject(body)
   const diagnosis = normalizeOptionalText(body.diagnosis, { field: 'Diagnosis', max: 5000, multiline: true })
   let prescription = normalizeOptionalText(body.prescription, { field: 'Prescription', max: 20000, multiline: true })
   const notes = normalizeOptionalText(body.notes, { field: 'Clinical Notes', max: 5000, multiline: true })
+  let normalizedItems = []
+
   if (prescription) {
     let parsed
-    try { parsed = JSON.parse(prescription) } catch { throw Object.assign(new Error('Prescription data is invalid.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'Prescription data is invalid.' }) }
-    if (!Array.isArray(parsed)) throw Object.assign(new Error('Prescription data must be a list.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'Prescription data must be a list.' })
-    if (parsed.length > 30) throw Object.assign(new Error('A consultation can contain at most 30 prescription items.'), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: 'A consultation can contain at most 30 prescription items.' })
-    const normalizedItems = parsed.map((item, index) => {
+    try { parsed = JSON.parse(prescription) } catch { throw makeConsultationValidationError('Prescription data is invalid.') }
+    if (!Array.isArray(parsed)) throw makeConsultationValidationError('Prescription data must be a list.')
+    if (parsed.length > 30) throw makeConsultationValidationError('A consultation can contain at most 30 prescription items.')
+    normalizedItems = parsed.map((item, index) => {
       assertPlainObject(item)
       const medicine = normalizeOptionalText(item.medicine, { field: `Prescription medicine ${index + 1}`, max: 160 }) || ''
       const frequency = normalizeOptionalText(item.frequency, { field: `Prescription frequency ${index + 1}`, max: 120 }) || ''
       const rxNotes = normalizeOptionalText(item.notes, { field: `Prescription notes ${index + 1}`, max: 500 }) || ''
-      const unitLabel = normalizeOptionalText(item.unit_label, { field: `Prescription unit ${index + 1}`, max: 50 }) || ''
       const rawQuantity = item.quantity ?? item.dosage ?? ''
       let quantity = ''
       if (rawQuantity !== '' && rawQuantity !== null && rawQuantity !== undefined) {
         const numericQuantity = Number(rawQuantity)
         if (!Number.isFinite(numericQuantity) || numericQuantity < 0 || numericQuantity > 99999999.99) {
-          throw Object.assign(new Error(`Prescription quantity ${index + 1} must be a valid non-negative number.`), { statusCode: 400, code: 'VALIDATION_ERROR', publicMessage: `Prescription quantity ${index + 1} must be a valid non-negative number.` })
+          throw makeConsultationValidationError(`Prescription quantity ${index + 1} must be a valid non-negative number.`)
         }
         quantity = String(numericQuantity)
       }
-      return { inventory_id: item.inventory_id === '__other__' ? '__other__' : (Number(item.inventory_id) || ''), medicine, quantity, unit_label: unitLabel, frequency, notes: rxNotes }
-    })
-    prescription = JSON.stringify(normalizedItems)
+      return {
+        medicine,
+        quantity,
+        frequency,
+        notes: rxNotes,
+      }
+    }).filter((item) => item.medicine || item.quantity || item.frequency || item.notes)
   }
-  return { diagnosis, prescription, notes }
+
+  const requestedStatus = String(body.prescription_status || '').trim().toLowerCase()
+  if (requestedStatus && !PRESCRIPTION_STATUSES.has(requestedStatus)) {
+    throw makeConsultationValidationError('Prescription decision is invalid.')
+  }
+
+  let prescriptionStatus = requestedStatus || (normalizedItems.some((item) => item.medicine) ? 'prescribed' : 'not_recorded')
+  if (prescriptionStatus === 'none') normalizedItems = []
+
+  if (requirePrescriptionDecision && prescriptionStatus === 'not_recorded') {
+    throw makeConsultationValidationError(
+      'Choose either Prescribe Medicine or No Prescription before completing the consultation.',
+      'PRESCRIPTION_DECISION_REQUIRED'
+    )
+  }
+  if (requirePrescriptionDecision && prescriptionStatus === 'prescribed' && !normalizedItems.some((item) => item.medicine)) {
+    throw makeConsultationValidationError(
+      'Add at least one medicine or choose No Prescription before completing the consultation.',
+      'PRESCRIPTION_REQUIRED'
+    )
+  }
+
+  prescription = JSON.stringify(normalizedItems)
+  return { diagnosis, prescription, notes, prescriptionStatus }
+}
+
+const assertBookedServicePresent = (appointment, billableServices) => {
+  const requestedServiceId = Number(appointment?.requested_service_id || 0)
+  if (!requestedServiceId) return
+  if (!Array.isArray(billableServices)) {
+    throw makeConsultationValidationError('The booked service is required for this consultation.', 'BOOKED_SERVICE_REQUIRED')
+  }
+  const booked = billableServices.find((item) => Number(item?.catalog_service_id || item?.id || 0) === requestedServiceId)
+  if (!booked) {
+    throw makeConsultationValidationError('The booked service cannot be removed from the consultation.', 'BOOKED_SERVICE_REQUIRED')
+  }
+  if (Number(booked.quantity ?? 1) !== 1) {
+    throw makeConsultationValidationError('The booked service quantity is fixed at 1.', 'BOOKED_SERVICE_FIXED')
+  }
+}
+
+
+const enforceFixedCatalogConsumables = async (billableServices, executor = db) => {
+  if (!Array.isArray(billableServices)) return billableServices
+
+  const normalized = []
+  for (const rawService of billableServices) {
+    const serviceId = Number(rawService?.catalog_service_id || rawService?.id || 0)
+    if (!serviceId) {
+      normalized.push(rawService)
+      continue
+    }
+
+    const catalogService = await getBillingCatalogServiceById(serviceId, executor)
+    if (!catalogService) {
+      normalized.push(rawService)
+      continue
+    }
+
+    const configuredMaterials = (Array.isArray(catalogService.materials) ? catalogService.materials : []).map((material) => ({
+      inventory_id: Number(material.inventory_id) || null,
+      material_name: material.material_name || material.inventory_name || '',
+      quantity: Math.max(0, Number(material.quantity) || 0),
+      unit_label: material.inventory_base_unit || material.unit_label || material.inventory_unit || '',
+    }))
+
+    // Catalog materials are always rebuilt from Service Setup. Consultation extras are
+    // preserved only when explicitly marked as extras. An extra may intentionally use
+    // the same inventory item as a configured material.
+    const extrasByInventory = new Map()
+    for (const material of Array.isArray(rawService?.materials) ? rawService.materials : []) {
+      const inventoryId = Number(material?.inventory_id || 0)
+      const isExtra = material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
+      const quantity = Math.max(0, Number(material?.quantity) || 0)
+      if (!inventoryId || !isExtra || quantity <= 0) continue
+
+      const existing = extrasByInventory.get(inventoryId)
+      if (existing) {
+        existing.quantity += quantity
+        continue
+      }
+
+      extrasByInventory.set(inventoryId, {
+        ...material,
+        inventory_id: inventoryId,
+        quantity,
+        consultation_extra: true,
+      })
+    }
+    const extras = Array.from(extrasByInventory.values())
+
+    normalized.push({
+      ...rawService,
+      quantity: Number(rawService?.quantity ?? 1),
+      materials: [...configuredMaterials, ...extras],
+    })
+  }
+
+  return normalized
 }
 
 const buildConsultationPayload = (req) => ({
@@ -496,16 +606,16 @@ const saveConsultationDraft = async (req, res) => {
       consultationId = existing[0].id
       await conn.query(
         `UPDATE consultations
-         SET diagnosis=?, prescription=?, notes=?, status='draft', updated_at=NOW(), version=COALESCE(version,1)+1
+         SET diagnosis=?, prescription=?, prescription_status=?, notes=?, status='draft', updated_at=NOW(), version=COALESCE(version,1)+1
          WHERE id=?`,
-        [payload.diagnosis, payload.prescription, payload.notes, consultationId]
+        [payload.diagnosis, payload.prescription, payload.prescriptionStatus, payload.notes, consultationId]
       )
     } else {
       const [inserted] = await conn.query(
         `INSERT INTO consultations
-         (appointment_id, doctor_id, patient_id, diagnosis, prescription, notes, status, updated_at, version)
-         VALUES (?,?,?,?,?,?,'draft',NOW(),1)`,
-        [appointmentId, req.user.id, appt.patient_id, payload.diagnosis, payload.prescription, payload.notes]
+         (appointment_id, doctor_id, patient_id, diagnosis, prescription, prescription_status, notes, status, updated_at, version)
+         VALUES (?,?,?,?,?,?,?,'draft',NOW(),1)`,
+        [appointmentId, req.user.id, appt.patient_id, payload.diagnosis, payload.prescription, payload.prescriptionStatus, payload.notes]
       )
       consultationId = inserted.insertId
     }
@@ -515,7 +625,9 @@ const saveConsultationDraft = async (req, res) => {
       await syncConsultationImages(consultationId, authorizedImages, conn)
     }
     if (payload.billableServices !== null) {
-      billing = await upsertDraftBillingForAppointment({ appointment: appt, consultationId, items: payload.billableServices }, conn)
+      const fixedBillableServices = await enforceFixedCatalogConsumables(payload.billableServices, conn)
+      assertBookedServicePresent(appt, fixedBillableServices)
+      billing = await upsertDraftBillingForAppointment({ appointment: appt, consultationId, items: fixedBillableServices }, conn)
     } else {
       billing = await getBillingByAppointmentId(appointmentId, conn)
     }
@@ -528,7 +640,7 @@ const saveConsultationDraft = async (req, res) => {
       action: 'clinical.consultation_draft_saved',
       entityType: 'consultation',
       entityId: consultationId,
-      newValues: { appointment_id: Number(appointmentId), status: 'draft' },
+      newValues: { appointment_id: Number(appointmentId), status: 'draft', prescription_status: payload.prescriptionStatus },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -546,7 +658,7 @@ const saveConsultationDraft = async (req, res) => {
 }
 
 const finalizeConsultation = async (req, res) => {
-  const { diagnosis, prescription, notes } = normalizeConsultationTextFields(req.body)
+  const { diagnosis, prescription, notes, prescriptionStatus } = normalizeConsultationTextFields(req.body, { requirePrescriptionDecision: true })
   const hasImagesPayload = Object.prototype.hasOwnProperty.call(req.body, 'images')
   const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
   const images = hasImagesPayload ? req.body.images : []
@@ -607,13 +719,13 @@ const finalizeConsultation = async (req, res) => {
       }
       consultationId = existing[0].id
       await conn.query(
-        'UPDATE consultations SET diagnosis = ?, prescription = ?, notes = ?, updated_at = NOW() WHERE id = ?',
-        [diagnosis || null, prescription || null, notes || null, consultationId]
+        'UPDATE consultations SET diagnosis = ?, prescription = ?, prescription_status = ?, notes = ?, updated_at = NOW() WHERE id = ?',
+        [diagnosis || null, prescription || null, prescriptionStatus, notes || null, consultationId]
       )
     } else {
       const [result] = await conn.query(
-        "INSERT INTO consultations (appointment_id, doctor_id, patient_id, diagnosis, prescription, notes, status, updated_at) VALUES (?,?,?,?,?,?,'draft',NOW())",
-        [appointmentId, req.user.id, appt.patient_id, diagnosis || null, prescription || null, notes || null]
+        "INSERT INTO consultations (appointment_id, doctor_id, patient_id, diagnosis, prescription, prescription_status, notes, status, updated_at) VALUES (?,?,?,?,?,?,?,'draft',NOW())",
+        [appointmentId, req.user.id, appt.patient_id, diagnosis || null, prescription || null, prescriptionStatus, notes || null]
       )
       consultationId = result.insertId
     }
@@ -622,10 +734,12 @@ const finalizeConsultation = async (req, res) => {
       const authorizedImages = await authorizeConsultationImages({ consultationId, appointmentId, doctorId: req.user.id, images, executor: conn })
       await syncConsultationImages(consultationId, authorizedImages, conn)
     }
+    const fixedBillableServices = await enforceFixedCatalogConsumables(billableServices, conn)
+    assertBookedServicePresent(appt, fixedBillableServices)
     billing = await upsertDraftBillingForAppointment({
       appointment: appt,
       consultationId,
-      items: billableServices,
+      items: fixedBillableServices,
     }, conn)
     await consumeClinicalInventory({ billing, consultationId, doctorId: req.user.id, appointment: appt }, conn)
 
@@ -638,7 +752,7 @@ const finalizeConsultation = async (req, res) => {
     await conn.query("UPDATE appointments SET status = 'completed' WHERE id = ?", [appointmentId])
     await writeAuditLog({
       userId: req.user.id, userRole: 'doctor', action: 'clinical.consultation_finalized', entityType: 'consultation', entityId: consultationId,
-      newValues: { appointment_id: Number(appointmentId), services_count: Array.isArray(billableServices) ? billableServices.length : 0, status: 'finalized' },
+      newValues: { appointment_id: Number(appointmentId), services_count: Array.isArray(billableServices) ? billableServices.length : 0, prescription_status: prescriptionStatus, status: 'finalized' },
       ipAddress: req.ip || null,
     }, conn)
 
@@ -745,7 +859,7 @@ const getConsultation = async (req, res) => {
 // ── NEW: Update (edit) a completed consultation ───────────────────────────────
 const updateConsultation = async (req, res) => {
   const { appointmentId } = req.params
-  const { diagnosis, prescription, notes } = normalizeConsultationTextFields(req.body)
+  const { diagnosis, prescription, notes, prescriptionStatus } = normalizeConsultationTextFields(req.body)
   const hasImagesPayload = Object.prototype.hasOwnProperty.call(req.body, 'images')
   const hasBillableServicesPayload = Object.prototype.hasOwnProperty.call(req.body, 'billable_services')
   const conn = await db.getConnection()
@@ -771,8 +885,8 @@ const updateConsultation = async (req, res) => {
     patientId = consultation.appointment_patient_id || consultation.patient_id
 
     await conn.query(
-      'UPDATE consultations SET diagnosis = ?, prescription = ?, notes = ?, updated_at = NOW() WHERE id = ?',
-      [diagnosis || null, prescription || null, notes || null, consultation.id]
+      'UPDATE consultations SET diagnosis = ?, prescription = ?, prescription_status = ?, notes = ?, updated_at = NOW() WHERE id = ?',
+      [diagnosis || null, prescription || null, prescriptionStatus, notes || null, consultation.id]
     )
     if (hasImagesPayload) {
       const authorizedImages = await authorizeConsultationImages({ consultationId: consultation.id, appointmentId, doctorId: req.user.id, images: req.body.images, executor: conn })
@@ -784,10 +898,12 @@ const updateConsultation = async (req, res) => {
       [appointmentId, req.user.id]
     )
     if (hasBillableServicesPayload) {
+      const fixedBillableServices = await enforceFixedCatalogConsumables(req.body.billable_services, conn)
+      assertBookedServicePresent(apptRows[0], fixedBillableServices)
       billing = await upsertDraftBillingForAppointment({
         appointment: apptRows[0],
         consultationId: consultation.id,
-        items: req.body.billable_services,
+        items: fixedBillableServices,
       }, conn)
     } else {
       billing = await getBillingByAppointmentId(appointmentId, conn)
@@ -885,7 +1001,7 @@ const getPatientHistory = async (req, res) => {
 
   const [rows] = await db.query(
     `SELECT a.*, a.appointment_date AS date, a.appointment_time AS time,
-            a.clinic_type AS type, c.id AS consultation_id, c.diagnosis, c.prescription,
+            a.clinic_type AS type, c.id AS consultation_id, c.diagnosis, c.prescription, c.prescription_status,
             c.notes, c.notes AS consultation_notes, c.consulted_at
      FROM appointments a LEFT JOIN consultations c ON c.appointment_id = a.id
      WHERE a.patient_id = ? AND a.doctor_id = ? AND a.status IN ('completed','cancelled','no_show')
@@ -1089,7 +1205,7 @@ const getInventoryItems = async (req, res) => {
   const [[doctor]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? LIMIT 1', [req.user.id])
   const treatmentLocation = doctor?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
   const [rows] = await db.query(
-    `SELECT i.id, i.name, i.category, COALESCE(i.item_type, 'medicine') AS item_type,
+    `SELECT i.id, i.barcode, i.name, i.category, COALESCE(i.item_type, 'medicine') AS item_type,
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS uom,
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS unit,
             i.dosage_form, i.strength, i.measurement_value, i.measurement_unit, i.stock, i.stock_base, i.threshold, i.selling_price,
@@ -1105,7 +1221,7 @@ const getInventoryItems = async (req, res) => {
             ? AS treatment_room_name
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
-     WHERE i.stock > 0 AND i.archived_at IS NULL
+     WHERE i.archived_at IS NULL
      ORDER BY i.category, i.name`,
     [treatmentLocation, treatmentLocation]
   )

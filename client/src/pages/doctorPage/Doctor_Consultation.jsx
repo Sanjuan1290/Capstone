@@ -34,6 +34,9 @@ import {
   MdPerson,
   MdPrint,
   MdUpload,
+  MdSearch,
+  MdLock,
+  MdInventory2,
 } from 'react-icons/md'
 
 function formatDate(raw) {
@@ -60,26 +63,11 @@ const normalizePrescription = (prescription = {}) => {
   return next
 }
 
-const getPrescriptionInventoryItem = (prescription, inventoryItems = []) => {
-  if (prescription?.inventory_id && prescription.inventory_id !== '__other__') {
-    const byId = inventoryItems.find((entry) => String(entry.id) === String(prescription.inventory_id))
-    if (byId) return byId
-  }
-  return inventoryItems.find((entry) => entry.name?.trim().toLowerCase() === String(prescription?.medicine || '').trim().toLowerCase()) || null
-}
-
-const getPrescriptionUnit = (prescription, inventoryItems = []) => prescription?.unit_label || getPrescriptionInventoryItem(prescription, inventoryItems)?.uom || getPrescriptionInventoryItem(prescription, inventoryItems)?.unit || ''
-
-const serializePrescription = (prescription, inventoryItems = []) => {
+const serializePrescription = (prescription) => {
   const next = normalizePrescription(prescription)
-  if (!next.unit_label) next.unit_label = getPrescriptionUnit(next, inventoryItems)
+  delete next.inventory_id
+  delete next.unit_label
   return next
-}
-
-const inventoryMeasurementLabel = (item) => {
-  if (!item?.measurement_value || !item?.measurement_unit) return ''
-  const stockUnit = item.uom || item.unit || 'unit'
-  return `${Number(item.measurement_value)} ${item.measurement_unit} per ${stockUnit}`
 }
 
 const createBlankProgressImage = () => ({
@@ -101,6 +89,29 @@ const normalizeProgressImages = (images = []) => (
     })).filter((image) => image.image_url || image.caption)
     : []
 )
+
+const PRESCRIPTION_DECISIONS = new Set(['not_recorded', 'prescribed', 'none'])
+
+const blankPrescription = () => ({
+  medicine: '',
+  quantity: '',
+  frequency: '',
+  notes: '',
+})
+
+const prescriptionHasContent = (prescription = {}) => (
+  Boolean(String(prescription?.medicine || '').trim())
+  || Boolean(String(prescription?.quantity || '').trim())
+  || Boolean(String(prescription?.frequency || '').trim())
+  || Boolean(String(prescription?.notes || '').trim())
+)
+
+const normalizePrescriptionDecision = (value, prescriptions = [], status = 'draft') => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (PRESCRIPTION_DECISIONS.has(normalized)) return normalized
+  if ((Array.isArray(prescriptions) ? prescriptions : []).some((item) => String(item?.medicine || '').trim())) return 'prescribed'
+  return status === 'finalized' ? 'none' : 'not_recorded'
+}
 
 const ProgressImageGallery = ({ images = [], emptyText = 'No progress images added yet.' }) => {
   const list = normalizeProgressImages(images).filter((image) => image.image_url)
@@ -161,7 +172,8 @@ const Doctor_Consultation = () => {
 
   const [diagnosis, setDiagnosis] = useState('')
   const [notes, setNotes] = useState('')
-  const [prescriptions, setPrescriptions] = useState([{ inventory_id: '', medicine: '', quantity: '', unit_label: '', frequency: '', notes: '' }])
+  const [prescriptions, setPrescriptions] = useState([])
+  const [prescriptionDecision, setPrescriptionDecision] = useState('not_recorded')
   const [progressImages, setProgressImages] = useState([])
   const [patientHistory, setPatientHistory] = useState([])
   const [saving, setSaving] = useState(false)
@@ -188,6 +200,10 @@ const Doctor_Consultation = () => {
   const [amendmentReason, setAmendmentReason] = useState('')
   const [amendmentText, setAmendmentText] = useState('')
   const [addingAmendment, setAddingAmendment] = useState(false)
+  const [extraConsumableOpen, setExtraConsumableOpen] = useState(false)
+  const [extraConsumableSearch, setExtraConsumableSearch] = useState('')
+  const [extraConsumableId, setExtraConsumableId] = useState('')
+  const [extraConsumableQuantity, setExtraConsumableQuantity] = useState(1)
 
   const date = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
 
@@ -213,13 +229,12 @@ const Doctor_Consultation = () => {
       const rx = typeof consult.prescription === 'string'
         ? JSON.parse(consult.prescription)
         : consult.prescription
-      if (Array.isArray(rx) && rx.length > 0) {
-        setPrescriptions(rx.map(normalizePrescription))
-      } else {
-        setPrescriptions([{ inventory_id: '', medicine: '', quantity: '', unit_label: '', frequency: '', notes: '' }])
-      }
+      const normalizedRx = Array.isArray(rx) ? rx.map(normalizePrescription).filter(prescriptionHasContent) : []
+      setPrescriptions(normalizedRx)
+      setPrescriptionDecision(normalizePrescriptionDecision(consult.prescription_status, normalizedRx, nextStatus))
     } catch {
-      setPrescriptions([{ inventory_id: '', medicine: '', quantity: '', unit_label: '', frequency: '', notes: '' }])
+      setPrescriptions([])
+      setPrescriptionDecision(normalizePrescriptionDecision(consult.prescription_status, [], nextStatus))
     }
     const serviceItems = Array.isArray(consult?.billing?.items) ? consult.billing.items.filter((item) => item.item_type === 'service') : []
     setBillableServices(serviceItems.map((item) => {
@@ -292,10 +307,12 @@ const Doctor_Consultation = () => {
     getBillingCatalog(clinicType).then((rows) => {
       const catalog = Array.isArray(rows) ? rows : []
       setBillingCatalog(catalog)
-      if (consultationStatus !== 'finalized' && appt?.requested_service_id) {
-        const requested = catalog.find((service) => Number(service.id) === Number(appt.requested_service_id))
-        if (requested) {
-          setBillableServices((current) => current.length > 0 ? current : [{
+      setBillableServices((current) => {
+        if (consultationStatus === 'finalized') return current
+        const requested = catalog.find((service) => Number(service.id) === Number(appt?.requested_service_id))
+        if (!current.length) {
+          if (!requested) return current
+          return [{
             catalog_service_id: requested.id,
             service_name: requested.service_name,
             quantity: 1,
@@ -305,9 +322,28 @@ const Doctor_Consultation = () => {
               quantity: Number(material.quantity || 0),
               unit_label: material.inventory_base_unit || material.unit_label || material.inventory_unit || '',
             })),
-          }])
+          }]
         }
-      }
+
+        return current.map((serviceLine) => {
+          const catalogService = catalog.find((service) => Number(service.id) === Number(serviceLine.catalog_service_id))
+          if (!catalogService) return serviceLine
+          const existingIds = new Set((serviceLine.materials || []).map((material) => Number(material.inventory_id || 0)).filter(Boolean))
+          const missingDefaults = (catalogService.materials || [])
+            .filter((material) => Number(material.inventory_id || 0) > 0 && !existingIds.has(Number(material.inventory_id)))
+            .map((material) => ({
+              inventory_id: material.inventory_id,
+              material_name: material.material_name || material.inventory_name,
+              quantity: 0,
+              unit_label: material.inventory_base_unit || material.unit_label || material.inventory_unit || '',
+            }))
+          return {
+            ...serviceLine,
+            service_name: serviceLine.service_name || catalogService.service_name,
+            materials: [...(serviceLine.materials || []), ...missingDefaults],
+          }
+        })
+      })
     }).catch(() => setBillingCatalog([]))
   }, [appt?.type, appt?.clinic_type, appt?.requested_service_id, consultationStatus])
 
@@ -328,9 +364,24 @@ const Doctor_Consultation = () => {
     )))
   )
 
-  const addRx = () => setPrescriptions((prev) => prev.length >= 30 ? prev : [...prev, { inventory_id: '', medicine: '', quantity: '', unit_label: '', frequency: '', notes: '' }])
+  const addRx = () => {
+    setPrescriptionDecision('prescribed')
+    setPrescriptions((prev) => prev.length >= 30 ? prev : [...prev, blankPrescription()])
+  }
+
   const removeRx = (index) => setPrescriptions((prev) => prev.filter((_, rxIndex) => rxIndex !== index))
 
+  const choosePrescriptionDecision = (decision) => {
+    if (isEditMode) return
+    if (decision === 'none') {
+      if (prescriptions.some(prescriptionHasContent) && !window.confirm('Clear the medicines already entered and record No Prescription for this consultation?')) return
+      setPrescriptionDecision('none')
+      setPrescriptions([])
+      return
+    }
+    setPrescriptionDecision('prescribed')
+    setPrescriptions((current) => current.length ? current : [blankPrescription()])
+  }
 
   const updateProgressImage = (index, field, value) => {
     setProgressImages((prev) => prev.map((image, imageIndex) => (
@@ -341,7 +392,11 @@ const Doctor_Consultation = () => {
   const removeProgressImage = (index) => {
     if (!window.confirm('Remove this progress image from the consultation? This change will be permanent once the consultation is saved.')) return
     setProgressImages((prev) => prev.filter((_, imageIndex) => imageIndex !== index))
-    setImageUploadStatus({})
+    setImageUploadStatus((current) => {
+      const next = { ...current }
+      delete next[index]
+      return next
+    })
   }
 
   const setClinicalUploadStatus = (index, status) => {
@@ -349,16 +404,23 @@ const Doctor_Consultation = () => {
   }
 
   const applyClinicalUploadResult = (index, file, result) => {
-    updateProgressImage(index, 'image_url', result.url)
-    updateProgressImage(index, 'security_scan_status', result.scan_status)
-    updateProgressImage(index, 'security_token', result.security_token || '')
-    if (!progressImages[index]?.caption) {
-      updateProgressImage(index, 'caption', file.name.replace(/\.[^.]+$/, ''))
-    }
+    setProgressImages((current) => {
+      const next = [...current]
+      while (next.length <= index) next.push(createBlankProgressImage())
+      const existing = next[index] || createBlankProgressImage()
+      next[index] = {
+        ...existing,
+        image_url: result.url || existing.image_url,
+        security_scan_status: result.scan_status || existing.security_scan_status || 'legacy',
+        security_token: result.security_token || '',
+        caption: existing.caption || '',
+      }
+      return next
+    })
   }
 
-  const handleUploadProgressImages = async (fileList) => {
-    const requestedFiles = Array.from(fileList || [])
+  const handleUploadProgressImages = async (selectedFiles) => {
+    const requestedFiles = Array.isArray(selectedFiles) ? selectedFiles : Array.from(selectedFiles || [])
     if (!requestedFiles.length) return
 
     const validFiles = requestedFiles.filter((file) => (
@@ -401,13 +463,17 @@ const Doctor_Consultation = () => {
     setScanBypassPrompt(null)
     setPendingScanPrompt(null)
     setUploadingIndex(index)
-    setClinicalUploadStatus(index, { tone: 'info', message: 'Preparing image for security scanning…' })
+    setClinicalUploadStatus(index, { tone: 'info', message: 'Uploading image securely…' })
     try {
       const result = await uploadClinicalImageSigned(file, appt?.id, {
         scanMode: 'scan',
         onStatus: (status) => setClinicalUploadStatus(index, status),
       })
       applyClinicalUploadResult(index, file, result)
+      setClinicalUploadStatus(index, {
+        tone: result.scan_status === 'bypassed' ? 'warning' : 'success',
+        message: result.scan_status === 'bypassed' ? 'Upload complete without malware scanning.' : 'Upload complete. Security scan passed.',
+      })
     } catch (err) {
       if (err.code === 'SCAN_UNAVAILABLE' || err.code === 'SCAN_LIMIT_REACHED') {
         const limitReached = err.code === 'SCAN_LIMIT_REACHED'
@@ -435,7 +501,7 @@ const Doctor_Consultation = () => {
       const result = await getClinicalImageScanStatus(appt?.id, assetId, scanToken)
       if (result.status === 'approved') {
         applyClinicalUploadResult(index, file, { url: result.secure_url || url, scan_status: 'approved', asset_id: assetId, security_token: result.security_token })
-        setClinicalUploadStatus(index, { tone: 'success', message: 'Security scan passed.' })
+        setClinicalUploadStatus(index, { tone: 'success', message: 'Upload complete. Security scan passed.' })
         setPendingScanPrompt(null)
       } else if (result.status === 'rejected') {
         setClinicalUploadStatus(index, { tone: 'danger', message: 'Unsafe image detected — upload blocked.' })
@@ -470,7 +536,7 @@ const Doctor_Consultation = () => {
         onStatus: (status) => setClinicalUploadStatus(index, status),
       })
       applyClinicalUploadResult(index, file, result)
-      setClinicalUploadStatus(index, { tone: 'warning', message: 'Uploaded without malware scanning.' })
+      setClinicalUploadStatus(index, { tone: 'warning', message: 'Upload complete without malware scanning.' })
     } catch (err) {
       setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Failed to upload image.' })
     } finally {
@@ -478,30 +544,73 @@ const Doctor_Consultation = () => {
     }
   }
 
-  const toggleService = (service) => {
-    if (isEditMode) return
-    setBillableServices((prev) => {
-      const exists = prev.some((entry) => Number(entry.catalog_service_id) === Number(service.id))
-      if (exists) return prev.filter((entry) => Number(entry.catalog_service_id) !== Number(service.id))
-      return [...prev, {
-        catalog_service_id: service.id,
-        service_name: service.service_name,
-        quantity: 1,
-        materials: (service.materials || []).map((material) => ({
-          inventory_id: material.inventory_id,
-          material_name: material.material_name || material.inventory_name,
-          quantity: Number(material.quantity || 0),
-          unit_label: material.inventory_base_unit || material.unit_label || material.inventory_unit || '',
-        })),
-      }]
-    })
-  }
-
   const updateServiceMaterial = (serviceId, materialIndex, quantity) => {
     if (isEditMode) return
     setBillableServices((prev) => prev.map((service) => Number(service.catalog_service_id) === Number(serviceId)
-      ? { ...service, materials: service.materials.map((material, index) => index === materialIndex ? { ...material, quantity: Math.max(0, Number(quantity) || 0) } : material) }
+      ? { ...service, materials: (service.materials || []).map((material, index) => index === materialIndex ? { ...material, quantity: Math.max(0, Number(quantity) || 0) } : material) }
       : service))
+  }
+
+  const isDefaultServiceMaterial = (serviceId, inventoryId) => {
+    const catalogService = billingCatalog.find((service) => Number(service.id) === Number(serviceId))
+    if (!catalogService) return true
+    return (catalogService.materials || []).some((material) => Number(material.inventory_id) === Number(inventoryId))
+  }
+
+  const removeExtraConsumable = (serviceId, materialIndex) => {
+    if (isEditMode) return
+    setBillableServices((prev) => prev.map((service) => Number(service.catalog_service_id) === Number(serviceId)
+      ? { ...service, materials: (service.materials || []).filter((_, index) => index !== materialIndex) }
+      : service))
+  }
+
+  const extraConsumableTarget = billableServices.find((service) => Number(service.catalog_service_id) === Number(appt?.requested_service_id)) || billableServices[0] || null
+  const isExtraConsumable = (material) => material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
+  const extraConsumableRows = (extraConsumableTarget?.materials || [])
+    .map((material, index) => ({ material, index }))
+    .filter(({ material }) => isExtraConsumable(material))
+  const extraConsumableSelected = inventoryItems.find((item) => Number(item.id) === Number(extraConsumableId)) || null
+  const existingExtraConsumableIds = new Set(
+    (extraConsumableTarget?.materials || [])
+      .filter(isExtraConsumable)
+      .map((material) => Number(material.inventory_id || 0))
+      .filter(Boolean)
+  )
+  const availableExtraConsumables = inventoryItems
+    .filter((item) => !existingExtraConsumableIds.has(Number(item.id)))
+    .filter((item) => !currentPatient?.type || item.category === currentPatient.type)
+    .filter((item) => {
+      const needle = extraConsumableSearch.trim().toLowerCase()
+      if (!needle) return true
+      return [item.name, item.strength, item.dosage_form, item.item_type, item.uom, item.unit]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle))
+    })
+    .slice(0, 80)
+
+  const addExtraConsumable = () => {
+    if (isEditMode || !extraConsumableTarget || !extraConsumableSelected) return
+    const quantity = Math.max(0, Number(extraConsumableQuantity) || 0)
+    if (quantity <= 0) {
+      window.alert('Enter the additional quantity used for this extra consumable.')
+      return
+    }
+    setBillableServices((current) => current.map((service) => Number(service.catalog_service_id) === Number(extraConsumableTarget.catalog_service_id)
+      ? {
+        ...service,
+        materials: [...(service.materials || []), {
+          inventory_id: extraConsumableSelected.id,
+          material_name: extraConsumableSelected.name,
+          quantity,
+          unit_label: extraConsumableSelected.uom || extraConsumableSelected.unit || 'unit',
+          consultation_extra: true,
+        }],
+      }
+      : service))
+    setExtraConsumableOpen(false)
+    setExtraConsumableSearch('')
+    setExtraConsumableId('')
+    setExtraConsumableQuantity(1)
   }
 
   const handleAddAmendment = async () => {
@@ -522,13 +631,19 @@ const Doctor_Consultation = () => {
     }
   }
 
-  const draftPayload = useMemo(() => ({
-    diagnosis,
-    notes,
-    prescription: JSON.stringify(prescriptions.map((entry) => serializePrescription(entry, inventoryItems))),
-    images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
-    billable_services: billableServices,
-  }), [diagnosis, notes, prescriptions, progressImages, billableServices, inventoryItems])
+  const draftPayload = useMemo(() => {
+    const prescriptionItems = prescriptionDecision === 'prescribed'
+      ? prescriptions.filter(prescriptionHasContent).map((entry) => serializePrescription(entry))
+      : []
+    return {
+      diagnosis,
+      notes,
+      prescription_status: prescriptionDecision,
+      prescription: JSON.stringify(prescriptionItems),
+      images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
+      billable_services: billableServices,
+    }
+  }, [diagnosis, notes, prescriptionDecision, prescriptions, progressImages, billableServices, inventoryItems])
 
   const draftSignature = useMemo(() => JSON.stringify(draftPayload), [draftPayload])
   latestDraftRef.current = { signature: draftSignature, payload: draftPayload }
@@ -570,7 +685,22 @@ const Doctor_Consultation = () => {
 
   const handleFinalize = async () => {
     if (!appt || consultationStatus === 'finalized') return
-    if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct recorded medicines and consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
+    if (prescriptionDecision === 'not_recorded') {
+      setTab('prescriptions')
+      window.alert('Choose either Prescribe Medicine or No Prescription before completing the consultation.')
+      return
+    }
+    if (prescriptionDecision === 'prescribed' && !prescriptions.some((item) => String(item.medicine || '').trim())) {
+      setTab('prescriptions')
+      window.alert('Add at least one medicine or choose No Prescription before completing the consultation.')
+      return
+    }
+    if (appt?.requested_service_id && !billableServices.some((service) => Number(service.catalog_service_id) === Number(appt.requested_service_id))) {
+      setTab('consultation')
+      window.alert('The booked service is missing from this consultation. Reload the page before completing the consultation.')
+      return
+    }
+    if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct the actual recorded consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
     finalizingRef.current = true
     setSaving(true)
     try {
@@ -646,7 +776,6 @@ const Doctor_Consultation = () => {
 
   const typeLabel = currentPatient?.type === 'derma' ? 'Dermatology' : 'General Medicine'
   const TypeIcon = currentPatient?.type === 'derma' ? MdFace : MdMedicalServices
-  const medicineItems = inventoryItems.filter((item) => String(item.item_type || 'medicine').toLowerCase() === 'medicine')
   const latestProgressImage = normalizeProgressImages(progressImages).filter((image) => image.image_url).slice(-1)[0]
 
   return (
@@ -734,7 +863,8 @@ const Doctor_Consultation = () => {
 
         <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
           {[
-            { key: 'consultation', label: 'Consultation', icon: MdLocalPharmacy },
+            { key: 'consultation', label: 'Consultation', icon: MdMedicalServices },
+            { key: 'prescriptions', label: 'Prescriptions', icon: MdLocalPharmacy },
             { key: 'history', label: 'Patient History', icon: MdHistory },
           ].map((tabItem) => (
             <button
@@ -745,6 +875,11 @@ const Doctor_Consultation = () => {
               }`}
             >
               <tabItem.icon className="text-[13px]" /> {tabItem.label}
+              {tabItem.key === 'prescriptions' && (
+                <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] ${prescriptionDecision === 'not_recorded' ? 'bg-amber-100 text-amber-700' : prescriptionDecision === 'none' ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {prescriptionDecision === 'not_recorded' ? 'Action required' : prescriptionDecision === 'none' ? 'None' : `${prescriptions.filter((item) => String(item.medicine || '').trim()).length} Rx`}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -804,14 +939,14 @@ const Doctor_Consultation = () => {
                     accept="image/png,image/jpeg,.png,.jpg,.jpeg"
                     className="hidden"
                     disabled={uploadingIndex !== null || progressImages.length >= 5}
-                    onChange={(e) => { const files = e.target.files; e.target.value = ''; handleUploadProgressImages(files) }}
+                    onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; void handleUploadProgressImages(files) }}
                   />
                 </label>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-bold text-violet-600">Progress Image #1</p>
+                  <p className="text-xs font-bold text-violet-600">Uploaded Progress Images</p>
                   <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-500">{progressImages.length}/5 images</span>
                 </div>
 
@@ -849,7 +984,7 @@ const Doctor_Consultation = () => {
                             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Image {index + 1}</p>
                             <label className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-slate-50 ${uploadingIndex !== null ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
                               <MdUpload className="text-[12px]" /> {uploadingIndex === index ? 'Uploading...' : 'Replace'}
-                              <input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" className="hidden" disabled={uploadingIndex !== null} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; handleUploadProgressImage(index, file) }} />
+                              <input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" className="hidden" disabled={uploadingIndex !== null} onChange={(e) => { const file = e.currentTarget.files?.[0] || null; e.currentTarget.value = ''; void handleUploadProgressImage(index, file) }} />
                             </label>
                           </div>
 
@@ -885,128 +1020,118 @@ const Doctor_Consultation = () => {
 
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
               <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                <div><h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Actual Consumables</h2><p className="mt-1 text-xs text-slate-500">Record what was actually performed. Consumable quantities are deducted when the consultation is completed.</p></div>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Actual Consumables</h2>
+                  <p className="mt-1 text-xs text-slate-500">The booked service and its configured consumables are fixed. Record any additional items separately under Extra Consumables. Inventory is checked and stocked out only when the consultation is completed.</p>
+                </div>
                 {isEditMode && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">Clinical usage locked after completion</span>}
               </div>
-              {billingCatalog.length === 0 ? <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-400">No active services are configured for this clinic type.</div> : <div className="space-y-3">{billingCatalog.map((service) => {
-                const selected = billableServices.find((entry) => Number(entry.catalog_service_id) === Number(service.id))
-                return <div key={service.id} className={`rounded-2xl border p-4 ${selected ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-white'}`}>
-                  <label className="flex cursor-pointer items-start gap-3"><input type="checkbox" disabled={isEditMode} checked={Boolean(selected)} onChange={() => toggleService(service)} className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold text-slate-800">{service.service_name}</p><p className="text-xs text-slate-500">{service.category || 'Clinic service'}</p></div></div></div></label>
-                  {selected && selected.materials?.length > 0 && <div className="mt-4 border-t border-violet-100 pt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Actual Material Usage</p><div className="grid gap-2 sm:grid-cols-2">{selected.materials.map((material, index) => { const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id)); const decimal = Number(inv?.uom_allow_decimal || 0) === 1; const step = decimal ? 0.01 : 1; return <label key={`${material.inventory_id || material.material_name}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3"><span className="text-xs font-semibold text-slate-700">{material.material_name}</span><div className="mt-2 flex items-center gap-2"><input type="number" inputMode="decimal" min="0" step={step} disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(service.id, index, Math.max(0, Number(e.target.value) || 0))} className="form-control h-9" /><span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span></div></label> })}</div></div>}
-                </div>
-              })}</div>}
-            </div>
 
-            <div className="bg-white border border-slate-200 rounded-2xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <MdLocalPharmacy className="text-violet-500 text-[16px]" /> Prescriptions
-                </h2>
-                <button
-                  onClick={addRx}
-                  disabled={prescriptions.length >= 30}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-600 bg-violet-50 border border-violet-200 hover:bg-violet-100 rounded-xl transition-colors"
-                >
-                  <MdAdd className="text-[14px]" /> {prescriptions.length >= 30 ? '30 Medicine Limit Reached' : 'Add Medicine'}
-                </button>
-              </div>
+              {!billableServices.length ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">The booked service could not be loaded. Reload this consultation before completing it.</div>
+              ) : (
+                <div className="space-y-4">
+                  {billableServices.map((service) => {
+                    const catalogService = billingCatalog.find((row) => Number(row.id) === Number(service.catalog_service_id))
+                    const defaultMaterials = Array.isArray(catalogService?.materials) ? catalogService.materials : (service.materials || []).filter((material) => isDefaultServiceMaterial(service.catalog_service_id, material.inventory_id))
+                    const booked = Number(service.catalog_service_id) === Number(appt?.requested_service_id)
+                    return (
+                      <div key={service.catalog_service_id || service.service_name} className="rounded-2xl border border-violet-200 bg-violet-50/30 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700"><MdLock /></div>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-bold text-slate-800">{service.service_name}</p>
+                                {booked && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">Booked Service · Fixed</span>}
+                              </div>
+                              <p className="mt-0.5 text-xs text-slate-500">{catalogService?.category || 'Clinic service'} · Service quantity {Number(service.quantity || 1)}</p>
+                            </div>
+                          </div>
+                        </div>
 
+                        <div className="mt-4 border-t border-violet-100 pt-4">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Service Consumables · Fixed</p>
+                            <p className="mt-1 text-xs text-slate-500">These consumables and quantities come directly from the service setup and cannot be changed during consultation.</p>
+                          </div>
+                          {defaultMaterials.length ? (
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              {defaultMaterials.map((material) => {
+                                const materialIndex = (service.materials || []).indexOf(material)
+                                const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id))
+                                return (
+                                  <div key={`${material.inventory_id || material.material_name}-${materialIndex}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div>
+                                        <p className="text-xs font-semibold text-slate-700">{material.material_name}</p>
+                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Configured consumable</p>
+                                      </div>
+                                      <MdLock className="shrink-0 text-slate-300" />
+                                    </div>
+                                    <div className="mt-3">
+                                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Configured Quantity</span>
+                                      <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                        <strong className="text-sm text-slate-800">{Number(material.quantity || 0)}</strong>
+                                        <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-4 text-xs text-slate-400">This service has no configured consumables.</div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
 
-
-              <div className="space-y-4">
-                {prescriptions.map((rx, index) => (
-                  <div key={index} className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-violet-600 flex items-center gap-1">
-                        <MdLocalPharmacy className="text-[12px]" /> Medicine #{index + 1}
-                      </p>
-                      {prescriptions.length > 1 && (
-                        <button
-                          onClick={() => removeRx(index)}
-                          className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors"
-                        >
-                          <MdClose className="text-[13px]" />
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/30 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">Extra Consumables</p>
+                        <p className="mt-1 text-xs text-slate-500">Record the quantity used in addition to the fixed Service Consumables. You may add a different item or add more of the same consumable already included in the fixed service setup.</p>
+                      </div>
+                      {consultationStatus !== 'finalized' && extraConsumableTarget && (
+                        <button type="button" onClick={() => setExtraConsumableOpen(true)} className="button-secondary">
+                          <MdAdd /> Add Extra Consumable
                         </button>
                       )}
                     </div>
 
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Medicine *</label>
-                      <select
-                        value={rx.inventory_id || (medicineItems.find((item) => item.name?.trim().toLowerCase() === String(rx.medicine || '').trim().toLowerCase())?.id ?? (rx.medicine ? '__other__' : ''))}
-                        onChange={(e) => {
-                          const value = e.target.value
-                          if (value === '__other__') {
-                            setPrescriptions((prev) => prev.map((entry, rxIndex) => rxIndex === index ? { ...entry, inventory_id: '__other__', medicine: '', unit_label: '' } : entry))
-                            return
-                          }
-                          const selected = medicineItems.find((item) => String(item.id) === String(value))
-                          setPrescriptions((prev) => prev.map((entry, rxIndex) => rxIndex === index ? { ...entry, inventory_id: value, medicine: selected?.name || '', unit_label: selected?.uom || selected?.unit || '' } : entry))
-                        }}
-                        className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400 transition-colors"
-                      >
-                        <option value="">Select medicine from inventory...</option>
-                        <optgroup label="General Medicine">
-                          {medicineItems.filter((item) => item.category === 'medical').map((item) => <option key={item.id} value={item.id}>{item.name}{inventoryMeasurementLabel(item) ? ` · ${inventoryMeasurementLabel(item)}` : ''}</option>)}
-                        </optgroup>
-                        <optgroup label="Dermatology">
-                          {medicineItems.filter((item) => item.category === 'derma').map((item) => <option key={item.id} value={item.id}>{item.name}{inventoryMeasurementLabel(item) ? ` · ${inventoryMeasurementLabel(item)}` : ''}</option>)}
-                        </optgroup>
-                        <option value="__other__">Other / Not in Inventory</option>
-                      </select>
-                      {(rx.inventory_id === '__other__' || (!rx.inventory_id && rx.medicine && !medicineItems.some((item) => item.name?.trim().toLowerCase() === String(rx.medicine).trim().toLowerCase()))) && (
-                        <div className="mt-2"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Medicine Name *</label><input type="text" value={rx.medicine} onChange={(e) => updateRx(index, 'medicine', e.target.value)} maxLength={160} placeholder="Enter medicine name..." className="w-full text-sm p-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400" /></div>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Quantity to Prescribe</label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="0"
-                            step={Number(getPrescriptionInventoryItem(rx, inventoryItems)?.uom_allow_decimal || 0) === 1 ? '0.01' : '1'}
-                            value={/^\d*\.?\d*$/.test(String(rx.quantity || '')) ? rx.quantity : ''}
-                            onChange={(e) => updateRx(index, 'quantity', e.target.value)}
-                            placeholder="0"
-                            className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                          />
-                          {getPrescriptionUnit(rx, inventoryItems) && (
-                            <span className="shrink-0 text-xs font-medium text-slate-500">
-                              {getPrescriptionUnit(rx, inventoryItems)}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1 text-[10px] text-slate-400">Prescription quantity is a medical instruction and does not automatically deduct clinic inventory.</p>
-                        {rx.quantity && !/^\d*\.?\d*$/.test(String(rx.quantity || '')) && (
-                          <p className="mt-1 text-[10px] text-amber-600">
-                            Legacy dosage value &quot;{rx.quantity}&quot; is not a numeric prescription quantity. Update it to save changes.
-                          </p>
-                        )}
+                    {extraConsumableRows.length ? (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {extraConsumableRows.map(({ material, index: materialIndex }) => {
+                          const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id))
+                          const decimal = Number(inv?.uom_allow_decimal || 0) === 1
+                          return (
+                            <div key={`extra-${material.inventory_id || material.material_name}-${materialIndex}`} className="rounded-xl border border-amber-200 bg-white p-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-700">{material.material_name}</p>
+                                  <p className="mt-0.5 text-[10px] font-bold text-amber-700">Added during consultation</p>
+                                </div>
+                                {!isEditMode && <button type="button" onClick={() => removeExtraConsumable(extraConsumableTarget.catalog_service_id, materialIndex)} className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${material.material_name}`}><MdClose /></button>}
+                              </div>
+                              <label className="mt-3 block">
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Additional Quantity Used</span>
+                                <div className="mt-1.5 flex items-center gap-2">
+                                  <input type="number" inputMode="decimal" min="0" step={decimal ? 0.01 : 1} disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(extraConsumableTarget.catalog_service_id, materialIndex, Math.max(0, Number(e.target.value) || 0))} className="form-control h-9" />
+                                  <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
+                                </div>
+                              </label>
+                            </div>
+                          )
+                        })}
                       </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Frequency</label>
-                        <select value={isCustomOption(rx.frequency, FREQUENCIES) ? '__custom__' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value === '__custom__' ? 'Custom' : e.target.value)} className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400">
-                          <option value="">Select...</option>{FREQUENCIES.map((frequency) => <option key={frequency}>{frequency}</option>)}<option value="__custom__">Custom…</option>
-                        </select>
-                        {isCustomOption(rx.frequency, FREQUENCIES) && <input type="text" value={rx.frequency === 'Custom' ? '' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value || 'Custom')} maxLength={120} placeholder="e.g. Every 6 hours" className="mt-2 w-full text-sm p-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:border-violet-400" />}
-                      </div>
-                      <div className="col-span-2">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Notes</label>
-                        <input
-                          type="text"
-                          value={rx.notes}
-                          onChange={(e) => updateRx(index, 'notes', e.target.value)}
-                          maxLength={500}
-                          placeholder="e.g. Take after meals"
-                          className="w-full text-sm p-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-400"
-                        />
-                      </div>
-                    </div>
+                    ) : (
+                      <div className="mt-3 rounded-xl border border-dashed border-amber-200 bg-white px-4 py-5 text-xs text-slate-400">No extra consumables recorded.</div>
+                    )}
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
 
             </fieldset>
@@ -1051,12 +1176,153 @@ const Doctor_Consultation = () => {
                     </div>
                     <span className="text-slate-400">No inventory is reserved when an appointment is confirmed.</span>
                   </div>
-                  <p className="mt-1 text-slate-400">Actual recorded medicines and consumables are stocked out only when you complete the consultation. Treatment-room stock is used first, with Main Stockroom as fallback.</p>
+                  <p className="mt-1 text-slate-400">Fixed service consumables and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory. Treatment-room stock is used first, with Main Stockroom as fallback.</p>
                 </div>
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-                  <button onClick={handleFinalize} disabled={saving || uploadingIndex !== null || autoSaveState === 'saving'} className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
-                    <MdCheck className="text-[15px]" /> {saving ? 'Completing…' : 'Complete Consultation'}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab('prescriptions')
+                      window.scrollTo({ top: 0, behavior: 'smooth' })
+                    }}
+                    disabled={uploadingIndex !== null}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    Next: Prescriptions →
                   </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'prescriptions' && (
+          <div className="space-y-5">
+            {consultationStatus === 'finalized' && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+                <p className="text-sm font-bold text-emerald-800">Finalized prescription record</p>
+                <p className="mt-1 text-xs leading-relaxed text-emerald-700">The original prescription decision is locked with the finalized consultation. Corrections must be recorded as a medical-record amendment from the Consultation tab.</p>
+              </div>
+            )}
+
+            <fieldset disabled={consultationStatus === 'finalized'} className={consultationStatus === 'finalized' ? 'opacity-90' : ''}>
+              <div className="space-y-5">
+                <section className="rounded-2xl border border-slate-200 bg-white p-6">
+                  <div>
+                    <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800"><MdLocalPharmacy className="text-violet-500" /> Prescription Decision</h2>
+                    <p className="mt-1 text-xs text-slate-500">Choose one before completing the consultation. Prescriptions are medical instructions and do not deduct clinic inventory.</p>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => choosePrescriptionDecision('prescribed')}
+                      className={`rounded-2xl border p-4 text-left transition ${prescriptionDecision === 'prescribed' ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-100' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                    >
+                      <div className="flex items-center gap-2"><span className={`flex h-5 w-5 items-center justify-center rounded-full border ${prescriptionDecision === 'prescribed' ? 'border-violet-600 bg-violet-600 text-white' : 'border-slate-300'}`}>{prescriptionDecision === 'prescribed' && <MdCheck className="text-xs" />}</span><strong className="text-sm text-slate-800">Prescribe Medicine</strong></div>
+                      <p className="mt-2 text-xs text-slate-500">Record one or more medicines for the patient.</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => choosePrescriptionDecision('none')}
+                      className={`rounded-2xl border p-4 text-left transition ${prescriptionDecision === 'none' ? 'border-slate-500 bg-slate-50 ring-2 ring-slate-100' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                    >
+                      <div className="flex items-center gap-2"><span className={`flex h-5 w-5 items-center justify-center rounded-full border ${prescriptionDecision === 'none' ? 'border-slate-700 bg-slate-700 text-white' : 'border-slate-300'}`}>{prescriptionDecision === 'none' && <MdCheck className="text-xs" />}</span><strong className="text-sm text-slate-800">No Prescription</strong></div>
+                      <p className="mt-2 text-xs text-slate-500">Explicitly record that no medicine was prescribed for this visit.</p>
+                    </button>
+                  </div>
+                  {prescriptionDecision === 'not_recorded' && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">Prescription decision is required before Complete Consultation.</div>}
+                  {prescriptionDecision === 'none' && <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">No prescription will be listed for this consultation.</div>}
+                </section>
+
+                {prescriptionDecision === 'prescribed' && (
+                  <section className="rounded-2xl border border-slate-200 bg-white p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800"><MdLocalPharmacy className="text-violet-500" /> Medicines</h2>
+                        <p className="mt-1 text-xs text-slate-500">Enter the prescribed medicine manually. Prescriptions are clinical instructions and are not linked to clinic inventory.</p>
+                      </div>
+                      <button type="button" onClick={addRx} disabled={prescriptions.length >= 30} className="button-secondary"><MdAdd /> {prescriptions.length >= 30 ? '30 Medicine Limit Reached' : 'Add Medicine'}</button>
+                    </div>
+
+                    {!prescriptions.length ? (
+                      <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
+                        <MdLocalPharmacy className="mx-auto text-3xl text-slate-300" />
+                        <p className="mt-2 text-sm font-semibold text-slate-600">No medicine added yet</p>
+                        <button type="button" onClick={addRx} className="button-secondary mt-3"><MdAdd /> Add Medicine</button>
+                      </div>
+                    ) : (
+                      <div className="mt-4 space-y-4">
+                        {prescriptions.map((rx, index) => (
+                          <div key={index} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="flex items-center gap-1 text-xs font-bold text-violet-600"><MdLocalPharmacy className="text-[12px]" /> Medicine #{index + 1}</p>
+                              <button type="button" onClick={() => removeRx(index)} className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-red-50 hover:text-red-400" aria-label={`Remove medicine ${index + 1}`}><MdClose className="text-[13px]" /></button>
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Medicine *</label>
+                              <input
+                                type="text"
+                                value={rx.medicine}
+                                onChange={(e) => updateRx(index, 'medicine', e.target.value)}
+                                maxLength={160}
+                                placeholder="e.g. Amoxicillin 500 mg"
+                                className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-sm outline-none focus:border-violet-400"
+                              />
+                              <p className="mt-1 text-[10px] text-slate-400">This field is free text and is not connected to Inventory.</p>
+                            </div>
+
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Quantity to Prescribe</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={/^\d*\.?\d*$/.test(String(rx.quantity || '')) ? rx.quantity : ''}
+                                  onChange={(e) => updateRx(index, 'quantity', e.target.value)}
+                                  placeholder="0"
+                                  className="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm outline-none focus:border-violet-400 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                />
+                                <p className="mt-1 text-[10px] text-slate-400">Medical instruction only. It does not reserve or stock out clinic inventory.</p>
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Frequency</label>
+                                <select value={isCustomOption(rx.frequency, FREQUENCIES) ? '__custom__' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value === '__custom__' ? 'Custom' : e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm outline-none focus:border-violet-400">
+                                  <option value="">Select...</option>{FREQUENCIES.map((frequency) => <option key={frequency}>{frequency}</option>)}<option value="__custom__">Custom…</option>
+                                </select>
+                                {isCustomOption(rx.frequency, FREQUENCIES) && <input type="text" value={rx.frequency === 'Custom' ? '' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value || 'Custom')} maxLength={120} placeholder="e.g. Every 6 hours" className="mt-2 w-full rounded-lg border border-violet-200 bg-white p-2 text-sm outline-none focus:border-violet-400" />}
+                              </div>
+                              <div className="sm:col-span-2">
+                                <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Notes</label>
+                                <input type="text" value={rx.notes} onChange={(e) => updateRx(index, 'notes', e.target.value)} maxLength={500} placeholder="e.g. Take after meals" className="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm outline-none focus:border-violet-400" />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
+              </div>
+            </fieldset>
+
+            {consultationStatus !== 'finalized' && (
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      {autoSaveState === 'saving' && <span className="font-semibold text-sky-700">Saving consultation progress…</span>}
+                      {autoSaveState === 'pending' && <span className="font-semibold text-slate-600">Changes detected — saving automatically…</span>}
+                      {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Could not save — the system will retry automatically. {autoSaveError}</span>}
+                      {!['saving','pending','error'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
+                      {!['saving','pending','error'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
+                    </div>
+                    <span className="text-slate-400">Prescriptions never reserve or deduct inventory.</span>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button onClick={handleFinalize} disabled={saving || uploadingIndex !== null || autoSaveState === 'saving'} className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"><MdCheck className="text-[15px]" /> {saving ? 'Completing…' : 'Complete Consultation'}</button>
                 </div>
               </div>
             )}
@@ -1097,6 +1363,9 @@ const Doctor_Consultation = () => {
                         )}
                         {visit.consultation_notes && (
                           <p className="text-xs text-slate-500 leading-relaxed">{visit.consultation_notes}</p>
+                        )}
+                        {visit.prescription_status === 'none' && (
+                          <div className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500">No prescription recorded for this visit.</div>
                         )}
                         {visit.prescription && (() => {
                           try {
@@ -1139,6 +1408,75 @@ const Doctor_Consultation = () => {
           </div>
         )}
       </div>
+
+      <Modal
+        open={extraConsumableOpen}
+        onClose={() => {
+          setExtraConsumableOpen(false)
+          setExtraConsumableSearch('')
+          setExtraConsumableId('')
+          setExtraConsumableQuantity(1)
+        }}
+        title="Add Extra Consumable"
+        description="Record additional consumable quantity used during this consultation. The extra item may be different from, or the same as, a consumable already included in the booked service."
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">
+            Adding an item here does not reserve or deduct stock. Inventory is checked only when Complete Consultation is clicked.
+          </div>
+          <div className="relative">
+            <MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={extraConsumableSearch} onChange={(e) => setExtraConsumableSearch(e.target.value)} placeholder="Search consumable or medicine..." className="form-control pl-10" autoFocus />
+          </div>
+          <div className="max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-1">
+            {availableExtraConsumables.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => {
+                  setExtraConsumableId(String(item.id))
+                  setExtraConsumableQuantity(1)
+                }}
+                className={`flex w-full items-start justify-between gap-3 rounded-xl px-3 py-3 text-left ${Number(extraConsumableId) === Number(item.id) ? 'bg-violet-50 ring-1 ring-violet-200' : 'hover:bg-slate-50'}`}
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-slate-800">{item.name}</p>
+                    {isDefaultServiceMaterial(extraConsumableTarget?.catalog_service_id, item.id) && (
+                      <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] font-bold text-violet-700">Also in Service Setup</span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-slate-500">{[item.strength, item.dosage_form, item.item_type, item.uom || item.unit].filter(Boolean).join(' · ')}</p>
+                </div>
+                {Number(extraConsumableId) === Number(item.id) && <MdCheck className="mt-0.5 shrink-0 text-violet-600" />}
+              </button>
+            ))}
+            {!availableExtraConsumables.length && <div className="px-4 py-8 text-center text-sm text-slate-400">No matching additional items for this clinic.</div>}
+          </div>
+          {extraConsumableSelected && (
+            <label className="block rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <span className="form-label">Additional Quantity Used *</span>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step={Number(extraConsumableSelected.uom_allow_decimal || 0) === 1 ? 0.01 : 1}
+                  className="form-control"
+                  value={extraConsumableQuantity}
+                  onChange={(e) => setExtraConsumableQuantity(e.target.value)}
+                />
+                <span className="shrink-0 text-sm font-semibold text-slate-500">{extraConsumableSelected.uom || extraConsumableSelected.unit || 'unit'}</span>
+              </div>
+            </label>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" className="button-secondary" onClick={() => { setExtraConsumableOpen(false); setExtraConsumableSearch(''); setExtraConsumableId(''); setExtraConsumableQuantity(1) }}>Cancel</button>
+            <button type="button" className="button-primary" disabled={!extraConsumableSelected || !(Number(extraConsumableQuantity) > 0)} onClick={addExtraConsumable}><MdInventory2 /> Add Consumable</button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={Boolean(pendingScanPrompt)}

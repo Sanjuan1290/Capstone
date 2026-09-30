@@ -66,7 +66,7 @@ const Admin_Billing = () => {
   const attention = useMemo(() => [
     { label: 'Billing approvals', value: pendingApprovalCount, to: '/admin/billing/approvals', icon: MdApproval, tone: 'amber' },
     { label: 'Partial balances', value: partial, to: '/admin/billing/transactions?status=partially_paid', icon: MdWarningAmber, tone: 'sky' },
-    { label: 'Ready for payment', value: ready, to: '/admin/billing/transactions?status=ready', icon: MdReceiptLong, tone: 'slate' },
+    { label: 'Ready to Collect', value: ready, to: '/admin/billing/transactions?status=ready', icon: MdReceiptLong, tone: 'slate' },
   ], [pendingApprovalCount, partial, ready])
 
   const setupIssues = useMemo(() => {
@@ -122,7 +122,7 @@ const Admin_Billing = () => {
         <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              ['Ready for Payment', ready, 'text-amber-700 bg-amber-50 border-amber-200'],
+              ['Ready to Collect', ready, 'text-amber-700 bg-amber-50 border-amber-200'],
               ['Partial Balances', partial, 'text-sky-700 bg-sky-50 border-sky-200'],
               ['Collected Today', formatMoney(collectedToday), 'text-emerald-700 bg-emerald-50 border-emerald-200'],
               ['Outstanding', formatMoney(summary.outstanding), 'text-violet-700 bg-violet-50 border-violet-200'],
@@ -218,4 +218,5 @@ const Admin_Billing = () => {
 }
 
 export default Admin_Billing
+
 

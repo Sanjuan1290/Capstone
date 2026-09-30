@@ -96,6 +96,9 @@ const normalizeServiceMaterials = (materials = []) => (
             : Math.max(0, Number(material.unit_cost_override) || 0),
           notes: String(material?.notes || '').trim() || null,
           sort_order: Number.isFinite(Number(material?.sort_order)) ? Number(material.sort_order) : index,
+          ...(material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
+            ? { consultation_extra: true }
+            : {}),
         }
       })
       .filter(Boolean)
@@ -323,6 +326,9 @@ const normalizeBillingItems = async (items = [], executor = db) => {
             unit_cost: roundMoney(unitCost),
             line_total: roundMoney(quantityUsed * unitCost),
             notes: String(material?.notes || '').trim() || null,
+            ...(material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
+              ? { consultation_extra: true }
+              : {}),
           }
         }).filter((material) => material.material_name && material.quantity > 0)
 
@@ -394,6 +400,14 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           batch_code: String(requestedDetails.batch_code || '').trim() || null,
           source_location_id: Number(requestedDetails.source_location_id || 0) || null,
           source_location: String(requestedDetails.source_location || '').trim() || null,
+          ...(base.source_type === 'consultation_extra' || requestedDetails.consultation_extra
+            ? {
+                consultation_extra: true,
+                parent_catalog_service_id: Number(requestedDetails.parent_catalog_service_id || 0) || null,
+                parent_service_name: String(requestedDetails.parent_service_name || '').trim() || null,
+                already_consumed_at_consultation: true,
+              }
+            : {}),
         }
 
         return {
@@ -401,7 +415,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
           item_type: 'supply',
           source_type: base.source_type || 'staff_supply',
           source_reference_id: base.source_reference_id,
-          catalog_service_id: null,
+          catalog_service_id: base.source_type === 'consultation_extra' ? (Number(item?.catalog_service_id || 0) || null) : null,
           source_inventory_id: inventoryId || null,
           category: String(item?.category || inventoryItem?.category || 'Medicine / Supply').trim() || 'Medicine / Supply',
           service_name: name,
@@ -579,12 +593,14 @@ const saveBillingItems = async (billingId, items, executor = db) => {
   }
 }
 
+const PROTECTED_CONSULTATION_SOURCE_TYPES = new Set(['consultation', 'consultation_extra'])
+
 const replaceStaffBillingItems = async (billingId, consultationItems = [], staffItems = [], executor = db) => {
   for (const item of consultationItems) {
     const [updated] = await executor.query(
       `UPDATE billing_items
        SET unit_price = ?, line_total = ?, details_json = ?, notes = ?, sort_order = ?
-       WHERE id = ? AND billing_id = ? AND source_type = 'consultation'`,
+       WHERE id = ? AND billing_id = ? AND source_type IN ('consultation','consultation_extra')`,
       [item.unit_price, item.line_total, item.details_json || null, item.notes || null, item.sort_order || 0, item.id, billingId]
     )
     if (Number(updated.affectedRows || 0) !== 1) {
@@ -595,7 +611,7 @@ const replaceStaffBillingItems = async (billingId, consultationItems = [], staff
     }
   }
 
-  await executor.query("DELETE FROM billing_items WHERE billing_id = ? AND source_type <> 'consultation'", [billingId])
+  await executor.query("DELETE FROM billing_items WHERE billing_id = ? AND source_type NOT IN ('consultation','consultation_extra')", [billingId])
   for (const item of staffItems) {
     await executor.query(
       `INSERT INTO billing_items
@@ -623,16 +639,69 @@ const replaceStaffBillingItems = async (billingId, consultationItems = [], staff
   }
 }
 
+const buildConsultationBillingItems = (items = [], consultationId = null) => {
+  const output = []
+  let sortOrder = 0
+
+  for (const raw of Array.isArray(items) ? items : []) {
+    const itemType = itemTypeFromRaw(raw)
+    if (itemType !== 'service') {
+      output.push({
+        ...raw,
+        source_type: 'consultation',
+        source_reference_id: consultationId || null,
+        sort_order: sortOrder++,
+      })
+      continue
+    }
+
+    const materials = Array.isArray(raw?.materials) ? raw.materials : []
+    const fixedMaterials = materials.filter((material) => !(material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1))
+    const extraMaterials = materials.filter((material) => material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1)
+
+    output.push({
+      ...raw,
+      materials: fixedMaterials,
+      source_type: 'consultation',
+      source_reference_id: consultationId || null,
+      sort_order: sortOrder++,
+    })
+
+    for (const extra of extraMaterials) {
+      const inventoryId = Number(extra?.inventory_id || 0)
+      const quantity = Math.max(0, Number(extra?.quantity) || 0)
+      if (!inventoryId || quantity <= 0) continue
+      output.push({
+        item_type: 'supply',
+        source_type: 'consultation_extra',
+        source_reference_id: consultationId || null,
+        source_inventory_id: inventoryId,
+        catalog_service_id: Number(raw?.catalog_service_id || raw?.id || 0) || null,
+        category: 'Extra Consumable',
+        service_name: String(extra?.material_name || extra?.inventory_name || extra?.name || 'Extra Consumable').trim(),
+        quantity,
+        unit_label: String(extra?.unit_label || extra?.unit || '').trim() || null,
+        notes: `Additional consumable used during ${String(raw?.service_name || 'consultation').trim() || 'consultation'}`,
+        details: {
+          consultation_extra: true,
+          parent_catalog_service_id: Number(raw?.catalog_service_id || raw?.id || 0) || null,
+          parent_service_name: String(raw?.service_name || '').trim() || null,
+          unit: String(extra?.unit_label || extra?.unit || '').trim() || null,
+          already_consumed_at_consultation: true,
+        },
+        sort_order: sortOrder++,
+      })
+    }
+  }
+  return output
+}
+
 const upsertDraftBillingForAppointment = async ({
   appointment,
   consultationId = null,
   items = [],
 }, executor = db) => {
-  const consultationItems = (Array.isArray(items) ? items : []).map((item) => ({
-    ...item,
-    source_type: 'consultation',
-    source_reference_id: consultationId || null,
-  }))
+  const consultationItems = buildConsultationBillingItems(items, consultationId)
   const normalizedItems = await normalizeBillingItems(consultationItems, executor)
   const totals = computeBillingTotals({ items: normalizedItems, discount_amount: 0 })
 
@@ -704,6 +773,10 @@ module.exports = {
   getBillingByAppointmentId,
   saveBillingItems,
   replaceStaffBillingItems,
+  buildConsultationBillingItems,
+  PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
+
+
 

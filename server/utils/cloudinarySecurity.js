@@ -88,6 +88,33 @@ const createPaymentQrUploadSignature = ({ adminId, actorId, actorRole = 'admin',
   }
 }
 
+const createDiscountProofUploadSignature = ({ actorId, actorRole = 'admin', billingId, scanMode = 'scan' }) => {
+  const id = Number(billingId)
+  const uploaderId = Number(actorId)
+  if (!Number.isFinite(id) || id <= 0) throw Object.assign(new Error('A valid billing record is required for discount proof upload.'), { statusCode: 400 })
+  if (!Number.isFinite(uploaderId) || uploaderId <= 0) throw Object.assign(new Error('A valid uploader is required.'), { statusCode: 400 })
+
+  const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
+  const timestamp = Math.floor(Date.now() / 1000)
+  const baseFolder = String(process.env.CLOUDINARY_DISCOUNT_PROOF_FOLDER || 'carait-clinic/discount-proofs').replace(/^\/+|\/+$/g, '')
+  const uploaderRole = String(actorRole || 'admin').toLowerCase() === 'staff' ? 'staff' : 'admin'
+  const folder = `${baseFolder}/bill_${id}/${uploaderRole}-${uploaderId}`
+  const publicId = `discount-proof-${timestamp}-${crypto.randomBytes(4).toString('hex')}`
+  const normalizedScanMode = normalizeScanMode(scanMode)
+  const params = withScanModeration({ folder, public_id: publicId, timestamp }, normalizedScanMode)
+
+  return {
+    cloud_name: cloudName,
+    api_key: apiKey,
+    timestamp,
+    folder,
+    public_id: publicId,
+    moderation: params.moderation,
+    scan_mode: normalizedScanMode,
+    signature: makeCloudinarySignature(params, apiSecret),
+  }
+}
+
 const findPerceptionPointModeration = (resource = {}) => {
   const moderationList = Array.isArray(resource.moderation)
     ? resource.moderation
@@ -341,6 +368,7 @@ module.exports = {
   SCAN_MODERATION,
   createClinicalUploadSignature,
   createPaymentQrUploadSignature,
+  createDiscountProofUploadSignature,
   makeCloudinarySignature,
   getPerceptionPointScanStatus,
   findPerceptionPointModeration,
@@ -355,4 +383,5 @@ module.exports = {
   hasValidImageSignature,
   detectImageMime,
 }
+
 

@@ -1,3 +1,4 @@
+import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/staff.service.js
 const BASE = '/api/staff'
 
@@ -149,6 +150,12 @@ export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-pr
 
 export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
 export const requestBillingAdjustment = (id, payload) => requestJson(`${BASE}/billing/${id}/adjustment-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const uploadDiscountProofImage = (file, billingId, options = {}) => uploadDiscountProofViaApi({
+  file, billingId, ...options,
+  uploadUrl: `${BASE}/billing/discount-proof/upload`,
+  statusUrl: `${BASE}/billing/discount-proof/upload-status`,
+})
+
 export const cancelBillingAdjustmentRequest = (id, requestId) => requestJson(`${BASE}/billing/${id}/adjustment-requests/${requestId}/cancel`, { method: 'PATCH' })
 
 export const confirmBillPayment = (id, payload) =>

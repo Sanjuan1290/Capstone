@@ -10,6 +10,7 @@ const { resolveReportRange } = require('../utils/reportRange')
 const { normalizeOptionalImageUrl } = require('../utils/settingsValidation')
 const {
   createPaymentQrUploadSignature,
+  createDiscountProofUploadSignature,
   getPerceptionPointScanStatus,
   cloudinaryUploadBuffer,
   issueScanPendingToken,
@@ -1925,6 +1926,126 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
       return unavailable(reason, reason === 'usage_limit_reached'
         ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
         : 'The malware scanner status is currently unavailable. Only continue if this QR image comes from a trusted source.')
+    }
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Could not check the security scan.' })
+  }
+}
+
+const uploadDiscountProofImageAdmin = async (req, res) => {
+  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
+  const billingId = Number(req.query?.billing_id || 0)
+  const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
+  if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
+  const [[bill]] = await db.query('SELECT id FROM billing_records WHERE id=? LIMIT 1', [billingId])
+  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ message: 'Select a discount proof image to upload.' })
+  const fileHash = hashUploadBuffer(req.body)
+
+  let bypassReason = null
+  if (scanMode === 'bypass') {
+    try {
+      const bypass = verifyUploadSecurityToken(String(req.query?.bypass_token || ''), {
+        stage: 'bypass_authorized', role: actorRole, user_id: req.user.id,
+        context_type: 'discount_proof', context_id: billingId,
+      })
+      if (!bypass.file_sha256 || bypass.file_sha256 !== fileHash) return res.status(403).json({ message: 'The scanner-bypass authorization is for a different image. Retry the security scan for this file.' })
+      bypassReason = bypass.reason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+    } catch (error) {
+      return res.status(error.statusCode || 403).json({ message: error.message || 'A valid scanner-unavailable authorization is required before bypassing the malware scan.' })
+    }
+  }
+
+  let uploaded
+  try {
+    const signed = createDiscountProofUploadSignature({ actorRole, actorId: req.user.id, billingId, scanMode })
+    uploaded = await cloudinaryUploadBuffer({
+      buffer: req.body,
+      mimeType: req.get('content-type'),
+      fileName: req.get('x-file-name') || `discount-proof-${billingId}`,
+      signed,
+    })
+  } catch (error) {
+    if (scanMode === 'scan' && error.scannerUnavailable) {
+      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+      return res.json({
+        status: 'unavailable', reason,
+        message: reason === 'usage_limit_reached'
+          ? 'The malware-scanning usage limit has been reached. Try again later or use the authorized bypass option only for trusted proof images.'
+          : 'The malware scanner is currently unavailable. Only continue if this proof image comes from a trusted source.',
+        bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId, reason, fileHash }),
+      })
+    }
+    return res.status(error.statusCode || 502).json({ message: error.message || 'Discount proof image upload failed.' })
+  }
+
+  if (scanMode === 'bypass') {
+    const securityToken = issueAcceptedUploadToken({
+      role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId,
+      status: 'bypassed', assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id,
+    })
+    await writeAuditLog({
+      userId: req.user.id, userRole: actorRole, action: 'security.discount_proof_scan_bypassed',
+      entityType: 'billing_record', entityId: billingId,
+      newValues: { scan_status: 'bypassed', reason: bypassReason, asset_id: uploaded.asset_id }, ipAddress: req.ip || null,
+    }).catch(() => {})
+    return res.json({ status: 'bypassed', scan_status: 'bypassed', url: uploaded.secure_url, asset_id: uploaded.asset_id, public_id: uploaded.public_id, security_token: securityToken })
+  }
+
+  res.json({
+    status: 'pending', url: uploaded.secure_url, asset_id: uploaded.asset_id, public_id: uploaded.public_id,
+    scan_token: issueScanPendingToken({
+      role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId,
+      assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id, fileHash,
+    }),
+  })
+}
+
+const getDiscountProofUploadScanStatusAdmin = async (req, res) => {
+  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
+  const billingId = Number(req.body?.billing_id || 0)
+  const assetId = String(req.body?.asset_id || '').trim()
+  const scanToken = String(req.body?.scan_token || '').trim()
+  if (!billingId || !assetId || !scanToken) return res.status(400).json({ message: 'Billing record, Cloudinary asset ID, and scan verification are required.' })
+
+  let pending
+  try {
+    pending = verifyUploadSecurityToken(scanToken, {
+      stage: 'scan_pending', role: actorRole, user_id: req.user.id,
+      context_type: 'discount_proof', context_id: billingId, asset_id: assetId,
+    })
+  } catch (error) {
+    return res.status(error.statusCode || 403).json({ message: error.message || 'The scan verification is invalid.' })
+  }
+
+  const unavailable = (reason, message) => res.json({
+    status: 'unavailable', reason, message,
+    bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId, reason, fileHash: pending.file_sha256 }),
+  })
+
+  try {
+    const result = await getPerceptionPointScanStatus(assetId)
+    if (result.secure_url && pending.url && result.secure_url !== pending.url) return res.status(409).json({ message: 'The scanned Cloudinary asset does not match this upload.' })
+    if (result.status === 'approved') {
+      return res.json({
+        ...result,
+        security_token: issueAcceptedUploadToken({
+          role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId,
+          status: 'approved', assetId, url: result.secure_url || pending.url, publicId: result.public_id || pending.public_id,
+        }),
+      })
+    }
+    if (result.status === 'rejected') {
+      await writeAuditLog({ userId: req.user.id, userRole: actorRole, action: 'security.discount_proof_upload_blocked', entityType: 'billing_record', entityId: billingId, newValues: { scan_status: 'rejected', asset_id: assetId }, ipAddress: req.ip || null }).catch(() => {})
+      return res.json(result)
+    }
+    if (result.status === 'unavailable') return unavailable('scanner_unavailable', result.message || 'The malware scanner did not return a usable status.')
+    return res.json(result)
+  } catch (error) {
+    if (error.scannerUnavailable) {
+      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
+      return unavailable(reason, reason === 'usage_limit_reached'
+        ? 'The malware-scanning usage limit has been reached.'
+        : 'The malware scanner status is currently unavailable.')
     }
     return res.status(error.statusCode || 500).json({ message: error.message || 'Could not check the security scan.' })
   }
@@ -4087,7 +4208,7 @@ module.exports = {
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin, getAppointmentAvailableSlotsAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
   getBookingPolicyAdmin, updateBookingPolicyAdmin,
-  getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, updatePaymentSettingsAdmin,
+  getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, uploadDiscountProofImageAdmin, getDiscountProofUploadScanStatusAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment, confirmBillingPaymentAction,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
   getSystemSetup, saveAppointmentCancellationReason, deleteAppointmentCancellationReason, saveBillingServiceCategory, deleteBillingServiceCategory, saveInventoryUom, deleteInventoryUom, saveInventorySupplier, saveInventoryLocationType, saveInventoryMovementReason, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,

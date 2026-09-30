@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MdApproval, MdCheck, MdClose, MdRefresh, MdSearch } from 'react-icons/md'
+import { MdApproval, MdCheck, MdClose, MdOpenInNew, MdRefresh, MdSearch } from 'react-icons/md'
 import { getBillingAdjustmentRequests, resolveBillingAdjustmentRequest } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import Modal from '../../components/ui/Modal'
@@ -86,7 +86,7 @@ const Admin_BillingAdjustments = () => {
                   {stale && <div className="mt-3 rounded-xl bg-amber-100 p-3 text-sm font-bold text-amber-900">This request belongs to bill version {request.bill_version}, while the current bill is version {request.current_bill_version}. It cannot be safely approved.</div>}
                   {context && <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4"><div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-400">Standard</span><strong className="mt-1 block">{formatMoney(context.current)}</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-400">Requested</span><strong className="mt-1 block">{formatMoney(context.requested)}</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-400">Difference</span><strong className={`mt-1 block ${context.difference < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{formatMoney(context.difference)}</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-400">Change</span><strong className="mt-1 block">{context.percentage === null ? '—' : `${context.percentage.toFixed(1)}%`}</strong></div></div>}
                   {request.request_type === 'discount' && <div className="mt-4 grid grid-cols-3 gap-2 text-sm"><div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-400">Subtotal</span><strong className="mt-1 block">{formatMoney(request.bill_subtotal)}</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-400">Requested</span><strong className="mt-1 block text-violet-700">{formatMoney(request.requested_amount)}</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-400">After</span><strong className="mt-1 block">{formatMoney(Math.max(0, Number(request.bill_subtotal || 0) - Number(request.requested_amount || 0)))}</strong></div></div>}
-                  <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600"><p><strong>Requested by:</strong> {request.staff_name || 'Staff'}</p><p className="mt-2"><strong>Reason:</strong> {request.reason || '—'}</p>{request.reference_text && <p className="mt-2"><strong>Reference:</strong> {request.reference_text}</p>}{request.admin_note && <p className="mt-2"><strong>Admin note:</strong> {request.admin_note}</p>}</div>
+                  <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600"><p><strong>Requested by:</strong> {request.staff_name || 'Staff'}</p><p className="mt-2"><strong>Reason:</strong> {request.reason || '—'}</p>{request.reference_image_url && <div className="mt-3"><p className="mb-2 font-bold text-slate-700">Reference / ID Proof</p><a href={request.reference_image_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-2"><img src={request.reference_image_url} alt="Discount reference proof" className="h-20 w-28 rounded-lg object-cover" /><span className="text-xs font-bold text-violet-700">View full image <MdOpenInNew className="inline" /></span></a></div>}{!request.reference_image_url && request.reference_text && <p className="mt-2"><strong>Legacy Reference:</strong> {request.reference_text}</p>}{request.admin_note && <p className="mt-2"><strong>Admin note:</strong> {request.admin_note}</p>}</div>
                   {tab === 'pending' && <div className="mt-4 flex justify-end gap-2"><button className="button-secondary text-rose-700" onClick={() => { setAction({ request, status: 'rejected' }); setNote('') }}><MdClose /> Reject</button><button className="button-primary" disabled={stale} onClick={() => { setAction({ request, status: 'approved' }); setNote('') }}><MdCheck /> Approve</button></div>}
                 </article>
               })}
@@ -104,4 +104,5 @@ const Admin_BillingAdjustments = () => {
 }
 
 export default Admin_BillingAdjustments
+
 
