@@ -72,4 +72,3 @@ SET @sql = IF(
   'ALTER TABLE supply_requests ADD CONSTRAINT fk_supply_request_group FOREIGN KEY (request_group_id) REFERENCES supply_request_groups(id) ON DELETE CASCADE'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-

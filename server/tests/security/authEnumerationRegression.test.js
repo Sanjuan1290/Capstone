@@ -14,4 +14,3 @@ describe('password recovery enumeration regression', () => {
     expect(source).toContain('account.email_verified_at')
   })
 })
-

@@ -48,7 +48,7 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     expect(consultation).not.toContain('inventoryBlocker')
     expect(consultation).not.toContain('max={roomStock}')
     expect(consultation).toContain('No inventory is reserved when an appointment is confirmed.')
-    expect(consultation).toContain('Actual recorded medicines and consumables are stocked out only when you complete the consultation.')
+    expect(consultation).toContain('Fixed service consumables and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory.')
   })
 
   it('keeps reschedule time slots inside a vertically scrollable modal', () => {

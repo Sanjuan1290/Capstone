@@ -33,4 +33,3 @@ export function useSSE(role, userId, onMessage) {
     }
   }, [role, userId, onMessage])
 }
-

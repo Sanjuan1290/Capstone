@@ -35,4 +35,3 @@ module.exports = {
   markOverdueAppointments,
   getNoShowGraceMinutes,
 }
-

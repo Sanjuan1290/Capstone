@@ -39,4 +39,3 @@ const requireAnyStaffPermission = (...permissions) => {
 }
 
 module.exports = { requireStaffPermission, requireAnyStaffPermission }
-

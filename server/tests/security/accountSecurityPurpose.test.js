@@ -27,4 +27,3 @@ describe('account security OTP purpose isolation', () => {
     expect(removal.params).toEqual(['admin', 7, 'inventory_batch_correction'])
   })
 })
-

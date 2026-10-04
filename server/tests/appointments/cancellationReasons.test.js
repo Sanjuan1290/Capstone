@@ -47,4 +47,3 @@ describe('appointment cancellation reasons', () => {
     expect(shared).not.toContain("window.confirm('Cancel this appointment?')")
   })
 })
-

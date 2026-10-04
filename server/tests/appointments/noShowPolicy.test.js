@@ -18,4 +18,3 @@ describe('automatic no-show policy', () => {
     expect(source).toMatch(/APPOINTMENT_NO_SHOW_GRACE_MINUTES/)
   })
 })
-

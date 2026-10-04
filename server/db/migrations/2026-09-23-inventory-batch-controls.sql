@@ -58,4 +58,3 @@ SELECT id, inventory_id, batch_code, quantity, expiration_date, unit_cost,
        archived_at, archived_by_admin_id, archive_reason
 FROM inventory_batches
 ORDER BY inventory_id, id;
-

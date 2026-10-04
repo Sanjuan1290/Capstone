@@ -11,4 +11,3 @@ const getAccountDirectory = async (req, res) => {
 }
 
 module.exports = { getAccountDirectory }
-

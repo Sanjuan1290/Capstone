@@ -75,4 +75,3 @@ router.put('/schedule/unavailable-dates',      saveMyUnavailableDate)
 router.delete('/schedule/unavailable-dates/:date', deleteMyUnavailableDate)
 
 module.exports = router
-

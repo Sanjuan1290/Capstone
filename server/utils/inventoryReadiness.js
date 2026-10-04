@@ -170,4 +170,3 @@ module.exports = {
   getAppointmentInventoryReadiness,
   getBillingInventoryReadiness,
 }
-

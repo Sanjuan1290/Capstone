@@ -19,6 +19,35 @@ describe('billing checkout follow-up regressions', () => {
     expect(checkout).toContain("setStep(['ready', 'partially_paid'].includes(current.status) ? 3")
   })
 
+  it('lets a confirmed bill return to editing only before any payment history exists', () => {
+    const controller = read('server', 'controllers', 'staff.controller.js')
+    const staffRouter = read('server', 'routers', 'staff.router.js')
+    const adminRouter = read('server', 'routers', 'admin.router.js')
+    const staffService = read('client', 'src', 'services', 'staff.service.js')
+    const adminService = read('client', 'src', 'services', 'admin.service.js')
+    const adminCheckout = read('client', 'src', 'pages', 'adminPage', 'Admin_CheckoutDetail.jsx')
+    const staffCheckout = read('client', 'src', 'pages', 'staffPage', 'Staff_CheckoutDetail.jsx')
+
+    expect(controller).toContain('const reopenBillForEditing = async')
+    expect(controller).toContain("locked.status !== 'ready'")
+    expect(controller).toContain('SELECT COUNT(*) AS count FROM billing_payments WHERE billing_id = ?')
+    expect(controller).toContain('SELECT COUNT(*) AS count FROM billing_item_batch_usage WHERE billing_id = ?')
+    expect(controller).toContain("SET status='draft'")
+    expect(controller).toContain("action: 'billing.reopened_for_editing'")
+
+    expect(staffRouter).toContain("router.post('/billing/:id/reopen'")
+    expect(adminRouter).toContain("router.post('/billing/:id/reopen'")
+    expect(staffService).toContain('export const reopenBillForEditing')
+    expect(adminService).toContain('export const reopenAdminCheckoutBill')
+
+    for (const source of [adminCheckout, staffCheckout]) {
+      expect(source).toContain('Found a billing mistake before payment?')
+      expect(source).toContain("reopening ? 'Reopening…' : 'Edit Bill'")
+      expect(source).toContain('setStep(2)')
+      expect(source).toContain('(bill?.payments?.length || 0) === 0')
+    }
+  })
+
   it('keeps consultation extras protected and removes the old stock explanation banner', () => {
     const admin = read('client', 'src', 'pages', 'adminPage', 'Admin_CheckoutDetail.jsx')
     const staff = read('client', 'src', 'pages', 'staffPage', 'Staff_CheckoutDetail.jsx')

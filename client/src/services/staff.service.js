@@ -146,6 +146,13 @@ export const finalizeBill = (id, expectedVersion) =>
     body: JSON.stringify({ expected_version: expectedVersion }),
   })
 
+export const reopenBillForEditing = (id, expectedVersion) =>
+  requestJson(`${BASE}/billing/${id}/reopen`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expected_version: expectedVersion }),
+  })
+
 export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
@@ -244,6 +251,3 @@ export const createInventoryLocation = (payload) => requestJson(`${BASE}/invento
 export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
-
-
-

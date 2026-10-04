@@ -429,6 +429,7 @@ export const getAdminCheckoutBill = (id) => requestJson(`${getAdminApiBase()}/bi
 export const updateAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminFinalizePreview = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/finalize-preview`)
 export const finalizeAdminCheckoutBill = (id,expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/finalize`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
+export const reopenAdminCheckoutBill = (id,expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/reopen`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
 export const payAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}/pay`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminBillAdjustmentRequests = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/adjustment-requests`)
 export const getAdminDiscountPresets = () => requestJson(`${getAdminApiBase()}/billing/discount-presets`)

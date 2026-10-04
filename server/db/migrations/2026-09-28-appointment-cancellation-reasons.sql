@@ -45,4 +45,3 @@ SET @sql = IF(
   'ALTER TABLE appointments ADD CONSTRAINT fk_appointments_cancellation_reason FOREIGN KEY (cancellation_reason_id) REFERENCES appointment_cancellation_reasons(id) ON DELETE SET NULL'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-

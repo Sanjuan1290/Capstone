@@ -77,4 +77,3 @@ SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_sch
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=@schema_name AND table_name='supply_requests' AND index_name='idx_supply_request_pending_dedupe'), 'SELECT 1', 'CREATE INDEX idx_supply_request_pending_dedupe ON supply_requests(doctor_id, inventory_id, destination_location_id, status)');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-

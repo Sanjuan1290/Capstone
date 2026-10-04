@@ -15,4 +15,3 @@ describe('report date ranges', () => {
     expect(result).toEqual({ startDate: '2026-04-21', endDate: '2026-07-21' })
   })
 })
-

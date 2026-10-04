@@ -10,4 +10,3 @@ describe('consultation input hardening', () => {
     expect(source).toContain('at most 30 prescription items')
   })
 })
-

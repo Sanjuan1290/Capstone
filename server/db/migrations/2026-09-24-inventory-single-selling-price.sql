@@ -18,4 +18,3 @@ WHERE selling_price IS NOT NULL
 -- a patient-facing Selling Price.
 
 COMMIT;
-

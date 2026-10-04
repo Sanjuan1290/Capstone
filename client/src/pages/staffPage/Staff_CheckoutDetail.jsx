@@ -15,6 +15,7 @@ import {
   getFinalizePreview,
   getInventory,
   payBill,
+  reopenBillForEditing as reopenBill,
   requestBillingAdjustment,
   updateBill,
   uploadDiscountProofImage,
@@ -137,6 +138,7 @@ const Staff_CheckoutDetail = () => {
   const [saving, setSaving] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [paying, setPaying] = useState(false)
+  const [reopening, setReopening] = useState(false)
   const [adjusting, setAdjusting] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [paymentConfirm, setPaymentConfirm] = useState(false)
@@ -157,6 +159,7 @@ const Staff_CheckoutDetail = () => {
   const isDraft = ['draft', 'pending'].includes(bill?.status)
   const isPayable = ['ready', 'partially_paid'].includes(bill?.status)
   const isPaid = bill?.status === 'paid'
+  const canReopenForEditing = bill?.status === 'ready' && Number(bill?.paid_amount || 0) === 0 && (bill?.payments?.length || 0) === 0
   const complete = isPaid ? 3 : isPayable ? 2 : step > 1 ? 1 : 0
   const currentVersion = Number(bill?.version || 1)
   const currentAdjustments = adjustments.filter((item) => Number(item.bill_version || 1) === currentVersion)
@@ -498,6 +501,28 @@ const Staff_CheckoutDetail = () => {
     }
   }
 
+  const reopenForEditing = async () => {
+    if (!canReopenForEditing) return
+    if (!window.confirm('Go back and edit this confirmed bill? This is allowed only before any payment is recorded. You will need to confirm the bill again after making corrections.')) return
+
+    setReopening(true)
+    try {
+      const updated = await reopenBill(billingId, currentVersion)
+      setBill(updated)
+      setDraft(normalizeBill(updated))
+      setDirty(false)
+      setVersionConflict(false)
+      setPaymentConfirm(false)
+      setStep(2)
+      toast.success('Bill reopened for editing. Make the correction, then confirm the bill again.')
+    } catch (err) {
+      if (err.code === 'BILL_VERSION_CONFLICT' || /changed/i.test(err.message || '')) setVersionConflict(true)
+      toast.error(err.message || 'Bill could not be reopened for editing.')
+    } finally {
+      setReopening(false)
+    }
+  }
+
   const requestPay = () => {
     const amount = Number(draft.payment_amount || 0)
     if (!draft.payment_method) return toast.error('Select a payment method.')
@@ -683,6 +708,17 @@ const Staff_CheckoutDetail = () => {
 
       {isPayable && step === 3 && (
         <div className="space-y-4">
+          {canReopenForEditing && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <div>
+                <strong>Found a billing mistake before payment?</strong>
+                <p className="mt-1">Reopen the bill to correct charges or discounts. The bill must be confirmed again before collecting payment.</p>
+              </div>
+              <button className="button-secondary" disabled={reopening || paying} onClick={reopenForEditing}>
+                <MdArrowBack /> {reopening ? 'Reopening…' : 'Edit Bill'}
+              </button>
+            </div>
+          )}
           <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-black text-slate-900">Collect Payment</h2><p className="mt-1 text-sm text-slate-500">Only payment methods enabled by Admin are shown here.</p>
@@ -720,5 +756,3 @@ const Staff_CheckoutDetail = () => {
 }
 
 export default Staff_CheckoutDetail
-
-

@@ -37,4 +37,3 @@ SET @sql = IF(
   'ALTER TABLE supply_request_groups ADD CONSTRAINT fk_supply_request_groups_consultation FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE SET NULL'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-

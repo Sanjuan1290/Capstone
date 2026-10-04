@@ -36,4 +36,3 @@ describe('editable billing service categories', () => {
     expect(schema).toContain('fk_billing_service_category')
   })
 })
-

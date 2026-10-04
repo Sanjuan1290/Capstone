@@ -22,6 +22,3 @@ describe('consultation draft/finalize API contract', () => {
     expect(finalizeBlock).toContain("status='finalized'")
   })
 })
-
-
-

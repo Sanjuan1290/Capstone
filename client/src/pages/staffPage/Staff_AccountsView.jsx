@@ -29,4 +29,3 @@ const Staff_AccountsView = () => {
   return <div className="mx-auto max-w-7xl space-y-5"><div className="flex items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdPeople className="text-amber-500" /> Accounts</h1><p className="mt-1 text-sm text-slate-500">Read-only Staff and Doctor account directory. Creating accounts and changing permissions remain Administrator-only.</p></div><button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div><div className="grid gap-5 xl:grid-cols-2"><Section title="Staff Accounts" Icon={MdPeople} rows={data.staff || []} /><Section title="Doctor Accounts" Icon={MdMedicalServices} rows={data.doctors || []} doctor /></div></div>
 }
 export default Staff_AccountsView
-

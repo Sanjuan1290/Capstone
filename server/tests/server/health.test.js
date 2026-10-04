@@ -8,4 +8,3 @@ describe('server health endpoint', () => {
     expect(response.body).toEqual({ status: 'ok' })
   })
 })
-

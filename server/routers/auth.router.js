@@ -16,4 +16,3 @@ router.get('/landing-page',     commonCtrl.getPublicLandingPage)
 router.get('/clinic-settings',   commonCtrl.getPublicClinicSettings)
 
 module.exports = router
-

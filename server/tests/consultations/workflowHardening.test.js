@@ -25,4 +25,3 @@ describe('consultation and checkout workflow hardening', () => {
     expect(staff).toContain('requires ${insufficient.requested}')
   })
 })
-

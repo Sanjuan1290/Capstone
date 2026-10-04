@@ -44,4 +44,3 @@ describe('multi-item stock transfer requests', () => {
     expect(review).toContain('grouped requests are all-or-nothing')
   })
 })
-

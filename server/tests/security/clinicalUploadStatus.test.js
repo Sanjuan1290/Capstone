@@ -13,4 +13,3 @@ describe('clinical upload scan-status handler', () => {
     expect(source).not.toContain('assertClinicalUploadAppointment')
   })
 })
-

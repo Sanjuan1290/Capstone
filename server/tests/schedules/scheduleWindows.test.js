@@ -44,4 +44,3 @@ describe('doctor schedule windows', () => {
     expect(buildSlotsForCalendarDate({ date: '2026-09-22', schedules }).map((slot) => slot.time)).toEqual(['12:00 AM', '1:00 AM'])
   })
 })
-

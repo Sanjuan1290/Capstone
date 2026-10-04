@@ -104,4 +104,3 @@ WHERE selling_price IS NOT NULL AND selling_price > 0
   AND (price IS NULL OR ABS(price-selling_price)>0.0001);
 
 -- Intentionally do not overwrite inventory_batches.unit_cost. It remains receipt/acquisition history.
-

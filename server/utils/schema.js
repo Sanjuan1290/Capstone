@@ -1613,5 +1613,3 @@ const ensureAppSchema = async () => {
 module.exports = {
   ensureAppSchema,
 }
-
-
