@@ -12,6 +12,7 @@ import { formatMoney, paymentMethodLabel } from '../../utils/billingUi'
 import { formatDateOnly } from '../../utils/date'
 import { printBillingReceipt } from '../../utils/billingReceipt'
 import { doctorClinicLabel } from '../../utils/doctor'
+import BillCorrectionsPanel from '../../components/billing/BillCorrectionsPanel'
 
 const Admin_BillingTransactionDetail = () => {
   const { billingId } = useParams()
@@ -94,7 +95,7 @@ const Admin_BillingTransactionDetail = () => {
     <div className="mx-auto w-full max-w-7xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><Link to="/admin/billing/transactions" className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-800"><MdArrowBack /> Back to Transactions</Link><div className="flex flex-wrap items-center gap-3"><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdReceiptLong className="text-amber-500" /> Bill #{bill.id}</h1><BillingStatusBadge status={bill.status} /></div><p className="mt-1 text-sm text-slate-500">Complete financial record for {bill.patient_name}.</p></div>
-        <div className="flex flex-wrap items-center gap-2">{['ready','partially_paid'].includes(bill.status) && Number(bill.balance_amount || 0) > 0 && <Link to={`/admin/billing/checkout/${bill.id}`} className="button-primary"><MdPayments /> {bill.status === 'partially_paid' ? 'Continue Payment' : 'Collect Payment'}</Link>}<button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
+        <div className="flex flex-wrap items-center gap-2">{['draft','pending'].includes(bill.status) && <Link to={`/admin/billing/checkout/${bill.id}`} className="button-primary"><MdPayments /> Open in Checkout</Link>}{['ready','partially_paid'].includes(bill.status) && Number(bill.balance_amount || 0) > 0 && <Link to={`/admin/billing/checkout/${bill.id}`} className="button-primary"><MdPayments /> {bill.status === 'partially_paid' ? 'Continue Payment' : 'Collect Payment'}</Link>}<button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
       </div>
       <AdminBillingNav pendingApprovals={pendingApprovals} />
 
@@ -133,6 +134,7 @@ const Admin_BillingTransactionDetail = () => {
             <div className="mt-4 space-y-3 text-sm"><div className="flex justify-between text-slate-600"><span>Subtotal</span><strong>{formatMoney(bill.subtotal)}</strong></div><div className="flex justify-between gap-4 text-slate-600"><span>{bill.discount_label ? `${bill.discount_label} Discount` : 'Discount'}{bill.discount_reference && !bill.discount_reference_image_url ? <span className="ml-1 text-xs text-slate-400">({bill.discount_reference})</span> : null}</span><strong>-{formatMoney(bill.discount_amount)}</strong></div>{bill.discount_reference_image_url && <a href={bill.discount_reference_image_url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-violet-700"><span>View Discount Reference / ID Proof</span><MdOpenInNew /></a>}<div className="flex justify-between border-t border-slate-200 pt-3 text-base"><span className="font-black text-slate-900">Total</span><strong className="text-slate-900">{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between text-emerald-700"><span>Paid</span><strong>{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between rounded-xl bg-amber-50 px-3 py-2.5 text-amber-800"><span className="font-bold">Balance</span><strong className="text-lg">{formatMoney(bill.balance_amount)}</strong></div></div>
           </section>
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-black text-slate-900">Record Information</h2><div className="mt-4 space-y-3 text-sm text-slate-600"><div><p className="text-xs font-bold uppercase text-slate-400">Created</p><p className="mt-1">{bill.created_at ? new Date(bill.created_at).toLocaleString('en-PH') : '—'}</p></div><div><p className="text-xs font-bold uppercase text-slate-400">Finalized</p><p className="mt-1">{bill.finalized_at ? new Date(bill.finalized_at).toLocaleString('en-PH') : 'Not finalized'}</p></div><div><p className="text-xs font-bold uppercase text-slate-400">Confirmed By</p><p className="mt-1">{bill.confirmed_by_staff_name || '—'}</p></div></div></section>
+          <BillCorrectionsPanel bill={bill} onBillChanged={(updated) => { if (updated?.id) setBill(updated); else load() }} />
         </aside>
       </div>
 
@@ -162,3 +164,6 @@ const Admin_BillingTransactionDetail = () => {
 }
 
 export default Admin_BillingTransactionDetail
+
+
+

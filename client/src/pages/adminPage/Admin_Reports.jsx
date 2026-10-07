@@ -5,6 +5,7 @@ import {
   MdChecklist,
   MdGroups,
   MdInventory2,
+  MdMedication,
   MdPayments,
   MdPictureAsPdf,
   MdRefresh,
@@ -79,6 +80,9 @@ const inventoryMovementLabel = (value) => ({
   correction_in: 'Inventory Correction (+)',
   clinical_use: 'Clinical Use',
   dispensing: 'Dispensing',
+  dispensed: 'Dispensed at Checkout',
+  clinical_return: 'Unused Consumable Returned',
+  dispense_return: 'Checkout Medicine Returned',
   wastage: 'Wastage / Spillage',
   expired: 'Expired Stock',
   damaged: 'Damaged Stock',
@@ -113,8 +117,55 @@ const Section = ({ title, subtitle, children, action }) => (
   </section>
 )
 
+const formatQty = (value) => {
+  const number = Number(value) || 0
+  return Number.isInteger(number) ? number.toLocaleString('en-PH') : number.toLocaleString('en-PH', { maximumFractionDigits: 2 })
+}
+
+const MostUsedTable = ({ rows, kindLabel }) => {
+  if (!rows.length) {
+    return <p className="py-8 text-center text-sm text-slate-400">No {kindLabel.toLowerCase()} were used in this period.</p>
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-left text-sm">
+        <thead className="border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-400">
+          <tr>
+            <th className="px-3 py-3">Rank</th>
+            <th className="px-3 py-3">{kindLabel.replace(/s$/, '')}</th>
+            <th className="px-3 py-3 text-right">Total Used</th>
+            <th className="px-3 py-3 text-right">In Consultations</th>
+            <th className="px-3 py-3 text-right">Dispensed at Checkout</th>
+            <th className="px-3 py-3 text-right">Returned</th>
+            <th className="px-3 py-3 text-right">Visits</th>
+            <th className="px-3 py-3 text-right">Billed</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {rows.map((row, index) => (
+            <tr key={row.inventory_id} className={index === 0 ? 'bg-emerald-50/60' : ''}>
+              <td className="px-3 py-3 font-black text-slate-400">{index + 1}</td>
+              <td className="px-3 py-3">
+                <p className="font-bold text-slate-800">{row.name}</p>
+                <p className="text-xs text-slate-500">{doctorClinicLabel(row.category, 'Unassigned')} · per {row.unit}</p>
+              </td>
+              <td className="px-3 py-3 text-right text-base font-black text-slate-900">{formatQty(row.total_used)}</td>
+              <td className="px-3 py-3 text-right">{formatQty(row.used_in_consultation)}</td>
+              <td className="px-3 py-3 text-right">{formatQty(row.dispensed_at_checkout)}</td>
+              <td className="px-3 py-3 text-right text-slate-500">{row.returned ? `-${formatQty(row.returned)}` : '0'}</td>
+              <td className="px-3 py-3 text-right">{row.visits}</td>
+              <td className="px-3 py-3 text-right font-semibold">{formatMoney(row.billed_amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 const Admin_Reports = () => {
   const toast = useToast()
+  const [usageKind, setUsageKind] = useState('medicine')
   const initialRange = getPresetRange('6months')
   const [preset, setPreset] = useState('6months')
   const [dateRange, setDateRange] = useState(initialRange)
@@ -173,6 +224,8 @@ const Admin_Reports = () => {
     const stockActivity = Array.isArray(data?.stockActivity) ? data.stockActivity : []
     const stockReasons = Array.isArray(data?.stockMovementByReason) ? data.stockMovementByReason : []
     const categories = Array.isArray(data?.inventoryByCategory) ? data.inventoryByCategory : []
+    const mostUsedMedicines = Array.isArray(data?.mostUsedMedicines) ? data.mostUsedMedicines : []
+    const mostUsedSupplies = Array.isArray(data?.mostUsedSupplies) ? data.mostUsedSupplies : []
 
     const totalAppointments = Number(appointmentSummary.appointments || 0)
     const completed = Number(appointmentSummary.completed || 0)
@@ -188,7 +241,7 @@ const Admin_Reports = () => {
 
     return {
       appointmentSummary, billing, inventory, current, monthly, revenueTrend, status, sources,
-      doctors, payments, services, stockActivity, stockReasons, categories,
+      doctors, payments, services, stockActivity, stockReasons, categories, mostUsedMedicines, mostUsedSupplies,
       totalAppointments, completed, cancelled, noShow, completionRate, performanceTrend,
     }
   }, [data])
@@ -211,6 +264,9 @@ const Admin_Reports = () => {
     const sourceRows = report.sources.map((row) => `<tr><td>${escapeHtml(titleCase(row.source))}</td><td>${escapeHtml(row.value)}</td></tr>`).join('')
     const inventoryRows = report.stockReasons.map((row) => `<tr><td>${escapeHtml(inventoryMovementLabel(row.movement_type))}</td><td>${escapeHtml(row.actions)}</td><td>${escapeHtml(row.quantity)}</td></tr>`).join('')
     const monthlyRows = report.monthly.map((row) => `<tr><td>${escapeHtml(row.month)}</td><td>${escapeHtml(row.appointments)}</td><td>${escapeHtml(row.medical || 0)}</td><td>${escapeHtml(row.derma || 0)}</td><td>${escapeHtml(row.patients)}</td></tr>`).join('')
+    const usageRows = (rows) => rows.map((row, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(row.name)}</td><td>${escapeHtml(formatQty(row.total_used))} ${escapeHtml(row.unit)}</td><td>${escapeHtml(formatQty(row.used_in_consultation))}</td><td>${escapeHtml(formatQty(row.dispensed_at_checkout))}</td><td>${escapeHtml(row.visits)}</td><td>${escapeHtml(formatMoney(row.billed_amount))}</td></tr>`).join('')
+    const medicineRows = usageRows(report.mostUsedMedicines)
+    const supplyRows = usageRows(report.mostUsedSupplies)
     const revenueRows = report.revenueTrend.map((row) => `<tr><td>${escapeHtml(row.month)}</td><td>${escapeHtml(row.transactions)}</td><td>${escapeHtml(formatMoney(row.revenue))}</td></tr>`).join('')
 
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Clinic Report</title><style>
@@ -238,6 +294,7 @@ const Admin_Reports = () => {
         <tr><th>Gross Billed</th><td>${escapeHtml(formatMoney(report.billing.gross_billed))}</td><th>Discounts</th><td>${escapeHtml(formatMoney(report.billing.discounts))}</td></tr>
         <tr><th>Net Billed</th><td>${escapeHtml(formatMoney(report.billing.net_billed))}</td><th>Collections</th><td>${escapeHtml(formatMoney(report.billing.collected))}</td></tr>
         <tr><th>Refunded</th><td>${escapeHtml(formatMoney(report.billing.refunded))}</td><th>Net Collections</th><td>${escapeHtml(formatMoney(report.billing.net_collected))}</td></tr>
+        <tr><th>Voided Payments</th><td>${escapeHtml(formatMoney(report.billing.voided_payments))}</td><th>Gross Received</th><td>${escapeHtml(formatMoney(report.billing.gross_received))}</td></tr>
         <tr><th>Outstanding Now</th><td>${escapeHtml(formatMoney(report.billing.outstanding))}</td><th>Voided Bills</th><td>${escapeHtml(report.billing.voided_bills || 0)}</td></tr>
       </tbody></table>
       <h2>3. Collection Trend</h2><table><thead><tr><th>Month</th><th>Transactions</th><th>Net Collection</th></tr></thead><tbody>${revenueRows || '<tr><td colspan="3">No collections.</td></tr>'}</tbody></table>
@@ -246,8 +303,10 @@ const Admin_Reports = () => {
       <h2>5. Doctor Activity</h2><table><thead><tr><th>Doctor</th><th>Clinic Assignment</th><th>Appointments</th><th>Unique Patients</th><th>Completed</th><th>Completion</th></tr></thead><tbody>${doctorRows || '<tr><td colspan="6">No doctor activity.</td></tr>'}</tbody></table>
       <h2>6. Billing Detail</h2><table><thead><tr><th>Payment Method</th><th>Transactions</th><th>Collected</th></tr></thead><tbody>${paymentRows || '<tr><td colspan="3">No payments.</td></tr>'}</tbody></table>
       <h2>Top Services by Gross Billed Amount</h2><table><thead><tr><th>Service</th><th>Bills</th><th>Qty</th><th>Gross Billed</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="4">No billed services.</td></tr>'}</tbody></table>
-      <h2>7. Inventory Movement</h2><table><thead><tr><th>Movement</th><th>Actions</th><th>Quantity</th></tr></thead><tbody>${inventoryRows || '<tr><td colspan="3">No stock movement.</td></tr>'}</tbody></table>
-      <p class="note"><strong>Current inventory snapshot:</strong> ${report.inventory.total_items || 0} items · ${report.inventory.out_of_stock || 0} out of stock · ${report.inventory.low_stock || 0} low stock · ${report.inventory.expired || 0} expired · ${report.inventory.expiring_soon || 0} expiring within 30 days. Current values are not historical balances for the selected period.</p>
+      <h2>7. Most Used Medicines</h2><table><thead><tr><th>#</th><th>Medicine</th><th>Total Used</th><th>In Consultations</th><th>Dispensed at Checkout</th><th>Visits</th><th>Billed</th></tr></thead><tbody>${medicineRows || '<tr><td colspan="7">No medicines used in this period.</td></tr>'}</tbody></table>
+      <h2>Most Used Supplies</h2><table><thead><tr><th>#</th><th>Supply</th><th>Total Used</th><th>In Consultations</th><th>Dispensed at Checkout</th><th>Visits</th><th>Billed</th></tr></thead><tbody>${supplyRows || '<tr><td colspan="7">No supplies used in this period.</td></tr>'}</tbody></table>
+      <h2>8. Inventory Movement</h2><table><thead><tr><th>Movement</th><th>Actions</th><th>Quantity</th></tr></thead><tbody>${inventoryRows || '<tr><td colspan="3">No stock movement.</td></tr>'}</tbody></table>
+      <p class="note"><strong>Current inventory snapshot:</strong> ${report.inventory.total_items || 0} items · value at cost ${escapeHtml(formatMoney(report.inventory.cost_value))} · value at selling price ${escapeHtml(formatMoney(report.inventory.retail_value))} · ${report.inventory.out_of_stock || 0} out of stock · ${report.inventory.low_stock || 0} low stock · ${report.inventory.expired || 0} expired · ${report.inventory.expiring_soon || 0} expiring within 30 days. Current values are not historical balances for the selected period.</p>
       <footer>${escapeHtml(clinic.report_footer || clinic.clinic_name || 'CARAIT MEDICAL AND DERMATOLOGY CLINIC')} · ${escapeHtml(rangeLabel)}</footer>
     </body></html>`
 
@@ -304,12 +363,12 @@ const Admin_Reports = () => {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Gross Billed" value={formatMoney(report.billing.gross_billed)} helper={`${report.billing.paid_bills || 0} paid · ${report.billing.partially_paid_bills || 0} partial`} icon={MdPayments} tone="border-sky-200 bg-sky-50 text-sky-800" />
           <StatCard label="Net Billed" value={formatMoney(report.billing.net_billed)} helper={`${formatMoney(report.billing.discounts)} discounts`} icon={MdChecklist} tone="border-violet-200 bg-violet-50 text-violet-800" />
-          <StatCard label="Net Collections" value={formatMoney(report.billing.net_collected)} helper={`${formatMoney(report.billing.refunded)} refunded`} icon={MdTrendingUp} tone="border-emerald-200 bg-emerald-50 text-emerald-800" />
+          <StatCard label="Net Collections" value={formatMoney(report.billing.net_collected)} helper={`${formatMoney(report.billing.refunded)} refunded · ${formatMoney(report.billing.voided_payments)} voided`} icon={MdTrendingUp} tone="border-emerald-200 bg-emerald-50 text-emerald-800" />
           <StatCard label="Outstanding Now" value={formatMoney(report.billing.outstanding)} helper="Current unpaid balance across open bills" icon={MdWarningAmber} tone="border-amber-200 bg-amber-50 text-amber-800" />
         </div>
       </div>
 
-      <Section title="Collection Trend" subtitle="Net collections by month. Refunds are subtracted from completed payments.">
+      <Section title="Collection Trend" subtitle="Net collections by month. Each payment, void and refund is counted on the day it happened, so closed months do not change later.">
         <LineChart
           data={report.revenueTrend}
           xKey="month"
@@ -380,7 +439,7 @@ const Admin_Reports = () => {
       </Section>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        <Section title="Payments by Method" subtitle="Completed payments minus refunds in the selected period.">
+        <Section title="Payments by Method" subtitle="Payments received minus voids and refunds recorded in the selected period.">
           <HorizontalBarChart
             data={report.payments.map((row) => ({ label: `${titleCase(row.payment_method)} · ${row.transactions} tx`, value: Number(row.amount) || 0 }))}
             valueFormatter={formatMoney}
@@ -396,6 +455,52 @@ const Admin_Reports = () => {
         </Section>
       </div>
 
+      <Section
+        title={usageKind === 'medicine' ? 'Most Used Medicines' : 'Most Used Supplies'}
+        subtitle="Ranked by quantity that left stock for patients in the selected period: used during consultations plus dispensed at Checkout, minus anything returned. Visits counts consultations and paid bills."
+        action={(
+          <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Item type">
+            {[['medicine', 'Medicines'], ['supplies', 'Supplies']].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={usageKind === value}
+                onClick={() => setUsageKind(value)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${usageKind === value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      >
+        {(() => {
+          const rows = usageKind === 'medicine' ? report.mostUsedMedicines : report.mostUsedSupplies
+          const top = rows[0]
+          return (
+            <div className="space-y-5">
+              {top && (
+                <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+                  <MdMedication className="text-3xl text-emerald-600" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-emerald-700">{usageKind === 'medicine' ? 'Most used medicine' : 'Most used supply'}</p>
+                    <p className="truncate text-xl font-black text-emerald-900">{top.name}</p>
+                  </div>
+                  <p className="text-right text-emerald-900"><span className="text-3xl font-black">{formatQty(top.total_used)}</span> <span className="text-sm font-semibold">{top.unit} across {top.visits} visit{top.visits === 1 ? '' : 's'}</span></p>
+                </div>
+              )}
+              <HorizontalBarChart
+                data={rows.slice(0, 8).map((row) => ({ label: row.name, value: Number(row.total_used) || 0 }))}
+                valueFormatter={formatQty}
+                emptyMessage={`No ${usageKind === 'medicine' ? 'medicines' : 'supplies'} were used in this period.`}
+              />
+              <MostUsedTable rows={rows} kindLabel={usageKind === 'medicine' ? 'Medicines' : 'Supplies'} />
+            </div>
+          )
+        })()}
+      </Section>
+
       <div>
         <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-400">Current Snapshot · Not Historical</p>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -409,7 +514,12 @@ const Admin_Reports = () => {
 
       <Section title="Current Inventory Health" subtitle="Current stock snapshot. Batch expiry is tracked separately; this section does not pretend to be the inventory balance for the selected historical period.">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <StatCard label="Inventory Value" value={formatMoney(report.inventory.total_value)} helper={`${report.inventory.total_items || 0} items`} icon={MdInventory2} />
+          <StatCard
+            label="Inventory Value (Cost)"
+            value={formatMoney(report.inventory.cost_value ?? report.inventory.total_value)}
+            helper={`${formatMoney(report.inventory.retail_value)} at selling price${Number(report.inventory.batches_without_cost || 0) > 0 ? ` · ${report.inventory.batches_without_cost} of ${report.inventory.batches_on_hand} batches have no unit cost` : ''}`}
+            icon={MdInventory2}
+          />
           <StatCard label="Out of Stock" value={report.inventory.out_of_stock || 0} tone="border-rose-200 bg-rose-50 text-rose-800" />
           <StatCard label="Low Stock" value={report.inventory.low_stock || 0} tone="border-amber-200 bg-amber-50 text-amber-800" />
           <StatCard label="Expired" value={report.inventory.expired || 0} tone="border-red-200 bg-red-50 text-red-800" />
@@ -425,3 +535,5 @@ const Admin_Reports = () => {
 }
 
 export default Admin_Reports
+
+

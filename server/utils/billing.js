@@ -250,7 +250,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
   const requestedServiceIds = Array.from(new Set(
     rawItems
       .filter((item) => itemTypeFromRaw(item) === 'service')
-      .map((item) => Number(item?.catalog_service_id || item?.id || 0))
+      .map((item) => catalogServiceIdFromRaw(item))
       .filter((value) => value > 0)
   ))
 
@@ -294,7 +294,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
       }
 
       if (itemType === 'service') {
-        const serviceId = Number(item?.catalog_service_id || item?.id || 0)
+        const serviceId = catalogServiceIdFromRaw(item)
         const service = serviceMap.get(serviceId)
         const fallbackName = normalizeOptionalText(item?.service_name ?? item?.name, { field: `Service ${index + 1} name`, max: 180 }) || ''
 
@@ -380,6 +380,14 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         if (!inventoryItem) {
           const err = new Error(`Inventory item for ${name || 'this supply'} is no longer available.`)
           err.statusCode = 400
+          throw err
+        }
+        // Inventory is tracked in whole dispensing units (unit size is fixed at 1), so a
+        // fractional medicine quantity would leave fractional stock behind in the batch.
+        if (Math.abs(quantity - Math.round(quantity)) > 0.0000001) {
+          const err = new Error(`${inventoryItem.name} must be dispensed in whole ${inventoryItem.uom || inventoryItem.unit || 'unit'}s.`)
+          err.statusCode = 400
+          err.code = 'WHOLE_UNIT_QUANTITY_REQUIRED'
           throw err
         }
         if (inventoryItem.selling_price === null || inventoryItem.selling_price === undefined || inventoryItem.selling_price === '' || Number(inventoryItem.selling_price) <= 0) {
@@ -750,11 +758,29 @@ const upsertDraftBillingForAppointment = async ({
   return getBillingRecordWithItems(result.insertId, executor)
 }
 
+// A saved billing line carries its own row id in `id` (and `billing_id`). That id must
+// never be read as a catalog service id, or a saved line could be re-priced as an
+// unrelated service. `id` is accepted as a catalog id only for raw catalog picks that
+// are clearly not saved billing rows.
+const isSavedBillingRow = (item = {}) => (
+  item?.billing_id !== undefined
+  || item?.line_total !== undefined
+  || item?.details_json !== undefined
+  || Boolean(item?.source_type)
+)
+
+const catalogServiceIdFromRaw = (item = {}) => {
+  const explicit = Number(item?.catalog_service_id || 0)
+  if (explicit > 0) return explicit
+  if (isSavedBillingRow(item)) return 0
+  return Number(item?.id || 0) > 0 ? Number(item.id) : 0
+}
+
 function itemTypeFromRaw(item = {}) {
   const explicit = String(item?.item_type || '').trim().toLowerCase()
   if (['service', 'supply', 'custom'].includes(explicit)) return explicit
   if (Number(item?.source_inventory_id || item?.inventory_id || 0) > 0) return 'supply'
-  if (Number(item?.catalog_service_id || item?.id || 0) > 0) return 'service'
+  if (catalogServiceIdFromRaw(item) > 0) return 'service'
   return 'custom'
 }
 
@@ -777,3 +803,7 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
+
+
+
+

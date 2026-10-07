@@ -1,11 +1,12 @@
 import { Link, useLocation } from 'react-router-dom'
-import { MdDashboard, MdReceiptLong, MdApproval, MdPointOfSale } from 'react-icons/md'
+import { MdDashboard, MdReceiptLong, MdApproval, MdPointOfSale, MdFactCheck } from 'react-icons/md'
 
 const ITEMS = [
   { label: 'Checkout', path: '/admin/billing?tab=checkout', icon: MdPointOfSale, tab: 'checkout' },
   { label: 'Overview', path: '/admin/billing?tab=overview', icon: MdDashboard, tab: 'overview' },
   { label: 'Transactions', path: '/admin/billing/transactions', icon: MdReceiptLong, route: '/admin/billing/transactions' },
   { label: 'Adjustments', path: '/admin/billing/adjustments', icon: MdApproval, route: '/admin/billing/adjustments' },
+  { label: 'Daily Close', path: '/admin/billing/reconciliation', icon: MdFactCheck, route: '/admin/billing/reconciliation' },
 ]
 
 const AdminBillingNav = ({ pendingAdjustments = 0, pendingApprovals = 0 }) => {
@@ -41,3 +42,5 @@ const AdminBillingNav = ({ pendingAdjustments = 0, pendingApprovals = 0 }) => {
 }
 
 export default AdminBillingNav
+
+

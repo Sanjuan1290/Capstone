@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MdClose, MdPayments, MdRefresh, MdSearch } from 'react-icons/md'
-import { getBills } from '../../services/staff.service'
+import { getBills, getMyCashierClosing, closeMyCashier } from '../../services/staff.service'
+import CashierDrawerCard from '../../components/billing/CashierDrawerCard'
 import { useToast } from '../../components/ui/ToastProvider'
 import Pagination from '../../components/ui/Pagination'
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/PageState'
@@ -64,6 +65,8 @@ const Staff_Billing = () => {
         <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>
       </div>
 
+      <CashierDrawerCard loadDrawer={getMyCashierClosing} closeDrawer={closeMyCashier} />
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {TABS.map((tab) => (
           <button key={tab.value} onClick={() => { setFilter(tab.value); setPage(1) }} className={`rounded-2xl border p-4 text-left shadow-sm transition ${filter === tab.value ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
@@ -107,3 +110,5 @@ const Staff_Billing = () => {
 }
 
 export default Staff_Billing
+
+

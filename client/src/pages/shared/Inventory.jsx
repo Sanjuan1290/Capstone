@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MdAdd, MdCameraAlt, MdClose, MdDelete, MdEdit, MdInventory2,
   MdQrCodeScanner, MdRefresh, MdSave, MdSearch, MdWarningAmber,
-  MdCheckCircle, MdLocationOn, MdCalendarToday, MdFlashOn, MdCameraswitch, MdUploadFile,
+  MdCheckCircle, MdLocationOn, MdCalendarToday, MdFlashOn, MdCameraswitch, MdUploadFile, MdSwapHoriz,
 } from 'react-icons/md'
 import { useToast } from '../../components/ui/ToastProvider'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
@@ -729,6 +729,70 @@ const ProtectedBatchActionModal = ({ item, batch, action, onClose, onRequest, on
   </div></div>
 }
 
+// Moves an exact batch between storage locations, for example unused treatment-room
+// stock back to the Main Stockroom. Clinic-wide stock does not change.
+const MoveStockModal = ({ item, locations = [], onClose, onSubmit }) => {
+  const sources = (Array.isArray(item?.batches) ? item.batches : [])
+    .filter((batch) => !batch.archived_at && Number(batch.quantity || 0) > 0)
+    .flatMap((batch) => (Array.isArray(batch.locations) ? batch.locations : [])
+      .filter((location) => location.id && Number(location.quantity || 0) > 0)
+      .map((location) => ({ key: `${batch.id}:${location.id}`, batch, location, available: Number(location.quantity || 0) })))
+  const activeLocations = locations.filter((location) => Number(location.is_active ?? 1) === 1)
+  const mainStockroom = activeLocations.find((location) => Number(location.is_main_stockroom || 0) === 1)
+  const firstNonMain = sources.find((entry) => Number(entry.location.id) !== Number(mainStockroom?.id)) || sources[0]
+  const [sourceKey, setSourceKey] = useState(firstNonMain?.key || '')
+  const source = sources.find((entry) => entry.key === sourceKey) || null
+  const destinations = activeLocations.filter((location) => Number(location.id) !== Number(source?.location?.id))
+  const defaultDestination = destinations.find((location) => Number(location.is_main_stockroom || 0) === 1) || destinations[0]
+  const [destinationId, setDestinationId] = useState(defaultDestination ? String(defaultDestination.id) : '')
+  const [qty, setQty] = useState('')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!destinations.some((location) => String(location.id) === String(destinationId))) {
+      setDestinationId(defaultDestination ? String(defaultDestination.id) : '')
+    }
+  }, [sourceKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const numericQty = Number(qty)
+  const invalidQty = !(numericQty > 0) || !Number.isInteger(numericQty) || numericQty > Number(source?.available || 0)
+
+  const submit = async () => {
+    if (!source || !destinationId || invalidQty) return
+    setSaving(true)
+    setError('')
+    try {
+      await onSubmit(item, {
+        batch_id: source.batch.id,
+        from_location_id: Number(source.location.id),
+        to_location_id: Number(destinationId),
+        quantity: numericQty,
+        note: note.trim() || null,
+      })
+    } catch (err) {
+      setError(err.message || 'Could not move stock.')
+      setSaving(false)
+    }
+  }
+
+  return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 px-4"><div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
+    <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="text-lg font-bold text-slate-900">Move Stock</h3><p className="mt-1 text-xs text-slate-500">{item.name}. Moves an exact batch between locations. Clinic-wide stock stays the same.</p></div><button onClick={onClose} aria-label="Close"><MdClose/></button></div>
+    <div className="space-y-4 p-6">
+      {sources.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">This item has no batch stock assigned to a location.</p> : <>
+        <Field label="From Batch / Location *"><select value={sourceKey} onChange={(e)=>{setSourceKey(e.target.value);setQty('')}} className={inputClass}>{sources.map((entry)=><option key={entry.key} value={entry.key}>{entry.location.name}: {entry.batch.batch_code || `Batch #${entry.batch.id}`}, {entry.batch.expiration_date ? `exp ${formatDate(entry.batch.expiration_date)}` : 'no expiry'} ({formatUnits(entry.available)} available)</option>)}</select></Field>
+        <Field label="To Location *"><select value={destinationId} onChange={(e)=>setDestinationId(e.target.value)} className={inputClass}>{destinations.length===0&&<option value="">No other active location</option>}{destinations.map((location)=><option key={location.id} value={location.id}>{location.name}{Number(location.is_main_stockroom||0)===1?' (Main Stockroom)':''}</option>)}</select></Field>
+        <Field label="Quantity *"><input type="number" min="1" step="1" max={source?.available || 0} value={qty} onChange={(e)=>setQty(e.target.value)} className={inputClass} /></Field>
+        {qty !== '' && invalidQty && <p className="text-xs font-bold text-red-600">Enter a whole number from 1 to {formatUnits(source?.available || 0)}.</p>}
+        <Field label="Note"><input type="text" maxLength={255} value={note} onChange={(e)=>setNote(e.target.value)} className={inputClass} placeholder="Example: unused room stock returned" /></Field>
+      </>}
+      {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+    </div>
+    <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4"><button className="button-secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="button-primary" disabled={saving || !source || !destinationId || invalidQty} onClick={submit}>{saving ? 'Moving…' : 'Move Stock'}</button></div>
+  </div></div>
+}
+
 const BatchManagerModal = ({ item, onClose, onRequestAction, onConfirmAction, onLoadHistory, onChanged }) => {
   const [showHistorical,setShowHistorical]=useState(false)
   const [selected,setSelected]=useState(null)
@@ -754,8 +818,10 @@ const BatchManagerModal = ({ item, onClose, onRequestAction, onConfirmAction, on
 
 const Inventory = ({ services, canManageSellingPrice = false }) => {
   const toast = useToast()
-  const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, requestInventoryBatchActionCode, confirmInventoryBatchAction, getInventoryBatchHistory } = services
+  const { getInventory, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, requestInventoryBatchActionCode, confirmInventoryBatchAction, getInventoryBatchHistory, moveInventoryStock, getInventoryLocations } = services
   const [items, setItems] = useState([])
+  const [moveItem, setMoveItem] = useState(null)
+  const [stockLocations, setStockLocations] = useState([])
   const [batchManagerItem, setBatchManagerItem] = useState(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -789,6 +855,23 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   }, [getInventory, getInventoryMasterData])
 
   useEffect(() => { load() }, [load])
+
+  const openMoveStock = async (item) => {
+    try {
+      const rows = await getInventoryLocations()
+      setStockLocations(Array.isArray(rows) ? rows : [])
+      setMoveItem(item)
+    } catch (err) {
+      toast.error(err.message || 'Could not load storage locations.')
+    }
+  }
+
+  const submitMoveStock = async (item, payload) => {
+    const result = await moveInventoryStock(item.id, payload)
+    setMoveItem(null)
+    await load()
+    setFeedback({ type: 'success', message: result?.message || 'Stock moved.' })
+  }
 
   useEffect(() => {
     if (!feedback) return undefined
@@ -1010,6 +1093,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
               <div className="flex flex-wrap items-center gap-2">
                 <button onClick={() => { setStockMode('in'); setStockItem(item) }} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 flex items-center gap-2"><MdInventory2 /> Stock In</button>
                 <button onClick={() => { setStockMode('out'); setStockItem(item) }} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 flex items-center gap-2"><MdInventory2 /> Stock Out</button>
+                {moveInventoryStock && getInventoryLocations && Number(item.stock || 0) > 0 && <button onClick={() => openMoveStock(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdSwapHoriz /> Move Stock</button>}
                 <button onClick={() => setEditItem(item)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 flex items-center gap-2"><MdEdit /> Edit Item</button>
                 {requestInventoryBatchActionCode && confirmInventoryBatchAction && <button onClick={()=>setBatchManagerItem(item)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-700 hover:bg-sky-100 flex items-center gap-2"><MdInventory2/> Manage Batches</button>}
                 {deleteInventoryItem && <button onClick={() => handleDelete(item)} title="Archive item" className="w-11 h-11 rounded-2xl border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center"><MdDelete className="text-[18px]" /></button>}
@@ -1054,6 +1138,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} masterData={masterData} existingItems={items} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
       {stockItem && <StockModal item={stockItem} initialType={stockMode} movementReasons={masterData.movement_reasons || []} suppliers={masterData.suppliers || []} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
+      {moveItem && <MoveStockModal item={moveItem} locations={stockLocations} onClose={() => setMoveItem(null)} onSubmit={submitMoveStock} />}
       {batchManagerItem && requestInventoryBatchActionCode && confirmInventoryBatchAction && <BatchManagerModal item={batchManagerItem} onClose={()=>setBatchManagerItem(null)} onRequestAction={requestInventoryBatchActionCode} onConfirmAction={confirmInventoryBatchAction} onLoadHistory={getInventoryBatchHistory} onChanged={async (message)=>{setBatchManagerItem(null);await load();setFeedback({type:'success',message})}} />}
       <ConfirmDialog
         open={Boolean(deleteCandidate)}
@@ -1069,3 +1154,6 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+
+
+

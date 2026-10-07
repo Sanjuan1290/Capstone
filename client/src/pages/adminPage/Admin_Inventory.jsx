@@ -19,6 +19,8 @@ import {
   getInventoryBatchHistory,
   updateInventoryItem,
   updateStock,
+  moveInventoryStock,
+  getInventoryLocations,
 } from '../../services/admin.service'
 
 const adminServices = {
@@ -34,6 +36,8 @@ const adminServices = {
   requestInventoryBatchActionCode,
   confirmInventoryBatchAction,
   getInventoryBatchHistory,
+  moveInventoryStock,
+  getInventoryLocations,
 }
 
 const DEFAULT_PAGINATION = {
@@ -276,3 +280,5 @@ const AdminInventory = () => {
 }
 
 export default AdminInventory
+
+

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { uploadClinicalImageSigned, getClinicalImageScanStatus } from '../../services/portal.service'
@@ -23,8 +22,6 @@ import {
   MdArrowBack,
   MdCalendarToday,
   MdCheck,
-  MdChevronLeft,
-  MdChevronRight,
   MdClose,
   MdEdit,
   MdFace,
@@ -37,7 +34,6 @@ import {
   MdPerson,
   MdPrint,
   MdUpload,
-  MdVisibility,
   MdSearch,
   MdLock,
   MdInventory2,
@@ -117,117 +113,7 @@ const normalizePrescriptionDecision = (value, prescriptions = [], status = 'draf
   return status === 'finalized' ? 'none' : 'not_recorded'
 }
 
-const ProgressImagePreviewModal = ({ open, images = [], index = 0, onClose, onMove }) => {
-  const previewImage = open ? images[index] || null : null
-
-  useEffect(() => {
-    if (!open) return undefined
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose?.()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [open, onClose])
-
-  if (!open || !previewImage || typeof document === 'undefined') return null
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Progress image preview"
-    >
-      <button
-        type="button"
-        className="absolute inset-0 h-full w-full cursor-default bg-slate-950/80 backdrop-blur-sm"
-        onClick={onClose}
-        aria-label="Close image preview"
-      />
-
-      <section
-        className="relative z-10 flex max-h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-4 py-3 sm:px-5">
-          <div className="min-w-0">
-            <p className="text-sm font-black text-slate-800">
-              {images.length > 1 ? `Image Preview · ${index + 1} of ${images.length}` : 'Image Preview'}
-            </p>
-            <p className="mt-0.5 truncate text-xs text-slate-500">{previewImage.caption || 'Consultation progress image'}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
-            aria-label="Close preview"
-          >
-            <MdClose className="text-[20px]" />
-          </button>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-3 sm:p-5">
-          <div className="space-y-4">
-            <div className="relative flex min-h-[300px] items-center justify-center overflow-hidden rounded-2xl bg-slate-950 sm:min-h-[420px]">
-              <img
-                src={previewImage.image_url}
-                alt={previewImage.caption || `Progress image ${index + 1}`}
-                className="max-h-[72vh] max-w-full object-contain"
-              />
-
-              {images.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onMove?.(-1)}
-                    className="absolute left-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow-lg transition hover:bg-white hover:text-violet-600 sm:left-4"
-                    aria-label="Previous image"
-                  >
-                    <MdChevronLeft className="text-[26px]" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onMove?.(1)}
-                    className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow-lg transition hover:bg-white hover:text-violet-600 sm:right-4"
-                    aria-label="Next image"
-                  >
-                    <MdChevronRight className="text-[26px]" />
-                  </button>
-                </>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-slate-800">{previewImage.caption || `Progress Image ${index + 1}`}</p>
-                <p className={`mt-1 text-xs font-semibold ${previewImage.security_scan_status === 'approved' ? 'text-emerald-600' : previewImage.security_scan_status === 'bypassed' ? 'text-amber-700' : 'text-slate-400'}`}>
-                  {previewImage.security_scan_status === 'approved' ? 'Security scan passed.' : previewImage.security_scan_status === 'bypassed' ? 'Uploaded without malware scanning.' : 'Legacy image.'}
-                </p>
-                {images.length > 1 && <p className="mt-1 text-[11px] text-slate-400">Use the arrows or your keyboard’s left/right arrow keys to browse.</p>}
-              </div>
-              <a
-                href={previewImage.image_url}
-                target="_blank"
-                rel="noreferrer"
-                className="button-secondary shrink-0"
-              >
-                <MdOpenInNew /> Open Original
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>,
-    document.body,
-  )
-}
-
-const ProgressImageGallery = ({ images = [], emptyText = 'No progress images added yet.', onPreview }) => {
+const ProgressImageGallery = ({ images = [], emptyText = 'No progress images added yet.' }) => {
   const list = normalizeProgressImages(images).filter((image) => image.image_url)
 
   if (list.length === 0) {
@@ -241,25 +127,18 @@ const ProgressImageGallery = ({ images = [], emptyText = 'No progress images add
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {list.map((image, index) => (
-        <button
-          type="button"
+        <a
           key={`${image.image_url}-${index}`}
-          onClick={() => onPreview?.(list, image.image_url)}
-          className="group overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:border-violet-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-violet-300"
-          aria-label={`Preview progress image ${index + 1}`}
+          href={image.image_url}
+          target="_blank"
+          rel="noreferrer"
+          className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"
         >
-          <div className="relative overflow-hidden bg-slate-100">
-            <img
-              src={image.image_url}
-              alt={image.caption || `Consultation progress ${index + 1}`}
-              className="h-44 w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-            />
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-900/0 transition-colors group-hover:bg-slate-900/25">
-              <span className="flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-bold text-slate-700 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                <MdVisibility className="text-[15px]" /> Preview
-              </span>
-            </div>
-          </div>
+          <img
+            src={image.image_url}
+            alt={image.caption || `Consultation progress ${index + 1}`}
+            className="h-44 w-full object-cover bg-slate-100"
+          />
           <div className="flex items-start justify-between gap-3 px-4 py-3">
             <div className="min-w-0">
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Progress Image</p>
@@ -270,9 +149,9 @@ const ProgressImageGallery = ({ images = [], emptyText = 'No progress images add
                 {image.security_scan_status === 'approved' ? 'Security scan passed' : image.security_scan_status === 'bypassed' ? 'Not malware scanned' : 'Legacy image'}
               </span>
             </div>
-            <MdVisibility className="mt-0.5 shrink-0 text-slate-300 transition-colors group-hover:text-violet-500" />
+            <MdOpenInNew className="mt-0.5 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" />
           </div>
-        </button>
+        </a>
       ))}
     </div>
   )
@@ -296,7 +175,6 @@ const Doctor_Consultation = () => {
   const [prescriptions, setPrescriptions] = useState([])
   const [prescriptionDecision, setPrescriptionDecision] = useState('not_recorded')
   const [progressImages, setProgressImages] = useState([])
-  const [imagePreview, setImagePreview] = useState({ open: false, images: [], index: 0 })
   const [patientHistory, setPatientHistory] = useState([])
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState('consultation')
@@ -328,43 +206,6 @@ const Doctor_Consultation = () => {
   const [extraConsumableQuantity, setExtraConsumableQuantity] = useState(1)
 
   const date = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-
-  const openProgressImagePreview = useCallback((images, imageUrl = '') => {
-    const list = normalizeProgressImages(images).filter((image) => image.image_url)
-    if (!list.length) return
-    const requestedIndex = imageUrl ? list.findIndex((image) => image.image_url === imageUrl) : 0
-    setImagePreview({
-      open: true,
-      images: list,
-      index: requestedIndex >= 0 ? requestedIndex : 0,
-    })
-  }, [])
-
-  const closeProgressImagePreview = useCallback(() => {
-    setImagePreview({ open: false, images: [], index: 0 })
-  }, [])
-
-  const moveProgressImagePreview = useCallback((direction) => {
-    setImagePreview((current) => {
-      const count = current.images.length
-      if (!current.open || count <= 1) return current
-      return {
-        ...current,
-        index: (current.index + direction + count) % count,
-      }
-    })
-  }, [])
-
-  useEffect(() => {
-    if (!imagePreview.open || imagePreview.images.length <= 1) return undefined
-    const handlePreviewKeyDown = (event) => {
-      if (event.key === 'ArrowLeft') moveProgressImagePreview(-1)
-      if (event.key === 'ArrowRight') moveProgressImagePreview(1)
-    }
-    window.addEventListener('keydown', handlePreviewKeyDown)
-    return () => window.removeEventListener('keydown', handlePreviewKeyDown)
-  }, [imagePreview.open, imagePreview.images.length, moveProgressImagePreview])
-
 
   const loadHistory = async (patientId) => {
     if (!patientId) return
@@ -1006,13 +847,14 @@ const Doctor_Consultation = () => {
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-800">{latestProgressImage.caption || 'Recent image'}</p>
-                  <button
-                    type="button"
-                    onClick={() => openProgressImagePreview(progressImages, latestProgressImage.image_url)}
+                  <a
+                    href={latestProgressImage.image_url}
+                    target="_blank"
+                    rel="noreferrer"
                     className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-violet-600 hover:text-violet-700"
                   >
-                    Preview image <MdVisibility className="text-[13px]" />
-                  </button>
+                    View full image <MdOpenInNew className="text-[12px]" />
+                  </a>
                 </div>
               </div>
             </div>
@@ -1120,19 +962,7 @@ const Doctor_Consultation = () => {
                       <div key={index} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                         <div className="relative">
                           {image.image_url ? (
-                            <button
-                              type="button"
-                              onClick={() => openProgressImagePreview(progressImages, image.image_url)}
-                              className="group relative block w-full overflow-hidden bg-slate-100 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-violet-300"
-                              aria-label={`Preview progress image ${index + 1}`}
-                            >
-                              <img src={image.image_url} alt={image.caption || `Progress image ${index + 1}`} className="h-40 w-full bg-slate-100 object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
-                              <span className="absolute inset-0 flex items-center justify-center bg-slate-900/0 transition-colors group-hover:bg-slate-900/25">
-                                <span className="flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-bold text-slate-700 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                                  <MdVisibility className="text-[15px]" /> Preview
-                                </span>
-                              </span>
-                            </button>
+                            <img src={image.image_url} alt={image.caption || `Progress image ${index + 1}`} className="h-40 w-full bg-slate-100 object-cover" />
                           ) : (
                             <div className="flex h-40 flex-col items-center justify-center bg-slate-50 text-slate-300">
                               <MdImage className="mb-2 text-[34px]" />
@@ -1142,7 +972,7 @@ const Doctor_Consultation = () => {
                           <button
                             type="button"
                             onClick={() => removeProgressImage(index)}
-                            className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg bg-white/95 text-slate-400 shadow-sm hover:bg-red-50 hover:text-red-500"
+                            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg bg-white/95 text-slate-400 shadow-sm hover:bg-red-50 hover:text-red-500"
                             aria-label={`Remove progress image ${index + 1}`}
                           >
                             <MdClose className="text-[14px]" />
@@ -1152,21 +982,10 @@ const Doctor_Consultation = () => {
                         <div className="space-y-3 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Image {index + 1}</p>
-                            <div className="flex items-center gap-1">
-                              {image.image_url && (
-                                <button
-                                  type="button"
-                                  onClick={() => openProgressImagePreview(progressImages, image.image_url)}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-bold text-violet-600 hover:bg-violet-100"
-                                >
-                                  <MdVisibility className="text-[12px]" /> Preview
-                                </button>
-                              )}
-                              <label className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-slate-50 ${uploadingIndex !== null ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
-                                <MdUpload className="text-[12px]" /> {uploadingIndex === index ? 'Uploading...' : 'Replace'}
-                                <input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" className="hidden" disabled={uploadingIndex !== null} onChange={(e) => { const file = e.currentTarget.files?.[0] || null; e.currentTarget.value = ''; void handleUploadProgressImage(index, file) }} />
-                              </label>
-                            </div>
+                            <label className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-slate-50 ${uploadingIndex !== null ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
+                              <MdUpload className="text-[12px]" /> {uploadingIndex === index ? 'Uploading...' : 'Replace'}
+                              <input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" className="hidden" disabled={uploadingIndex !== null} onChange={(e) => { const file = e.currentTarget.files?.[0] || null; e.currentTarget.value = ''; void handleUploadProgressImage(index, file) }} />
+                            </label>
                           </div>
 
                           {imageUploadStatus[index] && (
@@ -1357,7 +1176,8 @@ const Doctor_Consultation = () => {
                     </div>
                     <span className="text-slate-400">No inventory is reserved when an appointment is confirmed.</span>
                   </div>
-                  <p className="mt-1 text-slate-400">Fixed service consumables and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory. Treatment-room stock is used first, with Main Stockroom as fallback.</p>
+                  <p className="mt-1 text-slate-400">Fixed service consumables and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory. Stock in this clinic's assigned treatment room is used first, with the Main Stockroom as fallback.</p>
+                  <p className="mt-1 text-slate-400">Actual recorded medicines and consumables are stocked out only when you complete the consultation.</p>
                 </div>
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                   <button
@@ -1571,7 +1391,6 @@ const Doctor_Consultation = () => {
                           <ProgressImageGallery
                             images={visit.progress_images}
                             emptyText="No progress images saved for this visit."
-                            onPreview={openProgressImagePreview}
                           />
                         </div>
                         {!visit.diagnosis && !visit.consultation_notes && (
@@ -1660,14 +1479,6 @@ const Doctor_Consultation = () => {
         </div>
       </Modal>
 
-      <ProgressImagePreviewModal
-        open={imagePreview.open}
-        images={imagePreview.images}
-        index={imagePreview.index}
-        onClose={closeProgressImagePreview}
-        onMove={moveProgressImagePreview}
-      />
-
       <Modal
         open={Boolean(pendingScanPrompt)}
         onClose={() => uploadingIndex === null && setPendingScanPrompt(null)}
@@ -1713,3 +1524,7 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+
+
+
+

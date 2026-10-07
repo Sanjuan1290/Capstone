@@ -7,7 +7,8 @@ describe('appointment rules', () => {
   })
 
   it('formats clinic-local dates and times', () => {
-    const value = new Date(2026, 6, 21, 13, 5)
+    // 05:05 UTC is 1:05 PM in Manila. Built from UTC so the test passes on any machine time zone.
+    const value = new Date(Date.UTC(2026, 6, 21, 5, 5))
     expect(getTodayDateOnly(value)).toBe('2026-07-21')
     expect(getCurrentTimeLabel(value)).toBe('1:05 PM')
   })
@@ -18,3 +19,5 @@ describe('appointment rules', () => {
     expect(result.last_no_show.id).toBe(4)
   })
 })
+
+

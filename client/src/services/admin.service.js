@@ -429,7 +429,6 @@ export const getAdminCheckoutBill = (id) => requestJson(`${getAdminApiBase()}/bi
 export const updateAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminFinalizePreview = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/finalize-preview`)
 export const finalizeAdminCheckoutBill = (id,expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/finalize`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
-export const reopenAdminCheckoutBill = (id,expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/reopen`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
 export const payAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}/pay`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminBillAdjustmentRequests = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/adjustment-requests`)
 export const getAdminDiscountPresets = () => requestJson(`${getAdminApiBase()}/billing/discount-presets`)
@@ -458,3 +457,15 @@ export const confirmInventoryBatchAction = (batchId, code) =>
 
 export const getInventoryBatchHistory = (batchId) =>
   requestJson(`${getAdminApiBase()}/inventory/batches/${batchId}/history`)
+
+
+// ── 2026-10-04: bill corrections, stock returns, location moves, cashier closing ──
+const postJson = (url, payload = {}) => requestJson(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const getBillStockUsage = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/stock-usage`)
+export const voidBill = (id, payload) => postJson(`${getAdminApiBase()}/billing/${id}/void`, payload)
+export const reopenBill = (id, payload) => postJson(`${getAdminApiBase()}/billing/${id}/reopen`, payload)
+export const returnConsultationConsumable = (billingId, usageBatchId, payload) => postJson(`${getAdminApiBase()}/billing/${billingId}/consumables/${usageBatchId}/return`, payload)
+export const moveInventoryStock = (inventoryId, payload) => postJson(`${getAdminApiBase()}/inventory/${inventoryId}/move-location`, payload)
+export const getMyCashierClosing = (date = '') => requestJson(`${getAdminApiBase()}/billing/cashier-closing${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+export const closeMyCashier = (payload) => postJson(`${getAdminApiBase()}/billing/cashier-closing`, payload)
+export const reopenCashierClosing = (closingId, reason) => postJson(`${getAdminApiBase()}/billing/cashier-closings/${closingId}/reopen`, { reason })

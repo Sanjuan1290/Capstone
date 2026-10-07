@@ -1,4 +1,5 @@
 const db = require('../db/connect')
+const { resolveMainStockroom } = require('./inventoryLocations')
 
 const MAIN_LOCATION = 'Main Stockroom'
 
@@ -15,17 +16,35 @@ const toPositiveNumber = (value) => {
   return Number.isFinite(num) && num > 0 ? num : 0
 }
 
-const getLocationId = async (name = MAIN_LOCATION, executor = db, options = {}) => {
+// Resolves a location by name. The MAIN_LOCATION constant is a *role*, not a literal
+// name: it always resolves to the location flagged as the Main Stockroom, even after an
+// administrator renames it. Other names must already exist; locations are no longer
+// auto-created at runtime (that used to create duplicates after a rename and burned an
+// AUTO_INCREMENT id on every stock movement). Pass { createIfMissing: true } only for
+// schema bootstrap.
+const resolveLocation = async (name = MAIN_LOCATION, executor = db, options = {}) => {
   const locationName = String(name || MAIN_LOCATION).trim() || MAIN_LOCATION
-  if (options.createIfMissing !== false) {
+  if (locationName === MAIN_LOCATION) {
+    const main = await resolveMainStockroom(executor, { createIfMissing: options.createIfMissing === true })
+    if (main) return { id: main.id, name: main.name }
+  }
+  const [[row]] = await executor.query('SELECT id, name FROM inventory_locations WHERE name = ? AND COALESCE(is_active,1)=1 LIMIT 1', [locationName])
+  if (row) return { id: row.id, name: row.name }
+  if (options.createIfMissing === true) {
     await executor.query(
       `INSERT INTO inventory_locations (name, location_type, is_active)
        VALUES (?, ?, 1)
-       ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+       ON DUPLICATE KEY UPDATE is_active = is_active`,
       [locationName, locationName === MAIN_LOCATION ? 'stockroom' : 'room']
     )
+    const [[created]] = await executor.query('SELECT id, name FROM inventory_locations WHERE name = ? AND COALESCE(is_active,1)=1 LIMIT 1', [locationName])
+    return created ? { id: created.id, name: created.name } : null
   }
-  const [[row]] = await executor.query('SELECT id FROM inventory_locations WHERE name = ? AND COALESCE(is_active,1)=1 LIMIT 1', [locationName])
+  return null
+}
+
+const getLocationId = async (name = MAIN_LOCATION, executor = db, options = {}) => {
+  const row = await resolveLocation(name, executor, options)
   return row?.id || null
 }
 
@@ -53,17 +72,18 @@ const syncLocationSnapshot = async (inventoryId, executor = db) => {
 }
 
 const ensureInventoryLocationAllocations = async (inventoryId, executor = db) => {
-  const mainLocationId = await getLocationId(MAIN_LOCATION, executor)
+  const mainLocationId = await getLocationId(MAIN_LOCATION, executor, { createIfMissing: true })
   const [batches] = await executor.query(
-    `SELECT b.id, b.quantity,
+    `SELECT b.id, b.batch_code, b.quantity,
             COALESCE(SUM(ilb.quantity), 0) AS allocated_quantity
      FROM inventory_batches b
      LEFT JOIN inventory_location_batches ilb ON ilb.batch_id = b.id
      WHERE b.inventory_id = ? AND b.quantity > 0 AND b.archived_at IS NULL
-     GROUP BY b.id, b.quantity`,
+     GROUP BY b.id, b.batch_code, b.quantity`,
     [inventoryId]
   )
 
+  const repaired = []
   for (const batch of batches) {
     const missing = Math.max(0, Number(batch.quantity || 0) - Number(batch.allocated_quantity || 0))
     if (missing <= 0) continue
@@ -73,8 +93,21 @@ const ensureInventoryLocationAllocations = async (inventoryId, executor = db) =>
        ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`,
       [mainLocationId, inventoryId, batch.id, missing]
     )
+    repaired.push({ batch_id: batch.id, batch_code: batch.batch_code || null, quantity: missing })
+  }
+  if (repaired.length) {
+    // Never repair silently: an unallocated balance means stock existed on the batch
+    // without a location. Record exactly what was placed into the Main Stockroom.
+    await executor.query(
+      `INSERT INTO audit_logs (user_id, user_role, action, entity_type, entity_id, old_values, new_values)
+       VALUES (NULL, 'system', 'inventory.location_allocation_repaired', 'inventory_item', ?, NULL, ?)`,
+      [String(inventoryId), JSON.stringify({ location_id: mainLocationId, batches: repaired })]
+    ).catch((error) => {
+      if (!['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error.code)) throw error
+    })
   }
   await syncLocationSnapshot(inventoryId, executor)
+  return repaired
 }
 
 const syncInventorySnapshot = async (inventoryId, executor = db) => {
@@ -137,7 +170,8 @@ const addInventoryBatch = async (
   // bootstrap case; normal runtime stock-in always receives a per-batch location balance.
   try {
     const explicitLocation = location_id ? await getInventoryLocationById(location_id, executor) : null
-    const locationId = explicitLocation?.id || await getLocationId(location, executor)
+    const locationId = explicitLocation?.id || await getLocationId(location, executor, { createIfMissing: location === MAIN_LOCATION })
+    if (!locationId) throw Object.assign(new Error(`Stock location "${location}" is not available.`), { statusCode: 400, code: 'LOCATION_UNAVAILABLE' })
     await executor.query(
       `INSERT INTO inventory_location_batches (location_id, inventory_id, batch_id, quantity)
        VALUES (?, ?, ?, ?)`,
@@ -195,8 +229,10 @@ const receiveInventoryBatch = async (
 
   const explicitLocation = location_id ? await getInventoryLocationById(location_id, executor) : null
   if (location_id && !explicitLocation) throw Object.assign(new Error('Selected storage location is unavailable.'), { statusCode: 400 })
-  const locationName = explicitLocation?.name || String(location || MAIN_LOCATION).trim() || MAIN_LOCATION
-  const locationId = explicitLocation?.id || await getLocationId(locationName, executor)
+  const resolvedReceiveLocation = explicitLocation || await resolveLocation(String(location || MAIN_LOCATION).trim() || MAIN_LOCATION, executor, { createIfMissing: String(location || MAIN_LOCATION).trim() === MAIN_LOCATION })
+  if (!resolvedReceiveLocation) throw Object.assign(new Error('Selected storage location is unavailable.'), { statusCode: 400 })
+  const locationName = resolvedReceiveLocation.name
+  const locationId = resolvedReceiveLocation.id
 
   const existingBatchId = Number(existing_batch_id)
   if (existingBatchId > 0) {
@@ -251,7 +287,9 @@ const receiveInventoryBatch = async (
 
 const loadLocationBatches = async (inventoryId, locationName, executor = db) => {
   await ensureInventoryLocationAllocations(inventoryId, executor)
-  const locationId = await getLocationId(locationName, executor)
+  const location = await resolveLocation(locationName, executor)
+  if (!location) return { locationId: null, locationName: String(locationName || ''), rows: [] }
+  const locationId = location.id
   const [rows] = await executor.query(
     `SELECT b.id, b.batch_code, b.expiration_date, b.received_at,
             b.quantity AS clinic_quantity, ilb.quantity AS location_quantity
@@ -271,7 +309,7 @@ const loadLocationBatches = async (inventoryId, locationName, executor = db) => 
      FOR UPDATE`,
     [locationId, inventoryId]
   )
-  return { locationId, rows }
+  return { locationId, locationName: location.name, rows }
 }
 
 const consumeInventoryFromLocationFEFO = async (
@@ -293,7 +331,7 @@ const consumeInventoryFromLocationFEFO = async (
 
   for (const candidate of candidateLocations) {
     if (remaining <= 0) break
-    const { locationId, rows } = await loadLocationBatches(inventoryId, candidate, executor)
+    const { locationId, locationName: resolvedName, rows } = await loadLocationBatches(inventoryId, candidate, executor)
     for (const batch of rows) {
       if (remaining <= 0) break
       const availableAtLocation = Number(batch.location_quantity || 0)
@@ -323,7 +361,7 @@ const consumeInventoryFromLocationFEFO = async (
         batch_code: batch.batch_code || null,
         quantity: used,
         expiration_date: batch.expiration_date || null,
-        location: candidate,
+        location: resolvedName || candidate,
         location_id: locationId,
       })
       remaining -= used
@@ -360,7 +398,12 @@ const consumeInventoryFromLocationByBatches = async (
   }
 
   await ensureInventoryLocationAllocations(inventoryId, executor)
-  const locationId = await getLocationId(locationName, executor)
+  const resolvedLocation = await resolveLocation(locationName, executor)
+  if (!resolvedLocation) {
+    return { ok: false, message: `Stock location "${locationName}" is not available.`, shortage: normalizedSelections.reduce((sum, entry) => sum + entry.quantity, 0), consumed: [] }
+  }
+  const locationId = resolvedLocation.id
+  locationName = resolvedLocation.name
   const batchIds = normalizedSelections.map((entry) => entry.batch_id)
   const [rows] = await executor.query(
     `SELECT b.id, b.batch_code, b.quantity AS clinic_quantity, b.expiration_date,
@@ -419,6 +462,9 @@ const transferInventoryBatchesFEFO = async (
   await ensureInventoryLocationAllocations(inventoryId, executor)
   const { locationId: fromId, rows } = await loadLocationBatches(inventoryId, fromLocation, executor)
   const toId = await getLocationId(toLocation, executor)
+  if (!fromId || !toId) {
+    return { ok: false, message: 'The source or destination stock location is not available.', shortage: requestedQty, transferred: [] }
+  }
   let remaining = requestedQty
   const transferred = []
 
@@ -445,6 +491,71 @@ const transferInventoryBatchesFEFO = async (
   await syncInventorySnapshot(inventoryId, executor)
   await syncLocationSnapshot(inventoryId, executor)
   return { ok: true, shortage: 0, requested: requestedQty, transferred }
+}
+
+// Puts a quantity back into the *same* batch it originally came from, at a specific
+// location. Used for reversals (voided/reopened bills, unused consultation consumables).
+// A new batch is never created, so expiry/lot traceability is preserved.
+const returnQuantityToBatch = async (inventoryId, batchId, locationId, quantity, executor = db) => {
+  const qty = toPositiveNumber(quantity)
+  if (qty <= 0) throw Object.assign(new Error('Return quantity must be greater than zero.'), { statusCode: 400 })
+  const [[batch]] = await executor.query(
+    'SELECT id, batch_code, archived_at FROM inventory_batches WHERE id = ? AND inventory_id = ? LIMIT 1 FOR UPDATE',
+    [batchId, inventoryId]
+  )
+  if (!batch) throw Object.assign(new Error('The original batch no longer exists.'), { statusCode: 409, code: 'BATCH_MISSING' })
+  let target = locationId ? await getInventoryLocationById(locationId, executor) : null
+  if (!target) {
+    const main = await resolveMainStockroom(executor)
+    target = main ? { id: main.id, name: main.name } : null
+  }
+  if (!target) throw Object.assign(new Error('No active stock location is available for the return.'), { statusCode: 409, code: 'LOCATION_UNAVAILABLE' })
+
+  await executor.query('UPDATE inventory_batches SET quantity = quantity + ? WHERE id = ?', [qty, batch.id])
+  await executor.query(
+    `INSERT INTO inventory_location_batches (location_id, inventory_id, batch_id, quantity)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`,
+    [target.id, inventoryId, batch.id, qty]
+  )
+  await syncInventorySnapshot(inventoryId, executor)
+  await syncLocationSnapshot(inventoryId, executor)
+  return { batch_id: batch.id, batch_code: batch.batch_code || null, quantity: qty, location_id: target.id, location: target.name, batch_archived: Boolean(batch.archived_at) }
+}
+
+// Moves one exact batch between two locations without changing clinic-wide stock.
+const moveBatchBetweenLocations = async (inventoryId, batchId, fromLocationId, toLocationId, quantity, executor = db) => {
+  const qty = toPositiveNumber(quantity)
+  if (qty <= 0) throw Object.assign(new Error('Quantity must be greater than zero.'), { statusCode: 400 })
+  if (Number(fromLocationId) === Number(toLocationId)) throw Object.assign(new Error('Source and destination must be different locations.'), { statusCode: 400 })
+  const from = await getInventoryLocationById(fromLocationId, executor)
+  const to = await getInventoryLocationById(toLocationId, executor)
+  if (!from || !to) throw Object.assign(new Error('The source or destination location is not available.'), { statusCode: 409, code: 'LOCATION_UNAVAILABLE' })
+  const [[row]] = await executor.query(
+    `SELECT ilb.quantity, b.batch_code, b.expiration_date
+     FROM inventory_location_batches ilb
+     JOIN inventory_batches b ON b.id = ilb.batch_id
+     WHERE ilb.location_id = ? AND ilb.batch_id = ? AND ilb.inventory_id = ?
+     FOR UPDATE`,
+    [from.id, batchId, inventoryId]
+  )
+  const available = Number(row?.quantity || 0)
+  if (available + 0.0001 < qty) {
+    throw Object.assign(new Error(`Only ${available} available in ${from.name} for this batch.`), { statusCode: 409, code: 'INSUFFICIENT_LOCATION_STOCK', available })
+  }
+  const [update] = await executor.query(
+    'UPDATE inventory_location_batches SET quantity = quantity - ? WHERE location_id = ? AND batch_id = ? AND quantity >= ?',
+    [qty, from.id, batchId, qty]
+  )
+  if (Number(update.affectedRows || 0) !== 1) throw Object.assign(new Error('Location stock changed. Reload and try again.'), { statusCode: 409 })
+  await executor.query(
+    `INSERT INTO inventory_location_batches (location_id, inventory_id, batch_id, quantity)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`,
+    [to.id, inventoryId, batchId, qty]
+  )
+  await syncLocationSnapshot(inventoryId, executor)
+  return { batch_id: Number(batchId), batch_code: row?.batch_code || null, expiration_date: row?.expiration_date || null, quantity: qty, from, to }
 }
 
 const attachBatchesToInventory = async (items, executor = db) => {
@@ -522,6 +633,10 @@ const attachBatchesToInventory = async (items, executor = db) => {
 
 module.exports = {
   getInventoryLocationById,
+  resolveLocation,
+  getLocationId,
+  returnQuantityToBatch,
+  moveBatchBetweenLocations,
   MAIN_LOCATION,
   normalizeExpiryDate,
   normalizeBatchCode,
@@ -539,3 +654,5 @@ module.exports = {
   transferInventoryBatchesFEFO,
   attachBatchesToInventory,
 }
+
+

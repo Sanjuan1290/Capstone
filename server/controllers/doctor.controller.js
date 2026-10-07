@@ -9,6 +9,7 @@ const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly } = require('../utils/date')
+const { resolveClinicTreatmentRoom, resolveMainStockroom } = require('../utils/inventoryLocations')
 const {
   toDateOnly,
   isValidDateOnly,
@@ -18,7 +19,7 @@ const {
 } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds, authorizeConsultationImages, syncConsultationImages } = require('../utils/consultationImages')
 const { listBillingCatalog, getBillingCatalogServiceById, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
-const { consumeInventoryFromLocationFEFO, getInventoryLocationById, attachBatchesToInventory } = require('../utils/inventoryBatches')
+const { consumeInventoryFromLocationFEFO, getInventoryLocationById, attachBatchesToInventory, MAIN_LOCATION } = require('../utils/inventoryBatches')
 const { writeAuditLog } = require('../utils/audit')
 const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { callNextQueuePatient, setQueueState, normalizeQueueStatus, assertQueueTransition } = require('../utils/queueWorkflow')
@@ -87,7 +88,11 @@ const logout = async (req, res) => {
 const consumeClinicalInventory = async ({ billing, consultationId, doctorId, appointment }, conn) => {
   if (!billing?.id || billing.clinical_inventory_consumed_at || !Array.isArray(billing.items)) return
   const usage = collectInventoryUsageFromBillingItems(billing.items)
-  const preferredLocation = appointment?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
+  // Rooms are resolved by their clinic assignment (System Setup), not by a fixed name.
+  // If no treatment room is assigned, consumption comes straight from the Main Stockroom.
+  const treatmentRoom = await resolveClinicTreatmentRoom(appointment?.clinic_type, conn)
+  const mainStockroom = await resolveMainStockroom(conn)
+  const preferredLocation = treatmentRoom?.name || mainStockroom?.name || MAIN_LOCATION
 
   for (const entry of usage) {
     const [[inventory]] = await conn.query(
@@ -115,7 +120,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
       packageQuantity,
       preferredLocation,
       conn,
-      { fallbackLocation: 'Main Stockroom' }
+      { fallbackLocation: MAIN_LOCATION }
     )
     if (!consumption.ok) {
       const shortageUsageQty = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
@@ -123,7 +128,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
         : Number(consumption.shortage || 0)
       throw Object.assign(
         new Error(`Not enough clinic stock is available to deduct the recorded usage for ${inventory.name}. Update the actual usage or restock the item before completing this consultation.`),
-        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: Math.max(0, requestedUsageQty - shortageUsageQty), unit: entry.unit_label || inventory.unit || 'unit', location: `${preferredLocation} / Main Stockroom` }
+        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: Math.max(0, requestedUsageQty - shortageUsageQty), unit: entry.unit_label || inventory.unit || 'unit', location: treatmentRoom && mainStockroom ? `${treatmentRoom.name} / ${mainStockroom.name}` : preferredLocation }
       )
     }
 
@@ -159,10 +164,11 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
       )
       await conn.query(
         `INSERT INTO inventory_logs
-         (inventory_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
-         VALUES (?, 'out', ?, ?, 'clinical_use', 'consultation', ?, ?, ?)`,
+         (inventory_id, doctor_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
+         VALUES (?, ?, 'out', ?, ?, 'clinical_use', 'consultation', ?, ?, ?)`,
         [
           entry.inventory_id,
+          doctorId || null,
           Number(batch.quantity || 0),
           `Clinical use from ${batchLabel}: ${allocatedUsage} ${entry.unit_label || inventory.unit}${entry.labels?.length ? ` — ${entry.labels.join(', ')}` : ''}`,
           consultationId,
@@ -555,6 +561,8 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db) =
 
     normalized.push({
       ...rawService,
+      item_type: 'service',
+      catalog_service_id: serviceId,
       quantity: Number(rawService?.quantity ?? 1),
       materials: [...configuredMaterials, ...extras],
     })
@@ -1203,7 +1211,9 @@ const getBillingCatalog = async (req, res) => {
 
 const getInventoryItems = async (req, res) => {
   const [[doctor]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? LIMIT 1', [req.user.id])
-  const treatmentLocation = doctor?.clinic_type === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
+  const treatmentRoom = await resolveClinicTreatmentRoom(doctor?.clinic_type)
+  const mainStockroom = await resolveMainStockroom()
+  const treatmentLocation = treatmentRoom?.name || ''
   const [rows] = await db.query(
     `SELECT i.id, i.barcode, i.name, i.category, COALESCE(i.item_type, 'medicine') AS item_type,
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS uom,
@@ -1213,20 +1223,20 @@ const getInventoryItems = async (req, res) => {
             COALESCE((SELECT SUM(ils.quantity)
                       FROM inventory_location_stock ils
                       JOIN inventory_locations il ON il.id=ils.location_id
-                      WHERE ils.inventory_id=i.id AND il.name='Main Stockroom'),0) AS main_stockroom_stock,
+                      WHERE ils.inventory_id=i.id AND il.id=?),0) AS main_stockroom_stock,
             COALESCE((SELECT SUM(ils.quantity)
                       FROM inventory_location_stock ils
                       JOIN inventory_locations il ON il.id=ils.location_id
-                      WHERE ils.inventory_id=i.id AND il.name=?),0) AS treatment_room_stock,
+                      WHERE ils.inventory_id=i.id AND il.id=?),0) AS treatment_room_stock,
             ? AS treatment_room_name
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
      WHERE i.archived_at IS NULL
      ORDER BY i.category, i.name`,
-    [treatmentLocation, treatmentLocation]
+    [mainStockroom?.id || 0, treatmentRoom?.id || 0, treatmentLocation]
   )
   const withBatches = await attachBatchesToInventory(rows, db)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getTodayDateOnly()
   res.json(withBatches.map((item) => ({
     ...item,
     treatment_room_batches: (Array.isArray(item.batches) ? item.batches : [])
@@ -1339,13 +1349,7 @@ const submitRequest = async (req, res) => {
     return res.status(409).json({ code: 'DOCTOR_CLINIC_ASSIGNMENT_REQUIRED', message: 'Your doctor account does not have a valid clinic assignment. Ask an administrator to update the account before requesting stock.' })
   }
   if (!destination) {
-    const defaultDestination = doctorClinic === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
-    const [[defaultRow]] = await db.query(
-      `SELECT id, name, location_type FROM inventory_locations
-       WHERE name = ? AND COALESCE(is_active,1)=1 LIMIT 1`,
-      [defaultDestination]
-    )
-    destination = defaultRow || null
+    destination = await resolveClinicTreatmentRoom(doctorClinic)
   }
   if (!destination || !['room','dispensing'].includes(String(destination.location_type))) {
     return res.status(400).json({ message: 'Select a valid treatment or dispensing destination.' })
@@ -1361,12 +1365,12 @@ const submitRequest = async (req, res) => {
               FROM inventory_location_batches ilb
               JOIN inventory_locations il ON il.id=ilb.location_id
               JOIN inventory_batches ib ON ib.id=ilb.batch_id
-              WHERE ilb.inventory_id=i.id AND il.name='Main Stockroom' AND ilb.quantity>0 AND ib.quantity>0
+              WHERE ilb.inventory_id=i.id AND il.id=? AND ilb.quantity>0 AND ib.quantity>0
                 AND ib.archived_at IS NULL AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())),0) AS main_stockroom_stock
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
      WHERE i.id IN (${placeholders}) AND i.archived_at IS NULL`,
-    ids
+    [(await resolveMainStockroom())?.id || 0, ...ids]
   )
   if (inventoryRows.length !== ids.length) return res.status(404).json({ message: 'One or more inventory items are unavailable.' })
   const inventoryMap = new Map(inventoryRows.map((row) => [Number(row.id), row]))
@@ -1650,3 +1654,7 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
+
+
+

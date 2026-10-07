@@ -350,3 +350,15 @@ This cumulative package also includes Batch 6A-6H:
 - final regression guards covering the connected workflow.
 
 Custom visit reasons are optional for booking continuity because **Other** is a built-in fallback. Active Doctor + active Doctor Schedule + active Service remain required for a clinic to be online-bookable.
+
+## 2026-10-04 flow fixes
+
+- **Reports:** new Most Used Medicines and Most Used Supplies ranking (consultation use plus Checkout dispensing, net of returns). Inventory value now uses batch unit cost and selling price. Collections, voids and refunds are each counted on the day they happened.
+- **Bill corrections (Admin):** void a bill or reopen a confirmed bill as a draft once its payments are voided or refunded. Dispensed Checkout medicines return to their original batch. Unused consultation consumables can be returned to the same batch.
+- **Receipts:** sequential official receipt numbers (`OR-YYYYMMDD-000001`), dated in clinic time.
+- **Cashier closing:** each cashier counts and closes their cash drawer; Admin reviews and reopens in Billing, Daily Close.
+- **Locations:** Main Stockroom and clinic treatment rooms are resolved by role (System Setup, Stock Rooms), so rooms can be renamed. Stock can be moved between locations from Inventory.
+- **Time zone:** every database session runs at `DB_TIME_ZONE` (default `+08:00`).
+- Checkout medicines are still deducted only when the bill is fully paid.
+
+Schema changes apply automatically on server start. The equivalent SQL is in `server/db/migrations/2026-10-04-billing-inventory-flow-fixes.sql`.

@@ -5,6 +5,7 @@ const staffCtrl  = require('../controllers/staff.controller')
 const adminCtrl  = require('../controllers/admin.controller')
 const staffAccessCtrl = require('../controllers/staffAccess.controller')
 const commonCtrl = require('../controllers/common.controller')
+const correctionsCtrl = require('../controllers/billingCorrections.controller')
 const authenticate = require('../middlewares/auth.middleware')
 const requireRole  = require('../middlewares/role.middleware')
 const requirePasswordChangeCompleted = require('../middlewares/passwordChange.middleware')
@@ -57,6 +58,8 @@ router.get('/patients/:id', ...auth, can('patient_records'), staffCtrl.getPatien
 router.get('/billing', ...auth, canAny('checkout', 'billing'), staffCtrl.getBills)
 router.get('/billing/catalog', ...auth, can('checkout'), staffCtrl.getBillingCatalogForStaff)
 router.get('/billing/discount-presets', ...auth, can('checkout'), staffCtrl.getDiscountPresets)
+router.get('/billing/cashier-closing', ...auth, can('checkout'), correctionsCtrl.getMyCashierClosing)
+router.post('/billing/cashier-closing', ...auth, can('checkout'), correctionsCtrl.closeMyCashier)
 router.get('/billing/:id/adjustment-requests', ...auth, canAny('checkout', 'billing'), staffCtrl.getBillingAdjustmentRequests)
 router.post('/billing/:id/adjustment-requests', ...auth, can('checkout'), staffCtrl.requestBillingAdjustment)
 router.patch('/billing/:id/adjustment-requests/:requestId/cancel', ...auth, can('checkout'), staffCtrl.cancelBillingAdjustmentRequest)
@@ -64,7 +67,6 @@ router.get('/billing/:id', ...auth, canAny('checkout', 'billing'), staffCtrl.get
 router.put('/billing/:id', ...auth, can('checkout'), staffCtrl.updateBill)
 router.get('/billing/:id/finalize-preview', ...auth, can('checkout'), staffCtrl.getFinalizePreview)
 router.post('/billing/:id/finalize', ...auth, can('checkout'), staffCtrl.finalizeBill)
-router.post('/billing/:id/reopen', ...auth, can('checkout'), staffCtrl.reopenBillForEditing)
 router.post('/billing/:id/pay', ...auth, can('checkout'), staffCtrl.payBill)
 router.post('/billing/:id/confirm-payment', ...auth, can('checkout'), staffCtrl.confirmBillPayment)
 router.post('/billing/discount-proof/upload', ...auth, can('checkout'), express.raw({ type: ['image/png', 'image/jpeg'], limit: '5mb' }), adminCtrl.uploadDiscountProofImageAdmin)
@@ -79,6 +81,7 @@ router.post('/inventory/locations',   ...auth, can('inventory'), staffCtrl.creat
 router.put('/inventory/locations/:id',...auth, can('inventory'), staffCtrl.updateInventoryLocation)
 router.post('/inventory',             ...auth, can('inventory'), staffCtrl.addInventoryItem)
 router.patch('/inventory/:id/stock',  ...auth, can('inventory'), staffCtrl.updateStock)
+router.post('/inventory/:id/move-location', ...auth, can('inventory'), correctionsCtrl.moveStockBetweenLocations)
 router.put('/inventory/:id',          ...auth, can('inventory'), staffCtrl.updateInventoryItem)
 router.delete('/inventory/:id',       ...auth, can('inventory'), staffCtrl.deleteInventoryItem)
 
@@ -149,5 +152,9 @@ router.put('/admin-access/billing/payment-settings', ...auth, can('system_setup'
 router.get('/admin-access/clinic-settings', ...auth, can('system_setup'), adminCtrl.getClinicSettingsAdmin)
 router.put('/admin-access/clinic-settings', ...auth, can('system_setup'), adminCtrl.updateClinicSettingsAdmin)
 router.get('/admin-access/inventory', ...auth, can('system_setup'), adminCtrl.getInventory)
+router.get('/admin-access/inventory/locations', ...auth, can('system_setup'), adminCtrl.getInventoryLocationsAdmin)
+router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), adminCtrl.createInventoryLocation)
+router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), adminCtrl.updateInventoryLocation)
 
 module.exports = router
+

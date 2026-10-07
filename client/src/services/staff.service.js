@@ -146,13 +146,6 @@ export const finalizeBill = (id, expectedVersion) =>
     body: JSON.stringify({ expected_version: expectedVersion }),
   })
 
-export const reopenBillForEditing = (id, expectedVersion) =>
-  requestJson(`${BASE}/billing/${id}/reopen`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expected_version: expectedVersion }),
-  })
-
 export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
@@ -251,3 +244,13 @@ export const createInventoryLocation = (payload) => requestJson(`${BASE}/invento
 export const updateInventoryLocation = (id,payload) => requestJson(`${BASE}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 export const getInventoryLocations = () => requestJson(`${BASE}/inventory/locations`)
+
+
+
+
+
+// ── 2026-10-04: location moves and cashier closing ──
+const postStaffJson = (url, payload = {}) => requestJson(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const moveInventoryStock = (inventoryId, payload) => postStaffJson(`${BASE}/inventory/${inventoryId}/move-location`, payload)
+export const getMyCashierClosing = (date = '') => requestJson(`${BASE}/billing/cashier-closing${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+export const closeMyCashier = (payload) => postStaffJson(`${BASE}/billing/cashier-closing`, payload)

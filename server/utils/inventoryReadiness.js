@@ -1,10 +1,13 @@
 const db = require('../db/connect')
 const { getBillingCatalogServiceById, collectInventoryUsageFromBillingItems } = require('./billing')
 
-const MAIN_STOCKROOM = 'Main Stockroom'
+const { resolveMainStockroom, resolveClinicTreatmentRoom, LEGACY_MAIN_STOCKROOM_NAME, LEGACY_CLINIC_ROOM_NAMES } = require('./inventoryLocations')
 
+const MAIN_STOCKROOM = LEGACY_MAIN_STOCKROOM_NAME
+
+// Legacy name helper kept for callers/tests. Runtime lookups use resolveClinicTreatmentRoom().
 const treatmentRoomForClinic = (clinicType) => (
-  String(clinicType || '').toLowerCase() === 'derma' ? 'Dermatology Room' : 'General Medicine Room'
+  String(clinicType || '').toLowerCase() === 'derma' ? LEGACY_CLINIC_ROOM_NAMES.derma : LEGACY_CLINIC_ROOM_NAMES.medical
 )
 
 const mergeRequirements = (requirements = []) => {
@@ -31,7 +34,9 @@ const mergeRequirements = (requirements = []) => {
 
 const assessInventoryRequirements = async (requirements = [], { clinicType, executor = db } = {}) => {
   const normalized = mergeRequirements(requirements)
-  const treatmentRoom = treatmentRoomForClinic(clinicType)
+  const roomRow = await resolveClinicTreatmentRoom(clinicType, executor)
+  const mainRow = await resolveMainStockroom(executor)
+  const treatmentRoom = roomRow?.name || treatmentRoomForClinic(clinicType)
   if (!normalized.length) {
     return {
       status: 'no_consumables',
@@ -47,8 +52,8 @@ const assessInventoryRequirements = async (requirements = [], { clinicType, exec
   const placeholders = ids.map(() => '?').join(',')
   const [stockRows] = await executor.query(
     `SELECT i.id, i.name, COALESCE(i.uom,i.base_unit,i.unit,'unit') AS unit,
-            COALESCE(SUM(CASE WHEN ib.id IS NOT NULL AND il.name=? THEN ilb.quantity ELSE 0 END),0) AS treatment_room_stock,
-            COALESCE(SUM(CASE WHEN ib.id IS NOT NULL AND il.name=? THEN ilb.quantity ELSE 0 END),0) AS main_stockroom_stock
+            COALESCE(SUM(CASE WHEN ib.id IS NOT NULL AND il.id=? THEN ilb.quantity ELSE 0 END),0) AS treatment_room_stock,
+            COALESCE(SUM(CASE WHEN ib.id IS NOT NULL AND il.id=? THEN ilb.quantity ELSE 0 END),0) AS main_stockroom_stock
      FROM inventory i
      LEFT JOIN inventory_location_batches ilb ON ilb.inventory_id=i.id AND ilb.quantity>0
      LEFT JOIN inventory_locations il ON il.id=ilb.location_id
@@ -59,7 +64,7 @@ const assessInventoryRequirements = async (requirements = [], { clinicType, exec
        AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())
      WHERE i.id IN (${placeholders}) AND i.archived_at IS NULL
      GROUP BY i.id, i.name, i.uom, i.base_unit, i.unit`,
-    [treatmentRoom, MAIN_STOCKROOM, ...ids]
+    [roomRow?.id || 0, mainRow?.id || 0, ...ids]
   )
   const stockMap = new Map(stockRows.map((row) => [Number(row.id), row]))
 
@@ -170,3 +175,5 @@ module.exports = {
   getAppointmentInventoryReadiness,
   getBillingInventoryReadiness,
 }
+
+

@@ -1,4 +1,5 @@
 const db = require('../db/connect')
+const { applyFlowFixes20261004 } = require('./schemaFlowFixes20261004')
 
 const ensureColumn = async (table, column, definition) => {
   const [rows] = await db.query(
@@ -1220,7 +1221,12 @@ const ensureAppSchema = async () => {
       UNIQUE KEY uniq_inventory_location_name (name)
     )
   `)
-  await db.query(`INSERT IGNORE INTO inventory_locations (name, location_type) VALUES ('Main Stockroom', 'stockroom'), ('General Medicine Room', 'room'), ('Dermatology Room', 'room'), ('Dispensing Area', 'dispensing')`)
+  // Seed default locations only on a fresh install. Re-seeding by name on every start
+  // re-created a duplicate empty room whenever an administrator renamed one.
+  const [[locationCount]] = await db.query('SELECT COUNT(*) AS total FROM inventory_locations')
+  if (Number(locationCount?.total || 0) === 0) {
+    await db.query(`INSERT IGNORE INTO inventory_locations (name, location_type) VALUES ('Main Stockroom', 'stockroom'), ('General Medicine Room', 'room'), ('Dermatology Room', 'room'), ('Dispensing Area', 'dispensing')`)
+  }
 
   await ensureColumn('inventory_locations', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1').catch(() => {})
   await db.query(`UPDATE billing_item_batch_usage u JOIN inventory_locations l ON l.name=u.source_location SET u.source_location_id=l.id WHERE u.source_location_id IS NULL AND u.source_location IS NOT NULL`).catch(() => {})
@@ -1608,8 +1614,15 @@ const ensureAppSchema = async () => {
   await ensureIndex('inventory_batches', 'idx_inventory_batches_item_expiry', 'inventory_id, expiration_date, quantity').catch(() => {})
   await ensureIndex('supply_requests', 'idx_supply_request_pending_dedupe', 'doctor_id, inventory_id, destination_location_id, status').catch(() => {})
   await ensureIndex('audit_logs', 'idx_audit_action_created', 'action, created_at').catch(() => {})
+
+  // 2026-10-04: role-based locations, refund ledger, receipt sequence, bill void/reopen,
+  // stock returns and cashier closing.
+  await applyFlowFixes20261004()
 }
 
 module.exports = {
   ensureAppSchema,
 }
+
+
+

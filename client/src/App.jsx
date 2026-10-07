@@ -65,6 +65,7 @@ import Admin_CheckoutDetail  from './pages/adminPage/Admin_CheckoutDetail'
 import Admin_BillingTransactions from './pages/adminPage/Admin_BillingTransactions'
 import Admin_BillingTransactionDetail from './pages/adminPage/Admin_BillingTransactionDetail'
 import Admin_BillingApprovals from './pages/adminPage/Admin_BillingApprovals'
+import Admin_BillingReconciliation from './pages/adminPage/Admin_BillingReconciliation'
 import Admin_BillingPaymentMethods from './pages/adminPage/Admin_BillingPaymentMethods'
 import Admin_BillingDiscounts from './pages/adminPage/Admin_BillingDiscounts'
 import Admin_BillingReceiptSettings from './pages/adminPage/Admin_BillingReceiptSettings'
@@ -227,7 +228,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
         <Route path='billing/adjustments' element={<Admin_BillingApprovals />} />
         <Route path='billing/approvals' element={<Navigate to='/admin/billing/adjustments' replace />} />
-        <Route path='billing/reconciliation' element={<Navigate to='/admin/reports' replace />} />
+        <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
         <Route path='checkout' element={<Navigate to='/admin/billing?tab=checkout' replace />} />
         <Route path='checkout/:billingId' element={<LegacyCheckoutDetailRedirect />} />
         <Route path='billing/setup' element={<Navigate to='/admin/system-setup/billing/services' replace />} />
@@ -264,3 +265,5 @@ const App = () => (
 )
 
 export default App
+
+

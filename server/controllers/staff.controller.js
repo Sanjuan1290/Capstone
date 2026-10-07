@@ -40,7 +40,9 @@ const {
   getLastNoShowAppointment,
   makeNoShowWarningResponse,
 } = require('../utils/appointmentPolicies')
-const { isValidPaymentMethod, requiresPaymentReference, makeReceiptNumber, calculatePaymentAmounts } = require('../utils/payments')
+const { isValidPaymentMethod, requiresPaymentReference, allocateReceiptNumber, calculatePaymentAmounts } = require('../utils/payments')
+const { normalizeClinicType } = require('../utils/inventoryLocations')
+const { assertCashierOpen } = require('./billingCorrections.controller')
 const { isValidQueueStatus, isValidSupplyRequestResolution } = require('../utils/workflowValidation')
 const { resolveSupplyTransfer, listSupplyTransferGroups } = require('../utils/supplyTransfers')
 const { getAppointmentInventoryReadiness } = require('../utils/inventoryReadiness')
@@ -1456,138 +1458,6 @@ const finalizeBill = async (req, res) => {
   res.json(await getBillingRecordWithItems(billingId))
 }
 
-
-const reopenBillForEditing = async (req, res) => {
-  const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
-  const billingId = Number(req.params.id)
-  const expectedVersion = Number(req.body.expected_version)
-
-  if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
-  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
-    return res.status(400).json({
-      message: 'Reload this bill before editing it. A valid bill version is required.',
-      code: 'BILL_VERSION_REQUIRED',
-    })
-  }
-
-  const conn = await db.getConnection()
-  try {
-    await conn.beginTransaction()
-
-    const [lockedRows] = await conn.query(
-      'SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE',
-      [billingId]
-    )
-    if (!lockedRows.length) {
-      await conn.rollback()
-      return res.status(404).json({ message: 'Billing record not found.' })
-    }
-
-    const locked = lockedRows[0]
-    if (locked.status !== 'ready') {
-      await conn.rollback()
-      return res.status(409).json({
-        message: 'Only a confirmed bill with no payment recorded can be reopened for editing.',
-        code: 'BILL_REOPEN_NOT_ALLOWED',
-      })
-    }
-
-    if (Number(locked.version || 1) !== expectedVersion) {
-      await conn.rollback()
-      return res.status(409).json({
-        message: 'This bill changed before it could be reopened. Review the latest version.',
-        code: 'BILL_VERSION_CONFLICT',
-        current_version: Number(locked.version || 1),
-      })
-    }
-
-    // Reopening is intentionally stricter than checking paid_amount. Any payment history
-    // (including a later void/refund) means the bill has entered the financial ledger and
-    // must remain locked. This path is only for mistakes noticed before the first payment.
-    const [[paymentHistory]] = await conn.query(
-      'SELECT COUNT(*) AS count FROM billing_payments WHERE billing_id = ?',
-      [billingId]
-    )
-    if (Number(paymentHistory?.count || 0) > 0) {
-      await conn.rollback()
-      return res.status(409).json({
-        message: 'This bill already has payment history and can no longer be reopened for editing.',
-        code: 'BILL_HAS_PAYMENT_HISTORY',
-      })
-    }
-
-    const [[dispenseHistory]] = await conn.query(
-      'SELECT COUNT(*) AS count FROM billing_item_batch_usage WHERE billing_id = ?',
-      [billingId]
-    )
-    if (Number(dispenseHistory?.count || 0) > 0) {
-      await conn.rollback()
-      return res.status(409).json({
-        message: 'This bill already has inventory dispensing history and can no longer be reopened for editing.',
-        code: 'BILL_HAS_DISPENSE_HISTORY',
-      })
-    }
-
-    const nextVersion = expectedVersion + 1
-    const [updated] = await conn.query(
-      `UPDATE billing_records
-       SET status='draft',
-           finalized_at=NULL,
-           finalized_by_staff_id=NULL,
-           finalized_by_admin_id=NULL,
-           payment_method=NULL,
-           confirmed_by_staff_id=NULL,
-           confirmed_by_admin_id=NULL,
-           paid_at=NULL,
-           version=?
-       WHERE id=? AND status='ready' AND version=?`,
-      [nextVersion, billingId, expectedVersion]
-    )
-    if (Number(updated.affectedRows || 0) !== 1) {
-      throw Object.assign(
-        new Error('This bill changed while it was being reopened. Reload and try again.'),
-        { statusCode: 409, code: 'BILL_VERSION_CONFLICT' }
-      )
-    }
-
-    await writeAuditLog({
-      userId: req.user.id,
-      userRole: actorRole,
-      action: 'billing.reopened_for_editing',
-      entityType: 'billing_record',
-      entityId: billingId,
-      oldValues: {
-        status: 'ready',
-        version: expectedVersion,
-        finalized_at: locked.finalized_at || null,
-      },
-      newValues: {
-        status: 'draft',
-        version: nextVersion,
-        reopened_before_payment: true,
-      },
-      ipAddress: req.ip || null,
-    }, conn)
-
-    await conn.commit()
-  } catch (err) {
-    await conn.rollback()
-    if (err.statusCode) {
-      return res.status(err.statusCode).json({
-        message: err.message,
-        code: err.code || undefined,
-        current_version: err.current_version,
-      })
-    }
-    throw err
-  } finally {
-    conn.release()
-  }
-
-  broadcast(['admin', 'staff'], 'billing_reopened', { billingId })
-  res.json(await getBillingRecordWithItems(billingId))
-}
-
 const payBill = async (req, res) => {
   const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
   const isAdminActor = actorRole === 'admin'
@@ -1606,6 +1476,12 @@ const payBill = async (req, res) => {
     return res.status(400).json({ message: `${paymentMethod.replace('_', ' ')} is currently disabled by an administrator.` })
   }
   if (requiresPaymentReference(paymentMethod) && !referenceNumber) return res.status(400).json({ message: 'Enter the payment reference number.' })
+
+  try {
+    await assertCashierOpen({ cashierRole: actorRole, cashierId: req.user.id })
+  } catch (error) {
+    return res.status(error.statusCode || 409).json({ message: error.message, code: error.code })
+  }
 
   const conn = await db.getConnection()
   try {
@@ -1659,7 +1535,8 @@ const payBill = async (req, res) => {
     const paymentAmounts = calculatePaymentAmounts({ totalAmount: requestedPayment, amountReceived: tendered })
     if (!paymentAmounts.isSufficient) { await conn.rollback(); return res.status(400).json({ message: 'Amount received cannot be lower than the payment amount.' }) }
 
-    const receiptNumber = makeReceiptNumber(billingId)
+    // Sequential, clinic-dated official receipt number (locked until commit, no gaps).
+    const { receiptNumber } = await allocateReceiptNumber(conn)
     const balanceAfter = Math.max(0, Math.round((balance - requestedPayment) * 100) / 100)
     const nextStatus = balanceAfter <= 0 ? 'paid' : 'partially_paid'
     const paidAt = getClinicDateTimeSql()
@@ -1959,7 +1836,7 @@ const updateStock = async (req, res) => {
 
 
 const getInventoryLocations = async (req,res) => {
-  const [rows] = await db.query(`SELECT l.id,l.name,l.location_type,l.is_active,l.created_at,
+  const [rows] = await db.query(`SELECT l.id,l.name,l.location_type,l.is_active,l.created_at,l.is_main_stockroom,l.clinic_type,
       COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.inventory_id END) AS item_count,
       COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.batch_id END) AS batch_count
     FROM inventory_locations l
@@ -1973,9 +1850,10 @@ const createInventoryLocation = async (req, res) => {
   const type = ['stockroom','room','dispensing','storage'].includes(String(req.body?.location_type || '')) ? String(req.body.location_type) : 'storage'
   if (!name) return res.status(400).json({ message: 'Location name is required.' })
   try {
-    const [result] = await db.query('INSERT INTO inventory_locations (name,location_type,is_active) VALUES (?,?,1)', [name,type])
-    await writeAuditLog({ userId:req.user.id,userRole:'staff',action:'inventory.location_created',entityType:'inventory_location',entityId:result.insertId,newValues:{name,location_type:type},ipAddress:req.ip||null }).catch(()=>{})
-    res.status(201).json({ id: result.insertId, name, location_type: type, is_active: 1 })
+    const clinicType = type === 'room' ? normalizeClinicType(req.body?.clinic_type) : null
+    const [result] = await db.query('INSERT INTO inventory_locations (name,location_type,is_active,clinic_type) VALUES (?,?,1,?)', [name,type,clinicType])
+    await writeAuditLog({ userId:req.user.id,userRole:'staff',action:'inventory.location_created',entityType:'inventory_location',entityId:result.insertId,newValues:{name,location_type:type,clinic_type:clinicType},ipAddress:req.ip||null }).catch(()=>{})
+    res.status(201).json({ id: result.insertId, name, location_type: type, is_active: 1, clinic_type: clinicType, is_main_stockroom: 0 })
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That storage location already exists.' })
     throw err
@@ -1989,10 +1867,12 @@ const updateInventoryLocation = async (req,res) => {
   if(!id || !name) return res.status(400).json({message:'Location name is required.'})
   const [[existing]] = await db.query('SELECT * FROM inventory_locations WHERE id=? LIMIT 1',[id])
   if(!existing) return res.status(404).json({message:'Storage location not found.'})
+  if(Number(existing.is_main_stockroom||0)===1 && type!=='stockroom') return res.status(409).json({message:'The Main Stockroom must keep the Stockroom type. You can still rename it.',code:'MAIN_STOCKROOM_PROTECTED'})
+  const clinicType = type==='room' ? (req.body?.clinic_type!==undefined ? normalizeClinicType(req.body.clinic_type) : existing.clinic_type || null) : null
   try {
-    await db.query('UPDATE inventory_locations SET name=?,location_type=? WHERE id=?',[name,type,id])
-    await writeAuditLog({userId:req.user.id,userRole:'staff',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,oldValues:existing,newValues:{name,location_type:type},ipAddress:req.ip||null}).catch(()=>{})
-    const [[row]] = await db.query('SELECT id,name,location_type,is_active FROM inventory_locations WHERE id=?',[id])
+    await db.query('UPDATE inventory_locations SET name=?,location_type=?,clinic_type=? WHERE id=?',[name,type,clinicType,id])
+    await writeAuditLog({userId:req.user.id,userRole:'staff',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,oldValues:existing,newValues:{name,location_type:type,clinic_type:clinicType},ipAddress:req.ip||null}).catch(()=>{})
+    const [[row]] = await db.query('SELECT id,name,location_type,is_active,is_main_stockroom,clinic_type FROM inventory_locations WHERE id=?',[id])
     res.json(row)
   } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That storage location already exists.'}); throw err }
 }
@@ -2081,8 +1961,11 @@ module.exports = {
   getAppointments, createAppointment, getAppointmentInventoryReadinessForPortal, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, getAppointmentReasons, getAppointmentCancellationReasons,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
-  getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, reopenBillForEditing, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getPaymentSettingsForStaff,
+  getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getPaymentSettingsForStaff,
   getInventory, getInventoryMasterData, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, getInventoryLocations, createInventoryLocation, updateInventoryLocation,
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
+
+

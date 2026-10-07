@@ -65,6 +65,8 @@ const { listCancellationReasons, resolveCancellationInput } = require('../utils/
 const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { resolveSupplyTransfer, listSupplyTransferGroups } = require('../utils/supplyTransfers')
 const { getAppointmentInventoryReadiness } = require('../utils/inventoryReadiness')
+const { resolveMainStockroom, normalizeClinicType } = require('../utils/inventoryLocations')
+const { loadMostUsedMedicines, loadInventoryValuation, loadCollectionLedger, summarizeLedgerRows } = require('../utils/reportMetrics')
 const { applyManualInventoryMovement } = require('../utils/manualInventoryMovement')
 const { getOnlineBookingReadiness } = require('../utils/bookingReadiness')
 const { isOtherVisitReason } = require('../utils/appointmentReasons')
@@ -2315,9 +2317,9 @@ const getReports = async (req, res) => {
   const [stockActivity] = await db.query(
     `SELECT DATE_FORMAT(logged_at, '%Y-%m') AS ym,
             DATE_FORMAT(MIN(logged_at), '%b %Y') AS month,
-            SUM(CASE WHEN type = 'in' AND COALESCE(movement_type,'') <> 'transfer_in' THEN 1 ELSE 0 END) AS stock_in_actions,
+            SUM(CASE WHEN type = 'in' AND COALESCE(movement_type,'') NOT IN ('transfer_in','clinical_return','dispense_return') THEN 1 ELSE 0 END) AS stock_in_actions,
             SUM(CASE WHEN type = 'out' AND COALESCE(movement_type,'') <> 'transfer_out' THEN 1 ELSE 0 END) AS stock_out_actions,
-            COALESCE(SUM(CASE WHEN type = 'in' AND COALESCE(movement_type,'') <> 'transfer_in' THEN qty ELSE 0 END), 0) AS stock_in,
+            COALESCE(SUM(CASE WHEN type = 'in' AND COALESCE(movement_type,'') NOT IN ('transfer_in','clinical_return','dispense_return') THEN qty ELSE 0 END), 0) AS stock_in,
             COALESCE(SUM(CASE WHEN type = 'out' AND COALESCE(movement_type,'') <> 'transfer_out' THEN qty ELSE 0 END), 0) AS stock_out
      FROM inventory_logs WHERE DATE(logged_at) BETWEEN ? AND ?
      GROUP BY DATE_FORMAT(logged_at, '%Y-%m') ORDER BY ym ASC`, dateParams)
@@ -2362,14 +2364,9 @@ const getReports = async (req, res) => {
      FROM billing_records
      WHERE DATE(COALESCE(finalized_at, created_at)) BETWEEN ? AND ?`, dateParams)
 
-  const [[collectionSummary]] = await db.query(
-    `SELECT
-       COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) AS collected,
-       COALESCE(SUM(CASE WHEN status = 'completed' THEN COALESCE(refund_amount,0) ELSE 0 END), 0) AS refunded
-     FROM billing_payments WHERE DATE(paid_at) BETWEEN ? AND ?`, dateParams).catch((error) => {
-       if (error.code === 'ER_NO_SUCH_TABLE') return [[{ collected: 0, refunded: 0 }]]
-       throw error
-     })
+  // Collections are dated by when each money movement happened (payment, void, refund),
+  // so a refund recorded today no longer rewrites last month's totals.
+  const collectionLedger = await loadCollectionLedger({ startDate, endDate })
 
   const [[outstandingSummary]] = await db.query(
     `SELECT COALESCE(SUM(GREATEST(0, b.total_amount - COALESCE(p.paid_amount,0))),0) AS outstanding
@@ -2380,15 +2377,7 @@ const getReports = async (req, res) => {
      ) p ON p.billing_id = b.id
      WHERE b.status IN ('pending','ready','partially_paid')`)
 
-  const [paymentsByMethod] = await db.query(
-    `SELECT payment_method, COUNT(*) AS transactions,
-            COALESCE(SUM(amount - COALESCE(refund_amount,0)), 0) AS amount
-     FROM billing_payments
-     WHERE status = 'completed' AND DATE(paid_at) BETWEEN ? AND ?
-     GROUP BY payment_method ORDER BY amount DESC`, dateParams).catch((error) => {
-       if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
-       throw error
-     })
+  const paymentsByMethod = collectionLedger.byMethod
 
   const [serviceRevenue] = await db.query(
     `SELECT bi.service_name, COUNT(DISTINCT bi.billing_id) AS bills,
@@ -2399,20 +2388,17 @@ const getReports = async (req, res) => {
      WHERE DATE(COALESCE(br.finalized_at, br.created_at)) BETWEEN ? AND ?
      GROUP BY bi.service_name ORDER BY gross_billed_amount DESC LIMIT 10`, dateParams)
 
-  const [revenueTrend] = await db.query(
-    `SELECT DATE_FORMAT(paid_at, '%b %Y') AS month, DATE_FORMAT(paid_at, '%Y-%m') AS ym,
-            COUNT(*) AS transactions,
-            COALESCE(SUM(amount - COALESCE(refund_amount,0)), 0) AS revenue
-     FROM billing_payments
-     WHERE status='completed' AND DATE(paid_at) BETWEEN ? AND ?
-     GROUP BY ym, month ORDER BY ym ASC`, dateParams).catch((error) => {
-       if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
-       throw error
-     })
+  const revenueTrend = collectionLedger.trend
+
+  const valuation = await loadInventoryValuation()
+  const [mostUsedMedicines, mostUsedSupplies] = await Promise.all([
+    loadMostUsedMedicines({ startDate, endDate, itemType: 'medicine', limit: 10 }),
+    loadMostUsedMedicines({ startDate, endDate, itemType: 'supplies', limit: 10 }),
+  ])
 
   const [clinicSettingsRows] = await db.query('SELECT clinic_name, address, phone, email, report_footer FROM clinic_settings WHERE id = 1 LIMIT 1').catch(() => [[]])
-  const collected = Number(collectionSummary?.collected || 0)
-  const refunded = Number(collectionSummary?.refunded || 0)
+  const collected = Number(collectionLedger.summary.collected || 0)
+  const refunded = Number(collectionLedger.summary.refunded || 0)
 
   res.json({
     range: { start_date: startDate, end_date: endDate },
@@ -2427,11 +2413,19 @@ const getReports = async (req, res) => {
     statusBreakdown, appointmentSources, topDoctors,
     inventoryStats: {
       ...inventoryStats,
-      total_items: Number(inventoryStats?.total_items || 0), total_value: Number(inventoryStats?.total_value || 0),
+      total_items: Number(inventoryStats?.total_items || 0),
+      total_value: valuation.cost_value, cost_value: valuation.cost_value, retail_value: valuation.retail_value,
+      batches_without_cost: valuation.batches_without_cost, batches_on_hand: valuation.batches_on_hand,
       out_of_stock: Number(inventoryStats?.out_of_stock || 0), low_stock: Number(inventoryStats?.low_stock || 0),
       expired: Number(inventoryStats?.expired || 0), expiring_soon: Number(inventoryStats?.expiring_soon || 0),
     },
-    stockActivity, stockMovementByReason: stockMovementByReason.map(row => ({ ...row, movement_type: row.movement_reason })), inventoryByCategory,
+    stockActivity, stockMovementByReason: stockMovementByReason.map(row => ({ ...row, movement_type: row.movement_reason })),
+    inventoryByCategory: inventoryByCategory.map((row) => ({
+      ...row,
+      total_value: valuation.by_category.get(String(row.category))?.cost_value || 0,
+      retail_value: valuation.by_category.get(String(row.category))?.retail_value || 0,
+    })),
+    mostUsedMedicines, mostUsedSupplies,
     currentOperations: {
       today_remaining: Number(currentOperations?.today_remaining || 0), future_confirmed: Number(currentOperations?.future_confirmed || 0),
       awaiting_approval: Number(currentOperations?.awaiting_approval || 0), walkin_queue: Number(currentOperations?.walkin_queue || 0),
@@ -2442,7 +2436,8 @@ const getReports = async (req, res) => {
     billingSummary: {
       gross_billed: Number(billingSummary?.gross_billed || 0), gross_billing: Number(billingSummary?.gross_billed || 0),
       discounts: Number(billingSummary?.discounts || 0), net_billed: Number(billingSummary?.net_billed || 0),
-      collected, net_collected: Math.max(0, collected - refunded), refunded,
+      collected, net_collected: collectionLedger.summary.net_collected, refunded,
+      gross_received: collectionLedger.summary.gross_received, voided_payments: collectionLedger.summary.voided,
       outstanding: Number(outstandingSummary?.outstanding || 0), pending_receivables: Number(outstandingSummary?.outstanding || 0),
       paid_bills: Number(billingSummary?.paid_bills || 0), partially_paid_bills: Number(billingSummary?.partially_paid_bills || 0),
       unpaid_bills: Number(billingSummary?.unpaid_bills || 0), pending_bills: Number(billingSummary?.unpaid_bills || 0), draft_bills: Number(billingSummary?.draft_bills || 0), voided_bills: Number(billingSummary?.voided_bills || 0),
@@ -2569,10 +2564,11 @@ const getInventoryMasterData = async (req, res) => {
 const createInventoryLocation = async (req, res) => {
   const name = String(req.body?.name || '').trim()
   const type = ['stockroom','room','dispensing','storage'].includes(String(req.body?.location_type || '')) ? String(req.body.location_type) : 'storage'
+  const clinicType = type === 'room' ? normalizeClinicType(req.body?.clinic_type) : null
   if (!name) return res.status(400).json({ message: 'Location name is required.' })
   try {
-    const [result] = await db.query('INSERT INTO inventory_locations (name,location_type,is_active) VALUES (?,?,1)', [name,type])
-    res.status(201).json({ id: result.insertId, name, location_type: type, is_active: 1 })
+    const [result] = await db.query('INSERT INTO inventory_locations (name,location_type,is_active,clinic_type) VALUES (?,?,1,?)', [name,type,clinicType])
+    res.status(201).json({ id: result.insertId, name, location_type: type, is_active: 1, clinic_type: clinicType, is_main_stockroom: 0 })
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That storage location already exists.' })
     throw err
@@ -3182,11 +3178,7 @@ const confirmInventoryBatchAction = async (req, res) => {
       if (delta > 0) {
         let targetLocation = allocationRows[0] || null
         if (!targetLocation) {
-          let [[location]] = await conn.query("SELECT id,name FROM inventory_locations WHERE COALESCE(is_active,1)=1 ORDER BY (name='Main Stockroom') DESC,id ASC LIMIT 1")
-          if (!location) {
-            await conn.query("INSERT INTO inventory_locations (name,location_type,is_active) VALUES ('Main Stockroom','stockroom',1)")
-            ;[[location]] = await conn.query("SELECT id,name FROM inventory_locations WHERE name='Main Stockroom' LIMIT 1")
-          }
+          const location = await resolveMainStockroom(conn, { createIfMissing: true })
           targetLocation = { location_id:location.id, name:location.name, quantity:0 }
         }
         await conn.query(
@@ -3321,28 +3313,63 @@ const resolveSupplyRequest = async (req, res) => {
 // ── Billing oversight / refunds / collection summary ─────────────────────────
 const getBillingReconciliation = async (req, res) => {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : getTodayDateOnly()
-  const [methods] = await db.query(
-    `SELECT payment_method, COUNT(*) AS transactions,
-            COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) AS gross,
-            COALESCE(SUM(CASE WHEN status='completed' THEN COALESCE(refund_amount,0) ELSE 0 END),0) AS refunded,
-            COALESCE(SUM(CASE WHEN status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS net
-     FROM billing_payments WHERE DATE(paid_at)=? GROUP BY payment_method ORDER BY net DESC`, [date])
-  const [[summary]] = await db.query(
-    `SELECT COUNT(*) AS transactions,
-            COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) AS gross_collected,
-            COALESCE(SUM(CASE WHEN status='completed' THEN COALESCE(refund_amount,0) ELSE 0 END),0) AS refunded,
-            COALESCE(SUM(CASE WHEN status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS net_collected,
-            COALESCE(SUM(CASE WHEN status='voided' THEN 1 ELSE 0 END),0) AS voided_transactions,
-            COALESCE(SUM(CASE WHEN payment_method='cash' AND status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS cash_collected
-     FROM billing_payments WHERE DATE(paid_at)=?`, [date])
+  const ledger = await loadCollectionLedger({ startDate: date, endDate: date })
+  const [[voidCount]] = await db.query(
+    "SELECT COUNT(*) AS total FROM billing_payments WHERE status='voided' AND DATE(COALESCE(voided_at, paid_at))=?",
+    [date]
+  )
+  const cashRows = ledger.rows.filter((row) => row.payment_method === 'cash')
+  const cashSummary = summarizeLedgerRows(cashRows)
   const [[discounts]] = await db.query(
     `SELECT COALESCE(SUM(discount_amount),0) AS discounts FROM billing_records
      WHERE DATE(COALESCE(finalized_at,created_at))=? AND status <> 'voided'`, [date])
+  const [cashiers] = await db.query(
+    `SELECT x.cashier_role, x.cashier_id, x.cashier_name,
+            COUNT(*) AS transactions,
+            COALESCE(SUM(CASE WHEN x.payment_method='cash' THEN x.amount ELSE 0 END),0) AS cash_received,
+            COALESCE(SUM(CASE WHEN x.payment_method<>'cash' THEN x.amount ELSE 0 END),0) AS non_cash_received
+     FROM (
+       SELECT CASE WHEN bp.received_by_admin_id IS NOT NULL THEN 'admin' ELSE 'staff' END AS cashier_role,
+              COALESCE(bp.received_by_staff_id, bp.received_by_admin_id) AS cashier_id,
+              COALESCE(s.full_name, a.full_name, 'Unknown') AS cashier_name,
+              bp.payment_method, bp.amount
+       FROM billing_payments bp
+       LEFT JOIN staff s ON s.id = bp.received_by_staff_id
+       LEFT JOIN admins a ON a.id = bp.received_by_admin_id
+       WHERE bp.status='completed' AND DATE(bp.paid_at)=?
+     ) x
+     GROUP BY x.cashier_role, x.cashier_id, x.cashier_name
+     ORDER BY x.cashier_name`, [date])
+  const [closings] = await db.query(
+    `SELECT cc.*, COALESCE(s.full_name, a.full_name) AS cashier_name
+     FROM cashier_closings cc
+     LEFT JOIN staff s ON cc.cashier_role='staff' AND s.id=cc.staff_id
+     LEFT JOIN admins a ON cc.cashier_role='admin' AND a.id=cc.staff_id
+     WHERE cc.closing_date=? ORDER BY cc.closed_at ASC`, [date]).catch((error) => {
+       if (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 'ER_NO_SUCH_TABLE') return [[]]
+       throw error
+     })
 
   res.json({
     date,
-    methods,
-    summary: { ...summary, discounts: Number(discounts?.discounts || 0) },
+    methods: ledger.byMethod,
+    summary: {
+      transactions: ledger.rows.filter((row) => row.kind === 'payment').length,
+      gross_collected: ledger.summary.gross_received,
+      voided: ledger.summary.voided,
+      refunded: ledger.summary.refunded,
+      net_collected: ledger.summary.net_collected,
+      voided_transactions: Number(voidCount?.total || 0),
+      cash_collected: cashSummary.net_collected,
+      discounts: Number(discounts?.discounts || 0),
+    },
+    cashiers: cashiers.map((row) => ({
+      ...row,
+      cash_received: Number(row.cash_received || 0),
+      non_cash_received: Number(row.non_cash_received || 0),
+      closing: closings.find((closing) => closing.cashier_role === row.cashier_role && Number(closing.staff_id) === Number(row.cashier_id)) || null,
+    })),
+    closings,
   })
 }
 
@@ -3476,10 +3503,16 @@ const confirmBillingPaymentAction = async (req, res) => {
     const normalized = normalizeBillingPaymentAction(action, requested, payment)
 
     if (action === 'void') {
-      await conn.query(`UPDATE billing_payments SET status='voided', voided_at=NOW(), void_reason=? WHERE id=?`, [normalized.reason, paymentId])
+      await conn.query(`UPDATE billing_payments SET status='voided', voided_at=NOW(), void_reason=?, voided_by_admin_id=? WHERE id=?`, [normalized.reason, req.user?.role === 'admin' ? req.user.id : null, paymentId])
     } else {
       const nextRefund = Math.round((Number(payment.refund_amount || 0) + Number(normalized.amount || 0)) * 100) / 100
       await conn.query(`UPDATE billing_payments SET refund_amount=?, refunded_at=NOW(), refund_reason=?, refunded_by_admin_id=? WHERE id=?`, [nextRefund, normalized.reason, req.user.id, paymentId])
+      // One ledger row per refund so each refund is reported on the day it was given.
+      await conn.query(
+        `INSERT INTO billing_payment_refunds (payment_id, billing_id, payment_method, amount, reason, refunded_by_admin_id, refunded_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        [paymentId, payment.billing_id, payment.payment_method || null, normalized.amount, normalized.reason, req.user?.role === 'admin' ? req.user.id : null]
+      )
     }
 
     const bill = await getBillingRecordWithItems(billingId, conn)
@@ -4043,7 +4076,7 @@ const saveInventoryMovementReason = async (req, res) => {
 
 
 const getInventoryLocationsAdmin = async (req,res) => {
-  const [rows]=await db.query(`SELECT l.id,l.name,l.location_type,l.is_active,l.created_at,
+  const [rows]=await db.query(`SELECT l.id,l.name,l.location_type,l.is_active,l.created_at,l.is_main_stockroom,l.clinic_type,
       COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.inventory_id END) AS item_count,
       COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.batch_id END) AS batch_count,
       COALESCE(SUM(CASE WHEN ilb.quantity>0 THEN ilb.quantity ELSE 0 END),0) AS total_quantity
@@ -4062,13 +4095,17 @@ const updateInventoryLocation = async (req,res) => {
   if(!id||!name||!locationType) return res.status(400).json({message:'Location name and type are required.'})
   const [[current]]=await db.query('SELECT * FROM inventory_locations WHERE id=?',[id])
   if(!current) return res.status(404).json({message:'Storage location not found.'})
+  const isMain=Number(current.is_main_stockroom||0)===1
+  if(isMain&&(!isActive||locationType!=='stockroom')) return res.status(409).json({message:'The Main Stockroom must stay active and keep the Stockroom type. You can still rename it.',code:'MAIN_STOCKROOM_PROTECTED'})
+  // Treatment rooms are linked to a clinic so consultations know where to deduct from.
+  const clinicType=locationType==='room'&&req.body?.clinic_type!==undefined?normalizeClinicType(req.body.clinic_type):(locationType==='room'?current.clinic_type||null:null)
   if(!isActive){
     const [[stock]]=await db.query('SELECT COALESCE(SUM(quantity),0) AS qty FROM inventory_location_batches WHERE location_id=? AND quantity>0',[id])
     if(Number(stock?.qty||0)>0) return res.status(409).json({message:'Move all remaining stock out of this location before deactivating it.',code:'LOCATION_HAS_STOCK'})
   }
   try{
-    await db.query('UPDATE inventory_locations SET name=?,location_type=?,is_active=? WHERE id=?',[name,locationType,isActive,id])
-    await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,oldValues:current,newValues:{name,location_type:locationType,is_active:isActive},ipAddress:req.ip||null})
+    await db.query('UPDATE inventory_locations SET name=?,location_type=?,is_active=?,clinic_type=? WHERE id=?',[name,locationType,isActive,clinicType,id])
+    await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,oldValues:current,newValues:{name,location_type:locationType,is_active:isActive,clinic_type:clinicType},ipAddress:req.ip||null})
     const [[row]]=await db.query('SELECT * FROM inventory_locations WHERE id=?',[id]);res.json(row)
   }catch(err){if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That storage location name already exists.'});throw err}
 }
@@ -4077,6 +4114,7 @@ const deleteInventoryLocation = async (req,res) => {
   const id=Number(req.params.id)
   const [[current]]=await db.query('SELECT * FROM inventory_locations WHERE id=?',[id])
   if(!current) return res.status(404).json({message:'Storage location not found.'})
+  if(Number(current.is_main_stockroom||0)===1) return res.status(409).json({message:'The Main Stockroom cannot be deleted.',code:'MAIN_STOCKROOM_PROTECTED'})
   const [[usage]]=await db.query(`SELECT
     (SELECT COUNT(*) FROM inventory_location_batches WHERE location_id=?) +
     (SELECT COUNT(*) FROM inventory_location_stock WHERE location_id=?) +
@@ -4216,3 +4254,4 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+

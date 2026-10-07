@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MdClose, MdPayments, MdRefresh, MdSearch } from 'react-icons/md'
-import { getAdminCheckoutBills } from '../../services/admin.service'
+import { getAdminCheckoutBills, getMyCashierClosing, closeMyCashier } from '../../services/admin.service'
+import CashierDrawerCard from '../../components/billing/CashierDrawerCard'
 import { useToast } from '../../components/ui/ToastProvider'
 import Pagination from '../../components/ui/Pagination'
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/PageState'
@@ -25,6 +26,7 @@ const Admin_Checkout = ({ embedded = false }) => {
   const items=Array.isArray(data?.items)?data.items:[],summary=data?.summary||{},pagination=data?.pagination||{}
   return <div className={`${embedded ? 'w-full' : 'mx-auto w-full max-w-6xl'} space-y-5`}>
     {embedded ? <div className="flex justify-end"><button className="button-secondary" onClick={load}><MdRefresh/> Refresh Checkout</button></div> : <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPayments className="text-amber-500"/> Checkout</h1><p className="mt-1 text-sm text-slate-500">Administrators can perform the complete patient checkout workflow, including direct audited adjustments.</p></div><button className="button-secondary" onClick={load}><MdRefresh/> Refresh</button></div>}
+    <CashierDrawerCard loadDrawer={getMyCashierClosing} closeDrawer={closeMyCashier} />
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{TABS.map(tab=><button key={tab.value} onClick={()=>{setFilter(tab.value);setPage(1)}} className={`rounded-2xl border p-4 text-left shadow-sm ${filter===tab.value?'border-amber-300 bg-amber-50':'border-slate-200 bg-white'}`}><p className={`text-xs font-black uppercase tracking-wide ${filter===tab.value?'text-amber-700':'text-slate-400'}`}>{tab.label}</p><p className="mt-2 text-2xl font-black text-slate-900">{Number(summary[tab.countKey]||0)}</p></button>)}</div>
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-100 p-5"><div className="relative"><MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input className="form-control pl-10 pr-10" value={search} onChange={(e)=>{setSearch(e.target.value);setPage(1)}} placeholder="Search patient, doctor, reason, or bill number..."/>{search&&<button className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" onClick={()=>setSearch('')}><MdClose/></button>}</div></div>
@@ -34,3 +36,5 @@ const Admin_Checkout = ({ embedded = false }) => {
   </div>
 }
 export default Admin_Checkout
+
+

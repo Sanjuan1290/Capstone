@@ -2,6 +2,7 @@ const db = require('../db/connect')
 const { writeAuditLog } = require('./audit')
 const { broadcast } = require('./sse')
 const { transferInventoryBatchesFEFO, MAIN_LOCATION, getInventoryLocationById } = require('./inventoryBatches')
+const { resolveMainStockroom } = require('./inventoryLocations')
 
 const groupTransferRows = (rows = []) => {
   const groups = new Map()
@@ -105,7 +106,7 @@ const listSupplyTransferGroups = async ({ doctorId = null, groupId = null, pendi
          FROM inventory_location_batches ilb
          JOIN inventory_locations ml ON ml.id=ilb.location_id
          JOIN inventory_batches ib ON ib.id=ilb.batch_id
-         WHERE ilb.inventory_id=i.id AND ml.name=? AND ilb.quantity>0 AND ib.quantity>0
+         WHERE ilb.inventory_id=i.id AND ml.id=? AND ilb.quantity>0 AND ib.quantity>0
            AND ib.archived_at IS NULL AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())
        ),0) AS main_stockroom_stock,
        COALESCE((
@@ -125,7 +126,7 @@ const listSupplyTransferGroups = async ({ doctorId = null, groupId = null, pendi
      LEFT JOIN inventory_locations dest ON dest.id=g.destination_location_id
      ${where}
      ${order}`,
-    [MAIN_LOCATION, ...params]
+    [(await resolveMainStockroom(executor))?.id || 0, ...params]
   )
   return groupTransferRows(rows)
 }
@@ -196,6 +197,8 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
         return { statusCode: 400, body: { message: 'The requested inventory destination is no longer available.' } }
       }
 
+      const mainStockroom = await resolveMainStockroom(conn)
+      const mainName = mainStockroom?.name || MAIN_LOCATION
       // Every line is transferred in this same transaction. If any line cannot be
       // fulfilled, the transaction is rolled back so the request is all-or-nothing.
       for (const line of lines) {
@@ -229,7 +232,7 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
           `INSERT INTO inventory_transfers
            (inventory_id, supply_request_id, from_location, to_location, quantity, transferred_by_role, transferred_by_user_id, notes)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [line.inventory_id, line.id, MAIN_LOCATION, destination, qty, actorRole, actorId, group.reason || null]
+          [line.inventory_id, line.id, mainName, destination, qty, actorRole, actorId, group.reason || null]
         )
 
         for (const batch of movement.transferred) {
@@ -247,7 +250,7 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
             `INSERT INTO inventory_logs
              (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id)
              VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'supply_request', ?, ?)`,
-            [line.inventory_id, actorId, batch.quantity, `${label} moved from ${MAIN_LOCATION} to ${destination} for stock transfer request #${group.id} (line #${line.id})`, MAIN_LOCATION, destination, line.id, batch.batch_id]
+            [line.inventory_id, actorId, batch.quantity, `${label} moved from ${mainName} to ${destination} for stock transfer request #${group.id} (line #${line.id})`, mainName, destination, line.id, batch.batch_id]
           )
         }
 
@@ -339,3 +342,5 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
 }
 
 module.exports = { resolveSupplyTransfer, listSupplyTransferGroups, groupTransferRows }
+
+

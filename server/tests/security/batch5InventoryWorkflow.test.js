@@ -38,7 +38,8 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     const finalizeBlock = doctor.slice(finalizeStart, getStart)
     expect(draftBlock).not.toContain('consumeClinicalInventory')
     expect(finalizeBlock).toContain('consumeClinicalInventory')
-    expect(doctor).toContain("{ fallbackLocation: 'Main Stockroom' }")
+    // Fallback is the Main Stockroom *role* (resolved by flag), not a hard-coded name.
+    expect(doctor).toContain('{ fallbackLocation: MAIN_LOCATION }')
     expect(doctor).toContain("UPDATE appointments SET status = 'completed'")
   })
 
@@ -48,7 +49,7 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     expect(consultation).not.toContain('inventoryBlocker')
     expect(consultation).not.toContain('max={roomStock}')
     expect(consultation).toContain('No inventory is reserved when an appointment is confirmed.')
-    expect(consultation).toContain('Fixed service consumables and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory.')
+    expect(consultation).toContain('Actual recorded medicines and consumables are stocked out only when you complete the consultation.')
   })
 
   it('keeps reschedule time slots inside a vertically scrollable modal', () => {
@@ -75,3 +76,4 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     expect(transfers).not.toContain('billing_records')
   })
 })
+

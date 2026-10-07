@@ -12,6 +12,7 @@ import Admin_PatientBooking from './Admin_PatientBooking'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
 import SystemSetupTabs, { SYSTEM_SETUP_TABS } from '../../components/system/SystemSetupTabs'
+import StockRoomsManager from '../../components/system/StockRoomsManager'
 import useClientPagination from '../../hooks/useClientPagination'
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/PageState'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -428,7 +429,7 @@ const Admin_SystemSetup = () => {
   }, [validTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (tab !== 'visits') load()
+    if (!['visits', 'stock_rooms'].includes(tab)) load()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -438,13 +439,15 @@ const Admin_SystemSetup = () => {
           <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdSettings className="text-amber-500" /> System Setup</h1>
           <p className="mt-1 text-sm text-slate-500">Manage patient visit options, cancellation reasons, services and pricing setup, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
         </div>
-        {tab !== 'visits' && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
+        {!['visits', 'stock_rooms'].includes(tab) && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
       </div>
 
       <SystemSetupTabs />
 
       {tab === 'visits' ? (
         <Admin_PatientBooking embedded />
+      ) : tab === 'stock_rooms' ? (
+        <StockRoomsManager />
       ) : loading ? (
         <LoadingState label="Loading System Setup..." />
       ) : error ? (
@@ -457,3 +460,6 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
+
+

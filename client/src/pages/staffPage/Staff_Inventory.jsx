@@ -5,6 +5,8 @@ import {
   updateStock,
   addInventoryItem,
   updateInventoryItem,
+  moveInventoryStock,
+  getInventoryLocations,
 } from '../../services/staff.service'
 
 const staffServices = {
@@ -13,8 +15,11 @@ const staffServices = {
   updateStock,
   addInventoryItem,
   updateInventoryItem,
+  moveInventoryStock,
+  getInventoryLocations,
 }
 
 const Staff_Inventory = () => <Inventory services={staffServices} canManageSellingPrice={false} />
 
 export default Staff_Inventory
+
