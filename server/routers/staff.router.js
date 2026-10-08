@@ -67,6 +67,7 @@ router.get('/billing/:id', ...auth, canAny('checkout', 'billing'), staffCtrl.get
 router.put('/billing/:id', ...auth, can('checkout'), staffCtrl.updateBill)
 router.get('/billing/:id/finalize-preview', ...auth, can('checkout'), staffCtrl.getFinalizePreview)
 router.post('/billing/:id/finalize', ...auth, can('checkout'), staffCtrl.finalizeBill)
+router.post('/billing/:id/reopen', ...auth, can('checkout'), staffCtrl.reopenBillForEditing)
 router.post('/billing/:id/pay', ...auth, can('checkout'), staffCtrl.payBill)
 router.post('/billing/:id/confirm-payment', ...auth, can('checkout'), staffCtrl.confirmBillPayment)
 router.post('/billing/discount-proof/upload', ...auth, can('checkout'), express.raw({ type: ['image/png', 'image/jpeg'], limit: '5mb' }), adminCtrl.uploadDiscountProofImageAdmin)
@@ -157,4 +158,5 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), a
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), adminCtrl.updateInventoryLocation)
 
 module.exports = router
+
 

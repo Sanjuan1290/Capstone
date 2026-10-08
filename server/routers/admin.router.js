@@ -83,6 +83,8 @@ router.post('/billing/cashier-closings/:closingId/reopen', ...auth, correctionsC
 router.get('/billing/:id/stock-usage', ...auth, correctionsCtrl.getBillStockUsage)
 router.post('/billing/:id/void', ...auth, correctionsCtrl.voidBill)
 router.post('/billing/:id/reopen', ...auth, correctionsCtrl.reopenBill)
+// A separate endpoint preserves the Admin Bill Corrections workflow above.
+router.post('/billing/:id/reopen-for-editing', ...auth, staffCtrl.reopenBillForEditing)
 router.post('/billing/:id/consumables/:usageBatchId/return', ...auth, correctionsCtrl.returnConsultationConsumable)
 router.get('/billing/adjustment-requests', ...auth, adminCtrl.getBillingAdjustmentRequestsAdmin)
 router.patch('/billing/adjustment-requests/:id', ...auth, adminCtrl.resolveBillingAdjustmentRequestAdmin)
@@ -161,4 +163,5 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
+
 

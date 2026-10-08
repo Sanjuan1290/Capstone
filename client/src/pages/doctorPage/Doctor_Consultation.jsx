@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { uploadClinicalImageSigned, getClinicalImageScanStatus } from '../../services/portal.service'
@@ -37,6 +38,9 @@ import {
   MdSearch,
   MdLock,
   MdInventory2,
+  MdVisibility,
+  MdChevronLeft,
+  MdChevronRight,
 } from 'react-icons/md'
 
 function formatDate(raw) {
@@ -113,7 +117,61 @@ const normalizePrescriptionDecision = (value, prescriptions = [], status = 'draf
   return status === 'finalized' ? 'none' : 'not_recorded'
 }
 
-const ProgressImageGallery = ({ images = [], emptyText = 'No progress images added yet.' }) => {
+// Render above every layout/overflow container, even on finalized consultations.
+const ProgressImagePreviewModal = ({ image, index, total, onClose, onMove }) => {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  if (!image?.image_url) return null
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-3 sm:p-6"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Consultation progress image preview"
+        className="flex h-full w-full max-w-6xl flex-col items-center justify-center gap-4"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex w-full items-center justify-between gap-3 text-white">
+          <p className="text-xs font-semibold sm:text-sm">Progress Image {index + 1} of {total}</p>
+          <button type="button" onClick={onClose} aria-label="Close image preview" autoFocus className="rounded-lg p-2 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+            <MdClose className="text-2xl" />
+          </button>
+        </div>
+        <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-2 sm:gap-4">
+          <button type="button" onClick={() => onMove?.(-1)} aria-label="Previous image" disabled={total <= 1} className="shrink-0 rounded-xl bg-white/15 p-2 text-white hover:bg-white/25 disabled:opacity-30 sm:p-3">
+            <MdChevronLeft className="text-2xl" />
+          </button>
+          <img src={image.image_url} alt={image.caption || `Progress image ${index + 1}`} className="max-h-full min-h-0 min-w-0 max-w-full flex-1 object-contain" />
+          <button type="button" onClick={() => onMove?.(1)} aria-label="Next image" disabled={total <= 1} className="shrink-0 rounded-xl bg-white/15 p-2 text-white hover:bg-white/25 disabled:opacity-30 sm:p-3">
+            <MdChevronRight className="text-2xl" />
+          </button>
+        </div>
+        <p className="max-w-full truncate pb-3 text-center text-sm text-white/90" title={image.caption || ''}>
+          {image.caption || 'No caption provided.'}
+        </p>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+const ProgressImageGallery = ({ images = [], emptyText = 'No progress images added yet.', onPreview }) => {
   const list = normalizeProgressImages(images).filter((image) => image.image_url)
 
   if (list.length === 0) {
@@ -130,8 +188,14 @@ const ProgressImageGallery = ({ images = [], emptyText = 'No progress images add
         <a
           key={`${image.image_url}-${index}`}
           href={image.image_url}
-          target="_blank"
-          rel="noreferrer"
+          target={onPreview ? undefined : '_blank'}
+          rel={onPreview ? undefined : 'noreferrer'}
+          onClick={(event) => {
+            if (!onPreview) return
+            event.preventDefault()
+            onPreview(images, image.image_url)
+          }}
+          aria-label={`Preview ${image.caption || `progress image ${index + 1}`}`}
           className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"
         >
           <img
@@ -175,6 +239,7 @@ const Doctor_Consultation = () => {
   const [prescriptions, setPrescriptions] = useState([])
   const [prescriptionDecision, setPrescriptionDecision] = useState('not_recorded')
   const [progressImages, setProgressImages] = useState([])
+  const [progressImagePreview, setProgressImagePreview] = useState(null)
   const [patientHistory, setPatientHistory] = useState([])
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState('consultation')
@@ -204,6 +269,32 @@ const Doctor_Consultation = () => {
   const [extraConsumableSearch, setExtraConsumableSearch] = useState('')
   const [extraConsumableId, setExtraConsumableId] = useState('')
   const [extraConsumableQuantity, setExtraConsumableQuantity] = useState(1)
+
+  const openProgressImagePreview = useCallback((images, imageUrl) => {
+    const validImages = normalizeProgressImages(images).filter((image) => image.image_url)
+    const initialIndex = validImages.findIndex((image) => image.image_url === imageUrl)
+    if (initialIndex < 0) return
+    setProgressImagePreview({ images: validImages, index: initialIndex })
+  }, [])
+
+  const closeProgressImagePreview = useCallback(() => setProgressImagePreview(null), [])
+  const moveProgressImagePreview = useCallback((delta) => {
+    setProgressImagePreview((current) => {
+      if (!current?.images?.length) return current
+      const count = current.images.length
+      return { ...current, index: (current.index + delta + count) % count }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!progressImagePreview) return undefined
+    const handlePreviewArrowKeys = (event) => {
+      if (event.key === 'ArrowLeft') moveProgressImagePreview(-1)
+      if (event.key === 'ArrowRight') moveProgressImagePreview(1)
+    }
+    document.addEventListener('keydown', handlePreviewArrowKeys)
+    return () => document.removeEventListener('keydown', handlePreviewArrowKeys)
+  }, [progressImagePreview, moveProgressImagePreview])
 
   const date = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
 
@@ -840,21 +931,18 @@ const Doctor_Consultation = () => {
             <div className="mt-4 border-t border-slate-100 pt-4">
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Most Recent Progress Image</p>
               <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                <img
-                  src={latestProgressImage.image_url}
-                  alt={latestProgressImage.caption || 'Most recent progress'}
-                  className="h-20 w-20 rounded-xl object-cover bg-white border border-slate-200"
-                />
+                <button type="button" onClick={() => openProgressImagePreview(progressImages, latestProgressImage.image_url)} aria-label="Preview most recent progress image" className="shrink-0 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500">
+                  <img
+                    src={latestProgressImage.image_url}
+                    alt={latestProgressImage.caption || 'Most recent progress'}
+                    className="h-20 w-20 rounded-xl object-cover bg-white border border-slate-200"
+                  />
+                </button>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-800">{latestProgressImage.caption || 'Recent image'}</p>
-                  <a
-                    href={latestProgressImage.image_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-violet-600 hover:text-violet-700"
-                  >
-                    View full image <MdOpenInNew className="text-[12px]" />
-                  </a>
+                  <button type="button" onClick={() => openProgressImagePreview(progressImages, latestProgressImage.image_url)} className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-violet-600 hover:text-violet-700">
+                    <MdVisibility className="text-[12px]" /> Preview
+                  </button>
                 </div>
               </div>
             </div>
@@ -962,7 +1050,17 @@ const Doctor_Consultation = () => {
                       <div key={index} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                         <div className="relative">
                           {image.image_url ? (
-                            <img src={image.image_url} alt={image.caption || `Progress image ${index + 1}`} className="h-40 w-full bg-slate-100 object-cover" />
+                            <a
+                              href={image.image_url}
+                              onClick={(event) => {
+                                event.preventDefault()
+                                openProgressImagePreview(progressImages, image.image_url)
+                              }}
+                              aria-label={`Preview progress image ${index + 1}`}
+                              className="block cursor-zoom-in"
+                            >
+                              <img src={image.image_url} alt={image.caption || `Progress image ${index + 1}`} className="h-40 w-full bg-slate-100 object-cover" />
+                            </a>
                           ) : (
                             <div className="flex h-40 flex-col items-center justify-center bg-slate-50 text-slate-300">
                               <MdImage className="mb-2 text-[34px]" />
@@ -982,10 +1080,24 @@ const Doctor_Consultation = () => {
                         <div className="space-y-3 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Image {index + 1}</p>
-                            <label className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-slate-50 ${uploadingIndex !== null ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
+                            <div className="flex items-center gap-2">
+                              {image.image_url && (
+                                <a
+                                  href={image.image_url}
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    openProgressImagePreview(progressImages, image.image_url)
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-violet-200 px-2 py-1 text-[10px] font-bold text-violet-700 hover:bg-violet-50"
+                                >
+                                  <MdVisibility className="text-[12px]" /> Preview
+                                </a>
+                              )}
+                              <label className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-slate-50 ${uploadingIndex !== null ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
                               <MdUpload className="text-[12px]" /> {uploadingIndex === index ? 'Uploading...' : 'Replace'}
                               <input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" className="hidden" disabled={uploadingIndex !== null} onChange={(e) => { const file = e.currentTarget.files?.[0] || null; e.currentTarget.value = ''; void handleUploadProgressImage(index, file) }} />
-                            </label>
+                              </label>
+                            </div>
                           </div>
 
                           {imageUploadStatus[index] && (
@@ -1390,6 +1502,7 @@ const Doctor_Consultation = () => {
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Progress Images</p>
                           <ProgressImageGallery
                             images={visit.progress_images}
+                            onPreview={openProgressImagePreview}
                             emptyText="No progress images saved for this visit."
                           />
                         </div>
@@ -1409,6 +1522,16 @@ const Doctor_Consultation = () => {
           </div>
         )}
       </div>
+
+      {progressImagePreview && (
+        <ProgressImagePreviewModal
+          image={progressImagePreview.images[progressImagePreview.index]}
+          index={progressImagePreview.index}
+          total={progressImagePreview.images.length}
+          onClose={closeProgressImagePreview}
+          onMove={moveProgressImagePreview}
+        />
+      )}
 
       <Modal
         open={extraConsumableOpen}
@@ -1524,6 +1647,7 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+
 
 
 

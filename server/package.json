@@ -12,6 +12,7 @@
     "migrate": "node scripts/migrate.js",
     "verify:deploy": "node scripts/verifyDeployment.js",
     "verify:source": "node scripts/verifySourceGraph.js",
+    "test:checkout": "node --test tests/checkouts/reopen-editing.node.cjs",
     "pretest": "npm run verify:source"
   },
   "keywords": [],
@@ -36,3 +37,4 @@
     "vitest": "^4.1.10"
   }
 }
+

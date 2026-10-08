@@ -1458,6 +1458,94 @@ const finalizeBill = async (req, res) => {
   res.json(await getBillingRecordWithItems(billingId))
 }
 
+// Used by both Staff and Admin checkout screens immediately after confirmation.
+// Do not use the separate Admin Bill Corrections reopen handler here: that
+// workflow can reverse dispensed inventory and requires a correction reason.
+const reopenBillForEditing = async (req, res) => {
+  const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
+  const billingId = Number(req.params.id)
+  const expectedVersion = Number(req.body?.expected_version)
+
+  if (!Number.isSafeInteger(billingId) || billingId <= 0) {
+    return res.status(400).json({ message: 'A valid billing record is required.' })
+  }
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+    return res.status(400).json({ message: 'Reload this bill before editing. A valid bill version is required.', code: 'BILL_VERSION_REQUIRED' })
+  }
+
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query('SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE', [billingId])
+    if (!rows.length) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Billing record not found.' })
+    }
+
+    const locked = rows[0]
+    if (locked.status !== 'ready') {
+      await conn.rollback()
+      return res.status(409).json({ message: 'Only a confirmed bill with no recorded payment can return to editing.', code: 'BILL_NOT_EDITABLE' })
+    }
+    if (Number(locked.version || 1) !== expectedVersion) {
+      await conn.rollback()
+      return res.status(409).json({
+        message: 'This bill changed while you were reviewing it. Reload the latest bill before editing.',
+        code: 'BILL_VERSION_CONFLICT',
+        current_version: Number(locked.version || 1),
+      })
+    }
+
+    // Check the *entire* payment history, including voided/refunded payments.
+    // Do not allow this shortcut after any checkout stock movements, either.
+    const [[paymentHistory]] = await conn.query('SELECT COUNT(*) AS count FROM billing_payments WHERE billing_id = ?', [billingId])
+    if (Number(paymentHistory?.count || 0) > 0 || locked.paid_at) {
+      await conn.rollback()
+      return res.status(409).json({ message: 'This bill already has payment history. Use the administrator correction workflow instead.', code: 'BILL_HAS_PAYMENT_HISTORY' })
+    }
+    const [[stockHistory]] = await conn.query('SELECT COUNT(*) AS count FROM billing_item_batch_usage WHERE billing_id = ?', [billingId])
+    if (Number(stockHistory?.count || 0) > 0) {
+      await conn.rollback()
+      return res.status(409).json({ message: 'This bill already has checkout stock movement history. Use the administrator correction workflow instead.', code: 'BILL_HAS_STOCK_HISTORY' })
+    }
+
+    const [updated] = await conn.query(
+      `UPDATE billing_records
+       SET status='draft', finalized_at=NULL, finalized_by_staff_id=NULL,
+           finalized_by_admin_id=NULL, version=version+1
+       WHERE id=? AND status='ready' AND version=?`,
+      [billingId, expectedVersion]
+    )
+    if (Number(updated.affectedRows || 0) !== 1) {
+      const error = new Error('The bill changed while reopening. Reload and try again.')
+      error.statusCode = 409
+      error.code = 'BILL_VERSION_CONFLICT'
+      throw error
+    }
+
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: actorRole,
+      action: 'billing.reopened_for_editing',
+      entityType: 'billing_record',
+      entityId: billingId,
+      oldValues: { status: locked.status, version: expectedVersion },
+      newValues: { status: 'draft', version: expectedVersion + 1 },
+      ipAddress: req.ip || null,
+    }, conn)
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback().catch(() => {})
+    if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code })
+    throw err
+  } finally {
+    conn.release()
+  }
+
+  broadcast(['admin', 'staff'], 'billing_reopened', { billingId })
+  res.json(await getBillingRecordWithItems(billingId))
+}
+
 const payBill = async (req, res) => {
   const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
   const isAdminActor = actorRole === 'admin'
@@ -1961,11 +2049,12 @@ module.exports = {
   getAppointments, createAppointment, getAppointmentInventoryReadinessForPortal, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, getAppointmentReasons, getAppointmentCancellationReasons,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
   getPatients, getPatientRecord, createWalkInPatient,
-  getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getPaymentSettingsForStaff,
+  getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, reopenBillForEditing, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getPaymentSettingsForStaff,
   getInventory, getInventoryMasterData, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, getInventoryLocations, createInventoryLocation, updateInventoryLocation,
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

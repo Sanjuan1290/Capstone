@@ -37,8 +37,13 @@ describe('billing checkout follow-up regressions', () => {
 
     expect(staffRouter).toContain("router.post('/billing/:id/reopen'")
     expect(adminRouter).toContain("router.post('/billing/:id/reopen'")
+    expect(adminRouter).toContain("router.post('/billing/:id/reopen-for-editing', ...auth, staffCtrl.reopenBillForEditing)")
     expect(staffService).toContain('export const reopenBillForEditing')
     expect(adminService).toContain('export const reopenAdminCheckoutBill')
+    expect(adminService).toContain('/billing/${id}/reopen-for-editing')
+    // Preserve the original reason-required Admin correction flow; checkout-only
+    // reopening must not silently bypass its stock return and audit behavior.
+    expect(adminRouter).toContain("router.post('/billing/:id/reopen', ...auth, correctionsCtrl.reopenBill)")
 
     for (const source of [adminCheckout, staffCheckout]) {
       expect(source).toContain('Found a billing mistake before payment?')
@@ -84,3 +89,4 @@ describe('billing checkout follow-up regressions', () => {
     expect(schema).toContain("reference_image_url")
   })
 })
+

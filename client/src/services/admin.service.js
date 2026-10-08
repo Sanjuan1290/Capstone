@@ -429,6 +429,9 @@ export const getAdminCheckoutBill = (id) => requestJson(`${getAdminApiBase()}/bi
 export const updateAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminFinalizePreview = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/finalize-preview`)
 export const finalizeAdminCheckoutBill = (id,expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/finalize`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
+// The checkout-only route deliberately differs from the administrator's
+// reason-required correction/stock-return endpoint at /billing/:id/reopen.
+export const reopenAdminCheckoutBill = (id, expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/reopen-for-editing`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
 export const payAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}/pay`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminBillAdjustmentRequests = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/adjustment-requests`)
 export const getAdminDiscountPresets = () => requestJson(`${getAdminApiBase()}/billing/discount-presets`)
@@ -469,3 +472,4 @@ export const moveInventoryStock = (inventoryId, payload) => postJson(`${getAdmin
 export const getMyCashierClosing = (date = '') => requestJson(`${getAdminApiBase()}/billing/cashier-closing${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 export const closeMyCashier = (payload) => postJson(`${getAdminApiBase()}/billing/cashier-closing`, payload)
 export const reopenCashierClosing = (closingId, reason) => postJson(`${getAdminApiBase()}/billing/cashier-closings/${closingId}/reopen`, { reason })
+
