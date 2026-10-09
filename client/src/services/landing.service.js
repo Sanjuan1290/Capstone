@@ -8,7 +8,7 @@ export const getPublicLandingPage = async () => {
 const getLandingAdminBase = () => (typeof window !== 'undefined' && (window.location.pathname.startsWith('/staff') || sessionStorage.getItem('auth_role') === 'staff') ? '/api/staff/admin-access' : '/api/admin')
 
 export const getAdminLandingPage = async () => {
-  const res = await fetch(`${getLandingAdminBase()}/landing-page`, { credentials: 'include' })
+  const res = await fetch(`${getLandingAdminBase()}/landing-page`, { credentials: 'include', headers: getLandingAdminBase() === '/api/admin' ? {'X-Admin-Portal':'superadmin'} : {} })
   const data = await res.json()
   if (!res.ok) throw new Error(data.message || 'Failed to load landing page.')
   return data
@@ -18,7 +18,7 @@ export const saveAdminLandingPage = async (payload) => {
   const res = await fetch(`${getLandingAdminBase()}/landing-page`, {
     method: 'PUT',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(getLandingAdminBase() === '/api/admin' ? {'X-Admin-Portal':'superadmin'} : {}) },
     body: JSON.stringify(payload),
   })
   const data = await res.json()

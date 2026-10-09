@@ -2,7 +2,7 @@
 // REDESIGNED: Hero banner, stat grid, today's appointments, doctor status, quick links
 
 import { useState, useCallback } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getDashboard, getAppointments } from '../../services/admin.service'
 import usePolling from '../../hooks/usePolling'
@@ -50,14 +50,14 @@ const LiveDot = ({ lastUpdated }) => (
   </div>
 )
 
-const BookingReadinessPanel = ({ readiness }) => (
+const BookingReadinessPanel = ({ readiness, portalPath }) => (
   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 className="text-sm font-bold text-slate-800">Online Booking Readiness</h2>
         <p className="mt-1 text-xs text-slate-500">Each clinic needs an active doctor, an online schedule, and an active service. Custom visit reasons are recommended; Other is always available as a required-explanation fallback.</p>
       </div>
-      <NavLink to="/admin/system-setup/billing/services" className="text-xs font-bold text-amber-600 hover:text-amber-700">Review setup</NavLink>
+      <NavLink to={portalPath("/admin/system-setup/billing/services")} className="text-xs font-bold text-amber-600 hover:text-amber-700">Review setup</NavLink>
     </div>
     <div className="grid gap-3 lg:grid-cols-2">
       {BOOKING_CLINICS.map(({ id, label, Icon }) => {
@@ -91,7 +91,7 @@ const BookingReadinessPanel = ({ readiness }) => (
                     </div>
                     {!bookable && <p className="mt-2 text-xs font-semibold text-amber-800">{status.issue_messages?.[0] || 'Complete this clinic setup before enabling patient online booking.'}</p>}
                     {bookable && status.warning_messages?.[0] && <p className="mt-2 text-xs font-semibold text-amber-800">{status.warning_messages[0]}</p>}
-                    {action && <NavLink to={action.path} className="mt-3 inline-flex rounded-xl border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100">{action.label}</NavLink>}
+                    {action && <NavLink to={portalPath(action.path)} className="mt-3 inline-flex rounded-xl border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100">{action.label}</NavLink>}
                   </>
                 ) : <p className="mt-2 text-xs text-slate-400">Readiness data is unavailable.</p>}
               </div>
@@ -105,10 +105,15 @@ const BookingReadinessPanel = ({ readiness }) => (
 
 const Admin_Dashboard = () => {
   const { user }   = useAuth()
+  const location = useLocation()
+  const selected = location.pathname.match(/^\/superadmin\/branches\/\d+/)
+  const portalBase = selected ? selected[0] : '/admin'
+  const portalPath = path => path.replace(/^\/admin/, portalBase)
   const [dashStats,    setDashStats]    = useState(null)
   const [todayAppts,   setTodayAppts]   = useState([])
   const [doctorStatus, setDoctorStatus] = useState([])
   const [loading,      setLoading]      = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [lastUpdated,  setLastUpdated]  = useState(null)
 
   const todayISO    = getLocalDateOnly()
@@ -116,6 +121,7 @@ const Admin_Dashboard = () => {
   const firstName   = user?.full_name?.split(' ').pop() || 'Admin'
 
   const load = useCallback(() => {
+    setLoadError('')
     Promise.all([getDashboard(), getAppointments(`?date=${todayISO}`)])
       .then(([dash, appts]) => {
         setDashStats(dash)
@@ -124,7 +130,7 @@ const Admin_Dashboard = () => {
         setLastUpdated(new Date())
         setLoading(false)
       })
-      .catch(err => console.error('Admin Dashboard:', err))
+      .catch(err => { setLoadError(err.message || 'Unable to load this branch dashboard.'); setLoading(false) })
   }, [todayISO])
 
   usePolling(load, POLL_MS)
@@ -158,6 +164,7 @@ const Admin_Dashboard = () => {
     </div>
   )
 
+  if (loadError) return <div role="alert" className="mx-auto max-w-3xl rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800"><p className="font-bold">Dashboard is temporarily unavailable</p><p className="mt-2">{loadError}</p><button className="button-secondary mt-4" onClick={load}>Try again</button></div>
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5">
 
@@ -201,7 +208,7 @@ const Admin_Dashboard = () => {
         ))}
       </div>
 
-      <BookingReadinessPanel readiness={dashStats?.bookingReadiness} />
+      <BookingReadinessPanel readiness={dashStats?.bookingReadiness} portalPath={portalPath} />
 
       {/* ── Main 2-col ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-5">
@@ -210,7 +217,7 @@ const Admin_Dashboard = () => {
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <h2 className="text-sm font-bold text-slate-800">Today's Appointments</h2>
-            <NavLink to="/admin/appointments" className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-0.5">
+            <NavLink to={portalPath("/admin/appointments")} className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-0.5">
               View all <MdChevronRight className="text-[14px]" />
             </NavLink>
           </div>

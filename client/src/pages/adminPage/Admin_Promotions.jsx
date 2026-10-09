@@ -36,8 +36,8 @@ const Admin_Promotions = () => {
     catch(err){setError(err.message||'Could not save promotion.')} finally {setSaving(false)}
   }
   const remove=async(promo)=>{
-    if(!window.confirm(`Delete promotion “${promo.title}”?`))return
-    try {await deleteAdminPromotion(promo.id);toast.success('Promotion removed.');await load()}
+    if(!window.confirm(`Deactivate promotion “${promo.title}”? Existing patient notifications and history will be preserved.`))return
+    try {await deleteAdminPromotion(promo.id);toast.success('Promotion deactivated.');await load()}
     catch(err){setError(err.message||'Could not delete promotion.')}
   }
   const notify=async(promo)=>{
@@ -75,7 +75,7 @@ const Admin_Promotions = () => {
     {loading?<p className="text-sm text-slate-500">Loading promotions…</p>:promotions.length===0?<div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">No promotions yet. Create a service-specific promotion above.</div>:
       <div className="grid gap-3">{promotions.map(promo=>{
         const live=promo.is_active && promo.starts_on<=today && promo.ends_on>=today
-        return <div key={promo.id} className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-slate-900">{promo.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${live?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-500'}`}>{live?'Live':promo.is_active?'Scheduled or expired':'Inactive'}</span></div><p className="mt-1 text-sm text-slate-600">{promo.description}</p><p className="mt-2 text-xs text-slate-400">{promo.starts_on} – {promo.ends_on} · {promo.service_ids.length} service(s) · {promo.show_on_dashboard?'Dashboard + booking':'Booking only'}</p></div><div className="flex shrink-0 gap-2">{live&&<button type="button" className="button-secondary" onClick={()=>notify(promo)}><MdNotificationsActive/> Notify opted-in patients</button>}<button type="button" className="button-secondary" onClick={()=>open(promo)}><MdEdit/> Edit</button><button type="button" className="button-secondary text-rose-600" onClick={()=>remove(promo)}><MdDelete/> Delete</button></div></div></div>
+        return <div key={promo.id} className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-slate-900">{promo.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${live?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-500'}`}>{live?'Live':promo.is_active?'Scheduled or expired':'Inactive'}</span></div><p className="mt-1 text-sm text-slate-600">{promo.description}</p><p className="mt-2 text-xs text-slate-400">{promo.starts_on} – {promo.ends_on} · {promo.service_ids.length} service(s) · {promo.show_on_dashboard?'Dashboard + booking':'Booking only'}</p></div><div className="flex shrink-0 gap-2">{live&&<button type="button" className="button-secondary" onClick={()=>notify(promo)}><MdNotificationsActive/> Notify opted-in patients</button>}<button type="button" className="button-secondary" onClick={()=>open(promo)}><MdEdit/> Edit</button><button type="button" className="button-secondary text-rose-600" disabled={!promo.is_active} onClick={()=>remove(promo)}><MdDelete/> {promo.is_active?'Deactivate':'Inactive'}</button></div></div></div>
       })}</div>}
   </div>
 }

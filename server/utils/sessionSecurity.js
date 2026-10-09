@@ -34,7 +34,13 @@ const makeSessionToken = async (role, id, executor = db) => {
 
 const issueSession = async (res, role, id, executor = db) => {
   const token = await makeSessionToken(role, id, executor)
-  generateCookie(res, token, role)
+  // Super Admin and Branch Admin must not overwrite each other's browser session.
+  if (role === 'admin') {
+    const account = await loadSessionAccount('admin', id, executor)
+    generateCookie(res, token, account.account_role === 'superadmin' ? 'superadmin' : 'admin')
+  } else {
+    generateCookie(res, token, role)
+  }
   return token
 }
 
@@ -61,12 +67,16 @@ const revokeSessions = async (role, id, executor = db) => {
 }
 
 const findAuthenticatedRequestSession = async (req) => {
-  for (const [role, config] of Object.entries(ROLE_CONFIG)) {
-    const token = req.cookies?.[config.cookie]
+  // Include the separately signed Super Admin cookie in generic identity checks.
+  const candidates = [...Object.entries(ROLE_CONFIG).map(([role, config]) => ({ role, cookie: config.cookie })), { role: 'admin', cookie: 'superadmin_token' }]
+  for (const {role, cookie} of candidates) {
+    const token = req.cookies?.[cookie]
     if (!token) continue
     try {
       const user = await verifySessionToken(token, role)
-      return { role, user, cookieName: config.cookie }
+      if (cookie === 'superadmin_token' && user.account_role !== 'superadmin') continue
+      if (cookie === 'admin_token' && user.account_role === 'superadmin') continue
+      return { role, user, cookieName: cookie }
     } catch {
       // Keep checking in case another valid role cookie is present.
     }

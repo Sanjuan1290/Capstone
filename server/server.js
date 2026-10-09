@@ -84,6 +84,8 @@ const streamEvents = (req, res) => {
 for (const role of ['admin', 'staff', 'doctor', 'patient']) {
   app.get(`/api/events/${role}`, authenticate(`${role}_token`), streamEvents)
 }
+// Dedicated Super Admin event stream, without relying on the Branch Admin cookie.
+app.get('/api/events/superadmin', authenticate('superadmin_token'), streamEvents)
 
 // The generic stream was ambiguous when a browser held more than one role cookie.
 // Require every client to choose the role-scoped endpoint explicitly.

@@ -2,10 +2,24 @@ import { makeSecurityScanError, waitForSecurityScan } from './cloudinaryScan'
 import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/admin.service.js
 
-const getAdminApiBase = () => (typeof window !== 'undefined' && (window.location.pathname.startsWith('/staff') || sessionStorage.getItem('auth_role') === 'staff') ? '/api/staff/admin-access' : '/api/admin')
+const getAdminApiBase = () => {
+  if (typeof window === 'undefined') return '/api/admin'
+  if (window.location.pathname.startsWith('/staff') || sessionStorage.getItem('auth_role') === 'staff') return '/api/staff/admin-access'
+  const selected = window.location.pathname.match(/^\/superadmin\/branches\/(\d+)(?:\/|$)/)
+  if (selected) return `/api/branches/workspace/${selected[1]}/legacy`
+  if (window.location.pathname.startsWith('/admin') && !window.location.pathname.startsWith('/admin/login')) return '/api/branches/my/legacy'
+  return '/api/admin'
+}
 
 const requestJson = async (url, options = {}) => {
-  const res = await fetch(url, { credentials: 'include', ...options })
+  const superAdminGlobal = typeof window !== 'undefined' && window.location.pathname.startsWith('/superadmin') && !/^\/api\/branches\//.test(url)
+  const headers = { ...(superAdminGlobal ? {'X-Admin-Portal': 'superadmin'} : {}), ...(options.headers || {}) }
+  const res = await fetch(url, { credentials: 'include', ...options, headers })
+  const contentType = res.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    throw new Error(res.status === 403 ? 'You do not have permission to access this branch module.' :
+      'This branch operation has not been connected safely yet. No changes were made.')
+  }
   const data = await res.json()
   if (!res.ok) {
     const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
@@ -17,10 +31,10 @@ const requestJson = async (url, options = {}) => {
 }
 
 // Promotion management is reserved for Administrator accounts.
-export const getAdminPromotions = () => requestJson('/api/admin/promotions')
-export const saveAdminPromotion = (payload, id = null) => requestJson(`/api/admin/promotions${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'}, body:JSON.stringify(payload) })
-export const deleteAdminPromotion = (id) => requestJson(`/api/admin/promotions/${id}`, { method:'DELETE' })
-export const notifyAdminPromotion = (id) => requestJson(`/api/admin/promotions/${id}/notify`, { method:'POST' })
+export const getAdminPromotions = () => requestJson(`${getAdminApiBase()}/promotions`)
+export const saveAdminPromotion = (payload, id = null) => requestJson(`${getAdminApiBase()}/promotions${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const deleteAdminPromotion = (id) => requestJson(`${getAdminApiBase()}/promotions/${id}`, { method:'DELETE' })
+export const notifyAdminPromotion = (id) => requestJson(`${getAdminApiBase()}/promotions/${id}/notify`, { method:'POST' })
 
 export const getDashboard = () => requestJson(`${getAdminApiBase()}/dashboard`)
 

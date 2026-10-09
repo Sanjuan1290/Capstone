@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:design": "node --test tests/superAdminDesign.node.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",
@@ -33,4 +34,3 @@
     "vite": "^8.0.0"
   }
 }
-

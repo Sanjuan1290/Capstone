@@ -30,8 +30,8 @@ const PasswordSecurityCard = ({ initialOpen = false }) => {
     if (newPassword !== confirm) return setMsg('Passwords do not match.')
     setBusy(true); setMsg('')
     try {
-      const response = await fetch(`/api/${role}/security/password/request-code`, {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      const response = await fetch(`/api/${role === 'superadmin' ? 'admin' : role}/security/password/request-code`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...(role === 'superadmin' ? { 'X-Admin-Portal': 'superadmin' } : {}) },
         body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       })
       const data = await response.json()
@@ -46,8 +46,8 @@ const PasswordSecurityCard = ({ initialOpen = false }) => {
     if (code.length !== 6) return setMsg('Enter the 6-digit verification code.')
     setBusy(true); setMsg('')
     try {
-      const response = await fetch(`/api/${role}/security/password/change`, {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }),
+      const response = await fetch(`/api/${role === 'superadmin' ? 'admin' : role}/security/password/change`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...(role === 'superadmin' ? { 'X-Admin-Portal': 'superadmin' } : {}) }, body: JSON.stringify({ code }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || 'Password change failed.')

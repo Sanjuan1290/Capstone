@@ -2,6 +2,7 @@
 // query here contains an explicit authorized physical-branch predicate.
 const express = require('express')
 const bcrypt = require('bcrypt')
+const {randomBytes} = require('crypto')
 const db = require('../db/connect')
 const authenticate = require('../middlewares/auth.middleware')
 const { writeAuditLog } = require('../utils/audit')
@@ -20,7 +21,9 @@ const permissionsFromBody = (value) => {
 const audit = async (req, action, kind, id, before, after, branchId) => {
   await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role || 'admin',action,entityType:kind,entityId:id,oldValues:before,newValues:{...after,branch_id:branchId},branchId,ipAddress:req.ip}).catch(()=>{})
 }
-router.use(authenticate('admin_token'))
+// /my uses only the Branch Admin cookie. Central and workspace endpoints use
+// the Super Admin cookie. A second sign-in in another tab cannot switch identity.
+router.use((req,res,next) => authenticate.adminContext(!req.path.startsWith('/my'))(req,res,next))
 router.use(async (req, res, next) => {
   try {
     const [[admin]] = await db.query('SELECT id,account_role,branch_id,is_active FROM admins WHERE id=? LIMIT 1',[req.user.id])
@@ -35,6 +38,7 @@ router.use(async (req, res, next) => {
 })
 const requireSuper = (req,res,next) => req.adminContext.account_role==='superadmin'?next():forbidden(res)
 const requirePermission = (key) => (req,res,next) => req.adminContext.account_role==='superadmin' || req.adminPermissions.includes(key)?next():forbidden(res)
+const allowAnyPermission = (...keys) => (req,res,next) => req.adminContext.account_role==='superadmin' || keys.some(k=>req.adminPermissions.includes(k))?next():forbidden(res)
 const branchContext = async (req,res,next) => {
   try {
     const branchId=req.params.branchId?Number(req.params.branchId):Number(req.adminContext.branch_id)
@@ -50,36 +54,40 @@ router.get('/', requireSuper, async(req,res)=>{
   res.json(rows)
 })
 router.post('/',requireSuper,async(req,res)=>{
-  const name=String(req.body?.name||'').trim(),code=String(req.body?.code||'').trim().toUpperCase()
-  if(!name||name.length>180||!/^[A-Z0-9_-]{2,32}$/.test(code)) return res.status(400).json({message:'Provide a branch name and code (2–32 letters, numbers, hyphens or underscores).'})
-  const [result]=await db.query('INSERT INTO clinic_branches (name,code,address,phone,email,offers_medical,offers_derma) VALUES (?,?,?,?,?,?,?)',[name,code,String(req.body.address||'').slice(0,255)||null,String(req.body.phone||'').slice(0,80)||null,String(req.body.email||'').slice(0,160)||null,req.body.offers_medical===false?0:1,req.body.offers_derma===false?0:1])
+  const name=String(req.body?.name||'').trim(),code=`BR-${randomBytes(8).toString('hex').toUpperCase()}`
+  if(!name||name.length>180) return res.status(400).json({message:'Enter a branch name (up to 180 characters).'})
+  const [result]=await db.query('INSERT INTO clinic_branches (name,code,address,phone,email,offers_medical,offers_derma,is_active) VALUES (?,?,?,?,?,?,?,?)',[name,code,String(req.body.address||'').slice(0,255)||null,String(req.body.phone||'').slice(0,80)||null,String(req.body.email||'').slice(0,160)||null,req.body.offers_medical===false?0:1,req.body.offers_derma===false?0:1,req.body.is_active===false?0:1])
   await db.query('INSERT INTO branch_booking_settings (branch_id) VALUES (?)',[result.insertId])
   await audit(req,'branch.created','clinic_branch',result.insertId,null,{name,code},result.insertId)
   res.status(201).json({id:result.insertId,name,code})
 })
 router.put('/:branchId',requireSuper,branchContext,async(req,res)=>{
   const current=req.branch
-  const name=String(req.body?.name??current.name).trim(),code=String(req.body?.code??current.code).trim().toUpperCase()
-  if(!name||name.length>180||!/^[A-Z0-9_-]{2,32}$/.test(code)) return res.status(400).json({message:'Invalid branch name or code.'})
+  const name=String(req.body?.name??current.name).trim(),code=current.code
+  if(!name||name.length>180) return res.status(400).json({message:'Enter a valid branch name.'})
   const next={name,code,address:String(req.body.address??current.address??'').trim().slice(0,255)||null,phone:String(req.body.phone??current.phone??'').trim().slice(0,80)||null,email:String(req.body.email??current.email??'').trim().slice(0,160)||null,offers_medical:req.body.offers_medical===undefined?Number(current.offers_medical):Number(Boolean(req.body.offers_medical)),offers_derma:req.body.offers_derma===undefined?Number(current.offers_derma):Number(Boolean(req.body.offers_derma)),is_active:req.body.is_active===undefined?Number(current.is_active):Number(Boolean(req.body.is_active))}
+  if(Number(current.is_active)===1 && next.is_active===0){const [[pending]]=await db.query("SELECT COUNT(*) AS total FROM appointments WHERE branch_id=? AND appointment_date>=CURRENT_DATE() AND status IN ('pending','confirmed','rescheduled','in-progress')",[req.branchId]);if(Number(pending.total)>0)return res.status(409).json({message:`This branch has ${pending.total} active or upcoming appointments. Resolve them before deactivation.`})}
   await db.query('UPDATE clinic_branches SET name=?,code=?,address=?,phone=?,email=?,offers_medical=?,offers_derma=?,is_active=? WHERE id=?',[...Object.values(next),req.branchId])
   await audit(req,'branch.updated','clinic_branch',req.branchId,current,next,req.branchId)
   res.json({id:req.branchId,...next})
 })
 router.delete('/:branchId',requireSuper,branchContext,async(req,res)=>{
+  // Do not deactivate a branch while it has live future patient bookings.
+  const [[pending]]=await db.query("SELECT COUNT(*) AS total FROM appointments WHERE branch_id=? AND appointment_date>=CURRENT_DATE() AND status IN ('pending','confirmed','rescheduled','in-progress')",[req.branchId])
+  if(Number(pending.total)>0)return res.status(409).json({message:`This branch has ${pending.total} upcoming or active appointment(s). Resolve or transfer these appointments before deactivation.`})
   // Archive, never destroy historic medical/billing/stock records.
   await db.query('UPDATE clinic_branches SET is_active=0 WHERE id=?',[req.branchId])
   await audit(req,'branch.deactivated','clinic_branch',req.branchId,{is_active:req.branch.is_active},{is_active:0},req.branchId)
   res.json({message:'Branch deactivated. Historical records have been retained.'})
 })
 router.get('/accounts/admins',requireSuper,async(req,res)=>{
-  const [rows]=await db.query(`SELECT a.id,a.full_name,a.email,a.account_role,a.branch_id,a.is_active,a.created_at,b.name AS branch_name FROM admins a LEFT JOIN clinic_branches b ON b.id=a.branch_id WHERE a.account_role='admin' ORDER BY a.created_at DESC,a.id DESC`)
+  const [rows]=await db.query(`SELECT a.id,a.full_name,a.email,a.phone,a.account_role,a.branch_id,a.is_active,a.created_at,b.name AS branch_name FROM admins a LEFT JOIN clinic_branches b ON b.id=a.branch_id WHERE a.account_role='admin' ORDER BY a.created_at DESC,a.id DESC`)
   const [perms]=await db.query('SELECT admin_id,permission_key FROM admin_branch_permissions WHERE granted=1')
   res.json(rows.map(a=>({...a,permissions:perms.filter(p=>p.admin_id===a.id).map(p=>p.permission_key)})))
 })
 router.post('/accounts/admins',requireSuper,async(req,res)=>{
-  const full_name=String(req.body?.full_name||'').trim(),email=String(req.body?.email||'').trim().toLowerCase(),branchId=Number(req.body?.branch_id)
-  if(!full_name||full_name.length>150||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!validId(branchId))return res.status(400).json({message:'Full name, valid email and one branch are required.'})
+  const full_name=String(req.body?.full_name||'').trim(),email=String(req.body?.email||'').trim().toLowerCase(),branchId=Number(req.body?.branch_id),phone=String(req.body?.phone||'').trim()
+  if(!full_name||full_name.length>150||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!validId(branchId)||!/^\+?[0-9 ()-]{7,24}$/.test(phone))return res.status(400).json({message:'Full name, valid email, contact number and one branch are required.'})
   const [[branch]]=await db.query('SELECT id FROM clinic_branches WHERE id=? AND is_active=1',[branchId]);if(!branch)return res.status(400).json({message:'The selected branch is not active.'})
   const permissions=permissionsFromBody(req.body.permissions)
   const temporaryPassword=makeTemporaryPassword()
@@ -88,28 +96,44 @@ router.post('/accounts/admins',requireSuper,async(req,res)=>{
   let id
   try{
     await connection.beginTransaction()
-    const [result]=await connection.query('INSERT INTO admins (full_name,email,password,account_role,branch_id,is_active) VALUES (?,?,?,\'admin\',?,1)',[full_name,email,password,branchId])
+    const [result]=await connection.query('INSERT INTO admins (full_name,email,phone,password,account_role,branch_id,is_active) VALUES (?,?,?,?,\'admin\',?,1)',[full_name,email,phone,password,branchId])
     id=result.insertId
     for(const p of permissions)await connection.query('INSERT INTO admin_branch_permissions (admin_id,permission_key,granted) VALUES (?,?,1)',[id,p])
     await connection.commit()
   }catch(e){await connection.rollback();throw e}finally{connection.release()}
   let invitationSent=true
   try {await sendTempPassword(email,full_name,'Branch Admin',temporaryPassword,`${process.env.CLIENT_URL||''}/admin/login`)} catch(e){invitationSent=false;console.error('[branches] Admin invitation email failed',e.message)}
-  await audit(req,'branch_admin.created','admin',id,null,{full_name,email,permissions,invitationSent},branchId)
-  res.status(201).json({id,full_name,email,branch_id:branchId,permissions,invitation_sent:invitationSent,message:invitationSent?'Admin created and login email sent.':'Admin created but invitation email failed. Resend the invitation securely.'})
+  await audit(req,'branch_admin.created','admin',id,null,{full_name,email,phone,permissions,invitationSent},branchId)
+  res.status(201).json({id,full_name,email,phone,branch_id:branchId,permissions,invitation_sent:invitationSent,message:invitationSent?'Admin created and login email sent.':'Admin created but invitation email failed. Resend the invitation securely.'})
 })
 router.put('/accounts/admins/:adminId',requireSuper,async(req,res)=>{
   const id=Number(req.params.adminId)
-  const [[prior]]=await db.query("SELECT id,account_role,branch_id,is_active,full_name,email FROM admins WHERE id=? AND account_role='admin'",[id])
+  const [[prior]]=await db.query("SELECT id,account_role,branch_id,is_active,full_name,email,phone FROM admins WHERE id=? AND account_role='admin'",[id])
   if(!prior)return res.status(404).json({message:'Branch Admin not found.'})
   const branchId=Number(req.body.branch_id??prior.branch_id),permissions=permissionsFromBody(req.body.permissions)
   const [[branch]]=await db.query('SELECT id FROM clinic_branches WHERE id=? AND is_active=1',[branchId]);if(!branch)return res.status(400).json({message:'Select an active branch.'})
   const active=req.body.is_active===undefined?Number(prior.is_active):Number(Boolean(req.body.is_active))
-  const full_name=String(req.body.full_name??prior.full_name).trim()
+  const full_name=String(req.body.full_name??prior.full_name).trim(),phone=String(req.body.phone??prior.phone??'').trim()
+  if(!/^\+?[0-9 ()-]{7,24}$/.test(phone))return res.status(400).json({message:'Enter a valid contact number.'})
   const connection=await db.getConnection()
-  try {await connection.beginTransaction();await connection.query('UPDATE admins SET full_name=?,branch_id=?,is_active=?,session_version=session_version+1 WHERE id=?',[full_name,branchId,active,id]);await connection.query('DELETE FROM admin_branch_permissions WHERE admin_id=?',[id]);for(const p of permissions)await connection.query('INSERT INTO admin_branch_permissions (admin_id,permission_key,granted) VALUES (?,?,1)',[id,p]);await connection.commit()}catch(e){await connection.rollback();throw e}finally{connection.release()}
-  await audit(req,'branch_admin.updated','admin',id,prior,{branch_id:branchId,full_name,is_active:active,permissions},branchId)
-  res.json({id,branch_id:branchId,is_active:active,full_name,permissions})
+  try {await connection.beginTransaction();await connection.query('UPDATE admins SET full_name=?,phone=?,branch_id=?,is_active=?,session_version=session_version+1 WHERE id=?',[full_name,phone,branchId,active,id]);await connection.query('DELETE FROM admin_branch_permissions WHERE admin_id=?',[id]);for(const p of permissions)await connection.query('INSERT INTO admin_branch_permissions (admin_id,permission_key,granted) VALUES (?,?,1)',[id,p]);await connection.commit()}catch(e){await connection.rollback();throw e}finally{connection.release()}
+  await audit(req,'branch_admin.updated','admin',id,prior,{branch_id:branchId,full_name,phone,is_active:active,permissions},branchId)
+  res.json({id,branch_id:branchId,is_active:active,full_name,phone,permissions})
+})
+// Branch Admin notifications must never include global or another branch's events.
+router.get('/my/notifications',branchContext,async(req,res)=>{
+  const [rows]=await db.query(`SELECT id,type,title,message,reference_type,reference_id,link,is_read,created_at
+    FROM notifications WHERE branch_id=? AND target_role='admin' AND (target_user_id IS NULL OR target_user_id=?)
+    ORDER BY created_at DESC,id DESC LIMIT 50`,[req.branchId,req.user.id])
+  res.json({items:rows,unread:rows.filter(row=>!row.is_read).length})
+})
+router.patch('/my/notifications/read-all',branchContext,async(req,res)=>{
+  await db.query(`UPDATE notifications SET is_read=1 WHERE branch_id=? AND target_role='admin' AND (target_user_id IS NULL OR target_user_id=?)`,[req.branchId,req.user.id])
+  res.json({success:true})
+})
+router.patch('/my/notifications/:notificationId/read',branchContext,async(req,res)=>{
+  await db.query(`UPDATE notifications SET is_read=1 WHERE id=? AND branch_id=? AND target_role='admin' AND (target_user_id IS NULL OR target_user_id=?)`,[req.params.notificationId,req.branchId,req.user.id])
+  res.json({message:'Notification marked as read.'})
 })
 router.get('/me',async(req,res)=>{
   res.json({id:req.adminContext.id,role:req.adminContext.account_role,branch_id:req.adminContext.branch_id,branch_name:(await db.query('SELECT name FROM clinic_branches WHERE id=?',[req.adminContext.branch_id]))[0]?.[0]?.name||null,permissions:req.adminPermissions})
@@ -233,13 +257,213 @@ for(const [action,controller] of Object.entries({confirm:oldAdmin.confirmAppoint
  router.patch(`/workspace/:branchId/appointments/:appointmentId/${action}`,requireSuper,branchContext,...ownedAppointmentAction(controller))
 }
 
+// Date-scoped consolidated reporting. Existing financial amounts are not silently
+// treated as cash collections: billed and net collected are separate measures.
+const reportRange = (req) => {
+ const iso = /^\d{4}-\d{2}-\d{2}$/
+ const today = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())
+ const days = Number(req.query.days || 30)
+ const fallback = Number.isInteger(days) && days >= 1 && days <= 366 ? days : 30
+ const d = new Date(`${today}T00:00:00Z`); d.setUTCDate(d.getUTCDate()-fallback+1)
+ const from = req.query.from || d.toISOString().slice(0,10), to = req.query.to || today
+ if(!iso.test(from)||!iso.test(to)||!Number.isFinite(Date.parse(from))||!Number.isFinite(Date.parse(to))||new Date(from).toISOString().slice(0,10)!==from||new Date(to).toISOString().slice(0,10)!==to||from>to||(Date.parse(to)-Date.parse(from))/86400000>366) {
+  const err=new Error('Select a valid date range of no more than 366 days.');err.statusCode=400;throw err
+ }
+ return {from,to}
+}
 router.get('/analytics/all',requireSuper,async(req,res)=>{
- const [rows]=await db.query(`SELECT b.id,b.name,b.code,(SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id) AS appointments,(SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.status='pending') AS pending,(SELECT COUNT(*) FROM doctors d WHERE d.branch_id=b.id AND d.is_active=1) AS doctors,(SELECT COALESCE(SUM(total_amount),0) FROM billing_records r WHERE r.branch_id=b.id AND r.status<>'voided') AS billed FROM clinic_branches b ORDER BY b.created_at,b.id`)
+ const {from,to}=reportRange(req)
+ const [rows]=await db.query(`SELECT b.id,b.name,b.code,b.is_active,
+  (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ?) AS appointments,
+  (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='pending') AS pending,
+  (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='completed') AS completed,
+  (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='no_show') AS no_shows,
+  (SELECT COUNT(*) FROM doctors d WHERE d.branch_id=b.id AND d.is_active=1) AS doctors,
+  (SELECT COALESCE(SUM(r.total_amount),0) FROM billing_records r WHERE r.branch_id=b.id AND r.status<>'voided' AND DATE(r.created_at) BETWEEN ? AND ?) AS billed,
+  (SELECT COALESCE(SUM(GREATEST(p.amount-COALESCE(p.refund_amount,0),0)),0)
+   FROM billing_payments p JOIN billing_records br ON br.id=p.billing_id
+   WHERE br.branch_id=b.id AND p.status='completed' AND p.voided_at IS NULL AND DATE(p.paid_at) BETWEEN ? AND ?) AS collected
+  FROM clinic_branches b ORDER BY b.created_at,b.id`,[from,to,from,to,from,to,from,to,from,to,from,to])
  res.json(rows)
+})
+router.get('/analytics/trends',requireSuper,async(req,res)=>{
+ const {from,to}=reportRange(req)
+ const branchId=Number(req.query.branch_id||0)
+ if(branchId && !validId(branchId))return res.status(400).json({message:'Invalid branch selection.'})
+ const args=[from,to];let clause=''
+ if(branchId){clause=' AND branch_id=?';args.push(branchId)}
+ const [appointments]=await db.query(`SELECT DATE_FORMAT(appointment_date,'%Y-%m-%d') AS date,COUNT(*) AS appointments,SUM(status='completed') AS completed FROM appointments WHERE appointment_date BETWEEN ? AND ? ${clause} GROUP BY appointment_date ORDER BY appointment_date`,args)
+ res.json({from,to,appointments})
+})
+router.get('/analytics/readiness',requireSuper,async(req,res)=>{
+ const [rows]=await db.query(`SELECT b.id,b.name,b.is_active,b.offers_medical,b.offers_derma,
+  (SELECT COUNT(*) FROM admins a WHERE a.branch_id=b.id AND a.account_role='admin' AND a.is_active=1) AS admins,
+  (SELECT COUNT(*) FROM doctors d WHERE d.branch_id=b.id AND d.is_active=1) AS doctors,
+  (SELECT COUNT(*) FROM doctors d JOIN doctor_schedules ds ON ds.doctor_id=d.id WHERE d.branch_id=b.id AND d.is_active=1 AND ds.is_active=1) AS schedules,
+  (SELECT COUNT(*) FROM billing_service_catalog sc WHERE sc.branch_id=b.id AND sc.is_active=1) AS services,
+  EXISTS(SELECT 1 FROM branch_booking_settings bs WHERE bs.branch_id=b.id) AS policy
+  FROM clinic_branches b ORDER BY b.id`)
+ res.json(rows.map(r=>({...r,ready:Boolean(r.is_active && Number(r.doctors)>0 && Number(r.schedules)>0 && Number(r.services)>0 && Number(r.policy)>0),missing:[...(Number(r.admins)?[]:['Assign a Branch Admin']),...(Number(r.doctors)?[]:['Assign an active doctor']),...(Number(r.schedules)?[]:['Configure an active doctor schedule']),...(Number(r.services)?[]:['Enable a bookable service']),...(Number(r.policy)?[]:['Configure booking policy'])]})))
 })
 router.get('/audit/all',requireSuper,async(req,res)=>{
  const requested=Number(req.query.branch_id||0)
- const [rows]=requested?await db.query('SELECT * FROM audit_logs WHERE branch_id=? ORDER BY created_at DESC,id DESC LIMIT 250',[requested]):await db.query('SELECT * FROM audit_logs ORDER BY created_at DESC,id DESC LIMIT 250')
+ if(requested && !validId(requested))return res.status(400).json({message:'Invalid branch.'})
+ const page=Math.max(1,Math.min(100000,Number.parseInt(req.query.page,10)||1)),limit=Math.min(100,Math.max(10,Number.parseInt(req.query.limit,10)||25))
+ const allowedActions=['create','update','delete','auth','branch','service','booking','account','appointment']
+ const action=String(req.query.action||'').trim()
+ if(action && !allowedActions.includes(action))return res.status(400).json({message:'Invalid activity filter.'})
+ const search=String(req.query.search||'').trim().slice(0,100)
+ const where=[],params=[]
+ if(requested){where.push('a.branch_id=?');params.push(requested)}
+ if(action){where.push('a.action LIKE ?');params.push(`%${action}%`)}
+ if(search){where.push('(a.action LIKE ? OR a.entity_type LIKE ? OR a.entity_id LIKE ?)');params.push(...Array(3).fill(`%${search}%`))}
+ const from=String(req.query.from||''),to=String(req.query.to||'')
+ if(from||to){if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to)return res.status(400).json({message:'Enter valid start and end dates.'});where.push('DATE(a.created_at) BETWEEN ? AND ?');params.push(from,to)}
+ const sqlWhere=where.length?`WHERE ${where.join(' AND ')}`:''
+ const [[count]]=await db.query(`SELECT COUNT(*) AS total FROM audit_logs a ${sqlWhere}`,params)
+ const [rows]=await db.query(`SELECT a.*,b.name AS branch_name,CASE WHEN a.user_role IN ('admin','superadmin') THEN aa.full_name WHEN a.user_role='staff' THEN ss.full_name WHEN a.user_role='doctor' THEN dd.full_name WHEN a.user_role='patient' THEN pp.full_name ELSE NULL END AS actor_name FROM audit_logs a LEFT JOIN clinic_branches b ON b.id=a.branch_id LEFT JOIN admins aa ON a.user_role IN ('admin','superadmin') AND aa.id=a.user_id LEFT JOIN staff ss ON a.user_role='staff' AND ss.id=a.user_id LEFT JOIN doctors dd ON a.user_role='doctor' AND dd.id=a.user_id LEFT JOIN patients pp ON a.user_role='patient' AND pp.id=a.user_id ${sqlWhere} ORDER BY a.created_at DESC,a.id DESC LIMIT ? OFFSET ?`,[...params,limit,(page-1)*limit])
+ // Keep the legacy array response only for legacy callers; new UI opts into pagination.
+ if(req.query.paginated==='1')return res.json({rows,total:Number(count.total),page,limit,pages:Math.max(1,Math.ceil(Number(count.total)/limit))})
  res.json(rows)
 })
+
+// Compatibility responses for the ORIGINAL Admin Portal. Unlike the legacy
+// /api/admin controllers, every query is scoped to an authenticated branch.
+// Unsupported legacy mutations deliberately return 404 instead of falling
+// through to an unscoped controller. Restore each workflow only after auditing it.
+const bridgeDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
+const originalDashboard = async(req,res) => {
+  const id=req.branchId
+  const [[pending]]=await db.query(`SELECT COUNT(*) AS pendingApprovals FROM appointments WHERE branch_id=? AND status='pending'`,[id])
+  const [[patients]]=await db.query(`SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM appointments WHERE branch_id=?`,[id])
+  const [[lowStock]]=await db.query('SELECT COUNT(*) AS lowStockCount FROM inventory WHERE branch_id=? AND stock<=threshold',[id])
+  const [doctors]=await db.query(`SELECT d.id,d.full_name,d.clinic_type,CASE WHEN d.is_active=1 THEN 'available' ELSE 'inactive' END AS status FROM doctors d WHERE d.branch_id=? ORDER BY d.full_name`,[id])
+  const {getOnlineBookingReadiness}=require('../utils/bookingReadiness')
+  const bookingReadiness=await getOnlineBookingReadiness(db,id)
+  res.json({pendingApprovals:Number(pending.pendingApprovals||0),totalPatients:Number(patients.totalPatients||0),lowStockCount:Number(lowStock.lowStockCount||0),doctorStatus:doctors,bookingReadiness})
+}
+const originalAppointments = async(req,res) => {
+  const date=bridgeDate(req.query.date)
+  if(req.query.date && !date)return res.status(400).json({message:'Invalid date.'})
+  const [rows]=await db.query(`SELECT a.*,DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,
+    a.appointment_time AS time,a.clinic_type AS type,
+    p.full_name AS patient_name,p.full_name AS patient_full_name,
+    d.full_name AS doctor_name,d.full_name AS doctor,d.specialty
+    FROM appointments a JOIN patients p ON p.id=a.patient_id
+    JOIN doctors d ON d.id=a.doctor_id
+    WHERE a.branch_id=? ${date?'AND a.appointment_date=?':''}
+    ORDER BY a.appointment_date DESC,a.appointment_time ASC LIMIT 500`,date?[req.branchId,date]:[req.branchId])
+  res.json(rows)
+}
+const originalPatients = async(req,res)=>{
+  const [rows]=await db.query(`SELECT p.id,p.full_name,p.birthdate,p.gender,p.sex,p.civil_status,p.phone,p.address,p.email,p.created_at,p.profile_image_url,p.is_walk_in FROM patients p WHERE EXISTS
+    (SELECT 1 FROM appointments a WHERE a.patient_id=p.id AND a.branch_id=?)
+    ORDER BY p.full_name LIMIT 500`,[req.branchId]);res.json(rows)
+}
+const originalPatientDetails=async(req,res)=>{
+  const patientId=Number(req.params.id)
+  if(!validId(patientId))return res.status(400).json({message:'Invalid patient.'})
+  const [[patient]]=await db.query(`SELECT p.id,p.full_name,p.birthdate,p.gender,p.sex,p.civil_status,p.phone,p.address,p.email,p.created_at,p.profile_image_url,p.is_walk_in FROM patients p WHERE p.id=? AND EXISTS
+    (SELECT 1 FROM appointments a WHERE a.patient_id=p.id AND a.branch_id=?)`,[patientId,req.branchId])
+  if(!patient)return res.status(404).json({message:'Patient not found in this branch.'})
+  const [history]=await db.query(`SELECT a.*,DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,
+      d.full_name AS doctor_name,c.diagnosis,c.prescription,c.notes AS consultation_notes
+      FROM appointments a JOIN doctors d ON d.id=a.doctor_id
+      LEFT JOIN consultations c ON c.appointment_id=a.id AND c.branch_id=a.branch_id
+      WHERE a.patient_id=? AND a.branch_id=? ORDER BY a.appointment_date DESC LIMIT 500`,[patientId,req.branchId])
+  res.json({patient,history})
+}
+const originalDoctors=async(req,res)=>{
+  const [rows]=await db.query('SELECT id,full_name,full_name AS name,email,phone,specialty,clinic_type,clinic_type AS type,prc_license,is_active,created_at FROM doctors WHERE branch_id=? ORDER BY full_name',[req.branchId]);res.json(rows)
+}
+const originalStaff=async(req,res)=>{
+  const [rows]=await db.query('SELECT id,full_name,email,phone,role,status,created_at FROM staff WHERE branch_id=? ORDER BY full_name',[req.branchId]);
+  const [permissions]=await db.query(`SELECT sp.staff_id,sp.permission_key FROM staff_permissions sp JOIN staff s ON s.id=sp.staff_id WHERE s.branch_id=? AND sp.granted=1`,[req.branchId]);
+  res.json(rows.map(row=>({...row,permissions:permissions.filter(p=>Number(p.staff_id)===Number(row.id)).map(p=>p.permission_key)})))
+}
+const originalDoctorSchedules=async(req,res)=>{
+  const doctorId=Number(req.params.id)
+  if(!validId(doctorId))return res.status(400).json({message:'Invalid doctor.'})
+  const [[doctor]]=await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=?',[doctorId,req.branchId])
+  if(!doctor)return res.status(404).json({message:'Doctor not found in this branch.'})
+  const [rows]=await db.query('SELECT * FROM doctor_schedules WHERE doctor_id=? ORDER BY day_of_week',[doctorId]);res.json(rows)
+}
+const originalServices=async(req,res)=>{
+  const [rows]=await db.query(`SELECT * FROM billing_service_catalog WHERE branch_id=? ORDER BY created_at,id LIMIT 500`,[req.branchId]);res.json(rows)
+}
+const originalInventory=async(req,res)=>{
+  const [rows]=await db.query('SELECT * FROM inventory WHERE branch_id=? ORDER BY name LIMIT 500',[req.branchId]);res.json(rows)
+}
+for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
+  router.get(`${prefix}/dashboard`,...middle,requirePermission('dashboard'),originalDashboard)
+  router.get(`${prefix}/appointments`,...middle,requirePermission('appointments'),originalAppointments)
+  router.get(`${prefix}/patients`,...middle,allowAnyPermission('patient_records','appointments'),originalPatients)
+  router.get(`${prefix}/patients/:id`,...middle,requirePermission('patient_records'),originalPatientDetails)
+  router.get(`${prefix}/doctors`,...middle,allowAnyPermission('doctor_schedules','accounts','appointments'),originalDoctors)
+  router.get(`${prefix}/doctors/:id/schedules`,...middle,requirePermission('doctor_schedules'),originalDoctorSchedules)
+  router.get(`${prefix}/staff`,...middle,requirePermission('accounts'),originalStaff)
+  const validateDelegation=(req,res,next)=>{
+    if(req.adminContext.account_role==='superadmin')return next()
+    if(!Object.prototype.hasOwnProperty.call(req.body||{},'permissions'))return next()
+    const allowed=new Set(req.adminPermissions)
+    if(allowed.has('billing'))allowed.add('checkout')
+    // Branch administrators cannot delegate global website management.
+    if(!Array.isArray(req.body.permissions) || req.body.permissions.some(p=>p==='landing_page'||!allowed.has(p)))
+      return res.status(403).json({message:'You cannot grant staff permissions beyond your assigned branch access.'})
+    next()
+  }
+  const ownedPerson=(table,permission,controller)=>[...middle,requirePermission(permission),async(req,res,next)=>{
+    const id=Number(req.params.id)
+    if(!validId(id))return res.status(400).json({message:'Invalid account.'})
+    const [[person]]=await db.query(`SELECT id FROM ${table} WHERE id=? AND branch_id=?`,[id,req.branchId])
+    if(!person)return res.status(404).json({message:'Account not found in your branch.'})
+    return Promise.resolve(controller(req,res)).catch(next)
+  }]
+  router.post(`${prefix}/staff`,...middle,requirePermission('accounts'),validateDelegation,(req,res,next)=>Promise.resolve(oldAdmin.createStaff(req,res)).catch(next))
+  router.put(`${prefix}/staff/:id`,validateDelegation,...ownedPerson('staff','accounts',oldAdmin.updateStaff))
+  router.patch(`${prefix}/staff/:id/toggle`,...ownedPerson('staff','accounts',oldAdmin.toggleStaff))
+  router.post(`${prefix}/doctors`,...middle,requirePermission('accounts'),(req,res,next)=>Promise.resolve(oldAdmin.createDoctor(req,res)).catch(next))
+  router.put(`${prefix}/doctors/:id`,...ownedPerson('doctors','accounts',oldAdmin.updateDoctor))
+  router.patch(`${prefix}/doctors/:id/toggle`,...ownedPerson('doctors','accounts',oldAdmin.toggleDoctor))
+  router.put(`${prefix}/doctors/:id/schedules`,...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDaySchedule))
+  router.get(`${prefix}/doctors/:id/unavailable-dates`,...ownedPerson('doctors','doctor_schedules',oldAdmin.getDoctorUnavailableDatesAdmin))
+  router.get(`${prefix}/doctors/:id/available-slots`,...ownedPerson('doctors','doctor_schedules',oldAdmin.getAppointmentAvailableSlotsAdmin))
+  router.put(`${prefix}/doctors/:id/unavailable-dates`,...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDoctorUnavailableDateAdmin))
+  router.delete(`${prefix}/doctors/:id/unavailable-dates/:date`,...ownedPerson('doctors','doctor_schedules',oldAdmin.deleteDoctorUnavailableDateAdmin))
+  router.get(`${prefix}/appointment-reasons`,...middle,requirePermission('appointments'),async(req,res)=>{
+    const [rows]=await db.query(`SELECT id,label,clinic_type,is_active,created_at FROM appointment_reason_options WHERE branch_id=? ORDER BY label`,[req.branchId]);res.json(rows)
+  })
+  router.get(`${prefix}/appointment-cancellation-reasons`,...middle,requirePermission('appointments'),async(req,res)=>{
+    const [rows]=await db.query(`SELECT id,label,is_active,created_at FROM appointment_cancellation_reasons WHERE branch_id=? ORDER BY created_at,id`,[req.branchId]);res.json(rows)
+  })
+
+  router.get(`${prefix}/billing/catalog`,...middle,allowAnyPermission('system_setup','appointments','billing'),originalServices)
+  router.get(`${prefix}/inventory`,...middle,allowAnyPermission('inventory','billing'),originalInventory)
+  router.get(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),getBookingPolicy)
+  router.put(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),saveBookingPolicy)
+  // Existing appointment transitions retain their original payload and status codes.
+  for(const [action,controller] of Object.entries({confirm:oldAdmin.confirmAppointment,cancel:oldAdmin.cancelAppointment,'no-show':oldAdmin.markAppointmentNoShow,reschedule:oldAdmin.rescheduleAppointment})){
+   router.patch(`${prefix}/appointments/:appointmentId/${action}`,...middle,...ownedAppointmentAction(controller))
+  }
+}
+
+// Branch-scoped read handlers preserve the original Admin UI response shapes.
+require('./branchOperationalReads').registerBranchOperationalReads(router,{requireSuper,branchContext,requirePermission,allowAnyPermission})
+require('./branchReports').registerBranchReports(router,{requireSuper,branchContext,requirePermission})
+require('./branchAudit').registerBranchAudit(router,{requireSuper,branchContext,requirePermission})
+require('./branchPromotions').registerBranchPromotions(router,{requireSuper,branchContext,requirePermission})
+
+require('./branchSystemWrites').registerBranchSystemWrites(router,{requireSuper,branchContext,requirePermission})
+
+// Always return JSON for unsupported branch operations. Vite must never disguise
+// an unimplemented API as an HTML page and a confusing JSON parse failure.
+router.all('/my/legacy/*',branchContext,(req,res)=>res.status(501).json({
+  code:'BRANCH_OPERATION_NOT_READY',
+  message:'This action requires branch-safe transaction integration and is not available yet. No changes were made.'
+}))
+router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=>res.status(501).json({
+  code:'BRANCH_OPERATION_NOT_READY',
+  message:'This action requires branch-safe transaction integration and is not available yet. No changes were made.'
+}))
+
 module.exports={router,PERMISSIONS,forbidden}

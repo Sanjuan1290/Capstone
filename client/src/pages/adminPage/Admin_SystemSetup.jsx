@@ -232,7 +232,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500"><p className="font-semibold text-slate-700">{row.contact_person || '—'}</p><p className="mt-1 text-xs">{row.contact_number || 'No contact number'}</p></td>}
                   {type === 'suppliers' && <td className="max-w-xs px-5 py-4 text-slate-500">{row.address || '—'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{supplierClinicLabel(row.category)}</td>}
-                  {type === 'movement_reasons' && <td className="px-5 py-4 text-slate-500"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${row.movement_type === 'in' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{row.movement_type === 'in' ? 'Stock In' : 'Stock Out'}</span>{Number(row.is_system) === 1 && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">System</span>}</td>}
+                  {type === 'movement_reasons' && <td className="px-5 py-4 text-slate-500"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${row.movement_type === 'in' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{row.movement_type === 'in' ? 'Stock In' : 'Stock Out'}</span></td>}
                   {type === 'movement_reasons' && <td className="px-5 py-4 text-slate-500">{Number(row.requires_batch) === 1 ? 'Exact batch required' : 'Standard batch flow'}</td>}
                   <td className="px-5 py-4">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${Number(row.is_active) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>

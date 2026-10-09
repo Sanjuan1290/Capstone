@@ -268,7 +268,8 @@ const auditPresentation = (row) => {
 
 const Admin_AuditLogs = () => {
   const { role } = useAuth()
-  const portalBase = role === 'staff' ? '/staff' : '/admin'
+  const workspaceMatch = typeof window !== 'undefined' ? window.location.pathname.match(/^\/superadmin\/branches\/\d+/) : null
+  const portalBase = workspaceMatch ? workspaceMatch[0] : role === 'staff' ? '/staff' : '/admin'
   const canArchive = role === 'admin'
   const toast = useToast()
   const [data, setData] = useState({ items: [], pagination: { page: 1, totalPages: 1, total: 0, limit: 20 } })
@@ -276,6 +277,7 @@ const Admin_AuditLogs = () => {
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
   const [filters, setFilters] = useState({ search: '', start_date: '', end_date: '', user_role: '', area: '', action: '', direction: 'desc' })
+  const [searchDraft, setSearchDraft] = useState('')
 
   const load = useCallback(async ({ signal } = {}) => {
     setLoading(true)
@@ -293,6 +295,8 @@ const Admin_AuditLogs = () => {
     load({ signal: controller.signal })
     return () => controller.abort()
   }, [load])
+
+  useEffect(() => { const timer = setTimeout(() => { if (searchDraft !== filters.search) { setPage(1); setFilters(previous => ({ ...previous, search: searchDraft })) } }, 350); return () => clearTimeout(timer) }, [searchDraft, filters.search])
 
   const update = (key, value) => { setPage(1); setFilters((prev) => ({ ...prev, [key]: value })) }
   const selectedPresentation = selected ? auditPresentation(selected) : null
@@ -316,16 +320,17 @@ const Admin_AuditLogs = () => {
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
-          <label className="relative md:col-span-2"><span className="sr-only">Search audit logs</span><MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input className="form-control pl-11" placeholder="Search activity, person, item, or reference…" value={filters.search} onChange={(e) => update('search', e.target.value)} /></label>
-          <label><span className="form-label">From date</span><input type="date" className="form-control mt-1.5" value={filters.start_date} onChange={(e) => update('start_date', e.target.value)} /></label>
-          <label><span className="form-label">To date</span><input type="date" className="form-control mt-1.5" value={filters.end_date} onChange={(e) => update('end_date', e.target.value)} /></label>
-          <label><span className="form-label">Role</span><select className="form-control mt-1.5" value={filters.user_role} onChange={(e) => update('user_role', e.target.value)}><option value="">All roles</option><option value="admin">Admin</option><option value="staff">Staff</option><option value="doctor">Doctor</option><option value="patient">Patient</option><option value="system">System</option></select></label>
-          <label><span className="form-label">Area</span><select className="form-control mt-1.5" value={filters.area} onChange={(e) => update('area', e.target.value)}><option value="">All areas</option>{AREA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <label><span className="form-label">Sort</span><select className="form-control mt-1.5" value={filters.direction} onChange={(e) => update('direction', e.target.value)}><option value="desc">Newest activity first</option><option value="asc">Oldest activity first</option></select></label>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-12">
+          <label className="flex min-w-0 flex-col gap-1.5 sm:col-span-2 xl:col-span-4"><span className="form-label">Search Activity</span><div className="relative"><MdSearch className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input className="form-control w-full pl-11" placeholder="Activity, person, item, or reference…" value={searchDraft} onChange={(e) => setSearchDraft(e.target.value)} /></div></label>
+          <label className="flex min-w-0 flex-col gap-1.5 xl:col-span-2"><span className="form-label">From Date</span><input type="date" className="form-control w-full" value={filters.start_date} onChange={(e) => update('start_date', e.target.value)} /></label>
+          <label className="flex min-w-0 flex-col gap-1.5 xl:col-span-2"><span className="form-label">To Date</span><input type="date" className="form-control w-full" value={filters.end_date} onChange={(e) => update('end_date', e.target.value)} /></label>
+          <label className="flex min-w-0 flex-col gap-1.5 xl:col-span-2"><span className="form-label">User Role</span><select className="form-control w-full" value={filters.user_role} onChange={(e) => update('user_role', e.target.value)}><option value="">All Roles</option><option value="admin">Admin</option><option value="staff">Staff</option><option value="doctor">Doctor</option><option value="patient">Patient</option><option value="system">System</option></select></label>
+          <label className="flex min-w-0 flex-col gap-1.5 xl:col-span-2"><span className="form-label">Area</span><select className="form-control w-full" value={filters.area} onChange={(e) => update('area', e.target.value)}><option value="">All Areas</option>{AREA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         </div>
-        <div className="mt-3 flex justify-end"><button type="button" className="button-secondary" onClick={() => { setPage(1); setFilters({ search: '', start_date: '', end_date: '', user_role: '', area: '', action: '', direction: 'desc' }) }}>Reset Filters</button></div>
-
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+          <label className="flex min-w-[190px] flex-col gap-1.5"><span className="form-label">Sort</span><select className="form-control w-full" value={filters.direction} onChange={(e) => update('direction', e.target.value)}><option value="desc">Newest first</option><option value="asc">Oldest first</option></select></label>
+          <button type="button" className="button-secondary" onClick={() => { setPage(1); setSearchDraft(''); setFilters({ search: '', start_date: '', end_date: '', user_role: '', area: '', action: '', direction: 'desc' }) }}>Reset Filters</button>
+        </div>
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-400"><tr><th className="px-3 py-3">Date / Time</th><th className="px-3 py-3">Activity</th><th className="px-3 py-3">Area</th><th className="px-3 py-3">Performed By</th><th className="px-3 py-3"></th></tr></thead>

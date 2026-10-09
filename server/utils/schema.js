@@ -1446,6 +1446,7 @@ const ensureAppSchema = async () => {
   await ensureColumn('admins', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('admins', 'profile_image_url', "TEXT NULL")
 
+  await ensureColumn('admins', 'phone', 'VARCHAR(30) NULL')
   await ensureColumn('admins', 'session_version', "INT NOT NULL DEFAULT 1")
   await ensureColumn('staff', 'session_version', "INT NOT NULL DEFAULT 1")
   await ensureColumn('doctors', 'session_version', "INT NOT NULL DEFAULT 1")

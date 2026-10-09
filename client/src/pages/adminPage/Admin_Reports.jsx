@@ -180,7 +180,7 @@ const Admin_Reports = () => {
     try {
       setData(await getReports(appliedRange))
     } catch (err) {
-      const message = 'Unable to load reports right now. Please try again.'
+      const message = err?.message || 'Unable to load reports right now. Please try again.'
       console.error('Reports load error:', err)
       setError(message)
       toast.error(message)

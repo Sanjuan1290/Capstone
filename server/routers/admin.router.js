@@ -19,8 +19,8 @@ const requireLegacySuperAdmin = async (req,res,next) => {
   } catch(e){next(e)}
 }
 
-const accountAuth = [authenticate('admin_token'), requireRole('admin')]
-const auth = [...accountAuth, requireLegacySuperAdmin]
+const accountAuth = [authenticate.adminContext(), requireRole('admin')]
+const auth = [authenticate.adminContext(true), requireRole('admin'), requireLegacySuperAdmin]
 const promotionsCtrl = require('../controllers/promotions.controller')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────

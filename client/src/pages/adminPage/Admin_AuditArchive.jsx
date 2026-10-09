@@ -9,7 +9,7 @@ import Pagination from '../../components/ui/Pagination'
 import Modal from '../../components/ui/Modal'
 
 const fmt=(v)=>v?new Date(v).toLocaleString('en-PH'):'—'
-const Admin_AuditArchive=()=>{const {role}=useAuth();const portalBase=role==='staff'?'/staff':'/admin';const canDelete=role==='admin';
+const Admin_AuditArchive=()=>{const {role}=useAuth();const workspace=typeof window!=='undefined'&&window.location.pathname.match(/^\/superadmin\/branches\/\d+/);const portalBase=workspace?workspace[0]:role==='staff'?'/staff':'/admin';const canDelete=false; // Clinic audit archives are retained; no permanent deletion from branch workspaces.
   const toast=useToast();const [page,setPage]=useState(1),[data,setData]=useState({items:[],pagination:{}}),[loading,setLoading]=useState(true),[error,setError]=useState(''),[candidate,setCandidate]=useState(null),[reason,setReason]=useState(''),[confirmation,setConfirmation]=useState(''),[deleting,setDeleting]=useState(false)
   const load=async()=>{setLoading(true);setError('');try{setData(await getAuditArchives({page,limit:10}))}catch(e){setError(e.message||'Could not load audit archive.')}finally{setLoading(false)}}
   useEffect(()=>{load()},[page]) // eslint-disable-line react-hooks/exhaustive-deps

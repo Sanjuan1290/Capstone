@@ -24,7 +24,8 @@ const minBirthdate = () => { const d = new Date(); d.setFullYear(d.getFullYear()
 
 const SettingsPage = () => {
   const navigate = useNavigate()
-  const { role, setUser } = useAuth()
+  const { role: accountRole, setUser } = useAuth()
+  const role = accountRole === 'superadmin' ? 'admin' : accountRole
   const [form, setForm] = useState(null)
   const [original, setOriginal] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -58,7 +59,7 @@ const SettingsPage = () => {
     try {
       const data = await getSettings(role)
       setForm(data); setOriginal(data); setEditing(false)
-      if (role === 'admin') {
+      if (role === 'superadmin') {
         const clinicData = { ...CLINIC_EMPTY, ...(await getClinicSettings()) }
         setClinic(clinicData); setClinicOriginal(clinicData); setClinicEditing(false)
       }
@@ -112,11 +113,11 @@ const SettingsPage = () => {
       if (!form.gender) return setError('Gender is required.')
       if (!String(form.address || '').trim()) return setError('Address is required.')
     }
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'superadmin') {
       setSaving(true); setError('')
       const payload = { full_name: form.full_name, email: form.email, profile_image_url: form.profile_image_url }
       try {
-        const response = await fetch('/api/admin/settings/verification/request', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        const response = await fetch('/api/admin/settings/verification/request', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...(role === 'superadmin' ? {'X-Admin-Portal':'superadmin'} : {}) }, body: JSON.stringify(payload) })
         const data = await response.json()
         if (!response.ok) throw new Error(data.message || 'Could not send verification code.')
         setAdminPendingProfile(payload); setAdminVerifyStage('current_email'); setAdminVerifyCode(''); setAdminVerifyMessage(data.message || 'Verification code sent.'); setAdminVerifyOpen(true)
@@ -139,7 +140,7 @@ const SettingsPage = () => {
     if (adminVerifyCode.length !== 6) return setAdminVerifyMessage('Enter the 6-digit verification code.')
     setSaving(true); setAdminVerifyMessage('')
     try {
-      const response = await fetch('/api/admin/settings/verification/confirm', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage: adminVerifyStage, code: adminVerifyCode }) })
+      const response = await fetch('/api/admin/settings/verification/confirm', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...(role === 'superadmin' ? {'X-Admin-Portal':'superadmin'} : {}) }, body: JSON.stringify({ stage: adminVerifyStage, code: adminVerifyCode }) })
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || 'Verification failed.')
       if (data.requires_new_email) {
@@ -148,7 +149,7 @@ const SettingsPage = () => {
       }
       const saved = data.settings || adminPendingProfile
       setForm((prev) => ({ ...prev, ...saved })); setOriginal((prev) => ({ ...prev, ...saved })); setEditing(false)
-      setUser((prev) => prev ? { ...prev, ...saved, role: 'admin' } : prev)
+      setUser((prev) => prev ? { ...prev, ...saved, role } : prev)
       setAdminVerifyOpen(false); setAdminPendingProfile(null); setAdminVerifyCode(''); setAdminVerifyMessage('')
     } catch (err) { setAdminVerifyMessage(err.message || 'Verification failed.') }
     finally { setSaving(false) }
@@ -253,7 +254,7 @@ const SettingsPage = () => {
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1.5"><span className="form-label">Full Name *</span><input value={form.full_name || ''} onChange={onChange('full_name')} className="form-control"/></label>
-              {'email' in form && <label className="space-y-1.5"><span className="form-label">Email {['patient','admin'].includes(role) ? '*' : ''}</span><input type="email" required={['patient','admin'].includes(role)} value={form.email || ''} onChange={onChange('email')} className="form-control"/>{role === 'admin' && <span className="form-helper">Saving personal information requires verification. Email changes are verified at both your current and new email addresses.</span>}</label>}
+              {'email' in form && <label className="space-y-1.5"><span className="form-label">Email {['patient','admin','superadmin'].includes(role) ? '*' : ''}</span><input type="email" required={['patient','admin','superadmin'].includes(role)} value={form.email || ''} onChange={onChange('email')} className="form-control"/>{['admin','superadmin'].includes(role) && <span className="form-helper">Saving personal information requires verification. Email changes are verified at both your current and new email addresses.</span>}</label>}
               {'phone' in form && role !== 'patient' && <label className="space-y-1.5"><span className="form-label">Phone</span><PhilippinePhoneInput value={form.phone || ''} onChange={onChange('phone')}/></label>}
               {role === 'patient' && <div className="space-y-1.5"><span className="form-label">Mobile Number *</span><PhilippinePhoneInput value={form.phone || ''} disabled/><button type="button" onClick={openPhoneChange} className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700"><MdPhoneAndroid/> Change mobile number securely</button></div>}
               {role === 'doctor' && <div className="space-y-1.5 md:col-span-2"><span className="form-label">Clinic Assignment</span><div className="form-control bg-slate-100 text-slate-600">{doctorClinicLabel(form)}</div><span className="form-helper">Clinic Assignment is managed by an Administrator.</span></div>}
@@ -268,12 +269,12 @@ const SettingsPage = () => {
         </section>
       </div>
 
-      {role === 'admin' && <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      {role === 'superadmin' && <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-start justify-between gap-3"><div><h2 className="flex items-center gap-2 text-base font-bold text-slate-900"><MdBusiness/> Clinic Information</h2><p className="mt-1 text-xs text-slate-500">Clinic branding used on reports, receipts, prescriptions, and public information.</p></div>{!clinicEditing && <button className="button-secondary" onClick={() => setClinicEditing(true)}><MdEdit/> Edit</button>}</div>
         {!clinicEditing ? <div className="mt-5 divide-y divide-slate-100 rounded-2xl border border-slate-200">{[['Clinic Name',clinic.clinic_name],['Address',clinic.address],['Phone',clinic.phone],['Email',clinic.email],['Report Footer',clinic.report_footer],['Receipt Footer',clinic.receipt_footer]].map(([k,v])=><div key={k} className="grid gap-1 px-4 py-3 sm:grid-cols-[180px_1fr]"><span className="text-xs font-bold uppercase tracking-wider text-slate-400">{k}</span><span className="text-sm text-slate-700">{v || '—'}</span></div>)}</div> : <div className="mt-5 grid gap-4 md:grid-cols-2">{['clinic_name','address','phone','email'].map((key)=><label key={key} className={key==='clinic_name'||key==='address'?'md:col-span-2':''}><span className="form-label">{key.replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}{key==='clinic_name'?' *':''}</span><input type={key==='email'?'email':'text'} className="form-control mt-1.5" value={clinic[key]||''} onChange={(e)=>setClinic(p=>({...p,[key]:e.target.value}))}/></label>)}<label className="md:col-span-2"><span className="form-label">Report Footer</span><textarea rows={2} className="form-control mt-1.5" value={clinic.report_footer||''} onChange={(e)=>setClinic(p=>({...p,report_footer:e.target.value}))}/></label><label className="md:col-span-2"><span className="form-label">Receipt Footer</span><textarea rows={2} className="form-control mt-1.5" value={clinic.receipt_footer||''} onChange={(e)=>setClinic(p=>({...p,receipt_footer:e.target.value}))}/></label><div className="md:col-span-2 flex justify-end gap-2"><button className="button-secondary" onClick={()=>{setClinic(clinicOriginal);setClinicEditing(false)}}>Cancel</button><button className="button-primary" disabled={clinicSaving} onClick={saveClinic}><MdSave/> {clinicSaving?'Saving...':'Save Changes'}</button></div></div>}
       </section>}
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="font-bold text-slate-900">Account Security</h2><p className="mt-1 text-sm text-slate-500">Change your password using current-password verification followed by an email code.</p></div><button type="button" className="button-secondary" onClick={() => navigate(`/${role}/change-password`)}>Change Password</button></div></section>
+      <section className="rounded-3xl border border-slate-200 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="font-bold text-slate-900">Account Security</h2><p className="mt-1 text-sm text-slate-500">Change your password using current-password verification followed by an email code.</p></div><button type="button" className="button-secondary" onClick={() => navigate(`/${accountRole}/change-password`)}>Change Password</button></div></section>
 
       <Modal open={adminVerifyOpen} onClose={() => !saving && setAdminVerifyOpen(false)} title="Verify Personal Information" description={adminVerifyStage === 'current_email' ? 'Enter the code sent to your current administrator email.' : 'Enter the second code sent to your new email address.'} size="md">
         <div className="space-y-4">

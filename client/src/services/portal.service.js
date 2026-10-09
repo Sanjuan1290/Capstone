@@ -1,15 +1,22 @@
 import { makeSecurityScanError, waitForSecurityScan } from './cloudinaryScan'
 const request = async (role, path = '', options = {}) => {
-  const res = await fetch(`/api/${role}${path}`, {
+  const apiRole = role === 'superadmin' ? 'admin' : role
+  const notificationPath = role === 'admin' && path.startsWith('/notifications')
+    ? `/api/branches/my${path}` : `/api/${apiRole}${path}`
+  const res = await fetch(notificationPath, {
     credentials: 'include',
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(role === 'superadmin' ? { 'X-Admin-Portal': 'superadmin' } : {}),
       ...(options.headers || {}),
     },
   })
 
-  const data = await res.json()
+  const contentType = res.headers.get('content-type') || ''
+  if (!contentType.toLowerCase().includes('application/json')) throw new Error(res.status === 404 ? 'Settings endpoint is unavailable. Check the API server or proxy.' : 'Unable to load settings. The server did not return valid account information.')
+  let data
+  try { data = await res.json() } catch { throw new Error('Unable to read the server response. Please retry.') }
   if (!res.ok) { const err = new Error(data.message || 'Request failed'); Object.assign(err, data); throw err }
   return data
 }

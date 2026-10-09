@@ -479,15 +479,29 @@ const login = async (req, res) => {
     return res.status(401).json({ message: 'Invalid email or password.' })
   }
 
+  // A Super Admin and a Branch Admin are separate portals. Validate the requested
+  // destination before sending an MFA challenge or issuing any authenticated cookie.
+  const requestedPortal = req.body?.portal
+  const actualPortal = admin.account_role === 'superadmin' ? 'superadmin' : 'admin'
+  if (requestedPortal && requestedPortal !== actualPortal) {
+    return res.status(403).json({
+      code: 'WRONG_ADMIN_PORTAL',
+      message: actualPortal === 'superadmin'
+        ? 'This account belongs to the Super Admin portal. Please use the Super Admin sign-in page.'
+        : 'This account belongs to the Branch Admin portal. Please use the Branch Admin sign-in page.',
+    })
+  }
+
+
   if (String(process.env.ADMIN_MFA_ENABLED || 'true').toLowerCase() !== 'false') {
     await requestAdminMfa(admin)
     await writeAuditLog({ userId: admin.id, userRole: req.user?.role || 'admin', action: 'auth.mfa_challenge_sent', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
     const pendingToken = jwt.sign(
-      { id: admin.id, role: 'admin_mfa', session_version: Number(admin.session_version || 1) },
+      { id: admin.id, role: 'admin_mfa', portal: actualPortal, session_version: Number(admin.session_version || 1) },
       process.env.JWT_SECRET,
       { expiresIn: '10m' }
     )
-    res.cookie('admin_mfa_pending', pendingToken, {
+    res.cookie(actualPortal === 'superadmin' ? 'superadmin_mfa_pending' : 'admin_mfa_pending', pendingToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'Lax',
@@ -506,11 +520,19 @@ const login = async (req, res) => {
 }
 
 const verifyLoginMfa = async (req, res) => {
-  const pending = req.cookies?.admin_mfa_pending
+  const requestedPortal = req.body?.portal
+  const pendingCookie = requestedPortal === 'superadmin' ? 'superadmin_mfa_pending' : 'admin_mfa_pending'
+  // Compatibility with older clients that do not send a portal identifier.
+  const pending = requestedPortal
+    ? req.cookies?.[pendingCookie]
+    : (req.cookies?.admin_mfa_pending || req.cookies?.superadmin_mfa_pending)
   if (!pending) return res.status(401).json({ message: 'Administrator sign-in session expired. Please sign in again.' })
   try {
     const decoded = jwt.verify(pending, process.env.JWT_SECRET)
     if (decoded.role !== 'admin_mfa') return res.status(401).json({ message: 'Invalid sign-in session.' })
+    if (req.body?.portal && decoded.portal && req.body.portal !== decoded.portal) {
+      return res.status(403).json({ code: 'WRONG_ADMIN_PORTAL', message: 'This security code belongs to the other administrator sign-in page. Please restart sign-in.' })
+    }
     const [rows] = await db.query('SELECT id, full_name, email, account_role, branch_id, theme_preference, profile_image_url, COALESCE(session_version,1) AS session_version FROM admins WHERE id = ? LIMIT 1', [decoded.id])
     if (!rows.length || Number(decoded.session_version || 0) !== Number(rows[0].session_version || 1)) {
       return res.status(401).json({ message: 'Administrator sign-in session expired. Please sign in again.' })
@@ -519,7 +541,7 @@ const verifyLoginMfa = async (req, res) => {
     await issueSession(res, 'admin', decoded.id)
     await writeAuditLog({ userId: decoded.id, userRole: req.user?.role || 'admin', action: 'auth.mfa_verified', entityType: 'admin', entityId: decoded.id, ipAddress: req.ip || null }).catch(() => {})
     await writeAuditLog({ userId: decoded.id, userRole: req.user?.role || 'admin', action: 'auth.login_success', entityType: 'admin', entityId: decoded.id, ipAddress: req.ip || null }).catch(() => {})
-    res.clearCookie('admin_mfa_pending', { path: '/' })
+    res.clearCookie(decoded.portal === 'superadmin' ? 'superadmin_mfa_pending' : 'admin_mfa_pending', { path: '/' })
     const admin = rows[0]
     return res.json({
       message: 'Login successful.',
@@ -531,23 +553,26 @@ const verifyLoginMfa = async (req, res) => {
 }
 
 const checkAuth = async (req, res) => {
-  const token = req.cookies['admin_token']
+  const isSuper = req.query?.portal === 'superadmin'
+  const cookieName = isSuper ? 'superadmin_token' : 'admin_token'
+  const token = req.cookies[cookieName]
   if (!token) return res.status(200).json({ authenticated: false })
   try {
     const decoded = await verifySessionToken(token, 'admin')
     const [rows] = await db.query('SELECT id, full_name, email, account_role, branch_id, theme_preference, profile_image_url FROM admins WHERE id = ?', [decoded.id])
-    if (rows.length === 0) return res.status(200).json({ authenticated: false })
+    if (rows.length === 0 || (rows[0].account_role === 'superadmin') !== isSuper) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'admin' } })
   } catch {
-    res.clearCookie('admin_token', { path: '/' })
+    res.clearCookie(cookieName, { path: '/' })
     res.status(200).json({ authenticated: false })
   }
 }
 
 const logout = async (req, res) => {
   await writeAuditLog({ userId: req.user?.id || null, userRole: req.user?.role || 'admin', action: 'auth.logout', entityType: 'admin', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
-  res.clearCookie('admin_token', { path: '/' })
+  res.clearCookie(req.query?.portal === 'superadmin' ? 'superadmin_token' : 'admin_token', { path: '/' })
   res.clearCookie('admin_mfa_pending', { path: '/' })
+  res.clearCookie('superadmin_mfa_pending', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })
 }
 
@@ -1115,15 +1140,19 @@ const createStaff = async (req, res) => {
   try {
     await conn.beginTransaction()
     const [result] = await conn.query(
-      'INSERT INTO staff (full_name, email, phone, password, role, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
-      [String(full_name).trim(), String(email).trim(), normalizedPhone, hashed, 'staff', 'active']
+      req.branchId
+        ? 'INSERT INTO staff (full_name, email, phone, password, role, status, must_change_password, branch_id) VALUES (?, ?, ?, ?, ?, ?, 1, ?)'
+        : 'INSERT INTO staff (full_name, email, phone, password, role, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
+      req.branchId
+        ? [String(full_name).trim(), String(email).trim(), normalizedPhone, hashed, 'staff', 'active', req.branchId]
+        : [String(full_name).trim(), String(email).trim(), normalizedPhone, hashed, 'staff', 'active']
     )
     staffId = result.insertId
     await replaceStaffPermissions(staffId, permissions, conn)
     await writeAuditLog({
       userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.staff_created',entityType:'staff',entityId:staffId,
       newValues:{full_name:String(full_name).trim(),email:String(email).trim(),phone:normalizedPhone,status:'active',must_change_password:true,permissions},
-      ipAddress:req.ip||null,
+      branchId:req.branchId||null,ipAddress:req.ip||null,
     }, conn)
     await conn.commit()
   } catch (error) {
@@ -1146,7 +1175,7 @@ const toggleStaff = async (req, res) => {
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   const newStatus = rows[0].status === 'active' ? 'inactive' : 'active'
   await db.query('UPDATE staff SET status = ?, session_version = COALESCE(session_version,1) + 1 WHERE id = ?', [newStatus, req.params.id])
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:`account.staff_${newStatus === 'active' ? 'enabled' : 'disabled'}`,entityType:'staff',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:newStatus,sessions_revoked:true},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:`account.staff_${newStatus === 'active' ? 'enabled' : 'disabled'}`,entityType:'staff',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:newStatus,sessions_revoked:true},branchId:req.branchId||null,ipAddress:req.ip||null }).catch(() => {})
   res.json({ status: newStatus })
 }
 
@@ -1185,7 +1214,7 @@ const updateStaff = async (req, res) => {
       userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.staff_updated',entityType:'staff',entityId:req.params.id,
       oldValues: permissionChanged ? { permissions: currentPermissions } : null,
       newValues:{full_name:String(full_name).trim(),email:String(email).trim(),phone:normalizedPhone,permissions:nextPermissions || currentPermissions,sessions_revoked:permissionChanged},
-      ipAddress:req.ip||null,
+      branchId:req.branchId||null,ipAddress:req.ip||null,
     }, conn)
     await conn.commit()
   } catch (error) {
@@ -1224,13 +1253,17 @@ const createDoctor = async (req, res) => {
   const hashed = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
     // FIX 3: save prc_license (requires migration_add_prc_license.sql)
-    'INSERT INTO doctors (full_name, email, phone, clinic_type, prc_license, password, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
-    [full_name, email, normalizedPhone, clinic_type, prc_license || null, hashed]
+    req.branchId
+      ? 'INSERT INTO doctors (full_name, email, phone, clinic_type, prc_license, password, must_change_password, branch_id) VALUES (?, ?, ?, ?, ?, ?, 1, ?)'
+      : 'INSERT INTO doctors (full_name, email, phone, clinic_type, prc_license, password, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
+    req.branchId
+      ? [full_name, email, normalizedPhone, clinic_type, prc_license || null, hashed, req.branchId]
+      : [full_name, email, normalizedPhone, clinic_type, prc_license || null, hashed]
   )
   const [rows] = await db.query(
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,clinic_type,prc_license,is_active:true,must_change_password:true},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,clinic_type,prc_license,is_active:true,must_change_password:true},branchId:req.branchId||null,ipAddress:req.ip||null }).catch(() => {})
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/doctor/login`
     await sendTempPassword(email, full_name, 'Doctor', tempPassword, loginUrl)
@@ -1245,7 +1278,7 @@ const toggleDoctor = async (req, res) => {
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   const newVal = rows[0].is_active ? 0 : 1
   await db.query('UPDATE doctors SET is_active = ?, session_version = COALESCE(session_version,1) + 1 WHERE id = ?', [newVal, req.params.id])
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:`account.doctor_${newVal ? 'enabled' : 'disabled'}`,entityType:'doctor',entityId:req.params.id,oldValues:{is_active:rows[0].is_active},newValues:{is_active:newVal,sessions_revoked:true},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:`account.doctor_${newVal ? 'enabled' : 'disabled'}`,entityType:'doctor',entityId:req.params.id,oldValues:{is_active:rows[0].is_active},newValues:{is_active:newVal,sessions_revoked:true},branchId:req.branchId||null,ipAddress:req.ip||null }).catch(() => {})
   res.json({ is_active: newVal })
 }
 
@@ -1274,7 +1307,7 @@ const updateDoctor = async (req, res) => {
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?',
     [req.params.id]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,clinic_type,prc_license},ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,clinic_type,prc_license},branchId:req.branchId||null,ipAddress:req.ip||null }).catch(() => {})
   res.json(updated[0])
 }
 

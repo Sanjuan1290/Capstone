@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 const AuthContext = createContext()
 
 const ENDPOINT_MAP = {
-  superadmin: '/api/admin/check-auth',
+  superadmin: '/api/admin/check-auth?portal=superadmin',
   admin: '/api/admin/check-auth',
   staff: '/api/staff/check-auth',
   doctor: '/api/doctor/check-auth',
@@ -11,7 +11,7 @@ const ENDPOINT_MAP = {
 }
 
 const LOGOUT_MAP = {
-  superadmin: '/api/admin/logout',
+  superadmin: '/api/admin/logout?portal=superadmin',
   admin: '/api/admin/logout',
   staff: '/api/staff/logout',
   doctor: '/api/doctor/logout',

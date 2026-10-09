@@ -25,7 +25,7 @@ test('booking and rescheduling client carry the branch to doctor schedule lookup
 test('Branch Admin account self-service is permitted but global legacy operations remain locked', () => {
   const router = read('server/routers/admin.router.js')
   const app = read('client/src/App.jsx')
-  assert.match(router, /const auth = \[\.\.\.accountAuth, requireLegacySuperAdmin\]/)
+  assert.match(router, /const auth = \[authenticate\.adminContext\(true\), requireRole\('admin'\), requireLegacySuperAdmin\]/)
   assert.match(router, /router\.post\('\/security\/password\/change', \.\.\.accountAuth/)
   assert.match(router, /router\.get\('\/appointments',\s+\.\.\.auth/)
   assert.match(app, /path='change-password' element=\{<ChangePassword \/>\}/)
