@@ -172,7 +172,7 @@ const Admin_BillingServiceForm = () => {
           <label className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4"><span className="text-sm font-black text-amber-900">Service Price *</span><input type="number" min="0.01" step="0.01" className="form-control mt-2 bg-white text-lg font-black" value={form.default_price} onChange={(e)=>update('default_price',e.target.value)} /><span className="mt-2 block text-xs text-amber-800">Base service amount before consumable prices are added.</span>{errors.default_price&&<p className="form-error">{errors.default_price}</p>}</label>
           <label><span className="form-label">Average Duration *</span><select className="form-control mt-1.5" value={form.average_duration_minutes} onChange={(e)=>update('average_duration_minutes',Number(e.target.value))}>{DURATION_OPTIONS.map((minutes)=><option key={minutes} value={minutes}>{formatDuration(minutes)}</option>)}</select><span className="form-helper">Booking time reserved: <strong>{formatDuration(reservedDuration(form.average_duration_minutes))}</strong>. Start times use 30-minute intervals.</span>{errors.average_duration_minutes&&<p className="form-error">{errors.average_duration_minutes}</p>}</label>
         </div>
-        <label className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-700"><input type="checkbox" checked={Number(form.is_active)===1} onChange={(e)=>update('is_active',e.target.checked?1:0)} /> Active for patient booking and Doctor consultation</label>
+        <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4"><div><p className="text-sm font-bold text-slate-800">Service Availability</p><p className="mt-1 text-xs text-slate-500">{Number(form.is_active) === 1 ? 'Available for patient booking and doctor consultations.' : 'Unavailable for new bookings and consultation service selections.'}</p></div><button type="button" role="switch" aria-label="Service availability" aria-checked={Number(form.is_active) === 1} onClick={()=>update('is_active',Number(form.is_active)===1?0:1)} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${Number(form.is_active)===1?'bg-emerald-500':'bg-slate-300'}`}><span className={`absolute left-5 top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${Number(form.is_active)===1?'translate-x-1':'-translate-x-4'}`} /></button></div>
       </div>}
 
       {step === 2 && <div className="space-y-4">
@@ -190,3 +190,4 @@ const Admin_BillingServiceForm = () => {
 }
 
 export default Admin_BillingServiceForm
+

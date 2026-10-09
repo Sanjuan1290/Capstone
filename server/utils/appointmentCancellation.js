@@ -16,18 +16,19 @@ const normalizeCancellationDetails = (value) => {
   return details || null
 }
 
-const listCancellationReasons = async ({ activeOnly = true, executor = db } = {}) => {
-  const where = activeOnly ? 'WHERE is_active = 1' : ''
+const listCancellationReasons = async ({ activeOnly = true, executor = db, branchId = null } = {}) => {
+  const where = [activeOnly ? 'is_active = 1' : '', branchId ? 'branch_id = ?' : ''].filter(Boolean)
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : ''
   const [rows] = await executor.query(
     `SELECT id, label, is_active, sort_order, created_at, updated_at
      FROM appointment_cancellation_reasons
-     ${where}
-     ORDER BY sort_order ASC, label ASC`
+     ${clause}
+     ORDER BY created_at ASC, id ASC`, branchId ? [branchId] : []
   )
   return rows
 }
 
-const resolveCancellationInput = async (body = {}, executor = db) => {
+const resolveCancellationInput = async (body = {}, executor = db, branchId = null) => {
   const rawId = body?.cancellation_reason_id
   const useOther = body?.cancellation_reason_other === true
     || body?.cancellation_reason_other === 1
@@ -51,9 +52,9 @@ const resolveCancellationInput = async (body = {}, executor = db) => {
   const [rows] = await executor.query(
     `SELECT id, label
      FROM appointment_cancellation_reasons
-     WHERE id = ? AND is_active = 1
+     WHERE id = ? AND is_active = 1 ${branchId ? 'AND branch_id = ?' : ''}
      LIMIT 1`,
-    [reasonId]
+    branchId ? [reasonId,branchId] : [reasonId]
   )
   const reason = rows[0]
   if (!reason) throw makeInputError('That cancellation reason is no longer available. Choose another reason.', 'CANCELLATION_REASON_INACTIVE')
@@ -72,3 +73,4 @@ module.exports = {
   listCancellationReasons,
   resolveCancellationInput,
 }
+

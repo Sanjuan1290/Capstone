@@ -53,8 +53,13 @@ describe('September 25 UI/workflow regressions', () => {
     expect(setupTabs).toContain("label: 'Services & Pricing Setup'")
     expect(setupTabs).toContain("suffix: '/system-setup/billing/services'")
     expect(app).toContain("path='system-setup/billing'")
-    expect(app).toContain("path='billing/checkout/:billingId'")
-    expect(app).toContain("path='checkout' element={<Navigate to='/admin/billing?tab=checkout' replace />}")
+    // The legacy unscoped /admin checkout route was intentionally replaced:
+    // Branch Admins must use branch-scoped APIs, never legacy billing endpoints.
+    expect(app).toContain("path='/admin' element={<AdminRoute><BranchAdminLayout /></AdminRoute>}")
+    expect(app).toContain("path=':module' element={<BranchWorkspace admin />} />")
+    expect(app).not.toContain("path='billing/checkout/:billingId'")
+    const branchRouter = read('server', 'routers', 'branches.router.js')
+    expect(branchRouter).toContain('WHERE b.branch_id=?')
     expect(adminLayout).not.toContain("name: 'Checkout'")
     expect(billingNav).toContain("label: 'Checkout'")
     expect(billingNav).toContain("label: 'Overview'")
@@ -63,3 +68,4 @@ describe('September 25 UI/workflow regressions', () => {
   })
 
 })
+

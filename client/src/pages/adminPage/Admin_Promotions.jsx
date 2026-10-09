@@ -51,7 +51,7 @@ const Admin_Promotions = () => {
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5">
       <div><h2 className="flex items-center gap-2 text-lg font-black text-slate-900"><MdCampaign className="text-amber-500"/>Promotions</h2>
-        <p className="mt-1 max-w-3xl text-sm text-slate-500">Display service-specific offers while patients book and, optionally, on their dashboard. Promotions appear on-site for everyone; use Notify opted-in patients for in-app notifications to patients who consented. Applying a monetary discount at checkout requires the normal approved discount flow.</p>
+        <p className="mt-1 max-w-3xl text-sm text-slate-500">Display service-specific offers while patients book and, optionally, on their dashboard. Promotions are informational and do not automatically discount bills. They appear on the site for everyone; use Notify opted-in patients for in-app notifications to patients who consented. Monetary discounts at checkout still require the normal approved discount flow.</p>
       </div><div className="flex gap-2"><button type="button" onClick={load} className="button-secondary" aria-label="Refresh promotions"><MdRefresh/> Refresh</button><button type="button" onClick={()=>open()} className="button-primary"><MdAdd/> Add Promo</button></div>
     </div>
     {error&&<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
@@ -80,3 +80,4 @@ const Admin_Promotions = () => {
   </div>
 }
 export default Admin_Promotions
+

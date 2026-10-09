@@ -479,3 +479,4 @@ export const getMyCashierClosing = (date = '') => requestJson(`${getAdminApiBase
 export const closeMyCashier = (payload) => postJson(`${getAdminApiBase()}/billing/cashier-closing`, payload)
 export const reopenCashierClosing = (closingId, reason) => postJson(`${getAdminApiBase()}/billing/cashier-closings/${closingId}/reopen`, { reason })
 
+

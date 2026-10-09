@@ -193,6 +193,15 @@ const listBillingCatalog = async (options = {}, executor = db) => {
     filters.push('(bsc.clinic_type = ? OR bsc.clinic_type = "all")')
     params.push(options.clinicType)
   }
+  // Enforce physical branch isolation in SQL before loading service materials.
+  if (options.branchId != null) {
+    const branchId = Number(options.branchId)
+    if (!Number.isSafeInteger(branchId) || branchId <= 0) {
+      throw Object.assign(new Error('Invalid clinic branch.'), { statusCode: 400 })
+    }
+    filters.push('bsc.branch_id = ?')
+    params.push(branchId)
+  }
 
   if (Array.isArray(options.ids) && options.ids.length > 0) {
     filters.push(`bsc.id IN (${options.ids.map(() => '?').join(', ')})`)
@@ -203,6 +212,8 @@ const listBillingCatalog = async (options = {}, executor = db) => {
   const [rows] = await executor.query(
     `SELECT
        bsc.id,
+       bsc.branch_id,
+       bsc.average_duration_minutes,
        bsc.category_id,
        COALESCE(bcat.name, bsc.category) AS category,
        bcat.is_active AS category_is_active,
@@ -803,6 +814,7 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
+
 
 
 

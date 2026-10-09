@@ -156,3 +156,4 @@ test('admin correction route remains distinct from the checkout edit route', () 
   assert.match(adminRoutes, /router\.post\('\/billing\/:id\/reopen-for-editing', \.\.\.auth, staffCtrl\.reopenBillForEditing\)/)
   assert.match(adminServices, /export const reopenAdminCheckoutBill = .*billing\/\$\{id\}\/reopen-for-editing/)
 })
+

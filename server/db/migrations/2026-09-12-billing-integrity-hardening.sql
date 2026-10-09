@@ -153,3 +153,4 @@ ALTER TABLE clinic_payment_settings
   ALTER COLUMN gcash_enabled SET DEFAULT 0,
   ALTER COLUMN maya_enabled SET DEFAULT 0,
   ALTER COLUMN bank_transfer_enabled SET DEFAULT 0;
+

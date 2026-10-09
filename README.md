@@ -1,3 +1,5 @@
+> **IMPORTANT:** This multi-branch version is a STAGING/PARTIAL working copy and is NOT production-ready. Read [MULTIBRANCH_IMPLEMENTATION_STATUS.md](MULTIBRANCH_IMPLEMENTATION_STATUS.md) before using any migration or API changes.
+
 # CARAIT MEDICAL AND DERMATOLOGY CLINIC — Corrected Clinic Management System
 
 This repository is the corrected full-stack clinic management codebase reconstructed from the supplied source export and upgraded around one connected clinic workflow:
@@ -362,3 +364,4 @@ Custom visit reasons are optional for booking continuity because **Other** is a 
 - Checkout medicines are still deducted only when the bill is fully paid.
 
 Schema changes apply automatically on server start. The equivalent SQL is in `server/db/migrations/2026-10-04-billing-inventory-flow-fixes.sql`.
+

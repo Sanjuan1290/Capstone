@@ -105,7 +105,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
       setForm({
         name: row?.label || '',
         is_active: row ? Number(row.is_active) : 1,
-        sort_order: row?.sort_order ?? 0,
       })
     }
     if (type === 'service_categories') {
@@ -150,7 +149,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
     setSaving(true)
     try {
       const payload = type === 'cancellation_reasons'
-        ? { label: String(form.name).trim(), is_active: form.is_active, sort_order: Number(form.sort_order || 0) }
+        ? { label: String(form.name).trim(), is_active: form.is_active }
         : { ...form, name: String(form.name).trim() }
       await config.save(payload, editing?.id || null)
       toast.success(`${config.title} ${editing ? 'updated' : 'added'}.`)
@@ -211,7 +210,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
               <tr>
                 <th className="px-5 py-3">Name</th>
-                {type === 'cancellation_reasons' && <><th className="px-5 py-3">Order</th><th className="px-5 py-3">Used By</th></>}
+                {type === 'cancellation_reasons' && <><th className="px-5 py-3">Used By</th></>}
                 {type === 'service_categories' && <th className="px-5 py-3">Clinic</th>}
                 {type === 'service_categories' && <th className="px-5 py-3">Used By</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Contact</th>}
@@ -227,7 +226,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
               {pagination.pageItems.map((row) => (
                 <tr key={row.id}>
                   <td className="px-5 py-4 font-semibold text-slate-800">{row.label || row.name}</td>
-                  {type === 'cancellation_reasons' && <><td className="px-5 py-4 text-slate-500">{Number(row.sort_order || 0)}</td><td className="px-5 py-4 text-slate-500">{Number(row.appointment_count || 0)} appointment{Number(row.appointment_count || 0) === 1 ? '' : 's'}</td></>}
+                  {type === 'cancellation_reasons' && <><td className="px-5 py-4 text-slate-500">{Number(row.appointment_count || 0)} appointment{Number(row.appointment_count || 0) === 1 ? '' : 's'}</td></>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.service_count || 0)} service{Number(row.service_count || 0) === 1 ? '' : 's'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500"><p className="font-semibold text-slate-700">{row.contact_person || '—'}</p><p className="mt-1 text-xs">{row.contact_number || 'No contact number'}</p></td>}
@@ -344,13 +343,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
             </>
           )}
 
-          {type === 'cancellation_reasons' && (
-            <label className="block">
-              <span className="form-label">Display Order</span>
-              <input type="number" min="0" max="9999" step="1" className="form-control mt-1.5" value={form.sort_order ?? 0} onChange={(e) => setForm((value) => ({ ...value, sort_order: Number(e.target.value) }))} />
-              <p className="mt-1 text-xs text-slate-400">Lower numbers appear first in the cancellation dropdown.</p>
-            </label>
-          )}
 
           <label className="block">
             <span className="form-label">Status</span>
@@ -463,6 +455,7 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
 
 
 

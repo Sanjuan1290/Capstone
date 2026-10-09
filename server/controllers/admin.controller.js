@@ -29,7 +29,7 @@ const { requestAdminMfa, verifyAdminMfa, createSecurityCode, verifySecurityCode 
 const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendTempPassword, sendAppointmentStatusEmail, sendAccountSecurityOtp } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
-const { markOverdueAppointments, canMarkNoShow } = require('../utils/appointments')
+const { markOverdueAppointments, canMarkNoShow, getBranchNoShowGraceMinutes } = require('../utils/appointments')
 const {
   receiveInventoryBatch,
   attachBatchesToInventory,
@@ -472,6 +472,7 @@ const login = async (req, res) => {
     return res.status(401).json({ message: 'Invalid email or password.' })
   }
   const admin = rows[0]
+  if (Number(admin.is_active) === 0) return res.status(403).json({ message: 'This administrator account is inactive.' })
   const match = await bcrypt.compare(password, admin.password)
   if (!match) {
     await writeAuditLog({ userId: admin.id, userRole: req.user?.role || 'admin', action: 'auth.login_failed', entityType: 'admin', entityId: admin.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
@@ -500,7 +501,7 @@ const login = async (req, res) => {
   await writeAuditLog({ userId: admin.id, userRole: req.user?.role || 'admin', action: 'auth.login_success', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
   return res.status(200).json({
     message: 'Login successful.',
-    user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
+    user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', account_role:admin.account_role, branch_id:admin.branch_id, theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
   })
 }
 
@@ -510,7 +511,7 @@ const verifyLoginMfa = async (req, res) => {
   try {
     const decoded = jwt.verify(pending, process.env.JWT_SECRET)
     if (decoded.role !== 'admin_mfa') return res.status(401).json({ message: 'Invalid sign-in session.' })
-    const [rows] = await db.query('SELECT id, full_name, email, theme_preference, profile_image_url, COALESCE(session_version,1) AS session_version FROM admins WHERE id = ? LIMIT 1', [decoded.id])
+    const [rows] = await db.query('SELECT id, full_name, email, account_role, branch_id, theme_preference, profile_image_url, COALESCE(session_version,1) AS session_version FROM admins WHERE id = ? LIMIT 1', [decoded.id])
     if (!rows.length || Number(decoded.session_version || 0) !== Number(rows[0].session_version || 1)) {
       return res.status(401).json({ message: 'Administrator sign-in session expired. Please sign in again.' })
     }
@@ -522,7 +523,7 @@ const verifyLoginMfa = async (req, res) => {
     const admin = rows[0]
     return res.json({
       message: 'Login successful.',
-      user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
+      user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', account_role:admin.account_role, branch_id:admin.branch_id, theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
     })
   } catch (err) {
     return res.status(400).json({ message: err.message === 'jwt expired' ? 'Administrator sign-in session expired. Please sign in again.' : (err.message || 'Invalid security code.') })
@@ -534,7 +535,7 @@ const checkAuth = async (req, res) => {
   if (!token) return res.status(200).json({ authenticated: false })
   try {
     const decoded = await verifySessionToken(token, 'admin')
-    const [rows] = await db.query('SELECT id, full_name, email, theme_preference, profile_image_url FROM admins WHERE id = ?', [decoded.id])
+    const [rows] = await db.query('SELECT id, full_name, email, account_role, branch_id, theme_preference, profile_image_url FROM admins WHERE id = ?', [decoded.id])
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'admin' } })
   } catch {
@@ -730,9 +731,8 @@ const confirmAppointment = async (req, res) => {
 }
 
 const cancelAppointment = async (req, res) => {
-  const cancellation = await resolveCancellationInput(req.body)
   const [rows] = await db.query(
-    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type, a.branch_id,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.id AS doctor_id, d.full_name AS doctor_name
      FROM appointments a
@@ -742,6 +742,7 @@ const cancelAppointment = async (req, res) => {
     [req.params.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  const cancellation = await resolveCancellationInput(req.body, db, rows[0].branch_id)
   assertAppointmentTransition(rows[0].status, 'cancelled')
   const [updated] = await db.query(
     `UPDATE appointments
@@ -787,7 +788,7 @@ const cancelAppointment = async (req, res) => {
 
 const markAppointmentNoShow = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.checked_in_at,
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.checked_in_at, a.branch_id,
             p.id AS patient_id, p.full_name AS patient_name, p.phone AS patient_phone,
             d.full_name AS doctor_name
      FROM appointments a
@@ -800,7 +801,8 @@ const markAppointmentNoShow = async (req, res) => {
   if (!['confirmed', 'rescheduled'].includes(rows[0].status)) {
     return res.status(400).json({ message: 'Only confirmed or rescheduled appointments can be marked as no show.' })
   }
-  if (!canMarkNoShow(rows[0])) return res.status(409).json({ code: 'NO_SHOW_GRACE_PERIOD', message: 'Wait until at least 15 minutes after the appointment start and verify that the patient has not checked in.' })
+  rows[0].no_show_grace_minutes = await getBranchNoShowGraceMinutes(rows[0].branch_id)
+  if (!canMarkNoShow(rows[0])) return res.status(409).json({ code: 'NO_SHOW_GRACE_PERIOD', message: `Wait until ${rows[0].no_show_grace_minutes} minutes after the appointment start and check that the patient has not arrived.` })
   assertAppointmentTransition(rows[0].status, 'no_show')
   const [updated] = await db.query("UPDATE appointments SET status = 'no_show' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
   await assertAppointmentMutationApplied(updated, req.params.id)
@@ -1365,8 +1367,6 @@ const saveAppointmentCancellationReason = async (req, res) => {
   const id = Number(req.params.id || 0)
   const label = normalizeText(req.body?.label, { field: 'Cancellation reason', required: true, max: 120 })
   const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
-  const rawSortOrder = Number(req.body?.sort_order)
-  const sortOrder = Number.isFinite(rawSortOrder) ? Math.max(0, Math.min(9999, Math.trunc(rawSortOrder))) : 0
   if (!label) return res.status(400).json({ message: 'Cancellation reason is required.' })
 
   try {
@@ -1375,13 +1375,13 @@ const saveAppointmentCancellationReason = async (req, res) => {
       const [existing] = await db.query('SELECT id FROM appointment_cancellation_reasons WHERE id = ? LIMIT 1', [id])
       if (!existing.length) return res.status(404).json({ message: 'Cancellation reason not found.' })
       await db.query(
-        'UPDATE appointment_cancellation_reasons SET label = ?, is_active = ?, sort_order = ? WHERE id = ?',
-        [label, isActive, sortOrder, id]
+        'UPDATE appointment_cancellation_reasons SET label = ?, is_active = ? WHERE id = ?',
+        [label, isActive, id]
       )
     } else {
       const [result] = await db.query(
-        'INSERT INTO appointment_cancellation_reasons (label, is_active, sort_order) VALUES (?, ?, ?)',
-        [label, isActive, sortOrder]
+        'INSERT INTO appointment_cancellation_reasons (label, is_active) VALUES (?, ?)',
+        [label, isActive]
       )
       targetId = result.insertId
     }
@@ -1399,7 +1399,7 @@ const saveAppointmentCancellationReason = async (req, res) => {
       action: id ? 'system.cancellation_reason_updated' : 'system.cancellation_reason_created',
       entityType: 'appointment_cancellation_reason',
       entityId: targetId,
-      newValues: { label, is_active: isActive, sort_order: sortOrder },
+      newValues: { label, is_active: isActive },
       ipAddress: req.ip || null,
     }).catch(() => {})
     res.status(id ? 200 : 201).json(row)
@@ -3680,7 +3680,7 @@ const getSystemSetup = async (req, res) => {
     db.query('SELECT id,label,clinic_type,is_active,sort_order FROM appointment_reason_options ORDER BY sort_order,label'),
     db.query(`SELECT r.id,r.label,r.is_active,r.sort_order,r.created_at,r.updated_at,
                      (SELECT COUNT(*) FROM appointments a WHERE a.cancellation_reason_id=r.id) AS appointment_count
-              FROM appointment_cancellation_reasons r ORDER BY r.sort_order,r.label`),
+              FROM appointment_cancellation_reasons r ORDER BY r.created_at ASC,r.id ASC`),
     db.query(`SELECT c.id,c.name,c.clinic_type,c.is_active,COUNT(s.id) AS service_count
               FROM billing_service_categories c
               LEFT JOIN billing_service_catalog s ON s.category_id=c.id
@@ -4255,5 +4255,6 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 

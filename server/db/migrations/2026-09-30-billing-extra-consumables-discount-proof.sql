@@ -23,3 +23,4 @@ SET @sql := IF(
   'ALTER TABLE billing_adjustment_requests ADD COLUMN reference_image_url VARCHAR(500) NULL AFTER reference_text'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+

@@ -34,3 +34,4 @@ describe('September 29 Batch 6C — Doctor Account classification cleanup', () =
     expect(source).toContain('SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?')
   })
 })
+

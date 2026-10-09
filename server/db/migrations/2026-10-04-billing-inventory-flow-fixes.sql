@@ -116,3 +116,4 @@ SET @ddl = IF(@cols IS NOT NULL AND @cols <> 'cashier_role,staff_id,closing_date
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 DROP PROCEDURE IF EXISTS carait_add_column;
+

@@ -9,7 +9,18 @@ const authenticate = require('../middlewares/auth.middleware')
 const requireRole  = require('../middlewares/role.middleware')
 const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimit.middleware')
 
-const auth = [authenticate('admin_token'), requireRole('admin')]
+// The pre-existing admin controllers were written for a single clinic.
+// Until individually scoped, ONLY Super Admin may call those legacy routes.
+// Branch Admin uses the audited, explicitly filtered /api/branches/my API.
+const requireLegacySuperAdmin = async (req,res,next) => {
+  try {
+    if (req.user?.account_role !== 'superadmin') return res.status(403).json({code:'BRANCH_ENDPOINT_REQUIRED',message:'Use branch-scoped endpoints.'})
+    next()
+  } catch(e){next(e)}
+}
+
+const accountAuth = [authenticate('admin_token'), requireRole('admin')]
+const auth = [...accountAuth, requireLegacySuperAdmin]
 const promotionsCtrl = require('../controllers/promotions.controller')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -17,15 +28,15 @@ router.post('/login',      loginLimiter, adminCtrl.login)
 router.post('/login/mfa',  otpVerifyLimiter, adminCtrl.verifyLoginMfa)
 router.get('/check-auth',  adminCtrl.checkAuth)
 router.post('/logout',     adminCtrl.logout)
-router.post('/security/password/request-code', ...auth, otpRequestLimiter, commonCtrl.requestMyPasswordCode)
-router.post('/security/password/change', ...auth, otpVerifyLimiter, commonCtrl.changeMyPassword)
+router.post('/security/password/request-code', ...accountAuth, otpRequestLimiter, commonCtrl.requestMyPasswordCode)
+router.post('/security/password/change', ...accountAuth, otpVerifyLimiter, commonCtrl.changeMyPassword)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
-router.get('/settings', ...auth, commonCtrl.getMySettings)
-router.put('/settings', ...auth, commonCtrl.saveMySettings)
-router.post('/settings/verification/request', ...auth, otpRequestLimiter, commonCtrl.requestMySettingsVerification)
-router.post('/settings/verification/confirm', ...auth, otpVerifyLimiter, commonCtrl.confirmMySettingsVerification)
+router.get('/settings', ...accountAuth, commonCtrl.getMySettings)
+router.put('/settings', ...accountAuth, commonCtrl.saveMySettings)
+router.post('/settings/verification/request', ...accountAuth, otpRequestLimiter, commonCtrl.requestMySettingsVerification)
+router.post('/settings/verification/confirm', ...accountAuth, otpVerifyLimiter, commonCtrl.confirmMySettingsVerification)
 router.get('/landing-page', ...auth, commonCtrl.getAdminLandingPage)
 router.put('/landing-page', ...auth, commonCtrl.saveAdminLandingPage)
 
@@ -171,5 +182,6 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
+
 
 

@@ -264,3 +264,4 @@ export const moveInventoryStock = (inventoryId, payload) => postStaffJson(`${BAS
 export const getMyCashierClosing = (date = '') => requestJson(`${BASE}/billing/cashier-closing${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 export const closeMyCashier = (payload) => postStaffJson(`${BASE}/billing/cashier-closing`, payload)
 
+

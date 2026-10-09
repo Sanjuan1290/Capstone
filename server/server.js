@@ -15,6 +15,7 @@ const { validateRuntimeConfig } = require('./utils/envValidation')
 
 const patientRouter = require('./routers/patient.router')
 const adminRouter = require('./routers/admin.router')
+const { router: branchesRouter } = require('./routers/branches.router')
 const staffRouter = require('./routers/staff.router')
 const doctorRouter = require('./routers/doctor.router')
 const queueRouter = require('./routers/queue.router')
@@ -93,6 +94,7 @@ app.get('/api/events', (req, res) => res.status(410).json({
 
 app.use('/api/patient', patientRouter)
 app.use('/api/admin', adminRouter)
+app.use('/api/branches', branchesRouter)
 app.use('/api/staff', staffRouter)
 app.use('/api/doctor', doctorRouter)
 app.use('/api/auth', authRouter)
@@ -162,3 +164,4 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
+

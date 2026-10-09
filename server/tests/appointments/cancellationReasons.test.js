@@ -25,7 +25,11 @@ describe('appointment cancellation reasons', () => {
   it('records cancellation metadata for patient admin and staff actions', () => {
     for (const controller of ['patient.controller.js', 'admin.controller.js', 'staff.controller.js']) {
       const source = read('controllers', controller)
-      expect(source).toContain('resolveCancellationInput(req.body)')
+      if (controller === 'patient.controller.js') {
+        expect(source).toContain('resolveCancellationInput(req.body,db,ownedAppointment.branch_id)')
+      } else {
+        expect(source).toContain('resolveCancellationInput(req.body, db, rows[0].branch_id)')
+      }
       expect(source).toContain('cancellation_reason_snapshot = ?')
       expect(source).toContain('cancelled_by_user_id = ?')
       expect(source).toContain('cancelled_at = NOW()')
@@ -47,3 +51,4 @@ describe('appointment cancellation reasons', () => {
     expect(shared).not.toContain("window.confirm('Cancel this appointment?')")
   })
 })
+

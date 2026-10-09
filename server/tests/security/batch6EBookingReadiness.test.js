@@ -19,7 +19,9 @@ describe('Batch 6E online booking readiness', () => {
     const patientController = read('server', 'controllers', 'patient.controller.js')
     const adminController = read('server', 'controllers', 'admin.controller.js')
     expect(patientRouter).toContain("router.get('/booking-readiness'")
-    expect(patientController).toContain('getOnlineBookingReadiness()')
+    // Patient readiness is now evaluated for the selected physical branch.
+    expect(patientController).toContain('getOnlineBookingReadiness(db,branch.id)')
+    expect(patientController).toContain('validatePatientBranch(req,res)')
     expect(adminController).toContain('const bookingReadiness = await getOnlineBookingReadiness()')
     expect(adminController).toContain('bookingReadiness,')
   })
@@ -41,3 +43,4 @@ describe('Batch 6E online booking readiness', () => {
     expect(source).toContain('Manage Schedules')
   })
 })
+

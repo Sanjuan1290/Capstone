@@ -15,7 +15,13 @@ const {
 } = require('../controllers/patient.controller')
 const commonCtrl = require('../controllers/common.controller')
 const promotionsCtrl = require('../controllers/promotions.controller')
+const db = require('../db/connect')
 
+// Physical clinic locations available for online patient booking.
+router.get('/branches', async(req,res)=>{
+ const [rows]=await db.query('SELECT id,name,address,phone,offers_medical,offers_derma FROM clinic_branches WHERE is_active=1 ORDER BY created_at,id')
+ res.json(rows)
+})
 // Public
 router.post('/register',        otpRequestLimiter, register)
 router.post('/register/verify', otpVerifyLimiter, verifyRegistration)
@@ -58,4 +64,5 @@ router.get('/doctors/:id/available-slots',          getDoctorAvailableSlots)
 router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router
+
 

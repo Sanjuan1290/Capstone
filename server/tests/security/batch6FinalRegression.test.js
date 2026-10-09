@@ -35,3 +35,4 @@ describe('Batch 6 final regression guard', () => {
     expect(booking).toContain('Other always available')
   })
 })
+

@@ -37,3 +37,4 @@ describe('September 26 Batch 1 — System Setup and booking cleanup', () => {
     expect(ui).not.toContain('always use up to 2 decimal places (0.01)')
   })
 })
+

@@ -37,24 +37,25 @@ const buildClinicReadiness = (row = {}) => {
   }
 }
 
-const getOnlineBookingReadiness = async (executor = db) => {
+const getOnlineBookingReadiness = async (executor = db, branchId = null) => {
+  const filterBranch = (alias) => branchId ? ` AND ${alias}.branch_id = ${Number(branchId)}` : ''
   const [rows] = await executor.query(`
     SELECT clinic.clinic_type,
       (SELECT COUNT(*)
        FROM doctors d
-       WHERE d.is_active = 1 AND d.clinic_type = clinic.clinic_type) AS active_doctors,
+       WHERE d.is_active = 1 AND d.clinic_type = clinic.clinic_type ${filterBranch('d')}) AS active_doctors,
       (SELECT COUNT(DISTINCT d.id)
        FROM doctors d
        JOIN doctor_schedules ds ON ds.doctor_id = d.id AND ds.is_active = 1
-       WHERE d.is_active = 1 AND d.clinic_type = clinic.clinic_type) AS schedulable_doctors,
+       WHERE d.is_active = 1 AND d.clinic_type = clinic.clinic_type ${filterBranch('d')}) AS schedulable_doctors,
       (SELECT COUNT(*)
        FROM billing_service_catalog bsc
-       WHERE bsc.is_active = 1 AND (bsc.clinic_type = clinic.clinic_type OR bsc.clinic_type = 'all')) AS active_services,
+       WHERE bsc.is_active = 1 AND (bsc.clinic_type = clinic.clinic_type OR bsc.clinic_type = 'all') ${filterBranch('bsc')}) AS active_services,
       (SELECT COUNT(*)
        FROM appointment_reason_options aro
        WHERE aro.is_active = 1
          AND LOWER(TRIM(aro.label)) <> 'other'
-         AND (aro.clinic_type = clinic.clinic_type OR aro.clinic_type = 'all')) AS visit_reasons
+         AND (aro.clinic_type = clinic.clinic_type OR aro.clinic_type = 'all') ${filterBranch('aro')}) AS visit_reasons
     FROM (
       SELECT 'medical' AS clinic_type
       UNION ALL
@@ -77,3 +78,4 @@ const getOnlineBookingReadiness = async (executor = db) => {
 }
 
 module.exports = { CLINIC_TYPES, ISSUE_LABELS, buildClinicReadiness, getOnlineBookingReadiness }
+

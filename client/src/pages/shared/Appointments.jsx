@@ -868,3 +868,4 @@ Confirm this appointment anyway?`)
 
 export default Appointments
 
+

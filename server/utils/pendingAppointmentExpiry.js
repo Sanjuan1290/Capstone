@@ -176,3 +176,4 @@ const expirePendingAppointments = async ({ appointmentId = null, limit = 100 } =
 }
 
 module.exports = { expirePendingAppointments, backfillMissingConfirmationDeadlines }
+

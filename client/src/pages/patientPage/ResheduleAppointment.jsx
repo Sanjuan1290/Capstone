@@ -90,8 +90,8 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
   useEffect(() => {
     if (!appt?.doctor_id) return
     Promise.all([
-      getDoctorSchedule(appt.doctor_id),
-      getDoctorUnavailableDates(appt.doctor_id),
+      getDoctorSchedule(appt.doctor_id, appt.branch_id),
+      getDoctorUnavailableDates(appt.doctor_id, { branchId: appt.branch_id }),
     ])
       .then(([weekly, blocked]) => {
         setSchedule(Array.isArray(weekly) ? weekly : [])
@@ -101,7 +101,7 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
         setSchedule([])
         setUnavailableDates([])
       })
-  }, [appt?.doctor_id])
+  }, [appt?.doctor_id, appt?.branch_id])
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11) }
@@ -456,3 +456,4 @@ const RescheduleAppointment = () => {
 }
 
 export default RescheduleAppointment
+

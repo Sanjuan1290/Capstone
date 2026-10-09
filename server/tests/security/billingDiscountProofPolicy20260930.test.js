@@ -20,3 +20,4 @@ describe('discount proof policy', () => {
     expect(result.amount).toBe(200)
   })
 })
+

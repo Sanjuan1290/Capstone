@@ -38,12 +38,14 @@ const writeAuditLog = async ({
   oldValues = null,
   newValues = null,
   ipAddress = null,
+  branchId = null,
 }, executor = db) => {
   if (!action || !entityType) return
+  const withBranch = branchId !== null && branchId !== undefined
   await executor.query(
     `INSERT INTO audit_logs
-     (user_id, user_role, action, entity_type, entity_id, old_values, new_values, ip_address)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     (user_id, user_role, action, entity_type, entity_id, old_values, new_values, ip_address${withBranch ? ', branch_id' : ''})
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?${withBranch ? ', ?' : ''})`,
     [
       userId || null,
       String(userRole || 'system'),
@@ -53,6 +55,7 @@ const writeAuditLog = async ({
       oldValues === null || oldValues === undefined ? null : JSON.stringify(sanitizeAuditValue(oldValues)),
       newValues === null || newValues === undefined ? null : JSON.stringify(sanitizeAuditValue(newValues)),
       ipAddress || null,
+      ...(withBranch ? [Number(branchId)] : []),
     ]
   )
 }
@@ -61,3 +64,4 @@ module.exports = {
   sanitizeAuditValue,
   writeAuditLog,
 }
+

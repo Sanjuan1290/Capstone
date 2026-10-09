@@ -67,3 +67,4 @@ export const STAFF_PERMISSION_MAP = Object.fromEntries(STAFF_PERMISSIONS.map((it
 
 export const normalizeStaffPermissions = (value) => [...new Set((Array.isArray(value) ? value : []).filter((key) => STAFF_PERMISSION_KEYS.includes(key)))]
 export const hasStaffPermission = (user, key) => normalizeStaffPermissions(user?.permissions).includes(key)
+

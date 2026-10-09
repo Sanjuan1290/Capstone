@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 const AuthContext = createContext()
 
 const ENDPOINT_MAP = {
+  superadmin: '/api/admin/check-auth',
   admin: '/api/admin/check-auth',
   staff: '/api/staff/check-auth',
   doctor: '/api/doctor/check-auth',
@@ -10,6 +11,7 @@ const ENDPOINT_MAP = {
 }
 
 const LOGOUT_MAP = {
+  superadmin: '/api/admin/logout',
   admin: '/api/admin/logout',
   staff: '/api/staff/logout',
   doctor: '/api/doctor/logout',
@@ -45,8 +47,9 @@ export const AuthProvider = ({ children }) => {
         const data = await res.json()
         if (data.authenticated) {
           setUser(data.user)
-          setRole(candidateRole)
-          sessionStorage.setItem('auth_role', candidateRole)
+          const actualRole = ['admin','superadmin'].includes(candidateRole) ? (data.user.account_role === 'superadmin' ? 'superadmin' : 'admin') : candidateRole
+          setRole(actualRole)
+          sessionStorage.setItem('auth_role', actualRole)
           setReady(true)
           return
         }
@@ -90,3 +93,4 @@ export const AuthProvider = ({ children }) => {
 }
 
 export const useAuth = () => useContext(AuthContext)
+

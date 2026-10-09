@@ -41,3 +41,4 @@ UPDATE `booking_settings` SET `online_min_lead_minutes` = 720 WHERE `online_min_
 
 SELECT `online_min_lead_minutes`, `pending_confirmation_cutoff_minutes` FROM `booking_settings` WHERE `id` = 1;
 SELECT COUNT(*) AS `promo_count` FROM `clinic_promotions`;
+

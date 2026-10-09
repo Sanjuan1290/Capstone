@@ -13,7 +13,7 @@ const clinicMatchesDoctor = (clinicType, doctor) => {
   return !clinicType || clinicType === assignedClinic
 }
 
-const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days = 7, doctorId = null } = {}, executor = db) => {
+const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days = 7, doctorId = null, branchId = null } = {}, executor = db) => {
   const safeDays = Math.min(14, Math.max(1, Number(days) || 7))
   const start = /^\d{4}-\d{2}-\d{2}$/.test(String(startDate || '')) ? String(startDate) : getTodayDateOnly()
   const end = addDaysDateOnly(start, safeDays - 1)
@@ -23,6 +23,7 @@ const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days
   let doctorSql = `SELECT id, full_name, specialty, clinic_type
                    FROM doctors
                    WHERE is_active = 1`
+  if (branchId) { doctorSql += ' AND branch_id = ?'; doctorParams.push(Number(branchId)) }
   if (numericDoctorId) {
     doctorSql += ' AND id = ?'
     doctorParams.push(numericDoctorId)
@@ -195,3 +196,4 @@ module.exports = {
   buildWalkInDoctorAvailability,
   formatSlotLabel,
 }
+

@@ -22,7 +22,7 @@ const AdminLogin = () => {
       const data = await res.json()
       if (!res.ok) { setError(data.message || 'Sign in failed.'); return }
       if (data.mfa_required) { setMfaRequired(true); setCode(''); return }
-      login(data.user, 'admin'); navigate('/admin')
+      const role=data.user?.account_role==='superadmin'?'superadmin':'admin'; login(data.user,role); navigate(role==='superadmin'?'/superadmin':'/admin')
     } catch { setError('Cannot connect to server.') } finally { setLoading(false) }
   }
 
@@ -54,3 +54,4 @@ const AdminLogin = () => {
   )
 }
 export default AdminLogin
+

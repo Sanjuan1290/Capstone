@@ -152,3 +152,4 @@ const notifyOptedInPatients = async (req, res) => {
 }
 
 module.exports = { listAllPromotions, getActivePromotions, savePromotion, deletePromotion, notifyOptedInPatients }
+

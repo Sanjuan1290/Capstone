@@ -22,3 +22,4 @@ WHERE average_duration_minutes IS NULL
    OR average_duration_minutes < 15
    OR average_duration_minutes > 480
    OR MOD(average_duration_minutes, 15) <> 0;
+

@@ -91,3 +91,4 @@ describe('2026-10-04 billing and inventory flow fixes', () => {
     expect(controller).toContain("loadMostUsedMedicines({ startDate, endDate, itemType: 'medicine'")
   })
 })
+

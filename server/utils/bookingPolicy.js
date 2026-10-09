@@ -61,7 +61,12 @@ const validateBookingSettings = (input = {}) => {
   return normalized
 }
 
-const loadBookingSettings = async (executor = db) => {
+const loadBookingSettings = async (executor = db, branchId = null) => {
+  if (Number.isSafeInteger(Number(branchId)) && Number(branchId) > 0) {
+    const [branchRows] = await executor.query(
+      `SELECT online_min_lead_minutes, pending_confirmation_cutoff_minutes, booking_start_interval_minutes FROM branch_booking_settings WHERE branch_id=?`, [Number(branchId)])
+    return normalizeBookingSettings(branchRows?.[0] || {})
+  }
   const [rows] = await executor.query(
     `SELECT online_min_lead_minutes, pending_confirmation_cutoff_minutes, booking_start_interval_minutes
      FROM booking_settings WHERE id = 1 LIMIT 1`
@@ -160,4 +165,5 @@ module.exports = {
   isOnlineAppointmentStartAllowed,
   buildConfirmationDeadlineSql,
 }
+
 

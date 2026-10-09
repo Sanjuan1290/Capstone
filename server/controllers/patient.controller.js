@@ -588,8 +588,20 @@ const getHistory = async (req, res) => {
   })))
 }
 
+const readBranchId = (req) => Number(req.body?.branch_id || req.query?.branch_id || 0)
+const validatePatientBranch = async (req,res) => {
+  const branchId=readBranchId(req)
+  if(!Number.isSafeInteger(branchId)||branchId<=0){res.status(400).json({message:'Select a clinic branch before booking.'});return null}
+  const [[branch]]=await db.query('SELECT id,name,offers_medical,offers_derma FROM clinic_branches WHERE id=? AND is_active=1 LIMIT 1',[branchId])
+  if(!branch){res.status(404).json({message:'This clinic branch is not available.'});return null}
+  return branch
+}
 const getBookingReadiness = async (req, res) => {
-  res.json(await getOnlineBookingReadiness())
+  const branch=await validatePatientBranch(req,res);if(!branch)return
+  const readiness=await getOnlineBookingReadiness(db,branch.id)
+  if(!branch.offers_medical)readiness.medical.bookable=false
+  if(!branch.offers_derma)readiness.derma.bookable=false
+  res.json(readiness)
 }
 
 const getBookingServices = async (req, res) => {
@@ -597,8 +609,9 @@ const getBookingServices = async (req, res) => {
   if (clinicType && !['medical', 'derma'].includes(clinicType)) {
     return res.status(400).json({ message: 'Invalid clinic type.' })
   }
-  const rows = await listBillingCatalog({ clinicType: clinicType || undefined })
-  res.json(rows.map((service) => ({
+  const branch=await validatePatientBranch(req,res);if(!branch)return
+  const visibleRows = await listBillingCatalog({ clinicType: clinicType || undefined, branchId: branch.id })
+  res.json(visibleRows.map((service) => ({
     id: service.id,
     category: service.category,
     service_name: service.service_name,
@@ -611,6 +624,10 @@ const getBookingServices = async (req, res) => {
 
 const createAppointment = async (req, res) => {
   const { doctor_id, clinic_type, requested_service_id, reason, reason_details, appointment_date, appointment_time, notes } = req.body
+  const branch=await validatePatientBranch(req,res);if(!branch)return
+  if ((clinic_type === 'medical' && !branch.offers_medical) || (clinic_type === 'derma' && !branch.offers_derma)) return res.status(409).json({message:'This branch does not offer the selected clinic type.'})
+  const [[assignedDoctor]]=await db.query('SELECT id FROM doctors WHERE id=? AND is_active=1 AND branch_id=? AND clinic_type=?',[doctor_id,branch.id,clinic_type])
+  if(!assignedDoctor)return res.status(409).json({message:'The selected doctor does not work at this branch.'})
   if (!doctor_id || !clinic_type || !requested_service_id || !appointment_date || !appointment_time) {
     return res.status(400).json({ message: 'Missing required fields.' })
   }
@@ -634,8 +651,8 @@ const createAppointment = async (req, res) => {
   const [serviceRows] = await db.query(
     `SELECT id, service_name, clinic_type, default_price, average_duration_minutes, is_active
      FROM billing_service_catalog
-     WHERE id = ? LIMIT 1`,
-    [requested_service_id]
+     WHERE id = ? AND branch_id = ? LIMIT 1`,
+    [requested_service_id, branch.id]
   )
   const requestedService = serviceRows[0]
   if (!requestedService || Number(requestedService.is_active) !== 1) {
@@ -656,9 +673,9 @@ const createAppointment = async (req, res) => {
        FROM appointment_reason_options
        WHERE is_active = 1
          AND LOWER(TRIM(label)) = LOWER(?)
-         AND (clinic_type = ? OR clinic_type = 'all')
+         AND (clinic_type = ? OR clinic_type = 'all') AND branch_id = ?
        LIMIT 1`,
-      [selectedReason, clinic_type]
+      [selectedReason, clinic_type, branch.id]
     )
     if (!reasonRows.length) {
       return res.status(409).json({ code: 'VISIT_REASON_UNAVAILABLE', message: 'The selected reason for visit is no longer available. Please choose another reason.' })
@@ -673,7 +690,7 @@ const createAppointment = async (req, res) => {
   )
   if (activeWithDoctor.length) return res.status(409).json({ message: 'You already have an active appointment with this doctor. Please wait for completion or cancel it first.' })
 
-  const bookingSettings = await loadBookingSettings()
+  const bookingSettings = await loadBookingSettings(db,branch.id)
   const averageDurationMinutes = Number(requestedService.average_duration_minutes || 60)
   const reservedDurationMinutes = roundReservedDurationMinutes(averageDurationMinutes, bookingSettings.booking_start_interval_minutes)
   const confirmationDeadline = buildConfirmationDeadlineSql({
@@ -697,11 +714,11 @@ const createAppointment = async (req, res) => {
       `INSERT INTO appointments
        (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
         requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot, confirmation_deadline_at,
-        reason, appointment_date, appointment_time, notes, appointment_source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online')`,
+        reason, appointment_date, appointment_time, notes, appointment_source, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?)`,
       [req.user.id, doctor_id, clinic_type, requestedService.id, requestedService.service_name, requestedService.default_price,
        averageDurationMinutes, reservedDurationMinutes, confirmationDeadline,
-       storedReason, normalizedDate, appointment_time, notes || null]
+       storedReason, normalizedDate, appointment_time, notes || null, branch.id]
     )
     return inserted
   })
@@ -749,7 +766,9 @@ const createAppointment = async (req, res) => {
 }
 
 const cancelAppointment = async (req, res) => {
-  const cancellation = await resolveCancellationInput(req.body)
+  const [[ownedAppointment]] = await db.query('SELECT branch_id FROM appointments WHERE id=? AND patient_id=?', [req.params.id,req.user.id])
+  if(!ownedAppointment) return res.status(404).json({message:'Appointment not found.'})
+  const cancellation = await resolveCancellationInput(req.body,db,ownedAppointment.branch_id)
   const [rows] = await db.query(
     'SELECT id, status, doctor_id, appointment_date, appointment_time FROM appointments WHERE id = ? AND patient_id = ?',
     [req.params.id, req.user.id]
@@ -810,7 +829,7 @@ const rescheduleAppointment = async (req, res) => {
   if (normalizedDate < getTodayDateOnly()) return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
 
   const [rows] = await db.query(
-    `SELECT id, doctor_id, status, clinic_type,
+    `SELECT id, doctor_id, status, clinic_type, branch_id,
             requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot
      FROM appointments WHERE id = ? AND patient_id = ?`,
     [req.params.id, req.user.id]
@@ -820,7 +839,7 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Only pending or confirmed appointments can be rescheduled.' })
   }
 
-  const settings = await loadBookingSettings()
+  const settings = await loadBookingSettings(db,rows[0].branch_id)
   const durationMinutes = getAppointmentReservedDuration(rows[0])
   const confirmationDeadline = buildConfirmationDeadlineSql({
     date: normalizedDate,
@@ -892,12 +911,15 @@ const rescheduleAppointment = async (req, res) => {
 }
 
 const getAppointmentCancellationReasons = async (req, res) => {
-  res.json(await listCancellationReasons({ activeOnly: true }))
+  const branchId = Number(req.query.branch_id)
+  if(!Number.isSafeInteger(branchId)||branchId<=0) return res.status(400).json({message:'Choose an appointment branch to see cancellation reasons.'})
+  res.json(await listCancellationReasons({ activeOnly: true, branchId }))
 }
 
 const getDoctors = async (req, res) => {
+  const branch=await validatePatientBranch(req,res);if(!branch)return
   const [rows] = await db.query(
-    'SELECT id, full_name AS name, full_name, specialty, clinic_type FROM doctors WHERE is_active = 1 ORDER BY full_name'
+    'SELECT id, full_name AS name, full_name, specialty, clinic_type FROM doctors WHERE is_active = 1 AND branch_id=? ORDER BY full_name',[branch.id]
   )
   res.json(rows)
 }
@@ -907,11 +929,12 @@ const getAppointmentReasons = async (req, res) => {
   if (clinicType && !['medical', 'derma'].includes(clinicType)) {
     return res.status(400).json({ message: 'Invalid clinic type.' })
   }
-  const params = []
+  const branch=await validatePatientBranch(req,res);if(!branch)return
+  const params = [branch.id]
   let sql = `
     SELECT id, label, clinic_type, is_active, sort_order
     FROM appointment_reason_options
-    WHERE is_active = 1
+    WHERE is_active = 1 AND branch_id=?
   `
 
   if (clinicType) {
@@ -930,7 +953,9 @@ const getDoctorsAvailability = async (req, res) => {
   if (clinicType && !['medical','derma'].includes(clinicType)) {
     return res.status(400).json({ message: 'Invalid clinic type.' })
   }
+  const branch=await validatePatientBranch(req,res);if(!branch)return
   const result = await buildDoctorAvailabilitySummary({
+    branchId:branch.id,
     clinicType,
     startDate: String(req.query.start_date || '').trim() || undefined,
     days: Math.min(14, Math.max(1, Number(req.query.days) || 7)),
@@ -938,7 +963,27 @@ const getDoctorsAvailability = async (req, res) => {
   res.json(result)
 }
 
+const requirePatientBranchDoctor = async (req, res) => {
+  const branchId = Number(req.query?.branch_id)
+  if (!Number.isSafeInteger(branchId) || branchId <= 0) {
+    res.status(400).json({ message: 'Please select a clinic branch.' })
+    return null
+  }
+  const [[doctor]] = await db.query(
+    `SELECT d.id FROM doctors d
+     JOIN clinic_branches b ON b.id = d.branch_id AND b.is_active = 1
+     WHERE d.id = ? AND d.branch_id = ? AND d.is_active = 1 LIMIT 1`,
+    [req.params.id, branchId]
+  )
+  if (!doctor) {
+    res.status(404).json({ message: 'Doctor not available at the selected branch.' })
+    return null
+  }
+  return branchId
+}
+
 const getDoctorSchedule = async (req, res) => {
+  if (!await requirePatientBranchDoctor(req, res)) return
   const [rows] = await db.query(
     'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND is_active = 1',
     [req.params.id]
@@ -947,6 +992,7 @@ const getDoctorSchedule = async (req, res) => {
 }
 
 const getDoctorUnavailableDatesController = async (req, res) => {
+  if (!await requirePatientBranchDoctor(req, res)) return
   const rows = await getDoctorUnavailableDates(req.params.id, {
     startDate: String(req.query.start_date || '').trim() || undefined,
     endDate: String(req.query.end_date || '').trim() || undefined,
@@ -960,7 +1006,11 @@ const getDoctorAvailableSlots = async (req, res) => {
   const clinicTypeInput = String(req.query.clinic_type || '').trim()
   const serviceId = Number(req.query.service_id)
   const appointmentId = Number(req.query.appointment_id)
-  const settings = await loadBookingSettings()
+  let branchId=readBranchId(req)
+  if(appointmentId>0){const [[previous]]=await db.query('SELECT branch_id FROM appointments WHERE id=? AND patient_id=?',[appointmentId,req.user.id]);if(previous)branchId=Number(previous.branch_id)}
+  const [[assigned]]=await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=? AND is_active=1',[req.params.id,branchId])
+  if(!assigned)return res.status(404).json({message:'This doctor is not available at the selected branch.'})
+  const settings = await loadBookingSettings(db,branchId)
   let clinicType = clinicTypeInput
   let averageDurationMinutes = 60
   let reservedDurationMinutes = 60
@@ -985,8 +1035,8 @@ const getDoctorAvailableSlots = async (req, res) => {
     }
     const [[service]] = await db.query(
       `SELECT id, clinic_type, average_duration_minutes, is_active
-       FROM billing_service_catalog WHERE id = ? LIMIT 1`,
-      [serviceId]
+       FROM billing_service_catalog WHERE id = ? AND branch_id=? LIMIT 1`,
+      [serviceId,branchId]
     )
     if (!service || Number(service.is_active) !== 1 || ![clinicType, 'all'].includes(String(service.clinic_type || ''))) {
       return res.status(409).json({ message: 'The selected service is no longer available for this clinic.' })
@@ -1015,6 +1065,7 @@ const getDoctorAvailableSlots = async (req, res) => {
 }
 
 const getDoctorTakenSlots = async (req, res) => {
+  if (!await requirePatientBranchDoctor(req, res)) return
   const normalizedDate = toDateOnly(req.query.date)
   if (!isValidDateOnly(normalizedDate)) {
     return res.status(400).json({ message: 'A valid date is required.' })
@@ -1035,6 +1086,11 @@ const getDoctorTakenSlots = async (req, res) => {
   `
 
   if (Number.isInteger(excludeAppointmentId) && excludeAppointmentId > 0) {
+    const [[owned]] = await db.query(
+      'SELECT id FROM appointments WHERE id=? AND patient_id=? AND doctor_id=? AND branch_id=?',
+      [excludeAppointmentId, req.user.id, req.params.id, Number(req.query.branch_id)]
+    )
+    if (!owned) return res.status(404).json({ message: 'Appointment not found.' })
     sql += ' AND id != ?'
     params.push(excludeAppointmentId)
   }
@@ -1070,4 +1126,5 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 

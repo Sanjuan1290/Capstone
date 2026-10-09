@@ -3,7 +3,7 @@ const db = require('../db/connect')
 const generateCookie = require('./generateCookie')
 
 const ROLE_CONFIG = {
-  admin: { table: 'admins', activeSql: '1=1', cookie: 'admin_token' },
+  admin: { table: 'admins', activeSql: 'is_active = 1', cookie: 'admin_token' },
   staff: { table: 'staff', activeSql: "status = 'active'", cookie: 'staff_token' },
   doctor: { table: 'doctors', activeSql: 'is_active = 1', cookie: 'doctor_token' },
   patient: { table: 'patients', activeSql: '1=1', cookie: 'patient_token' },
@@ -13,7 +13,7 @@ const loadSessionAccount = async (role, id, executor = db) => {
   const config = ROLE_CONFIG[role]
   if (!config || !Number(id)) return null
   const [rows] = await executor.query(
-    `SELECT id, COALESCE(session_version, 1) AS session_version
+    `SELECT id, COALESCE(session_version, 1) AS session_version${role === 'admin' ? ', account_role, branch_id' : ''}
      FROM ${config.table}
      WHERE id = ? AND ${config.activeSql}
      LIMIT 1`,
@@ -51,7 +51,7 @@ const verifySessionToken = async (token, expectedRole = null, executor = db) => 
   if (Number(decoded.session_version || 0) !== Number(account.session_version || 1)) {
     throw Object.assign(new Error('Session has been revoked.'), { statusCode: 401 })
   }
-  return { ...decoded, session_version: Number(account.session_version || 1) }
+  return { ...decoded, session_version: Number(account.session_version || 1), ...(decoded.role === 'admin' ? {account_role:account.account_role, branch_id:account.branch_id} : {}) }
 }
 
 const revokeSessions = async (role, id, executor = db) => {
@@ -75,3 +75,4 @@ const findAuthenticatedRequestSession = async (req) => {
 }
 
 module.exports = { ROLE_CONFIG, loadSessionAccount, makeSessionToken, issueSession, verifySessionToken, revokeSessions, findAuthenticatedRequestSession }
+

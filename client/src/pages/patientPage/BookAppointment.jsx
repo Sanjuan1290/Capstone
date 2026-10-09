@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
-  getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
+  getActiveBranches, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import {
@@ -458,6 +458,10 @@ const SuccessScreen = ({ onReset }) => (
 // ── Main ──────────────────────────────────────────────────────────────────────
 const BookAppointment = () => {
   const [step, setStep] = useState(0)
+  const [branches,setBranches] = useState([])
+  const [branchId,setBranchId] = useState('')
+  const [branchError,setBranchError] = useState('')
+  useEffect(()=>{getActiveBranches().then(rows=>{setBranches(rows);const chosen=new URLSearchParams(window.location.search).get('branch_id');if(chosen && rows.some(b=>String(b.id)===chosen))setBranchId(chosen)}).catch(e=>setBranchError(e.message))},[])
   const [done, setDone] = useState(false)
   const [form, setForm] = useState({
     clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '', notes: '',
@@ -484,7 +488,7 @@ const BookAppointment = () => {
     setLoadingReadiness(true)
     setReadinessError('')
     try {
-      const result = await getBookingReadiness()
+      const result = await getBookingReadiness(branchId)
       setBookingReadiness(result || null)
       setForm((current) => {
         if (!current.clinicType || result?.[current.clinicType]?.bookable) return current
@@ -498,13 +502,13 @@ const BookAppointment = () => {
     }
   }
 
-  useEffect(() => { loadBookingReadiness() }, [])
+  useEffect(() => { if(branchId)loadBookingReadiness() }, [branchId])
   useEffect(() => { getCurrentPromotions().then(rows=>setPromotions(Array.isArray(rows)?rows:[])).catch(()=>setPromotions([])) }, [])
 
   const loadDoctors = async () => {
     setLoadingDoctors(true); setDoctorError('')
     try {
-      const summary = await getDoctorsAvailability({ startDate: getLocalDateOnly(), days: 7 })
+      const summary = await getDoctorsAvailability({ startDate: getLocalDateOnly(), days: 7, branchId })
       const enriched = Array.isArray(summary?.doctors) ? summary.doctors : []
       const doctorClinic = (d) => String(d.clinic_type || '')
       const derma = enriched.filter(d => doctorClinic(d) === 'derma' && d.weekly_schedule.some(x => Number(x.is_active)!==0))
@@ -518,7 +522,7 @@ const BookAppointment = () => {
     } catch (err) { setDoctorError(err.message || 'Failed to load doctors.'); setDoctorList({medical:[],derma:[]}) }
     finally { setLoadingDoctors(false) }
   }
-  useEffect(() => { loadDoctors() }, [])
+  useEffect(() => { if(branchId)loadDoctors() }, [branchId])
 
   useEffect(() => {
     if (!form.clinicType || !bookingReadiness) return
@@ -531,7 +535,7 @@ const BookAppointment = () => {
     if (!form.clinicType) { setServices([]); return }
     setLoadingServices(true); setServiceError('')
     try {
-      const rows = await getBookingServices(form.clinicType)
+      const rows = await getBookingServices(form.clinicType,branchId)
       const normalizedRows = Array.isArray(rows) ? rows : []
       setServices(normalizedRows)
       if (normalizedRows.length === 0) await loadBookingReadiness()
@@ -546,7 +550,7 @@ const BookAppointment = () => {
   useEffect(() => {
     setForm((current) => ({ ...current, service: null }))
     loadServices()
-  }, [form.clinicType])
+  }, [form.clinicType,branchId])
 
   useEffect(() => {
     if (!form.clinicType) {
@@ -555,11 +559,11 @@ const BookAppointment = () => {
     }
 
     setLoadingReasons(true)
-    getAppointmentReasons(form.clinicType)
+    getAppointmentReasons(form.clinicType,branchId)
       .then((rows) => setReasonOptions(Array.isArray(rows) ? rows : []))
       .catch(() => setReasonOptions([]))
       .finally(() => setLoadingReasons(false))
-  }, [form.clinicType])
+  }, [form.clinicType,branchId])
 
   useEffect(() => {
     if (!form.doctor) {
@@ -570,8 +574,8 @@ const BookAppointment = () => {
     }
 
     Promise.all([
-      getDoctorSchedule(form.doctor.id),
-      getDoctorUnavailableDates(form.doctor.id),
+      getDoctorSchedule(form.doctor.id, branchId),
+      getDoctorUnavailableDates(form.doctor.id, { branchId }),
     ])
       .then(([schedules, blockedDates]) => {
         setDoctorSchedules(Array.isArray(schedules) ? schedules : [])
@@ -581,7 +585,7 @@ const BookAppointment = () => {
         setDoctorSchedules([])
         setDoctorUnavailableDates([])
       })
-  }, [form.doctor])
+  }, [form.doctor, branchId])
 
   useEffect(() => {
     if (!form.doctor || !form.service || !form.date || !doctorSchedules.length) { setTimeSlots([]); return }
@@ -595,6 +599,7 @@ const BookAppointment = () => {
       date: form.date,
       serviceId: form.service.id,
       clinicType: form.clinicType,
+      branchId,
     })
       .then((result) => {
         if (cancelled) return
@@ -607,7 +612,7 @@ const BookAppointment = () => {
       })
 
     return () => { cancelled = true }
-  }, [form.date, form.doctor, form.service, form.clinicType, doctorSchedules, doctorUnavailableDates])
+  }, [form.date, form.doctor, form.service, form.clinicType, doctorSchedules, doctorUnavailableDates, branchId])
 
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
@@ -629,6 +634,7 @@ const BookAppointment = () => {
   const handleConfirm = async () => {
     try {
       await bookAppointment({
+        branch_id:       Number(branchId),
         doctor_id:        form.doctor.id,
         clinic_type:      form.clinicType,
         requested_service_id: form.service.id,
@@ -651,6 +657,8 @@ const BookAppointment = () => {
     setForm({ clinicType:'', service:null, doctor:null, date:null, time:'', reason:'', reasonDetails:'', notes:'' })
   }
 
+  if(!branchId)return <div className="max-w-2xl mx-auto space-y-4"><h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{setBranchId(String(b.id));setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
+
   return (
     <div className="max-w-2xl mx-auto space-y-4">
 
@@ -659,7 +667,7 @@ const BookAppointment = () => {
         <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
           <MdAdd className="text-emerald-500 text-[22px]" /> Book an Appointment
         </h1>
-        <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Schedule your clinic visit in a few steps.</p>
+        <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Branch: {branches.find(b=>String(b.id)===branchId)?.name||'Selected Branch'}</p><button className="mt-2 text-sm font-semibold text-emerald-700 underline" onClick={()=>{setBranchId('');setStep(0)}} type="button">Change Branch</button>
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -739,4 +747,5 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 

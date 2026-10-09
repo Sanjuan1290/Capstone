@@ -244,3 +244,4 @@ JOIN billing_service_categories bcat
  AND bcat.name = bsc.category
 SET bsc.category_id = bcat.id
 WHERE bsc.category_id IS NULL;
+

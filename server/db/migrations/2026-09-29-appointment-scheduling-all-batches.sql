@@ -106,3 +106,4 @@ SET @sql = IF(
   'ALTER TABLE appointments ADD INDEX idx_appointments_confirmation_deadline (status, appointment_source, confirmation_deadline_at)'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+

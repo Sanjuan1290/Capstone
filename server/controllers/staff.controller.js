@@ -11,7 +11,7 @@ const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
 const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendAppointmentStatusEmail } = require('../utils/emailService')
 const { createNotification, notifyRoles } = require('../utils/notifications')
-const { markOverdueAppointments, canMarkNoShow } = require('../utils/appointments')
+const { markOverdueAppointments, canMarkNoShow, getBranchNoShowGraceMinutes } = require('../utils/appointments')
 const {
   receiveInventoryBatch,
   attachBatchesToInventory,
@@ -507,9 +507,8 @@ const confirmAppointment = async (req, res) => {
 }
 
 const cancelAppointment = async (req, res) => {
-  const cancellation = await resolveCancellationInput(req.body)
   const [rows] = await db.query(
-    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type, a.branch_id,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.id AS doctor_id, d.full_name AS doctor_name
      FROM appointments a
@@ -519,6 +518,9 @@ const cancelAppointment = async (req, res) => {
     [req.params.id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
+  const [[staffBranch]] = await db.query('SELECT branch_id FROM staff WHERE id=? LIMIT 1', [req.user.id])
+  if (!staffBranch || Number(staffBranch.branch_id) !== Number(rows[0].branch_id)) return res.status(404).json({ message: 'Appointment not found in your branch.' })
+  const cancellation = await resolveCancellationInput(req.body, db, rows[0].branch_id)
   assertAppointmentTransition(rows[0].status, 'cancelled')
   const [updated] = await db.query(
     `UPDATE appointments
@@ -562,7 +564,7 @@ const cancelAppointment = async (req, res) => {
 
 const markAppointmentNoShow = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.checked_in_at,
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.checked_in_at, a.branch_id,
             p.id AS patient_id, p.full_name AS patient_name, p.phone AS patient_phone,
             d.full_name AS doctor_name
      FROM appointments a
@@ -575,7 +577,8 @@ const markAppointmentNoShow = async (req, res) => {
   if (!['confirmed', 'rescheduled'].includes(rows[0].status)) {
     return res.status(400).json({ message: 'Only confirmed or rescheduled appointments can be marked as no show.' })
   }
-  if (!canMarkNoShow(rows[0])) return res.status(409).json({ code: 'NO_SHOW_GRACE_PERIOD', message: 'Wait until at least 15 minutes after the appointment start and verify that the patient has not checked in.' })
+  rows[0].no_show_grace_minutes = await getBranchNoShowGraceMinutes(rows[0].branch_id)
+  if (!canMarkNoShow(rows[0])) return res.status(409).json({ code: 'NO_SHOW_GRACE_PERIOD', message: `Wait until ${rows[0].no_show_grace_minutes} minutes after the appointment start and check that the patient has not arrived.` })
   assertAppointmentTransition(rows[0].status, 'no_show')
   const [updated] = await db.query("UPDATE appointments SET status = 'no_show' WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
   await assertAppointmentMutationApplied(updated, req.params.id)
@@ -2055,6 +2058,7 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

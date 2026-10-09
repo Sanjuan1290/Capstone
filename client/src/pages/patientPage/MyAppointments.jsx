@@ -412,7 +412,7 @@ const MyAppointments = () => {
       <CancellationReasonModal
         open={Boolean(cancelTarget)}
         appointment={cancelTarget}
-        loadReasons={getAppointmentCancellationReasons}
+        loadReasons={()=>getAppointmentCancellationReasons(cancelTarget?.branch_id)}
         onClose={() => setCancelTarget(null)}
         onConfirm={confirmCancellation}
       />
@@ -421,3 +421,4 @@ const MyAppointments = () => {
 }
 
 export default MyAppointments
+

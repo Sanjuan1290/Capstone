@@ -85,6 +85,8 @@ import StaffRoute  from './components/StaffRoute'
 import StaffPermissionRoute from './components/StaffPermissionRoute'
 import DoctorRoute from './components/DoctorRoute'
 import AdminRoute  from './components/AdminRoute'
+import SuperAdminRoute from './components/SuperAdminRoute'
+import { SuperAdminLayout, BranchAdminLayout, SuperAdminDashboard, SuperAdminBranches, SuperAdminAccounts, SuperAdminReports, SuperAdminAuditLogs, BranchWorkspace } from './pages/superAdminPage/BranchPortals'
 
 import ForgotPassword from './pages/auth/ForgotPassword'
 import SettingsPage   from './pages/shared/SettingsPage'
@@ -196,55 +198,27 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/admin/forgot-password' element={<ForgotPassword role="admin" />} />
       <Route path='/admin/reset-password' element={<ForgotPassword role="admin" />} />
 
-      {/* ── Admin protected ─────────────────────────────── */}
-      <Route path='/admin' element={<AdminRoute><AdminLayout /></AdminRoute>}>
-        <Route index                   element={<Admin_Dashboard />} />
-        <Route path='reports'          element={<Admin_Reports />} />
-        <Route path='audit-logs'       element={<Admin_AuditLogs />} />
-        <Route path='audit-logs/archive' element={<Admin_AuditArchive />} />
-        <Route path='audit-logs/archive/:archiveId' element={<Admin_AuditArchiveDetail />} />
-        <Route path='clinic-settings'  element={<Navigate to='/admin/settings' replace />} />
-        <Route path='accounts'         element={<Admin_Accounts />} />
-        <Route path='staff-accounts'   element={<Navigate to='/admin/accounts?tab=staff' replace />} />
-        <Route path='doctor-accounts'  element={<Navigate to='/admin/accounts?tab=doctors' replace />} />
-        <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
-        <Route path='appointments'     element={<Admin_Appointments />} />
-        <Route path='patient-records'   element={<Admin_PatientRecord />} />
-        <Route path='patient-booking' element={<Navigate to='/admin/system-setup' replace />} />
-        <Route path='patient-visit-details' element={<Navigate to='/admin/system-setup' replace />} />
-        <Route path='system-setup' element={<Admin_SystemSetup />} />
-        <Route path='system-setup/billing' element={<Admin_SystemSetupBilling />}>
-          <Route index element={<Navigate to='services' replace />} />
-          <Route path='services' element={<Admin_BillingCatalog />} />
-          <Route path='services/new' element={<Admin_BillingServiceForm />} />
-          <Route path='services/:serviceId/edit' element={<Admin_BillingServiceForm />} />
-          <Route path='payment-methods' element={<Admin_BillingPaymentMethods />} />
-          <Route path='discounts' element={<Admin_BillingDiscounts />} />
-          <Route path='receipt' element={<Admin_BillingReceiptSettings />} />
-        </Route>
-        <Route path='billing'          element={<Admin_Billing />} />
-        <Route path='billing/checkout/:billingId' element={<Admin_CheckoutDetail />} />
-        <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
-        <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
-        <Route path='billing/adjustments' element={<Admin_BillingApprovals />} />
-        <Route path='billing/approvals' element={<Navigate to='/admin/billing/adjustments' replace />} />
-        <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
-        <Route path='checkout' element={<Navigate to='/admin/billing?tab=checkout' replace />} />
-        <Route path='checkout/:billingId' element={<LegacyCheckoutDetailRedirect />} />
-        <Route path='billing/setup' element={<Navigate to='/admin/system-setup/billing/services' replace />} />
-        <Route path='billing/setup/services' element={<Navigate to='/admin/system-setup/billing/services' replace />} />
-        <Route path='billing/setup/services/new' element={<Navigate to='/admin/system-setup/billing/services/new' replace />} />
-        <Route path='billing/setup/services/:serviceId/edit' element={<LegacyBillingServiceEditRedirect />} />
-        <Route path='billing/setup/payment-methods' element={<Navigate to='/admin/system-setup/billing/payment-methods' replace />} />
-        <Route path='billing/setup/discounts' element={<Navigate to='/admin/system-setup/billing/discounts' replace />} />
-        <Route path='billing/setup/receipt' element={<Navigate to='/admin/system-setup/billing/receipt' replace />} />
-        <Route path='service-catalog' element={<Navigate to='/admin/system-setup/billing/services' replace />} />
-        <Route path='billing-catalog' element={<Navigate to='/admin/system-setup/billing/services' replace />} />
-        <Route path='inventory'        element={<Admin_Inventory />} />
-        <Route path='supply-requests'  element={<Admin_SupplyRequests />} />
-        <Route path='landingpage'      element={<Admin_LandingPage />} />
-        <Route path='settings'         element={<SettingsPage />} />
-        <Route path='change-password'  element={<ChangePassword />} />
+      <Route path='/superadmin/login' element={<AdminLogin />} />
+      <Route path='/superadmin/forgot-password' element={<ForgotPassword role="admin" />} />
+      <Route path='/superadmin' element={<SuperAdminRoute><SuperAdminLayout /></SuperAdminRoute>}>
+        <Route index element={<SuperAdminDashboard />} />
+        <Route path='branches' element={<SuperAdminBranches />} />
+        <Route path='branches/:branchId' element={<Navigate to='dashboard' replace />} />
+        <Route path='branches/:branchId/:module' element={<BranchWorkspace />} />
+        <Route path='accounts' element={<SuperAdminAccounts />} />
+        <Route path='reports' element={<SuperAdminReports />} />
+        <Route path='audit-logs' element={<SuperAdminAuditLogs />} />
+        <Route path='landingpage' element={<Admin_LandingPage />} />
+        <Route path='settings' element={<SettingsPage />} />
+        <Route path='change-password' element={<ChangePassword />} />
+      </Route>
+
+      {/* Branch Admin has a dedicated layout; its data comes from /api/branches/my. */}
+      <Route path='/admin' element={<AdminRoute><BranchAdminLayout /></AdminRoute>}>
+        <Route index element={<BranchWorkspace admin />} />
+        <Route path='settings' element={<SettingsPage />} />
+        <Route path='change-password' element={<ChangePassword />} />
+        <Route path=':module' element={<BranchWorkspace admin />} />
       </Route>
 
       {/* ── Public TV queue display ─────────────────────── */}
@@ -265,5 +239,6 @@ const App = () => (
 )
 
 export default App
+
 
 

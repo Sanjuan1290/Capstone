@@ -52,3 +52,4 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(read('client/src/index.css')).toContain('.form-control.pl-10 { padding-left: 2.5rem; }')
   })
 })
+

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { MdCalendarToday, MdEventBusy, MdRefresh } from 'react-icons/md'
-import { getDoctorsAvailability } from '../../services/patient.service'
+import { getDoctorsAvailability, getActiveBranches } from '../../services/patient.service'
 import { getLocalDateOnly } from '../../utils/date'
 import { scheduleSummary } from '../../utils/schedule'
 import { doctorClinicLabel } from '../../utils/doctor'
@@ -9,6 +9,9 @@ import { doctorClinicLabel } from '../../utils/doctor'
 const fmtDate = (date) => new Date(`${date}T00:00:00`).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })
 const DoctorAvailability = () => {
   const [doctors, setDoctors] = useState([])
+  const [branches,setBranches] = useState([])
+  const [branchId,setBranchId] = useState('')
+  useEffect(()=>{getActiveBranches().then(setBranches).catch(e=>setError(e.message))},[])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState(null)
@@ -17,7 +20,7 @@ const DoctorAvailability = () => {
     setLoading(true)
     setError('')
     try {
-      const data = await getDoctorsAvailability({ startDate: getLocalDateOnly(), days: 7 })
+      const data = await getDoctorsAvailability({ startDate: getLocalDateOnly(), days: 7, branchId })
       setDoctors(Array.isArray(data?.doctors) ? data.doctors : [])
     } catch (err) {
       setDoctors([])
@@ -27,7 +30,9 @@ const DoctorAvailability = () => {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { if(branchId)load() }, [branchId])
+
+  if(!branchId)return <div className="mx-auto max-w-3xl space-y-4"><h1 className="text-2xl font-bold">Choose a Branch</h1><p className="text-slate-500 text-sm">Select the clinic location to view its doctors and schedules.</p>{branches.map(b=><button className="w-full rounded-xl border bg-white p-5 text-left hover:border-emerald-500" key={b.id} onClick={()=>{setBranchId(String(b.id));setExpanded(null)}}><b>{b.name}</b><p className="text-sm text-slate-500">{b.address}</p></button>)}{error&&<p className="text-red-600">{error}</p>}</div>
 
   if (loading) {
     return <div className="mx-auto max-w-5xl rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">Loading doctor availability...</div>
@@ -37,7 +42,7 @@ const DoctorAvailability = () => {
     <div className="mx-auto w-full max-w-5xl space-y-5">
       <div>
         <h1 className="text-2xl font-black text-slate-900">Doctor Availability</h1>
-        <p className="mt-1 text-sm text-slate-500">View doctor schedules, booked slots, and the next available appointment before booking.</p>
+        <p className="mt-1 text-sm text-slate-500">View available doctors and schedules at {branches.find(b=>String(b.id)===branchId)?.name||'this branch'}.</p><button className="mt-2 text-sm font-semibold text-emerald-700 underline" onClick={()=>{setBranchId('');setDoctors([]);setExpanded(null)}}>Change Branch</button>
       </div>
 
       {error && (
@@ -85,7 +90,7 @@ const DoctorAvailability = () => {
                 <button disabled={!active.length} onClick={() => setExpanded(isOpen ? null : doctor.id)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-40">
                   {isOpen ? 'Hide Slots' : 'View Slots'}
                 </button>
-                <NavLink to={`/patient/book?doctor=${doctor.id}&clinic=${clinicType}`} className={`rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white ${!active.length ? 'pointer-events-none opacity-40' : ''}`}>Book</NavLink>
+                <NavLink to={`/patient/book?doctor=${doctor.id}&clinic=${clinicType}&branch_id=${branchId}`} className={`rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white ${!active.length ? 'pointer-events-none opacity-40' : ''}`}>Book</NavLink>
               </div>
             </div>
 
@@ -119,3 +124,4 @@ const DoctorAvailability = () => {
 }
 
 export default DoctorAvailability
+
