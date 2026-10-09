@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react"
 import { useAuth } from "../../context/AuthContext"
-import { getMyAppointments } from "../../services/patient.service"
+import { getMyAppointments, getCurrentPromotions } from "../../services/patient.service"
 import {
   MdCalendarToday, MdEventAvailable, MdHistory,
   MdAdd, MdPerson, MdArrowForward, MdAccessTime,
@@ -53,6 +53,7 @@ const PatientDashboard = () => {
   const [recentVisits,setRecentVisits]= useState([])
   const [totalVisits, setTotalVisits] = useState(0)
   const [loading,     setLoading]     = useState(true)
+  const [promotions, setPromotions] = useState([])
 
   useEffect(() => {
     getMyAppointments()
@@ -77,6 +78,8 @@ const PatientDashboard = () => {
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => { getCurrentPromotions().then(rows=>setPromotions((Array.isArray(rows)?rows:[]).filter(promo=>promo.show_on_dashboard))).catch(()=>setPromotions([])) }, [])
+
   const firstName = user?.full_name?.split(" ")[0] || "Patient"
   const todayStr  = new Date().toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric" })
 
@@ -88,6 +91,8 @@ const PatientDashboard = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
+
+      {promotions.length > 0 && <section className="space-y-3" aria-label="Current clinic promotions"><h2 className="text-lg font-bold text-slate-900">Current clinic offers</h2><div className="grid gap-3">{promotions.map(promo=><div key={promo.id} className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-[11px] font-bold uppercase tracking-wider text-amber-700">{promo.badge_text || 'Special offer'}</p><h3 className="mt-1 text-sm font-bold text-slate-900">{promo.title}</h3><p className="mt-1 text-sm text-slate-700">{promo.description}</p><p className="mt-2 text-xs text-amber-800">Until {promo.ends_on} · Applies to selected services</p><NavLink to="/patient/book" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-emerald-700">Explore services <MdArrowForward/></NavLink></div>)}</div></section>}
 
       {/* ── Hero greeting ──────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c] p-6">
@@ -324,3 +329,4 @@ const PatientDashboard = () => {
 }
 
 export default PatientDashboard
+

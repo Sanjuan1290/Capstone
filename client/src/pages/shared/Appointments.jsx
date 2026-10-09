@@ -639,6 +639,8 @@ Confirm this appointment anyway?`)
   }
 
   const handleConfirm = async (appointment) => {
+    // Explicit staff confirmation step prevents accidental confirmation.
+    if (!window.confirm(`Have you contacted or verified ${appointment.patient_name || appointment.full_name || 'this patient'} and confirmed they can attend?\n\nSelect OK to finalize this appointment confirmation.`)) return
     setBusyId(appointment.id)
     try {
       await confirmWithPolicyWarnings(appointment)
@@ -865,3 +867,4 @@ Confirm this appointment anyway?`)
 }
 
 export default Appointments
+

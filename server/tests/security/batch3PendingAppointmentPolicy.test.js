@@ -9,9 +9,9 @@ const {
 const { assertAppointmentTransition } = require('../../utils/appointmentSecurity')
 
 describe('Batch 3 pending appointment policy', () => {
-  it('uses the 120-minute notice and 60-minute confirmation cutoff defaults', () => {
+  it('uses the 720-minute notice and 60-minute confirmation cutoff defaults', () => {
     expect(normalizeBookingSettings({})).toMatchObject({
-      online_min_lead_minutes: 120,
+      online_min_lead_minutes: 720,
       pending_confirmation_cutoff_minutes: 60,
       booking_start_interval_minutes: 30,
     })
@@ -19,8 +19,8 @@ describe('Batch 3 pending appointment policy', () => {
 
   it('rejects a cutoff that leaves Staff no review window', () => {
     expect(() => validateBookingSettings({
-      online_min_lead_minutes: 120,
-      pending_confirmation_cutoff_minutes: 120,
+      online_min_lead_minutes: 720,
+      pending_confirmation_cutoff_minutes: 720,
     })).toThrow(/cutoff must be earlier/i)
   })
 
@@ -37,3 +37,4 @@ describe('Batch 3 pending appointment policy', () => {
     expect(() => assertAppointmentTransition('pending', 'rejected')).not.toThrow()
   })
 })
+

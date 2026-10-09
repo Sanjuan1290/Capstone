@@ -109,7 +109,7 @@ const OtpBoxes = ({ value, onChange }) => {
 const RegistrationForm = ({ onSuccess }) => {
   const [form, setForm] = useState({
     full_name: '', email: '', phone: '', birthdate: '', gender: '', address: '',
-    password: '', confirmPassword: '',
+    password: '', confirmPassword: '', receive_promotions: false,
   })
   const [consentGiven, setConsentGiven] = useState(false)
   const [error, setError] = useState('')
@@ -173,6 +173,7 @@ const RegistrationForm = ({ onSuccess }) => {
             <div className="border-t border-slate-100 pt-4"><p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Security</p><div className="grid gap-4 sm:grid-cols-2"><div><label className={LABEL_CLASS}>Password *</label><PasswordInput name="password" value={form.password} onChange={updateField} placeholder="8+ characters"/></div><div><label className={LABEL_CLASS}>Confirm Password *</label><PasswordInput name="confirmPassword" value={form.confirmPassword} onChange={updateField} placeholder="Retype password" preventPaste/>{form.confirmPassword && form.password !== form.confirmPassword && <p className="mt-1 text-xs text-red-500">Passwords do not match.</p>}<p className="mt-1 text-[11px] text-slate-400">Paste is disabled for confirmation.</p></div></div></div>
             <PasswordRequirements password={form.password}/>
             <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600"><input type="checkbox" checked={consentGiven} onChange={(e)=>setConsentGiven(e.target.checked)} className="mt-1 h-4 w-4"/><span>I have read and agree to the <NavLink to="/privacy-policy" className="font-bold text-emerald-600">Privacy Policy</NavLink> and consent to processing of my personal data.</span></label>
+            <label className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3 text-sm text-slate-600"><input type="checkbox" name="receive_promotions" checked={form.receive_promotions} onChange={updateField} className="mt-1 h-4 w-4"/><span>I would like to receive optional clinic promotions and special offers by email or SMS. I can opt out anytime in Settings.</span></label>
             <button type="submit" aria-busy={loading} disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword || Boolean(birthdateError)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-50">{loading ? 'Sending code…' : <>Verify Mobile Number <MdArrowForward/></>}</button>
             <p className="text-center text-sm text-slate-400">Already have an account? <NavLink to="/patient/login" className="font-bold text-emerald-600">Sign in</NavLink></p>
           </form>
@@ -273,3 +274,4 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
+

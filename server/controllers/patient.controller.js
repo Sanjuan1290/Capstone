@@ -154,7 +154,7 @@ const register = async (req, res) => {
   }
   const birthdateError = validateBirthdate(birthdate)
   if (birthdateError) return res.status(400).json({ message: birthdateError, field: 'Birthdate' })
-  const normalizedProfile = normalizePatientProfileInput({ email: emailInput, birthdate, gender, address, receive_promotions: false })
+  const normalizedProfile = normalizePatientProfileInput({ email: emailInput, birthdate, gender, address, receive_promotions: req.body.receive_promotions === true })
   if (!normalizedProfile.email || !normalizedProfile.birthdate || !normalizedProfile.gender || !normalizedProfile.address) {
     return res.status(400).json({ message: 'Complete all required patient information.' })
   }
@@ -207,7 +207,7 @@ const register = async (req, res) => {
     address: normalizedProfile.address,
     password: hashedPassword,
     consent_given: true,
-    receive_promotions: 0,
+    receive_promotions: normalizedProfile.receive_promotions ? 1 : 0,
     verification_method: method,
   })
 
@@ -1070,3 +1070,4 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+

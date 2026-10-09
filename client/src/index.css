@@ -99,6 +99,18 @@ a:focus-visible {
   transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
 }
 
+/* A generic .form-control padding declaration used to override Tailwind pl-*;
+   these higher-specificity rules keep leading search icons from overlapping text. */
+.form-control.pl-7 { padding-left: 1.75rem; }
+.form-control.pl-8 { padding-left: 2rem; }
+.form-control.pl-9 { padding-left: 2.25rem; }
+.form-control.pl-10 { padding-left: 2.5rem; }
+.form-control.pl-11 { padding-left: 2.75rem; }
+.form-control.pl-12 { padding-left: 3rem; }
+.form-control.pl-14 { padding-left: 3.5rem; }
+.form-control.pr-10 { padding-right: 2.5rem; }
+.form-control.pr-11 { padding-right: 2.75rem; }
+.form-control.pr-12 { padding-right: 3rem; }
 .form-control:hover:not(:disabled) { border-color: var(--app-border-strong); }
 .form-control:focus {
   border-color: #f59e0b;
@@ -302,3 +314,4 @@ input[type='number'] {
   background-clip: padding-box;
 }
 .portal-sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(203, 213, 225, 0.62); }
+

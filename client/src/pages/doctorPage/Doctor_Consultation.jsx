@@ -56,7 +56,7 @@ function formatDate(raw) {
   })
 }
 
-const FREQUENCIES = ['Once daily', 'Twice daily', 'Three times daily', 'Every 8 hours', 'Every 12 hours', 'As needed (PRN)']
+const FREQUENCIES = ['1x a day', '2x a day', '3x a day', '4x a day']
 const isCustomOption = (value, options) => Boolean(value) && !options.includes(value)
 
 const normalizePrescription = (prescription = {}) => {
@@ -1401,10 +1401,10 @@ const Doctor_Consultation = () => {
                               </div>
                               <div>
                                 <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Frequency</label>
-                                <select value={isCustomOption(rx.frequency, FREQUENCIES) ? '__custom__' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value === '__custom__' ? 'Custom' : e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm outline-none focus:border-violet-400">
+                                <select value={isCustomOption(rx.frequency, FREQUENCIES) ? '__custom__' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value === '__custom__' ? '5x a day' : e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white p-2 text-sm outline-none focus:border-violet-400">
                                   <option value="">Select...</option>{FREQUENCIES.map((frequency) => <option key={frequency}>{frequency}</option>)}<option value="__custom__">Custom…</option>
                                 </select>
-                                {isCustomOption(rx.frequency, FREQUENCIES) && <input type="text" value={rx.frequency === 'Custom' ? '' : rx.frequency} onChange={(e) => updateRx(index, 'frequency', e.target.value || 'Custom')} maxLength={120} placeholder="e.g. Every 6 hours" className="mt-2 w-full rounded-lg border border-violet-200 bg-white p-2 text-sm outline-none focus:border-violet-400" />}
+                                {isCustomOption(rx.frequency, FREQUENCIES) && <label className="mt-2 block text-xs text-slate-600">Custom times per day<input type="number" min="1" max="24" step="1" value={/^([1-9]|1[0-9]|2[0-4])x a day$/.test(rx.frequency) ? parseInt(rx.frequency, 10) : ''} onChange={(e) => updateRx(index, 'frequency', e.target.value ? `${Math.min(24, Math.max(1, Number(e.target.value) || 1))}x a day` : 'Custom')} placeholder="Number of times per day" className="mt-1 w-full rounded-lg border border-violet-200 bg-white p-2 text-sm outline-none focus:border-violet-400" /></label>}
                               </div>
                               <div className="sm:col-span-2">
                                 <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Notes</label>

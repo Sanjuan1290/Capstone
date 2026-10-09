@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
-  getAppointmentReasons, getBookingReadiness, getBookingServices, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
+  getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import {
@@ -121,7 +121,7 @@ const StepClinicType = ({ value, onChange, readiness, loading, error, onRetry })
 )
 
 // ── Step 2: Service ───────────────────────────────────────────────────────────
-const StepService = ({ clinicType, value, onChange, services, loading, error, onRetry, onBackToClinic }) => (
+const StepService = ({ clinicType, value, onChange, services, promotions = [], loading, error, onRetry, onBackToClinic }) => (
   <div className="space-y-3">
     <div>
       <h2 className="text-lg font-bold text-slate-800">Choose a Service</h2>
@@ -143,6 +143,7 @@ const StepService = ({ clinicType, value, onChange, services, loading, error, on
           <div>
             <p className="text-sm font-bold text-slate-800">{service.service_name}</p>
             <p className="mt-0.5 text-xs text-slate-500">{service.category || 'Clinic service'}</p>
+            {promotions.filter(promo=>promo.service_ids.includes(Number(service.id))).map(promo=><div key={promo.id} className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-left"><p className="text-xs font-bold text-amber-800">{promo.badge_text || 'Special offer'} · {promo.title}</p><p className="mt-1 text-xs text-amber-900">{promo.description}</p><p className="mt-1 text-[10px] text-amber-700">Available until {promo.ends_on}. Confirm offer eligibility with the clinic.</p></div>)}
           </div>
           <div className="shrink-0 text-right">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Standard Price</p>
@@ -472,6 +473,7 @@ const BookAppointment = () => {
   const [reasonOptions, setReasonOptions] = useState([])
   const [loadingReasons, setLoadingReasons] = useState(false)
   const [services, setServices] = useState([])
+  const [promotions, setPromotions] = useState([])
   const [loadingServices, setLoadingServices] = useState(false)
   const [serviceError, setServiceError] = useState('')
   const [bookingReadiness, setBookingReadiness] = useState(null)
@@ -497,6 +499,7 @@ const BookAppointment = () => {
   }
 
   useEffect(() => { loadBookingReadiness() }, [])
+  useEffect(() => { getCurrentPromotions().then(rows=>setPromotions(Array.isArray(rows)?rows:[])).catch(()=>setPromotions([])) }, [])
 
   const loadDoctors = async () => {
     setLoadingDoctors(true); setDoctorError('')
@@ -686,7 +689,7 @@ const BookAppointment = () => {
           ) : (
             <>
               {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' }))} readiness={bookingReadiness} loading={loadingReadiness} error={readinessError} onRetry={loadBookingReadiness} />}
-              {step===1 && <StepService clinicType={form.clinicType} value={form.service} onChange={set('service')} services={services} loading={loadingServices} error={serviceError} onRetry={loadServices} onBackToClinic={() => { setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' })); setStep(0); loadBookingReadiness() }} />}
+              {step===1 && <StepService clinicType={form.clinicType} value={form.service} onChange={set('service')} services={services} promotions={promotions} loading={loadingServices} error={serviceError} onRetry={loadServices} onBackToClinic={() => { setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' })); setStep(0); loadBookingReadiness() }} />}
               {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={set('doctor')} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
               {step===3 && (
                 <StepSchedule
@@ -736,3 +739,4 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+

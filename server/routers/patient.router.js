@@ -14,6 +14,7 @@ const {
   getAppointmentReasons, getBookingReadiness, getBookingServices, getDoctors, getDoctorsAvailability, getDoctorSchedule, getDoctorUnavailableDatesController, getDoctorAvailableSlots, getDoctorTakenSlots,
 } = require('../controllers/patient.controller')
 const commonCtrl = require('../controllers/common.controller')
+const promotionsCtrl = require('../controllers/promotions.controller')
 
 // Public
 router.post('/register',        otpRequestLimiter, register)
@@ -46,6 +47,7 @@ router.get('/appointment-reasons',                 getAppointmentReasons)
 router.get('/appointment-cancellation-reasons',    getAppointmentCancellationReasons)
 router.get('/booking-readiness',                    getBookingReadiness)
 router.get('/booking-services',                     getBookingServices)
+router.get('/promotions',                          promotionsCtrl.getActivePromotions)
 router.patch('/appointments/:id/cancel',           cancelAppointment)
 router.patch('/appointments/:id/reschedule',       rescheduleAppointment)
 router.get('/doctors',                             getDoctors)
@@ -56,3 +58,4 @@ router.get('/doctors/:id/available-slots',          getDoctorAvailableSlots)
 router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router
+

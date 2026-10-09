@@ -16,6 +16,12 @@ const requestJson = async (url, options = {}) => {
   return data
 }
 
+// Promotion management is reserved for Administrator accounts.
+export const getAdminPromotions = () => requestJson('/api/admin/promotions')
+export const saveAdminPromotion = (payload, id = null) => requestJson(`/api/admin/promotions${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const deleteAdminPromotion = (id) => requestJson(`/api/admin/promotions/${id}`, { method:'DELETE' })
+export const notifyAdminPromotion = (id) => requestJson(`/api/admin/promotions/${id}/notify`, { method:'POST' })
+
 export const getDashboard = () => requestJson(`${getAdminApiBase()}/dashboard`)
 
 export const getAppointments = (params = '') => requestJson(`${getAdminApiBase()}/appointments${params}`)

@@ -61,6 +61,7 @@ setInterval(() => {
 }, 60 * 1000)
 setInterval(() => {
   markOverdueAppointments().catch(err => console.error('[Appointments] Overdue sync error:', err.message))
-}, 15 * 60 * 1000)
+}, 60 * 1000)
 
 module.exports = { sendTomorrowReminders, scheduleDaily }
+

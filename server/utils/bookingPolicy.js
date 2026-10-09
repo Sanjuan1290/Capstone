@@ -6,7 +6,7 @@ const {
 } = require('./date')
 const { parseTimeToMinutes } = require('./scheduleWindows')
 
-const DEFAULT_ONLINE_MIN_LEAD_MINUTES = 120
+const DEFAULT_ONLINE_MIN_LEAD_MINUTES = 720
 const DEFAULT_PENDING_CONFIRMATION_CUTOFF_MINUTES = 60
 const DEFAULT_BOOKING_START_INTERVAL_MINUTES = 30
 const MIN_SERVICE_DURATION_MINUTES = 15
@@ -23,7 +23,7 @@ const normalizeBookingSettings = (row = {}) => ({
   online_min_lead_minutes: normalizePositiveInt(
     row.online_min_lead_minutes,
     DEFAULT_ONLINE_MIN_LEAD_MINUTES,
-    0,
+    12 * 60,
     24 * 60
   ),
   pending_confirmation_cutoff_minutes: normalizePositiveInt(
@@ -40,8 +40,8 @@ const validateBookingSettings = (input = {}) => {
   const notice = Number(normalized.online_min_lead_minutes)
   const cutoff = Number(normalized.pending_confirmation_cutoff_minutes)
 
-  if (!Number.isInteger(notice) || notice < 30 || notice > 24 * 60 || notice % 30 !== 0) {
-    const error = new Error('Minimum online booking notice must be 30 minutes to 24 hours in 30-minute increments.')
+  if (!Number.isInteger(notice) || notice < 720 || notice > 24 * 60 || notice % 30 !== 0) {
+    const error = new Error('Minimum online booking notice must be 12 to 24 hours in 30-minute increments.')
     error.statusCode = 400
     error.code = 'BOOKING_POLICY_INVALID'
     throw error
@@ -160,3 +160,4 @@ module.exports = {
   isOnlineAppointmentStartAllowed,
   buildConfirmationDeadlineSql,
 }
+

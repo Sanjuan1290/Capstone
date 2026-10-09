@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { MdLock, MdPointOfSale, MdRefresh } from 'react-icons/md'
+import { MdLock, MdPointOfSale, MdRefresh, MdPayments, MdReceiptLong } from 'react-icons/md'
 import Modal from '../ui/Modal'
 import { useToast } from '../ui/ToastProvider'
 import { formatMoney } from '../../utils/billingUi'
@@ -64,7 +64,8 @@ const CashierDrawerCard = ({ loadDrawer, closeDrawer }) => {
         <div className="flex items-start gap-3">
           <MdPointOfSale className="mt-1 text-2xl text-emerald-600" />
           <div>
-            <h2 className="font-black text-slate-900">My Cash Drawer Today</h2>
+            <h2 className="font-black text-slate-900">Cash Drawer · Today</h2>
+            <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${isClosed ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-700'}`}>{isClosed ? 'Closed' : 'Open for collections'}</span>
             {error ? <p className="mt-1 text-xs font-semibold text-rose-700">{error}</p> : (
               <p className="mt-1 text-xs text-slate-500">
                 {drawer ? `${drawer.transactions} payment${drawer.transactions === 1 ? '' : 's'} received · ${formatMoney(drawer.non_cash_collected)} non-cash${Number(drawer.cash_refunds || 0) > 0 ? ` · ${formatMoney(drawer.cash_refunds)} cash refunded` : ''}` : 'Loading…'}
@@ -81,6 +82,11 @@ const CashierDrawerCard = ({ loadDrawer, closeDrawer }) => {
         </div>
       </div>
 
+      <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-3">
+        <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-1.5 text-xs text-slate-500"><MdReceiptLong /> Transactions</p><p className="mt-1 text-lg font-bold text-slate-900">{drawer?.transactions ?? '—'}</p></div>
+        <div className="rounded-xl bg-sky-50 p-3"><p className="flex items-center gap-1.5 text-xs text-sky-700"><MdPayments /> Non-cash collected</p><p className="mt-1 text-lg font-bold text-slate-900">{formatMoney(drawer?.non_cash_collected || 0)}</p></div>
+        <div className="rounded-xl bg-amber-50 p-3"><p className="text-xs text-amber-700">Cash refunds</p><p className="mt-1 text-lg font-bold text-slate-900">{formatMoney(drawer?.cash_refunds || 0)}</p></div>
+      </div>
       {isClosed ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
           <p className="flex items-center gap-2 font-bold text-slate-700"><MdLock /> Closed at {formatTime(closing.closed_at)} with {formatMoney(closing.actual_cash)} counted</p>
@@ -130,3 +136,4 @@ const CashierDrawerCard = ({ loadDrawer, closeDrawer }) => {
 }
 
 export default CashierDrawerCard
+

@@ -57,8 +57,8 @@ const Admin_PatientBooking = () => {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
-  const [bookingPolicy, setBookingPolicy] = useState({ online_min_lead_minutes: 120, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
-  const [savedBookingPolicy, setSavedBookingPolicy] = useState({ online_min_lead_minutes: 120, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
+  const [bookingPolicy, setBookingPolicy] = useState({ online_min_lead_minutes: 720, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
+  const [savedBookingPolicy, setSavedBookingPolicy] = useState({ online_min_lead_minutes: 720, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
 
@@ -78,7 +78,7 @@ const Admin_PatientBooking = () => {
     try {
       const data = await getBookingPolicy()
       const loadedPolicy = {
-        online_min_lead_minutes: Number(data?.online_min_lead_minutes ?? 120),
+        online_min_lead_minutes: Number(data?.online_min_lead_minutes ?? 720),
         pending_confirmation_cutoff_minutes: Number(data?.pending_confirmation_cutoff_minutes ?? 60),
         booking_start_interval_minutes: 30,
       }
@@ -98,8 +98,8 @@ const Admin_PatientBooking = () => {
   const policyError = useMemo(() => {
     const notice = Number(bookingPolicy.online_min_lead_minutes)
     const cutoff = Number(bookingPolicy.pending_confirmation_cutoff_minutes)
-    if (!Number.isInteger(notice) || notice < 30 || notice > 1440 || notice % 30 !== 0) {
-      return 'Minimum online booking notice must be 30 minutes to 24 hours in 30-minute increments.'
+    if (!Number.isInteger(notice) || notice < 720 || notice > 1440 || notice % 30 !== 0) {
+      return 'Minimum online booking notice must be 12 to 24 hours in 30-minute increments.'
     }
     if (!Number.isInteger(cutoff) || cutoff < 30 || cutoff > 1440 || cutoff % 30 !== 0) {
       return 'Pending confirmation cutoff must be 30 minutes to 24 hours in 30-minute increments.'
@@ -262,9 +262,9 @@ const Admin_PatientBooking = () => {
           <label>
             <span className="form-label">Minimum Online Booking Notice</span>
             <select disabled={!editingPolicy} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.online_min_lead_minutes} onChange={(e)=>setBookingPolicy((current)=>({...current,online_min_lead_minutes:Number(e.target.value)}))}>
-              {BOOKING_POLICY_MINUTE_OPTIONS.map((minutes)=><option key={minutes} value={minutes}>{durationLabel(minutes)}</option>)}
+              {BOOKING_POLICY_MINUTE_OPTIONS.filter((minutes)=>minutes>=720).map((minutes)=><option key={minutes} value={minutes}>{durationLabel(minutes)}</option>)}
             </select>
-            <span className="form-helper">{durationLabel(bookingPolicy.online_min_lead_minutes)} before the appointment. Adjust only in 30-minute increments. Default: 2 hours.</span>
+            <span className="form-helper">{durationLabel(bookingPolicy.online_min_lead_minutes)} before the appointment. Adjust only in 30-minute increments. Minimum: 12 hours.</span>
           </label>
           <label>
             <span className="form-label">Pending Confirmation Cutoff</span>
@@ -506,3 +506,4 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
+

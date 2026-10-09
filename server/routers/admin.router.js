@@ -10,6 +10,7 @@ const requireRole  = require('../middlewares/role.middleware')
 const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimit.middleware')
 
 const auth = [authenticate('admin_token'), requireRole('admin')]
+const promotionsCtrl = require('../controllers/promotions.controller')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 router.post('/login',      loginLimiter, adminCtrl.login)
@@ -27,6 +28,13 @@ router.post('/settings/verification/request', ...auth, otpRequestLimiter, common
 router.post('/settings/verification/confirm', ...auth, otpVerifyLimiter, commonCtrl.confirmMySettingsVerification)
 router.get('/landing-page', ...auth, commonCtrl.getAdminLandingPage)
 router.put('/landing-page', ...auth, commonCtrl.saveAdminLandingPage)
+
+// ── Promotions (Super Admin; patient-facing announcements only) ────────
+router.get('/promotions', ...auth, promotionsCtrl.listAllPromotions)
+router.post('/promotions', ...auth, promotionsCtrl.savePromotion)
+router.put('/promotions/:id', ...auth, promotionsCtrl.savePromotion)
+router.delete('/promotions/:id', ...auth, promotionsCtrl.deletePromotion)
+router.post('/promotions/:id/notify', ...auth, promotionsCtrl.notifyOptedInPatients)
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 router.get('/dashboard',   ...auth, adminCtrl.getDashboard)
