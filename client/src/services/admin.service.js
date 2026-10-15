@@ -322,14 +322,14 @@ export const updateClinicSettings = (payload) => requestJson(`${getAdminApiBase(
 
 export const recordReportExport = (payload = {}) => requestJson(`${getAdminApiBase()}/reports/export-audit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
-export const getReports = (params = {}) => {
+export const getReports = (params = {}, options = {}) => {
   const normalized = typeof params === 'string' ? { period: params } : params
   const search = new URLSearchParams()
   if (normalized.period) search.set('period', normalized.period)
   if (normalized.startDate) search.set('start_date', normalized.startDate)
   if (normalized.endDate) search.set('end_date', normalized.endDate)
   const query = search.toString()
-  return requestJson(`${getAdminApiBase()}/reports${query ? `?${query}` : ''}`)
+  return requestJson(`${getAdminApiBase()}/reports${query ? `?${query}` : ''}`, options)
 }
 
 export const getInventory = () =>

@@ -231,6 +231,9 @@ const run = async () => {
       console.warn(`WARNING: ${Number(uncategorizedServices.count)} service(s) are still using a legacy text-only category. Open/edit those services or rerun migration after reviewing category names.`)
     }
 
+    // Read-only EXPLAIN of all Reports SQL prevents ambiguous-column regressions.
+    const reportsQueries = await require('./verifyBranchReportsSql').verifyBranchReportsSql(db)
+    console.log(`Verified ${reportsQueries} branch Reports SQL statements against the connected database.`)
     console.log('Deployment verification passed: runtime configuration, database connection, workflow schema, and critical integrity checks are ready.')
   } catch (error) {
     console.error('Deployment verification failed:', error.message)

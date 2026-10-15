@@ -111,6 +111,7 @@ app.use((err, req, res, next) => {
     path: req.originalUrl,
     ip: req.ip,
     code: err.code,
+    reportQueryNumber: err.reportQueryNumber,
     message: err.message,
     stack: process.env.NODE_ENV === 'production' ? undefined : err.stack,
   })

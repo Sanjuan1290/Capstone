@@ -373,3 +373,12 @@ Schema changes apply automatically on server start. The equivalent SQL is in `se
 ## Multi-branch gateway work in progress (2026-10-15)
 
 See `BRANCH_GATEWAY_CONTINUED_20261015.md` for the latest audited branch gateway changes, tests, outstanding financial transaction routes, and required MySQL integration work. This copy is staging-only. Do not enable the inventory import/export feature until the branch route checker reports zero unmatched calls and the two-branch end-to-end tests pass.
+
+## Reports SQL verification (branch workspaces)
+
+The Branch Admin and Super Admin branch-workspace Reports query has been corrected to qualify batch expiry fields (`b.expiration_date`). The 20 report SQL statements are checked in two ways:
+
+- `cd server && npm run test:node` runs the dependency-free query contract and regression checks.
+- `cd server && npm run verify:reports-sql` performs **read-only EXPLAIN** of all 20 statements using the configured MySQL schema, including a newly reset/empty clinic database. It fails with the numbered statement and MySQL error if a query references an ambiguous or missing column.
+
+`npm run verify:deploy` includes the same SQL preflight. Run that before deployment and after database migrations. No SQL migration is required for this Reports-only fix. The Reports page also cancels stale requests to avoid duplicate notifications during development or rapid date-range changes.

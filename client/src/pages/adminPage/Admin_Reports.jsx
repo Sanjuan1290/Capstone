@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   MdAssessment,
   MdCalendarToday,
@@ -173,23 +173,35 @@ const Admin_Reports = () => {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const activeReportRequest = useRef(null)
 
   const load = async () => {
+    // React Strict Mode and rapid date changes must not produce duplicate toasts
+    // or allow an old request to overwrite a newer report.
+    activeReportRequest.current?.abort()
+    const controller = new AbortController()
+    activeReportRequest.current = controller
     setLoading(true)
     setError('')
     try {
-      setData(await getReports(appliedRange))
+      const nextData = await getReports(appliedRange, { signal: controller.signal })
+      if (!controller.signal.aborted) setData(nextData)
     } catch (err) {
+      if (controller.signal.aborted || err?.name === 'AbortError') return
       const message = err?.message || 'Unable to load reports right now. Please try again.'
       console.error('Reports load error:', err)
       setError(message)
       toast.error(message)
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
+      if (activeReportRequest.current === controller) activeReportRequest.current = null
     }
   }
 
-  useEffect(() => { load() }, [appliedRange.startDate, appliedRange.endDate])
+  useEffect(() => {
+    load()
+    return () => activeReportRequest.current?.abort()
+  }, [appliedRange.startDate, appliedRange.endDate])
 
   const applyPreset = (nextPreset) => {
     if (nextPreset === 'custom') {

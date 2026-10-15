@@ -14,7 +14,8 @@
     "verify:source": "node scripts/verifySourceGraph.js",
     "test:checkout": "node --test tests/checkouts/reopen-editing.node.cjs",
     "pretest": "npm run verify:source",
-    "test:node": "node scripts/runNodeRegressionTests.js"
+    "test:node": "node scripts/runNodeRegressionTests.js",
+    "verify:reports-sql": "node scripts/verifyBranchReportsSql.js"
   },
   "keywords": [],
   "author": "",
