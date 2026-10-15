@@ -53,11 +53,15 @@ describe('September 25 UI/workflow regressions', () => {
     expect(setupTabs).toContain("label: 'Services & Pricing Setup'")
     expect(setupTabs).toContain("suffix: '/system-setup/billing/services'")
     expect(app).toContain("path='system-setup/billing'")
-    // The legacy unscoped /admin checkout route was intentionally replaced:
-    // Branch Admins must use branch-scoped APIs, never legacy billing endpoints.
-    expect(app).toContain("path='/admin' element={<AdminRoute><BranchAdminLayout /></AdminRoute>}")
-    expect(app).toContain("path=':module' element={<BranchWorkspace admin />} />")
-    expect(app).not.toContain("path='billing/checkout/:billingId'")
+    // The canonical Admin pages are shared by Branch Admin and the Super Admin
+    // workspace; the service layer selects the branch-scoped API gateway.
+    expect(app).toContain("path='/admin' element={<AdminRoute><BranchOperationsLayout admin /></AdminRoute>}")
+    expect(app).toContain("path='/superadmin/branches/:branchId' element={<SuperAdminRoute><BranchOperationsLayout /></SuperAdminRoute>}")
+    expect(app).toContain("path='billing/checkout/:billingId' element={<Admin_CheckoutDetail />}")
+    const adminService = read('client', 'src', 'services', 'admin.service.js')
+    expect(adminService).toContain('getAdminApiBase')
+    expect(adminService).toContain('/api/branches/my/legacy')
+    expect(adminService).toContain('/api/branches/workspace/')
     const branchRouter = read('server', 'routers', 'branches.router.js')
     expect(branchRouter).toContain('WHERE b.branch_id=?')
     expect(adminLayout).not.toContain("name: 'Checkout'")

@@ -19,7 +19,12 @@ describe('2026-10-04 billing and inventory flow fixes', () => {
     const executor = { query: async (sql) => { calls.push(sql); return sql.startsWith('SELECT') ? [[{code:'LAG'}]] : sql.startsWith('UPDATE') ? [{ insertId: 15 }] : [{}] } }
     const result = await allocateReceiptNumber(executor, 1, new Date('2026-10-04T02:00:00.000Z'))
     expect(result).toEqual({ sequence: 15, receiptNumber: 'OR-LAG-20261004-000015' })
-    expect(calls.some((sql) => sql.includes('LAST_INSERT_ID(last_number + 1)'))).toBe(true)
+    // Assert the counter operation and branch predicate, not SQL whitespace.
+    // Formatting `last_number+1` and `last_number + 1` is semantically identical.
+    expect(calls.some((sql) =>
+      /UPDATE\s+branch_receipt_sequences\s+SET\s+last_number\s*=\s*LAST_INSERT_ID\s*\(\s*last_number\s*\+\s*1\s*\)\s+WHERE\s+branch_id\s*=\s*\?/i.test(sql)
+    )).toBe(true)
+    expect(calls.some((sql) => /INSERT\s+IGNORE\s+INTO\s+branch_receipt_sequences/i.test(sql))).toBe(true)
   })
 
   it('nets voids and refunds on the day they happen', () => {
@@ -53,10 +58,28 @@ describe('2026-10-04 billing and inventory flow fixes', () => {
     expect(connect).toContain('SET time_zone = ?')
   })
 
-  it('resolves locations by role and no longer auto-creates them', () => {
+  it('resolves branch-specific locations by role without creating stockrooms at runtime', async () => {
+    const { resolveLocation } = require('../../utils/inventoryBatches')
+    const calls = []
+    const executor = {
+      query: async (sql, params) => {
+        calls.push({ sql, params })
+        if (/is_main_stockroom\s*=\s*1/i.test(sql)) {
+          return [[{ id: 42, name: 'Renamed Main Stockroom', location_type: 'stockroom' }]]
+        }
+        throw new Error(`Unexpected database call: ${sql}`)
+      },
+    }
+    const location = await resolveLocation('Main Stockroom', executor, { branchId: 2 })
+    expect(location).toEqual({ id: 42, name: 'Renamed Main Stockroom' })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].sql).toMatch(/branch_id\s*=\s*\?/i)
+    expect(calls[0].params).toEqual([2])
+    expect(calls.every(({ sql }) => /^\s*SELECT\b/i.test(sql))).toBe(true)
+    await expect(resolveLocation('Main Stockroom', executor)).rejects.toMatchObject({ code: 'BRANCH_CONTEXT_REQUIRED' })
+
     const batches = read('server', 'utils', 'inventoryBatches.js')
-    expect(batches).toContain('resolveMainStockroom')
-    expect(batches).toContain("options.createIfMissing === true")
+    expect(batches).toContain('createIfMissing: false')
     const doctor = read('server', 'controllers', 'doctor.controller.js')
     expect(doctor).not.toContain("'Dermatology Room'")
     expect(doctor).toContain('resolveClinicTreatmentRoom')

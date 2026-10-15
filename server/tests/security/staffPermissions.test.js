@@ -16,11 +16,11 @@ describe('Staff permission access control', () => {
     const router = read('server', 'routers', 'staff.router.js')
     expect(router).toContain("can('appointments'), staffCtrl.getAppointments")
     expect(router).toContain("can('appointments'), staffCtrl.getQueue")
-    expect(router).toContain("can('checkout'), staffCtrl.payBill")
+    expect(router).toContain("can('checkout'), ownBill, staffCtrl.payBill")
     expect(router).toContain("can('inventory'), staffCtrl.getInventory")
     expect(router).toContain("can('stock_transfers'), staffCtrl.getSupplyRequests")
-    expect(router).toContain("can('reports'), adminCtrl.getReports")
-    expect(router).toContain("can('system_setup'), adminCtrl.getSystemSetup")
+    expect(router).toContain("can('reports'), readBranchReport")
+    expect(router).toContain("can('system_setup'), readSystemSetup")
   })
 
   it('persists permissions in a normalized table and revokes sessions when access changes', () => {
@@ -70,11 +70,12 @@ describe('Staff permission access control', () => {
     })
   })
 
-  it('keeps Accounts and Audit archive destructive controls Admin-only for delegated Staff access', () => {
+  it('keeps Accounts read-only for Staff and disables permanent audit deletion in branch workspaces', () => {
     const accounts = read('client', 'src', 'pages', 'staffPage', 'Staff_AccountsView.jsx')
     const archive = read('client', 'src', 'pages', 'adminPage', 'Admin_AuditArchive.jsx')
     expect(accounts.toLowerCase()).toContain('read-only')
-    expect(archive).toContain("const canDelete=role==='admin'")
+    expect(archive).toContain('const canDelete=false')
+    expect(archive).toContain('Clinic audit archives are retained')
   })
 })
 

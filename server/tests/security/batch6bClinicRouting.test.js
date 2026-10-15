@@ -30,7 +30,8 @@ describe('September 29 Batch 6B — clinic assignment is authoritative', () => {
 
   it('uses doctor clinic_type for stock-transfer destination selection', () => {
     const source = read('server', 'controllers', 'doctor.controller.js')
-    expect(source).toContain("SELECT clinic_type FROM doctors WHERE id=? LIMIT 1")
+    expect(source).toContain("SELECT clinic_type FROM doctors WHERE id=? AND branch_id=? LIMIT 1")
+    expect(source).toContain("[req.user.id, req.branchId]")
     expect(source).toContain("const doctorClinic = String(doctorProfile?.clinic_type || '')")
     expect(source).not.toContain("doctorProfile?.specialty")
   })

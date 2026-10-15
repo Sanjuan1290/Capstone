@@ -23,7 +23,8 @@ describe('QA plan reconciliation guards', () => {
 
   it('serializes duplicate pending doctor stock requests', () => {
     const source = read('controllers', 'doctor.controller.js')
-    expect(source).toContain("SELECT id FROM doctors WHERE id=? FOR UPDATE")
+    expect(source).toContain("SELECT id FROM doctors WHERE id=? AND branch_id=? FOR UPDATE")
+    expect(source).toContain("[req.user.id, req.branchId]")
     expect(source).toContain("status='pending'")
     expect(source).toContain("code: 'DUPLICATE_SUPPLY_REQUEST'")
   })

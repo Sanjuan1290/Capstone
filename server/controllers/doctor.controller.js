@@ -1285,12 +1285,12 @@ const getTransferAppointments = async (req, res) => {
      FROM appointments a
      JOIN patients p ON p.id=a.patient_id
      LEFT JOIN consultations c ON c.appointment_id=a.id AND c.doctor_id=a.doctor_id
-     WHERE a.doctor_id=?
+     WHERE a.doctor_id=? AND a.branch_id=?
        AND a.status IN ('confirmed','rescheduled','in-progress')
        AND a.appointment_date>=CURDATE()
      ORDER BY a.appointment_date ASC, STR_TO_DATE(a.appointment_time,'%h:%i %p') ASC
      LIMIT 200`,
-    [req.user.id]
+    [req.user.id, req.branchId]
   )
   res.json(rows)
 }
@@ -1317,8 +1317,8 @@ const submitRequest = async (req, res) => {
     return res.status(409).json({ code: 'TRANSFER_APPOINTMENT_NOT_ACTIVE', message: 'Completed, cancelled, no-show, and pending appointments cannot receive stock transfer requests.' })
   }
   const [[consultationRow]] = await db.query(
-    `SELECT id, status FROM consultations WHERE appointment_id=? AND doctor_id=? LIMIT 1`,
-    [appointmentId, req.user.id]
+    `SELECT id, status FROM consultations WHERE appointment_id=? AND doctor_id=? AND branch_id=? LIMIT 1`,
+    [appointmentId, req.user.id, req.branchId]
   )
   if (consultationRow && String(consultationRow.status) === 'finalized') {
     return res.status(409).json({ code: 'TRANSFER_CONSULTATION_FINALIZED', message: 'This consultation is already finalized and cannot receive another preparation transfer.' })
@@ -1408,7 +1408,7 @@ const submitRequest = async (req, res) => {
   let groupId
   try {
     await conn.beginTransaction()
-    await conn.query('SELECT id FROM doctors WHERE id=? FOR UPDATE', [req.user.id])
+    await conn.query('SELECT id FROM doctors WHERE id=? AND branch_id=? FOR UPDATE', [req.user.id, req.branchId])
 
     const [duplicates] = await conn.query(
       `SELECT g.id AS request_id, sr.inventory_id, i.name AS item_name
@@ -1450,6 +1450,7 @@ const submitRequest = async (req, res) => {
       userId: req.user.id,
       userRole: 'doctor',
       action: 'supply.request_created',
+      branchId: req.branchId,
       entityType: 'supply_request',
       entityId: groupId,
       newValues: {
@@ -1485,8 +1486,9 @@ const submitRequest = async (req, res) => {
       type: 'supply_request',
       title: 'Doctor stock transfer request',
       message: `Requested ${itemSummary} for ${destination.name} · ${readiness.appointment.patient_name} · ${readiness.appointment.requested_service_name || 'Appointment'}.`,
-      reference_type: 'supply_request',
+      reference_type: 'supply_request_group',
       reference_id: groupId,
+      branch_id: req.branchId,
     })
   }
   broadcast(['staff', 'admin', `doctor_${req.user.id}`], 'supply_request_resolved', {
@@ -1513,10 +1515,10 @@ const getMyQueue = async (req, res) => {
      FROM queue q
      LEFT JOIN appointments a ON a.id = q.appointment_id
      LEFT JOIN patients p ON p.id = q.patient_id
-     WHERE q.doctor_id = ? AND q.queue_date = ?
+     WHERE q.doctor_id = ? AND q.branch_id = ? AND q.queue_date = ?
        AND q.status IN ('waiting','called','in_consultation')
      ORDER BY q.queue_number ASC`,
-    [req.user.id, today]
+    [req.user.id, req.branchId, today]
   )
   res.json(rows)
 }
