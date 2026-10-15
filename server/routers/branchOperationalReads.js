@@ -109,7 +109,7 @@ async function readSystemSetup(req,res){
       LEFT JOIN billing_service_catalog s ON s.category_id=c.id AND s.branch_id=c.branch_id
       WHERE c.branch_id=? GROUP BY c.id ORDER BY c.name`,[b]),
     db.query('SELECT id,name,allow_decimal_quantity,decimal_precision,is_active,sort_order FROM inventory_uoms ORDER BY sort_order,name'),
-    db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers ORDER BY name'),
+    db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers WHERE branch_id=? ORDER BY name',[b]),
     db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE branch_id=? ORDER BY sort_order,name',[b]),
     db.query('SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at FROM inventory_movement_reasons ORDER BY name'),
   ])
@@ -157,7 +157,7 @@ async function readBillStockUsage(req,res){
 }
 async function readInventoryMasterData(req,res){
  const category=['medical','derma'].includes(String(req.query.category||''))?String(req.query.category):null
- const [suppliers]=await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 ${category?"AND FIND_IN_SET(?,REPLACE(category,' ','')) > 0":''} ORDER BY name`,category?[category]:[])
+ const [suppliers]=await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 AND branch_id=? ${category?"AND FIND_IN_SET(?,REPLACE(category,' ','')) > 0":''} ORDER BY name`,category?[req.branchId,category]:[req.branchId])
  const [types]=await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE branch_id=? ORDER BY is_active DESC,sort_order,name',[req.branchId])
  const [reasons]=await db.query("SELECT id,name,code,movement_type,requires_batch,is_system FROM inventory_movement_reasons WHERE is_active=1 ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name",[])
  res.json({suppliers,location_types:types,movement_reasons:reasons})
@@ -200,7 +200,7 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
     reg('/billing/adjustment-requests','billing',readAdjustments)
     reg('/supply-requests','stock_transfers',readTransferGroups)
     reg('/system-setup','system_setup',readSystemSetup)
-    router.get(`${prefix}/billing/payment-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM clinic_payment_settings WHERE id=1');res.json(settings||{})})
+    router.get(`${prefix}/billing/payment-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})})
     router.get(`${prefix}/clinic-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM clinic_settings WHERE id=1');res.json({...settings,clinic_name:req.branch.name,address:req.branch.address,phone:req.branch.phone,email:req.branch.email})})
     reg('/inventory/locations','inventory',async(req,res)=>{const [rows]=await db.query('SELECT * FROM inventory_locations WHERE branch_id=? ORDER BY name',[req.branchId]);res.json(rows)})
     reg('/inventory/master-data','inventory',readInventoryMasterData)
@@ -212,3 +212,4 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
   }
 }
 module.exports={registerBranchOperationalReads,readBills,readCashDrawer,readTransferGroups,readSystemSetup}
+

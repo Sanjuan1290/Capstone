@@ -515,9 +515,11 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
         measurement_value: form.measurement_value === '' ? null : Number(form.measurement_value),
         measurement_unit: String(form.measurement_unit || '').trim() || null,
         strength: String(form.strength || '').trim() || null,
-        stock: isEditing ? 0 : openingQuantity,
+        ...(isEditing ? {} : { stock: openingQuantity }),
         threshold: Math.max(0, parseFloat(form.threshold) || 0),
       }
+      // Editing master data never sends stock; only the batch-based Stock In /
+      // Stock Out workflow can change quantities.
       if (canManageSellingPrice) {
         payload.price = sellingPrice
         payload.selling_price = sellingPrice
@@ -1154,6 +1156,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+
 
 
 

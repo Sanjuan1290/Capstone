@@ -3,6 +3,7 @@ const express     = require('express')
 const router      = express.Router()
 const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
+const branchScope = require('../middlewares/branchScope.middleware')
 const requirePasswordChangeCompleted = require('../middlewares/passwordChange.middleware')
 const { loginLimiter, otpRequestLimiter, otpVerifyLimiter, clinicalUploadLimiter, clinicalUploadStatusLimiter } = require('../middlewares/rateLimit.middleware')
 const {
@@ -23,7 +24,7 @@ router.get('/check-auth', checkAuth)
 router.post('/logout',    logout)
 
 // ── Protected ─────────────────────────────────────────────────────────────────
-router.use(verifyToken('doctor_token'), requireRole('doctor'))
+router.use(verifyToken('doctor_token'), requireRole('doctor'), branchScope('doctor'))
 router.post('/security/password/required', commonCtrl.completeRequiredPasswordChange)
 router.use(requirePasswordChangeCompleted)
 router.post('/security/password/request-code', otpRequestLimiter, commonCtrl.requestMyPasswordCode)
@@ -75,4 +76,5 @@ router.put('/schedule/unavailable-dates',      saveMyUnavailableDate)
 router.delete('/schedule/unavailable-dates/:date', deleteMyUnavailableDate)
 
 module.exports = router
+
 

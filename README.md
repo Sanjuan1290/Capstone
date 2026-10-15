@@ -1,3 +1,5 @@
+> **Latest route verification (2026-10-15):** Admin branch gateway now has zero unmatched static routes (122 calls). This does **not** establish production readiness: MySQL migration/concurrency, cross-branch integration, Vitest, lint, build, and browser checks are outstanding. See [BRANCH_GATEWAY_COMPLETION_20261015.md](BRANCH_GATEWAY_COMPLETION_20261015.md). Inventory import/export has not started.
+
 > **IMPORTANT:** This multi-branch version is a STAGING/PARTIAL working copy and is NOT production-ready. Read [MULTIBRANCH_IMPLEMENTATION_STATUS.md](MULTIBRANCH_IMPLEMENTATION_STATUS.md) before using any migration or API changes.
 
 # CARAIT MEDICAL AND DERMATOLOGY CLINIC — Corrected Clinic Management System
@@ -365,3 +367,9 @@ Custom visit reasons are optional for booking continuity because **Other** is a 
 
 Schema changes apply automatically on server start. The equivalent SQL is in `server/db/migrations/2026-10-04-billing-inventory-flow-fixes.sql`.
 
+
+
+
+## Multi-branch gateway work in progress (2026-10-15)
+
+See `BRANCH_GATEWAY_CONTINUED_20261015.md` for the latest audited branch gateway changes, tests, outstanding financial transaction routes, and required MySQL integration work. This copy is staging-only. Do not enable the inventory import/export feature until the branch route checker reports zero unmatched calls and the two-branch end-to-end tests pass.

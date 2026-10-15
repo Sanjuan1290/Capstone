@@ -72,3 +72,4 @@ export const formatAppointmentRange = (appointment) => formatAppointmentTimeRang
   getReservedDurationMinutes(appointment)
 )
 
+

@@ -51,7 +51,11 @@ const validateInventoryQuantity = (quantity) => {
   }
 }
 
-const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole, actorId, ipAddress, executor }) => {
+const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, actorRole, actorId, ipAddress, executor }) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) <= 0) {
+    throw Object.assign(new Error('A verified branch is required.'), { statusCode: 403, code: 'BRANCH_CONTEXT_REQUIRED' })
+  }
+  branchId = Number(branchId)
   const type = String(body.type || '').trim()
   const qty = normalizeNumber(body.qty, { field: 'Quantity', required: true, min: 0.0001, max: 9999999999 })
   if (!['in', 'out'].includes(type)) {
@@ -61,7 +65,7 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
   }
   if (!['admin', 'staff'].includes(actorRole)) throw new Error('Unsupported inventory movement actor.')
 
-  const [rows] = await executor.query('SELECT id, name, category, item_type, uom, base_unit, unit, supplier_id, selling_price, archived_at FROM inventory WHERE id = ?', [inventoryId])
+  const [rows] = await executor.query('SELECT id, name, category, item_type, uom, base_unit, unit, supplier_id, selling_price, archived_at FROM inventory WHERE id = ? AND branch_id=? FOR UPDATE', [inventoryId, branchId])
   if (!rows.length) {
     const error = new Error('Item not found.')
     error.statusCode = 404
@@ -90,7 +94,7 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
     }
     const supplierId = Number(body.supplier_id || item.supplier_id || 0)
     if (!supplierId) throw Object.assign(new Error('Select the supplier for this receipt.'), { statusCode: 400, code: 'INVENTORY_SUPPLIER_REQUIRED' })
-    const [[supplier]] = await executor.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1', [supplierId])
+    const [[supplier]] = await executor.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [supplierId, branchId])
     if (!supplier || !String(supplier.category || '').split(',').map(v=>v.trim()).includes(item.category)) {
       throw Object.assign(new Error('The selected supplier is not assigned to this item clinic.'), { statusCode: 400, code: 'SUPPLIER_CLINIC_MISMATCH' })
     }
@@ -100,6 +104,10 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
       error.statusCode = 400
       error.code = 'INVENTORY_SELLING_PRICE_REQUIRED'
       throw error
+    }
+    if (body.storage_location_id) {
+      const [[location]] = await executor.query('SELECT id FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [body.storage_location_id, branchId])
+      if (!location) throw Object.assign(new Error('Storage location not found in this branch.'), { statusCode: 404, code: 'LOCATION_NOT_FOUND' })
     }
     const movementReason = await resolveConfiguredMovementReason('in', body.movement_reason, executor)
     const movementType = movementReason.code
@@ -134,7 +142,9 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
     }
   } else {
     const { batchId, quantity, locationId } = resolveManualStockOutSelection(body)
-    let selectedLocation = locationId ? await getInventoryLocationById(locationId, executor) : null
+    const [[selectedBatch]] = await executor.query('SELECT id FROM inventory_batches WHERE id=? AND inventory_id=? AND branch_id=? AND archived_at IS NULL FOR UPDATE', [batchId, inventoryId, branchId])
+    if (!selectedBatch) throw Object.assign(new Error('Batch not found in this branch.'), { statusCode: 404, code: 'BATCH_NOT_FOUND' })
+    let selectedLocation = locationId ? await getInventoryLocationById(locationId, executor, branchId) : null
     if (locationId && !selectedLocation) {
       const error = new Error('The selected storage location is unavailable.')
       error.statusCode = 400
@@ -147,9 +157,9 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
         `SELECT il.id, il.name, ilb.quantity
          FROM inventory_location_batches ilb
          JOIN inventory_locations il ON il.id = ilb.location_id
-         WHERE ilb.inventory_id = ? AND ilb.batch_id = ? AND ilb.quantity > 0 AND COALESCE(il.is_active,1)=1
+         WHERE ilb.inventory_id = ? AND ilb.batch_id = ? AND il.branch_id=? AND ilb.quantity > 0 AND COALESCE(il.is_active,1)=1
          ORDER BY il.name, il.id`,
-        [inventoryId, batchId]
+        [inventoryId, batchId, branchId]
       )
       if (locationRows.length === 1) selectedLocation = locationRows[0]
       else if (locationRows.length > 1) {
@@ -202,4 +212,5 @@ const applyManualInventoryMovement = async ({ inventoryId, body = {}, actorRole,
 }
 
 module.exports = { applyManualInventoryMovement }
+
 

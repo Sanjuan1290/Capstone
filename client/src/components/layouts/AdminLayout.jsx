@@ -61,8 +61,9 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
       if (eventName === 'appointment_updated') loadCounts()
     }
   }, [loadCounts])
-  // Global admin event streams are not yet branch-scoped. Never subscribe from a branch workspace.
-  useSSE(branch ? null : 'admin', branch ? null : user?.id, handleSSEMessage)
+  // Each stream resolves branch ownership from its authenticated cookie.
+  // Super Admin workspaces receive the explicitly privileged central stream.
+  useSSE(superBranch ? 'superadmin' : 'admin', user?.id, handleSSEMessage)
 
   const handleLogout = async () => {
     if (!window.confirm('Are you sure you want to log out of Carait Clinic?')) return
@@ -125,4 +126,5 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
 }
 
 export default AdminLayout
+
 

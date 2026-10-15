@@ -530,6 +530,7 @@ const getAppointments = async (req, res) => {
        d.full_name AS doctor_name,
        d.full_name AS doctor,
        d.specialty,
+       b.name AS branch_name,
        CASE a.clinic_type
          WHEN 'derma' THEN 'Dermatology'
          WHEN 'medical' THEN 'General Medicine'
@@ -544,6 +545,7 @@ const getAppointments = async (req, res) => {
        p.civil_status AS patient_civil_status
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
+     JOIN clinic_branches b ON b.id = a.branch_id
      JOIN patients p ON a.patient_id = p.id
      WHERE a.patient_id = ?
      ORDER BY a.appointment_date DESC, a.appointment_time DESC`,
@@ -565,6 +567,7 @@ const getHistory = async (req, res) => {
        d.full_name AS doctor_name,
        d.full_name AS doctor,
        d.specialty,
+       b.name AS branch_name,
        CASE a.clinic_type
          WHEN 'derma' THEN 'Dermatology'
          WHEN 'medical' THEN 'General Medicine'
@@ -576,6 +579,7 @@ const getHistory = async (req, res) => {
        c.notes AS consultation_notes
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
+     JOIN clinic_branches b ON b.id = a.branch_id
      LEFT JOIN consultations c ON c.appointment_id = a.id
      WHERE a.patient_id = ? AND a.status IN ('completed', 'cancelled', 'no_show', 'rejected')
      ORDER BY a.appointment_date DESC`,
@@ -760,7 +764,7 @@ const createAppointment = async (req, res) => {
   broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', {
     appointmentId: result.insertId,
     status: 'pending',
-  })
+  }, { branchId: branch.id })
 
   res.status(201).json({ message: 'Appointment booked.', id: result.insertId })
 }
@@ -816,7 +820,7 @@ const cancelAppointment = async (req, res) => {
   broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${req.user.id}`], 'appointment_updated', {
     appointmentId: Number(req.params.id),
     status: 'cancelled',
-  })
+  }, { branchId: ownedAppointment.branch_id })
   res.json({ message: 'Appointment cancelled.', cancellation })
 }
 
@@ -905,7 +909,7 @@ const rescheduleAppointment = async (req, res) => {
     message: `Your new schedule (${normalizedDate} at ${appointment_time}) is pending confirmation.`,
     reference_type: 'appointment', reference_id: req.params.id,
   })
-  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'pending' })
+  broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'pending' }, { branchId: rows[0].branch_id })
   await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.rescheduled', entityType: 'appointment', entityId: req.params.id, newValues: { appointment_date: normalizedDate, appointment_time, status: 'pending', confirmation_deadline_at: confirmationDeadline }, ipAddress: req.ip || null }).catch(() => {})
   res.json({ message: 'Appointment rescheduled and returned to pending confirmation.' })
 }
@@ -1126,5 +1130,6 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 
 

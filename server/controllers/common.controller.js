@@ -6,24 +6,26 @@ const { requestPasswordChangeCode, changeWithCode, completeRequiredChange, reque
 const { sendAccountSecurityOtp } = require('../utils/emailService')
 const { writeAuditLog } = require('../utils/audit')
 
+const notificationBranch = req => req.authCookieName === 'superadmin_token' ? 'all' : req.branchId
+
 const listNotifications = async (req, res) => {
-  const rows = await getNotifications(req.user.role, req.user.id, req.query.limit || 20)
+  const rows = await getNotifications(req.user.role, req.user.id, req.query.limit || 20, notificationBranch(req))
   const unread = rows.filter(row => !row.is_read).length
   res.json({ items: rows, unread })
 }
 
 const readNotification = async (req, res) => {
-  await markNotificationRead(req.params.id, req.user.role, req.user.id)
+  await markNotificationRead(req.params.id, req.user.role, req.user.id, notificationBranch(req))
   res.json({ message: 'Notification marked as read.' })
 }
 
 const readAllNotifications = async (req, res) => {
+  if (req.user.role !== 'patient' && !notificationBranch(req)) return res.status(403).json({ message: 'Branch-scoped notification access required.' })
   await db.query(
-    `UPDATE notifications
-     SET is_read = 1
-     WHERE target_role = ?
-       AND (target_user_id = ? OR target_user_id IS NULL)`,
-    [req.user.role, req.user.id]
+    `UPDATE notifications SET is_read = 1
+     WHERE target_role = ? AND (target_user_id = ? OR target_user_id IS NULL)
+       ${req.user.role === 'patient' || notificationBranch(req) === 'all' ? '' : 'AND branch_id = ?'}`,
+    [req.user.role, req.user.id, ...(req.user.role === 'patient' || notificationBranch(req) === 'all' ? [] : [req.branchId])]
   )
   res.json({ success: true })
 }
@@ -276,4 +278,5 @@ module.exports = {
   getAdminLandingPage,
   saveAdminLandingPage,
 }
+
 

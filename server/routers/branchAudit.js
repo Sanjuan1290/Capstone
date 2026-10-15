@@ -79,4 +79,5 @@ const registerBranchAudit=(router,{requireSuper,branchContext,requirePermission}
   // retention policy. Do not delegate the old global destructive controller.
  }
 }
-module.exports={registerBranchAudit,readPage,filters}
+module.exports={registerBranchAudit,readPage,archives,detail,filters}
+

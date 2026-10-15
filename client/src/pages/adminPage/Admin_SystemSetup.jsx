@@ -38,6 +38,8 @@ const supplierClinicLabel = (value) => {
 }
 
 const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
+  const referenceLocation = useLocation()
+  const globalReferenceReadOnly = type === 'movement_reasons' && !referenceLocation.pathname.startsWith('/superadmin/')
   const toast = useToast()
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({})
@@ -197,7 +199,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
         </div>
         <div className="flex flex-wrap gap-2">
           {type === 'service_categories' && <Link className="button-secondary" to={`${portalBase}/system-setup/billing/services`}>Manage Services & Pricing</Link>}
-          <button className="button-primary" onClick={() => open()}><MdAdd /> Add {config.title}</button>
+          {globalReferenceReadOnly ? <span className="text-xs text-slate-500">Managed centrally by Super Admin</span> : <button className="button-primary" onClick={() => open()}><MdAdd /> Add {config.title}</button>}
         </div>
       </div>
 
@@ -241,7 +243,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                   </td>
                   <td className="px-5 py-4 text-right">
                     <div className="inline-flex flex-wrap justify-end gap-2">
-                      <button className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button>
+                      {!globalReferenceReadOnly && <button className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button>}
                       {['service_categories','cancellation_reasons'].includes(type) && <button className="button-secondary !border-rose-200 !text-rose-600 hover:!bg-rose-50" onClick={() => requestDelete(row)}><MdDelete /> Delete</button>}
                     </div>
                   </td>
@@ -455,6 +457,7 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
 
 
 

@@ -57,7 +57,7 @@ const createClinicalUploadSignature = ({ doctorId, appointmentId, patientId, cli
   }
 }
 
-const createPaymentQrUploadSignature = ({ adminId, actorId, actorRole = 'admin', provider, scanMode = 'scan' }) => {
+const createPaymentQrUploadSignature = ({ adminId, actorId, actorRole = 'admin', provider, scanMode = 'scan', branchId = null }) => {
   const normalizedProvider = String(provider || '').trim().toLowerCase()
   if (!['gcash', 'maya'].includes(normalizedProvider)) {
     throw Object.assign(new Error('Payment QR provider must be GCash or Maya.'), { statusCode: 400 })
@@ -71,7 +71,7 @@ const createPaymentQrUploadSignature = ({ adminId, actorId, actorRole = 'admin',
   if (!Number.isFinite(uploaderId) || uploaderId <= 0) {
     throw Object.assign(new Error('A valid payment QR uploader is required.'), { statusCode: 400 })
   }
-  const folder = `${baseFolder}/${uploaderRole}-${uploaderId}`
+  const folder = `${baseFolder}/${Number(branchId)>0?`branch_${Number(branchId)}/`:''}${uploaderRole}-${uploaderId}`
   const publicId = `${normalizedProvider}-qr-${timestamp}`
   const normalizedScanMode = normalizeScanMode(scanMode)
   const params = withScanModeration({ folder, public_id: publicId, timestamp }, normalizedScanMode)
@@ -383,4 +383,5 @@ module.exports = {
   hasValidImageSignature,
   detectImageMime,
 }
+
 

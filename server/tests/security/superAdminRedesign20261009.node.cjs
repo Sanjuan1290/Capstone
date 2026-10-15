@@ -17,7 +17,7 @@ test('dashboard and reports separate billed from collected and have date selecto
  const ui=read(pages+'Overview.jsx')
  assert.match(ui,/Collected Revenue/)
  assert.match(ui,/Billed Amount/)
- assert.match(ui,/Custom dates/)
+ assert.match(ui,/Custom Date Range/)
  assert.match(router,/billing_payments p JOIN billing_records br/)
  assert.match(router,/p\.status='completed'/)
 })
@@ -46,3 +46,4 @@ test('Super Admin and Branch Admin layouts preserve separate workflows',()=>{
  assert.match(ui,/BranchAdminLayout/)
  assert.match(ui,/BranchWorkspace/)
 })
+

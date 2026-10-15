@@ -12,6 +12,7 @@ import { queryClient } from './lib/queryClient'
 import Layout from './components/layouts/Layout'
 import LandingPage from './pages/LandingPages/LandingPage'
 
+import SuperAdminAllInventory from './pages/superAdminPage/AllInventory'
 import PatientRegister       from './pages/auth/Patient/PatientRegister'
 import PatientLogin          from './pages/auth/Patient/PatientLogin'
 import PatientRoute          from './components/PatientRoute'
@@ -206,6 +207,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/superadmin' element={<SuperAdminRoute><SuperAdminLayout /></SuperAdminRoute>}>
         <Route index element={<SuperAdminDashboard />} />
         <Route path='branches' element={<SuperAdminBranches />} />
+        <Route path='inventory' element={<SuperAdminAllInventory />} />
         <Route path='accounts' element={<SuperAdminAccounts />} />
         <Route path='reports' element={<SuperAdminReports />} />
         <Route path='audit-logs' element={<SuperAdminAuditLogs />} />
@@ -303,6 +305,7 @@ const App = () => (
 )
 
 export default App
+
 
 
 

@@ -52,4 +52,5 @@ const registerBranchReports=(router,{requireSuper,branchContext,requirePermissio
   router.post(`${prefix}/reports/export-audit`,...middle,requirePermission('reports'),recordBranchExport)
  }
 }
-module.exports={readBranchReport,registerBranchReports}
+module.exports={readBranchReport,recordBranchExport,registerBranchReports}
+

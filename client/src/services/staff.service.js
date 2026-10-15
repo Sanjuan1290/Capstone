@@ -100,6 +100,10 @@ export const updateQueueStatus = (id, status) =>
 export const getPatients = (search = '') =>
   requestJson(`${BASE}/patients?search=${encodeURIComponent(search)}`)
 
+// Only the appointments/walk-in workflow can search for returning global patient identities.
+export const lookupWalkInPatients = (search = '') =>
+  requestJson(`${BASE}/patients/walk-in-lookup?search=${encodeURIComponent(search)}`)
+
 export const createWalkInPatient = (payload) =>
   requestJson(`${BASE}/patients/walk-in`, {
     method: 'POST',
@@ -263,5 +267,6 @@ const postStaffJson = (url, payload = {}) => requestJson(url, { method: 'POST', 
 export const moveInventoryStock = (inventoryId, payload) => postStaffJson(`${BASE}/inventory/${inventoryId}/move-location`, payload)
 export const getMyCashierClosing = (date = '') => requestJson(`${BASE}/billing/cashier-closing${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 export const closeMyCashier = (payload) => postStaffJson(`${BASE}/billing/cashier-closing`, payload)
+
 
 

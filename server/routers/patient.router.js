@@ -66,3 +66,4 @@ router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 module.exports = router
 
 
+

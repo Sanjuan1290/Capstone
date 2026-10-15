@@ -13,3 +13,4 @@ const requirePasswordChangeCompleted = async (req, res, next) => {
 }
 module.exports = requirePasswordChangeCompleted
 
+

@@ -79,7 +79,7 @@ const expirePendingAppointments = async ({ appointmentId = null, limit = 100 } =
   params.push(Math.max(1, Math.min(500, Number(limit) || 100)))
 
   const [rows] = await db.query(
-    `SELECT a.id, a.patient_id, a.doctor_id, DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date, a.appointment_time, a.clinic_type,
+    `SELECT a.id, a.branch_id, a.patient_id, a.doctor_id, DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date, a.appointment_time, a.clinic_type,
             a.confirmation_deadline_at,
             p.full_name AS patient_name, p.email AS patient_email, p.phone AS patient_phone,
             p.email_verified_at, p.phone_verified_at,
@@ -104,9 +104,9 @@ const expirePendingAppointments = async ({ appointmentId = null, limit = 100 } =
     const [updated] = await db.query(
       `UPDATE appointments
        SET status = 'rejected', rejected_at = ?, rejected_by_role = 'system', rejection_reason = 'confirmation_timeout'
-       WHERE id = ? AND status = 'pending' AND appointment_source = 'online'
+       WHERE id = ? AND branch_id = ? AND status = 'pending' AND appointment_source = 'online'
          AND confirmation_deadline_at IS NOT NULL AND confirmation_deadline_at <= ?`,
-      [nowSql, row.id, nowSql]
+      [nowSql, row.id, row.branch_id, nowSql]
     )
     if (Number(updated.affectedRows || 0) !== 1) continue
     rejected += 1
@@ -164,16 +164,18 @@ const expirePendingAppointments = async ({ appointmentId = null, limit = 100 } =
       oldValues: { status: 'pending', confirmation_deadline_at: row.confirmation_deadline_at },
       newValues: { status: 'rejected', rejected_by_role: 'system', rejection_reason: 'confirmation_timeout', rejected_at: nowSql },
       ipAddress: null,
+      branchId: row.branch_id,
     }).catch(() => {})
 
     broadcast(['admin', 'staff', `doctor_${row.doctor_id}`, `patient_${row.patient_id}`], 'appointment_updated', {
       appointmentId: Number(row.id),
       status: 'rejected',
-    })
+    }, { branchId: row.branch_id })
   }
 
   return { rejected }
 }
 
 module.exports = { expirePendingAppointments, backfillMissingConfirmationDeadlines }
+
 

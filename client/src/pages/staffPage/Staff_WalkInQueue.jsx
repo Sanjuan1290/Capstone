@@ -22,7 +22,7 @@ import {
   addToQueue,
   createWalkInPatient,
   getAppointmentReasons,
-  getPatients,
+  lookupWalkInPatients,
   getQueue,
   getQueuePrecheck,
   getWalkInAvailableDoctors,
@@ -126,7 +126,7 @@ const WalkInModal = ({ onClose, onSuccess }) => {
     setSearchLoading(true)
     const timer = setTimeout(async () => {
       try {
-        const rows = await getPatients(search)
+        const rows = await lookupWalkInPatients(search)
         if (!cancelled) setResults(Array.isArray(rows) ? rows : [])
       } catch {
         if (!cancelled) setResults([])
@@ -345,4 +345,5 @@ const StaffWalkInQueue = () => {
 }
 
 export default StaffWalkInQueue
+
 

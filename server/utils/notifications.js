@@ -43,7 +43,7 @@ const createNotification = async ({
     link,
     branch_id: resolvedBranchId || 0,
   }
-  broadcast(target_user_id ? [target_role, `${target_role}_${target_user_id}`] : target_role, 'notification_created', notification)
+  broadcast(target_user_id ? [`${target_role}_${target_user_id}`] : [target_role], 'notification_created', notification, { branchId: resolvedBranchId })
   return notification
 }
 
@@ -51,29 +51,33 @@ const notifyRoles = async (roles, payload) => {
   await Promise.all(roles.map(role => createNotification({ ...payload, target_role: role })))
 }
 
-const getNotifications = async (role, userId = null, limit = 20) => {
+const getNotifications = async (role, userId = null, limit = 20, branchId = null) => {
   const requested = Number(limit)
   const safeLimit = Math.min(100, Math.max(1, Number.isFinite(requested) ? Math.floor(requested) : 20))
+  const isGlobalAdmin = role === 'admin' && branchId === 'all'
+  const branchFilter = role === 'patient' || isGlobalAdmin ? '' : ' AND branch_id = ?'
+  if (role !== 'patient' && !isGlobalAdmin && !validBranchScope(branchId)) throw new Error('Branch scope required to view notifications')
   const [rows] = await db.query(
-    `SELECT *
-     FROM notifications
-     WHERE target_role = ?
-       AND (target_user_id IS NULL OR target_user_id = ?)
-     ORDER BY created_at DESC
-     LIMIT ?`,
-    [role, userId, safeLimit]
+    `SELECT * FROM notifications WHERE target_role = ?
+       AND (target_user_id IS NULL OR target_user_id = ?)${branchFilter}
+     ORDER BY created_at DESC LIMIT ?`,
+    [role, userId, ...(branchFilter ? [Number(branchId)] : []), safeLimit]
   )
   return rows
 }
 
-const markNotificationRead = async (id, role, userId = null) => {
+const validBranchScope = value => Number.isSafeInteger(Number(value)) && Number(value) > 0
+
+const markNotificationRead = async (id, role, userId = null, branchId = null) => {
+  const isGlobalAdmin = role === 'admin' && branchId === 'all'
+  if (role !== 'patient' && !isGlobalAdmin && !validBranchScope(branchId)) throw new Error('Branch scope required to update notifications')
   await db.query(
     `UPDATE notifications
      SET is_read = 1
      WHERE id = ?
        AND target_role = ?
-       AND (target_user_id IS NULL OR target_user_id = ?)`,
-    [id, role, userId]
+       AND (target_user_id IS NULL OR target_user_id = ?)${role === 'patient' || isGlobalAdmin ? '' : ' AND branch_id = ?'}`,
+    [id, role, userId, ...(role === 'patient' || isGlobalAdmin ? [] : [Number(branchId)])]
   )
 }
 
@@ -83,4 +87,5 @@ module.exports = {
   getNotifications,
   markNotificationRead,
 }
+
 

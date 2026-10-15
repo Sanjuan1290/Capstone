@@ -4,3 +4,4 @@ import PortalAdminLogin from './PortalAdminLogin'
 const AdminLogin = () => <PortalAdminLogin portal="admin" />
 
 export default AdminLogin
+

@@ -133,9 +133,8 @@ const DoctorLayout = () => {
             transition-[opacity,max-width] duration-300
             ${collapsed ? 'opacity-0 max-w-0' : 'opacity-100 max-w-xs'}`}>
             <p className="text-white font-bold text-[15px] tracking-tight">Carait Clinic</p>
-            <span className="text-violet-400 text-[10px] font-semibold uppercase tracking-widest font-mono">
-              Doctor Portal
-            </span>
+            <span className="block text-violet-400 text-[10px] font-semibold uppercase tracking-widest font-mono">Doctor Portal</span>
+            <span className="block truncate text-slate-300 text-[11px] font-medium" title={user?.branch_name || ''}>{user?.branch_name || 'Branch unavailable'}</span>
           </div>
           <button onClick={() => setMobileOpen(false)}
             className="ml-auto lg:hidden text-slate-400 hover:text-white">
@@ -275,4 +274,5 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
+
 

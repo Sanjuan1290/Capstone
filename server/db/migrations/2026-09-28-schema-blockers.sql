@@ -14,3 +14,4 @@ ALTER TABLE supply_requests
 ALTER TABLE inventory_logs
   MODIFY COLUMN movement_type VARCHAR(80) NOT NULL DEFAULT 'adjustment';
 
+

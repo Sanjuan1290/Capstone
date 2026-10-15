@@ -32,10 +32,11 @@ const mergeRequirements = (requirements = []) => {
   return Array.from(byInventory.values())
 }
 
-const assessInventoryRequirements = async (requirements = [], { clinicType, executor = db } = {}) => {
+const assessInventoryRequirements = async (requirements = [], { clinicType, branchId, executor = db } = {}) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) <= 0) throw Object.assign(new Error('A clinic branch is required for inventory readiness.'), { statusCode: 403, code: 'BRANCH_CONTEXT_REQUIRED' })
   const normalized = mergeRequirements(requirements)
-  const roomRow = await resolveClinicTreatmentRoom(clinicType, executor)
-  const mainRow = await resolveMainStockroom(executor)
+  const roomRow = await resolveClinicTreatmentRoom(clinicType, executor, branchId)
+  const mainRow = await resolveMainStockroom(executor, { branchId })
   const treatmentRoom = roomRow?.name || treatmentRoomForClinic(clinicType)
   if (!normalized.length) {
     return {
@@ -62,9 +63,9 @@ const assessInventoryRequirements = async (requirements = [], { clinicType, exec
        AND ib.quantity>0
        AND ib.archived_at IS NULL
        AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())
-     WHERE i.id IN (${placeholders}) AND i.archived_at IS NULL
+     WHERE i.id IN (${placeholders}) AND i.branch_id=? AND i.archived_at IS NULL
      GROUP BY i.id, i.name, i.uom, i.base_unit, i.unit`,
-    [roomRow?.id || 0, mainRow?.id || 0, ...ids]
+    [roomRow?.id || 0, mainRow?.id || 0, ...ids, Number(branchId)]
   )
   const stockMap = new Map(stockRows.map((row) => [Number(row.id), row]))
 
@@ -110,9 +111,11 @@ const assessInventoryRequirements = async (requirements = [], { clinicType, exec
   }
 }
 
-const getAppointmentInventoryReadiness = async (appointmentId, { doctorId = null, executor = db } = {}) => {
+const getAppointmentInventoryReadiness = async (appointmentId, { doctorId = null, branchId, executor = db } = {}) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) <= 0) throw Object.assign(new Error('A clinic branch is required.'), { statusCode: 403, code: 'BRANCH_CONTEXT_REQUIRED' })
   const conditions = ['a.id=?']
   const params = [Number(appointmentId)]
+  conditions.push('a.branch_id=?');params.push(Number(branchId))
   if (Number(doctorId)) {
     conditions.push('a.doctor_id=?')
     params.push(Number(doctorId))
@@ -141,7 +144,7 @@ const getAppointmentInventoryReadiness = async (appointmentId, { doctorId = null
         label: `${service.service_name}: ${material.material_name || material.inventory_name || 'Consumable'}`,
       }))
     : []
-  const readiness = await assessInventoryRequirements(requirements, { clinicType: appointment.clinic_type, executor })
+  const readiness = await assessInventoryRequirements(requirements, { clinicType: appointment.clinic_type, branchId, executor })
   return {
     ...readiness,
     appointment: {
@@ -164,7 +167,7 @@ const getBillingInventoryReadiness = async ({ billing, appointment, executor = d
   const usage = billing?.id && Array.isArray(billing.items)
     ? collectInventoryUsageFromBillingItems(billing.items)
     : []
-  return assessInventoryRequirements(usage, { clinicType: appointment?.clinic_type, executor })
+  return assessInventoryRequirements(usage, { clinicType: appointment?.clinic_type, branchId: appointment?.branch_id, executor })
 }
 
 module.exports = {
@@ -175,6 +178,7 @@ module.exports = {
   getAppointmentInventoryReadiness,
   getBillingInventoryReadiness,
 }
+
 
 
 

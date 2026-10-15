@@ -20,6 +20,7 @@ const {
   hashUploadBuffer,
 } = require('../utils/cloudinarySecurity')
 
+const { nextInventoryBarcode } = require('../utils/barcodes')
 const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
@@ -559,7 +560,7 @@ const checkAuth = async (req, res) => {
   if (!token) return res.status(200).json({ authenticated: false })
   try {
     const decoded = await verifySessionToken(token, 'admin')
-    const [rows] = await db.query('SELECT id, full_name, email, account_role, branch_id, theme_preference, profile_image_url FROM admins WHERE id = ?', [decoded.id])
+    const [rows] = await db.query("SELECT a.id,a.full_name,a.email,a.account_role,a.branch_id,a.theme_preference,a.profile_image_url,b.name AS branch_name FROM admins a LEFT JOIN clinic_branches b ON b.id=a.branch_id WHERE a.id = ? AND a.is_active=1 AND (a.account_role='superadmin' OR b.is_active=1)", [decoded.id])
     if (rows.length === 0 || (rows[0].account_role === 'superadmin') !== isSuper) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'admin' } })
   } catch {
@@ -674,7 +675,7 @@ const getAppointments = async (req, res) => {
 }
 
 const getAppointmentInventoryReadinessForPortal = async (req, res) => {
-  const readiness = await getAppointmentInventoryReadiness(req.params.id)
+  const readiness = await getAppointmentInventoryReadiness(req.params.id, { branchId: req.branchId })
   if (!readiness) return res.status(404).json({ message: 'Appointment not found.' })
   res.json(readiness)
 }
@@ -963,7 +964,7 @@ const getQueue = async (req, res) => {
 }
 
 const getQueuePrecheck = async (req, res) => {
-  res.json(await getWalkInPrecheck(req.params.patientId))
+  res.json(await getWalkInPrecheck(req.params.patientId, req.branchId))
 }
 
 const addToQueue = async (req, res) => {
@@ -977,6 +978,7 @@ const addToQueue = async (req, res) => {
     allowSeparateWalkIn: Boolean(req.body.allow_separate_walkin),
     actorRole: 'admin',
     actorId: req.user.id,
+    branchId: req.branchId,
     ipAddress: req.ip || null,
   })
   return res.status(result.status).json(result.body)
@@ -990,6 +992,7 @@ const updateQueueStatus = async (req, res) => {
   }
   try {
     const row = await setQueueState({
+      branchId: req.branchId,
       queueId: req.params.id,
       nextStatus: target,
       actorRole: 'admin',
@@ -1815,6 +1818,7 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
     return res.status(400).json({ message: 'Select a QR image to upload.' })
   }
+  const qrContextId = req.branchId ? `${req.branchId}:${provider}` : provider
   const fileHash = hashUploadBuffer(req.body)
 
   let bypassReason = null
@@ -1825,7 +1829,7 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
         role: actorRole,
         user_id: req.user.id,
         context_type: 'payment_qr',
-        context_id: provider,
+        context_id: qrContextId,
       })
       if (!bypass.file_sha256 || bypass.file_sha256 !== fileHash) {
         return res.status(403).json({ message: 'The scanner-bypass authorization is for a different image. Retry the security scan for this file.' })
@@ -1838,7 +1842,7 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
 
   let uploaded
   try {
-    const signed = createPaymentQrUploadSignature({ actorRole, actorId: req.user.id, provider, scanMode })
+    const signed = createPaymentQrUploadSignature({ actorRole, actorId: req.user.id, provider, scanMode, branchId: req.branchId })
     uploaded = await cloudinaryUploadBuffer({
       buffer: req.body,
       mimeType: req.get('content-type'),
@@ -1854,7 +1858,7 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
         message: reason === 'usage_limit_reached'
           ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
           : 'The malware scanner is currently unavailable. Only continue if this QR image comes from a trusted source.',
-        bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider, reason, fileHash }),
+        bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId, reason, fileHash }),
       })
     }
     return res.status(error.statusCode || 502).json({ message: error.message || 'QR image upload failed.' })
@@ -1862,15 +1866,16 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
 
   if (scanMode === 'bypass') {
     const securityToken = issueAcceptedUploadToken({
-      role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+      role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId,
       status: 'bypassed', assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id,
     })
     await writeAuditLog({
       userId: req.user.id,
       userRole: req.user?.role || 'admin',
       action: 'security.payment_qr_scan_bypassed',
-      entityType: 'clinic_payment_settings',
-      entityId: '1',
+      entityType: req.branchId ? 'branch_payment_settings' : 'clinic_payment_settings',
+      entityId: String(req.branchId || 1),
+      branchId: req.branchId || null,
       newValues: { provider, scan_status: 'bypassed', reason: bypassReason, asset_id: uploaded.asset_id },
       ipAddress: req.ip || null,
     }).catch(() => {})
@@ -1890,7 +1895,7 @@ const uploadPaymentQrImageAdmin = async (req, res) => {
     asset_id: uploaded.asset_id,
     public_id: uploaded.public_id,
     scan_token: issueScanPendingToken({
-      role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+      role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId,
       assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id, fileHash,
     }),
   })
@@ -1900,6 +1905,7 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
   const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
   const assetId = String(req.body?.asset_id || '').trim()
   const provider = String(req.body?.provider || '').trim().toLowerCase()
+  const qrContextId = req.branchId ? `${req.branchId}:${provider}` : provider
   const scanToken = String(req.body?.scan_token || '').trim()
   if (!assetId || !['gcash', 'maya'].includes(provider) || !scanToken) {
     return res.status(400).json({ message: 'Payment provider, Cloudinary asset ID, and scan verification are required.' })
@@ -1912,7 +1918,7 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
       role: actorRole,
       user_id: req.user.id,
       context_type: 'payment_qr',
-      context_id: provider,
+      context_id: qrContextId,
       asset_id: assetId,
     })
   } catch (error) {
@@ -1923,7 +1929,7 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
     status: 'unavailable',
     reason,
     message,
-    bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider, reason, fileHash: pending.file_sha256 }),
+    bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId, reason, fileHash: pending.file_sha256 }),
   })
 
   try {
@@ -1935,7 +1941,7 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
       return res.json({
         ...result,
         security_token: issueAcceptedUploadToken({
-          role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: provider,
+          role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId,
           status: 'approved', assetId, url: result.secure_url || pending.url, publicId: result.public_id || pending.public_id,
         }),
       })
@@ -1945,8 +1951,9 @@ const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
         userId: req.user.id,
         userRole: req.user?.role || 'admin',
         action: 'security.payment_qr_upload_blocked',
-        entityType: 'clinic_payment_settings',
-        entityId: '1',
+        entityType: req.branchId ? 'branch_payment_settings' : 'clinic_payment_settings',
+        entityId: String(req.branchId || 1),
+        branchId: req.branchId || null,
         newValues: { provider, scan_status: 'rejected', asset_id: assetId },
         ipAddress: req.ip || null,
       }).catch(() => {})
@@ -2575,15 +2582,6 @@ const supplierSupportsClinic = (categoryValue, clinic) => String(categoryValue |
   .filter(Boolean)
   .includes(clinic)
 
-const nextInventoryBarcode = async (category, conn = db) => {
-  const normalized = category === 'derma' ? 'derma' : 'medical'
-  const prefix = normalized === 'derma' ? 'DRM' : 'GMED'
-  await conn.query('INSERT IGNORE INTO inventory_barcode_sequences (category,last_number) VALUES (?,0)', [normalized])
-  await conn.query('UPDATE inventory_barcode_sequences SET last_number = LAST_INSERT_ID(last_number + 1) WHERE category = ?', [normalized])
-  const [[row]] = await conn.query('SELECT last_number FROM inventory_barcode_sequences WHERE category = ?', [normalized])
-  const number = Number(row?.last_number || 1)
-  return `${prefix}-${String(number).padStart(5, '0')}`
-}
 
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
@@ -2672,7 +2670,7 @@ const addInventoryItem = async (req, res) => {
     unit = uom
     base_unit = uom
     location_type_id = setupSelection.locationType.id
-    if (!barcode) barcode = await nextInventoryBarcode(category, conn)
+    if (!barcode) barcode = await nextInventoryBarcode(category, req.branchId, conn)
     // Every receipt gets its own internal batch code automatically.
     batch_code = null
     if (supplier_id) {
@@ -2951,16 +2949,16 @@ const maskEmailAddress = (email = '') => {
   return `${local.slice(0, 2)}${'*'.repeat(Math.max(2, local.length - 2))}@${domain}`
 }
 
-const getInventoryBatchForAction = async (batchId, executor = db, forUpdate = false) => {
+const getInventoryBatchForAction = async (batchId, executor = db, forUpdate = false, branchId = null) => {
   const [rows] = await executor.query(
-    `SELECT b.id, b.inventory_id, b.batch_code, b.supplier_lot_number, b.quantity, b.expiration_date, b.note,
+    `SELECT b.id, b.branch_id, b.inventory_id, b.batch_code, b.supplier_lot_number, b.quantity, b.expiration_date, b.note,
             COALESCE(b.unit_cost,0) AS unit_cost, b.archived_at, b.archived_by_admin_id, b.archive_reason,
             i.name AS item_name, i.barcode AS item_barcode, COALESCE(i.uom,i.base_unit,i.unit,'') AS uom
      FROM inventory_batches b
      JOIN inventory i ON i.id = b.inventory_id
-     WHERE b.id = ?
+     WHERE b.id = ? AND ( ? IS NULL OR (b.branch_id = ? AND i.branch_id = ?) )
      ${forUpdate ? 'FOR UPDATE' : ''}`,
-    [batchId]
+    [batchId,branchId,branchId,branchId]
   )
   return rows[0] || null
 }
@@ -3090,7 +3088,7 @@ const requestInventoryBatchActionCode = async (req, res) => {
   const action = String(req.body?.action || '').trim()
   if (!batchId || !INVENTORY_BATCH_ACTIONS.has(action)) return res.status(400).json({ message: 'Select a valid batch action.' })
 
-  const batch = await getInventoryBatchForAction(batchId)
+  const batch = await getInventoryBatchForAction(batchId,db,false,req.branchId)
   if (!batch) return res.status(404).json({ message: 'Batch not found.' })
 
   let payload
@@ -3119,6 +3117,7 @@ const requestInventoryBatchActionCode = async (req, res) => {
     action,
     batch_id: batch.id,
     inventory_id: batch.inventory_id,
+    branch_id: Number(req.branchId || batch.branch_id),
     old: {
       quantity: Number(batch.quantity || 0),
       batch_code: batch.batch_code || null,
@@ -3138,7 +3137,7 @@ const requestInventoryBatchActionCode = async (req, res) => {
     await sendAccountSecurityOtp(admin.email, admin.full_name, code)
     await writeAuditLog({
       userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_action_verification_requested',entityType:'inventory_batch',entityId:batch.id,
-      newValues:{ action, item_name:batch.item_name, batch_code:batch.batch_code || null, reason:payload.reason },ipAddress:req.ip||null,
+      newValues:{ action, item_name:batch.item_name, batch_code:batch.batch_code || null, reason:payload.reason },branchId:req.branchId || null,ipAddress:req.ip||null,
     }).catch(() => {})
     res.json({ message: `Verification code sent to ${maskEmailAddress(admin.email)}.`, destination: maskEmailAddress(admin.email) })
   } catch (error) {
@@ -3168,8 +3167,9 @@ const confirmInventoryBatchAction = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const batch = await getInventoryBatchForAction(batchId, conn, true)
-    if (!batch) throw Object.assign(new Error('Batch not found.'), { statusCode:404 })
+    const batch = await getInventoryBatchForAction(batchId, conn, true, req.branchId)
+    if (!batch) throw Object.assign(new Error('Batch not found in this branch.'), { statusCode:404 })
+    if (Number(authorization.branch_id) !== Number(batch.branch_id)) throw Object.assign(new Error('This code does not authorize actions on another branch.'), {statusCode:403,code:'BATCH_BRANCH_MISMATCH'})
 
     const expected = authorization.old || {}
     const currentExpiry = batch.expiration_date ? String(batch.expiration_date).slice(0,10) : null
@@ -3200,9 +3200,9 @@ const confirmInventoryBatchAction = async (req, res) => {
         `SELECT ilb.location_id, ilb.quantity, il.name
          FROM inventory_location_batches ilb
          JOIN inventory_locations il ON il.id=ilb.location_id
-         WHERE ilb.batch_id=?
+         WHERE ilb.batch_id=? AND il.branch_id=? AND ilb.inventory_id=?
          ORDER BY ilb.quantity DESC, ilb.location_id
-         FOR UPDATE`, [batch.id]
+         FOR UPDATE`, [batch.id,req.branchId,batch.inventory_id]
       )
       const allocated = allocationRows.reduce((sum,row)=>sum+Number(row.quantity||0),0)
       if (current > 0 && Math.abs(allocated-current) > 0.0001) {
@@ -3212,7 +3212,7 @@ const confirmInventoryBatchAction = async (req, res) => {
       if (delta > 0) {
         let targetLocation = allocationRows[0] || null
         if (!targetLocation) {
-          const location = await resolveMainStockroom(conn, { createIfMissing: true })
+          const location = await resolveMainStockroom(conn, { createIfMissing: true, branchId:req.branchId })
           targetLocation = { location_id:location.id, name:location.name, quantity:0 }
         }
         await conn.query(
@@ -3221,9 +3221,9 @@ const confirmInventoryBatchAction = async (req, res) => {
           [targetLocation.location_id,batch.inventory_id,batch.id,delta]
         )
         await conn.query(
-          `INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location)
-           VALUES (?,?,'in',?,?, 'correction_in',?,?)`,
-          [batch.inventory_id,req.user.id,delta,reason,batch.id,targetLocation.name || null]
+          `INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id)
+           VALUES (?,?,'in',?,?, 'correction_in',?,?,?)`,
+          [batch.inventory_id,req.user.id,delta,reason,batch.id,targetLocation.name || null,req.branchId]
         )
       } else {
         let remaining = Math.abs(delta)
@@ -3234,9 +3234,9 @@ const confirmInventoryBatchAction = async (req, res) => {
           const take = Math.min(available, remaining)
           await conn.query('UPDATE inventory_location_batches SET quantity=quantity-? WHERE location_id=? AND batch_id=? AND quantity>=?', [take,allocation.location_id,batch.id,take])
           await conn.query(
-            `INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,from_location)
-             VALUES (?,?,'out',?,?, 'adjustment_out',?,?)`,
-            [batch.inventory_id,req.user.id,take,reason,batch.id,allocation.name || null]
+            `INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,from_location,branch_id)
+             VALUES (?,?,'out',?,?, 'adjustment_out',?,?,?)`,
+            [batch.inventory_id,req.user.id,take,reason,batch.id,allocation.name || null,req.branchId]
           )
           remaining -= take
         }
@@ -3250,7 +3250,7 @@ const confirmInventoryBatchAction = async (req, res) => {
         userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_quantity_corrected',entityType:'inventory_batch',entityId:batch.id,
         oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:current },
         newValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:target,adjustment:delta,reason,authorization:'admin_password_email_code' },
-        ipAddress:req.ip||null,
+        branchId:req.branchId,ipAddress:req.ip||null,
       },conn)
     } else if (action === 'correct_details') {
       if (batch.archived_at) throw Object.assign(new Error('Restore this archived batch before correcting it.'), { statusCode:409 })
@@ -3266,29 +3266,29 @@ const confirmInventoryBatchAction = async (req, res) => {
         userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_details_corrected',entityType:'inventory_batch',entityId:batch.id,
         oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,supplier_lot_number:batch.supplier_lot_number||null,expiration_date:currentExpiry,note:batch.note||null },
         newValues:{ item_name:batch.item_name,batch_code:newCode,supplier_lot_number:requested.supplier_lot_number||null,expiration_date:requested.expiration_date||null,note:requested.note||null,reason,authorization:'admin_password_email_code' },
-        ipAddress:req.ip||null,
+        branchId:req.branchId,ipAddress:req.ip||null,
       },conn)
     } else if (action === 'archive') {
       if (Number(batch.quantity||0)>0) throw Object.assign(new Error('Only a zero-stock batch can be archived.'), { statusCode:409 })
       if (batch.archived_at) throw Object.assign(new Error('This batch is already archived.'), { statusCode:409 })
       await conn.query('UPDATE inventory_batches SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=?', [req.user.id,reason,batch.id])
-      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_archived',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:null},newValues:{batch_code:batch.batch_code,archived_at:'now',reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_archived',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:null},newValues:{batch_code:batch.batch_code,archived_at:'now',reason,authorization:'admin_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
     } else if (action === 'restore') {
       if (!batch.archived_at) throw Object.assign(new Error('This batch is not archived.'), { statusCode:409 })
       await conn.query('UPDATE inventory_batches SET archived_at=NULL,archived_by_admin_id=NULL,archive_reason=NULL WHERE id=?', [batch.id])
-      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_restored',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:batch.archived_at,archive_reason:batch.archive_reason},newValues:{batch_code:batch.batch_code,archived_at:null,reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_restored',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:batch.archived_at,archive_reason:batch.archive_reason},newValues:{batch_code:batch.batch_code,archived_at:null,reason,authorization:'admin_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
     } else if (action === 'delete') {
       if (Number(batch.quantity||0)>0) throw Object.assign(new Error('A batch with remaining stock cannot be deleted.'), { statusCode:409 })
       const references = await getInventoryBatchReferenceCounts(batch.id, conn)
       if (batchHasProtectedHistory(references)) throw Object.assign(new Error('This batch has transaction history and cannot be hard deleted. Archive it instead.'), { statusCode:409, code:'BATCH_HAS_HISTORY' })
-      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_deleted',entityType:'inventory_batch',entityId:batch.id,oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,quantity:Number(batch.quantity||0),expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),reason,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_deleted',entityType:'inventory_batch',entityId:batch.id,oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,quantity:Number(batch.quantity||0),expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),reason,authorization:'admin_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
       await conn.query('DELETE FROM inventory_batches WHERE id=?', [batch.id])
       await syncInventorySnapshot(batch.inventory_id, conn)
       await syncLocationSnapshot(batch.inventory_id, conn)
     }
 
     await conn.commit()
-    const refreshed = await loadInventoryRows(db, 'WHERE id = ?', [batch.inventory_id])
+    const refreshed = await loadInventoryRows(db, 'WHERE id = ? AND branch_id=?', [batch.inventory_id,req.branchId])
     const messages = {
       correct_quantity:'Batch quantity corrected.', correct_details:'Batch details corrected.', archive:'Batch archived.', restore:'Batch restored.', delete:'Batch deleted.',
     }
@@ -3338,6 +3338,7 @@ const resolveSupplyRequest = async (req, res) => {
     status: req.body.status,
     actorRole: 'admin',
     actorId: req.user.id,
+    branchId: req.branchId,
     ipAddress: req.ip || null,
     note: req.body.note,
   })
@@ -3407,14 +3408,15 @@ const getBillingReconciliation = async (req, res) => {
   })
 }
 
-const getBillingPaymentForProtectedAction = async (paymentId, executor = db, forUpdate = false) => {
+const getBillingPaymentForProtectedAction = async (paymentId, executor = db, forUpdate = false, branchId = null) => {
   const [rows] = await executor.query(
-    `SELECT bp.*, br.patient_id, br.total_amount AS billing_total_amount
+    `SELECT bp.*, br.patient_id, br.total_amount AS billing_total_amount, br.branch_id AS billing_branch_id
      FROM billing_payments bp
      JOIN billing_records br ON br.id = bp.billing_id
      WHERE bp.id = ?
+     ${branchId != null ? 'AND br.branch_id = ?' : ''}
      ${forUpdate ? 'FOR UPDATE' : ''}`,
-    [paymentId]
+    branchId != null ? [paymentId,branchId] : [paymentId]
   )
   return rows[0] || null
 }
@@ -3446,7 +3448,7 @@ const requestBillingPaymentActionCode = async (req, res, forcedAction = null) =>
   const action = forcedAction || String(req.body?.action || '').trim().toLowerCase()
   if (!paymentId || !BILLING_PAYMENT_ACTIONS.has(action)) return res.status(400).json({ message: 'Select a valid payment action.' })
 
-  const payment = await getBillingPaymentForProtectedAction(paymentId)
+  const payment = await getBillingPaymentForProtectedAction(paymentId, db, false, req.branchId)
   if (!payment) return res.status(404).json({ message: 'Payment not found.' })
 
   let requested
@@ -3465,6 +3467,7 @@ const requestBillingPaymentActionCode = async (req, res, forcedAction = null) =>
     action,
     payment_id: payment.id,
     billing_id: payment.billing_id,
+    branch_id: Number(payment.billing_branch_id),
     old: {
       status: payment.status,
       amount: Number(payment.amount || 0),
@@ -3481,7 +3484,7 @@ const requestBillingPaymentActionCode = async (req, res, forcedAction = null) =>
     await sendAccountSecurityOtp(admin.email, admin.full_name, code)
     await writeAuditLog({
       userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.payment_action_verification_requested',entityType:'billing_payment',entityId:payment.id,
-      newValues:{ action, billing_id:payment.billing_id, reason:requested.reason, refund_amount:requested.amount || null },ipAddress:req.ip||null,
+      newValues:{ action, billing_id:payment.billing_id, reason:requested.reason, refund_amount:requested.amount || null },branchId:Number(payment.billing_branch_id),ipAddress:req.ip||null,
     }).catch(() => {})
     return res.json({
       message: `Password verified. A 6-digit verification code was sent to ${maskEmailAddress(admin.email)}.`,
@@ -3519,8 +3522,9 @@ const confirmBillingPaymentAction = async (req, res) => {
   let billingId = null
   try {
     await conn.beginTransaction()
-    const payment = await getBillingPaymentForProtectedAction(paymentId, conn, true)
+    const payment = await getBillingPaymentForProtectedAction(paymentId, conn, true, req.branchId)
     if (!payment) throw Object.assign(new Error('Payment not found.'), { statusCode: 404 })
+    if (Number(authorization.branch_id) !== Number(payment.billing_branch_id)) throw Object.assign(new Error('Verification is not valid for this branch. Request a new code.'), {statusCode:403,code:'PAYMENT_BRANCH_MISMATCH'})
     billingId = payment.billing_id
 
     const expected = authorization.old || {}
@@ -3543,9 +3547,9 @@ const confirmBillingPaymentAction = async (req, res) => {
       await conn.query(`UPDATE billing_payments SET refund_amount=?, refunded_at=NOW(), refund_reason=?, refunded_by_admin_id=? WHERE id=?`, [nextRefund, normalized.reason, req.user.id, paymentId])
       // One ledger row per refund so each refund is reported on the day it was given.
       await conn.query(
-        `INSERT INTO billing_payment_refunds (payment_id, billing_id, payment_method, amount, reason, refunded_by_admin_id, refunded_at)
-         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-        [paymentId, payment.billing_id, payment.payment_method || null, normalized.amount, normalized.reason, req.user?.role === 'admin' ? req.user.id : null]
+        `INSERT INTO billing_payment_refunds (payment_id, billing_id, payment_method, amount, reason, refunded_by_admin_id, refunded_at, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)`,
+        [paymentId, payment.billing_id, payment.payment_method || null, normalized.amount, normalized.reason, req.user.id, Number(payment.billing_branch_id)]
       )
     }
 
@@ -3556,10 +3560,10 @@ const confirmBillingPaymentAction = async (req, res) => {
     await conn.query(`UPDATE billing_records SET status=?, paid_at=CASE WHEN ?='paid' THEN paid_at ELSE NULL END WHERE id=?`, [nextStatus, nextStatus, billingId])
 
     if (action === 'void') {
-      await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.payment_voided',entityType:'billing_payment',entityId:paymentId,oldValues:{status:'completed',amount:payment.amount},newValues:{status:'voided',reason:normalized.reason,billing_status:nextStatus,authorization:'admin_password_email_code'},ipAddress:req.ip||null },conn)
+      await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.payment_voided',entityType:'billing_payment',entityId:paymentId,oldValues:{status:'completed',amount:payment.amount},newValues:{status:'voided',reason:normalized.reason,billing_status:nextStatus,authorization:'admin_password_email_code'},branchId:Number(payment.billing_branch_id),ipAddress:req.ip||null },conn)
     } else {
       const nextRefund = Math.round((Number(payment.refund_amount || 0) + Number(normalized.amount || 0)) * 100) / 100
-      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:normalized.amount,reason:normalized.reason,billing_status:nextStatus,balance_after:balanceAfter,authorization:'admin_password_email_code'},ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.payment_refunded',entityType:'billing_payment',entityId:paymentId,oldValues:{refund_amount:payment.refund_amount||0},newValues:{refund_amount:nextRefund,refund_delta:normalized.amount,reason:normalized.reason,billing_status:nextStatus,balance_after:balanceAfter,authorization:'admin_password_email_code'},branchId:Number(payment.billing_branch_id),ipAddress:req.ip||null},conn)
     }
 
     await conn.commit()
@@ -3570,7 +3574,7 @@ const confirmBillingPaymentAction = async (req, res) => {
     conn.release()
   }
 
-  broadcast(['admin','staff'], 'billing_payment_changed', { billingId, paymentId, action: action === 'void' ? 'voided' : 'refunded' })
+  broadcast(['admin','staff'], 'billing_payment_changed', { billingId, paymentId, action: action === 'void' ? 'voided' : 'refunded' }, {branchId:req.branchId || Number(authorization.branch_id)})
   return res.json(await getBillingRecordWithItems(billingId))
 }
 
@@ -4288,6 +4292,7 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

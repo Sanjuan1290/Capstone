@@ -3,6 +3,7 @@
 // FIX 2: Added updateInventoryItem and deleteInventoryItem
 // FIX 3: getPatients returns 'name' alias so AddModal dropdown shows patient names
 
+const { nextInventoryBarcode } = require('../utils/barcodes')
 const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
@@ -177,7 +178,7 @@ const rejectStaffPricingMutation = (req, res) => {
   return true
 }
 
-const resolveInventorySetupSelection = async ({ location_type_id }, executor = db) => {
+const resolveInventorySetupSelection = async ({ location_type_id, branchId }, executor = db) => {
   const locationTypeId = Number(location_type_id)
   if (!locationTypeId) {
     const error = new Error('Select a Storage Location configured in System Setup.')
@@ -186,8 +187,8 @@ const resolveInventorySetupSelection = async ({ location_type_id }, executor = d
     throw error
   }
   const [[locationType]] = await executor.query(
-    'SELECT id,name,code FROM inventory_location_types WHERE id=? AND is_active=1 LIMIT 1',
-    [locationTypeId]
+    'SELECT id,name,code FROM inventory_location_types WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1',
+    [locationTypeId,branchId]
   )
   if (!locationType) {
     const error = new Error('That Storage Location is unavailable. Configure an active Storage Location in System Setup.')
@@ -202,14 +203,6 @@ const resolveInventorySetupSelection = async ({ location_type_id }, executor = d
   }
 }
 
-const nextInventoryBarcode = async (category, conn = db) => {
-  const normalized = category === 'derma' ? 'derma' : 'medical'
-  const prefix = normalized === 'derma' ? 'DRM' : 'GMED'
-  await conn.query('INSERT IGNORE INTO inventory_barcode_sequences (category,last_number) VALUES (?,0)', [normalized])
-  await conn.query('UPDATE inventory_barcode_sequences SET last_number = LAST_INSERT_ID(last_number + 1) WHERE category = ?', [normalized])
-  const [[row]] = await conn.query('SELECT last_number FROM inventory_barcode_sequences WHERE category = ?', [normalized])
-  return `${prefix}-${String(Number(row?.last_number || 1)).padStart(5, '0')}`
-}
 
 const buildPhoneSearchTerms = (value = '') => {
   const trimmed = String(value || '').trim()
@@ -306,7 +299,7 @@ const checkAuth = async (req, res) => {
   try {
     const decoded = await verifySessionToken(token, 'staff')
     const [rows] = await db.query(
-      "SELECT id, full_name, email, theme_preference, profile_image_url, must_change_password, password_changed_at FROM staff WHERE id = ? AND status = 'active'", [decoded.id]
+      "SELECT a.id,a.full_name,a.email,a.theme_preference,a.profile_image_url,a.must_change_password,a.password_changed_at,a.branch_id,b.name AS branch_name FROM staff a JOIN clinic_branches b ON b.id=a.branch_id AND b.is_active=1 WHERE a.id = ? AND a.status = 'active'", [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     const permissions = await loadStaffPermissions(decoded.id)
@@ -326,20 +319,12 @@ const logout = async (req, res) => {
 
 const getDashboard = async (req, res) => {
   const today = getTodayDateOnly()
-  const [[{ totalToday }]]    = await db.query(
-    'SELECT COUNT(*) AS totalToday FROM appointments WHERE appointment_date = ?', [today]
-  )
-  const [[{ pendingCount }]]  = await db.query(
-    "SELECT COUNT(*) AS pendingCount FROM appointments WHERE status = 'pending'"
-  )
-  const [[{ queueCount }]]    = await db.query(
-    "SELECT COUNT(*) AS queueCount FROM queue WHERE queue_date = ? AND status IN ('waiting','called','in_consultation')", [today]
-  )
-  const [[{ lowStock }]]      = await db.query(
-    'SELECT COUNT(*) AS lowStock FROM inventory WHERE archived_at IS NULL AND stock <= threshold'
-  )
-  const [[{ totalPatients }]] = await db.query('SELECT COUNT(*) AS totalPatients FROM patients')
-  res.json({ totalToday, pendingCount, queueCount, lowStock, totalPatients })
+  const [[{ totalToday }]] = await db.query('SELECT COUNT(*) AS totalToday FROM appointments WHERE branch_id=? AND appointment_date=?',[req.branchId,today])
+  const [[{ pendingCount }]] = await db.query("SELECT COUNT(*) AS pendingCount FROM appointments WHERE branch_id=? AND status='pending'",[req.branchId])
+  const [[{ queueCount }]] = await db.query("SELECT COUNT(*) AS queueCount FROM queue WHERE branch_id=? AND queue_date=? AND status IN ('waiting','called','in_consultation')",[req.branchId,today])
+  const [[{ lowStock }]] = await db.query('SELECT COUNT(*) AS lowStock FROM inventory WHERE branch_id=? AND archived_at IS NULL AND stock<=threshold',[req.branchId])
+  const [[{ totalPatients }]] = await db.query('SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM appointments WHERE branch_id=?',[req.branchId])
+  res.json({totalToday,pendingCount,queueCount,lowStock,totalPatients})
 }
 
 // ── Appointments ──────────────────────────────────────────────────────────────
@@ -368,8 +353,9 @@ const getAppointments = async (req, res) => {
              FROM appointments a
              JOIN patients p ON a.patient_id = p.id
              JOIN doctors  d ON a.doctor_id  = d.id`
-  const params = []
-  if (date) { sql += ' WHERE a.appointment_date = ?'; params.push(date) }
+  const params = [req.branchId]
+  sql += ' WHERE a.branch_id = ? AND d.branch_id = a.branch_id'
+  if (date) {sql += ' AND a.appointment_date = ?';params.push(date)}
   if (sort === 'created_at') sql += ` ORDER BY a.created_at ${direction}, a.id ${direction}`
   else if (sort === 'updated_at') sql += ` ORDER BY a.updated_at ${direction}, a.id ${direction}`
   else sql += ` ORDER BY a.appointment_date ${direction}, STR_TO_DATE(a.appointment_time, '%h:%i %p') ${direction}, a.id ${direction}`
@@ -388,11 +374,11 @@ const createAppointment = async (req, res) => {
 
   const [[service]] = await db.query(
     `SELECT id, service_name, clinic_type, default_price, average_duration_minutes, is_active
-     FROM billing_service_catalog WHERE id = ? LIMIT 1`, [requested_service_id])
+     FROM billing_service_catalog WHERE id = ? AND branch_id=? LIMIT 1`, [requested_service_id, req.branchId])
   if (!service || Number(service.is_active) !== 1 || ![clinic_type, 'all'].includes(String(service.clinic_type || ''))) {
     return res.status(409).json({ message: 'Select an active service for the selected clinic.' })
   }
-  const settings = await loadBookingSettings()
+  const settings = await loadBookingSettings(db, req.branchId)
   const averageDurationMinutes = Number(service.average_duration_minutes || 60)
   const reservedDurationMinutes = roundReservedDurationMinutes(averageDurationMinutes, settings.booking_start_interval_minutes)
 
@@ -405,28 +391,30 @@ const createAppointment = async (req, res) => {
   )
   if (activeWithDoctor.length) return res.status(409).json({ message: 'This patient already has an active appointment with this doctor.' })
 
+  const [[doctorBranch]] = await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [doctor_id, req.branchId])
+  if (!doctorBranch) return res.status(404).json({ message: 'Doctor not found in your branch.' })
   const result = await withAppointmentSlotLock({ doctorId: doctor_id }, async () => {
     await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
     const [inserted] = await db.query(
       `INSERT INTO appointments
        (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
         requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot,
-        reason, appointment_date, appointment_time, notes, appointment_source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        reason, appointment_date, appointment_time, notes, appointment_source, branch_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [patient_id, doctor_id, clinic_type, service.id, service.service_name, service.default_price,
-       averageDurationMinutes, reservedDurationMinutes, reason || null, normalizedDate, appointment_time, notes || null, 'staff_booking']
+       averageDurationMinutes, reservedDurationMinutes, reason || null, normalizedDate, appointment_time, notes || null, 'staff_booking', req.branchId]
     )
     return inserted
   })
-  await writeAuditLog({ userId:req.user.id,userRole:'staff',action:'appointment.created',entityType:'appointment',entityId:result.insertId,newValues:{patient_id,doctor_id,clinic_type,requested_service_id:Number(service.id),requested_service_name:service.service_name,appointment_date:normalizedDate,appointment_time,appointment_source:'staff_booking',reserved_duration_minutes:reservedDurationMinutes},ipAddress:req.ip||null })
+  await writeAuditLog({ branchId:req.branchId,userId:req.user.id,userRole:'staff',action:'appointment.created',entityType:'appointment',entityId:result.insertId,newValues:{patient_id,doctor_id,clinic_type,requested_service_id:Number(service.id),requested_service_name:service.service_name,appointment_date:normalizedDate,appointment_time,appointment_source:'staff_booking',reserved_duration_minutes:reservedDurationMinutes},ipAddress:req.ip||null })
   const [rows] = await db.query(`SELECT p.full_name AS patient_name,d.id AS doctor_id,d.full_name AS doctor_name,d.phone AS doctor_phone FROM appointments a JOIN patients p ON a.patient_id=p.id JOIN doctors d ON a.doctor_id=d.id WHERE a.id=?`,[result.insertId])
   await notifyRoles(['admin','staff'],{type:'appointment_booked',title:'New patient booking',message:`${rows[0].patient_name} booked an appointment with ${rows[0].doctor_name} on ${normalizedDate} at ${appointment_time}.`,reference_type:'appointment',reference_id:result.insertId})
-  broadcast(['admin','staff'],'appointment_updated',{appointmentId:result.insertId,status:'pending'})
+  broadcast(['admin','staff'],'appointment_updated',{appointmentId:result.insertId,status:'pending'}, { branchId: req.branchId })
   res.status(201).json({ message:'Appointment created.', id:result.insertId })
 }
 
 const getAppointmentInventoryReadinessForPortal = async (req, res) => {
-  const readiness = await getAppointmentInventoryReadiness(req.params.id)
+  const readiness = await getAppointmentInventoryReadiness(req.params.id, { branchId: req.branchId })
   if (!readiness) return res.status(404).json({ message: 'Appointment not found.' })
   res.json(readiness)
 }
@@ -502,7 +490,7 @@ const confirmAppointment = async (req, res) => {
       reference_id: req.params.id,
     })
   }
-  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' })
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'confirmed' }, { branchId: req.branchId })
   res.json({ message: 'Appointment confirmed.' })
 }
 
@@ -558,7 +546,7 @@ const cancelAppointment = async (req, res) => {
     appointmentTime: rows[0].appointment_time,
     status: 'cancelled',
   }).catch((err) => console.error('SMS patient appointment cancellation failed:', err.message))
-  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'cancelled' })
+  broadcast(['admin', 'staff', `doctor_${rows[0].doctor_id}`, `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'cancelled' }, { branchId: req.branchId })
   res.json({ message: 'Appointment cancelled.', cancellation })
 }
 
@@ -592,7 +580,7 @@ const markAppointmentNoShow = async (req, res) => {
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
-  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'no_show' })
+  broadcast(['admin', 'staff', `patient_${rows[0].patient_id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'no_show' }, { branchId: req.branchId })
   res.json({ message: 'Appointment marked as no show.' })
 }
 
@@ -623,7 +611,7 @@ const rescheduleAppointment = async (req, res) => {
   await createNotification({target_role:'patient',target_user_id:rows[0].patient_id,type:'appointment_rescheduled',title:'Appointment rescheduled',message:`Your appointment with ${rows[0].doctor_name} was moved to ${normalizedDate} at ${appointment_time}.`,reference_type:'appointment',reference_id:req.params.id})
   await sendAppointmentStatusEmail({to:rows[0].patient_email,patient_name:rows[0].patient_name,doctor_name:rows[0].doctor_name,appointment_date:normalizedDate,appointment_time,clinic_type:rows[0].clinic_type,status:'rescheduled'}).catch(()=>{})
   await sendPatientAppointmentStatusSms({patientId:rows[0].patient_id,patientPhone:rows[0].patient_phone,patientName:rows[0].patient_name,doctorName:rows[0].doctor_name,appointmentDate:normalizedDate,appointmentTime:appointment_time,status:'rescheduled'}).catch((err)=>console.error('SMS patient appointment reschedule failed:',err.message))
-  broadcast(['admin','staff',`patient_${rows[0].patient_id}`],'appointment_updated',{appointmentId:Number(req.params.id),status:'confirmed'})
+  broadcast(['admin','staff',`patient_${rows[0].patient_id}`],'appointment_updated',{appointmentId:Number(req.params.id),status:'confirmed'}, { branchId: req.branchId })
   res.json({message:'Appointment rescheduled.'})
 }
 
@@ -683,15 +671,15 @@ const getQueue = async (req, res) => {
     `SELECT q.*, d.full_name AS doctor_name
      FROM queue q
      JOIN doctors d ON q.doctor_id = d.id
-     WHERE q.queue_date = ?
+     WHERE q.branch_id = ? AND d.branch_id = q.branch_id AND q.queue_date = ?
      ORDER BY q.queue_number ASC`,
-    [today]
+    [req.branchId, today]
   )
   res.json(rows)
 }
 
 const getQueuePrecheck = async (req, res) => {
-  const result = await getWalkInPrecheck(req.params.patientId)
+  const result = await getWalkInPrecheck(req.params.patientId, req.branchId)
   res.json(result)
 }
 
@@ -706,6 +694,7 @@ const addToQueue = async (req, res) => {
     allowSeparateWalkIn: Boolean(req.body.allow_separate_walkin),
     actorRole: 'staff',
     actorId: req.user.id,
+    branchId: req.branchId,
     ipAddress: req.ip || null,
   })
   return res.status(result.status).json(result.body)
@@ -719,6 +708,7 @@ const updateQueueStatus = async (req, res) => {
   }
   try {
     const row = await setQueueState({
+      branchId: req.branchId,
       queueId: req.params.id,
       nextStatus: target,
       actorRole: 'staff',
@@ -740,9 +730,24 @@ const getPatients = async (req, res) => {
   const [rows] = await db.query(
     `SELECT id, full_name AS name, full_name, email, phone, sex, birthdate, address, civil_status, created_at
      FROM patients
-     WHERE full_name LIKE ? OR email LIKE ? OR ${NORMALIZED_PHONE_SQL} LIKE ? OR ${NORMALIZED_PHONE_SQL} LIKE ?
+     WHERE (full_name LIKE ? OR email LIKE ? OR ${NORMALIZED_PHONE_SQL} LIKE ? OR ${NORMALIZED_PHONE_SQL} LIKE ?)
+       AND EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id=patients.id AND a.branch_id=?)
      ORDER BY full_name`,
-    [likeSearch, likeSearch, phoneSearch, altPhoneSearch]
+    [likeSearch, likeSearch, phoneSearch, altPhoneSearch, req.branchId]
+  )
+  res.json(rows)
+}
+
+const lookupWalkInPatients = async (req, res) => {
+  const search = String(req.query.search || '').trim()
+  if (search.length < 2) return res.json([])
+  const { likeSearch, phoneSearch, altPhoneSearch } = buildPhoneSearchTerms(search)
+  // Global identity lookup is deliberately available only on the Walk-in Queue route.
+  // A returning patient must not be registered twice in different physical branches.
+  const [rows] = await db.query(
+    `SELECT id, full_name AS name, full_name, email, phone, sex, birthdate, address, civil_status
+     FROM patients WHERE full_name LIKE ? OR email LIKE ? OR ${NORMALIZED_PHONE_SQL} LIKE ? OR ${NORMALIZED_PHONE_SQL} LIKE ?
+     ORDER BY full_name LIMIT 30`, [likeSearch,likeSearch,phoneSearch,altPhoneSearch]
   )
   res.json(rows)
 }
@@ -809,8 +814,10 @@ const getPatientRecord = async (req, res) => {
     `SELECT id, full_name, email, phone, sex,
             DATE_FORMAT(birthdate, '%Y-%m-%d') AS birthdate,
             address, civil_status, created_at
-     FROM patients WHERE id = ?`,
-    [req.params.id]
+     FROM patients WHERE id = ? AND EXISTS (
+       SELECT 1 FROM appointments a WHERE a.patient_id=patients.id AND a.branch_id=?
+     )`,
+    [req.params.id, req.branchId]
   )
   if (pRows.length === 0) return res.status(404).json({ message: 'Patient not found.' })
   const patient = pRows[0]
@@ -825,9 +832,9 @@ const getPatientRecord = async (req, res) => {
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ?
+     WHERE a.patient_id = ? AND a.branch_id = ?
      ORDER BY a.appointment_date DESC`,
-    [req.params.id]
+    [req.params.id, req.branchId]
   )
   const imagesByConsultationId = await loadImagesForConsultationIds(history.map((row) => row.consultation_id))
   const [billingHistory] = await db.query(
@@ -839,9 +846,9 @@ const getPatientRecord = async (req, res) => {
      FROM billing_records b
      JOIN appointments a ON a.id = b.appointment_id
      JOIN doctors d ON d.id = b.doctor_id
-     WHERE b.patient_id = ?
+     WHERE b.patient_id = ? AND b.branch_id = ?
      ORDER BY COALESCE(b.paid_at, b.created_at) DESC`,
-    [req.params.id]
+    [req.params.id, req.branchId]
   )
 
   res.json({
@@ -869,8 +876,8 @@ const getBills = async (req, res) => {
   const offset = (page - 1) * limit
 
   const buildFilters = ({ includeStatus = true } = {}) => {
-    const conditions = []
-    const params = []
+    const conditions = ['b.branch_id = ?', 'a.branch_id = b.branch_id', 'd.branch_id = b.branch_id']
+    const params = [req.branchId]
     if (includeStatus) {
       if (statuses.length === 1) { conditions.push('b.status = ?'); params.push(statuses[0]) }
       else if (statuses.length > 1) { conditions.push(`b.status IN (${statuses.map(() => '?').join(',')})`); params.push(...statuses) }
@@ -978,11 +985,14 @@ const getBills = async (req, res) => {
 const getBillingCatalogForStaff = async (req, res) => {
   const rows = await listBillingCatalog({
     clinicType: String(req.query.clinic_type || '').trim() || undefined,
+    branchId: req.branchId,
   })
   res.json(rows)
 }
 
 const getBillById = async (req, res) => {
+  const [[owned]] = await db.query('SELECT id FROM billing_records WHERE id=? AND branch_id=? LIMIT 1', [req.params.id, req.branchId])
+  if (!owned) return res.status(404).json({ message: 'Billing record not found.' })
   const bill = await getBillingRecordWithItems(req.params.id)
   if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
   res.json(bill)
@@ -995,7 +1005,8 @@ const parseBillingItemDetails = (item) => {
   try { return JSON.parse(raw) || {} } catch { return {} }
 }
 
-const validateStaffSupplyAvailability = async (items = [], executor = db) => {
+const validateStaffSupplyAvailability = async (items = [], executor = db, branchId) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) < 1) throw Object.assign(new Error('Verified branch required for checkout supplies.'),{statusCode:403})
   const inventoryCache = new Map()
   const grouped = new Map()
   const checks = []
@@ -1007,7 +1018,7 @@ const validateStaffSupplyAvailability = async (items = [], executor = db) => {
 
     let inventoryItem = inventoryCache.get(inventoryId)
     if (!inventoryItem) {
-      const [[row]] = await executor.query('SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? LIMIT 1', [inventoryId])
+      const [[row]] = await executor.query('SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? AND branch_id=? LIMIT 1', [inventoryId,branchId])
       inventoryItem = row || null
       inventoryCache.set(inventoryId, inventoryItem)
     }
@@ -1064,11 +1075,11 @@ const validateStaffSupplyAvailability = async (items = [], executor = db) => {
       `SELECT ib.id, ib.batch_code, ib.expiration_date, ib.archived_at, ib.quantity AS clinic_quantity,
               il.name AS location_name, COALESCE(ilb.quantity,0) AS location_quantity
        FROM inventory_batches ib
-       JOIN inventory_locations il ON il.id = ? AND COALESCE(il.is_active,1)=1
+       JOIN inventory_locations il ON il.id = ? AND il.branch_id=? AND COALESCE(il.is_active,1)=1
        LEFT JOIN inventory_location_batches ilb ON ilb.location_id = il.id AND ilb.batch_id = ib.id
-       WHERE ib.id = ? AND ib.inventory_id = ?
+       WHERE ib.id = ? AND ib.inventory_id = ? AND ib.branch_id=?
        LIMIT 1`,
-      [entry.source_location_id, entry.batch_id, entry.inventory_id]
+      [entry.source_location_id, branchId, entry.batch_id, entry.inventory_id, branchId]
     )
     const validBatch = batch && !batch.archived_at && (!batch.expiration_date || String(batch.expiration_date).slice(0,10) >= getTodayDateOnly())
     const packageAvailable = validBatch ? Math.min(Number(batch.location_quantity || 0), Number(batch.clinic_quantity || 0)) : 0
@@ -1089,12 +1100,13 @@ const validateStaffSupplyAvailability = async (items = [], executor = db) => {
   return checks
 }
 
-const dispenseCheckoutSupplies = async ({ bill, actorRole, userId, executor }) => {
+const dispenseCheckoutSupplies = async ({ bill, actorRole, userId, executor, branchId }) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId)<1 || Number(bill?.branch_id)!==Number(branchId)) throw Object.assign(new Error('Billing branch mismatch during dispensing.'),{statusCode:403})
   const isAdminActor = actorRole === 'admin'
   const directSupplies = (bill?.items || []).filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id) > 0)
   if (!directSupplies.length) return []
 
-  const validation = await validateStaffSupplyAvailability(directSupplies, executor)
+  const validation = await validateStaffSupplyAvailability(directSupplies, executor, branchId)
   const insufficient = validation.find((entry) => !entry.sufficient)
   if (insufficient) {
     throw Object.assign(new Error(insufficient.message || `Not enough stock for ${insufficient.name}.`), { statusCode: 409, code: 'CHECKOUT_BATCH_STOCK_CHANGED' })
@@ -1116,9 +1128,9 @@ const dispenseCheckoutSupplies = async ({ bill, actorRole, userId, executor }) =
       throw Object.assign(new Error(`Select an exact batch for ${item.service_name} before accepting the final payment.`), { statusCode: 409, code: 'CHECKOUT_BATCH_REQUIRED' })
     }
 
-    const [[inventoryItem]] = await executor.query('SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? AND archived_at IS NULL LIMIT 1 FOR UPDATE', [item.source_inventory_id])
+    const [[inventoryItem]] = await executor.query('SELECT id,name,unit,base_unit,unit_size FROM inventory WHERE id=? AND branch_id=? AND archived_at IS NULL LIMIT 1 FOR UPDATE', [item.source_inventory_id,branchId])
     if (!inventoryItem) throw Object.assign(new Error(`Inventory item for ${item.service_name} is no longer available.`), { statusCode: 400 })
-    const [[sourceLocationRow]] = await executor.query('SELECT id,name FROM inventory_locations WHERE id=? AND COALESCE(is_active,1)=1 LIMIT 1', [sourceLocationId])
+    const [[sourceLocationRow]] = await executor.query('SELECT id,name FROM inventory_locations WHERE id=? AND branch_id=? AND COALESCE(is_active,1)=1 LIMIT 1', [sourceLocationId,branchId])
     if (!sourceLocationRow) throw Object.assign(new Error(`The selected stock location for ${item.service_name} is no longer available.`), { statusCode: 409, code: 'CHECKOUT_LOCATION_CHANGED' })
     const canonicalSourceLocation = sourceLocationRow.name
     const usageUnit = String(details.unit || inventoryItem.unit || '').trim().toLowerCase()
@@ -1154,7 +1166,7 @@ const dispenseCheckoutSupplies = async ({ bill, actorRole, userId, executor }) =
 }
 
 const updateBill = async (req, res) => {
-  const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
+  const actorRole = (req.user?.role === 'admin' || req.adminContext?.account_role === 'superadmin') ? 'admin' : 'staff'
   const isAdminActor = actorRole === 'admin'
   const billingId = Number(req.params.id)
   const expectedVersion = Number(req.body.expected_version)
@@ -1168,7 +1180,7 @@ const updateBill = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE', [billingId])
+    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? AND branch_id = ? LIMIT 1 FOR UPDATE', [billingId, req.branchId])
     if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
     const locked = lockedRows[0]
     if (!['draft', 'pending'].includes(locked.status)) { await conn.rollback(); return res.status(400).json({ message: 'Only draft bills can be edited. Finalized or paid bills are locked.' }) }
@@ -1213,7 +1225,7 @@ const updateBill = async (req, res) => {
     const allItems = [...securedConsultationItems, ...normalizedStaffItems]
     if (!allItems.length) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item.' }) }
 
-    const supplyChecks = await validateStaffSupplyAvailability(normalizedStaffItems, conn)
+    const supplyChecks = await validateStaffSupplyAvailability(normalizedStaffItems, conn, req.branchId)
     const insufficient = supplyChecks.find((item) => !item.sufficient)
     if (insufficient) {
       await conn.rollback()
@@ -1226,6 +1238,12 @@ const updateBill = async (req, res) => {
       })
     }
 
+    // Discount presets are branch-owned even though the shared pricing helper
+    // can load them by globally unique ID. Check ownership before using it.
+    if (req.body.discount_preset_id) {
+      const [[preset]] = await conn.query('SELECT id FROM discount_presets WHERE id=? AND branch_id=? AND is_active=1', [req.body.discount_preset_id, req.branchId])
+      if (!preset) { await conn.rollback(); return res.status(404).json({ message: 'Discount not found in this branch.' }) }
+    }
     const subtotalOnly = computeBillingTotals({ items: allItems, discount_amount: 0 })
     const discount = await resolveDiscountForDraft({
       billingId,
@@ -1298,7 +1316,7 @@ const updateBill = async (req, res) => {
       userId: req.user.id, userRole: actorRole, action: 'billing.draft_updated', entityType: 'billing_record', entityId: billingId,
       oldValues: { version: expectedVersion, subtotal: currentBill.subtotal, discount_amount: currentBill.discount_amount, total_amount: currentBill.total_amount },
       newValues: { version: nextVersion, subtotal: totals.subtotal, discount_type: discount.type, discount_label: discount.label, discount_amount: totals.discount_amount, total_amount: totals.total_amount },
-      ipAddress: req.ip || null,
+      ipAddress: req.ip || null, branchId: req.branchId,
     }, conn)
     await conn.commit()
   } catch (err) {
@@ -1369,7 +1387,7 @@ const requestBillingAdjustment = async (req, res) => {
     [billingId, currentVersion, req.user.id, type, discountPresetId, catalogServiceId, requestedAmount, requestedPrice, reference, referenceImageUrl, reason]
   )
   await writeAuditLog({ userId:req.user.id,userRole:'staff',action:`billing.${type}_approval_requested`,entityType:'billing_adjustment_request',entityId:result.insertId,newValues:{billing_id:billingId,bill_version:currentVersion,discount_preset_id:discountPresetId,catalog_service_id:catalogServiceId,requested_amount:requestedAmount,requested_price:requestedPrice,reference_image_url:referenceImageUrl,reason},ipAddress:req.ip||null })
-  broadcast(['admin'], 'billing_adjustment_requested', { requestId: result.insertId, billingId })
+  broadcast(['admin'], 'billing_adjustment_requested', { requestId: result.insertId, billingId }, { branchId: req.branchId })
   res.status(201).json({ message: 'Administrator approval requested.', id: result.insertId, bill_version: currentVersion })
 }
 
@@ -1389,7 +1407,7 @@ const cancelBillingAdjustmentRequest = async (req, res) => {
     await writeAuditLog({ userId:req.user.id,userRole:'staff',action:'billing.adjustment_cancelled',entityType:'billing_adjustment_request',entityId:requestId,oldValues:{status:'pending'},newValues:{status:'cancelled'},ipAddress:req.ip||null }, conn)
     await conn.commit()
   } catch (err) { await conn.rollback(); throw err } finally { conn.release() }
-  broadcast(['admin'], 'billing_adjustment_cancelled', { requestId, billingId })
+  broadcast(['admin'], 'billing_adjustment_cancelled', { requestId, billingId }, { branchId: req.branchId })
   res.json({ message: 'Approval request cancelled.' })
 }
 
@@ -1399,7 +1417,7 @@ const getFinalizePreview = async (req, res) => {
   if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
   if (!['draft','pending'].includes(bill.status)) return res.status(400).json({ message: 'Only a draft bill can be reviewed for confirmation.' })
   const directSupplies = (bill.items || []).filter((row) => row.item_type === 'supply' && row.source_type === 'staff_supply' && Number(row.source_inventory_id) > 0)
-  const supplies = await validateStaffSupplyAvailability(directSupplies, db)
+  const supplies = await validateStaffSupplyAvailability(directSupplies, db, req.branchId)
   res.json({
     billing_id: billingId,
     version: Number(bill.version || 1),
@@ -1412,7 +1430,7 @@ const getFinalizePreview = async (req, res) => {
 }
 
 const finalizeBill = async (req, res) => {
-  const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
+  const actorRole = (req.user?.role === 'admin' || req.adminContext?.account_role === 'superadmin') ? 'admin' : 'staff'
   const isAdminActor = actorRole === 'admin'
   const billingId = Number(req.params.id)
   const expectedVersion = Number(req.body.expected_version)
@@ -1421,7 +1439,7 @@ const finalizeBill = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id=? LIMIT 1 FOR UPDATE', [billingId])
+    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id=? AND branch_id=? LIMIT 1 FOR UPDATE', [billingId, req.branchId])
     if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
     const locked = lockedRows[0]
     if (!['draft','pending'].includes(locked.status)) { await conn.rollback(); return res.status(400).json({ message: 'Only draft bills can be confirmed.' }) }
@@ -1433,7 +1451,7 @@ const finalizeBill = async (req, res) => {
     if (!Array.isArray(bill.items) || bill.items.length === 0) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item before confirming.' }) }
 
     const directSupplies = bill.items.filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id) > 0)
-    const supplyChecks = await validateStaffSupplyAvailability(directSupplies, conn)
+    const supplyChecks = await validateStaffSupplyAvailability(directSupplies, conn, req.branchId)
     const insufficientSupply = supplyChecks.find((item) => !item.sufficient)
     if (insufficientSupply) {
       await conn.rollback()
@@ -1451,14 +1469,14 @@ const finalizeBill = async (req, res) => {
     )
     if (Number(updated.affectedRows || 0) !== 1) throw Object.assign(new Error('This bill changed while it was being confirmed. Reload and try again.'), { statusCode:409, code:'BILL_VERSION_CONFLICT' })
     await conn.query("UPDATE billing_adjustment_requests SET status='expired', resolved_at=NOW(), admin_note=COALESCE(admin_note,'Bill was finalized before this request was used.') WHERE billing_id=? AND status='pending'", [billingId])
-    await writeAuditLog({ userId:req.user.id,userRole:actorRole,action:'billing.finalized',entityType:'billing_record',entityId:billingId,oldValues:{status:locked.status,version:expectedVersion},newValues:{status:'ready',version:nextVersion,total_amount:bill.total_amount,pending_dispense_items:directSupplies.length},ipAddress:req.ip||null }, conn)
+    await writeAuditLog({ userId:req.user.id,userRole:actorRole,action:'billing.finalized',entityType:'billing_record',entityId:billingId,oldValues:{status:locked.status,version:expectedVersion},newValues:{status:'ready',version:nextVersion,total_amount:bill.total_amount,pending_dispense_items:directSupplies.length},ipAddress:req.ip||null,branchId:req.branchId }, conn)
     await conn.commit()
   } catch (err) {
     await conn.rollback()
     if (err.statusCode) return res.status(err.statusCode).json({ message:err.message, code:err.code || undefined })
     throw err
   } finally { conn.release() }
-  broadcast(['admin','staff'], 'billing_finalized', { billingId })
+  broadcast(['admin','staff'], 'billing_finalized', { billingId }, { branchId: req.branchId })
   res.json(await getBillingRecordWithItems(billingId))
 }
 
@@ -1466,7 +1484,7 @@ const finalizeBill = async (req, res) => {
 // Do not use the separate Admin Bill Corrections reopen handler here: that
 // workflow can reverse dispensed inventory and requires a correction reason.
 const reopenBillForEditing = async (req, res) => {
-  const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
+  const actorRole = (req.user?.role === 'admin' || req.adminContext?.account_role === 'superadmin') ? 'admin' : 'staff'
   const billingId = Number(req.params.id)
   const expectedVersion = Number(req.body?.expected_version)
 
@@ -1480,7 +1498,7 @@ const reopenBillForEditing = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query('SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE', [billingId])
+    const [rows] = await conn.query('SELECT * FROM billing_records WHERE id = ? AND branch_id = ? LIMIT 1 FOR UPDATE', [billingId, req.branchId])
     if (!rows.length) {
       await conn.rollback()
       return res.status(404).json({ message: 'Billing record not found.' })
@@ -1535,7 +1553,7 @@ const reopenBillForEditing = async (req, res) => {
       entityId: billingId,
       oldValues: { status: locked.status, version: expectedVersion },
       newValues: { status: 'draft', version: expectedVersion + 1 },
-      ipAddress: req.ip || null,
+      ipAddress: req.ip || null, branchId: req.branchId,
     }, conn)
     await conn.commit()
   } catch (err) {
@@ -1546,12 +1564,12 @@ const reopenBillForEditing = async (req, res) => {
     conn.release()
   }
 
-  broadcast(['admin', 'staff'], 'billing_reopened', { billingId })
+  broadcast(['admin', 'staff'], 'billing_reopened', { billingId }, { branchId: req.branchId })
   res.json(await getBillingRecordWithItems(billingId))
 }
 
 const payBill = async (req, res) => {
-  const actorRole = req.user?.role === 'admin' ? 'admin' : 'staff'
+  const actorRole = (req.user?.role === 'admin' || req.adminContext?.account_role === 'superadmin') ? 'admin' : 'staff'
   const isAdminActor = actorRole === 'admin'
   const billingId = Number(req.params.id)
   const paymentMethod = String(req.body.payment_method || '').trim().toLowerCase()
@@ -1563,14 +1581,15 @@ const payBill = async (req, res) => {
   if (!isValidPaymentMethod(paymentMethod)) return res.status(400).json({ message: 'Select a valid payment method.' })
   const paymentMethodColumns = { cash: 'cash_enabled', gcash: 'gcash_enabled', maya: 'maya_enabled', bank_transfer: 'bank_transfer_enabled' }
   const enabledColumn = paymentMethodColumns[paymentMethod]
-  const [paymentSettingsRows] = await db.query(`SELECT ${enabledColumn} AS is_enabled FROM clinic_payment_settings WHERE id = 1 LIMIT 1`)
-  if (paymentSettingsRows.length && Number(paymentSettingsRows[0].is_enabled) === 0) {
+  const [paymentSettingsRows] = await db.query(`SELECT ${enabledColumn} AS is_enabled FROM branch_payment_settings WHERE branch_id = ? LIMIT 1`, [req.branchId])
+  if (!paymentSettingsRows.length) return res.status(503).json({ message: 'Payment methods are not configured for this branch.' })
+  if (Number(paymentSettingsRows[0].is_enabled) === 0) {
     return res.status(400).json({ message: `${paymentMethod.replace('_', ' ')} is currently disabled by an administrator.` })
   }
   if (requiresPaymentReference(paymentMethod) && !referenceNumber) return res.status(400).json({ message: 'Enter the payment reference number.' })
 
   try {
-    await assertCashierOpen({ cashierRole: actorRole, cashierId: req.user.id })
+    await assertCashierOpen({ cashierRole: actorRole, cashierId: req.user.id, branchId:req.branchId })
   } catch (error) {
     return res.status(error.statusCode || 409).json({ message: error.message, code: error.code })
   }
@@ -1578,10 +1597,13 @@ const payBill = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [duplicatePayments] = await conn.query('SELECT billing_id FROM billing_payments WHERE idempotency_key = ? LIMIT 1', [idempotencyKey])
+    await assertCashierOpen({ cashierRole: actorRole, cashierId: req.user.id,branchId:req.branchId },conn)
+    const [duplicatePayments] = await conn.query('SELECT bp.billing_id,br.branch_id FROM billing_payments bp JOIN billing_records br ON br.id=bp.billing_id WHERE bp.idempotency_key = ? LIMIT 1', [idempotencyKey])
     if (duplicatePayments.length) {
       const existingId = duplicatePayments[0].billing_id
+      const existingBranchId=Number(duplicatePayments[0].branch_id)
       await conn.rollback()
+      if(existingBranchId!==Number(req.branchId)||Number(existingId)!==billingId) return res.status(409).json({code:'IDEMPOTENCY_KEY_CONFLICT',message:'This payment request identifier is already in use.'})
       return res.json(await getBillingRecordWithItems(existingId))
     }
 
@@ -1594,15 +1616,13 @@ const payBill = async (req, res) => {
       if (duplicateRefs.length) {
         await conn.rollback()
         return res.status(409).json({
-          message: `This ${paymentMethod.replace('_', ' ')} reference was already recorded on receipt ${duplicateRefs[0].receipt_number}. Review the existing payment before continuing.`,
+          message: 'This payment reference was already recorded. Review transactions in your own branch or contact Super Admin.',
           code: 'DUPLICATE_PAYMENT_REFERENCE',
-          existing_billing_id: duplicateRefs[0].billing_id,
-          existing_receipt_number: duplicateRefs[0].receipt_number,
         })
       }
     }
 
-    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? LIMIT 1 FOR UPDATE', [billingId])
+    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? AND branch_id = ? LIMIT 1 FOR UPDATE', [billingId, req.branchId])
     if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
     const lockedBill = lockedRows[0]
     if (['paid', 'voided', 'refunded'].includes(lockedBill.status)) {
@@ -1628,7 +1648,7 @@ const payBill = async (req, res) => {
     if (!paymentAmounts.isSufficient) { await conn.rollback(); return res.status(400).json({ message: 'Amount received cannot be lower than the payment amount.' }) }
 
     // Sequential, clinic-dated official receipt number (locked until commit, no gaps).
-    const { receiptNumber } = await allocateReceiptNumber(conn)
+    const { receiptNumber } = await allocateReceiptNumber(conn, lockedBill.branch_id)
     const balanceAfter = Math.max(0, Math.round((balance - requestedPayment) * 100) / 100)
     const nextStatus = balanceAfter <= 0 ? 'paid' : 'partially_paid'
     const paidAt = getClinicDateTimeSql()
@@ -1645,6 +1665,7 @@ const payBill = async (req, res) => {
         actorRole,
         userId: req.user.id,
         executor: conn,
+        branchId: req.branchId,
       })
     }
 
@@ -1664,10 +1685,10 @@ const payBill = async (req, res) => {
       userId: req.user.id, userRole: actorRole, action: 'billing.payment_received', entityType: 'billing_record', entityId: billingId,
       oldValues: { status: lockedBill.status, balance_amount: balance },
       newValues: { status: nextStatus, payment_amount: requestedPayment, balance_amount: balanceAfter, payment_method: paymentMethod, receipt_number: receiptNumber, checkout_items_dispensed: checkoutDispensed.length },
-      ipAddress: req.ip || null,
+      ipAddress: req.ip || null, branchId:req.branchId,
     }, conn)
     await conn.commit()
-    broadcast(['admin', 'staff'], 'billing_paid', { billingId, receiptNumber, status: nextStatus })
+    broadcast(['admin', 'staff'], 'billing_paid', { billingId, receiptNumber, status: nextStatus }, { branchId: req.branchId })
   } catch (err) {
     await conn.rollback()
     if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || undefined })
@@ -1682,7 +1703,8 @@ const confirmBillPayment = payBill
 const getDiscountPresets = async (req, res) => {
   const [rows] = await db.query(
     `SELECT id, label, discount_type, value, requires_reference, requires_admin_approval
-     FROM discount_presets WHERE is_active = 1 ORDER BY created_at ASC, id ASC`
+     FROM discount_presets WHERE branch_id = ? AND is_active = 1 ORDER BY created_at ASC, id ASC`,
+    [req.branchId]
   )
   res.json(rows)
 }
@@ -1692,10 +1714,10 @@ const getPaymentSettingsForStaff = async (req, res) => {
     `SELECT cash_enabled, gcash_enabled, maya_enabled, bank_transfer_enabled,
             gcash_qr_url, maya_qr_url, gcash_qr_mode, maya_qr_mode,
             bank_name, bank_account_name, bank_account_number, updated_at
-     FROM clinic_payment_settings WHERE id = 1 LIMIT 1`
+     FROM branch_payment_settings WHERE branch_id = ? LIMIT 1`, [req.branchId]
   )
   res.json(rows[0] || {
-    cash_enabled: 1, gcash_enabled: 1, maya_enabled: 1, bank_transfer_enabled: 1,
+    cash_enabled: 1, gcash_enabled: 0, maya_enabled: 0, bank_transfer_enabled: 0,
     gcash_qr_url: '', maya_qr_url: '', gcash_qr_mode: 'uploaded', maya_qr_mode: 'uploaded',
     bank_name: '', bank_account_name: '', bank_account_number: '', updated_at: null,
   })
@@ -1709,8 +1731,8 @@ const supplierSupportsClinic = (categoryValue, clinic) => String(categoryValue |
 
 const getInventoryMasterData = async (req, res) => {
   const category = ['medical','derma'].includes(String(req.query.category || '')) ? String(req.query.category) : null
-  const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name`, category ? [category] : [])
-  const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE is_active=1 ORDER BY sort_order,name')
+  const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 AND branch_id=? ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name`, category ? [req.branchId,category] : [req.branchId])
+  const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE branch_id=? AND is_active=1 ORDER BY sort_order,name',[req.branchId])
   const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
                                             FROM inventory_movement_reasons WHERE is_active=1
                                             ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`)
@@ -1718,12 +1740,9 @@ const getInventoryMasterData = async (req, res) => {
 }
 
 const getInventory = async (req, res) => {
-  const [ids] = await db.query('SELECT id FROM inventory WHERE archived_at IS NULL ORDER BY id')
-  for (const row of ids) {
-    await ensureInventoryLocationAllocations(row.id, db)
-    await syncInventorySnapshot(row.id, db)
-  }
-  const items = await loadInventoryRows(db, 'WHERE archived_at IS NULL')
+  // Never run the single-clinic allocation repair here: it resolves a global
+  // main stockroom and could otherwise move another branch's batch balance.
+  const items = await loadInventoryRows(db, 'WHERE archived_at IS NULL AND branch_id=?', [req.branchId])
   res.json(items)
 }
 
@@ -1751,16 +1770,16 @@ const addInventoryItem = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const setupSelection = await resolveInventorySetupSelection({ location_type_id }, conn)
+    const setupSelection = await resolveInventorySetupSelection({ location_type_id, branchId: req.branchId }, conn)
     uom = setupSelection.uom
     unit = uom
     base_unit = uom
     location_type_id = setupSelection.locationType.id
-    if (!barcode) barcode = await nextInventoryBarcode(category, conn)
+    if (!barcode) barcode = await nextInventoryBarcode(category, req.branchId, conn)
     // Every receipt gets its own internal batch code automatically.
     batch_code = null
     if (supplier_id) {
-      const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
+      const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1',[supplier_id,req.branchId])
       if (!supplierRow || !supplierSupportsClinic(supplierRow.category, category)) {
         const error = new Error('Selected supplier is not assigned to this item clinic.')
         error.statusCode = 400
@@ -1771,9 +1790,9 @@ const addInventoryItem = async (req, res) => {
     }
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location, location_type_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, 1, 0, threshold, price, selling_price, supplier, supplier_id, null, null, location_type_id]
+       (barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location, location_type_id, branch_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, 1, 0, threshold, price, selling_price, supplier, supplier_id, null, null, location_type_id, req.branchId]
     )
     let openingBatchId = null
     let openingLocation = 'Main Stockroom'
@@ -1818,7 +1837,7 @@ const addInventoryItem = async (req, res) => {
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
-    const rows = await loadInventoryRows(db, 'WHERE id = ?', [result.insertId])
+    const rows = await loadInventoryRows(db, 'WHERE id = ? AND branch_id=?', [result.insertId, req.branchId])
     return res.status(201).json(rows[0])
   } catch (err) {
     await conn.rollback()
@@ -1847,7 +1866,7 @@ const updateInventoryItem = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const [rows] = await conn.query('SELECT * FROM inventory WHERE id = ? FOR UPDATE', [req.params.id])
+    const [rows] = await conn.query('SELECT * FROM inventory WHERE id = ? AND branch_id=? FOR UPDATE', [req.params.id, req.branchId])
     if (rows.length === 0) {
       await conn.rollback()
       return res.status(404).json({ message: 'Item not found.' })
@@ -1857,12 +1876,12 @@ const updateInventoryItem = async (req, res) => {
       return res.status(409).json({ code: 'INVENTORY_ARCHIVED', message: 'Archived inventory items cannot be edited.' })
     }
 
-    const setupSelection = await resolveInventorySetupSelection({ location_type_id }, conn)
+    const setupSelection = await resolveInventorySetupSelection({ location_type_id, branchId: req.branchId }, conn)
     const canonicalUom = setupSelection.uom
     location_type_id = setupSelection.locationType.id
 
     if (supplier_id) {
-      const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND is_active=1 LIMIT 1',[supplier_id])
+      const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1',[supplier_id,req.branchId])
       if (!supplierRow || !supplierSupportsClinic(supplierRow.category, category)) {
         const error = new Error('Selected supplier is not assigned to this item clinic.')
         error.statusCode = 400
@@ -1875,12 +1894,12 @@ const updateInventoryItem = async (req, res) => {
     await conn.query(
       `UPDATE inventory
        SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, measurement_value=?, measurement_unit=?, unit=?, base_unit=?, unit_size=1, threshold=?, supplier=?, supplier_id=?, location_type_id=?
-       WHERE id=?`,
-      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, measurement_value, measurement_unit, canonicalUom, canonicalUom, threshold, supplier, supplier_id, location_type_id, req.params.id]
+       WHERE id=? AND branch_id=?`,
+      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, measurement_value, measurement_unit, canonicalUom, canonicalUom, threshold, supplier, supplier_id, location_type_id, req.params.id, req.branchId]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
-    const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
+    const updated = await loadInventoryRows(db, 'WHERE id = ? AND branch_id=?', [req.params.id, req.branchId])
     res.json(updated[0])
   } catch (err) {
     await conn.rollback()
@@ -1906,7 +1925,10 @@ const updateStock = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
+    const [[ownedItem]] = await conn.query('SELECT id FROM inventory WHERE id=? AND branch_id=? AND archived_at IS NULL FOR UPDATE', [req.params.id, req.branchId])
+    if (!ownedItem) { await conn.rollback(); return res.status(404).json({ message: 'Item not found in this branch.' }) }
     await applyManualInventoryMovement({
+      branchId: req.branchId,
       inventoryId: req.params.id,
       body: req.body,
       actorRole: 'staff',
@@ -1915,7 +1937,7 @@ const updateStock = async (req, res) => {
       executor: conn,
     })
     await conn.commit()
-    const updated = await loadInventoryRows(db, 'WHERE id = ?', [req.params.id])
+    const updated = await loadInventoryRows(db, 'WHERE id = ? AND branch_id=?', [req.params.id, req.branchId])
     res.json(updated[0])
   } catch (err) {
     await conn.rollback()
@@ -1933,7 +1955,8 @@ const getInventoryLocations = async (req,res) => {
       COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.batch_id END) AS batch_count
     FROM inventory_locations l
     LEFT JOIN inventory_location_batches ilb ON ilb.location_id=l.id
-    GROUP BY l.id ORDER BY l.is_active DESC,l.name`)
+    WHERE l.branch_id=?
+    GROUP BY l.id ORDER BY l.is_active DESC,l.name`, [req.branchId])
   res.json(rows)
 }
 
@@ -1943,7 +1966,7 @@ const createInventoryLocation = async (req, res) => {
   if (!name) return res.status(400).json({ message: 'Location name is required.' })
   try {
     const clinicType = type === 'room' ? normalizeClinicType(req.body?.clinic_type) : null
-    const [result] = await db.query('INSERT INTO inventory_locations (name,location_type,is_active,clinic_type) VALUES (?,?,1,?)', [name,type,clinicType])
+    const [result] = await db.query('INSERT INTO inventory_locations (name,location_type,is_active,clinic_type,branch_id) VALUES (?,?,1,?,?)', [name,type,clinicType,req.branchId])
     await writeAuditLog({ userId:req.user.id,userRole:'staff',action:'inventory.location_created',entityType:'inventory_location',entityId:result.insertId,newValues:{name,location_type:type,clinic_type:clinicType},ipAddress:req.ip||null }).catch(()=>{})
     res.status(201).json({ id: result.insertId, name, location_type: type, is_active: 1, clinic_type: clinicType, is_main_stockroom: 0 })
   } catch (err) {
@@ -1957,14 +1980,14 @@ const updateInventoryLocation = async (req,res) => {
   const name = String(req.body?.name || '').trim()
   const type = ['stockroom','room','dispensing','storage'].includes(String(req.body?.location_type || '')) ? String(req.body.location_type) : 'storage'
   if(!id || !name) return res.status(400).json({message:'Location name is required.'})
-  const [[existing]] = await db.query('SELECT * FROM inventory_locations WHERE id=? LIMIT 1',[id])
+  const [[existing]] = await db.query('SELECT * FROM inventory_locations WHERE id=? AND branch_id=? LIMIT 1',[id,req.branchId])
   if(!existing) return res.status(404).json({message:'Storage location not found.'})
   if(Number(existing.is_main_stockroom||0)===1 && type!=='stockroom') return res.status(409).json({message:'The Main Stockroom must keep the Stockroom type. You can still rename it.',code:'MAIN_STOCKROOM_PROTECTED'})
   const clinicType = type==='room' ? (req.body?.clinic_type!==undefined ? normalizeClinicType(req.body.clinic_type) : existing.clinic_type || null) : null
   try {
-    await db.query('UPDATE inventory_locations SET name=?,location_type=?,clinic_type=? WHERE id=?',[name,type,clinicType,id])
+    await db.query('UPDATE inventory_locations SET name=?,location_type=?,clinic_type=? WHERE id=? AND branch_id=?',[name,type,clinicType,id,req.branchId])
     await writeAuditLog({userId:req.user.id,userRole:'staff',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,oldValues:existing,newValues:{name,location_type:type,clinic_type:clinicType},ipAddress:req.ip||null}).catch(()=>{})
-    const [[row]] = await db.query('SELECT id,name,location_type,is_active,is_main_stockroom,clinic_type FROM inventory_locations WHERE id=?',[id])
+    const [[row]] = await db.query('SELECT id,name,location_type,is_active,is_main_stockroom,clinic_type FROM inventory_locations WHERE id=? AND branch_id=?',[id,req.branchId])
     res.json(row)
   } catch(err){ if(err.code==='ER_DUP_ENTRY') return res.status(409).json({message:'That storage location already exists.'}); throw err }
 }
@@ -1983,16 +2006,18 @@ const getDoctors = async (req, res) => {
        is_active,
        clinic_type AS type
      FROM doctors
-     WHERE is_active = 1
-     ORDER BY full_name`
+     WHERE is_active = 1 AND branch_id=?
+     ORDER BY full_name`, [req.branchId]
   )
   res.json(rows)
 }
 
 const getDoctorSchedules = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT * FROM doctor_schedules WHERE doctor_id = ? ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
-    [req.params.id]
+    `SELECT ds.* FROM doctor_schedules ds JOIN doctors d ON d.id=ds.doctor_id
+     WHERE ds.doctor_id=? AND d.branch_id=?
+     ORDER BY FIELD(ds.day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")`,
+    [req.params.id, req.branchId]
   )
   res.json(rows)
 }
@@ -2017,7 +2042,7 @@ const getWalkInDoctors = async (req, res) => {
   if (!['medical', 'derma'].includes(clinicType)) {
     return res.status(400).json({ message: 'Select a valid clinic type.' })
   }
-  res.json(await buildWalkInDoctorAvailability({ clinicType }))
+  res.json(await buildWalkInDoctorAvailability({ clinicType, branchId: req.branchId }))
 }
 
 const getDoctorUnavailableDatesForStaff = async (req, res) => {
@@ -2031,16 +2056,18 @@ const getDoctorUnavailableDatesForStaff = async (req, res) => {
 // ── Supply Requests ───────────────────────────────────────────────────────────
 
 const getSupplyRequests = async (req, res) => {
-  const groups = await listSupplyTransferGroups({ pendingFirst: true })
+  const groups = await listSupplyTransferGroups({ branchId: req.branchId, pendingFirst: true })
   res.json(groups)
 }
 
 const resolveSupplyRequest = async (req, res) => {
   const result = await resolveSupplyTransfer({
+    branchId: req.branchId,
     requestId: req.params.id,
     status: req.body.status,
     actorRole: 'staff',
     actorId: req.user.id,
+    branchId: req.branchId,
     ipAddress: req.ip || null,
     note: req.body.note,
   })
@@ -2052,12 +2079,13 @@ module.exports = {
   getDashboard,
   getAppointments, createAppointment, getAppointmentInventoryReadinessForPortal, confirmAppointment, cancelAppointment, markAppointmentNoShow, rescheduleAppointment, getAppointmentReasons, getAppointmentCancellationReasons,
   getQueue, getQueuePrecheck, addToQueue, updateQueueStatus,
-  getPatients, getPatientRecord, createWalkInPatient,
+  getPatients, lookupWalkInPatients, getPatientRecord, createWalkInPatient,
   getBills, getBillingCatalogForStaff, getBillById, updateBill, getFinalizePreview, finalizeBill, reopenBillForEditing, payBill, confirmBillPayment, getDiscountPresets, getBillingAdjustmentRequests, requestBillingAdjustment, cancelBillingAdjustmentRequest, getPaymentSettingsForStaff,
   getInventory, getInventoryMasterData, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, getInventoryLocations, createInventoryLocation, updateInventoryLocation,
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

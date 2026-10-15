@@ -30,3 +30,4 @@ test('Branch Admin account self-service is permitted but global legacy operation
   assert.match(router, /router\.get\('\/appointments',\s+\.\.\.auth/)
   assert.match(app, /path='change-password' element=\{<ChangePassword \/>\}/)
 })
+

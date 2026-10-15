@@ -14,11 +14,11 @@ describe('2026-10-04 billing and inventory flow fixes', () => {
     expect(formatSequentialReceiptNumber(42, lateUtc)).toBe('OR-20261004-000042')
   })
 
-  it('allocates receipt numbers from one locked counter', async () => {
+  it('allocates receipt numbers within a verified branch-specific counter', async () => {
     const calls = []
-    const executor = { query: async (sql) => { calls.push(sql); return sql.startsWith('UPDATE') ? [{ insertId: 15 }] : [{}] } }
-    const result = await allocateReceiptNumber(executor, new Date('2026-10-04T02:00:00.000Z'))
-    expect(result).toEqual({ sequence: 15, receiptNumber: 'OR-20261004-000015' })
+    const executor = { query: async (sql) => { calls.push(sql); return sql.startsWith('SELECT') ? [[{code:'LAG'}]] : sql.startsWith('UPDATE') ? [{ insertId: 15 }] : [{}] } }
+    const result = await allocateReceiptNumber(executor, 1, new Date('2026-10-04T02:00:00.000Z'))
+    expect(result).toEqual({ sequence: 15, receiptNumber: 'OR-LAG-20261004-000015' })
     expect(calls.some((sql) => sql.includes('LAST_INSERT_ID(last_number + 1)'))).toBe(true)
   })
 
@@ -66,7 +66,7 @@ describe('2026-10-04 billing and inventory flow fixes', () => {
     const staff = read('server', 'controllers', 'staff.controller.js')
     const payStart = staff.indexOf('const payBill')
     const payBlock = staff.slice(payStart, staff.indexOf('const confirmBillPayment', payStart))
-    expect(payBlock).toContain('allocateReceiptNumber(conn)')
+    expect(payBlock).toContain('allocateReceiptNumber(conn, lockedBill.branch_id)')
     expect(payBlock).toContain('assertCashierOpen')
     // Checkout medicines are still deducted only when the bill becomes fully paid.
     expect(payBlock).toContain("if (nextStatus === 'paid')")
@@ -91,4 +91,5 @@ describe('2026-10-04 billing and inventory flow fixes', () => {
     expect(controller).toContain("loadMostUsedMedicines({ startDate, endDate, itemType: 'medicine'")
   })
 })
+
 

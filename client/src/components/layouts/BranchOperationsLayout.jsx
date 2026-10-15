@@ -28,3 +28,4 @@ export default function BranchOperationsLayout({ admin = false }) {
   if (state.error) return <div className="mx-auto max-w-xl p-10"><Banner>{state.error}</Banner><NavLink to={admin?'/admin/login':'/superadmin/branches'} className="button-secondary mt-4">Go back</NavLink></div>
   return <AdminLayout base={base} branch={state.branch} superBranch={!admin} permissions={state.permissions} />
 }
+

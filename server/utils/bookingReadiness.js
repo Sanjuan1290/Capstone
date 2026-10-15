@@ -79,3 +79,4 @@ const getOnlineBookingReadiness = async (executor = db, branchId = null) => {
 
 module.exports = { CLINIC_TYPES, ISSUE_LABELS, buildClinicReadiness, getOnlineBookingReadiness }
 
+

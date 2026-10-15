@@ -28,18 +28,28 @@ const formatSequentialReceiptNumber = (sequence, now = new Date()) => {
   return `OR-${clinicReceiptDate(now)}-${String(number).padStart(RECEIPT_SEQUENCE_DIGITS, '0')}`
 }
 
-// Allocates the next receipt number from one clinic-wide counter. It must run inside
-// the payment transaction: the counter row stays locked until commit, so receipts are
-// issued strictly in order, and a rolled-back payment also rolls back its number
-// (no gaps, no duplicates).
-const allocateReceiptNumber = async (executor, now = new Date()) => {
-  await executor.query('INSERT IGNORE INTO billing_receipt_sequence (id, last_number) VALUES (1, 0)')
-  const [result] = await executor.query(
-    'UPDATE billing_receipt_sequence SET last_number = LAST_INSERT_ID(last_number + 1) WHERE id = 1'
+// Preserve the global allocator only for displaying historical receipts;
+// every new receipt MUST carry the verified billing-record branch ID.
+const allocateReceiptNumber = async (executor, branchId, now = new Date()) => {
+  const id = Number(branchId)
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw Object.assign(new Error('Verified billing branch required for receipt allocation.'), { statusCode: 403, code: 'BRANCH_REQUIRED' })
+  }
+  const [[branch]] = await executor.query(
+    'SELECT code FROM clinic_branches WHERE id=? AND is_active=1 LIMIT 1', [id]
   )
-  const sequence = Number(result?.insertId || 0)
-  if (!sequence) throw Object.assign(new Error('Unable to allocate a receipt number. Please retry.'), { statusCode: 503, code: 'RECEIPT_SEQUENCE_UNAVAILABLE' })
-  return { sequence, receiptNumber: formatSequentialReceiptNumber(sequence, now) }
+  if (!branch?.code) throw Object.assign(new Error('Branch is unavailable.'), { statusCode: 404, code: 'BRANCH_NOT_FOUND' })
+  const branchCode = String(branch.code).toUpperCase().replace(/[^A-Z0-9-]/g, '')
+  if (!branchCode) throw new Error('Invalid branch receipt prefix.')
+  await executor.query('INSERT IGNORE INTO branch_receipt_sequences (branch_id,last_number) VALUES (?,0)', [id])
+  const [result] = await executor.query(
+    'UPDATE branch_receipt_sequences SET last_number=LAST_INSERT_ID(last_number+1) WHERE branch_id=?', [id]
+  )
+  const sequence = Number(result?.insertId)
+  if (!Number.isSafeInteger(sequence) || sequence <= 0) {
+    throw Object.assign(new Error('Unable to allocate a receipt number. Please retry.'), { statusCode: 503, code: 'RECEIPT_SEQUENCE_UNAVAILABLE' })
+  }
+  return { sequence, receiptNumber: `OR-${branchCode}-${clinicReceiptDate(now)}-${String(sequence).padStart(RECEIPT_SEQUENCE_DIGITS,'0')}` }
 }
 
 const calculatePaymentAmounts = ({ totalAmount, amountReceived }) => {
@@ -65,6 +75,7 @@ module.exports = {
   allocateReceiptNumber,
   calculatePaymentAmounts,
 }
+
 
 
 

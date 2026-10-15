@@ -10,3 +10,4 @@ export const doctorClinicLabel = (doctorOrClinicType, fallback = 'Clinic Assignm
 
 export const isKnownDoctorClinicType = (value) => ['medical', 'derma'].includes(String(value || ''))
 
+

@@ -118,7 +118,8 @@ const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days
   return { start_date: start, end_date: end, days: safeDays, doctors: result }
 }
 
-const buildWalkInDoctorAvailability = async ({ clinicType = '' } = {}, executor = db) => {
+const buildWalkInDoctorAvailability = async ({ clinicType = '', branchId } = {}, executor = db) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) < 1) throw new Error('Verified branch required for walk-in availability')
   if (clinicType && !['medical', 'derma'].includes(clinicType)) {
     const error = new Error('Select a valid clinic type.')
     error.statusCode = 400
@@ -126,7 +127,7 @@ const buildWalkInDoctorAvailability = async ({ clinicType = '' } = {}, executor 
   }
 
   const today = getTodayDateOnly()
-  const summary = await buildDoctorAvailabilitySummary({ clinicType, startDate: today, days: 1 }, executor)
+  const summary = await buildDoctorAvailabilitySummary({ clinicType, branchId, startDate: today, days: 1 }, executor)
   const doctors = summary.doctors || []
   if (!doctors.length) return { date: today, doctors: [] }
 
@@ -135,11 +136,11 @@ const buildWalkInDoctorAvailability = async ({ clinicType = '' } = {}, executor 
   const [queueRows] = await executor.query(
     `SELECT doctor_id, COUNT(*) AS active_queue_count
      FROM queue
-     WHERE queue_date = ?
+     WHERE branch_id = ? AND queue_date = ?
        AND doctor_id IN (${placeholders})
        AND status IN ('waiting','called','in_consultation')
      GROUP BY doctor_id`,
-    [today, ...doctorIds]
+    [branchId, today, ...doctorIds]
   )
   const queueMap = new Map(queueRows.map((row) => [Number(row.doctor_id), Number(row.active_queue_count || 0)]))
 
@@ -196,4 +197,5 @@ module.exports = {
   buildWalkInDoctorAvailability,
   formatSlotLabel,
 }
+
 

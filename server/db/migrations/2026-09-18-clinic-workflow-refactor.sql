@@ -158,3 +158,4 @@ INSERT IGNORE INTO inventory_locations (name, location_type, is_active) VALUES
 ('Dermatology Room','room',1),
 ('Dispensing Area','dispensing',1);
 
+

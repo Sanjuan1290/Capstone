@@ -70,7 +70,7 @@ const checkAuth = async (req, res) => {
   try {
     const decoded = await verifySessionToken(token, 'doctor')
     const [rows] = await db.query(
-      'SELECT id, full_name, email, specialty, clinic_type, prc_license, theme_preference, profile_image_url, must_change_password, password_changed_at FROM doctors WHERE id = ? AND is_active = 1', [decoded.id]
+      'SELECT a.id,a.full_name,a.email,a.specialty,a.clinic_type,a.prc_license,a.theme_preference,a.profile_image_url,a.must_change_password,a.password_changed_at,a.branch_id,b.name AS branch_name FROM doctors a JOIN clinic_branches b ON b.id=a.branch_id AND b.is_active=1 WHERE a.id = ? AND a.is_active = 1', [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
     res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'doctor' } })
@@ -86,20 +86,21 @@ const logout = async (req, res) => {
 }
 
 const consumeClinicalInventory = async ({ billing, consultationId, doctorId, appointment }, conn) => {
+  if (!Number.isSafeInteger(Number(appointment?.branch_id)) || Number(appointment.branch_id) <= 0) throw Object.assign(new Error('Consultation branch is required.'), { statusCode: 403 })
   if (!billing?.id || billing.clinical_inventory_consumed_at || !Array.isArray(billing.items)) return
   const usage = collectInventoryUsageFromBillingItems(billing.items)
   // Rooms are resolved by their clinic assignment (System Setup), not by a fixed name.
   // If no treatment room is assigned, consumption comes straight from the Main Stockroom.
-  const treatmentRoom = await resolveClinicTreatmentRoom(appointment?.clinic_type, conn)
-  const mainStockroom = await resolveMainStockroom(conn)
+  const treatmentRoom = await resolveClinicTreatmentRoom(appointment?.clinic_type, conn, appointment.branch_id)
+  const mainStockroom = await resolveMainStockroom(conn, { branchId: appointment.branch_id })
   const preferredLocation = treatmentRoom?.name || mainStockroom?.name || MAIN_LOCATION
 
   for (const entry of usage) {
     const [[inventory]] = await conn.query(
-      'SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? LIMIT 1',
-      [entry.inventory_id]
+      'SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? AND branch_id=? LIMIT 1',
+      [entry.inventory_id, appointment.branch_id]
     )
-    if (!inventory) continue
+    if (!inventory) throw Object.assign(new Error('Inventory item is unavailable in this branch.'), { statusCode: 404, code: 'INVENTORY_NOT_FOUND' })
 
     const unitLabel = String(entry.unit_label || inventory.unit || '').toLowerCase()
     const baseUnit = String(inventory.base_unit || inventory.unit || '').toLowerCase()
@@ -189,7 +190,7 @@ const getDashboard = async (req, res) => {
   const today = getTodayDateOnly()
   const [[{ totalToday }]]      = await db.query(
     'SELECT COUNT(*) AS totalToday FROM appointments WHERE doctor_id = ? AND appointment_date = ?',
-    [req.user.id, today]
+    [req.user.id, req.branchId, today]
   )
   const [[{ completed }]]       = await db.query(
     "SELECT COUNT(*) AS completed FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status = 'completed'",
@@ -215,7 +216,7 @@ const getDashboard = async (req, res) => {
     `SELECT q.id, q.queue_number AS queueNo, q.patient_name AS patient,
             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt, q.type, q.status
      FROM queue q
-     WHERE q.doctor_id = ? AND q.queue_date = ? AND q.status IN ('waiting','called','in_consultation')
+     WHERE q.doctor_id = ? AND q.branch_id=? AND q.queue_date = ? AND q.status IN ('waiting','called','in_consultation')
      ORDER BY q.queue_number ASC`,
     [req.user.id, today]
   )
@@ -279,12 +280,12 @@ const getAppointments = async (req, res) => {
      FROM appointments a
      JOIN patients p ON a.patient_id = p.id
      LEFT JOIN consultations c ON c.appointment_id = a.id AND c.doctor_id = a.doctor_id
-     WHERE a.doctor_id = ?
+     WHERE a.doctor_id = ? AND a.branch_id = ?
        AND ${dateClause}
        AND a.status IN (${placeholders})
      ORDER BY a.appointment_date ${orderDirection}, STR_TO_DATE(a.appointment_time, '%h:%i %p') ${orderDirection}
      LIMIT 300`,
-    [req.user.id, ...dateParams, ...statuses]
+    [req.user.id, req.branchId, ...dateParams, ...statuses]
   )
 
   const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
@@ -302,10 +303,10 @@ const getDailyAppointments = async (req, res) => {
             p.birthdate, p.sex AS patient_sex, p.phone AS patient_phone,
             TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age
      FROM appointments a JOIN patients p ON a.patient_id = p.id
-     WHERE a.doctor_id = ? AND a.appointment_date = ?
+     WHERE a.doctor_id = ? AND a.branch_id=? AND a.appointment_date = ?
        AND a.status IN ('confirmed','in-progress','completed','rescheduled')
      ORDER BY a.appointment_time ASC`,
-    [req.user.id, date]
+    [req.user.id,req.branchId,date]
   )
   const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
   res.json(rows.map((row) => ({
@@ -417,13 +418,13 @@ const startConsultation = async (req, res) => {
       status: 'in_consultation',
       doctorId: req.user.id,
       appointmentId: Number(req.params.id),
-    })
+    }, { branchId: req.branchId })
   }
 
   broadcast(['admin', 'staff', `patient_${appointment.patient_id}`], 'appointment_updated', {
     appointmentId: Number(req.params.id),
     status: 'in-progress',
-  })
+  }, { branchId: req.branchId })
   res.json({ message: 'Consultation started.', queue: queueEntry })
 }
 
@@ -588,8 +589,8 @@ const saveConsultationDraft = async (req, res) => {
   try {
     await conn.beginTransaction()
     const [apptRows] = await conn.query(
-      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? FOR UPDATE',
-      [appointmentId, req.user.id]
+      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? AND branch_id=? FOR UPDATE',
+      [appointmentId, req.user.id, req.branchId]
     )
     if (apptRows.length === 0) {
       await conn.rollback()
@@ -621,9 +622,9 @@ const saveConsultationDraft = async (req, res) => {
     } else {
       const [inserted] = await conn.query(
         `INSERT INTO consultations
-         (appointment_id, doctor_id, patient_id, diagnosis, prescription, prescription_status, notes, status, updated_at, version)
-         VALUES (?,?,?,?,?,?,?,'draft',NOW(),1)`,
-        [appointmentId, req.user.id, appt.patient_id, payload.diagnosis, payload.prescription, payload.prescriptionStatus, payload.notes]
+         (appointment_id, doctor_id, patient_id, diagnosis, prescription, prescription_status, notes, status, updated_at, version, branch_id)
+         VALUES (?,?,?,?,?,?,?,'draft',NOW(),1,?)`,
+        [appointmentId, req.user.id, appt.patient_id, payload.diagnosis, payload.prescription, payload.prescriptionStatus, payload.notes, req.branchId]
       )
       consultationId = inserted.insertId
     }
@@ -661,7 +662,7 @@ const saveConsultationDraft = async (req, res) => {
 
   broadcast([`doctor_${req.user.id}`], 'consultation_draft_saved', {
     appointmentId: Number(appointmentId), consultationId,
-  })
+  }, { branchId: req.branchId })
   res.json({ message: 'Draft saved.', consultation_id: consultationId, status: 'draft', billing })
 }
 
@@ -682,8 +683,8 @@ const finalizeConsultation = async (req, res) => {
     await conn.beginTransaction()
 
     const [apptRows] = await conn.query(
-      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? FOR UPDATE',
-      [appointmentId, req.user.id]
+      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? AND branch_id=? FOR UPDATE',
+      [appointmentId, req.user.id, req.branchId]
     )
     if (apptRows.length === 0) {
       await conn.rollback()
@@ -732,8 +733,8 @@ const finalizeConsultation = async (req, res) => {
       )
     } else {
       const [result] = await conn.query(
-        "INSERT INTO consultations (appointment_id, doctor_id, patient_id, diagnosis, prescription, prescription_status, notes, status, updated_at) VALUES (?,?,?,?,?,?,?,'draft',NOW())",
-        [appointmentId, req.user.id, appt.patient_id, diagnosis || null, prescription || null, prescriptionStatus, notes || null]
+        "INSERT INTO consultations (appointment_id, doctor_id, patient_id, diagnosis, prescription, prescription_status, notes, status, updated_at, branch_id) VALUES (?,?,?,?,?,?,?,'draft',NOW(),?)",
+        [appointmentId, req.user.id, appt.patient_id, diagnosis || null, prescription || null, prescriptionStatus, notes || null, req.branchId]
       )
       consultationId = result.insertId
     }
@@ -795,18 +796,18 @@ const finalizeConsultation = async (req, res) => {
       queueId,
       status: 'done',
       doctorId: req.user.id,
-    })
+    }, { branchId: req.branchId })
   }
 
   broadcast(['admin', 'staff', `patient_${appt.patient_id}`], 'appointment_updated', {
     appointmentId: Number(appointmentId),
     status: 'completed',
-  })
+  }, { branchId: req.branchId })
   broadcast(['admin', 'staff', `patient_${appt.patient_id}`, `doctor_${req.user.id}`], 'consultation_saved', {
     appointmentId: Number(appointmentId),
     patientId: appt.patient_id,
     doctorId: req.user.id,
-  })
+  }, { branchId: req.branchId })
   if (billing?.id) {
     await Promise.all([
       createNotification({
@@ -930,7 +931,7 @@ const updateConsultation = async (req, res) => {
     doctorId: req.user.id,
     patientId,
     updated: true,
-  })
+  }, { branchId: req.branchId })
   res.json({ message: 'Consultation updated.', billing })
 }
 
@@ -977,7 +978,7 @@ const addConsultationAmendment = async (req, res) => {
     const amendmentsByConsultationId = await loadConsultationAmendments([rows[0].id])
     broadcast(['admin', `doctor_${req.user.id}`, `patient_${rows[0].patient_id}`], 'consultation_saved', {
       appointmentId, patientId: rows[0].patient_id, doctorId: req.user.id, amended: true,
-    })
+    }, { branchId: req.branchId })
     return res.status(201).json({ message: 'Amendment added.', amendments: amendmentsByConsultationId[rows[0].id] || [] })
   } catch (error) {
     await conn.rollback()
@@ -1205,14 +1206,15 @@ const getClinicalUploadScanStatus = async (req, res) => {
 const getBillingCatalog = async (req, res) => {
   const rows = await listBillingCatalog({
     clinicType: String(req.query.clinic_type || '').trim() || undefined,
+    branchId: req.branchId,
   })
   res.json(rows)
 }
 
 const getInventoryItems = async (req, res) => {
-  const [[doctor]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? LIMIT 1', [req.user.id])
-  const treatmentRoom = await resolveClinicTreatmentRoom(doctor?.clinic_type)
-  const mainStockroom = await resolveMainStockroom()
+  const [[doctor]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? AND branch_id=? LIMIT 1', [req.user.id,req.branchId])
+  const treatmentRoom = await resolveClinicTreatmentRoom(doctor?.clinic_type,db,req.branchId)
+  const mainStockroom = await resolveMainStockroom(db,{branchId:req.branchId})
   const treatmentLocation = treatmentRoom?.name || ''
   const [rows] = await db.query(
     `SELECT i.id, i.barcode, i.name, i.category, COALESCE(i.item_type, 'medicine') AS item_type,
@@ -1231,9 +1233,9 @@ const getInventoryItems = async (req, res) => {
             ? AS treatment_room_name
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
-     WHERE i.archived_at IS NULL
+     WHERE i.archived_at IS NULL AND i.branch_id=?
      ORDER BY i.category, i.name`,
-    [mainStockroom?.id || 0, treatmentRoom?.id || 0, treatmentLocation]
+    [mainStockroom?.id || 0, treatmentRoom?.id || 0, treatmentLocation,req.branchId]
   )
   const withBatches = await attachBatchesToInventory(rows, db)
   const today = getTodayDateOnly()
@@ -1258,7 +1260,7 @@ const getInventoryItems = async (req, res) => {
 // ── Supply Requests ───────────────────────────────────────────────────────────
 
 const getMyRequests = async (req, res) => {
-  const groups = await listSupplyTransferGroups({ doctorId: req.user.id })
+  const groups = await listSupplyTransferGroups({ branchId: req.branchId, doctorId: req.user.id })
   res.json(groups)
 }
 
@@ -1266,8 +1268,8 @@ const getRequestLocations = async (req, res) => {
   const [rows] = await db.query(
     `SELECT id, name, location_type
      FROM inventory_locations
-     WHERE COALESCE(is_active,1)=1 AND location_type IN ('room','dispensing')
-     ORDER BY FIELD(location_type,'room','dispensing'), name`
+     WHERE branch_id=? AND COALESCE(is_active,1)=1 AND location_type IN ('room','dispensing')
+     ORDER BY FIELD(location_type,'room','dispensing'), name`,[req.branchId]
   )
   res.json(rows)
 }
@@ -1294,7 +1296,7 @@ const getTransferAppointments = async (req, res) => {
 }
 
 const getAppointmentInventoryReadinessForDoctor = async (req, res) => {
-  const readiness = await getAppointmentInventoryReadiness(req.params.id, { doctorId: req.user.id })
+  const readiness = await getAppointmentInventoryReadiness(req.params.id, { doctorId: req.user.id, branchId: req.branchId })
   if (!readiness) return res.status(404).json({ message: 'Appointment not found.' })
   if (!['confirmed','rescheduled','in-progress'].includes(String(readiness.appointment.status))) {
     return res.status(409).json({ code: 'TRANSFER_APPOINTMENT_NOT_ACTIVE', message: 'Stock transfers can only be linked to an active confirmed or ongoing appointment.' })
@@ -1309,7 +1311,7 @@ const submitRequest = async (req, res) => {
 
   const appointmentId = Number(req.body?.appointment_id || 0)
   if (!appointmentId) return res.status(400).json({ message: 'Select the active appointment or consultation this stock transfer is for.' })
-  const readiness = await getAppointmentInventoryReadiness(appointmentId, { doctorId: req.user.id })
+  const readiness = await getAppointmentInventoryReadiness(appointmentId, { doctorId: req.user.id, branchId: req.branchId })
   if (!readiness) return res.status(404).json({ message: 'The selected appointment was not found.' })
   if (!['confirmed','rescheduled','in-progress'].includes(String(readiness.appointment.status))) {
     return res.status(409).json({ code: 'TRANSFER_APPOINTMENT_NOT_ACTIVE', message: 'Completed, cancelled, no-show, and pending appointments cannot receive stock transfer requests.' })
@@ -1342,14 +1344,14 @@ const submitRequest = async (req, res) => {
     return res.status(400).json({ code: 'DUPLICATE_TRANSFER_ITEM', message: 'Each inventory item can only appear once in a stock transfer request.' })
   }
 
-  let destination = await getInventoryLocationById(req.body.destination_location_id)
-  const [[doctorProfile]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? LIMIT 1', [req.user.id])
+  let destination = await getInventoryLocationById(req.body.destination_location_id, db, req.branchId)
+  const [[doctorProfile]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? AND branch_id=? LIMIT 1', [req.user.id, req.branchId])
   const doctorClinic = String(doctorProfile?.clinic_type || '')
   if (!['medical', 'derma'].includes(doctorClinic)) {
     return res.status(409).json({ code: 'DOCTOR_CLINIC_ASSIGNMENT_REQUIRED', message: 'Your doctor account does not have a valid clinic assignment. Ask an administrator to update the account before requesting stock.' })
   }
   if (!destination) {
-    destination = await resolveClinicTreatmentRoom(doctorClinic)
+    destination = await resolveClinicTreatmentRoom(doctorClinic, db, req.branchId)
   }
   if (!destination || !['room','dispensing'].includes(String(destination.location_type))) {
     return res.status(400).json({ message: 'Select a valid treatment or dispensing destination.' })
@@ -1369,8 +1371,8 @@ const submitRequest = async (req, res) => {
                 AND ib.archived_at IS NULL AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())),0) AS main_stockroom_stock
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
-     WHERE i.id IN (${placeholders}) AND i.archived_at IS NULL`,
-    [(await resolveMainStockroom())?.id || 0, ...ids]
+     WHERE i.id IN (${placeholders}) AND i.branch_id=? AND i.archived_at IS NULL`,
+    [(await resolveMainStockroom(db, { branchId: req.branchId }))?.id || 0, ...ids, req.branchId]
   )
   if (inventoryRows.length !== ids.length) return res.status(404).json({ message: 'One or more inventory items are unavailable.' })
   const inventoryMap = new Map(inventoryRows.map((row) => [Number(row.id), row]))
@@ -1413,10 +1415,10 @@ const submitRequest = async (req, res) => {
        FROM supply_request_groups g
        JOIN supply_requests sr ON sr.request_group_id=g.id
        JOIN inventory i ON i.id=sr.inventory_id
-       WHERE g.doctor_id=? AND g.appointment_id=? AND g.destination_location_id=? AND g.status='pending'
+       WHERE g.doctor_id=? AND g.branch_id=? AND g.appointment_id=? AND g.destination_location_id=? AND g.status='pending'
          AND sr.inventory_id IN (${placeholders})
        ORDER BY g.requested_at DESC`,
-      [req.user.id, appointmentId, destination.id, ...ids]
+      [req.user.id, req.branchId, appointmentId, destination.id, ...ids]
     )
     if (duplicates.length) {
       await conn.rollback()
@@ -1429,18 +1431,18 @@ const submitRequest = async (req, res) => {
 
     const [groupResult] = await conn.query(
       `INSERT INTO supply_request_groups
-       (doctor_id, appointment_id, consultation_id, destination_location_id, destination_location, reason, status)
-       VALUES (?,?,?,?,?,?, 'pending')`,
-      [req.user.id, appointmentId, consultationId, destination.id, destination.name, reason]
+       (doctor_id, appointment_id, consultation_id, destination_location_id, destination_location, reason, status, branch_id)
+       VALUES (?,?,?,?,?,?, 'pending', ?)`,
+      [req.user.id, appointmentId, consultationId, destination.id, destination.name, reason, req.branchId]
     )
     groupId = Number(groupResult.insertId)
 
     for (const entry of requestedItems) {
       await conn.query(
         `INSERT INTO supply_requests
-         (request_group_id, doctor_id, inventory_id, qty_requested, reason, destination_location, destination_location_id, status)
-         VALUES (?,?,?,?,?,?,?,'pending')`,
-        [groupId, req.user.id, entry.inventory_id, entry.qty_requested, reason, destination.name, destination.id]
+         (request_group_id, doctor_id, inventory_id, qty_requested, reason, destination_location, destination_location_id, status, branch_id)
+         VALUES (?,?,?,?,?,?,?,'pending',?)`,
+        [groupId, req.user.id, entry.inventory_id, entry.qty_requested, reason, destination.name, destination.id, req.branchId]
       )
     }
 
@@ -1473,7 +1475,7 @@ const submitRequest = async (req, res) => {
     conn.release()
   }
 
-  const [created] = await listSupplyTransferGroups({ doctorId: req.user.id, groupId })
+  const [created] = await listSupplyTransferGroups({ branchId: req.branchId, doctorId: req.user.id, groupId })
   const itemSummary = requestedItems.length === 1
     ? `${requestedItems[0].qty_requested} ${inventoryMap.get(requestedItems[0].inventory_id)?.uom || 'unit'} of ${inventoryMap.get(requestedItems[0].inventory_id)?.name}`
     : `${requestedItems.length} inventory items`
@@ -1492,7 +1494,7 @@ const submitRequest = async (req, res) => {
     status: 'pending',
     doctorId: req.user.id,
     itemCount: requestedItems.length,
-  })
+  }, { branchId: req.branchId })
   res.status(201).json(created)
 }
 
@@ -1522,6 +1524,7 @@ const getMyQueue = async (req, res) => {
 // PATCH /queue/call-next — mark current in-progress as done, set next waiting as in-progress
 const callNext = async (req, res) => {
   const result = await callNextQueuePatient({
+    branchId: req.branchId,
     doctorId: req.user.id,
     actorRole: 'doctor',
     actorId: req.user.id,
@@ -1536,14 +1539,14 @@ const markQueueDone = async (req, res) => {
   const [rows] = await db.query(
     `SELECT q.id, q.appointment_id, a.status AS appointment_status
      FROM queue q LEFT JOIN appointments a ON a.id=q.appointment_id
-     WHERE q.id=? AND q.doctor_id=?`,
-    [req.params.id, req.user.id]
+     WHERE q.id=? AND q.doctor_id=? AND q.branch_id=?`,
+    [req.params.id, req.user.id, req.branchId]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Queue entry not found.' })
   if (rows[0].appointment_id && rows[0].appointment_status !== 'completed') {
     return res.status(409).json({ message: 'Complete the consultation before marking this queue entry done.' })
   }
-  await setQueueState({ queueId: req.params.id, nextStatus: 'done', actorRole: 'doctor', actorId: req.user.id, ipAddress: req.ip || null })
+  await setQueueState({ queueId: req.params.id, nextStatus: 'done', actorRole: 'doctor', actorId: req.user.id, ipAddress: req.ip || null, branchId: req.branchId })
   res.json({ message: 'Queue entry completed.' })
 }
 
@@ -1654,6 +1657,7 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 
 
 

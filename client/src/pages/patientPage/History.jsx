@@ -131,7 +131,7 @@ const VisitCard = ({ visit }) => {
             <div className="min-w-0">
               <p className="text-sm font-bold text-slate-800 truncate">{visit.doctor || visit.doctor_name}</p>
               <p className="text-xs text-slate-400 mt-0.5 truncate">
-                {doctorClinicLabel(visit)}
+                {doctorClinicLabel(visit)}{visit.branch_name ? ` · ${visit.branch_name}` : ''}
               </p>
             </div>
             <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0 ${statusMeta.badge}`}>
@@ -396,4 +396,5 @@ const History = () => {
 }
 
 export default History
+
 

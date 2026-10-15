@@ -17,7 +17,8 @@ const formatAppointment = (row) => row ? {
   doctor_name: row.doctor_name,
 } : null
 
-const getWalkInPrecheck = async (patientId, executor = db) => {
+const getWalkInPrecheck = async (patientId, branchId, executor = db) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) < 1) throw new Error('Verified branch required for walk-in precheck')
   const id = Number(patientId) || 0
   if (!id) return { active_queue: null, today_appointment: null, upcoming_appointment: null }
   const today = getTodayDateOnly()
@@ -25,10 +26,10 @@ const getWalkInPrecheck = async (patientId, executor = db) => {
   const [queueRows] = await executor.query(
     `SELECT q.id, q.queue_number, q.status, q.doctor_id, q.patient_name, d.full_name AS doctor_name
      FROM queue q
-     JOIN doctors d ON d.id = q.doctor_id
-     WHERE q.patient_id = ? AND q.queue_date = ? AND q.status IN ('waiting','called','in_consultation')
+     JOIN doctors d ON d.id = q.doctor_id AND d.branch_id = q.branch_id
+     WHERE q.patient_id = ? AND q.branch_id = ? AND q.queue_date = ? AND q.status IN ('waiting','called','in_consultation')
      ORDER BY q.id DESC LIMIT 1`,
-    [id, today]
+    [id, branchId, today]
   )
 
   const [appointmentRows] = await executor.query(
@@ -36,12 +37,12 @@ const getWalkInPrecheck = async (patientId, executor = db) => {
             DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
             a.appointment_time, a.doctor_id, d.full_name AS doctor_name
      FROM appointments a
-     JOIN doctors d ON d.id = a.doctor_id
-     WHERE a.patient_id = ?
+     JOIN doctors d ON d.id = a.doctor_id AND d.branch_id = a.branch_id
+     WHERE a.patient_id = ? AND a.branch_id = ?
        AND a.status IN (${ACTIVE_APPOINTMENT_STATUSES.map(() => '?').join(',')})
        AND a.appointment_date >= ?
      ORDER BY a.appointment_date ASC, a.appointment_time ASC, a.id ASC`,
-    [id, ...ACTIVE_APPOINTMENT_STATUSES, today]
+    [id, branchId, ...ACTIVE_APPOINTMENT_STATUSES, today]
   )
 
   const todayAppointment = appointmentRows.find((row) => row.appointment_date === today) || null
@@ -53,13 +54,14 @@ const getWalkInPrecheck = async (patientId, executor = db) => {
   }
 }
 
-const resolveWalkInDoctor = async ({ doctorId, clinicType }, executor = db) => {
+const resolveWalkInDoctor = async ({ doctorId, clinicType, branchId }, executor = db) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) < 1) throw new Error('Verified branch required for walk-in doctor')
   const numericDoctorId = Number(doctorId) || 0
   if (!numericDoctorId) {
     return { ok: false, message: 'Select a doctor who is currently available.' }
   }
 
-  const availability = await buildWalkInDoctorAvailability({ clinicType }, executor)
+  const availability = await buildWalkInDoctorAvailability({ clinicType, branchId }, executor)
   const doctor = (availability.doctors || []).find((row) => Number(row.id) === numericDoctorId)
   if (!doctor) {
     return { ok: false, message: 'The selected doctor is not active for this clinic.' }
@@ -84,8 +86,10 @@ const addWalkInVisit = async ({
   allowSeparateWalkIn = false,
   actorRole,
   actorId,
+  branchId,
   ipAddress,
 }, executor = db) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) < 1) throw new Error('Verified branch required for walk-in visit')
   const id = Number(patientId) || 0
   if (!id) return { ok: false, status: 400, body: { message: 'Select or register a patient first.' } }
   if (!['medical', 'derma'].includes(String(clinicType))) {
@@ -97,7 +101,7 @@ const addWalkInVisit = async ({
   let lockKey = null
   try {
     if (ownsConnection) await conn.beginTransaction()
-    const precheck = await getWalkInPrecheck(id, conn)
+    const precheck = await getWalkInPrecheck(id, branchId, conn)
     if (precheck.active_queue) {
       if (ownsConnection) await conn.rollback()
       return { ok: false, status: 409, body: { code: 'ALREADY_IN_QUEUE', message: 'This patient is already in today’s queue.', ...precheck } }
@@ -114,15 +118,15 @@ const addWalkInVisit = async ({
       resolvedDoctorName = precheck.today_appointment.doctor_name || null
       checkedInExisting = true
       await conn.query(
-        `UPDATE appointments SET checked_in_at = NOW(), status = CASE WHEN status = 'pending' THEN 'confirmed' ELSE status END WHERE id = ?`,
-        [appointmentId]
+        `UPDATE appointments SET checked_in_at = NOW(), status = CASE WHEN status = 'pending' THEN 'confirmed' ELSE status END WHERE id = ? AND branch_id = ?`,
+        [appointmentId, branchId]
       )
     } else {
       if (precheck.today_appointment && !allowSeparateWalkIn) {
         if (ownsConnection) await conn.rollback()
         return { ok: false, status: 409, body: { code: 'TODAY_APPOINTMENT', message: 'This patient already has an appointment today. Check them in to that appointment or explicitly create a separate walk-in.', ...precheck } }
       }
-      const doctorResult = await resolveWalkInDoctor({ doctorId, clinicType }, conn)
+      const doctorResult = await resolveWalkInDoctor({ doctorId, clinicType, branchId }, conn)
       if (!doctorResult.ok) {
         if (ownsConnection) await conn.rollback()
         return { ok: false, status: 400, body: { message: doctorResult.message, ...precheck } }
@@ -131,15 +135,15 @@ const addWalkInVisit = async ({
       resolvedDoctorName = doctorResult.doctor.full_name || null
       const [appointmentResult] = await conn.query(
         `INSERT INTO appointments
-         (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, status, appointment_source, checked_in_at)
-         VALUES (?,?,?,?,?,?, 'confirmed', 'walk_in', NOW())`,
-        [id, resolvedDoctorId, clinicType, reason || 'General Consultation', getTodayDateOnly(), getCurrentTimeLabel()]
+         (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, status, appointment_source, checked_in_at, branch_id)
+         VALUES (?,?,?,?,?,?, 'confirmed', 'walk_in', NOW(), ?)`,
+        [id, resolvedDoctorId, clinicType, reason || 'General Consultation', getTodayDateOnly(), getCurrentTimeLabel(), branchId]
       )
       appointmentId = appointmentResult.insertId
     }
 
     const today = getTodayDateOnly()
-    lockKey = `queue:${today}:${resolvedDoctorId}`
+    lockKey = `queue:${branchId}:${today}:${resolvedDoctorId}`
     const [[queueLock]] = await conn.query('SELECT GET_LOCK(?, 5) AS acquired', [lockKey])
     if (Number(queueLock?.acquired) !== 1) {
       const error = new Error('The doctor queue is being updated. Please try again.')
@@ -148,15 +152,15 @@ const addWalkInVisit = async ({
       throw error
     }
     const [[{ maxQ }]] = await conn.query(
-      'SELECT COALESCE(MAX(queue_number), 0) AS maxQ FROM queue WHERE queue_date = ? AND doctor_id = ?',
-      [today, resolvedDoctorId]
+      'SELECT COALESCE(MAX(queue_number), 0) AS maxQ FROM queue WHERE branch_id = ? AND queue_date = ? AND doctor_id = ?',
+      [branchId, today, resolvedDoctorId]
     )
     const queueNumber = Number(maxQ || 0) + 1
     const [queueResult] = await conn.query(
       `INSERT INTO queue
-       (patient_id, doctor_id, queue_number, patient_name, type, status, queue_date, appointment_id)
-       VALUES (?,?,?,?,?,'waiting',?,?)`,
-      [id, resolvedDoctorId, queueNumber, patientName || 'Walk-in', clinicType, today, appointmentId]
+       (patient_id, doctor_id, queue_number, patient_name, type, status, queue_date, appointment_id, branch_id)
+       VALUES (?,?,?,?,?,'waiting',?,?,?)`,
+      [id, resolvedDoctorId, queueNumber, patientName || 'Walk-in', clinicType, today, appointmentId, branchId]
     )
     await conn.query('SELECT RELEASE_LOCK(?)', [lockKey])
     lockKey = null
@@ -177,13 +181,14 @@ const addWalkInVisit = async ({
         appointment_source: checkedInExisting ? 'online' : 'walk_in',
         separate_from_existing_today: Boolean(precheck.today_appointment && !checkedInExisting),
       },
+      branchId,
       ipAddress,
     }, conn)
 
     if (ownsConnection) await conn.commit()
 
-    broadcast(['admin', 'staff', `doctor_${resolvedDoctorId}`], 'queue_updated', { queueId: queueResult.insertId, status: 'added', doctorId: Number(resolvedDoctorId) })
-    broadcast(['admin', 'staff', `doctor_${resolvedDoctorId}`, `patient_${id}`], 'appointment_updated', { appointmentId, status: 'confirmed' })
+    broadcast(['admin', 'staff', `doctor_${resolvedDoctorId}`], 'queue_updated', { queueId: queueResult.insertId, status: 'added', doctorId: Number(resolvedDoctorId) }, { branchId })
+    broadcast(['admin', 'staff', `doctor_${resolvedDoctorId}`, `patient_${id}`], 'appointment_updated', { appointmentId, status: 'confirmed' }, { branchId })
 
     return {
       ok: true,
@@ -212,4 +217,5 @@ module.exports = {
   resolveWalkInDoctor,
   addWalkInVisit,
 }
+
 

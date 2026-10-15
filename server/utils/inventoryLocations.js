@@ -21,13 +21,17 @@ const normalizeClinicType = (value) => {
 
 const isMissingColumn = (error) => error && (error.code === 'ER_BAD_FIELD_ERROR' || error.errno === 1054)
 
-const resolveMainStockroom = async (executor = db, { createIfMissing = false } = {}) => {
+const resolveMainStockroom = async (executor = db, { createIfMissing = false, branchId = null } = {}) => {
+  // Compatibility warning: callers outside inventory operations must supply a verified branchId.
+  // The inventory engine always supplies one and never creates stockrooms implicitly.
+  const scope=branchId==null?'':' AND branch_id=?'
+  const args=branchId==null?[]:[Number(branchId)]
   let row = null
   try {
     ;[[row]] = await executor.query(
       `SELECT id, name, location_type FROM inventory_locations
-       WHERE COALESCE(is_active,1)=1 AND is_main_stockroom=1
-       ORDER BY id ASC LIMIT 1`
+       WHERE COALESCE(is_active,1)=1 AND is_main_stockroom=1 ${scope}
+       ORDER BY id ASC LIMIT 1`,args
     )
   } catch (error) {
     if (!isMissingColumn(error)) throw error
@@ -35,22 +39,23 @@ const resolveMainStockroom = async (executor = db, { createIfMissing = false } =
   if (!row) {
     ;[[row]] = await executor.query(
       `SELECT id, name, location_type FROM inventory_locations
-       WHERE COALESCE(is_active,1)=1 AND (name = ? OR location_type = 'stockroom')
+       WHERE COALESCE(is_active,1)=1 AND (name = ? OR location_type = 'stockroom') ${scope}
        ORDER BY (name = ?) DESC, id ASC LIMIT 1`,
-      [LEGACY_MAIN_STOCKROOM_NAME, LEGACY_MAIN_STOCKROOM_NAME]
+      [LEGACY_MAIN_STOCKROOM_NAME,...args,LEGACY_MAIN_STOCKROOM_NAME]
     )
   }
   if (!row && createIfMissing) {
+    if (branchId==null) throw new Error('branchId is required to provision a stockroom.')
     // Bootstrap only (empty database). Normal operation never creates locations implicitly.
     await executor.query(
-      `INSERT INTO inventory_locations (name, location_type, is_active)
-       VALUES (?, 'stockroom', 1)
+      `INSERT INTO inventory_locations (name, location_type, is_active, branch_id)
+       VALUES (?, 'stockroom', 1, ?)
        ON DUPLICATE KEY UPDATE is_active = is_active`,
-      [LEGACY_MAIN_STOCKROOM_NAME]
+      [LEGACY_MAIN_STOCKROOM_NAME,branchId]
     )
-    ;[[row]] = await executor.query('SELECT id, name, location_type FROM inventory_locations WHERE name = ? LIMIT 1', [LEGACY_MAIN_STOCKROOM_NAME])
+    ;[[row]] = await executor.query('SELECT id, name, location_type FROM inventory_locations WHERE name = ? AND branch_id=? LIMIT 1', [LEGACY_MAIN_STOCKROOM_NAME,branchId])
     if (row) {
-      await executor.query('UPDATE inventory_locations SET is_main_stockroom = 1 WHERE id = ?', [row.id]).catch((error) => {
+      await executor.query('UPDATE inventory_locations SET is_main_stockroom = 1 WHERE id = ? AND branch_id=?', [row.id,branchId]).catch((error) => {
         if (!isMissingColumn(error)) throw error
       })
     }
@@ -58,23 +63,25 @@ const resolveMainStockroom = async (executor = db, { createIfMissing = false } =
   return row || null
 }
 
-const resolveClinicTreatmentRoom = async (clinicType, executor = db) => {
+const resolveClinicTreatmentRoom = async (clinicType, executor = db, branchId = null) => {
+  const scope=branchId==null?'':' AND branch_id=?'
+  const args=branchId==null?[]:[Number(branchId)]
   const type = normalizeClinicType(clinicType) || 'medical'
   let row = null
   try {
     ;[[row]] = await executor.query(
       `SELECT id, name, location_type FROM inventory_locations
-       WHERE COALESCE(is_active,1)=1 AND clinic_type = ? AND COALESCE(is_main_stockroom,0)=0
+       WHERE COALESCE(is_active,1)=1 AND clinic_type = ? AND COALESCE(is_main_stockroom,0)=0 ${scope}
        ORDER BY (location_type = 'room') DESC, id ASC LIMIT 1`,
-      [type]
+      [type,...args]
     )
   } catch (error) {
     if (!isMissingColumn(error)) throw error
   }
   if (!row) {
     ;[[row]] = await executor.query(
-      'SELECT id, name, location_type FROM inventory_locations WHERE COALESCE(is_active,1)=1 AND name = ? LIMIT 1',
-      [LEGACY_CLINIC_ROOM_NAMES[type]]
+      `SELECT id, name, location_type FROM inventory_locations WHERE COALESCE(is_active,1)=1 AND name = ? ${scope} LIMIT 1`,
+      [LEGACY_CLINIC_ROOM_NAMES[type],...args]
     )
   }
   return row || null
@@ -98,4 +105,5 @@ module.exports = {
   resolveClinicTreatmentRoom,
   resolveLocationIdByName,
 }
+
 

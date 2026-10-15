@@ -110,7 +110,7 @@ const StaffLayout = () => {
       <aside className={`fixed inset-y-0 left-0 z-50 flex shrink-0 flex-col bg-[#0b1a2c] transition-all lg:relative ${collapsed ? 'w-[72px]' : 'w-64'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="flex h-16 items-center gap-3 border-b border-white/5 px-4">
           <img src="/logo.png" alt="Carait Clinic" className="h-9 w-9 rounded-xl bg-white/10 object-contain p-1" />
-          <div className={collapsed ? 'hidden' : ''}><p className="text-[15px] font-bold text-white">Carait Clinic</p><span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-sky-400">Staff Portal</span></div>
+          <div className={collapsed ? 'hidden' : ''}><p className="text-[15px] font-bold text-white">Carait Clinic</p><span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-sky-400">Staff Portal</span><span className="block truncate text-[11px] font-medium text-slate-300" title={user?.branch_name || ''}>{user?.branch_name || 'Branch unavailable'}</span></div>
           <button onClick={() => setMobileOpen(false)} className="ml-auto text-slate-400 lg:hidden"><MdClose /></button>
         </div>
         <div className={`mx-3 mt-4 rounded-xl border border-white/5 bg-white/5 p-3 ${collapsed ? 'hidden' : ''}`}>
@@ -136,4 +136,5 @@ const StaffLayout = () => {
   )
 }
 export default StaffLayout
+
 

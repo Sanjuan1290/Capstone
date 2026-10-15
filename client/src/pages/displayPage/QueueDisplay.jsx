@@ -20,6 +20,9 @@ const QueueDisplay = () => {
   const [displayUnlocked, setDisplayUnlocked] = useState(false)
   const [checkingSession, setCheckingSession] = useState(true)
   const [pin, setPin] = useState('')
+  const [branches, setBranches] = useState([])
+  const [branchId, setBranchId] = useState('')
+  const [branchName, setBranchName] = useState('')
   const [unlocking, setUnlocking] = useState(false)
   const [unlockError, setUnlockError] = useState('')
   const [isMonitoring, setIsMonitoring] = useState(false)
@@ -89,7 +92,7 @@ const QueueDisplay = () => {
   const fetchQueue = useCallback(async ({ initial = false } = {}) => {
     try {
       const response = await fetch('/api/queue/live', { credentials: 'include', cache: 'no-store' })
-      if (response.status === 401) {
+      if (response.status === 401 || response.status === 403) {
         setDisplayUnlocked(false)
         setConnected(true)
         return false
@@ -99,6 +102,7 @@ const QueueDisplay = () => {
 
       setDisplayUnlocked(true)
       setQueue(data)
+      setBranchName(data.branch_name || '')
       setConnected(true)
 
       const servingKey = data.serving ? `${data.serving.doctor || ''}:${data.serving.queueNo || ''}` : ''
@@ -124,6 +128,16 @@ const QueueDisplay = () => {
     return () => window.clearInterval(timer)
   }, [displayUnlocked, fetchQueue])
 
+  useEffect(() => {
+    if (displayUnlocked) return undefined
+    let cancelled = false
+    fetch('/api/queue/display/branches', { credentials: 'include', cache: 'no-store' })
+      .then((res) => { if (!res.ok) throw new Error('Branches unavailable'); return res.json() })
+      .then((rows) => { if (!cancelled) setBranches(Array.isArray(rows) ? rows : []) })
+      .catch(() => { if (!cancelled) setUnlockError('Could not load clinic branches. Please refresh this display.') })
+    return () => { cancelled = true }
+  }, [displayUnlocked])
+
   const unlockAndMonitor = async (event) => {
     event.preventDefault()
     setUnlocking(true)
@@ -133,12 +147,13 @@ const QueueDisplay = () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, branch_id: Number(branchId) }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || 'Could not unlock queue display.')
       await enableAudio()
       setPin('')
+      setBranchName(data.branch_name || '')
       setDisplayUnlocked(true)
       await fetchQueue({ initial: true })
     } catch (error) {
@@ -151,6 +166,7 @@ const QueueDisplay = () => {
   const lockDisplay = async () => {
     await fetch('/api/queue/display/lock', { method: 'POST', credentials: 'include' }).catch(() => {})
     setDisplayUnlocked(false)
+    setBranchName('')
     setIsMonitoring(false)
     setQueue({ serving: null, waiting: [], clinicOpen: true })
     previousWaitingLengthRef.current = 0
@@ -179,6 +195,13 @@ const QueueDisplay = () => {
           </div>
 
           <form onSubmit={unlockAndMonitor} className="mt-7 space-y-4">
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Clinic branch</span>
+              <select required value={branchId} onChange={(event) => setBranchId(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#10243a] px-4 py-3.5 text-white">
+                <option value="">Select branch</option>
+                {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+              </select>
+            </label>
             {unlockError && (
               <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                 {unlockError}
@@ -204,7 +227,7 @@ const QueueDisplay = () => {
             </label>
             <button
               type="submit"
-              disabled={unlocking || pin.length < 6}
+              disabled={unlocking || pin.length < 6 || !branchId}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 px-5 py-3.5 text-sm font-black text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <MdLockOpen /> {unlocking ? 'Unlocking…' : 'Unlock & Start Queue Monitor'}
@@ -232,7 +255,7 @@ const QueueDisplay = () => {
           <img src="/logo.png" alt="Carait Clinic" className="h-14 w-14 rounded-2xl bg-white/10 p-2" />
           <div>
             <h1 className="text-xl font-black tracking-tight">Carait Medical and Dermatology Clinic</h1>
-            <p className="text-sm text-slate-400">Live queue display</p>
+            <p className="text-sm text-slate-400">{branchName || 'Live queue display'}</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -299,4 +322,5 @@ const QueueDisplay = () => {
 }
 
 export default QueueDisplay
+
 

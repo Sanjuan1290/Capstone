@@ -66,4 +66,89 @@ const registerBranchSystemWrites=(router,{requireSuper,branchContext,requirePerm
   withSetup('/system-setup/service-categories/:id','delete',deactivateCategory)
  }
 }
-module.exports={registerBranchSystemWrites,saveVisitReason,saveCancellation,saveCategory}
+module.exports={registerBranchSystemWrites,saveVisitReason,deactivateVisitReason,saveCancellation,deactivateCancellation,saveCategory,deactivateCategory}
+
+
+// Branch-owned suppliers and location types. UOMs and movement reasons are
+// global policy tables; they must not be silently changed by a Branch Admin.
+const safeText=(v,max)=>String(v??'').trim().slice(0,max)
+const systemAudit=(req,action,type,id,before,after)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action,entityType:type,entityId:id,oldValues:before,newValues:after,branchId:req.branchId,ipAddress:req.ip})
+const duplicateError=(e,res)=>{
+ if(e.code==='ER_DUP_ENTRY')return res.status(409).json({message:'This entry already exists in your branch.'})
+ throw e
+}
+async function saveBranchSupplier(req,res){
+ const id=req.params.id?Number(req.params.id):0
+ if(id&&!safeId(id))return res.status(400).json({message:'Invalid supplier ID.'})
+ const name=safeText(req.body?.name,160),contact_person=safeText(req.body?.contact_person,160)||null,
+ contact_number=safeText(req.body?.contact_number,80)||null,address=safeText(req.body?.address,255)||null
+ const clinics=Array.isArray(req.body.clinics)?req.body.clinics:String(req.body.category||'').split(',')
+ const cats=[...new Set(clinics.map(v=>String(v).trim()).filter(Boolean))]
+ if(!name||cats.length===0||cats.some(v=>!['medical','derma'].includes(v)))return res.status(400).json({message:'Supplier name and at least one clinic are required.'})
+ let prior=null
+ if(id){[[prior]]=await db.query('SELECT * FROM inventory_suppliers WHERE id=? AND branch_id=?',[id,req.branchId]);if(!prior)return res.status(404).json({message:'Supplier not found in this branch.'})}
+ const is_active=active(req.body?.is_active,prior?.is_active??1)
+ if(prior){
+  for(const clinic of ['medical','derma'])if(prior.category.split(',').includes(clinic)&&!cats.includes(clinic)){
+   const [[used]]=await db.query('SELECT COUNT(*) AS n FROM inventory WHERE supplier_id=? AND category=? AND branch_id=?',[id,clinic,req.branchId])
+   if(Number(used.n)>0)return res.status(409).json({message:`This supplier is still assigned to ${clinic} inventory items.`})
+  }
+ }
+ let targetId=id
+ try{
+  if(id)await db.query('UPDATE inventory_suppliers SET name=?,contact_person=?,contact_number=?,address=?,category=?,is_active=? WHERE id=? AND branch_id=?',[name,contact_person,contact_number,address,cats.join(','),is_active,id,req.branchId])
+  else{const [r]=await db.query('INSERT INTO inventory_suppliers (branch_id,name,contact_person,contact_number,address,category,is_active) VALUES (?,?,?,?,?,?,?)',[req.branchId,name,contact_person,contact_number,address,cats.join(','),is_active]);targetId=r.insertId}
+ }catch(e){return duplicateError(e,res)}
+ const [[row]]=await db.query('SELECT * FROM inventory_suppliers WHERE id=? AND branch_id=?',[targetId,req.branchId])
+ await systemAudit(req,id?'system.supplier_updated':'system.supplier_created','inventory_supplier',targetId,prior,row)
+ res.status(id?200:201).json(row)
+}
+async function saveBranchLocationType(req,res){
+ const id=req.params.id?Number(req.params.id):0
+ if(id&&!safeId(id))return res.status(400).json({message:'Invalid location type ID.'})
+ const name=safeText(req.body?.name,80),sort_order=Number(req.body?.sort_order||0)
+ if(!name||!Number.isInteger(sort_order)||Math.abs(sort_order)>999999)return res.status(400).json({message:'Valid location name and display order required.'})
+ let prior=null
+ if(id){[[prior]]=await db.query('SELECT * FROM inventory_location_types WHERE id=? AND branch_id=?',[id,req.branchId]);if(!prior)return res.status(404).json({message:'Location type not found in this branch.'})}
+ const is_active=active(req.body?.is_active,prior?.is_active??1)
+ if(id&&!is_active){const [[used]]=await db.query('SELECT COUNT(*) AS n FROM inventory WHERE location_type_id=? AND branch_id=?',[id,req.branchId]);if(Number(used.n)>0)return res.status(409).json({message:'Reassign inventory items before deactivating this type.'})}
+ let targetId=id
+ try{
+  if(id)await db.query('UPDATE inventory_location_types SET name=?,is_active=?,sort_order=? WHERE id=? AND branch_id=?',[name,is_active,sort_order,id,req.branchId])
+  else{
+   const code=name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')
+   if(!code)return res.status(400).json({message:'Invalid location type name.'})
+   const [r]=await db.query('INSERT INTO inventory_location_types (branch_id,name,code,is_active,sort_order) VALUES (?,?,?,?,?)',[req.branchId,name,code,is_active,sort_order]);targetId=r.insertId
+  }
+ }catch(e){return duplicateError(e,res)}
+ const [[row]]=await db.query('SELECT * FROM inventory_location_types WHERE id=? AND branch_id=?',[targetId,req.branchId])
+ await systemAudit(req,id?'system.location_type_updated':'system.location_type_created','inventory_location_type',targetId,prior,row)
+ res.status(id?200:201).json(row)
+}
+async function updateBranchClinicSettings(req,res){
+ const name=safeText(req.body?.clinic_name,180)||req.branch.name
+ const address=safeText(req.body?.address,255)||null,phone=safeText(req.body?.phone,80)||null,email=safeText(req.body?.email,160)||null
+ if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({message:'Invalid clinic email address.'})
+ // Global clinic_settings branding, report and receipt footer belongs to Super Admin.
+ // Do not accept or accidentally write those cross-branch fields here.
+ const globals=['report_footer','receipt_title','receipt_footer','id','updated_by_admin_id']
+ if(globals.some(k=>Object.hasOwn(req.body||{},k)))return res.status(403).json({code:'GLOBAL_SETTINGS_MANAGED_CENTRALLY',message:'Receipt and brand settings are managed by Super Admin.'})
+ await db.query('UPDATE clinic_branches SET name=?,address=?,phone=?,email=? WHERE id=? AND is_active=1',[name,address,phone,email,req.branchId])
+ await systemAudit(req,'branch.clinic_settings_updated','clinic_branch',req.branchId,req.branch,{name,address,phone,email})
+ const [[global]]=await db.query('SELECT * FROM clinic_settings WHERE id=1')
+ res.json({...global,clinic_name:name,address,phone,email})
+}
+function registerBranchExtraSetup(router,{requireSuper,branchContext,requirePermission}){
+ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
+  const guard=[...middle,requirePermission('system_setup')]
+  router.post(`${prefix}/system-setup/suppliers`,...guard,saveBranchSupplier)
+  router.put(`${prefix}/system-setup/suppliers/:id`,...guard,saveBranchSupplier)
+  router.post(`${prefix}/system-setup/location-types`,...guard,saveBranchLocationType)
+  router.put(`${prefix}/system-setup/location-types/:id`,...guard,saveBranchLocationType)
+  router.put(`${prefix}/clinic-settings`,...guard,updateBranchClinicSettings)
+ }
+}
+module.exports.registerBranchExtraSetup=registerBranchExtraSetup
+module.exports.saveBranchSupplier=saveBranchSupplier
+module.exports.saveBranchLocationType=saveBranchLocationType
+module.exports.updateBranchClinicSettings=updateBranchClinicSettings

@@ -54,9 +54,10 @@ const groupTransferRows = (rows = []) => {
   }))
 }
 
-const listSupplyTransferGroups = async ({ doctorId = null, groupId = null, pendingFirst = false, executor = db } = {}) => {
-  const conditions = []
-  const params = []
+const listSupplyTransferGroups = async ({ branchId, doctorId = null, groupId = null, pendingFirst = false, executor = db } = {}) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) <= 0) throw Object.assign(new Error('Clinic branch is required.'), { statusCode: 403 })
+  const conditions = ['g.branch_id=?', 'i.branch_id=g.branch_id', 'd.branch_id=g.branch_id', 'sr.branch_id=g.branch_id']
+  const params = [Number(branchId)]
   if (Number(doctorId)) {
     conditions.push('g.doctor_id = ?')
     params.push(Number(doctorId))
@@ -126,12 +127,14 @@ const listSupplyTransferGroups = async ({ doctorId = null, groupId = null, pendi
      LEFT JOIN inventory_locations dest ON dest.id=g.destination_location_id
      ${where}
      ${order}`,
-    [(await resolveMainStockroom(executor))?.id || 0, ...params]
+    [(await resolveMainStockroom(executor, { branchId }))?.id || 0, ...params]
   )
   return groupTransferRows(rows)
 }
 
-const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ipAddress, note = '' }) => {
+const resolveSupplyTransfer = async ({ requestId, branchId, status, actorRole, actorId, ipAddress, note = '' }) => {
+  if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) <= 0) throw Object.assign(new Error('Clinic branch is required.'), { statusCode: 403 })
+  branchId = Number(branchId)
   if (!['approved', 'rejected'].includes(String(status))) {
     return { statusCode: 400, body: { message: 'Status must be approved or rejected.' } }
   }
@@ -154,9 +157,9 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
        LEFT JOIN patients p ON p.id=a.patient_id
        LEFT JOIN billing_service_catalog bsc ON bsc.id=a.requested_service_id
        LEFT JOIN inventory_locations loc ON loc.id=g.destination_location_id
-       WHERE g.id=?
+       WHERE g.id=? AND g.branch_id=? AND d.branch_id=g.branch_id
        FOR UPDATE`,
-      [requestId]
+      [requestId, branchId]
     )
     if (!groups.length) {
       await conn.rollback()
@@ -178,10 +181,10 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
               COALESCE(i.uom,i.base_unit,i.unit,'unit') AS unit
        FROM supply_requests sr
        JOIN inventory i ON i.id=sr.inventory_id
-       WHERE sr.request_group_id=?
+       WHERE sr.request_group_id=? AND sr.branch_id=? AND i.branch_id=?
        ORDER BY sr.id ASC
        FOR UPDATE`,
-      [group.id]
+      [group.id, branchId, branchId]
     )
     if (!lines.length) {
       await conn.rollback()
@@ -190,14 +193,14 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
 
     let destinationRow = null
     if (status === 'approved') {
-      destinationRow = group.destination_location_id ? await getInventoryLocationById(group.destination_location_id, conn) : null
+      destinationRow = group.destination_location_id ? await getInventoryLocationById(group.destination_location_id, conn, branchId) : null
       const destination = String(destinationRow?.name || group.destination_location_name || group.destination_location || '').trim()
       if (!destinationRow || !['room', 'dispensing'].includes(String(destinationRow.location_type))) {
         await conn.rollback()
         return { statusCode: 400, body: { message: 'The requested inventory destination is no longer available.' } }
       }
 
-      const mainStockroom = await resolveMainStockroom(conn)
+      const mainStockroom = await resolveMainStockroom(conn, { branchId })
       const mainName = mainStockroom?.name || MAIN_LOCATION
       // Every line is transferred in this same transaction. If any line cannot be
       // fulfilled, the transaction is rolled back so the request is all-or-nothing.
@@ -230,9 +233,9 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
 
         const [transfer] = await conn.query(
           `INSERT INTO inventory_transfers
-           (inventory_id, supply_request_id, from_location, to_location, quantity, transferred_by_role, transferred_by_user_id, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [line.inventory_id, line.id, mainName, destination, qty, actorRole, actorId, group.reason || null]
+           (inventory_id, supply_request_id, from_location, to_location, quantity, transferred_by_role, transferred_by_user_id, notes, from_branch_id, to_branch_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [line.inventory_id, line.id, mainName, destination, qty, actorRole, actorId, group.reason || null, branchId, branchId]
         )
 
         for (const batch of movement.transferred) {
@@ -275,14 +278,14 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
     await conn.query(
       `UPDATE supply_request_groups
        SET status=?, resolved_at=NOW(), resolved_by_role=?, resolved_by_user_id=?, resolution_note=?, updated_at=NOW()
-       WHERE id=?`,
-      [status, actorRole, actorId, resolutionNote, group.id]
+       WHERE id=? AND branch_id=?`,
+      [status, actorRole, actorId, resolutionNote, group.id, branchId]
     )
     await conn.query(
       `UPDATE supply_requests
        SET status=?, resolved_at=NOW(), resolved_by_admin_id=?, resolution_note=?
-       WHERE request_group_id=?`,
-      [status, actorRole === 'admin' ? actorId : null, resolutionNote, group.id]
+       WHERE request_group_id=? AND branch_id=?`,
+      [status, actorRole === 'admin' ? actorId : null, resolutionNote, group.id, branchId]
     )
 
     await writeAuditLog({
@@ -309,7 +312,7 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
           quantity: Number(line.qty_requested),
         })),
       },
-      ipAddress,
+      ipAddress, branchId,
     }, conn)
 
     await conn.commit()
@@ -325,7 +328,7 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
     status,
     doctorId: Number(group.doctor_id),
     itemCount: itemResults.length || undefined,
-  })
+  }, { branchId })
 
   return {
     statusCode: 200,
@@ -342,6 +345,7 @@ const resolveSupplyTransfer = async ({ requestId, status, actorRole, actorId, ip
 }
 
 module.exports = { resolveSupplyTransfer, listSupplyTransferGroups, groupTransferRows }
+
 
 
 

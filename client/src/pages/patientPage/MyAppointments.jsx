@@ -67,8 +67,8 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
             <Icon className={`text-[18px] ${appt.type === 'derma' ? 'text-emerald-600' : 'text-slate-500'}`} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-slate-800 truncate">{appt.doctor || appt.doctor_name}</p>
-            <p className="text-xs text-slate-500">{appt.clinic || doctorClinicLabel(appt)}</p>
+            <p className="text-sm font-bold text-slate-800 truncate">{appt.doctor || appt.doctor_name}</p><p className="text-xs text-slate-500">{appt.branch_name || 'Clinic branch'}</p>
+            <p className="text-xs text-slate-500">{appt.clinic || doctorClinicLabel(appt)}{appt.branch_name ? ` · ${appt.branch_name}` : ''}</p>
           </div>
           <span className={`text-[11px] font-bold border px-2.5 py-0.5 rounded-full shrink-0 ${cfg.badge}`}>
             {cfg.label}
@@ -421,4 +421,5 @@ const MyAppointments = () => {
 }
 
 export default MyAppointments
+
 

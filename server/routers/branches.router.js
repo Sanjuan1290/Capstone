@@ -9,6 +9,7 @@ const { writeAuditLog } = require('../utils/audit')
 const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendTempPassword } = require('../utils/emailService')
 const { validateBookingSettings } = require('../utils/bookingPolicy')
+const { provisionBranch } = require('../utils/branchProvisioning')
 const router = express.Router()
 const PERMISSIONS = ['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','stock_transfers','accounts','system_setup','reports','audit_logs']
 const forbidden = (res) => res.status(403).json({ code: 'BRANCH_ACCESS_DENIED', message: 'You do not have access to this branch or feature.' })
@@ -46,6 +47,7 @@ const branchContext = async (req,res,next) => {
     if(req.adminContext.account_role!=='superadmin' && branchId!==Number(req.adminContext.branch_id)) return forbidden(res)
     const [[branch]]=await db.query('SELECT * FROM clinic_branches WHERE id=? LIMIT 1',[branchId])
     if(!branch) return res.status(404).json({message:'Branch not found.'})
+    if(!Number(branch.is_active))return res.status(403).json({code:'BRANCH_INACTIVE',message:'This clinic branch is inactive.'})
     req.branch=branch;req.branchId=branchId;next()
   }catch(e){next(e)}
 }
@@ -55,12 +57,26 @@ router.get('/', requireSuper, async(req,res)=>{
 })
 router.post('/',requireSuper,async(req,res)=>{
   const name=String(req.body?.name||'').trim(),code=`BR-${randomBytes(8).toString('hex').toUpperCase()}`
-  if(!name||name.length>180) return res.status(400).json({message:'Enter a branch name (up to 180 characters).'})
-  const [result]=await db.query('INSERT INTO clinic_branches (name,code,address,phone,email,offers_medical,offers_derma,is_active) VALUES (?,?,?,?,?,?,?,?)',[name,code,String(req.body.address||'').slice(0,255)||null,String(req.body.phone||'').slice(0,80)||null,String(req.body.email||'').slice(0,160)||null,req.body.offers_medical===false?0:1,req.body.offers_derma===false?0:1,req.body.is_active===false?0:1])
-  await db.query('INSERT INTO branch_booking_settings (branch_id) VALUES (?)',[result.insertId])
-  await audit(req,'branch.created','clinic_branch',result.insertId,null,{name,code},result.insertId)
-  res.status(201).json({id:result.insertId,name,code})
+  if(!name||name.length>180)return res.status(400).json({message:'Enter a branch name (up to 180 characters).'})
+  const copyFrom=req.body?.copy_setup_from_branch_id==null?null:Number(req.body.copy_setup_from_branch_id)
+  if(copyFrom!==null){
+    if(!validId(copyFrom))return res.status(400).json({message:'Select a valid source branch.'})
+    const [[source]]=await db.query('SELECT id FROM clinic_branches WHERE id=? AND is_active=1',[copyFrom])
+    if(!source)return res.status(400).json({message:'The source branch must be active.'})
+  }
+  const conn=await db.getConnection()
+  let id
+  try {
+    await conn.beginTransaction()
+    const [result]=await conn.query('INSERT INTO clinic_branches (name,code,address,phone,email,offers_medical,offers_derma,is_active) VALUES (?,?,?,?,?,?,?,?)',[name,code,String(req.body.address||'').slice(0,255)||null,String(req.body.phone||'').slice(0,80)||null,String(req.body.email||'').slice(0,160)||null,req.body.offers_medical===false?0:1,req.body.offers_derma===false?0:1,req.body.is_active===false?0:1])
+    id=result.insertId
+    await provisionBranch(conn,id,copyFrom)
+    await conn.commit()
+  }catch(e){await conn.rollback();throw e}finally{conn.release()}
+  await audit(req,'branch.created','clinic_branch',id,null,{name,code,copy_setup_from_branch_id:copyFrom},id)
+  res.status(201).json({id,name,code})
 })
+
 router.put('/:branchId',requireSuper,branchContext,async(req,res)=>{
   const current=req.branch
   const name=String(req.body?.name??current.name).trim(),code=current.code
@@ -120,6 +136,74 @@ router.put('/accounts/admins/:adminId',requireSuper,async(req,res)=>{
   await audit(req,'branch_admin.updated','admin',id,prior,{branch_id:branchId,full_name,phone,is_active:active,permissions},branchId)
   res.json({id,branch_id:branchId,is_active:active,full_name,phone,permissions})
 })
+// Super Admin directory for all operational accounts; role and branch filters are applied server-side.
+router.get('/accounts/team', requireSuper, async (req, res) => {
+  const role = String(req.query.role || 'all')
+  if (!['all', 'staff', 'doctor'].includes(role)) return res.status(400).json({ message: 'Invalid account role.' })
+  const branchId = req.query.branch_id == null || req.query.branch_id === '' ? null : Number(req.query.branch_id)
+  if (branchId !== null && !validId(branchId)) return res.status(400).json({ message: 'Invalid branch filter.' })
+  const branchFilter = branchId === null ? '' : ' WHERE a.branch_id=?'
+  const params = branchId === null ? [] : [branchId]
+  const results = []
+  if (role !== 'doctor') {
+    const [rows] = await db.query(`SELECT a.id,a.full_name,a.email,a.phone,a.branch_id,b.name AS branch_name,a.status AS account_status,a.created_at,
+      'staff' AS role FROM staff a JOIN clinic_branches b ON b.id=a.branch_id ${branchFilter}
+      ORDER BY a.full_name,a.id`, params)
+    results.push(...rows)
+  }
+  if (role !== 'staff') {
+    const [rows] = await db.query(`SELECT a.id,a.full_name,a.email,a.phone,a.branch_id,b.name AS branch_name,
+      CASE WHEN a.is_active=1 THEN 'active' ELSE 'inactive' END AS account_status,a.created_at,
+      'doctor' AS role FROM doctors a JOIN clinic_branches b ON b.id=a.branch_id ${branchFilter}
+      ORDER BY a.full_name,a.id`, params)
+    results.push(...rows)
+  }
+  res.json(results)
+})
+
+// A move changes access, not historic appointments, consultations, bills or stock.
+// All checks, the session revocation, and both-branch audit entries share one transaction.
+router.put('/accounts/team/:role/:accountId/branch', requireSuper, async (req, res) => {
+  const role = String(req.params.role)
+  const table = role === 'staff' ? 'staff' : role === 'doctor' ? 'doctors' : null
+  const accountId = Number(req.params.accountId)
+  const toBranchId = Number(req.body?.branch_id)
+  if (!table || !validId(accountId) || !validId(toBranchId)) return res.status(400).json({ message: 'Choose an account and a valid destination branch.' })
+  if (req.body?.confirm !== true) return res.status(400).json({ code: 'CONFIRMATION_REQUIRED', message: 'Confirm this branch transfer before continuing.' })
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [[account]] = await conn.query(`SELECT id,full_name,branch_id FROM ${table} WHERE id=? FOR UPDATE`, [accountId])
+    if (!account) { await conn.rollback(); return res.status(404).json({ message: 'Account not found.' }) }
+    const fromBranchId = Number(account.branch_id)
+    if (fromBranchId === toBranchId) { await conn.rollback(); return res.status(400).json({ message: 'This account is already assigned to that branch.' }) }
+    const [[branch]] = await conn.query('SELECT id,name FROM clinic_branches WHERE id=? AND is_active=1 FOR UPDATE', [toBranchId])
+    if (!branch) { await conn.rollback(); return res.status(404).json({ message: 'Destination branch is unavailable.' }) }
+    if (role === 'doctor') {
+      const [[future]] = await conn.query(`SELECT COUNT(*) AS n FROM appointments
+        WHERE doctor_id=? AND appointment_date>=CURDATE()
+          AND status IN ('pending','confirmed','rescheduled','in-progress')`, [accountId])
+      if (Number(future.n)) { await conn.rollback(); return res.status(409).json({ code: 'FUTURE_APPOINTMENTS', message: 'This doctor has active/upcoming appointments. Resolve them before moving the account.' }) }
+    } else {
+      const [[cashier]] = await conn.query(`SELECT COUNT(*) AS n FROM cashier_closings
+        WHERE staff_id=? AND branch_id=? AND (is_locked=0 OR status='reopened')`, [accountId, fromBranchId])
+      if (Number(cashier.n)) { await conn.rollback(); return res.status(409).json({ code: 'OPEN_CASHIER', message: 'Close the staff member’s open cashier shift before moving the account.' }) }
+    }
+    await conn.query(`UPDATE ${table} SET branch_id=?,session_version=COALESCE(session_version,1)+1 WHERE id=? AND branch_id=?`, [toBranchId, accountId, fromBranchId])
+    const change = { account_role:role, account_id:accountId, from_branch_id:fromBranchId, to_branch_id:toBranchId }
+    // Both branches retain independent audit evidence of the move.
+    for (const branchId of [fromBranchId,toBranchId]) {
+      await writeAuditLog({ userId:req.user.id,userRole:'superadmin',action:'account.branch_moved',entityType:role,entityId:accountId,
+        oldValues:{branch_id:fromBranchId},newValues:change,branchId,ipAddress:req.ip||null }, conn)
+    }
+    await conn.commit()
+    res.json({ message:'Account moved to the new branch. Existing sessions have been revoked.', ...change, destination_branch_name:branch.name })
+  } catch (error) {
+    await conn.rollback().catch(()=>{})
+    throw error
+  } finally { conn.release() }
+})
+
 // Branch Admin notifications must never include global or another branch's events.
 router.get('/my/notifications',branchContext,async(req,res)=>{
   const [rows]=await db.query(`SELECT id,type,title,message,reference_type,reference_id,link,is_read,created_at
@@ -447,6 +531,8 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   }
 }
 
+require('./branchAllInventory').registerAllInventory(router,requireSuper)
+
 // Branch-scoped read handlers preserve the original Admin UI response shapes.
 require('./branchOperationalReads').registerBranchOperationalReads(router,{requireSuper,branchContext,requirePermission,allowAnyPermission})
 require('./branchReports').registerBranchReports(router,{requireSuper,branchContext,requirePermission})
@@ -454,6 +540,21 @@ require('./branchAudit').registerBranchAudit(router,{requireSuper,branchContext,
 require('./branchPromotions').registerBranchPromotions(router,{requireSuper,branchContext,requirePermission})
 
 require('./branchSystemWrites').registerBranchSystemWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchSystemWrites').registerBranchExtraSetup(router,{requireSuper,branchContext,requirePermission})
+require('./branchQueueInventoryWrites').registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchQueueInventoryWrites').registerBranchMoveStock(router,{requireSuper,branchContext,requirePermission})
+require('./branchInventoryItems').registerBranchInventoryItems(router,{requireSuper,branchContext,requirePermission})
+require('./branchCatalogWrites').registerBranchCatalogWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchAppointmentWrites').registerBranchAppointmentWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchBillPreviewReads').registerBranchBillPreviewReads(router,{requireSuper,branchContext,requirePermission})
+require('./branchGlobalReferenceWrites').registerBranchGlobalReferenceWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchPaymentSettingsWrites').registerBranchPaymentSettingsWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchSensitiveWrites').registerBranchSensitiveWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchPaymentActions').registerBranchPaymentActions(router,{requireSuper,branchContext,requirePermission})
+require('./branchCheckoutDraftWrites').registerBranchCheckoutDraftWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchBillCorrections').registerBranchBillCorrections(router,{requireSuper,branchContext,requirePermission})
+require('./branchBatchActions').registerBranchBatchActions(router,{requireSuper,branchContext,requirePermission})
+require('./branchCashierAndPayment').registerBranchCashierAndPayment(router,{requireSuper,branchContext,requirePermission})
 
 // Always return JSON for unsupported branch operations. Vite must never disguise
 // an unimplemented API as an HTML page and a confusing JSON parse failure.
@@ -467,3 +568,4 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+

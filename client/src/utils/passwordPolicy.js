@@ -26,3 +26,4 @@ export const getPasswordValidationError = (password = '') => {
 
 export const isPasswordValid = (password = '') => !getPasswordValidationError(password)
 
+

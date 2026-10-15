@@ -10,6 +10,7 @@ const db = require('./db/connect')
 const { ensureAppSchema } = require('./utils/schema')
 const { registerClient, writeEvent, broadcast } = require('./utils/sse')
 const authenticate = require('./middlewares/auth.middleware')
+const branchScope = require('./middlewares/branchScope.middleware')
 const { securityHeaders, originGuard, getAllowedOrigins } = require('./middlewares/httpSecurity.middleware')
 const { validateRuntimeConfig } = require('./utils/envValidation')
 
@@ -57,7 +58,7 @@ app.get('/api/ready', async (req, res) => {
 // has multiple role cookies (for example Admin in one tab and Doctor in another)
 // cannot have the stream authenticated as whichever cookie happens to be checked first.
 const streamEvents = (req, res) => {
-  const role = req.user.role
+  const role = req.authCookieName === 'superadmin_token' ? 'superadmin' : req.user.role
   const userId = req.user.id
 
   res.setHeader('Content-Type', 'text/event-stream')
@@ -66,7 +67,7 @@ const streamEvents = (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no')
   res.flushHeaders?.()
 
-  const unregister = registerClient(role, userId, res)
+  const unregister = registerClient(role, userId, res, { branchId: req.branchId })
   writeEvent(res, 'connected', { role, userId, connectedAt: new Date().toISOString() })
 
   const ping = setInterval(() => {
@@ -82,7 +83,7 @@ const streamEvents = (req, res) => {
 }
 
 for (const role of ['admin', 'staff', 'doctor', 'patient']) {
-  app.get(`/api/events/${role}`, authenticate(`${role}_token`), streamEvents)
+  app.get(`/api/events/${role}`, authenticate(`${role}_token`), ...(role === 'patient' ? [] : [branchScope(role)]), streamEvents)
 }
 // Dedicated Super Admin event stream, without relying on the Branch Admin cookie.
 app.get('/api/events/superadmin', authenticate('superadmin_token'), streamEvents)
@@ -166,4 +167,5 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
+
 
