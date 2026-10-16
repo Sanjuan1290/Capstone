@@ -234,10 +234,11 @@ const listBillingCatalog = async (options = {}, executor = db) => {
   return hydrateBillingCatalogRows(rows, executor)
 }
 
-const getBillingCatalogServiceById = async (serviceId, executor = db) => {
+const getBillingCatalogServiceById = async (serviceId, executor = db, branchId = null) => {
   const rows = await listBillingCatalog({
     includeInactive: true,
     ids: [Number(serviceId)],
+    ...(branchId != null ? { branchId } : {}),
   }, executor)
   return rows[0] || null
 }
@@ -254,7 +255,7 @@ const computeBillingTotals = ({ items = [], discount_amount = 0 }) => {
   }
 }
 
-const normalizeBillingItems = async (items = [], executor = db) => {
+const normalizeBillingItems = async (items = [], executor = db, branchId = null) => {
   if (!Array.isArray(items)) throw makeValidationError('Billing items must be an array.', 'items')
   if (items.length > 100) throw makeValidationError('A bill cannot contain more than 100 charge lines.', 'items')
   const rawItems = items
@@ -275,7 +276,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
   ))
 
   const services = requestedServiceIds.length > 0
-    ? await listBillingCatalog({ includeInactive: true, ids: requestedServiceIds }, executor)
+    ? await listBillingCatalog({ includeInactive: true, ids: requestedServiceIds, ...(branchId != null ? { branchId } : {}) }, executor)
     : []
   const serviceMap = new Map(services.map((service) => [service.id, service]))
 
@@ -284,8 +285,8 @@ const normalizeBillingItems = async (items = [], executor = db) => {
     const [inventoryRows] = await executor.query(
       `SELECT id, name, category, unit, base_unit, unit_size, uom, price, selling_price
        FROM inventory
-       WHERE id IN (${requestedInventoryIds.map(() => '?').join(', ')})`,
-      requestedInventoryIds
+       WHERE id IN (${requestedInventoryIds.map(() => '?').join(', ')})${branchId != null ? " AND branch_id=?" : ""}`,
+      branchId != null ? [...requestedInventoryIds, branchId] : requestedInventoryIds
     )
     inventoryRows.forEach((row) => inventoryMap.set(row.id, row))
   }
@@ -309,6 +310,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         const service = serviceMap.get(serviceId)
         const fallbackName = normalizeOptionalText(item?.service_name ?? item?.name, { field: `Service ${index + 1} name`, max: 180 }) || ''
 
+        if (serviceId > 0 && !service && branchId != null) throw Object.assign(new Error('Selected service is not available in this branch.'), { statusCode: 404, code: 'SERVICE_NOT_FOUND' })
         if (!service && !fallbackName) return null
 
         const requestedMaterials = Array.isArray(item?.materials) ? item.materials : null
@@ -316,6 +318,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
         const normalizedMaterials = sourceMaterials.map((material) => {
           const inventoryId = Number(material?.inventory_id || 0) || null
           const inventoryItem = inventoryMap.get(inventoryId)
+          if (inventoryId && branchId != null && !inventoryItem) throw Object.assign(new Error('Service material does not belong to this branch.'), { statusCode: 404, code: 'INVENTORY_NOT_FOUND' })
           const quantityUsed = Math.max(0, Number(material?.quantity) || 0)
           const unitLabel = String(
             material?.unit_label
@@ -385,6 +388,7 @@ const normalizeBillingItems = async (items = [], executor = db) => {
       if (itemType === 'supply') {
         const inventoryId = Number(item?.source_inventory_id || item?.inventory_id || 0)
         const inventoryItem = inventoryMap.get(inventoryId)
+        if (inventoryId > 0 && branchId != null && !inventoryItem) throw Object.assign(new Error('Selected inventory item is not available in this branch.'), { statusCode:404, code:'INVENTORY_NOT_FOUND' })
         const name = normalizeOptionalText(item?.service_name ?? item?.name ?? inventoryItem?.name, { field: `Medicine / Supply ${index + 1} name`, max: 180 }) || ''
         if (!name) return null
 
@@ -721,12 +725,14 @@ const upsertDraftBillingForAppointment = async ({
   items = [],
 }, executor = db) => {
   const consultationItems = buildConsultationBillingItems(items, consultationId)
-  const normalizedItems = await normalizeBillingItems(consultationItems, executor)
+  const branchId = Number(appointment?.branch_id)
+  if (!Number.isSafeInteger(branchId) || branchId <= 0) throw Object.assign(new Error('Appointment branch required to create a bill.'), { statusCode: 403, code: 'BRANCH_REQUIRED' })
+  const normalizedItems = await normalizeBillingItems(consultationItems, executor, branchId)
   const totals = computeBillingTotals({ items: normalizedItems, discount_amount: 0 })
 
   const [existingRows] = await executor.query(
-    'SELECT id, status, discount_type, discount_label, discount_amount, payment_method, payment_notes, confirmed_by_staff_id, paid_at FROM billing_records WHERE appointment_id = ? LIMIT 1',
-    [appointment.id]
+    'SELECT id, branch_id, status, discount_type, discount_label, discount_amount, payment_method, payment_notes, confirmed_by_staff_id, paid_at FROM billing_records WHERE appointment_id = ? AND branch_id = ? LIMIT 1',
+    [appointment.id, branchId]
   )
 
   if (existingRows.length > 0) {
@@ -743,8 +749,8 @@ const upsertDraftBillingForAppointment = async ({
     await executor.query(
       `UPDATE billing_records
        SET consultation_id = ?, subtotal = ?, total_amount = ?
-       WHERE id = ?`,
-      [consultationId, computed.subtotal, computed.total_amount, existing.id]
+       WHERE id = ? AND branch_id = ?`,
+      [consultationId, computed.subtotal, computed.total_amount, existing.id, branchId]
     )
 
     await saveBillingItems(existing.id, normalizedItems, executor)
@@ -753,13 +759,14 @@ const upsertDraftBillingForAppointment = async ({
 
   const [result] = await executor.query(
     `INSERT INTO billing_records
-     (appointment_id, consultation_id, patient_id, doctor_id, status, subtotal, discount_type, discount_amount, total_amount)
-     VALUES (?, ?, ?, ?, 'draft', ?, 'none', 0.00, ?)`,
+     (appointment_id, consultation_id, patient_id, doctor_id, branch_id, status, subtotal, discount_type, discount_amount, total_amount)
+     VALUES (?, ?, ?, ?, ?, 'draft', ?, 'none', 0.00, ?)`,
     [
       appointment.id,
       consultationId,
       appointment.patient_id,
       appointment.doctor_id,
+      branchId,
       totals.subtotal,
       totals.total_amount,
     ]
@@ -814,6 +821,7 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
+
 
 
 

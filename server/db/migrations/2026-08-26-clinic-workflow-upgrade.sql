@@ -242,3 +242,4 @@ CREATE TABLE cashier_closings (
 SET FOREIGN_KEY_CHECKS = 1;
 
 
+

@@ -495,3 +495,7 @@ export const reopenCashierClosing = (closingId, reason) => postJson(`${getAdminA
 
 
 
+
+
+export const createAdminQrPayment = id => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment`, { method:'POST' })
+export const getAdminQrStatus = id => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/status`)

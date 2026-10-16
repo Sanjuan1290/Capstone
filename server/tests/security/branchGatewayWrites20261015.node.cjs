@@ -58,3 +58,4 @@ test('foreign inventory item cannot trigger a stock movement',async()=>{
   await handler({branchId:3,user:{id:1},params:{id:'23'},body:{quantity:40}},res)
   assert.equal(res.code,404);assert.equal(committed,false);assert.equal(rolledBack,true)
 })
+

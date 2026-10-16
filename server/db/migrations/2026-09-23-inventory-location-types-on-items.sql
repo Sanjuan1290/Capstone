@@ -86,3 +86,4 @@ DELIMITER ;
 -- Administrators must configure them before creating new inventory items.
 
 
+

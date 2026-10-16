@@ -3,7 +3,7 @@
 // on an unmatched call. Passing it cannot prove branch ownership or DB safety.
 const fs=require('node:fs'),path=require('node:path')
 const root=path.resolve(__dirname,'../..'),read=f=>fs.readFileSync(path.join(root,f),'utf8')
-const routerFiles=['branches.router.js','branchOperationalReads.js','branchReports.js','branchAudit.js','branchPromotions.js','branchSystemWrites.js','branchQueueInventoryWrites.js','branchInventoryItems.js','branchCatalogWrites.js','branchAppointmentWrites.js','branchBillPreviewReads.js','branchGlobalReferenceWrites.js', 'branchPaymentSettingsWrites.js','branchSensitiveWrites.js','branchPaymentActions.js','branchCheckoutDraftWrites.js','branchBillCorrections.js','branchBatchActions.js','branchCashierAndPayment.js']
+const routerFiles=['branches.router.js','branchOperationalReads.js','branchReports.js','branchAudit.js','branchPromotions.js','branchSystemWrites.js','branchQueueInventoryWrites.js','branchInventoryItems.js','branchCatalogWrites.js','branchAppointmentWrites.js','branchBillPreviewReads.js','branchGlobalReferenceWrites.js', 'branchPaymentSettingsWrites.js','branchSensitiveWrites.js','branchPaymentActions.js','branchCheckoutDraftWrites.js','branchBillCorrections.js','branchBatchActions.js','branchCashierAndPayment.js','paymongoGateway.js']
 const methods=['GET','POST','PUT','PATCH','DELETE']
 // Consume one JS template expression ${...}, including nested backtick templates.
 function interpolation(str,start){
@@ -87,6 +87,14 @@ function patterns(){
   for(const m of source.matchAll(/\breg\(\s*['"](get|post|put|patch|delete)['"]\s*,\s*['"](\/[^'"\n]+)['"]/g))add(m[1],m[2],f)
   for(const m of source.matchAll(/\bwithSetup\(\s*['"](\/[^'"\n]+)['"]\s*,\s*['"](get|post|put|patch|delete)['"]/g))add(m[2],m[1],f)
  }
+ // The gateway router is mounted on branch-scoped /billing prefixes via router.use.
+ // Confirm both the mount and the endpoint exist before counting route coverage.
+ const gateway = read('server/routers/paymongoGateway.js')
+ const branchMount = read('server/routers/branches.router.js')
+ if (branchMount.includes('require(\'./paymongoGateway\').apiRouter') && branchMount.includes('`${prefix}/billing`')) {
+  if (gateway.includes("apiRouter.post('/:id/qr-payment'")) add('POST','/billing/:param/qr-payment','paymongoGateway.js')
+  if (gateway.includes("apiRouter.get('/:id/qr-payment/status'")) add('GET','/billing/:param/qr-payment/status','paymongoGateway.js')
+ }
  for(const a of ['confirm','cancel','no-show','reschedule'])add('PATCH',`/appointments/:param/${a}`,'branches.router.js')
  return [...new Map(found.map(r=>[`${r.method} ${r.path}`,r])).values()]
 }
@@ -98,3 +106,4 @@ function analyze(){
 const output=analyze()
 if(require.main===module){console.log(JSON.stringify(output,null,2));if(output.unmatched)process.exitCode=1}
 module.exports={patterns,serviceCalls,analyze,output}
+

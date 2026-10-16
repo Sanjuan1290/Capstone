@@ -251,9 +251,9 @@ const resolveSupplyTransfer = async ({ requestId, branchId, status, actorRole, a
           const label = batch.batch_code || `Batch #${batch.batch_id}`
           await conn.query(
             `INSERT INTO inventory_logs
-             (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id)
-             VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'supply_request', ?, ?)`,
-            [line.inventory_id, actorId, batch.quantity, `${label} moved from ${mainName} to ${destination} for stock transfer request #${group.id} (line #${line.id})`, mainName, destination, line.id, batch.batch_id]
+             (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id, branch_id)
+             VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'supply_request', ?, ?, ?)`,
+            [line.inventory_id, actorId, batch.quantity, `${label} moved from ${mainName} to ${destination} for stock transfer request #${group.id} (line #${line.id})`, mainName, destination, line.id, batch.batch_id, branchId]
           )
         }
 
@@ -345,6 +345,7 @@ const resolveSupplyTransfer = async ({ requestId, branchId, status, actorRole, a
 }
 
 module.exports = { resolveSupplyTransfer, listSupplyTransferGroups, groupTransferRows }
+
 
 
 

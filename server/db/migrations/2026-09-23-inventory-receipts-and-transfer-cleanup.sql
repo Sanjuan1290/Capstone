@@ -44,3 +44,4 @@ WHERE quantity > 0
 GROUP BY location_id, inventory_id;
 
 
+

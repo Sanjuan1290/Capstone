@@ -36,3 +36,4 @@ export const printBillingReceipt = ({ bill, payment, clinicSettings = {}, onPopu
 }
 
 
+

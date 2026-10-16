@@ -60,3 +60,4 @@ FROM inventory_batches
 ORDER BY inventory_id, id;
 
 
+

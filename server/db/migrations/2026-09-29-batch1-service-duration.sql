@@ -24,3 +24,4 @@ WHERE average_duration_minutes IS NULL
    OR MOD(average_duration_minutes, 15) <> 0;
 
 
+

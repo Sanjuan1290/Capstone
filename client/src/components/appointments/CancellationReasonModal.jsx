@@ -105,3 +105,4 @@ const CancellationReasonModal = ({ open, appointment, loadReasons, onClose, onCo
 export default CancellationReasonModal
 
 
+

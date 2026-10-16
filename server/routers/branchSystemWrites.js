@@ -152,3 +152,4 @@ module.exports.registerBranchExtraSetup=registerBranchExtraSetup
 module.exports.saveBranchSupplier=saveBranchSupplier
 module.exports.saveBranchLocationType=saveBranchLocationType
 module.exports.updateBranchClinicSettings=updateBranchClinicSettings
+

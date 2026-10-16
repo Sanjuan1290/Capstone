@@ -165,8 +165,8 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
       )
       await conn.query(
         `INSERT INTO inventory_logs
-         (inventory_id, doctor_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
-         VALUES (?, ?, 'out', ?, ?, 'clinical_use', 'consultation', ?, ?, ?)`,
+         (inventory_id, doctor_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location, branch_id)
+         VALUES (?, ?, 'out', ?, ?, 'clinical_use', 'consultation', ?, ?, ?, ?)`,
         [
           entry.inventory_id,
           doctorId || null,
@@ -175,6 +175,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
           consultationId,
           batch.batch_id,
           batch.location || preferredLocation,
+          branchId,
         ]
       )
     }
@@ -511,7 +512,7 @@ const assertBookedServicePresent = (appointment, billableServices) => {
 }
 
 
-const enforceFixedCatalogConsumables = async (billableServices, executor = db) => {
+const enforceFixedCatalogConsumables = async (billableServices, executor = db, branchId) => {
   if (!Array.isArray(billableServices)) return billableServices
 
   const normalized = []
@@ -522,10 +523,9 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db) =
       continue
     }
 
-    const catalogService = await getBillingCatalogServiceById(serviceId, executor)
+    const catalogService = await getBillingCatalogServiceById(serviceId, executor, branchId)
     if (!catalogService) {
-      normalized.push(rawService)
-      continue
+      throw Object.assign(new Error('Selected consultation service was not found in this branch.'), { statusCode: 404, code: 'SERVICE_NOT_FOUND' })
     }
 
     const configuredMaterials = (Array.isArray(catalogService.materials) ? catalogService.materials : []).map((material) => ({
@@ -634,7 +634,7 @@ const saveConsultationDraft = async (req, res) => {
       await syncConsultationImages(consultationId, authorizedImages, conn)
     }
     if (payload.billableServices !== null) {
-      const fixedBillableServices = await enforceFixedCatalogConsumables(payload.billableServices, conn)
+      const fixedBillableServices = await enforceFixedCatalogConsumables(payload.billableServices, conn, req.branchId)
       assertBookedServicePresent(appt, fixedBillableServices)
       billing = await upsertDraftBillingForAppointment({ appointment: appt, consultationId, items: fixedBillableServices }, conn)
     } else {
@@ -743,7 +743,7 @@ const finalizeConsultation = async (req, res) => {
       const authorizedImages = await authorizeConsultationImages({ consultationId, appointmentId, doctorId: req.user.id, images, executor: conn })
       await syncConsultationImages(consultationId, authorizedImages, conn)
     }
-    const fixedBillableServices = await enforceFixedCatalogConsumables(billableServices, conn)
+    const fixedBillableServices = await enforceFixedCatalogConsumables(billableServices, conn, req.branchId)
     assertBookedServicePresent(appt, fixedBillableServices)
     billing = await upsertDraftBillingForAppointment({
       appointment: appt,
@@ -907,7 +907,7 @@ const updateConsultation = async (req, res) => {
       [appointmentId, req.user.id]
     )
     if (hasBillableServicesPayload) {
-      const fixedBillableServices = await enforceFixedCatalogConsumables(req.body.billable_services, conn)
+      const fixedBillableServices = await enforceFixedCatalogConsumables(req.body.billable_services, conn, req.branchId)
       assertBookedServicePresent(apptRows[0], fixedBillableServices)
       billing = await upsertDraftBillingForAppointment({
         appointment: apptRows[0],
@@ -1659,6 +1659,7 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 
 
 

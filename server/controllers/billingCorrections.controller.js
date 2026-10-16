@@ -139,6 +139,8 @@ const voidBill = async (req, res) => {
     await conn.beginTransaction()
     const [[locked]] = await conn.query('SELECT * FROM billing_records WHERE id = ? AND branch_id = ? FOR UPDATE', [billingId,req.branchId])
     if (!locked) throw httpError(404, 'Billing record not found.')
+    const [pendingQr] = await conn.query('SELECT id FROM payment_gateway_attempts WHERE active_bill_id=? LIMIT 1 FOR UPDATE',[billingId])
+    if (pendingQr.length) throw httpError(409,'A QR payment is pending; wait for confirmation or reconcile it before editing this bill.','QR_PAYMENT_PENDING')
     if (locked.status === 'voided') throw httpError(409, 'This bill is already voided.', 'BILL_ALREADY_VOIDED')
     const bill = await getBillingRecordWithItems(billingId, conn)
     assertNoMoneyHeld(bill)
@@ -196,6 +198,8 @@ const reopenBill = async (req, res) => {
     await conn.beginTransaction()
     const [[locked]] = await conn.query('SELECT * FROM billing_records WHERE id = ? AND branch_id = ? FOR UPDATE', [billingId,req.branchId])
     if (!locked) throw httpError(404, 'Billing record not found.')
+    const [pendingQr] = await conn.query('SELECT id FROM payment_gateway_attempts WHERE active_bill_id=? LIMIT 1 FOR UPDATE',[billingId])
+    if (pendingQr.length) throw httpError(409,'A QR payment is pending; wait for confirmation or reconcile it before editing this bill.','QR_PAYMENT_PENDING')
     if (['draft', 'pending'].includes(locked.status)) throw httpError(409, 'This bill is already a draft.', 'BILL_ALREADY_DRAFT')
     if (locked.status === 'voided') throw httpError(409, 'A voided bill cannot be reopened.', 'BILL_VOIDED')
     const bill = await getBillingRecordWithItems(billingId, conn)
@@ -331,9 +335,9 @@ const moveStockBetweenLocations = async (req, res) => {
       [transfer.insertId, batchId, quantity, moved.expiration_date || null]
     )
     await conn.query(
-      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id)
-       VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'inventory_transfer', ?, ?)`,
-      [inventoryId, req.user.id, quantity, `${label} moved from ${moved.from.name} to ${moved.to.name}${note ? `: ${note}` : ''}`, moved.from.name, moved.to.name, transfer.insertId, batchId]
+      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id, branch_id)
+       VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'inventory_transfer', ?, ?, ?)`,
+      [inventoryId, req.user.id, quantity, `${label} moved from ${moved.from.name} to ${moved.to.name}${note ? `: ${note}` : ''}`, moved.from.name, moved.to.name, transfer.insertId, batchId, req.branchId]
     )
     await writeAuditLog({
       userId: req.user.id, userRole: actorRole, action: 'inventory.location_move', entityType: 'inventory_item', entityId: inventoryId,
@@ -537,5 +541,6 @@ module.exports = {
   closeMyCashier,
   reopenCashierClosing,
 }
+
 
 

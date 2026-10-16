@@ -156,3 +156,4 @@ export const uploadClinicalImageSigned = async (file, appointmentId, { scanMode 
 }
 
 
+

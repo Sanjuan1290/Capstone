@@ -22,3 +22,4 @@ function registerBranchBillPreviewReads(router,{requireSuper,branchContext,requi
  }
 }
 module.exports={registerBranchBillPreviewReads,ownsBill,adjustments}
+

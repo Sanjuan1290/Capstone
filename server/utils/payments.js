@@ -1,7 +1,7 @@
 const crypto = require('crypto')
 const { getTodayDateOnly } = require('./date')
 
-const PAYMENT_METHODS = new Set(['cash', 'gcash', 'maya', 'bank_transfer'])
+const PAYMENT_METHODS = new Set(['cash', 'gcash', 'maya', 'bank_transfer', 'qrph'])
 
 const isValidPaymentMethod = (value) => PAYMENT_METHODS.has(String(value || '').trim().toLowerCase())
 
@@ -75,6 +75,7 @@ module.exports = {
   allocateReceiptNumber,
   calculatePaymentAmounts,
 }
+
 
 
 

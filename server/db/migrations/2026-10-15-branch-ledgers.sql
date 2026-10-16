@@ -72,3 +72,4 @@ CALL carait_ensure_branch_ledger_index('discount_presets','uniq_discount_preset_
 DROP PROCEDURE IF EXISTS carait_ensure_branch_ledger_column;
 DROP PROCEDURE IF EXISTS carait_ensure_branch_ledger_index;
 DROP PROCEDURE IF EXISTS carait_ensure_barcode_pk;
+

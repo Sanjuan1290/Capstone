@@ -43,3 +43,4 @@ ALTER TABLE password_resets
   ADD COLUMN verified_at DATETIME NULL;
 
 
+

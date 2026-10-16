@@ -134,7 +134,7 @@ const getAppointmentInventoryReadiness = async (appointmentId, { doctorId = null
   if (!rows.length) return null
   const appointment = rows[0]
   const service = appointment.requested_service_id
-    ? await getBillingCatalogServiceById(appointment.requested_service_id, executor)
+    ? await getBillingCatalogServiceById(appointment.requested_service_id, executor, branchId)
     : null
   const requirements = Array.isArray(service?.materials)
     ? service.materials.map((material) => ({
@@ -178,6 +178,7 @@ module.exports = {
   getAppointmentInventoryReadiness,
   getBillingInventoryReadiness,
 }
+
 
 
 

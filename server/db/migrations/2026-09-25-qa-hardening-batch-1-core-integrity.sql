@@ -79,3 +79,4 @@ SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_sch
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 
+

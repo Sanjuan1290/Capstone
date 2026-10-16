@@ -50,3 +50,4 @@ test('original dashboard clears loading state on API failure',()=>{
  assert.match(dashboard,/setLoadError\(err\.message/)
 })
 
+

@@ -50,3 +50,4 @@ test('checkout inventory, locations and batches are all checked for bill branch 
  assert.match(staff,/Number\(bill\?\.branch_id\)!==Number\(branchId\)/)
  assert.match(staff,/existingBranchId!==Number\(req\.branchId\)/)
 })
+

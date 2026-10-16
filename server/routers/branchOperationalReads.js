@@ -213,3 +213,4 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
 }
 module.exports={registerBranchOperationalReads,readBills,readCashDrawer,readTransferGroups,readSystemSetup}
 
+

@@ -109,6 +109,7 @@ router.get('/billing/:id/finalize-preview', ...auth, can('checkout'), ownBill, s
 router.post('/billing/:id/finalize', ...auth, can('checkout'), ownBill, staffCtrl.finalizeBill)
 router.post('/billing/:id/reopen', ...auth, can('checkout'), ownBill, staffCtrl.reopenBillForEditing)
 router.post('/billing/:id/pay', ...auth, can('checkout'), ownBill, staffCtrl.payBill)
+router.use('/billing', ...auth, can('checkout'), require('./paymongoGateway').apiRouter)
 router.post('/billing/:id/confirm-payment', ...auth, can('checkout'), ownBill, staffCtrl.confirmBillPayment)
 router.post('/billing/discount-proof/upload', ...auth, can('checkout'), express.raw({ type: ['image/png', 'image/jpeg'], limit: '5mb' }), adminCtrl.uploadDiscountProofImageAdmin)
 router.post('/billing/discount-proof/upload-status', ...auth, can('checkout'), adminCtrl.getDiscountProofUploadScanStatusAdmin)
@@ -198,6 +199,7 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), s
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 
 module.exports = router
+
 
 
 

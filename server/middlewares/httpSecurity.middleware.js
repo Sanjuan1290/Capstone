@@ -26,7 +26,7 @@ const originGuard = (req, res, next) => {
   const origin = req.get('origin')
   // Non-browser same-host jobs and test/CLI requests may not include Origin. In production,
   // require it for requests carrying one of our auth cookies.
-  const hasAuthCookie = ['admin_token', 'staff_token', 'doctor_token', 'patient_token'].some((name) => Boolean(req.cookies?.[name]))
+  const hasAuthCookie = ['admin_token', 'superadmin_token', 'staff_token', 'doctor_token', 'patient_token'].some((name) => Boolean(req.cookies?.[name]))
   if (!origin) {
     if (process.env.NODE_ENV === 'production' && hasAuthCookie) {
       return res.status(403).json({ code: 'ORIGIN_REQUIRED', message: 'Request origin could not be verified.' })
@@ -41,5 +41,6 @@ const originGuard = (req, res, next) => {
 }
 
 module.exports = { securityHeaders, originGuard, getAllowedOrigins }
+
 
 

@@ -50,3 +50,4 @@ CREATE INDEX idx_inventory_batches_item_expiry ON inventory_batches (inventory_i
 CREATE INDEX idx_audit_action_created ON audit_logs (action, created_at);
 
 
+

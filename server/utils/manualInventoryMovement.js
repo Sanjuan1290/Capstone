@@ -126,9 +126,9 @@ const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, 
     await executor.query('UPDATE inventory SET price=selling_price WHERE id=?', [inventoryId])
     await syncInventorySnapshot(inventoryId, executor)
     await executor.query(
-      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, to_location)
-       VALUES (?, ?, 'in', ?, ?, ?, ?, ?)`,
-      [inventoryId, actorId, qty, note || null, movementType, received.batch_id, received.location]
+      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, to_location, branch_id)
+       VALUES (?, ?, 'in', ?, ?, ?, ?, ?, ?)`,
+      [inventoryId, actorId, qty, note || null, movementType, received.batch_id, received.location, branchId]
     )
     auditValues = {
       type: 'in', movement_type: movementType, quantity: qty,
@@ -184,9 +184,9 @@ const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, 
     const movementReason = await resolveConfiguredMovementReason('out', body.movement_reason, executor)
     const movementType = movementReason.code
     await executor.query(
-      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, from_location)
-       VALUES (?, ?, 'out', ?, ?, ?, ?, ?)`,
-      [inventoryId, actorId, quantity, note || null, movementType, batch.batch_id || batch.id, batch.location || 'Main Stockroom']
+      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, from_location, branch_id)
+       VALUES (?, ?, 'out', ?, ?, ?, ?, ?, ?)`,
+      [inventoryId, actorId, quantity, note || null, movementType, batch.batch_id || batch.id, batch.location || 'Main Stockroom', branchId]
     )
     auditValues = {
       type: 'out', movement_type: movementType, quantity,
@@ -206,11 +206,13 @@ const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, 
     entityId: inventoryId,
     newValues: { item_name: item.name, ...auditValues },
     ipAddress: ipAddress || null,
+    branchId,
   }, executor)
 
   return { item, movement: auditValues }
 }
 
 module.exports = { applyManualInventoryMovement }
+
 
 

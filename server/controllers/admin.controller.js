@@ -2710,8 +2710,8 @@ const addInventoryItem = async (req, res) => {
     await syncInventorySnapshot(result.insertId, conn)
     if (stock > 0 && openingBatchId) {
       await conn.query(
-        `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, to_location)
-         VALUES (?, ?, 'in', ?, ?, 'received', ?, ?)`,
+        `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, to_location, branch_id)
+         VALUES (?, ?, 'in', ?, ?, 'received', ?, ?, ?)`,
         [
           result.insertId,
           req.user.id,
@@ -2719,6 +2719,7 @@ const addInventoryItem = async (req, res) => {
           `Opening stock · ${batch_code || `Batch #${openingBatchId}`}${expiration_date ? ` · expires ${expiration_date}` : ''}`,
           openingBatchId,
           openingLocation,
+          req.branchId,
         ]
       )
     }
@@ -4292,6 +4293,7 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

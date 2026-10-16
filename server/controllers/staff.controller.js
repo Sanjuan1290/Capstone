@@ -1155,9 +1155,9 @@ const dispenseCheckoutSupplies = async ({ bill, actorRole, userId, executor, bra
         [bill.id, item.id || null, inventoryItem.id, batch.batch_id, Number(batch.quantity || 0), batchUsageQty, details.unit || inventoryItem.unit, canonicalSourceLocation, sourceLocationId]
       )
       await executor.query(
-        `INSERT INTO inventory_logs (inventory_id, staff_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location)
-         VALUES (?, ?, ?, 'out', ?, ?, 'dispensed', 'billing_record', ?, ?, ?)`,
-        [inventoryItem.id, isAdminActor ? null : userId, isAdminActor ? userId : null, Number(batch.quantity || 0), `${batch.batch_code || `Batch #${batch.batch_id}`} dispensed after full payment for billing record ${bill.id}: ${item.service_name}`, String(bill.id), batch.batch_id, canonicalSourceLocation]
+        `INSERT INTO inventory_logs (inventory_id, staff_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location, branch_id)
+         VALUES (?, ?, ?, 'out', ?, ?, 'dispensed', 'billing_record', ?, ?, ?, ?)`,
+        [inventoryItem.id, isAdminActor ? null : userId, isAdminActor ? userId : null, Number(batch.quantity || 0), `${batch.batch_code || `Batch #${batch.batch_id}`} dispensed after full payment for billing record ${bill.id}: ${item.service_name}`, String(bill.id), batch.batch_id, canonicalSourceLocation, branchId]
       )
       dispensed.push({ billing_item_id: item.id, inventory_id: inventoryItem.id, batch_id: batch.batch_id, quantity: Number(batch.quantity || 0), source_location: canonicalSourceLocation, source_location_id: sourceLocationId })
     }
@@ -1220,7 +1220,7 @@ const updateBill = async (req, res) => {
       ...item,
       source_type: String(item?.item_type || '').toLowerCase() === 'supply' ? 'staff_supply' : 'staff_custom',
       source_reference_id: null,
-    })), conn)
+    })), conn, req.branchId)
 
     const allItems = [...securedConsultationItems, ...normalizedStaffItems]
     if (!allItems.length) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item.' }) }
@@ -1505,6 +1505,8 @@ const reopenBillForEditing = async (req, res) => {
     }
 
     const locked = rows[0]
+    const [activeQr] = await conn.query('SELECT id FROM payment_gateway_attempts WHERE active_bill_id=? LIMIT 1 FOR UPDATE',[billingId])
+    if (activeQr.length) { await conn.rollback(); return res.status(409).json({code:'QR_PAYMENT_PENDING',message:'A QR payment is pending. Wait for confirmation or reconcile it before reopening.'}) }
     if (locked.status !== 'ready') {
       await conn.rollback()
       return res.status(409).json({ message: 'Only a confirmed bill with no recorded payment can return to editing.', code: 'BILL_NOT_EDITABLE' })
@@ -1572,16 +1574,17 @@ const payBill = async (req, res) => {
   const actorRole = (req.user?.role === 'admin' || req.adminContext?.account_role === 'superadmin') ? 'admin' : 'staff'
   const isAdminActor = actorRole === 'admin'
   const billingId = Number(req.params.id)
+  const gatewayVerified = req.gatewayVerified?.provider === 'paymongo' && Boolean(req.gatewayVerified.paymentId)
   const paymentMethod = String(req.body.payment_method || '').trim().toLowerCase()
   const paymentNotes = normalizeOptionalText(req.body.payment_notes, { field: 'Payment Notes', max: 500, multiline: true })
   const referenceNumber = normalizeOptionalText(req.body.reference_number, { field: 'Reference Number', max: 120 })
   const idempotencyKey = String(req.body.idempotency_key || '').trim()
   if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
   if (!idempotencyKey || idempotencyKey.length > 100) return res.status(400).json({ message: 'A valid payment request key is required.' })
-  if (!isValidPaymentMethod(paymentMethod)) return res.status(400).json({ message: 'Select a valid payment method.' })
+  if ((paymentMethod === 'qrph' && !gatewayVerified) || (gatewayVerified && paymentMethod !== 'qrph') || !isValidPaymentMethod(paymentMethod)) return res.status(400).json({ message: 'Select a valid payment method.' })
   const paymentMethodColumns = { cash: 'cash_enabled', gcash: 'gcash_enabled', maya: 'maya_enabled', bank_transfer: 'bank_transfer_enabled' }
   const enabledColumn = paymentMethodColumns[paymentMethod]
-  const [paymentSettingsRows] = await db.query(`SELECT ${enabledColumn} AS is_enabled FROM branch_payment_settings WHERE branch_id = ? LIMIT 1`, [req.branchId])
+  const [paymentSettingsRows] = gatewayVerified ? [[{is_enabled:1}]] : await db.query(`SELECT ${enabledColumn} AS is_enabled FROM branch_payment_settings WHERE branch_id = ? LIMIT 1`, [req.branchId])
   if (!paymentSettingsRows.length) return res.status(503).json({ message: 'Payment methods are not configured for this branch.' })
   if (Number(paymentSettingsRows[0].is_enabled) === 0) {
     return res.status(400).json({ message: `${paymentMethod.replace('_', ' ')} is currently disabled by an administrator.` })
@@ -1589,7 +1592,7 @@ const payBill = async (req, res) => {
   if (requiresPaymentReference(paymentMethod) && !referenceNumber) return res.status(400).json({ message: 'Enter the payment reference number.' })
 
   try {
-    await assertCashierOpen({ cashierRole: actorRole, cashierId: req.user.id, branchId:req.branchId })
+    if (!gatewayVerified) await assertCashierOpen({ cashierRole: actorRole, cashierId: req.user.id, branchId:req.branchId })
   } catch (error) {
     return res.status(error.statusCode || 409).json({ message: error.message, code: error.code })
   }
@@ -1597,7 +1600,7 @@ const payBill = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    await assertCashierOpen({ cashierRole: actorRole, cashierId: req.user.id,branchId:req.branchId },conn)
+    if (!gatewayVerified) await assertCashierOpen({ cashierRole: actorRole, cashierId: req.user.id,branchId:req.branchId },conn)
     const [duplicatePayments] = await conn.query('SELECT bp.billing_id,br.branch_id FROM billing_payments bp JOIN billing_records br ON br.id=bp.billing_id WHERE bp.idempotency_key = ? LIMIT 1', [idempotencyKey])
     if (duplicatePayments.length) {
       const existingId = duplicatePayments[0].billing_id
@@ -1607,6 +1610,17 @@ const payBill = async (req, res) => {
       return res.json(await getBillingRecordWithItems(existingId))
     }
 
+    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? AND branch_id = ? LIMIT 1 FOR UPDATE', [billingId, req.branchId])
+    if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
+    const lockedBill = lockedRows[0]
+    // The initial check is only a fast-path. Concurrent retries can both miss it;
+    // re-check *after* locking the bill so exactly one receipt/stock movement wins.
+    const [sameKeyAfterLock] = await conn.query('SELECT bp.billing_id,br.branch_id FROM billing_payments bp JOIN billing_records br ON br.id=bp.billing_id WHERE bp.idempotency_key = ? LIMIT 1', [idempotencyKey])
+    if (sameKeyAfterLock.length) {
+      await conn.rollback()
+      if (Number(sameKeyAfterLock[0].billing_id) !== billingId || Number(sameKeyAfterLock[0].branch_id) !== Number(req.branchId)) return res.status(409).json({code:'IDEMPOTENCY_KEY_CONFLICT',message:'Payment key already used for another bill.'})
+      return res.json(await getBillingRecordWithItems(billingId))
+    }
     if (requiresPaymentReference(paymentMethod) && referenceNumber) {
       const [duplicateRefs] = await conn.query(
         `SELECT id, billing_id, receipt_number FROM billing_payments
@@ -1622,9 +1636,11 @@ const payBill = async (req, res) => {
       }
     }
 
-    const [lockedRows] = await conn.query('SELECT * FROM billing_records WHERE id = ? AND branch_id = ? LIMIT 1 FOR UPDATE', [billingId, req.branchId])
-    if (!lockedRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Billing record not found.' }) }
-    const lockedBill = lockedRows[0]
+
+    const [pendingQr] = await conn.query('SELECT id,payment_intent_id FROM payment_gateway_attempts WHERE active_bill_id=? LIMIT 1 FOR UPDATE', [billingId])
+    if (pendingQr.length && (!gatewayVerified || pendingQr[0].payment_intent_id !== req.gatewayVerified.intentId)) {
+      await conn.rollback(); return res.status(409).json({ code:'QR_PAYMENT_PENDING', message:'A QR payment is pending. Reconcile or expire it before recording another payment.' })
+    }
     if (['paid', 'voided', 'refunded'].includes(lockedBill.status)) {
       await conn.rollback(); return res.status(409).json({ message: `This bill is already ${lockedBill.status}.` })
     }
@@ -1677,12 +1693,18 @@ const payBill = async (req, res) => {
     )
     await conn.query(
       `UPDATE billing_records
-       SET status = ?, payment_method = ?, payment_notes = ?, confirmed_by_staff_id = ?, confirmed_by_admin_id = ?, paid_at = CASE WHEN ? = 'paid' THEN ? ELSE paid_at END
-       WHERE id = ?`,
-      [nextStatus, paymentMethod, paymentNotes, isAdminActor ? null : req.user.id, isAdminActor ? req.user.id : null, nextStatus, paidAt, billingId]
+       SET status = ?, payment_method = ?, payment_notes = ?,
+           confirmed_by_staff_id = CASE WHEN ? = 1 THEN confirmed_by_staff_id ELSE ? END,
+           confirmed_by_admin_id = CASE WHEN ? = 1 THEN confirmed_by_admin_id ELSE ? END,
+           paid_at = CASE WHEN ? = 'paid' THEN ? ELSE paid_at END
+       WHERE id = ? AND branch_id = ?`,
+      [nextStatus, paymentMethod, paymentNotes,
+        gatewayVerified ? 1 : 0, isAdminActor ? null : req.user.id,
+        gatewayVerified ? 1 : 0, isAdminActor ? req.user.id : null,
+        nextStatus, paidAt, billingId, req.branchId]
     )
     await writeAuditLog({
-      userId: req.user.id, userRole: actorRole, action: 'billing.payment_received', entityType: 'billing_record', entityId: billingId,
+      userId: gatewayVerified ? null : req.user.id, userRole: gatewayVerified ? 'system' : actorRole, action: 'billing.payment_received', entityType: 'billing_record', entityId: billingId,
       oldValues: { status: lockedBill.status, balance_amount: balance },
       newValues: { status: nextStatus, payment_amount: requestedPayment, balance_amount: balanceAfter, payment_method: paymentMethod, receipt_number: receiptNumber, checkout_items_dispensed: checkoutDispensed.length },
       ipAddress: req.ip || null, branchId:req.branchId,
@@ -1815,8 +1837,8 @@ const addInventoryItem = async (req, res) => {
     await syncInventorySnapshot(result.insertId, conn)
     if (stock > 0 && openingBatchId) {
       await conn.query(
-        `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, batch_id, to_location)
-         VALUES (?, ?, 'in', ?, ?, 'received', ?, ?)`,
+        `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, batch_id, to_location, branch_id)
+         VALUES (?, ?, 'in', ?, ?, 'received', ?, ?, ?)`,
         [
           result.insertId,
           req.user.id,
@@ -1824,6 +1846,7 @@ const addInventoryItem = async (req, res) => {
           `Opening stock · ${batch_code || `Batch #${openingBatchId}`}${expiration_date ? ` · expires ${expiration_date}` : ''}`,
           openingBatchId,
           openingLocation,
+          req.branchId,
         ]
       )
     }
@@ -2085,6 +2108,7 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

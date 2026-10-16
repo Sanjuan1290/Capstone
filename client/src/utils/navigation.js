@@ -24,3 +24,4 @@ export const normalizeAppPath = (value, fallback = '/') => {
 export const isExternalPath = (value = '') => /^(https?:|mailto:|tel:)/i.test(value)
 
 
+

@@ -30,6 +30,7 @@ const setup = (options = {}) => {
     query: async (sql, params) => {
       state.queries.push({ sql, params })
       if (sql.startsWith('SELECT * FROM billing_records')) return [options.absent ? [] : [{ ...record }]]
+      if (sql.includes('FROM payment_gateway_attempts')) return [options.activeQr ? [{id:42}] : []]
       if (sql.includes('FROM billing_payments')) return [[{ count: options.payments ?? 0 }]]
       if (sql.includes('FROM billing_item_batch_usage')) return [[{ count: options.stockUsage ?? 0 }]]
       if (sql.includes('UPDATE billing_records')) {
@@ -158,3 +159,12 @@ test('admin correction route remains distinct from the checkout edit route', () 
 })
 
 
+
+
+test('cannot reopen a bill while a QR Ph payment is active', async () => {
+  const { handler,state,req,res } = setup({activeQr:true})
+  await handler(req,res)
+  assert.equal(res.statusCode,409)
+  assert.equal(res.payload.code,'QR_PAYMENT_PENDING')
+  assertUnchanged(state)
+})

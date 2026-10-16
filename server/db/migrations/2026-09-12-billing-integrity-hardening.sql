@@ -155,3 +155,4 @@ ALTER TABLE clinic_payment_settings
   ALTER COLUMN bank_transfer_enabled SET DEFAULT 0;
 
 
+

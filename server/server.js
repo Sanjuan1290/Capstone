@@ -6,6 +6,7 @@ const cors = require('cors')
 const cookieParser = require('cookie-parser')
 
 const app = express()
+const { rawWebhook, apiRouter: qrApi } = require('./routers/paymongoGateway')
 const db = require('./db/connect')
 const { ensureAppSchema } = require('./utils/schema')
 const { registerClient, writeEvent, broadcast } = require('./utils/sse')
@@ -27,6 +28,8 @@ const allowedOrigins = getAllowedOrigins()
 
 app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false)
 app.use(securityHeaders)
+// Exact raw bytes are mandatory for PayMongo HMAC. Register before JSON parsing.
+app.post('/api/webhooks/paymongo', express.raw({ type:'application/json',limit:'256kb' }), rawWebhook)
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }))
 app.use(express.urlencoded({ extended: false, limit: process.env.FORM_BODY_LIMIT || '256kb' }))
 app.use(cors({
@@ -168,5 +171,6 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
+
 
 

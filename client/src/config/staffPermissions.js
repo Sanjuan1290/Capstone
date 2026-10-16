@@ -69,3 +69,4 @@ export const normalizeStaffPermissions = (value) => [...new Set((Array.isArray(v
 export const hasStaffPermission = (user, key) => normalizeStaffPermissions(user?.permissions).includes(key)
 
 
+

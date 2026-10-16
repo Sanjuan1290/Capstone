@@ -118,3 +118,4 @@ PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 DROP PROCEDURE IF EXISTS carait_add_column;
 
 
+

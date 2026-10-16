@@ -31,3 +31,4 @@ const branchScope = role => {
 }
 
 module.exports = branchScope
+

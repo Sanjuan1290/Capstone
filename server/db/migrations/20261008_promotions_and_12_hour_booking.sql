@@ -43,3 +43,4 @@ SELECT `online_min_lead_minutes`, `pending_confirmation_cutoff_minutes` FROM `bo
 SELECT COUNT(*) AS `promo_count` FROM `clinic_promotions`;
 
 
+

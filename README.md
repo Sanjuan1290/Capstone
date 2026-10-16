@@ -1,3 +1,5 @@
+> **QA & PayMongo TEST QRPh patch (2026-10-16):** See [QA_PAYMONGO_TEST_IMPLEMENTATION_20261016.md](QA_PAYMONGO_TEST_IMPLEMENTATION_20261016.md). This code is STAGING ONLY; no live MySQL, PayMongo webhook, or browser validation has occurred.
+
 > **Latest route verification (2026-10-15):** Admin branch gateway now has zero unmatched static routes (122 calls). This does **not** establish production readiness: MySQL migration/concurrency, cross-branch integration, Vitest, lint, build, and browser checks are outstanding. See [BRANCH_GATEWAY_COMPLETION_20261015.md](BRANCH_GATEWAY_COMPLETION_20261015.md). Inventory import/export has not started.
 
 > **IMPORTANT:** This multi-branch version is a STAGING/PARTIAL working copy and is NOT production-ready. Read [MULTIBRANCH_IMPLEMENTATION_STATUS.md](MULTIBRANCH_IMPLEMENTATION_STATUS.md) before using any migration or API changes.
@@ -382,3 +384,4 @@ The Branch Admin and Super Admin branch-workspace Reports query has been correct
 - `cd server && npm run verify:reports-sql` performs **read-only EXPLAIN** of all 20 statements using the configured MySQL schema, including a newly reset/empty clinic database. It fails with the numbered statement and MySQL error if a query references an ambiguous or missing column.
 
 `npm run verify:deploy` includes the same SQL preflight. Run that before deployment and after database migrations. No SQL migration is required for this Reports-only fix. The Reports page also cancels stale requests to avoid duplicate notifications during development or rapid date-range changes.
+

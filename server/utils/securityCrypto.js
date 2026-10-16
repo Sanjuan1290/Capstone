@@ -20,3 +20,4 @@ const makeTemporaryPassword = (length = 14) => {
 module.exports = { makeNumericCode, makeRandomToken, hashSecret, timingSafeEqualHash, makeTemporaryPassword }
 
 
+

@@ -53,3 +53,4 @@ test('new cashier migration parses as idempotent guarded SQL statements',()=>{
  assert.ok(statements.some(x=>x.startsWith('CALL carait_cashier_branch_unique()')))
  assert.ok(statements.some(x=>x.startsWith('DROP PROCEDURE IF EXISTS carait_cashier_branch_unique')))
 })
+

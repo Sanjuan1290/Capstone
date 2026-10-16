@@ -52,3 +52,4 @@ test('report screen aborts stale requests and displays only the active response'
   assert.match(page, /controller\.signal\.aborted/)
   assert.match(page, /signal: controller\.signal/)
 })
+

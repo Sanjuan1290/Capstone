@@ -19,3 +19,4 @@ describe('branch Reports SQL regression checks', () => {
     await expect(verifyBranchReportsSql(database)).rejects.toThrow('Branch Reports query 1/20 failed SQL validation')
   })
 })
+

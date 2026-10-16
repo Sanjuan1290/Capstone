@@ -24,6 +24,8 @@ import Modal from '../../components/ui/Modal'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { LoadingState, ErrorState } from '../../components/ui/PageState'
 import BillingStatusBadge from '../../components/billing/BillingStatusBadge'
+import QrPhPaymentPanel from '../../components/billing/QrPhPaymentPanel'
+import { createAdminQrPayment, getAdminQrStatus } from '../../services/admin.service'
 import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
 import DiscountProofField from '../../components/billing/DiscountProofField'
 import { enabledPaymentMethods, formatMoney, paymentMethodLabel, roundMoney } from '../../utils/billingUi'
@@ -138,6 +140,7 @@ const Admin_CheckoutDetail = () => {
   const [saving, setSaving] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [paying, setPaying] = useState(false)
+  const [qrPending, setQrPending] = useState(false)
   const [reopening, setReopening] = useState(false)
   const [adjusting, setAdjusting] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
@@ -676,7 +679,7 @@ const Admin_CheckoutDetail = () => {
                 <strong>Found a billing mistake before payment?</strong>
                 <p className="mt-1">Reopen the bill to correct charges or discounts. The bill must be confirmed again before collecting payment.</p>
               </div>
-              <button className="button-secondary" disabled={reopening || paying} onClick={reopenForEditing}>
+              <button className="button-secondary" disabled={reopening || paying || qrPending} onClick={reopenForEditing}>
                 <MdArrowBack /> {reopening ? 'Reopening…' : 'Edit Bill'}
               </button>
             </div>
@@ -685,6 +688,7 @@ const Admin_CheckoutDetail = () => {
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-black text-slate-900">Collect Payment</h2><p className="mt-1 text-sm text-slate-500">Only payment methods enabled by Admin are shown here.</p>
             <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-center"><p className="text-xs font-black uppercase tracking-wide text-sky-700">Amount Due</p><p className="mt-2 text-3xl font-black text-sky-950">{formatMoney(bill.balance_amount)}</p></div>
+            <QrPhPaymentPanel billId={billingId} remainingBalance={bill.balance_amount} getStatus={getAdminQrStatus} createQr={createAdminQrPayment} onPaid={() => load({ preserveStep: true })} onPendingChange={setQrPending} />
             <div className="mt-5"><p className="form-label">Payment Method</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{paymentMethods.map((method) => <button key={method.value} onClick={() => setDraft((current) => ({ ...current, payment_method: method.value, reference_number: '', amount_received: current.payment_amount || bill.balance_amount }))} className={`rounded-2xl border p-4 text-left font-black ${draft.payment_method === method.value ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 hover:bg-slate-50'}`}>{method.label}</button>)}</div>{paymentMethods.length === 0 && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">No payment methods are enabled. Ask an administrator to update Billing → Setup → Payment Methods.</div>}</div>
             {draft.payment_method && <div className="mt-5 space-y-4"><label><span className="form-label">Payment Amount</span><input type="number" min="0.01" max={bill.balance_amount} step="0.01" className="form-control mt-1.5" value={draft.payment_amount} onChange={(e) => setDraft((current) => ({ ...current, payment_amount: e.target.value, amount_received: current.payment_method === 'cash' ? e.target.value : current.amount_received }))} /></label>
               {draft.payment_method === 'cash' ? <label><span className="form-label">Cash Received</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={draft.amount_received} onChange={(e) => setDraft((current) => ({ ...current, amount_received: e.target.value }))} />{Number(draft.amount_received || 0) >= Number(draft.payment_amount || 0) && Number(draft.payment_amount || 0) > 0 && <span className="mt-2 block rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">Change: {formatMoney(Number(draft.amount_received || 0) - Number(draft.payment_amount || 0))}</span>}</label> : <>
@@ -695,7 +699,7 @@ const Admin_CheckoutDetail = () => {
               <label><span className="form-label">Payment Notes</span><textarea maxLength={500} rows={2} className="form-control mt-1.5 resize-none" value={draft.payment_notes || ''} onChange={(e) => setDraft((current) => ({ ...current, payment_notes: e.target.value }))} /></label>
             </div>}
           </section>
-          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
+          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || qrPending || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
           </div>
         </div>
       )}
@@ -718,5 +722,6 @@ const Admin_CheckoutDetail = () => {
 }
 
 export default Admin_CheckoutDetail
+
 
 
