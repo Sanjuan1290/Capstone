@@ -73,7 +73,7 @@ test('separate admin cookies and branch-specific API gateway are present',()=>{
   assert.match(ses,/account\.account_role === 'superadmin' \? 'superadmin' : 'admin'/)
   assert.match(auth,/authenticate\.adminContext/)
   assert.match(router,/BRANCH_OPERATION_NOT_READY/)
-  assert.match(router,/!req\.path\.startsWith\('\/my'\)/)
+  // /my* uses the Branch Admin cookie; /me does too unless the Super Admin portal header is sent; all else uses the Super Admin cookie.
+  assert.match(router,/req\.path\.startsWith\('\/my'\) \|\| \(req\.path === '\/me' && req\.get\('x-admin-portal'\) !== 'superadmin'\)/)
+  assert.match(router,/authenticate\.adminContext\(!usesBranchAdminCookie\(req\)\)/)
 })
-
-

@@ -124,25 +124,3 @@ const Admin_Announcements = () => {
   </section>
 }
 export default Admin_Announcements
-JS
-cat > /mnt/data/CARAIT_ANNOUNCEMENTS_STAGE_20261017/client/src/pages/LandingPages/News.jsx <<'JSX'
-import {useEffect,useState} from 'react'
-import {Link,useParams,useSearchParams} from 'react-router-dom'
-const fetchNews=async(path)=>{const r=await fetch(`/api/news${path}`);const data=await r.json();if(!r.ok)throw new Error(data.message||'Could not load news.');return data}
-export const NewsList=()=>{
- const [search]=useSearchParams(),type=search.get('type')||'all';const [posts,setPosts]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true)
- useEffect(()=>{let live=true;setLoading(true);fetchNews(`?type=${encodeURIComponent(type)}`).then(rows=>{if(live){setPosts(rows);setError('')}}).catch(e=>{if(live)setError(e.message)}).finally(()=>{if(live)setLoading(false)});return()=>{live=false}},[type])
- return <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6"><div className="mb-8"><p className="font-semibold uppercase tracking-widest text-amber-600">CARAIT Clinic</p><h1 className="mt-1 text-3xl font-black text-slate-900">News & Offers</h1><p className="mt-2 text-slate-600">Clinic news, helpful articles and current service promotions.</p></div><nav className="mb-6 flex flex-wrap gap-2">{[['all','All'],['promotion','Promotions'],['news','Clinic News'],['article','Articles']].map(([value,label])=><Link key={value} to={value==='all'?'/news':`/news?type=${value}`} className={`rounded-full px-4 py-2 text-sm font-semibold ${type===value?'bg-[#0b1a2c] text-white':'bg-slate-100 text-slate-700'}`}>{label}</Link>)}</nav>
- {loading?<p role="status">Loading News & Offers…</p>:error?<p role="alert" className="rounded-lg bg-red-50 p-4 text-red-700">{error}</p>:!posts.length?<p className="rounded-lg bg-slate-50 p-8 text-slate-500">No published posts are available right now.</p>:<div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{posts.map(p=><article key={p.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="h-44 bg-slate-100">{p.cover_image_url?<img loading="lazy" src={p.cover_image_url} alt="" className="h-full w-full object-cover"/>:<div className="flex h-full items-center justify-center text-4xl">📰</div>}</div><div className="space-y-2 p-5"><span className="text-xs font-bold uppercase text-amber-700">{p.type} · {p.branch_name}</span><h2 className="text-lg font-black text-slate-900">{p.title}</h2><p className="text-sm text-slate-600">{p.caption}</p><Link className="inline-block pt-2 text-sm font-semibold text-blue-700 underline" to={`/news/${p.branch_id}/${p.slug}`}>Read more →</Link></div></article>)}</div>}
- </main>
-}
-export const NewsDetail=()=>{
- const {branchId,slug}=useParams(),[post,setPost]=useState(null),[error,setError]=useState('')
- useEffect(()=>{let live=true;setPost(null);setError('');fetchNews(`/${branchId}/${encodeURIComponent(slug)}`).then(data=>{if(live)setPost(data)}).catch(e=>{if(live)setError(e.message)});return()=>{live=false}},[branchId,slug])
- return <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6"><Link to="/news" className="text-sm font-semibold text-blue-700">← News & Offers</Link>{error?<p className="mt-8" role="alert">{error}</p>:!post?<p className="mt-8" role="status">Loading article…</p>:<article className="mt-6 space-y-5"><p className="text-xs font-bold uppercase tracking-wide text-amber-700">{post.type} · {post.branch_name}</p><h1 className="text-3xl font-black text-slate-900">{post.title}</h1><p className="text-lg text-slate-600">{post.caption}</p>{post.cover_image_url&&<img alt="" src={post.cover_image_url} className="max-h-[440px] w-full rounded-2xl object-cover"/>}<div className="whitespace-pre-wrap break-words text-base leading-relaxed text-slate-700">{post.body}</div>{post.cta_url&&<Link className="button-primary inline-flex" to={post.cta_url}>{post.cta_label||'Book an Appointment'}</Link>}</article>}</main>
-}
-export const MarketingUnsubscribe=()=>{
- const [params]=useSearchParams(),token=params.get('token')||'';const [state,setState]=useState(''),[busy,setBusy]=useState(false)
- const unsubscribe=async()=>{setBusy(true);try{const r=await fetch('/api/news/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});const body=await r.json();if(!r.ok)throw new Error(body.message||'Please try again.');setState(body.message)}catch(e){setState(e.message)}finally{setBusy(false)}}
- return <main className="mx-auto max-w-xl px-4 py-16 text-center"><h1 className="text-2xl font-bold">Manage promotional emails</h1><p className="my-4 text-sm text-slate-600">Opt out of promotional announcements from CARAIT Clinic. You will still receive essential appointment and account-security messages.</p>{state?<p role="status">{state}</p>:<button className="button-primary" disabled={!token||busy} onClick={unsubscribe}>{busy?'Working…':'Unsubscribe from promotions'}</button>}</main>
-}
