@@ -6,7 +6,7 @@ const cors = require('cors')
 const cookieParser = require('cookie-parser')
 
 const app = express()
-const { rawWebhook, apiRouter: qrApi } = require('./routers/paymongoGateway')
+const { rawWebhook, startReconciliationSweeper } = require('./routers/paymongoGateway')
 const db = require('./db/connect')
 const { ensureAppSchema } = require('./utils/schema')
 const { registerClient, writeEvent, broadcast } = require('./utils/sse')
@@ -30,6 +30,7 @@ app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false)
 app.use(securityHeaders)
 // Exact raw bytes are mandatory for PayMongo HMAC. Register before JSON parsing.
 app.post('/api/webhooks/paymongo', express.raw({ type:'application/json',limit:'256kb' }), rawWebhook)
+app.all('/api/webhooks/paymongo', (req, res) => res.status(405).set('Allow', 'POST').json({ code: 'METHOD_NOT_ALLOWED', message: 'Use POST for PayMongo webhooks.' }))
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }))
 app.use(express.urlencoded({ extended: false, limit: process.env.FORM_BODY_LIMIT || '256kb' }))
 app.use(cors({
@@ -98,6 +99,7 @@ app.get('/api/events', (req, res) => res.status(410).json({
   message: 'Use the role-specific realtime endpoint.',
 }))
 
+app.use('/api/news', require('./routers/branchAnnouncements').publicRouter)
 app.use('/api/patient', patientRouter)
 app.use('/api/admin', adminRouter)
 app.use('/api/branches', branchesRouter)
@@ -105,6 +107,9 @@ app.use('/api/staff', staffRouter)
 app.use('/api/doctor', doctorRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/queue', queueRouter)
+
+// Unknown API paths must answer in JSON so the client never parses an HTML error page.
+app.use('/api', (req, res) => res.status(404).json({ code: 'API_ROUTE_NOT_FOUND', message: 'This API route does not exist.' }))
 
 app.use((err, req, res, next) => {
   const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -160,6 +165,8 @@ const start = async () => {
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`)
       require('./utils/reminder')
+      startReconciliationSweeper()
+      require('./utils/marketingCampaigns').startMarketingWorker()
     })
   } catch (err) {
     console.error('Failed to start server:', err)
@@ -171,6 +178,3 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
-
-
-

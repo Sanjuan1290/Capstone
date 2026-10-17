@@ -24,7 +24,10 @@ const audit = async (req, action, kind, id, before, after, branchId) => {
 }
 // /my uses only the Branch Admin cookie. Central and workspace endpoints use
 // the Super Admin cookie. A second sign-in in another tab cannot switch identity.
-router.use((req,res,next) => authenticate.adminContext(!req.path.startsWith('/my'))(req,res,next))
+// /me is shared: the Branch Admin layout (admin cookie) and the Super Admin branch
+// portal (sends X-Admin-Portal: superadmin) both read it.
+const usesBranchAdminCookie = req => req.path.startsWith('/my') || (req.path === '/me' && req.get('x-admin-portal') !== 'superadmin')
+router.use((req,res,next) => authenticate.adminContext(!usesBranchAdminCookie(req))(req,res,next))
 router.use(async (req, res, next) => {
   try {
     const [[admin]] = await db.query('SELECT id,account_role,branch_id,is_active FROM admins WHERE id=? LIMIT 1',[req.user.id])
@@ -538,6 +541,7 @@ require('./branchOperationalReads').registerBranchOperationalReads(router,{requi
 require('./branchReports').registerBranchReports(router,{requireSuper,branchContext,requirePermission})
 require('./branchAudit').registerBranchAudit(router,{requireSuper,branchContext,requirePermission})
 require('./branchPromotions').registerBranchPromotions(router,{requireSuper,branchContext,requirePermission})
+require('./branchAnnouncements').registerBranchAnnouncements(router,{requireSuper,branchContext,requirePermission})
 
 require('./branchSystemWrites').registerBranchSystemWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchSystemWrites').registerBranchExtraSetup(router,{requireSuper,branchContext,requirePermission})
@@ -571,5 +575,3 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
-
-

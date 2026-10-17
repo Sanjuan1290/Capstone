@@ -508,6 +508,11 @@ const updateProfile = async (req, res) => {
     ]
   )
 
+  // A fresh, explicit patient opt-in after an email unsubscribe re-enables marketing.
+  // Never silently clear suppression during ordinary profile saves or imports.
+  if (normalized.receive_promotions === true && !Boolean(patient.receive_promotions)) {
+    await db.query('DELETE FROM marketing_unsubscribes WHERE patient_id=?', [req.user.id])
+  }
   const updatedPatient = await syncPatientProfileStatus(await loadPatientById(req.user.id))
   res.json({
     message: 'Profile updated.',
@@ -1130,7 +1135,3 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
-
-
-
-

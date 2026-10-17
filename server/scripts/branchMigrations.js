@@ -63,7 +63,7 @@ const acceptedContentHashes = (source) => {
   const variants = new Set([...variations,...variations.map(v=>v.replace(/\n/g,'\r\n'))])
   return new Set([...variants].map(v=>crypto.createHash('sha256').update(v).digest('hex')))
 }
-const migrationFiles = ['2026-10-09-multi-branch-foundation.sql','2026-10-15-branch-ledgers.sql','2026-10-15-cashier-branch-uniqueness.sql','2026-10-16-paymongo-test-qr.sql']
+const migrationFiles = ['2026-10-09-multi-branch-foundation.sql','2026-10-15-branch-ledgers.sql','2026-10-15-cashier-branch-uniqueness.sql','2026-10-16-paymongo-test-qr.sql','2026-10-17-announcements-campaigns.sql']
 async function runBranchMigrations(db) {
   await db.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
     filename VARCHAR(180) NOT NULL PRIMARY KEY,
@@ -101,4 +101,3 @@ async function runBranchMigrations(db) {
   }
 }
 module.exports = {splitMysqlMigration,requiredFoundationColumns,verifyFoundationSchema,runBranchMigrations,acceptedContentHashes}
-

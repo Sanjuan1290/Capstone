@@ -11,6 +11,8 @@ import { AuthProvider } from './context/AuthContext'
 import { queryClient } from './lib/queryClient'
 import Layout from './components/layouts/Layout'
 import LandingPage from './pages/LandingPages/LandingPage'
+import { NewsList,NewsDetail,MarketingUnsubscribe } from './pages/LandingPages/News'
+import Admin_Announcements from './pages/adminPage/Admin_Announcements'
 
 import SuperAdminAllInventory from './pages/superAdminPage/AllInventory'
 import PatientRegister       from './pages/auth/Patient/PatientRegister'
@@ -115,6 +117,9 @@ const router = createBrowserRouter(createRoutesFromElements(
   <>
     <Route path='/' element={<Layout />}>
       <Route index element={<LandingPage />} />
+      <Route path='/news' element={<NewsList />} />
+      <Route path='/news/:branchId/:slug' element={<NewsDetail />} />
+      <Route path='/unsubscribe' element={<MarketingUnsubscribe />} />
 
       {/* ── Legal pages ──────────────────────────────────── */}
       <Route path='/privacy-policy' element={<PrivacyPolicys />} />
@@ -236,6 +241,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='staff-accounts' element={<Admin_StaffAccount />} />
         <Route path='doctor-accounts' element={<Admin_DoctorAccount />} />
         <Route path='system-setup' element={<Admin_SystemSetup />} />
+        <Route path='announcements' element={<Admin_Announcements />} />
         <Route path='system-setup/billing' element={<Admin_SystemSetupBilling />}>
           <Route index element={<Navigate to='services' replace />} />
           <Route path='services' element={<Admin_BillingCatalog />} />
@@ -270,6 +276,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='staff-accounts' element={<Admin_StaffAccount />} />
         <Route path='doctor-accounts' element={<Admin_DoctorAccount />} />
         <Route path='system-setup' element={<Admin_SystemSetup />} />
+        <Route path='announcements' element={<Admin_Announcements />} />
         <Route path='system-setup/billing' element={<Admin_SystemSetupBilling />}>
           <Route index element={<Navigate to='services' replace />} />
           <Route path='services' element={<Admin_BillingCatalog />} />
@@ -305,8 +312,3 @@ const App = () => (
 )
 
 export default App
-
-
-
-
-

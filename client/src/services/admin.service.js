@@ -36,6 +36,22 @@ export const saveAdminPromotion = (payload, id = null) => requestJson(`${getAdmi
 export const deleteAdminPromotion = (id) => requestJson(`${getAdminApiBase()}/promotions/${id}`, { method:'DELETE' })
 export const notifyAdminPromotion = (id) => requestJson(`${getAdminApiBase()}/promotions/${id}/notify`, { method:'POST' })
 
+// Branch-scoped announcements and opt-in campaign administration.
+export const listAnnouncements = () => requestJson(`${getAdminApiBase()}/announcements`)
+export const saveAnnouncement = (payload,id=null) => requestJson(`${getAdminApiBase()}/announcements${id?`/${id}`:''}`, { method:id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const uploadAnnouncementCover = async file => {
+  const res=await fetch(`${getAdminApiBase()}/announcements/image`,{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file})
+  const data=await res.json().catch(()=>({}))
+  if(!res.ok)throw new Error(data.message||'Cover upload failed.')
+  return data
+}
+export const checkAnnouncementCover = token => requestJson(`${getAdminApiBase()}/announcements/image/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scan_token:token})})
+export const getCampaignAudience = () => requestJson(`${getAdminApiBase()}/announcements/audience`)
+export const listMarketingCampaigns = () => requestJson(`${getAdminApiBase()}/announcements/campaigns`)
+export const listCampaignRecipients = (id,page=1) => requestJson(`${getAdminApiBase()}/announcements/campaigns/${id}/recipients?page=${page}`)
+export const startMarketingCampaign = (id,payload) => requestJson(`${getAdminApiBase()}/announcements/${id}/campaigns`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+export const controlMarketingCampaign = (id,action) => requestJson(`${getAdminApiBase()}/announcements/campaigns/${id}/control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})})
+
 export const getDashboard = () => requestJson(`${getAdminApiBase()}/dashboard`)
 
 export const getAppointments = (params = '') => requestJson(`${getAdminApiBase()}/appointments${params}`)
@@ -498,4 +514,5 @@ export const reopenCashierClosing = (closingId, reason) => postJson(`${getAdminA
 
 
 export const createAdminQrPayment = id => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment`, { method:'POST' })
-export const getAdminQrStatus = id => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/status`)
+export const getAdminQrStatus = (id, { reconcile = false } = {}) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/status${reconcile ? '?reconcile=1' : ''}`)
+export const resolveAdminQrReview = (id, attemptId, body) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/${attemptId}/resolve`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })

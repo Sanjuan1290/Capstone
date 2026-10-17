@@ -3,7 +3,7 @@
 // on an unmatched call. Passing it cannot prove branch ownership or DB safety.
 const fs=require('node:fs'),path=require('node:path')
 const root=path.resolve(__dirname,'../..'),read=f=>fs.readFileSync(path.join(root,f),'utf8')
-const routerFiles=['branches.router.js','branchOperationalReads.js','branchReports.js','branchAudit.js','branchPromotions.js','branchSystemWrites.js','branchQueueInventoryWrites.js','branchInventoryItems.js','branchCatalogWrites.js','branchAppointmentWrites.js','branchBillPreviewReads.js','branchGlobalReferenceWrites.js', 'branchPaymentSettingsWrites.js','branchSensitiveWrites.js','branchPaymentActions.js','branchCheckoutDraftWrites.js','branchBillCorrections.js','branchBatchActions.js','branchCashierAndPayment.js','paymongoGateway.js']
+const routerFiles=['branches.router.js','branchOperationalReads.js','branchReports.js','branchAudit.js','branchPromotions.js','branchAnnouncements.js','branchSystemWrites.js','branchQueueInventoryWrites.js','branchInventoryItems.js','branchCatalogWrites.js','branchAppointmentWrites.js','branchBillPreviewReads.js','branchGlobalReferenceWrites.js', 'branchPaymentSettingsWrites.js','branchSensitiveWrites.js','branchPaymentActions.js','branchCheckoutDraftWrites.js','branchBillCorrections.js','branchBatchActions.js','branchCashierAndPayment.js','paymongoGateway.js']
 const methods=['GET','POST','PUT','PATCH','DELETE']
 // Consume one JS template expression ${...}, including nested backtick templates.
 function interpolation(str,start){
@@ -20,6 +20,7 @@ function interpolation(str,start){
  throw new Error('Unbalanced interpolation while scanning a client service URL.')
 }
 const nestedPaths=expr=>{
+ if (/^\s*reconcile\s*\?/.test(expr))return ['']
  if(/^\s*params\s*$/.test(expr))return ['']
  if(/^\s*(?:id|.*Id)\s*\?/.test(expr)||/^\s*[^?]+\?\s*`\//.test(expr)){
   const truePath=/\?\s*`(\/[^`]*)`/.exec(expr)?.[1]||'/:param'
@@ -94,6 +95,7 @@ function patterns(){
  if (branchMount.includes('require(\'./paymongoGateway\').apiRouter') && branchMount.includes('`${prefix}/billing`')) {
   if (gateway.includes("apiRouter.post('/:id/qr-payment'")) add('POST','/billing/:param/qr-payment','paymongoGateway.js')
   if (gateway.includes("apiRouter.get('/:id/qr-payment/status'")) add('GET','/billing/:param/qr-payment/status','paymongoGateway.js')
+  if (gateway.includes("apiRouter.post('/:id/qr-payment/:attemptId/resolve'")) add('POST','/billing/:param/qr-payment/:param/resolve','paymongoGateway.js')
  }
  for(const a of ['confirm','cancel','no-show','reschedule'])add('PATCH',`/appointments/:param/${a}`,'branches.router.js')
  return [...new Map(found.map(r=>[`${r.method} ${r.path}`,r])).values()]
@@ -106,4 +108,3 @@ function analyze(){
 const output=analyze()
 if(require.main===module){console.log(JSON.stringify(output,null,2));if(output.unmatched)process.exitCode=1}
 module.exports={patterns,serviceCalls,analyze,output}
-

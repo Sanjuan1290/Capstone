@@ -77,7 +77,7 @@ const Layout = () => {
   const header    = landing?.header || defaultHeader
   const footer    = { ...defaultFooter, ...landing?.footer }
   const navLinks  = Array.isArray(header.nav_links) && header.nav_links.length > 0 ? header.nav_links : defaultHeader.nav_links
-  const showMarketingShell = ['/', '/login', '/patient/register', '/patient/login'].includes(location.pathname)
+  const showMarketingShell = ['/', '/login', '/patient/register', '/patient/login', '/news', '/unsubscribe'].includes(location.pathname) || location.pathname.startsWith('/news/')
   const logoSrc   = header.logo_url || '/logo.png'
   const isPatientLoggedIn = Boolean(user && role === 'patient')
   const loginPath = isPatientLoggedIn
@@ -115,6 +115,8 @@ const Layout = () => {
                 </li>
               ))}
             </ul>
+
+            <NavLink to="/news" className="hidden lg:block text-sm font-semibold text-amber-700 hover:underline">News & Offers</NavLink>
 
             {/* Desktop CTA */}
             <div className="hidden items-center gap-4 lg:flex">
@@ -164,6 +166,7 @@ const Layout = () => {
                   </a>
                 ))}
               </div>
+              <NavLink to="/news" onClick={() => setMobileOpen(false)} className="block rounded-2xl px-4 py-3 text-sm font-semibold text-amber-700 hover:bg-amber-50">News & Offers</NavLink>
               <div className="mt-4 grid gap-2">
                 {isExternalPath(loginPath) ? (
                   <a href={loginPath} onClick={() => setMobileOpen(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-center text-sm font-semibold text-slate-600">
@@ -231,6 +234,3 @@ const Layout = () => {
 }
 
 export default Layout
-
-
-

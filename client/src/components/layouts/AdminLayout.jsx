@@ -10,7 +10,7 @@ import { getDashboard } from '../../services/admin.service'
 import {
   MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
   MdBarChart, MdChevronLeft, MdLogout, MdAdminPanelSettings, MdMenu, MdClose, MdSettings,
-  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory, MdTune,
+  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory, MdTune, MdCampaign,
 } from 'react-icons/md'
 
 const GROUPS = [
@@ -28,6 +28,7 @@ const GROUPS = [
   { label: 'People & Setup', items: [
     { name: 'Accounts', path: '/admin/accounts', icon: MdPeople, short: 'Accounts' },
     { name: 'System Setup', path: '/admin/system-setup', icon: MdTune, short: 'Setup' },
+    { name: 'Announcements', path: '/admin/announcements', icon: MdCampaign, short: 'News' },
   ] },
   { label: 'Insights & System', items: [
     { name: 'Reports', path: '/admin/reports', icon: MdBarChart, short: 'Reports' },
@@ -79,7 +80,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
       '/admin/appointments':'appointments','/admin/patient-records':'patient_records',
       '/admin/doctor-schedules':'doctor_schedules','/admin/billing':'billing',
       '/admin/inventory':'inventory','/admin/supply-requests':'stock_transfers',
-      '/admin/accounts':'accounts','/admin/system-setup':'system_setup',
+      '/admin/accounts':'accounts','/admin/system-setup':'system_setup','/admin/announcements':'system_setup','/admin/announcements':'system_setup',
       '/admin/reports':'reports','/admin/audit-logs':'audit_logs'
     })[item.path]
     return !key || permissions.includes(key)
@@ -126,6 +127,3 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
 }
 
 export default AdminLayout
-
-
-
