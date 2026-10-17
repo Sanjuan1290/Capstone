@@ -28,6 +28,7 @@ function setup({amount=12500,actualAmount=12500,providerStatus='succeeded'}={}) 
   express:fakeExpress,'../db/connect':db,
   '../utils/paymongoClient':{retrieveIntent:async id=>({id,attributes:{status:providerStatus,amount,livemode:false,currency:'PHP'}})},
   '../utils/paymongoWebhookSignature':{verifyPaymongoSignature:()=>true},
+  '../utils/paymongoRefundVerification':{assertVerifiedQrRefund:()=>({})},
   '../utils/billing':{getBillingRecordWithItems:()=>({})},
   '../utils/audit':{writeAuditLog:()=>{}},
   '../controllers/staff.controller':staff,'../utils/sse':{broadcast:()=>{}},

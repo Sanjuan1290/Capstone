@@ -50,4 +50,5 @@ const createQr = async ({ amountCentavos, billId, attemptId, onIntentCreated }) 
     status: attached.attributes?.status }
 }
 const retrieveIntent = id => request(`/payment_intents/${encodeURIComponent(id)}`)
-module.exports = { credentials, createQr, retrieveIntent, fail }
+const retrieveRefund = id => request(`/refunds/${encodeURIComponent(id)}`)
+module.exports = { credentials, createQr, retrieveIntent, retrieveRefund, fail }
