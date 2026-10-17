@@ -79,6 +79,7 @@ const Layout = () => {
   const navLinks  = Array.isArray(header.nav_links) && header.nav_links.length > 0 ? header.nav_links : defaultHeader.nav_links
   const showMarketingShell = ['/', '/login', '/patient/register', '/patient/login', '/news', '/unsubscribe'].includes(location.pathname) || location.pathname.startsWith('/news/')
   const logoSrc   = header.logo_url || '/logo.png'
+  const clinicSubtitle = String(header.clinic_name || defaultHeader.clinic_name).trim().replace(/^carait\s*/i, '') || 'Medical & Dermatology Clinic'
   const isPatientLoggedIn = Boolean(user && role === 'patient')
   const loginPath = isPatientLoggedIn
     ? '/patient'
@@ -90,105 +91,58 @@ const Layout = () => {
     return (
       <div className="flex flex-col min-h-screen scroll-smooth">
 
-        {/* ── Header ─────────────────────────────────────────────────────── */}
-        <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-10">
+        {/* ── Responsive public header: separate brand/action and navigation rows ── */}
+        <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-[0_4px_20px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+          <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+            <NavLink to="/" onClick={() => setMobileOpen(false)} className="group flex min-w-0 items-center gap-3" aria-label="CARAIT Clinic home">
+              <img src={logoSrc} alt="CARAIT Clinic logo" className="h-11 w-11 shrink-0 rounded-full object-contain sm:h-12 sm:w-12" />
+              <span className="flex min-w-0 flex-col leading-tight">
+                <span className="text-sm font-black tracking-tight text-slate-900 sm:text-[15px]">CARAIT</span>
+                <span className="max-w-[215px] text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 sm:max-w-none sm:text-[11px]">{clinicSubtitle}</span>
+              </span>
+            </NavLink>
 
-            {/* Brand */}
-            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-              <img src={logoSrc} alt="logo" className="h-10 w-10 shrink-0 object-contain" />
-              <h3 className="min-w-0 truncate text-xs font-bold tracking-tight text-gray-700 sm:text-sm md:text-[15px]">
-                {header.clinic_name}
-              </h3>
-            </div>
-
-            {/* Desktop nav */}
-            <ul className="hidden items-center gap-8 list-none lg:flex">
-              {navLinks.map((nl, index) => (
-                <li key={`${nl.path}-${index}`}>
-                  <a
-                    href={location.pathname === '/' ? normalizeAppPath(nl.path, '#home') : '/'}
-                    className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors duration-300"
-                  >
-                    {nl.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-
-            <NavLink to="/news" className="hidden lg:block text-sm font-semibold text-amber-700 hover:underline">News & Offers</NavLink>
-
-            {/* Desktop CTA */}
-            <div className="hidden items-center gap-4 lg:flex">
+            <div className="hidden shrink-0 items-center gap-2 sm:flex">
               {isExternalPath(loginPath) ? (
-                <a href={loginPath} className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors duration-300">
-                  {loginLabel}
-                </a>
+                <a href={loginPath} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">{loginLabel}</a>
               ) : (
-                <NavLink to={loginPath} className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-800 px-4 py-2 rounded-md transition-colors duration-300">
-                  {loginLabel}
-                </NavLink>
+                <NavLink to={loginPath} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">{loginLabel}</NavLink>
               )}
-
               {isExternalPath(ctaPath) ? (
-                <a href={ctaPath} className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300">
-                  {header.cta_label || 'Book Appointment'}
-                </a>
+                <a href={ctaPath} className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-xl bg-blue-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700">{header.cta_label || 'Book Appointment'}</a>
               ) : (
-                <NavLink to={ctaPath} className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-300">
-                  {header.cta_label || 'Book Appointment'}
-                </NavLink>
+                <NavLink to={ctaPath} className="inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-xl bg-blue-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700">{header.cta_label || 'Book Appointment'}</NavLink>
               )}
             </div>
-
-            {/* Mobile hamburger */}
-            <button
-              onClick={() => setMobileOpen(prev => !prev)}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 lg:hidden"
-              aria-label="Toggle navigation"
-            >
-              {mobileOpen ? <MdClose className="text-[20px]" /> : <MdMenu className="text-[20px]" />}
+            <button type="button" onClick={() => setMobileOpen(prev => !prev)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:bg-slate-50 sm:hidden" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="public-mobile-navigation">
+              {mobileOpen ? <MdClose size={23} /> : <MdMenu size={23} />}
             </button>
           </div>
-
-          {/* Mobile dropdown */}
-          {mobileOpen && (
-            <div className="border-t border-slate-100 bg-white px-4 py-4 shadow-sm lg:hidden">
-              <div className="space-y-2">
-                {navLinks.map((nl, index) => (
-                  <a
-                    key={`${nl.path}-${index}`}
-                    href={location.pathname === '/' ? normalizeAppPath(nl.path, '#home') : '/'}
-                    onClick={() => setMobileOpen(false)}
-                    className="block rounded-2xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50"
-                  >
-                    {nl.label}
-                  </a>
-                ))}
-              </div>
-              <NavLink to="/news" onClick={() => setMobileOpen(false)} className="block rounded-2xl px-4 py-3 text-sm font-semibold text-amber-700 hover:bg-amber-50">News & Offers</NavLink>
-              <div className="mt-4 grid gap-2">
-                {isExternalPath(loginPath) ? (
-                  <a href={loginPath} onClick={() => setMobileOpen(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-center text-sm font-semibold text-slate-600">
-                    {loginLabel}
-                  </a>
-                ) : (
-                  <NavLink to={loginPath} onClick={() => setMobileOpen(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-center text-sm font-semibold text-slate-600">
-                    {loginLabel}
-                  </NavLink>
-                )}
-                {isExternalPath(ctaPath) ? (
-                  <a href={ctaPath} onClick={() => setMobileOpen(false)} className="rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white">
-                    {header.cta_label || 'Book Appointment'}
-                  </a>
-                ) : (
-                  <NavLink to={ctaPath} onClick={() => setMobileOpen(false)} className="rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white">
-                    {header.cta_label || 'Book Appointment'}
-                  </NavLink>
-                )}
-              </div>
+          <nav className="hidden border-t border-slate-100 bg-slate-50/70 sm:block" aria-label="Main navigation">
+            <div className="mx-auto flex max-w-7xl items-center justify-center gap-1 px-4 py-2 sm:gap-2 lg:gap-5">
+              {navLinks.map((nl,index) => {
+                const dest = normalizeAppPath(nl.path, '#home')
+                const target = dest.startsWith('#') && location.pathname !== '/' ? `/${dest}` : dest
+                const active = dest.startsWith('#') ? location.pathname === '/' && (dest === '#home' || location.hash === dest) : location.pathname === target
+                return <a key={`${nl.path}-${index}`} href={target} className={`rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors ${active ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-white hover:text-blue-700'}`}>{nl.label}</a>
+              })}
+              <NavLink to="/news" className={({isActive}) => `rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors ${isActive || location.pathname.startsWith('/news/') ? 'bg-amber-50 text-amber-800' : 'text-amber-700 hover:bg-amber-50'}`}>News & Offers</NavLink>
             </div>
-          )}
+          </nav>
+          {mobileOpen && <nav id="public-mobile-navigation" className="max-h-[calc(100dvh-72px)] overflow-y-auto border-t border-slate-100 bg-white p-4 sm:hidden" aria-label="Mobile navigation">
+            <div className="grid gap-1">
+              {navLinks.map((nl,index) => {
+                const dest=normalizeAppPath(nl.path,'#home')
+                const target=dest.startsWith('#') && location.pathname !== '/' ? `/${dest}` : dest
+                return <a key={`${nl.path}-${index}`} href={target} onClick={()=>setMobileOpen(false)} className="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">{nl.label}</a>
+              })}
+              <NavLink to="/news" onClick={()=>setMobileOpen(false)} className="rounded-xl px-4 py-3 text-sm font-semibold text-amber-700 hover:bg-amber-50">News & Offers</NavLink>
+            </div>
+            <div className="mt-3 grid gap-2 border-t border-slate-100 pt-4">
+              {isExternalPath(loginPath) ? <a href={loginPath} onClick={()=>setMobileOpen(false)} className="rounded-xl border border-slate-200 px-4 py-3 text-center text-sm font-bold text-slate-700">{loginLabel}</a> : <NavLink to={loginPath} onClick={()=>setMobileOpen(false)} className="rounded-xl border border-slate-200 px-4 py-3 text-center text-sm font-bold text-slate-700">{loginLabel}</NavLink>}
+              {isExternalPath(ctaPath) ? <a href={ctaPath} onClick={()=>setMobileOpen(false)} className="rounded-xl bg-blue-600 px-4 py-3 text-center text-sm font-bold text-white">{header.cta_label || 'Book Appointment'}</a> : <NavLink to={ctaPath} onClick={()=>setMobileOpen(false)} className="rounded-xl bg-blue-600 px-4 py-3 text-center text-sm font-bold text-white">{header.cta_label || 'Book Appointment'}</NavLink>}
+            </div>
+          </nav>}
         </header>
 
         {/* ── Page content ───────────────────────────────────────────────── */}
@@ -234,3 +188,4 @@ const Layout = () => {
 }
 
 export default Layout
+

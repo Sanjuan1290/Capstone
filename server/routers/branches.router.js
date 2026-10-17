@@ -104,26 +104,53 @@ router.get('/accounts/admins',requireSuper,async(req,res)=>{
   const [perms]=await db.query('SELECT admin_id,permission_key FROM admin_branch_permissions WHERE granted=1')
   res.json(rows.map(a=>({...a,permissions:perms.filter(p=>p.admin_id===a.id).map(p=>p.permission_key)})))
 })
+// A branch-admin invitation can fail independently of account creation. Do not
+// turn an email transport error into a 500 or roll back a successfully created account.
 router.post('/accounts/admins',requireSuper,async(req,res)=>{
-  const full_name=String(req.body?.full_name||'').trim(),email=String(req.body?.email||'').trim().toLowerCase(),branchId=Number(req.body?.branch_id),phone=String(req.body?.phone||'').trim()
-  if(!full_name||full_name.length>150||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!validId(branchId)||!/^\+?[0-9 ()-]{7,24}$/.test(phone))return res.status(400).json({message:'Full name, valid email, contact number and one branch are required.'})
-  const [[branch]]=await db.query('SELECT id FROM clinic_branches WHERE id=? AND is_active=1',[branchId]);if(!branch)return res.status(400).json({message:'The selected branch is not active.'})
-  const permissions=permissionsFromBody(req.body.permissions)
+  const full_name=String(req.body?.full_name||'').trim()
+  const email=String(req.body?.email||'').trim().toLowerCase()
+  const phone=String(req.body?.phone||'').trim()
+  const branchId=Number(req.body?.branch_id)
+  if(!full_name||full_name.length>150||email.length>150||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!validId(branchId)||!/^\+?[0-9 ()-]{7,24}$/.test(phone))
+    return res.status(400).json({code:'INVALID_ADMIN_DETAILS',message:'Enter a valid full name, email, contact number and branch.'})
+  const permissions=permissionsFromBody(req.body?.permissions)
+  const [[branch]]=await db.query('SELECT id FROM clinic_branches WHERE id=? AND is_active=1',[branchId])
+  if(!branch)return res.status(400).json({code:'BRANCH_NOT_ACTIVE',message:'The selected branch is not active.'})
+  // Friendly early duplicate check, plus unique-index handling for concurrent requests.
+  const [[existing]]=await db.query('SELECT id FROM admins WHERE email=? LIMIT 1',[email])
+  if(existing)return res.status(409).json({code:'ADMIN_EMAIL_IN_USE',message:'An administrator account already uses this email address. Choose a different email or edit the existing account.'})
+
   const temporaryPassword=makeTemporaryPassword()
   const password=await bcrypt.hash(temporaryPassword,12)
   const connection=await db.getConnection()
   let id
   try{
     await connection.beginTransaction()
-    const [result]=await connection.query('INSERT INTO admins (full_name,email,phone,password,account_role,branch_id,is_active) VALUES (?,?,?,?,\'admin\',?,1)',[full_name,email,phone,password,branchId])
+    const [result]=await connection.query("INSERT INTO admins (full_name,email,phone,password,account_role,branch_id,is_active) VALUES (?,?,?,?,'admin',?,1)",[full_name,email,phone,password,branchId])
     id=result.insertId
-    for(const p of permissions)await connection.query('INSERT INTO admin_branch_permissions (admin_id,permission_key,granted) VALUES (?,?,1)',[id,p])
+    for(const permission of permissions){
+      await connection.query('INSERT INTO admin_branch_permissions (admin_id,permission_key,granted) VALUES (?,?,1)',[id,permission])
+    }
     await connection.commit()
-  }catch(e){await connection.rollback();throw e}finally{connection.release()}
+  }catch(err){
+    await connection.rollback().catch(rollbackError=>console.error('[branches] Admin creation rollback failed:',rollbackError.code||rollbackError.message))
+    if(err.code==='ER_DUP_ENTRY')return res.status(409).json({code:'ADMIN_EMAIL_IN_USE',message:'An administrator with this email already exists. Refresh the list before trying again.'})
+    if(err.code==='ER_NO_REFERENCED_ROW_2')return res.status(409).json({code:'BRANCH_CHANGED',message:'The selected branch changed while saving. Refresh the branch list and try again.'})
+    throw err
+  }finally{connection.release()}
+
   let invitationSent=true
-  try {await sendTempPassword(email,full_name,'Branch Admin',temporaryPassword,`${process.env.CLIENT_URL||''}/admin/login`)} catch(e){invitationSent=false;console.error('[branches] Admin invitation email failed',e.message)}
+  try{
+    await sendTempPassword(email,full_name,'Branch Admin',temporaryPassword,`${process.env.CLIENT_URL||''}/admin/login`)
+  }catch(err){
+    invitationSent=false
+    console.error('[branches] Admin invitation email failed',{adminId:id,code:err.code||'EMAIL_SEND_FAILED'})
+  }
   await audit(req,'branch_admin.created','admin',id,null,{full_name,email,phone,permissions,invitationSent},branchId)
-  res.status(201).json({id,full_name,email,phone,branch_id:branchId,permissions,invitation_sent:invitationSent,message:invitationSent?'Admin created and login email sent.':'Admin created but invitation email failed. Resend the invitation securely.'})
+  return res.status(201).json({
+    id,full_name,email,phone,branch_id:branchId,permissions,invitation_sent:invitationSent,
+    message:invitationSent?'Administrator created; invitation email sent.':'Administrator created, but the invitation email was not delivered. Verify SMTP and arrange secure account recovery.'
+  })
 })
 router.put('/accounts/admins/:adminId',requireSuper,async(req,res)=>{
   const id=Number(req.params.adminId)
@@ -575,3 +602,4 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+

@@ -20,7 +20,14 @@ export async function fetchJson(path,options={}){
  }
  let data
  try {data=await response.json()}catch{throw new Error('The server sent an incomplete response. Please retry.')}
- if(!response.ok) {const error=new Error(data?.message||`Request failed (${response.status}).`);error.status=response.status;throw error}
+ if(!response.ok) {
+  const tracking = response.status >= 500 && data?.request_id ? ` (Error reference: ${data.request_id})` : ''
+  const error=new Error(`${data?.message||`Request failed (${response.status}).`}${tracking}`)
+  error.status=response.status
+  error.code=data?.code
+  error.requestId=data?.request_id
+  throw error
+ }
  return data
 }
 export const PageHead=({title,description,action,eyebrow})=><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-600">{eyebrow||'Super Admin / Carait Clinic'}</p><h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">{title}</h1>{description&&<p className="mt-2 max-w-3xl text-sm text-slate-500">{description}</p>}</div>{action&&<div className="flex flex-wrap items-center gap-2">{action}</div>}</div>
@@ -55,5 +62,6 @@ export const TableWrap=({children})=><div className="overflow-x-auto rounded-xl 
 export const PrimaryButton=({children,...props})=><button type="button" className="button-primary inline-flex items-center justify-center gap-2" {...props}>{children}</button>
 export const SecondaryButton=({children,...props})=><button type="button" className="button-secondary inline-flex items-center justify-center gap-2" {...props}>{children}</button>
 export function useAsync(load,deps=[]){const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);useEffect(()=>{let active=true;setLoading(true);setError('');Promise.resolve().then(load).then(v=>{if(active)setData(v)}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},deps);return {data,error,loading,setData}}
+
 
 
