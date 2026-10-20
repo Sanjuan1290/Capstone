@@ -95,6 +95,7 @@ function loadMarketing(db, provider) {
     require(name) {
       if (name === '../db/connect') return db
       if (name === './date') return { getClinicDateTimeSql: () => '2026-10-20 12:34:56' }
+      if (name === './resendEmail') return { sendResendEmail: async () => 'mocked-message-id' }
       return require(name)
     },
   }

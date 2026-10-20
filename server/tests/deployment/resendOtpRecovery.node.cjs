@@ -11,7 +11,7 @@ test('failed Resend MFA delivery does not leave a 60-second cooldown', async () 
   let stored = null
   let attempts = 0
   const db = { query: async (sql, params) => {
-    if (sql.startsWith('SELECT id, last_sent_at')) return [stored ? [{ id: 1, last_sent_at: stored.sent }] : []]
+    if (sql.includes('AS elapsed_seconds')) return [stored ? [{ elapsed_seconds: 0 }] : []]
     if (sql.startsWith('DELETE FROM account_security_codes')) {
       if (params.length === 3 || (stored && params[3] === stored.hash)) stored = null
       return [{affectedRows: 1}]

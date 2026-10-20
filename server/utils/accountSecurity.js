@@ -31,11 +31,22 @@ const validatePassword = (password) => {
 
 const createSecurityCode = async ({ role, accountId, purpose, payload = null, executor = db }) => {
   const [existing] = await executor.query(
-    'SELECT id, last_sent_at, created_at FROM account_security_codes WHERE role = ? AND account_id = ? AND purpose = ? LIMIT 1',
+    `SELECT TIMESTAMPDIFF(
+       SECOND,
+       COALESCE(last_sent_at, created_at),
+       NOW()
+     ) AS elapsed_seconds
+     FROM account_security_codes
+     WHERE role = ? AND account_id = ? AND purpose = ?
+     LIMIT 1`,
     [role, accountId, purpose]
   )
-  const lastSent = existing[0]?.last_sent_at || existing[0]?.created_at
-  if (lastSent && Date.now() - new Date(lastSent).getTime() < RESEND_COOLDOWN_MS) {
+  const elapsedSeconds = existing[0]?.elapsed_seconds
+  if (
+    elapsedSeconds != null &&
+    Number.isFinite(Number(elapsedSeconds)) &&
+    Number(elapsedSeconds) < RESEND_COOLDOWN_MS / 1000
+  ) {
     const err = new Error('Please wait 60 seconds before requesting another code.')
     err.statusCode = 429
     throw err
