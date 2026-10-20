@@ -12,6 +12,7 @@ import { FaFacebook } from 'react-icons/fa'
 import { getPublicLandingPage } from '../../services/landing.service'
 import { isExternalPath, normalizeAppPath } from '../../utils/navigation'
 import { useAuth } from '../../context/AuthContext'
+import SeoManager from '../SeoManager'
 
 // ── Defaults (match DB content) ───────────────────────────────────────────────
 const defaultHeader = {
@@ -90,6 +91,7 @@ const Layout = () => {
   if (showMarketingShell) {
     return (
       <div className="flex flex-col min-h-screen scroll-smooth">
+        <SeoManager />
 
         {/* ── Responsive public header: separate brand/action and navigation rows ── */}
         <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-[0_4px_20px_rgba(15,23,42,0.05)] backdrop-blur-xl">
@@ -184,8 +186,7 @@ const Layout = () => {
     )
   }
 
-  return <Outlet />
+  return <><SeoManager /><Outlet /></>
 }
 
 export default Layout
-

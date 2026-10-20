@@ -1,0 +1,21 @@
+# Keep the original Pages URL out of Google; use the custom domain as canonical.
+https://carait-clinic.pages.dev/*
+  X-Robots-Tag: noindex
+
+# The clinic's internal portals and account actions should not appear in search.
+/admin/*
+  X-Robots-Tag: noindex, nofollow
+/superadmin/*
+  X-Robots-Tag: noindex, nofollow
+/staff/*
+  X-Robots-Tag: noindex, nofollow
+/doctor/*
+  X-Robots-Tag: noindex, nofollow
+/patient/*
+  X-Robots-Tag: noindex, nofollow
+/login
+  X-Robots-Tag: noindex, nofollow
+/unsubscribe
+  X-Robots-Tag: noindex, nofollow
+/display/*
+  X-Robots-Tag: noindex, nofollow
