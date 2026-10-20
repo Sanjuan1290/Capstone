@@ -18,9 +18,22 @@ async function readBills(req,res) {
   if (statuses.length){conditions.push(`b.status IN (${statuses.map(()=>'?').join(',')})`);args.push(...statuses)}
   const search=String(req.query.search||'').trim().slice(0,120)
   if (search){conditions.push('(p.full_name LIKE ? OR d.full_name LIKE ? OR CAST(b.id AS CHAR) LIKE ?)');args.push(...Array(3).fill(`%${search}%`))}
+  const paymentMethod=String(req.query.payment_method||'').trim().toLowerCase().slice(0,50)
+  const requestedBasis=String(req.query.date_basis||'').trim().toLowerCase()
+  const dateBasis=['visit','payment','finalized'].includes(requestedBasis)?requestedBasis:'visit'
   const from=dateOnly(req.query.date_from),to=dateOnly(req.query.date_to)
-  if(from){conditions.push('a.appointment_date>=?');args.push(from)}
-  if(to){conditions.push('a.appointment_date<=?');args.push(to)}
+  if(dateBasis==='payment' && (paymentMethod||from||to)) {
+    const paymentConditions=['bpf.billing_id=b.id',"bpf.status='completed'"]
+    if(paymentMethod){paymentConditions.push('bpf.payment_method=?');args.push(paymentMethod)}
+    if(from){paymentConditions.push('DATE(bpf.paid_at)>=?');args.push(from)}
+    if(to){paymentConditions.push('DATE(bpf.paid_at)<=?');args.push(to)}
+    conditions.push(`EXISTS (SELECT 1 FROM billing_payments bpf WHERE ${paymentConditions.join(' AND ')})`)
+  } else {
+    if(paymentMethod){conditions.push("EXISTS (SELECT 1 FROM billing_payments bpm WHERE bpm.billing_id=b.id AND bpm.status='completed' AND bpm.payment_method=?)");args.push(paymentMethod)}
+    const dateColumn=dateBasis==='finalized'?'b.finalized_at':'a.appointment_date'
+    if(from){conditions.push(`DATE(${dateColumn})>=?`);args.push(from)}
+    if(to){conditions.push(`DATE(${dateColumn})<=?`);args.push(to)}
+  }
   const where=`WHERE ${conditions.join(' AND ')}`
   const joins=`FROM billing_records b
      JOIN appointments a ON a.id=b.appointment_id AND a.branch_id=b.branch_id
@@ -35,12 +48,12 @@ async function readBills(req,res) {
      DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,a.appointment_time,a.reason AS appointment_reason,a.clinic_type,a.appointment_source,
      p.full_name AS patient_name,p.phone AS patient_phone,d.full_name AS doctor_name,d.specialty AS doctor_specialty
      ${joins} ${where} ORDER BY b.created_at DESC,b.id DESC LIMIT ? OFFSET ?`,[...args,limit,offset])
-  // Summary is branch-scoped regardless of page and the requested status tab.
+  // Summary follows the selected filters but is independent of the current page.
   const [[summary]]=await db.query(`SELECT COUNT(*) AS total,
      SUM(b.status IN ('draft','pending')) AS draft,SUM(b.status='ready') AS ready,SUM(b.status='partially_paid') AS partially_paid,SUM(b.status='paid') AS paid,
      COALESCE(SUM(CASE WHEN b.status IN ('draft','pending','ready','partially_paid') THEN GREATEST(0,b.total_amount-COALESCE(pay.paid_amount,0)) ELSE 0 END),0) AS outstanding,
      COALESCE(SUM(COALESCE(pay.paid_amount,0)),0) AS collected
-     ${joins} WHERE b.branch_id=?`,[req.branchId])
+     ${joins} ${where}`,args)
   const total=Number(count?.total||0),totalPages=Math.max(1,Math.ceil(total/limit))
   return res.json({items:rows.map(r=>({...r,paid_amount:Number(r.paid_amount||0),balance_amount:Number(r.balance_amount||0),payment_methods:String(r.payment_methods||'').split(',').filter(Boolean)})),
     pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages},

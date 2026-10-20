@@ -50,7 +50,10 @@ export async function onRequest({ request, env }) {
   const abortFromClient = () => controller.abort(request.signal.reason)
   request.signal.addEventListener('abort', abortFromClient, { once: true })
   if (request.signal.aborted) abortFromClient()
-  const timeout = setTimeout(() => controller.abort(new Error('API upstream timeout')), 30_000)
+  // Render Free instances may need about a minute to wake from idle. Keep a
+  // finite bound with margin so those first requests can finish without
+  // allowing an upstream request to hang indefinitely.
+  const timeout = setTimeout(() => controller.abort(new Error('API upstream timeout')), 90_000)
   try {
     const response = await fetch(target.toString(), {
       method: request.method,

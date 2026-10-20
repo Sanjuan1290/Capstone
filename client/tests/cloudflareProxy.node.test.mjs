@@ -82,7 +82,7 @@ test('Cloudflare proxy returns a bounded timeout response when Render does not a
   const oldFetch=globalThis.fetch
   const oldSetTimeout=globalThis.setTimeout
   const oldClearTimeout=globalThis.clearTimeout
-  globalThis.setTimeout=(callback,ms,...args)=>ms===30000?queueMicrotask(callback):oldSetTimeout(callback,ms,...args)
+  globalThis.setTimeout=(callback,ms,...args)=>ms===90000?queueMicrotask(callback):oldSetTimeout(callback,ms,...args)
   globalThis.clearTimeout=()=>{}
   globalThis.fetch=async(_url,options)=>new Promise((_resolve,reject)=>{
     options.signal.addEventListener('abort',()=>reject(new Error('aborted')),{once:true})

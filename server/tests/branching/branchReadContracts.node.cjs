@@ -36,6 +36,41 @@ test('billing list and summary strictly include requested physical branch',async
     assert.equal(q.args[0],2)
   }
 })
+test('transaction payment filters use the same completed payment for method and payment-date range',async()=>{
+  const x=loadWithFakeDb([[[{total:4}]], [[]], [[{total:4,draft:0,ready:0,partially_paid:0,paid:4,outstanding:0,collected:80}]]])
+  const out=response()
+  await x.api.readBills({branchId:5,query:{status:'paid',payment_method:'GCASH',date_basis:'payment',date_from:'2026-10-01',date_to:'2026-10-20',page:2,limit:12}},out)
+  const [count,rows,summary]=x.queries
+  for(const q of [count,rows,summary]){
+    assert.match(q.sql,/bpf\.billing_id=b\.id/)
+    assert.match(q.sql,/bpf\.status='completed'/)
+    assert.match(q.sql,/bpf\.payment_method=\?/)
+    assert.match(q.sql,/DATE\(bpf\.paid_at\)>=\?/)
+    assert.match(q.sql,/DATE\(bpf\.paid_at\)<=\?/)
+    assert.deepEqual(q.args.slice(0,5),[5,'paid','gcash','2026-10-01','2026-10-20'])
+  }
+  assert.deepEqual(count.args,summary.args)
+  assert.deepEqual(rows.args.slice(0,-2),count.args)
+  assert.deepEqual(rows.args.slice(-2),[12,12])
+  assert.equal(out.body.pagination.total,4)
+  assert.equal(out.body.summary.total,4)
+})
+test('visit and finalized date bases filter their matching bill dates and summary totals',async()=>{
+  for(const [date_basis,column] of [['visit','a.appointment_date'],['finalized','b.finalized_at']]){
+    const x=loadWithFakeDb([[[{total:1}]], [[]], [[{total:1,draft:1,ready:0,partially_paid:0,paid:0,outstanding:30,collected:0}]]])
+    const out=response()
+    await x.api.readBills({branchId:6,query:{payment_method:'cash',date_basis,date_from:'2026-10-04',date_to:'2026-10-09'}},out)
+    const [count,rows,summary]=x.queries
+    for(const q of [count,rows,summary]){
+      assert.match(q.sql,new RegExp(`DATE\\(${column.replace('.','\\.')}\\)>=\\?`))
+      assert.match(q.sql,new RegExp(`DATE\\(${column.replace('.','\\.')}\\)<=\\?`))
+      assert.match(q.sql,/bpm\.status='completed'/)
+      assert.match(q.sql,/bpm\.payment_method=\?/)
+      assert.deepEqual(q.args,[6,'cash','2026-10-04','2026-10-09',...(q===rows?[10,0]:[])])
+    }
+    assert.equal(out.body.pagination.total,out.body.summary.total)
+  }
+})
 test('cash drawer filters payments, refunds and closing by branch and cashier',async()=>{
   const x=loadWithFakeDb([[[{transactions:2,cash_received:100,non_cash_collected:25}]],[[{cash_refunds:10}]],[[null]]])
   const out=response()

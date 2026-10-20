@@ -15,7 +15,6 @@ const PRIORITY = [
   ['system_setup', '/staff/system-setup'],
   ['reports', '/staff/reports'],
   ['audit_logs', '/staff/audit-logs'],
-  ['landing_page', '/staff/landingpage'],
 ]
 
 const Staff_Home = () => {

@@ -40,11 +40,10 @@ export const STAFF_PERMISSION_GROUPS = [
   {
     key: 'insights_system',
     label: 'Insights & System',
-    description: 'Access reporting, audit history, and public website management.',
+    description: 'Access reporting and audit history.',
     permissions: [
       { key: 'reports', label: 'Reports', short: 'Clinic analytics', description: 'View clinic operational, financial, appointment, inventory, and other available reports.' },
       { key: 'audit_logs', label: 'Audit Logs', short: 'Read system activity', description: 'View system audit activity and historical actions. Archive creation and permanent deletion remain Administrator-only.' },
-      { key: 'landing_page', label: 'Landing Page', short: 'Public website content', description: 'Manage the public clinic website content and landing-page information.' },
     ],
   },
 ]

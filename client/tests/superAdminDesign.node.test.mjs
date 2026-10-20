@@ -22,8 +22,12 @@ test('CSV export escapes quotes and blocks formula execution in spreadsheet clie
 })
 test('dashboard and reports never display zero-valued KPIs on request failure',()=>{
  const source=page('Overview.jsx')
- assert.match(source,/error\?null:/)
- assert.match(source,/isValidReportPeriod\(from,to\)/)
+ const loader=readFileSync(join(src,'redesign','overviewData.mjs'),'utf8')
+ assert.match(source,/loadOverviewSections/)
+ assert.match(source,/rows === null \? <Banner/)
+ assert.match(source,/trends === null \? <Banner/)
+ assert.match(loader,/Promise\.allSettled/)
+ assert.doesNotMatch(source,/Promise\.all\(/)
 })
 test('branch activation retains the confirmation flow and readiness details',()=>{
  const source=page('Branches.jsx')

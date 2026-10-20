@@ -44,10 +44,11 @@ test('branch administrators cannot delegate permissions they lack',()=>{
  assert.match(branch,/You cannot grant staff permissions beyond your assigned branch access/)
  assert.match(branch,/p==='landing_page'/)
 })
-test('original dashboard clears loading state on API failure',()=>{
+test('original dashboard keeps independent sections visible and clears loading after API failures',()=>{
  const dashboard=load('client/src/pages/adminPage/Admin_Dashboard.jsx')
- assert.match(dashboard,/Dashboard is temporarily unavailable/)
- assert.match(dashboard,/setLoadError\(err\.message/)
+ assert.match(dashboard,/Dashboard statistics could not load:/)
+ assert.match(dashboard,/Today’s appointments could not load:/)
+ assert.match(dashboard,/finally\(\(\) => setLoading\(false\)\)/)
 })
 
 

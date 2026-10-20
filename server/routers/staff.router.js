@@ -151,10 +151,6 @@ router.get('/admin-access/audit-logs', ...auth, can('audit_logs'), (req,res)=>re
 router.get('/admin-access/audit-logs/archive', ...auth, can('audit_logs'), readBranchArchives)
 router.get('/admin-access/audit-logs/archive/:archiveId', ...auth, can('audit_logs'), (req,res)=>{req.params.id=req.params.archiveId;return readBranchArchiveDetail(req,res)})
 
-// ── Landing Page ─────────────────────────────────────────────────────────────
-router.get('/admin-access/landing-page', ...auth, can('landing_page'), safeSettingsWriteUnavailable)
-router.put('/admin-access/landing-page', ...auth, can('landing_page'), safeSettingsWriteUnavailable)
-
 // ── System Setup ─────────────────────────────────────────────────────────────
 router.get('/admin-access/system-setup', ...auth, can('system_setup'), readSystemSetup)
 router.get('/admin-access/system-setup/booking-policy', ...auth, can('system_setup'), readBranchPolicy)

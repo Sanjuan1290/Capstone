@@ -6,8 +6,11 @@ const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', '..', '..'
 describe('Staff permission access control', () => {
   it('defines all requested feature permissions and groups Walk-in Queue with Appointments', () => {
     const config = read('client', 'src', 'config', 'staffPermissions.js')
-    ;['dashboard','appointments','patient_records','doctor_schedules','checkout','billing','inventory','stock_transfers','accounts','system_setup','reports','audit_logs','landing_page']
+    ;['dashboard','appointments','patient_records','doctor_schedules','checkout','billing','inventory','stock_transfers','accounts','system_setup','reports','audit_logs']
       .forEach((key) => expect(config).toContain(`key: '${key}'`))
+    expect(config).not.toContain("key: 'landing_page'")
+    expect(read('server', 'utils', 'staffPermissions.js')).not.toContain("'landing_page'")
+    expect(read('client', 'src', 'components', 'layouts', 'StaffLayout.jsx')).not.toContain("permission: 'landing_page'")
     expect(config).toContain('Appointments + Walk-in Queue')
     expect(config).toContain('patient check-ins, and the Walk-in Queue')
   })

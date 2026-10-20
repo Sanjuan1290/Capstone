@@ -13,7 +13,6 @@ const STAFF_PERMISSION_KEYS = Object.freeze([
   'system_setup',
   'reports',
   'audit_logs',
-  'landing_page',
 ])
 
 const STAFF_PERMISSION_SET = new Set(STAFF_PERMISSION_KEYS)

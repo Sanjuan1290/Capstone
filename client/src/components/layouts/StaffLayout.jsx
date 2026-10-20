@@ -11,7 +11,7 @@ import { getDashboard } from '../../services/staff.service'
 import {
   MdDashboard, MdEventAvailable, MdQueuePlayNext, MdPeople, MdInventory2, MdChevronLeft,
   MdLogout, MdPerson, MdMenu, MdClose, MdSettings, MdDarkMode, MdLightMode, MdPayments,
-  MdCalendarToday, MdBarChart, MdHistory, MdLanguage, MdTune,
+  MdCalendarToday, MdBarChart, MdHistory, MdTune,
 } from 'react-icons/md'
 
 const NAV_GROUPS = [
@@ -37,7 +37,6 @@ const NAV_GROUPS = [
   { label: 'Insights & System', items: [
     { permission: 'reports', name: 'Reports', path: '/staff/reports', icon: MdBarChart, short: 'Reports' },
     { permission: 'audit_logs', name: 'Audit Logs', path: '/staff/audit-logs', icon: MdHistory, short: 'Audit' },
-    { permission: 'landing_page', name: 'Landing Page', path: '/staff/landingpage', icon: MdLanguage, short: 'Site' },
   ] },
 ]
 
