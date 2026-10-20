@@ -1,13 +1,12 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const path = require('node:path')
 const Module = require('node:module')
 
 const { registerClient, broadcast, sseClients } = require('../../utils/sse')
 const { allocateReceiptNumber } = require('../../utils/payments')
 const { nextInventoryBarcode } = require('../../utils/barcodes')
 const { requiredFoundationColumns, verifyFoundationSchema } = require('../../scripts/branchMigrations')
+const { createFoundationSchemaFixture, migrationSource } = require('../helpers/foundationSchemaFixture.cjs')
 
 const mockConnection = () => {
   const events = []
@@ -93,18 +92,11 @@ test('barcode sequencing is separated by both branch and category', async () => 
 })
 
 test('existing foundation cannot be marked applied when an ownership column is missing', async () => {
-  const sql=fs.readFileSync(path.join(__dirname,'../../db/migrations/2026-10-09-multi-branch-foundation.sql'),'utf8')
-  const columns=requiredFoundationColumns(sql)
+  const columns=requiredFoundationColumns(migrationSource)
   assert.ok(columns.length>=24)
-  const tables=new Set(['clinic_branches','admin_branch_permissions','branch_booking_settings','branch_stock_transfer_requests',...columns.map(c=>c[0])])
-  const calls=[]
-  const fakeDb={query:async(query,args)=>{
-    calls.push(query)
-    if (query.includes('information_schema.TABLES')) return [[...tables].map(TABLE_NAME=>({TABLE_NAME}))]
-    return [columns.filter(([table,column]) => !(table==='queue'&&column==='branch_id')).map(([TABLE_NAME,COLUMN_NAME])=>({TABLE_NAME,COLUMN_NAME}))]
-  }}
-  await assert.rejects(verifyFoundationSchema(fakeDb,sql),/missing ownership columns queue.branch_id/)
-  assert.equal(calls.length,2)
+  const fixture=createFoundationSchemaFixture({omitColumns:['queue.branch_id']})
+  await assert.rejects(verifyFoundationSchema(fixture.db,migrationSource),/missing or incompatible columns: .*queue\.branch_id \(missing\)/)
+  assert.ok(fixture.commands.some(query=>query.includes('information_schema.COLUMNS')))
 })
 
 test('foreign branch queue IDs return 404 before any write', async () => {

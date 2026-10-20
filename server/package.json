@@ -17,7 +17,8 @@
     "pretest": "npm run verify:source",
     "test:node": "node scripts/runNodeRegressionTests.js",
     "verify:reports-sql": "node scripts/verifyBranchReportsSql.js",
-    "verify:runtime": "node scripts/verifyRuntimeReadOnly.js"
+    "verify:runtime": "node scripts/verifyRuntimeReadOnly.js",
+    "export:deployment": "node scripts/exportDeployment.js"
   },
   "keywords": [],
   "author": "",

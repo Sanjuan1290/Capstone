@@ -1,6 +1,13 @@
 require('dotenv').config()
+const fs = require('node:fs')
+const path = require('node:path')
 const db = require('../db/connect')
 const { validateRuntimeConfig } = require('../utils/envValidation')
+const { verifyFoundationSchema } = require('./foundationSchema')
+const foundationMigration = fs.readFileSync(
+  path.join(__dirname, '..', 'db', 'migrations', '2026-10-09-multi-branch-foundation.sql'),
+  'utf8',
+)
 
 const REQUIRED_TABLES = [
   'admins', 'staff', 'doctors', 'patients', 'appointments', 'queue', 'consultations',
@@ -47,6 +54,7 @@ const run = async () => {
     warnings.forEach((warning) => console.warn(`WARNING: ${warning}`))
 
     await db.query('SELECT 1 AS result')
+    await verifyFoundationSchema(db, foundationMigration)
     const [tableRows] = await db.query(
       `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?`,
       [process.env.DB_NAME]

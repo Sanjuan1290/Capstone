@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:design": "node --test tests/superAdminDesign.node.test.mjs",
-    "test:hosting": "node --test tests/cloudflareProxy.node.test.mjs"
+    "test:hosting": "node --test tests/cloudflareProxy.node.test.mjs",
+    "test:autosave": "node --test tests/consultationAutosave.node.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",

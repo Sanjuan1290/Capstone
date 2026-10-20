@@ -16,6 +16,7 @@ import {
 import { doctorClinicLabel } from '../../utils/doctor'
 import { getClinicSettings } from '../../services/clinic.service'
 import { printConsultationRecord } from '../../utils/consultationPrint'
+import { createConsultationDraftQueue } from '../../utils/consultationDraftQueue'
 import {
   MdAccessTime,
   MdAdd,
@@ -228,6 +229,7 @@ const Doctor_Consultation = () => {
 
   const apptFromState = location.state?.appointment
   const apptIdParam = params.get('id')
+  const routeAppointmentId = apptFromState?.id || apptIdParam
 
   const [appt, setAppt] = useState(apptFromState || null)
   const [isEditMode, setIsEditMode] = useState(false)
@@ -254,12 +256,49 @@ const Doctor_Consultation = () => {
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState('')
   const [autoSaveState, setAutoSaveState] = useState('idle')
+  const autoSaveStateRef = useRef('idle')
+  const updateAutoSaveState = (value) => {
+    autoSaveStateRef.current = value
+    setAutoSaveState(value)
+  }
   const [autosaveReady, setAutosaveReady] = useState(false)
-  const autosaveInFlightRef = useRef(false)
-  const autosaveQueuedRef = useRef(false)
-  const lastSavedSignatureRef = useRef('')
-  const latestDraftRef = useRef({ signature: '', payload: null })
+  const latestDraftRef = useRef({ appointmentId: null, signature: '', payload: null })
+  const selectedAppointmentIdRef = useRef(appt?.id ?? null)
   const finalizingRef = useRef(false)
+  const finalizedAppointmentIdRef = useRef(null)
+  const autosaveBaselinePendingRef = useRef('')
+  const consultationLoadGenerationRef = useRef(0)
+  const patientHistoryLoadRef = useRef(0)
+  const billingCatalogLoadRef = useRef(0)
+  const autosaveQueueRef = useRef(null)
+  const autosaveEligibleRef = useRef(false)
+  useEffect(() => {
+    autosaveQueueRef.current = createConsultationDraftQueue({
+      saveDraft: saveConsultationDraft,
+      getAppointmentId: () => selectedAppointmentIdRef.current,
+      getLatestDraft: () => latestDraftRef.current,
+      canSave: () => !finalizingRef.current
+        && finalizedAppointmentIdRef.current !== selectedAppointmentIdRef.current,
+      onSaving: () => updateAutoSaveState('saving'),
+      onSaved: () => {
+        if (finalizingRef.current || finalizedAppointmentIdRef.current === selectedAppointmentIdRef.current) return
+        setConsultationStatus('draft')
+        setIsEditMode(false)
+        setLastSavedAt(new Date())
+        setAutoSaveError('')
+        updateAutoSaveState('saved')
+      },
+      onError: (err) => {
+        setAutoSaveError(err.message || 'Consultation progress could not be saved.')
+        updateAutoSaveState('error')
+      },
+    })
+  }, [])
+  useEffect(() => {
+    autosaveEligibleRef.current = Boolean(
+      autosaveReady && consultationStatus !== 'finalized' && uploadingIndex === null && !finalizingRef.current,
+    )
+  }, [autosaveReady, consultationStatus, uploadingIndex])
   const [amendments, setAmendments] = useState([])
   const [amendmentReason, setAmendmentReason] = useState('')
   const [amendmentText, setAmendmentText] = useState('')
@@ -299,16 +338,18 @@ const Doctor_Consultation = () => {
 
   const loadHistory = async (patientId) => {
     if (!patientId) return
+    const requestId = ++patientHistoryLoadRef.current
     try {
       const data = await getPatientHistory(patientId)
-      setPatientHistory(Array.isArray(data) ? data : [])
+      if (patientHistoryLoadRef.current === requestId) setPatientHistory(Array.isArray(data) ? data : [])
     } catch {
-      setPatientHistory([])
+      if (patientHistoryLoadRef.current === requestId) setPatientHistory([])
     }
   }
 
   const applyConsultationData = (consult) => {
     const nextStatus = consult.status || 'finalized'
+    finalizedAppointmentIdRef.current = nextStatus === 'finalized' ? selectedAppointmentIdRef.current : null
     setConsultationStatus(nextStatus)
     setIsEditMode(nextStatus === 'finalized')
     setAmendments(Array.isArray(consult.amendments) ? consult.amendments : [])
@@ -335,51 +376,99 @@ const Doctor_Consultation = () => {
   }
 
   useEffect(() => {
-    if (apptFromState || !apptIdParam) return
+    const requestedId = Number(routeAppointmentId)
+    const loadToken = ++consultationLoadGenerationRef.current
+    if (!Number.isSafeInteger(requestedId) || requestedId < 1) {
+      selectedAppointmentIdRef.current = null
+      latestDraftRef.current = { appointmentId: null, signature: '', payload: null }
+      autosaveBaselinePendingRef.current = ''
+      autosaveQueueRef.current.reset(null, '')
+      finalizedAppointmentIdRef.current = null
+      setAppt(null)
+      setAutosaveReady(false)
+      setInitLoading(false)
+      return () => {
+        if (consultationLoadGenerationRef.current === loadToken) consultationLoadGenerationRef.current += 1
+      }
+    }
+
+    selectedAppointmentIdRef.current = requestedId
+    latestDraftRef.current = { appointmentId: requestedId, signature: '', payload: null }
+    autosaveBaselinePendingRef.current = String(requestedId)
+    autosaveQueueRef.current.reset(requestedId, '')
+    finalizingRef.current = false
+    finalizedAppointmentIdRef.current = null
+    setAppt(apptFromState || null)
     setInitLoading(true)
     setAutosaveReady(false)
-    getConsultation(apptIdParam)
+    setIsEditMode(false)
+    setDiagnosis('')
+    setNotes('')
+    setPrescriptions([])
+    setPrescriptionDecision('not_recorded')
+    setProgressImages([])
+    setPatientHistory([])
+    setAmendments([])
+    setBillableServices([])
+    setConsultationStatus('draft')
+    setLastSavedAt(null)
+    setAutoSaveError('')
+    updateAutoSaveState('idle')
+    setProgressImagePreview(null)
+    setSaving(false)
+    setTab('consultation')
+
+    getConsultation(requestedId)
       .then((consult) => {
-        setAppt({
-          id: Number(apptIdParam),
-          patient_id: consult.patient_id,
-          patient_name: consult.patient_name,
-          patient: consult.patient_name,
-          patient_age: consult.patient_age,
-          patient_sex: consult.patient_sex,
-          patient_phone: consult.patient_phone,
-          reason: consult.reason,
-          requested_service_id: consult.requested_service_id,
-          requested_service_name_snapshot: consult.requested_service_name_snapshot,
-          requested_service_price_snapshot: consult.requested_service_price_snapshot,
-          time: consult.time,
-          type: consult.type,
-          status: (consult.status || 'finalized') === 'finalized' ? 'completed' : 'in-progress',
-        })
+        if (consultationLoadGenerationRef.current !== loadToken) return
+        if (!apptFromState) {
+          setAppt({
+            id: requestedId,
+            patient_id: consult.patient_id,
+            patient_name: consult.patient_name,
+            patient: consult.patient_name,
+            patient_age: consult.patient_age,
+            patient_sex: consult.patient_sex,
+            patient_phone: consult.patient_phone,
+            reason: consult.reason,
+            requested_service_id: consult.requested_service_id,
+            requested_service_name_snapshot: consult.requested_service_name_snapshot,
+            requested_service_price_snapshot: consult.requested_service_price_snapshot,
+            time: consult.time,
+            type: consult.type,
+            status: (consult.status || 'finalized') === 'finalized' ? 'completed' : 'in-progress',
+          })
+        }
         applyConsultationData(consult)
         setIsEditMode((consult.status || 'finalized') === 'finalized')
       })
-      .catch(() => {})
-      .finally(() => { setAutosaveReady(true); setInitLoading(false) })
-  }, [apptIdParam, apptFromState])
-
-  useEffect(() => {
-    if (!apptFromState?.id) return
-    setInitLoading(true)
-    setAutosaveReady(false)
-    getConsultation(apptFromState.id)
-      .then((consult) => applyConsultationData(consult))
       .catch(() => {
+        if (consultationLoadGenerationRef.current !== loadToken) return
         // A consultation does not exist until the doctor starts entering clinical information.
-        if (apptFromState.status === 'completed') setIsEditMode(true)
+        if (apptFromState?.status === 'completed') setIsEditMode(true)
       })
-      .finally(() => { setAutosaveReady(true); setInitLoading(false) })
-  }, [apptFromState])
+      .finally(() => {
+        if (consultationLoadGenerationRef.current !== loadToken) return
+        setAutosaveReady(true)
+        setInitLoading(false)
+      })
+
+    return () => {
+      if (consultationLoadGenerationRef.current === loadToken) consultationLoadGenerationRef.current += 1
+    }
+  }, [routeAppointmentId, apptFromState])
+
+  // Flush a dirty draft when the doctor changes appointments or leaves this page.
+  // The queue captures the old appointment id before the next route effect resets it.
+  useEffect(() => () => {
+    if (autosaveEligibleRef.current) void autosaveQueueRef.current.persist()
+  }, [routeAppointmentId, apptFromState])
 
   useEffect(() => {
     if (!appt?.patient_id) return
-    loadHistory(appt.patient_id)
-  }, [appt?.patient_id])
+    void loadHistory(appt.patient_id)
+    return () => { patientHistoryLoadRef.current += 1 }
+  }, [appt?.id, appt?.patient_id])
 
   useEffect(() => {
     getInventoryItems()
@@ -393,11 +482,14 @@ const Doctor_Consultation = () => {
 
   useEffect(() => {
     const clinicType = appt?.type || appt?.clinic_type || ''
+    const requestId = ++billingCatalogLoadRef.current
     if (!clinicType) return
     getBillingCatalog(clinicType).then((rows) => {
+      if (billingCatalogLoadRef.current !== requestId) return
       const catalog = Array.isArray(rows) ? rows : []
       setBillingCatalog(catalog)
       setBillableServices((current) => {
+        if (String(selectedAppointmentIdRef.current) !== String(appt?.id)) return current
         if (consultationStatus === 'finalized') return current
         const requested = catalog.find((service) => Number(service.id) === Number(appt?.requested_service_id))
         if (!current.length) {
@@ -434,8 +526,13 @@ const Doctor_Consultation = () => {
           }
         })
       })
-    }).catch(() => setBillingCatalog([]))
-  }, [appt?.type, appt?.clinic_type, appt?.requested_service_id, consultationStatus])
+    }).catch(() => {
+      if (billingCatalogLoadRef.current === requestId) setBillingCatalog([])
+    })
+    return () => {
+      if (billingCatalogLoadRef.current === requestId) billingCatalogLoadRef.current += 1
+    }
+  }, [appt?.id, appt?.type, appt?.clinic_type, appt?.requested_service_id, consultationStatus])
 
   const currentPatient = appt ? {
     id: appt.patient_id,
@@ -733,47 +830,22 @@ const Doctor_Consultation = () => {
       images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
       billable_services: billableServices,
     }
-  }, [diagnosis, notes, prescriptionDecision, prescriptions, progressImages, billableServices, inventoryItems])
+  }, [diagnosis, notes, prescriptionDecision, prescriptions, progressImages, billableServices])
 
   const draftSignature = useMemo(() => JSON.stringify(draftPayload), [draftPayload])
   const appointmentId = appt?.id
   useEffect(() => {
-    latestDraftRef.current = { signature: draftSignature, payload: draftPayload }
-  }, [draftSignature, draftPayload])
+    latestDraftRef.current = { appointmentId, signature: draftSignature, payload: draftPayload }
+    if (appointmentId != null && autosaveReady
+      && autosaveBaselinePendingRef.current === String(appointmentId)) {
+      autosaveQueueRef.current.reset(appointmentId, draftSignature)
+      autosaveBaselinePendingRef.current = ''
+    }
+  }, [appointmentId, draftSignature, draftPayload, autosaveReady])
 
   const persistDraft = useCallback(async ({ force = false } = {}) => {
     if (!appointmentId || consultationStatus === 'finalized' || !autosaveReady || uploadingIndex !== null || finalizingRef.current) return false
-    if (autosaveInFlightRef.current) {
-      autosaveQueuedRef.current = true
-      return false
-    }
-
-    autosaveInFlightRef.current = true
-    let success = true
-    try {
-      let forceNext = force
-      do {
-        autosaveQueuedRef.current = false
-        const current = latestDraftRef.current
-        if (!current.payload || (!forceNext && current.signature === lastSavedSignatureRef.current)) break
-        forceNext = false
-        setAutoSaveState('saving')
-        await saveConsultationDraft(appointmentId, current.payload)
-        lastSavedSignatureRef.current = current.signature
-        setConsultationStatus('draft')
-        setIsEditMode(false)
-        setLastSavedAt(new Date())
-        setAutoSaveError('')
-        setAutoSaveState('saved')
-      } while (autosaveQueuedRef.current || latestDraftRef.current.signature !== lastSavedSignatureRef.current)
-    } catch (err) {
-      success = false
-      setAutoSaveError(err.message || 'Consultation progress could not be saved.')
-      setAutoSaveState('error')
-    } finally {
-      autosaveInFlightRef.current = false
-    }
-    return success
+    return autosaveQueueRef.current.persist({ force })
   }, [appointmentId, consultationStatus, autosaveReady, uploadingIndex])
 
   const handleFinalize = async () => {
@@ -796,14 +868,16 @@ const Doctor_Consultation = () => {
     if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct the actual recorded consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
     finalizingRef.current = true
     setSaving(true)
+    const finalizingDraft = latestDraftRef.current
     try {
-      await finalizeConsultation(appt.id, latestDraftRef.current.payload)
-      lastSavedSignatureRef.current = latestDraftRef.current.signature
+      await finalizeConsultation(appt.id, finalizingDraft.payload)
+      finalizedAppointmentIdRef.current = appt.id
+      autosaveQueueRef.current.reset(appt.id, finalizingDraft.signature)
       setConsultationStatus('finalized')
       setIsEditMode(true)
       setLastSavedAt(new Date())
       setAutoSaveError('')
-      setAutoSaveState('saved')
+      updateAutoSaveState('saved')
       setAppt((prev) => (prev ? { ...prev, status: 'completed' } : prev))
       await loadHistory(appt.patient_id)
     } catch (err) {
@@ -811,6 +885,7 @@ const Doctor_Consultation = () => {
     } finally {
       finalizingRef.current = false
       setSaving(false)
+      queueMicrotask(() => { void persistDraft() })
     }
   }
 
@@ -819,8 +894,8 @@ const Doctor_Consultation = () => {
   // a long 25-second countdown and progress is persisted promptly.
   useEffect(() => {
     if (!appt?.id || consultationStatus === 'finalized' || !autosaveReady || uploadingIndex !== null) return undefined
-    if (draftSignature === lastSavedSignatureRef.current) return undefined
-    if (autoSaveState !== 'saving') setAutoSaveState('pending')
+    if (draftSignature === autosaveQueueRef.current.getLastSavedSignature()) return undefined
+    if (autoSaveStateRef.current !== 'saving') updateAutoSaveState('pending')
     const timer = window.setTimeout(() => { persistDraft() }, 1500)
     return () => window.clearTimeout(timer)
   }, [appt?.id, consultationStatus, autosaveReady, uploadingIndex, draftSignature, persistDraft])
@@ -834,7 +909,7 @@ const Doctor_Consultation = () => {
   }, [appt?.id, consultationStatus, autosaveReady, persistDraft])
 
   useEffect(() => {
-    if (consultationStatus === 'finalized' || draftSignature === lastSavedSignatureRef.current) return undefined
+    if (consultationStatus === 'finalized' || draftSignature === autosaveQueueRef.current.getLastSavedSignature()) return undefined
     const beforeUnload = (event) => {
       event.preventDefault()
       event.returnValue = ''
@@ -982,7 +1057,7 @@ const Doctor_Consultation = () => {
                 <p className="mt-1 text-xs leading-relaxed text-emerald-700">The original diagnosis, notes, prescription, images, and recorded services are preserved. Corrections or additional information must be added as an amendment below.</p>
               </div>
             )}
-            <fieldset disabled={consultationStatus === 'finalized'} className={`space-y-5 ${consultationStatus === 'finalized' ? 'opacity-90' : ''}`}>
+            <fieldset disabled={consultationStatus === 'finalized' || saving} className={`space-y-5 ${consultationStatus === 'finalized' ? 'opacity-90' : ''}`}>
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
               <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
                 <MdNotes className="text-violet-500 text-[16px]" /> Diagnosis & Notes
@@ -1320,7 +1395,7 @@ const Doctor_Consultation = () => {
               </div>
             )}
 
-            <fieldset disabled={consultationStatus === 'finalized'} className={consultationStatus === 'finalized' ? 'opacity-90' : ''}>
+            <fieldset disabled={consultationStatus === 'finalized' || saving} className={consultationStatus === 'finalized' ? 'opacity-90' : ''}>
               <div className="space-y-5">
                 <section className="rounded-2xl border border-slate-200 bg-white p-6">
                   <div>

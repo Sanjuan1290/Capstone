@@ -6,6 +6,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const { runBranchMigrations, migrationFiles } = require('../../scripts/branchMigrations')
+const { createFoundationSchemaFixture } = require('../helpers/foundationSchemaFixture.cjs')
 
 const migrationDir = path.resolve(__dirname, '../../db/migrations')
 const expectedChecksums = {
@@ -16,7 +17,8 @@ const expectedChecksums = {
   '2026-10-17-announcements-campaigns.sql': '93dcfbf49ecbe7b68e22eb99fe6ffe55885c01c3b3e3db0007ce24dc2ef772fa',
 }
 
-function createMockDb({ failOnceOn } = {}) {
+function createMockDb({ failOnceOn, foundationOptions } = {}) {
+  const foundation = createFoundationSchemaFixture(foundationOptions)
   const applied = new Map()
   const commands = []
   let failure = failOnceOn
@@ -37,14 +39,12 @@ function createMockDb({ failOnceOn } = {}) {
       async beginTransaction() {},
       async query(sql, params = []) {
         commands.push(String(sql))
+        const fixtureResult = await foundation.db.query(sql, params)
         if (/SELECT\s+lock_name.+FOR UPDATE/i.test(sql)) {
           await acquireLock()
           holdsLock = true
           return [[{ lock_name: params[0] }]]
         }
-        if (/information_schema\.TABLES/i.test(sql)) return [[{ n: 1 }]]
-        if (/information_schema\.COLUMNS|information_schema\.STATISTICS/i.test(sql)) return [[{ n: 0 }]]
-        if (/information_schema\.KEY_COLUMN_USAGE/i.test(sql)) return [[{ n: 0 }]]
         if (failure && String(sql).includes(failure)) {
           failure = null
           throw new Error('synthetic migration DDL failure')
@@ -53,7 +53,7 @@ function createMockDb({ failOnceOn } = {}) {
           applied.set(params[0], params[1])
           return [{ affectedRows: 1 }]
         }
-        return [[], []]
+        return fixtureResult
       },
       async commit() { if (holdsLock) { holdsLock = false; releaseLock() } },
       async rollback() { if (holdsLock) { holdsLock = false; releaseLock() } },
@@ -69,8 +69,7 @@ function createMockDb({ failOnceOn } = {}) {
         const hash = applied.get(params[0])
         return hash ? [[{ content_sha256: hash }]] : [[]]
       }
-      if (/SELECT COUNT\(\*\) AS n FROM information_schema\.tables/i.test(sql)) return [[{ n: 0 }]]
-      return [[], []]
+      return foundation.db.query(sql, params)
     },
     async getConnection() { return connection() },
   }
@@ -112,6 +111,22 @@ test('failed migration is not recorded and an idempotent retry completes it', as
     assert.equal(db.applied.has('2026-10-15-branch-ledgers.sql'), false)
     await runBranchMigrations(db)
     assert.deepEqual([...db.applied.keys()], migrationFiles)
+  } finally {
+    if (previousProvider === undefined) delete process.env.DB_PROVIDER
+    else process.env.DB_PROVIDER = previousProvider
+  }
+})
+
+test('incomplete foundation constraints are never recorded as an applied migration', async () => {
+  const db = createMockDb({ foundationOptions: { omitForeignKeys: ['branch_booking_settings.branch_id'] } })
+  const previousProvider = process.env.DB_PROVIDER
+  process.env.DB_PROVIDER = 'tidb'
+  try {
+    await assert.rejects(
+      runBranchMigrations(db),
+      /missing or incompatible foreign keys: branch_booking_settings\.branch_id -> clinic_branches\.id/,
+    )
+    assert.equal(db.applied.has(migrationFiles[0]), false)
   } finally {
     if (previousProvider === undefined) delete process.env.DB_PROVIDER
     else process.env.DB_PROVIDER = previousProvider
