@@ -3,18 +3,38 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const { createConnectionOptions } = require('../../db/connectionOptions')
+const os = require('node:os')
 const { convertDump } = require('../../scripts/prepareTidbDump')
 const { argumentsOf, translateCall, runTiDBMigration, PROCEDURAL_FILES } = require('../../scripts/tidbMigrationAdapter')
 const { splitMysqlMigration } = require('../../scripts/branchMigrations')
 const base = path.resolve(__dirname, '../../db/migrations')
 test('TiDB connection enforces 4000 and verified TLS', () => {
-  const options = createConnectionOptions({ DB_PROVIDER:'tidb', DB_HOST:'x.tidbcloud.com', DB_NAME:'test', DB_USER:'root', DB_PASS:'fake' })
+  const options = createConnectionOptions({ DB_PROVIDER:'tidb', DB_HOST:'x.tidbcloud.com', DB_NAME:'test', DB_USER:'root', DB_PASSWORD:'preferred', DB_PASS:'legacy', DB_POOL_SIZE:'12', DB_CONNECT_TIMEOUT_MS:'15000', DB_QUEUE_LIMIT:'4' })
   assert.equal(options.port,4000)
   assert.equal(options.ssl.rejectUnauthorized,true)
   assert.equal(options.timezone,'+08:00')
+  assert.equal(options.password,'preferred')
+  assert.equal(options.connectionLimit,12)
+  assert.equal(options.connectTimeout,15000)
+  assert.equal(options.queueLimit,4)
   assert.throws(()=>createConnectionOptions({DB_PROVIDER:'tidb',DB_SSL:'false'}),/requires DB_SSL=true/)
   assert.throws(()=>createConnectionOptions({DB_PROVIDER:'mysql',DB_PORT:'65536'}),/valid TCP port/)
+  assert.throws(()=>createConnectionOptions({DB_POOL_SIZE:'0'}),/DB_POOL_SIZE/)
+  assert.throws(()=>createConnectionOptions({DB_CONNECT_TIMEOUT_MS:'999999'}),/DB_CONNECT_TIMEOUT_MS/)
   assert.equal(createConnectionOptions({DB_PROVIDER:'mysql'}).ssl,undefined)
+  assert.equal(createConnectionOptions({DB_PROVIDER:'mysql',DB_PASS:'legacy'}).password,'legacy')
+  assert.equal(createConnectionOptions({DB_PROVIDER:'mysql',DB_PASSWORD:'',DB_PASS:'legacy'}).password,'legacy')
+})
+test('optional database CA path is loaded and requires verified TLS',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'carait-ca-'))
+  const caPath=path.join(dir,'ca.pem')
+  try {
+    fs.writeFileSync(caPath,'-----BEGIN CERTIFICATE-----\nsynthetic-ca\n-----END CERTIFICATE-----\n')
+    const options=createConnectionOptions({DB_PROVIDER:'tidb',DB_HOST:'x',DB_USER:'u',DB_NAME:'d',DB_SSL_CA_PATH:caPath})
+    assert.match(options.ssl.ca,/synthetic-ca/)
+    assert.equal(options.ssl.rejectUnauthorized,true)
+    assert.throws(()=>createConnectionOptions({DB_PROVIDER:'mysql',DB_SSL_CA_PATH:caPath}),/requires DB_SSL=true/)
+  } finally { fs.rmSync(dir,{recursive:true,force:true}) }
 })
 test('PayMongo remains test-only even in the production validator', () => {
   const original = process.env
@@ -55,6 +75,17 @@ test('TiDB adapter executes guarded CALLs without CREATE PROCEDURE',async()=>{
   await translateCall(conn,"CALL carait_branch_index('admins','idx_admin_branch','CREATE INDEX idx_admin_branch ON admins (account_role,branch_id,is_active)')")
   assert(commands.some(([sql])=>sql==='CREATE INDEX idx_admin_branch ON admins (account_role,branch_id,is_active)'))
   await assert.rejects(()=>translateCall(conn, 'CALL malicious()'),/Unrecognized/)
+})
+test('TiDB rekey safely completes when a prior attempt already removed the old index',async()=>{
+  const commands=[]
+  const conn={query:async(sql,params)=>{
+    commands.push(sql)
+    if(/information_schema\.TABLES/i.test(sql))return [[{n:1}]]
+    if(/information_schema\.STATISTICS/i.test(sql))return [[{n:0}]]
+    return [[{n:1}]]
+  }}
+  await translateCall(conn,"CALL carait_branch_rekey('billing_service_catalog','old_idx','new_idx','branch_id,service_name')")
+  assert.ok(commands.includes('ALTER TABLE `billing_service_catalog` ADD UNIQUE KEY `new_idx` (`branch_id`,`service_name`)'))
 })
 test('every registered TiDB procedural migration is translated through mocked schema metadata',async()=>{
   for (const file of PROCEDURAL_FILES) {

@@ -72,9 +72,10 @@ async function translateCall(conn, statement) {
     }
     case 'carait_branch_rekey': {
       const [table, oldIndex, newIndex, columns] = args
-      if (await exists(conn, 'STATISTICS', table, oldIndex) && !await exists(conn, 'STATISTICS', table, newIndex)) {
-        await addIndex(conn, table, newIndex, columns, oldIndex)
-      }
+      // Recover from partial application even when the old index was already
+      // removed before a crash. addIndex skips an existing replacement and
+      // drops the old index only when it is still present.
+      await addIndex(conn, table, newIndex, columns, oldIndex)
       return
     }
     case 'carait_ensure_branch_ledger_column': {

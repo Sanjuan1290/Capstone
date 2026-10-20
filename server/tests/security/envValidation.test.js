@@ -40,6 +40,25 @@ describe('runtime configuration validation', () => {
     expect(validateRuntimeConfig()).toHaveProperty('warnings')
   })
 
+  it('accepts DB_PASSWORD as the deployment password name while retaining DB_PASS compatibility', () => {
+    Object.assign(process.env, {
+      NODE_ENV: 'production',
+      DB_HOST: 'db.internal',
+      DB_USER: 'clinic',
+      DB_PASSWORD: 'secret',
+      DB_PASS: '',
+      DB_NAME: 'carait_clinic_system',
+      JWT_SECRET: 'a'.repeat(48),
+      CLIENT_URL: 'https://clinic.example.com',
+      ADMIN_MFA_ENABLED: 'false',
+      QUEUE_DISPLAY_PIN: '839251',
+      SMS_PROVIDER: 'none',
+      API_PROXY_SECRET: 'p'.repeat(40),
+      TRUST_PROXY: 'false',
+    })
+    expect(validateRuntimeConfig()).toHaveProperty('warnings')
+  })
+
   it('requires an authenticated Pages proxy secret and rejects legacy blanket proxy trust', () => {
     Object.assign(process.env, {
       NODE_ENV: 'production',

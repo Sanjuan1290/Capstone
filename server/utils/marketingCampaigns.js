@@ -122,5 +122,5 @@ const startMarketingWorker = () => {
   timer.unref?.()
   void runMarketingWorker()
 }
-module.exports={configured,tokenFor,patientFromToken,eligibleSql,escapeHtml,runMarketingWorker,startMarketingWorker}
+module.exports={configured,tokenFor,patientFromToken,eligibleSql,escapeHtml,reserveAndClaim,runMarketingWorker,startMarketingWorker}
 

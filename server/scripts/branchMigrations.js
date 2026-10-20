@@ -71,6 +71,32 @@ async function runBranchMigrations(db) {
     content_sha256 CHAR(64) NOT NULL,
     applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+  // Hold this row lock on a dedicated connection while DDL executes on worker
+  // connections. TiDB and MySQL auto-commit many DDL statements, so the lock
+  // transaction must not share a connection with migration work.
+  await db.query(`CREATE TABLE IF NOT EXISTS schema_migration_locks (
+    lock_name VARCHAR(80) NOT NULL PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+  const lockConnection = await db.getConnection()
+  let lockTransactionStarted = false
+  try {
+    await lockConnection.beginTransaction()
+    lockTransactionStarted = true
+    await lockConnection.query('INSERT IGNORE INTO schema_migration_locks (lock_name) VALUES (?)', ['branch-migrations'])
+    await lockConnection.query('SELECT lock_name FROM schema_migration_locks WHERE lock_name=? FOR UPDATE', ['branch-migrations'])
+    await runRegisteredBranchMigrations(db)
+    await lockConnection.commit()
+    lockTransactionStarted = false
+  } catch (error) {
+    if (lockTransactionStarted) await lockConnection.rollback().catch(() => {})
+    throw error
+  } finally {
+    lockConnection.release()
+  }
+}
+
+async function runRegisteredBranchMigrations(db) {
   for (const file of migrationFiles) {
     const sql = fs.readFileSync(path.join(__dirname,'..','db','migrations',file), 'utf8')
     const hash = crypto.createHash('sha256').update(sql).digest('hex')
@@ -108,5 +134,5 @@ async function runBranchMigrations(db) {
     } finally { connection.release() }
   }
 }
-module.exports = {splitMysqlMigration,requiredFoundationColumns,verifyFoundationSchema,runBranchMigrations,acceptedContentHashes}
+module.exports = {splitMysqlMigration,requiredFoundationColumns,verifyFoundationSchema,runBranchMigrations,acceptedContentHashes,migrationFiles}
 

@@ -12,10 +12,11 @@
 
 ## Changes in this patch
 
-- `server/db/connectionOptions.js` (new) + `server/db/connect.js`: optional `DB_PROVIDER=tidb`, DB port, TLS verification, optional trusted CA path.
+- `server/db/connectionOptions.js` + `server/db/connect.js`: optional `DB_PROVIDER=tidb`, DB port, verified TLS, optional trusted CA path, bounded pool/queue settings, and connection timeout. `DB_PASSWORD` is preferred while legacy `DB_PASS` remains supported.
+- `server/package.json` + lock file: keep the production dependency tree clear of the audited Express proxy/query-string and Nodemailer advisories; tests still use the existing CommonJS mail transport API.
 - `server/utils/envValidation.js`: production HTTPS origin validation and **fail-closed** PayMongo mode/key validation (TEST only).
 - `server/middlewares/trustedProxy.middleware.js` + Pages proxy: signed Cloudflare client-IP attribution, forwarded-header stripping, and a 30-second upstream response timeout. Production now requires the same private `API_PROXY_SECRET` in Render and Pages; `TRUST_PROXY=true` is rejected.
-- `server/scripts/tidbMigrationAdapter.js` (new) + `server/scripts/branchMigrations.js`: application-managed schema guards for three historical procedure-based migrations when they are unapplied on TiDB. The original migration SQL and SHA-256 hashes are **unchanged**.
+- `server/scripts/tidbMigrationAdapter.js` + `server/scripts/branchMigrations.js`: application-managed schema guards for three historical procedure-based migrations when they are unapplied on TiDB. A database lock row serializes migration runners; failed migrations are not recorded, and guarded DDL can be retried. The original migration SQL and SHA-256 hashes are **unchanged**.
 - `server/utils/schema.js`: preserve saved UOM precision, avoid recurring abbreviation-column deletion, and rebuild the derived stock summary atomically.
 - `server/utils/marketingCampaigns.js`: use normal locking `FOR UPDATE` on TiDB (already protected by the locked campaign row); retain the existing MySQL `SKIP LOCKED` behavior.
 - `server/scripts/prepareTidbDump.js`: non-destructive, offline dump-preparation tool, default **schema-only**, never imports by itself.
@@ -65,10 +66,14 @@ DB_PROVIDER=tidb
 DB_HOST=<from-tidb>
 DB_PORT=4000
 DB_USER=<from-tidb>
-DB_PASS=<secret>
+DB_PASSWORD=<secret>
+# DB_PASS remains accepted for existing installations.
 DB_NAME=<staging_database>
 DB_SSL=true
 # DB_SSL_CA_PATH=/etc/secrets/tidb-ca.pem   # only if your cluster requires it
+DB_POOL_SIZE=10
+DB_CONNECT_TIMEOUT_MS=10000
+DB_QUEUE_LIMIT=0
 DB_TIME_ZONE=+08:00
 CLIENT_URL=https://staging.yourdomain.example
 JWT_SECRET=<long-random-secret-32-plus-chars>
@@ -88,7 +93,7 @@ Also configure required Semaphore, Cloudinary, marketing services *only* if thos
 
 ## Step 3 — Render web service
 
-- Create a [Render web service](https://render.com/docs/web-services) from the real repository, root directory `server`, build `npm ci`, start `npm start`; use a supported Node 22 runtime. A paid non-sleeping web service is preferable for clinic operations.
+- Create a [Render web service](https://render.com/docs/web-services) from the real repository, root directory `server`, build `npm ci --omit=dev`, start `npm start`; use a supported Node 22 runtime. Run full tests in CI before building the production service.
 - Keep startup migrations OFF; run them deliberately in a protected job before opening traffic. Use `/api/ready` to verify database reachability, `/api/health` for liveness.
 - Preserve default Render HTTPS and any extra custom `api.` hostname. Webhook route must be reachable **directly at Render** (not through Cloudflare Pages):
   `https://YOUR_RENDER_API_HOST/api/webhooks/paymongo`.
@@ -127,14 +132,16 @@ openssl rand -hex 32
 
 ## Actual validation in this review
 
-- `npm run verify:source` passed: 389 backend source files and 982 relative imports resolved.
-- `npm run test:node` passed all 180 tests; `npm test` passed 77 files and 258 tests.
+- `npm ci` passed in both `server` and `client` from their updated lock files.
+- `npm run verify:source` passed: 392 backend source files and 983 relative imports resolved.
+- `npm run test:node` passed all 190 tests; `npm test` passed 77 files and 259 tests.
 - `npm run test:design` passed 8 tests; `npm run test:hosting` passed 5 tests.
 - `npm run lint` passed with 0 errors and 17 React hook/dependency warnings.
 - `npm run build` succeeded. Vite reports the main minified JS chunk is about 2.08 MB (507 KB gzip), above its 500 KB advisory threshold.
-- `npm run verify:reports-sql` completed 20 read-only `EXPLAIN` checks against the database configured in `server/.env`. No migration or write test was run against that target, and it was not verified as disposable TiDB.
-- Mocked checks cover TiDB TLS/options, all three registered stored-procedure migration adapters, stock-summary transaction rollback, signed proxy-IP handling, spoofed and expired signatures, request methods/bodies, timeout behavior, and PayMongo TEST-only configuration.
-- Not run: `npm ci` (dependencies were already installed), `npm run verify:deploy`, migrations, a TiDB disposable-database integration pass, live backend startup/readiness, five-role browser E2E, or PayMongo sandbox/network tests. No PayMongo requests or deployments were made.
+- A prior QA turn ran `npm run verify:reports-sql` with 20 read-only `EXPLAIN` checks against the database configured in `server/.env`. No migration or write test was run against that target, and it was not verified as disposable TiDB; this follow-up did not connect to any database.
+- Mocked checks cover TiDB TLS/options and CA loading, normalized checksums for all registered historical migrations, migration ordering/locking/failure retry, all three stored-procedure migration adapters, stock-summary transaction rollback, signed proxy-IP handling, spoofed and expired signatures, request methods/bodies, cookie/SSE forwarding, timeout behavior, PayMongo TEST-only configuration, and the updated Gmail/Nodemailer CommonJS transport interface.
+- `npm audit --omit=dev` reported 0 production vulnerabilities for both packages. Full dependency-tree audit still reports 3 high development-only server findings (nodemon/braces chain) and 5 high plus 2 moderate client build-tool findings (Tailwind 3 chain). npm's suggested fixes require major build-tool changes; the braces advisory currently lists no patched version. Render should install with `npm ci --omit=dev`; keep build jobs restricted to trusted source.
+- Not run: `npm run verify:deploy`, migrations, a TiDB disposable-database integration pass, live backend startup/readiness, five-role browser E2E, or PayMongo sandbox/network tests. No PayMongo requests or deployments were made.
 - Historical SQL files outside the three migrations registered in `branchMigrations.js` remain unchanged. Replaying the entire historical SQL directory into a fresh TiDB database is not validated; test the documented current migration path against disposable TiDB first.
 - No database rows or schema were changed in this review. These checks do not authorize production deployment or real payments.
 

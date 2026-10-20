@@ -13,10 +13,14 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
   const errors = []
   const warnings = []
   const required = ['DB_HOST', 'DB_USER', 'DB_NAME', 'JWT_SECRET']
-  if (production) required.push('DB_PASS', 'CLIENT_URL')
+  if (production) required.push('CLIENT_URL')
 
   for (const key of required) {
     if (!isNonEmpty(process.env[key])) errors.push(`${key} is required${production ? ' in production' : ''}.`)
+  }
+
+  if (production && !isNonEmpty(process.env.DB_PASSWORD) && !isNonEmpty(process.env.DB_PASS)) {
+    errors.push('DB_PASSWORD or DB_PASS is required in production.')
   }
 
   if (String(process.env.DB_PROVIDER || 'mysql').toLowerCase() === 'tidb' && String(process.env.DB_SSL || 'true').toLowerCase() !== 'true') {

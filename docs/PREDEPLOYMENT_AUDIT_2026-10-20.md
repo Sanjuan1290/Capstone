@@ -1,14 +1,23 @@
 # CARAIT pre-deployment audit
 
-**Review date:** 2026-10-20  
-**Repository baseline:** `4de26e0` (`main`, initially clean)  
+**Review date:** 2026-10-20
+**Repository baseline:** `2e49be1` (`main`, clean when this follow-up began)
 **Verdict:** **READY FOR STAGING**. This is not a production certification.
 
 ## A. Executive audit
 
-The current repository already contained the clinic portals, multi-branch controls, PayMongo TEST-mode integration, TiDB connection options, Pages proxy, and substantial automated coverage. This review ran the available local suites, corrected verified proxy and database-bootstrap defects, fixed the reported frontend lint errors, and updated the deployment guide.
+The checkout already contained the Pages proxy, TiDB migration adapter, clinic portals, multi-branch controls, PayMongo TEST-mode integration, and prior deployment audit changes. This follow-up verified those files in the actual `main` checkout, then added migration serialization/recovery, connection compatibility settings, targeted tests, and a production dependency security update.
 
-No original migration SQL was changed. No schema migration, production deployment, PayMongo request, or real payment was performed. The optional source dump and patch archive listed in the request were not present in the workspace, so the repository was the source of truth. Local `.env` files were not inspected or printed.
+No original migration SQL was changed. No schema migration, production deployment, PayMongo request, or real payment was performed. The named flattened exports, patch archive, and schema-only SQL were not present in the workspace, so the repository was the source of truth. Local `.env` files were not inspected or printed.
+
+## Follow-up implementation
+
+- `server/scripts/branchMigrations.js` now serializes concurrent migration processes with a dedicated database lock row held on a separate connection, so TiDB/MySQL DDL auto-commits cannot release the lock. Failed migrations are still recorded only after all statements succeed.
+- `server/scripts/tidbMigrationAdapter.js` now completes a partially applied index rekey when the old index has already been removed.
+- `server/db/connectionOptions.js`, `server/utils/envValidation.js`, and `server/.env.example` support preferred `DB_PASSWORD` plus legacy `DB_PASS`, bounded pool/queue values, and a connection timeout.
+- `server/package.json` and its lockfile update Nodemailer and pin patched `proxy-addr`/`qs`; `npm audit --omit=dev` now reports zero production vulnerabilities.
+- Added mocked tests for migration checksum/order/locking/failure retry, concurrent marketing claims and rollback, and the Nodemailer CommonJS transport surface. No database connection was used by these tests.
+- `npm ci` completed from both updated lock files. Full audit still reports development-only toolchain advisories: server 3 high issues in the nodemon/braces chain; client 5 high and 2 moderate issues in Tailwind 3 tooling. The suggested Tailwind fix is a major upgrade, and the current [`braces` advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) lists no patched version. Production Render installation is documented as `npm ci --omit=dev`.
 
 ## B. Confirmed defects fixed
 
@@ -60,27 +69,48 @@ No original migration SQL was changed. No schema migration, production deploymen
 - `docs/DEPLOYMENT_RUNBOOK_2026-10-20.md` — records proxy secrets, deployment steps, current test results, external checks still required, and rollback/recovery steps.
 - `docs/PREDEPLOYMENT_AUDIT_2026-10-20.md` — new audit report with the findings and verification evidence in this review.
 
+**Follow-up implementation and tests**
+
+- `server/db/connectionOptions.js` — adds DB password aliasing, pool/queue bounds, and the database connect timeout.
+- `server/utils/envValidation.js` — accepts either `DB_PASSWORD` or legacy `DB_PASS` in production.
+- `server/scripts/branchMigrations.js` — adds cross-process migration locking and exports the registered order for tests.
+- `server/scripts/tidbMigrationAdapter.js` — fixes retry recovery for index rekeys after partial DDL.
+- `server/utils/marketingCampaigns.js` — exports the internal claim routine for direct functional concurrency tests.
+- `server/package.json`, `server/package-lock.json` — patch audited production dependencies and update Nodemailer/Vitest.
+- `client/package-lock.json` — apply compatible build-tool updates without a major Tailwind migration.
+- `server/.env.example` — documents the password alias and bounded pool/connection options.
+- `server/tests/deployment/hostingAndTidb.node.cjs` — tests connection bounds, CA loading, legacy password fallback, and partial rekey recovery.
+- `server/tests/deployment/migrationRunner.node.cjs` — pins the five registered historical migration checksums and exercises ordering, locking, failure, and retry.
+- `server/tests/deployment/emailTransport.node.cjs` — checks the updated Nodemailer CommonJS transport API.
+- `server/tests/marketing/campaignClaims.node.cjs` — tests two concurrent claims, rollback after quota failure, and the MySQL query variant.
+- `server/tests/security/envValidation.test.js` — tests production acceptance of `DB_PASSWORD`.
+- `docs/DEPLOYMENT_RUNBOOK_2026-10-20.md` — records final checks, audit results, and production install command.
+
 No files were removed. `server/db/migrations/` has no changes.
 
 ## D. Test results
 
 | Check | Result |
 |---|---:|
-| `cd server && npm run verify:source` | Passed: 389 source files, 982 relative imports |
-| `cd server && npm run test:node` | Passed: 180 tests |
-| `cd server && npm test` | Passed: 77 files, 258 tests |
+| `cd server && npm ci` | Passed from updated lock file |
+| `cd client && npm ci` | Passed from updated lock file |
+| `cd server && npm run verify:source` | Passed: 392 source files, 983 relative imports |
+| `cd server && npm run test:node` | Passed: 190 tests |
+| `cd server && npm test` | Passed: 77 files, 259 tests |
 | `cd client && npm run test:design` | Passed: 8 tests |
 | `cd client && npm run test:hosting` | Passed: 5 tests |
 | `cd client && npm run lint` | Passed: 0 errors, 17 warnings |
 | `cd client && npm run build` | Passed; main JS chunk is 2.08 MB (507 KB gzip), above Vite's advisory threshold |
+| Combined backend/frontend automated suites | Passed: 462 tests, 0 failures |
+| `npm audit --omit=dev` in server/client | Passed: 0 production vulnerabilities in each package |
 | `cd server && npm run verify:reports-sql` | Passed: 20 read-only `EXPLAIN` checks against the DB configured in local `server/.env` |
 | `git diff --check` | Passed |
 
-The Reports SQL check did not write data, but the configured database was not verified as a disposable TiDB database. `npm ci` was not needed because both `node_modules` directories were present. `npm run verify:deploy`, migrations, a database-mutating test, backend startup against staging, browser E2E, and PayMongo sandbox/network calls were not run.
+The Reports SQL check from the earlier QA turn did not write data, but its configured database was not verified as a disposable TiDB database. No database connection was made in this follow-up. `npm run verify:deploy`, migrations, a database-mutating test, backend startup against staging, browser E2E, and PayMongo sandbox/network calls were not run.
 
 ## E. Database compatibility
 
-`DB_PROVIDER=tidb`, configurable port, verified TLS, optional CA path, and the three procedural adapters registered by `server/scripts/branchMigrations.js` have static/unit coverage. The original SQL files and their stored checksums remain unchanged. The new tests exercise those registered adapters with mocked information-schema results; they do not prove TiDB execution behavior.
+`DB_PROVIDER=tidb`, configurable port, verified TLS, optional CA path, the three procedural adapters, and concurrent migration serialization have unit coverage. Pinned normalized hashes cover all five registered migration files. The original SQL files and their stored checksums remain unchanged. The tests use mocked information-schema results and locks; they do not prove TiDB execution behavior.
 
 No disposable TiDB credentials/database were identified for this review. Therefore no TiDB schema import, migration, transaction, foreign-key, lock, or operational workflow was exercised against TiDB. The local Reports preflight used the configured `mysql2` connection and does not establish TiDB compatibility. Historical SQL files outside the current five-entry branch migration list remain archived; replaying that entire historical directory as a fresh TiDB installation is not validated. A static scan found stored-procedure DDL in `server/db/migrations/2026-09-22-current-codebase-reconciliation.sql`, `server/db/migrations/2026-09-22-inventory-schedule-schema-alignment.sql`, `server/db/migrations/2026-09-23-inventory-batch-controls.sql`, `server/db/migrations/2026-09-23-inventory-location-types-on-items.sql`, and `server/db/migrations/2026-10-04-billing-inventory-flow-fixes.sql`. They are not in the current `branchMigrations.js` list and were not changed.
 
@@ -90,7 +120,7 @@ Next database gate: create an empty disposable TiDB staging database, verify a r
 
 | Severity | Finding | Status / impact |
 |---|---|---|
-| High | No confirmed unresolved high-severity code finding from the checks performed. | Limited to static review and local/mocked suites; not a penetration test. |
+| High (development tooling) | Full `npm audit` reports 3 high server findings and 5 high client findings, all in development/build tooling; production-only audits report 0 vulnerabilities. The remaining npm remediation path requires a major Tailwind migration, and the `braces` advisory has no patched version. | Keep Render installs production-only (`npm ci --omit=dev`) and restrict Pages build jobs to trusted source. Revisit after compatible upstream fixes; do not run `npm audit fix --force` as part of this deployment. |
 | Medium | Unsigned forwarded-IP headers could affect rate-limit and audit IP attribution when blanket proxy trust was enabled. | Fixed in code. Before staging, set the same private `API_PROXY_SECRET` (32+ characters) in Render and Pages; remove `TRUST_PROXY=true`. |
 | Medium | Repeated schema bootstrap could remove a UOM column, overwrite selected precision, or leave the derived stock summary empty if insertion failed after deletion. | Fixed in code with non-destructive backfill and transactional rebuild; mocked regression tests pass. |
 | Medium | TiDB and hosting behavior is not validated against an isolated live staging stack. | Open release gate; run the disposable TiDB and staging workflow above before production. |
@@ -105,7 +135,7 @@ Use the step-by-step [deployment runbook](DEPLOYMENT_RUNBOOK_2026-10-20.md). The
 
 1. Create a new, empty TiDB staging database with TLS verification. Keep it separate from production.
 2. Configure Render with `DB_PROVIDER=tidb`, port `4000`, `DB_SSL=true`, database credentials, exact HTTPS `CLIENT_URL`, a strong `JWT_SECRET`, and `RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false`. Set `API_PROXY_SECRET` and configure email/MFA requirements.
-3. Create Cloudflare Pages from the `client` root with `npm ci && npm run build` and output `dist`. Set `API_ORIGIN` and the matching encrypted `API_PROXY_SECRET` in Pages Function settings. `_routes.json` is included in the built output.
+3. Create Cloudflare Pages from the `client` root with `npm ci && npm run build` and output `dist`; allow builds only from trusted source. Set `API_ORIGIN` and the matching encrypted `API_PROXY_SECRET` in Pages Function settings. `_routes.json` is included in the built output.
 4. Attach the domain through Pages **Custom domains**, follow Cloudflare DNS instructions, confirm HTTPS, and set Render `CLIENT_URL` to that browser origin.
 5. After staging deploy, use PayMongo TEST keys only and point the test webhook directly to `https://<render-host>/api/webhooks/paymongo`. Verify signatures, duplicates, expiry, amount, branch, receipt, and inventory behavior before considering any production release.
 6. For rollback, redeploy the previous Render and Pages commit. Rehearse TiDB snapshot restoration into a new database; do not reverse DDL by guesswork or overwrite the existing clinic database.
