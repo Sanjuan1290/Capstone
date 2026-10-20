@@ -29,14 +29,22 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
   if (process.env.DB_PORT && (!/^\d+$/.test(process.env.DB_PORT) || Number(process.env.DB_PORT) < 1 || Number(process.env.DB_PORT) > 65535)) {
     errors.push('DB_PORT must be between 1 and 65535.')
   }
-  if (process.env.PAYMONGO_MODE && process.env.PAYMONGO_MODE !== 'test') {
-    errors.push('Only PAYMONGO_MODE=test is supported; live payment processing is disabled pending merchant approval.')
+  const paymentMode = String(process.env.PAYMONGO_MODE || '').trim().toLowerCase()
+  if (paymentMode && !['test', 'live'].includes(paymentMode)) errors.push('PAYMONGO_MODE must be empty, test, or live.')
+  if (paymentMode && !String(process.env.PAYMONGO_SECRET_KEY || '').startsWith(`sk_${paymentMode}_`)) {
+    errors.push(`PAYMONGO_SECRET_KEY must match PAYMONGO_MODE=${paymentMode}.`)
   }
-  if (process.env.PAYMONGO_SECRET_KEY && !String(process.env.PAYMONGO_SECRET_KEY).startsWith('sk_test_')) {
-    errors.push('Only PayMongo TEST secret keys are allowed.')
+  if (paymentMode && !String(process.env.PAYMONGO_PUBLIC_KEY || '').startsWith(`pk_${paymentMode}_`)) {
+    errors.push(`PAYMONGO_PUBLIC_KEY must match PAYMONGO_MODE=${paymentMode}.`)
   }
-  if (process.env.PAYMONGO_PUBLIC_KEY && !String(process.env.PAYMONGO_PUBLIC_KEY).startsWith('pk_test_')) {
-    errors.push('Only PayMongo TEST public keys are allowed.')
+  if (paymentMode && !String(process.env.PAYMONGO_WEBHOOK_SECRET || '').startsWith('whsk_')) {
+    errors.push('PAYMONGO_WEBHOOK_SECRET must be configured for the selected PayMongo mode.')
+  }
+  if (String(process.env.PAYMONGO_LIVE_ENABLED || 'false') === 'true' && paymentMode !== 'live') {
+    errors.push('PAYMONGO_LIVE_ENABLED=true requires PAYMONGO_MODE=live.')
+  }
+  if (paymentMode === 'live' && String(process.env.PAYMONGO_LIVE_ENABLED || '') !== 'true') {
+    warnings.push('PayMongo LIVE credentials configured; creating new live QR payments remains disabled until PAYMONGO_LIVE_ENABLED=true.')
   }
   if (String(process.env.TRUST_PROXY || '').toLowerCase() === 'true') {
     errors.push('TRUST_PROXY=true is not supported. Use the signed Cloudflare Pages proxy boundary instead.')
@@ -91,6 +99,7 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
 }
 
 module.exports = { validateRuntimeConfig }
+
 
 
 

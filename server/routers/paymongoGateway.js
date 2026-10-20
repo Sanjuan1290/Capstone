@@ -8,6 +8,7 @@ const { getBillingRecordWithItems } = require('../utils/billing')
 const { writeAuditLog } = require('../utils/audit')
 const staffCtrl = require('../controllers/staff.controller')
 const { broadcast } = require('../utils/sse')
+const { configuredMode, expectedLive, supportsMode, isLiveCollectionEnabled, sameConfiguredMode } = require('../utils/paymongoMode')
 
 const apiRouter = express.Router()
 const knownStatus = new Set(['creating','pending','succeeded','failed','expired','review','refunded'])
@@ -19,9 +20,11 @@ const isTestSimulationUrl = url => {
 }
 const publicAttempt = row => ({
   id: Number(row.id), billing_id:Number(row.billing_id), branch_id: Number(row.branch_id),
-  mode: 'test', status: row.status, amount: Number(row.amount_centavos)/100,
+  mode: String(row.mode || 'test'), current_mode: configuredMode() || null,
+  enabled: configuredMode() === 'test' || isLiveCollectionEnabled(),
+  status: row.status, amount: Number(row.amount_centavos)/100,
   expires_at: row.expires_at, qr_image: row.status === 'pending' ? row.qr_image : null,
-  test_url: row.status === 'pending' && isTestSimulationUrl(row.test_url) ? row.test_url : null,
+  test_url: String(row.mode || 'test') === 'test' && row.status === 'pending' && isTestSimulationUrl(row.test_url) ? row.test_url : null,
   error_code: row.error_code || null,
 })
 const getLatest = async (billId, branchId) => {
@@ -30,8 +33,9 @@ const getLatest = async (billId, branchId) => {
 }
 
 const makeQr = async (req, res) => {
-  credentials() // fail closed until valid test keys supplied; never create live payment
-  if (!String(process.env.PAYMONGO_WEBHOOK_SECRET || '').startsWith('whsk_')) throw http('PAYMONGO_WEBHOOK_NOT_CONFIGURED','Configure the PayMongo test webhook signing secret before generating QR payments.',503)
+  const { mode } = credentials()
+  if (mode === 'live' && !isLiveCollectionEnabled()) throw http('PAYMONGO_LIVE_NOT_ENABLED','Live QR collection is not activated yet.',503)
+  if (!String(process.env.PAYMONGO_WEBHOOK_SECRET || '').startsWith('whsk_')) throw http('PAYMONGO_WEBHOOK_NOT_CONFIGURED','Configure the webhook signing secret for the active PayMongo mode.',503)
   const billId = Number(req.params.id), branchId = Number(req.branchId)
   if (!validId(billId) || !validId(branchId)) throw http('BRANCH_REQUIRED','Valid branch and bill are required.',400)
   // An expired or never-issued QR must not hold the bill forever: settle or
@@ -53,12 +57,13 @@ const makeQr = async (req, res) => {
     if (!Number.isSafeInteger(amountCentavos) || amountCentavos < 100) throw http('INVALID_QR_AMOUNT','The remaining balance must be at least ₱1.00.')
     const [[existing]] = await conn.query('SELECT * FROM payment_gateway_attempts WHERE active_bill_id=? LIMIT 1 FOR UPDATE', [billId])
     if (existing) {
+      if (String(existing.mode || 'test') !== mode) throw http('PAYMONGO_MODE_SWITCH_BLOCKED','A payment from the prior PayMongo mode still holds this bill. Resolve it using the original mode before collecting again.',409)
       await conn.commit()
       return res.json(publicAttempt(existing))
     }
     const [created] = await conn.query(`INSERT INTO payment_gateway_attempts
-      (billing_id,branch_id,bill_version,amount_centavos,active_bill_id,created_by_role,created_by_id)
-      VALUES (?,?,?,?,?,?,?)`,[billId,branchId,locked.version,amountCentavos,billId,req.adminContext?.account_role==='superadmin'?'superadmin':req.user.role,req.user.id])
+      (billing_id,branch_id,bill_version,amount_centavos,active_bill_id,mode,created_by_role,created_by_id)
+      VALUES (?,?,?,?,?,?,?,?)`,[billId,branchId,locked.version,amountCentavos,billId,mode,req.adminContext?.account_role==='superadmin'?'superadmin':req.user.role,req.user.id])
     attempt = { id: created.insertId, amountCentavos }
     await conn.commit()
   } catch (error) { await conn.rollback().catch(()=>{}); throw error }
@@ -67,7 +72,7 @@ const makeQr = async (req, res) => {
     const qr = await createQr({amountCentavos:attempt.amountCentavos,billId,attemptId:attempt.id,
       onIntentCreated: intentId => db.query('UPDATE payment_gateway_attempts SET payment_intent_id=? WHERE id=? AND payment_intent_id IS NULL',[intentId,attempt.id]) })
     await db.query(`UPDATE payment_gateway_attempts SET status='pending',payment_intent_id=?,qr_image=?,test_url=?,expires_at=DATE_ADD(NOW(),INTERVAL 30 MINUTE) WHERE id=? AND status='creating'`,
-      [qr.intentId,qr.qrImage,isTestSimulationUrl(qr.testUrl)?qr.testUrl:null,attempt.id])
+      [qr.intentId,qr.qrImage,mode === 'test' && isTestSimulationUrl(qr.testUrl)?qr.testUrl:null,attempt.id])
     const [[saved]] = await db.query('SELECT * FROM payment_gateway_attempts WHERE id=?',[attempt.id])
     return res.status(201).json(publicAttempt(saved))
   } catch (error) {
@@ -87,7 +92,7 @@ const status = async (req,res) => {
     attempt = await reconcileAttempt(attempt.id,{force:req.query.reconcile==='1'})
       .catch(error=>{console.warn('[paymongo-reconciliation] status check failed',{attemptId:attempt.id,code:error.code});return attempt}) || attempt
   }
-  res.json(attempt ? publicAttempt(attempt) : {status:'not_created'})
+  res.json(attempt ? publicAttempt(attempt) : {status:'not_created',mode:configuredMode() || null,enabled:configuredMode() === 'test' || isLiveCollectionEnabled()})
 }
 // Administrator-only resolution for a provider payment that could not be applied
 // (for example the patient paid an old QR after the bill was settled in cash).
@@ -104,6 +109,7 @@ const resolveReview = async (req,res) => {
   if (action==='refunded' && (note.length < 5 || !/^ref_[a-zA-Z0-9_-]{4,115}$/.test(refundId))) throw http('REFUND_PROOF_REQUIRED','Enter the verified PayMongo refund ID (ref_...) and an explanation.',400)
   const [[attempt]] = await db.query("SELECT * FROM payment_gateway_attempts WHERE id=? AND billing_id=? AND branch_id=? AND status='review' AND provider_payment_id IS NOT NULL LIMIT 1",[attemptId,billId,branchId])
   if (!attempt) throw http('REVIEW_NOT_FOUND','No PayMongo payment awaiting review for this bill.',404)
+  if (!sameConfiguredMode(attempt)) throw http('PAYMONGO_MODE_MISMATCH','Resolve this payment under its original PayMongo mode.',409)
   let result
   if (action==='apply') {
     const intent = await retrieveIntent(attempt.payment_intent_id)
@@ -137,7 +143,7 @@ async function settleThroughExistingCheckout(attempt,payment) {
     params:{id: String(attempt.billing_id)}, ip:null,
     gatewayVerified: { provider:'paymongo', intentId:attempt.payment_intent_id, paymentId:payId },
     body:{ payment_method:'qrph', payment_amount:Number(attempt.amount_centavos)/100,
-      reference_number:payId, idempotency_key:`paymongo:${payId}`, payment_notes:'Verified PayMongo QR Ph test payment' },
+      reference_number:payId, idempotency_key:`paymongo:${payId}`, payment_notes:`Verified PayMongo QR Ph ${attempt.mode === 'live' ? 'live' : 'test'} payment` },
   }
   let outcome = null, code = 200
   const res = { status(value){code=value;return this}, json(value){outcome=value;return this} }
@@ -151,7 +157,7 @@ async function handleWebhookEvent(event) {
   const eid = String(event?.data?.id || '')
   const attrs = event?.data?.attributes
   const type = String(attrs?.type || '')
-  if (!/^evt_[a-zA-Z0-9_-]{4,115}$/.test(eid) || attrs?.livemode !== false) throw http('INVALID_PAYMONGO_EVENT','Invalid test payment event.',400)
+  if (!/^evt_[a-zA-Z0-9_-]{4,115}$/.test(eid) || attrs?.livemode !== expectedLive()) throw http('INVALID_PAYMONGO_EVENT','Invalid event for the configured PayMongo mode.',400)
   if (!['payment.paid','payment.failed','qrph.expired'].includes(type)) return {ignored:true}
   const payment = attrs.data
   const paymentAttrs = payment?.attributes || {}
@@ -159,6 +165,7 @@ async function handleWebhookEvent(event) {
   if (!intentId) return {ignored:true}
   const [[attempt]] = await db.query('SELECT * FROM payment_gateway_attempts WHERE payment_intent_id=? LIMIT 1',[intentId])
   if (!attempt) return {ignored:true}
+  if (!sameConfiguredMode(attempt)) throw http('PAYMONGO_MODE_MISMATCH','Payment attempt belongs to a different PayMongo environment.',409)
   await db.query(`INSERT IGNORE INTO payment_gateway_webhook_events (event_id,attempt_id,event_type) VALUES (?,?,?)`,[eid,attempt.id,type])
   const [[savedEvent]] = await db.query('SELECT status FROM payment_gateway_webhook_events WHERE event_id=?',[eid])
   if (savedEvent?.status === 'processed') return {duplicate:true}
@@ -169,14 +176,14 @@ async function handleWebhookEvent(event) {
     await db.query("UPDATE payment_gateway_webhook_events SET status='processed',processed_at=NOW() WHERE event_id=?",[eid])
     return {processed:true}
   }
-  if (paymentAttrs.livemode !== false || paymentAttrs.status !== 'paid'
+  if (paymentAttrs.livemode !== expectedLive() || paymentAttrs.status !== 'paid'
       || String(paymentAttrs.currency).toUpperCase() !== 'PHP'
       || String(paymentAttrs.source?.type || '').toLowerCase() !== 'qrph'
       || Number(paymentAttrs.amount) !== Number(attempt.amount_centavos)
       || !String(payment.id || '').startsWith('pay_')) throw http('PAYMENT_AMOUNT_MISMATCH','Provider payment details do not match the original QR amount.')
   // Do not trust a signed fixture/event alone; independently retrieve the intent.
   const intent = await retrieveIntent(intentId)
-  if (intent.id !== intentId || intent.attributes?.livemode !== false || intent.attributes?.status !== 'succeeded'
+  if (intent.id !== intentId || intent.attributes?.livemode !== expectedLive() || intent.attributes?.status !== 'succeeded'
       || Number(intent.attributes?.amount) !== Number(attempt.amount_centavos)
       || String(intent.attributes?.currency).toUpperCase() !== 'PHP') throw http('PAYMENT_NOT_CONFIRMED','The PayMongo intent is not confirmed as paid.',409)
   const outcome = await settleVerifiedPayment(attempt,payment)
@@ -188,7 +195,7 @@ async function handleWebhookEvent(event) {
 // The caller has already verified the PayMongo intent is succeeded for this amount.
 async function settleVerifiedPayment(attempt,payment) {
   const a = payment?.attributes || {}
-  if (a.livemode !== false || a.status !== 'paid' || String(a.currency).toUpperCase() !== 'PHP'
+  if (!sameConfiguredMode(attempt) || a.livemode !== expectedLive() || a.status !== 'paid' || String(a.currency).toUpperCase() !== 'PHP'
       || String(a.source?.type || '').toLowerCase() !== 'qrph' || Number(a.amount) !== Number(attempt.amount_centavos)
       || !String(payment.id || '').startsWith('pay_')) throw http('PAYMENT_AMOUNT_MISMATCH','Provider payment details do not match the original QR amount.')
   let receiptId
@@ -230,13 +237,14 @@ async function reconcileAttempt(attemptId,{force=false}={}) {
   const load = async () => (await db.query(`SELECT a.*, TIMESTAMPDIFF(SECOND,a.created_at,NOW()) AS age_seconds,
     (a.expires_at IS NOT NULL AND a.expires_at < NOW()) AS is_expired FROM payment_gateway_attempts a WHERE a.id=?`,[attemptId]))[0][0]
   const attempt = await load()
-  if (!attempt || !ACTIVE.has(attempt.status) || attempt.provider_payment_id) return attempt
+  if (!attempt || !ACTIVE.has(attempt.status) || attempt.provider_payment_id || !sameConfiguredMode(attempt)) return attempt
   const now = Date.now()
   if (now - (lastChecked.get(attempt.id)||0) < (force ? 2000 : 15000)) return attempt
   lastChecked.set(attempt.id,now)
   if (attempt.payment_intent_id) {
     const intent = await retrieveIntent(attempt.payment_intent_id)
-    if (intent.id !== attempt.payment_intent_id || intent.attributes?.livemode !== false
+    if (intent.id !== attempt.payment_intent_id || intent.attributes?.livemode !== expectedLive()
+        || String(intent.attributes?.currency).toUpperCase() !== 'PHP'
         || Number(intent.attributes?.amount) !== Number(attempt.amount_centavos)) throw http('PAYMENT_INTENT_MISMATCH','PayMongo intent does not match this QR attempt.')
     const providerStatus = intent.attributes?.status
     if (providerStatus === 'succeeded') {
@@ -259,11 +267,11 @@ async function reconcileAttempt(attemptId,{force=false}={}) {
 // Recovers payments whose webhook never arrived (ngrok outage, browser closed).
 let sweeper = null
 function startReconciliationSweeper(intervalMs = 60000) {
-  if (sweeper || process.env.PAYMONGO_MODE !== 'test') return sweeper
+  if (sweeper || !supportsMode(configuredMode())) return sweeper
   sweeper = setInterval(async () => {
     try {
       const [rows] = await db.query(`SELECT id FROM payment_gateway_attempts WHERE status IN ('pending','creating','review')
-        AND provider_payment_id IS NULL AND created_at < NOW() - INTERVAL 2 MINUTE ORDER BY id LIMIT 25`)
+        AND mode=? AND provider_payment_id IS NULL AND created_at < NOW() - INTERVAL 2 MINUTE ORDER BY id LIMIT 25`,[configuredMode()])
       for (const row of rows) await reconcileAttempt(row.id).catch(error=>console.warn('[paymongo-reconciliation] sweep',{attemptId:row.id,code:error.code}))
     } catch (error) { console.warn('[paymongo-reconciliation] sweep failed',{code:error.code}) }
   }, intervalMs)
@@ -271,8 +279,8 @@ function startReconciliationSweeper(intervalMs = 60000) {
   return sweeper
 }
 const rawWebhook = async (req,res) => {
-  if (process.env.PAYMONGO_MODE !== 'test' || !String(process.env.PAYMONGO_SECRET_KEY||'').startsWith('sk_test_')) return res.status(503).json({code:'PAYMONGO_DISABLED'})
-  if (!verifyPaymongoSignature(req.body,req.get('paymongo-signature'),process.env.PAYMONGO_WEBHOOK_SECRET)) return res.status(401).json({code:'INVALID_WEBHOOK_SIGNATURE'})
+  try { credentials() } catch { return res.status(503).json({code:'PAYMONGO_DISABLED'}) }
+  if (!verifyPaymongoSignature(req.body,req.get('paymongo-signature'),process.env.PAYMONGO_WEBHOOK_SECRET,Date.now()/1000,configuredMode())) return res.status(401).json({code:'INVALID_WEBHOOK_SIGNATURE'})
   let event
   try { event=JSON.parse(req.body.toString('utf8')) }
   catch {return res.status(400).json({code:'INVALID_JSON'})}
@@ -283,3 +291,4 @@ const rawWebhook = async (req,res) => {
   }
 }
 module.exports = { apiRouter, rawWebhook, handleWebhookEvent, publicAttempt, isTestSimulationUrl, reconcileAttempt, startReconciliationSweeper }
+

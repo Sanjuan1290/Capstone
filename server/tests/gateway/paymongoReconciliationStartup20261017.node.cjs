@@ -18,6 +18,7 @@ function loadGateway(mode = 'test') {
     express:fakeExpress,
     '../db/connect':db,
     '../utils/paymongoClient':{},
+    '../utils/paymongoMode':{configuredMode:()=>mode,supportsMode:m=>['test','live'].includes(m)},
     '../utils/paymongoRefundVerification':{},
     '../utils/paymongoWebhookSignature':{},
     '../utils/billing':{},
@@ -57,8 +58,11 @@ test('test-mode worker starts only once and schedules a background sweep', async
   assert.equal(state.getChecked(), 1)
 })
 
-test('worker never starts outside PayMongo test mode', () => {
+test('live worker also starts, and disabled worker does not', () => {
   const state = loadGateway('live')
-  assert.equal(state.gateway.startReconciliationSweeper(), null)
-  assert.equal(state.getScheduled(), 0)
+  assert.equal(state.gateway.startReconciliationSweeper().intervalMs,60000)
+  assert.equal(state.getScheduled(), 1)
+  const off=loadGateway('')
+  assert.equal(off.gateway.startReconciliationSweeper(), null)
 })
+

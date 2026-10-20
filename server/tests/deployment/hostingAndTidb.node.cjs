@@ -36,15 +36,18 @@ test('optional database CA path is loaded and requires verified TLS',()=>{
     assert.throws(()=>createConnectionOptions({DB_PROVIDER:'mysql',DB_SSL_CA_PATH:caPath}),/requires DB_SSL=true/)
   } finally { fs.rmSync(dir,{recursive:true,force:true}) }
 })
-test('PayMongo remains test-only even in the production validator', () => {
+test('PayMongo mode/key validation permits live keys but does not activate live collection', () => {
   const original = process.env
   try {
-    process.env={...original,NODE_ENV:'development',DB_HOST:'x',DB_USER:'u',DB_NAME:'d',JWT_SECRET:'a'.repeat(40),PAYMONGO_MODE:'live'}
+    process.env={...original,NODE_ENV:'development',DB_HOST:'x',DB_USER:'u',DB_NAME:'d',JWT_SECRET:'a'.repeat(40),PAYMONGO_MODE:'live',
+      PAYMONGO_SECRET_KEY:'sk_live_fake',PAYMONGO_PUBLIC_KEY:'pk_live_fake',PAYMONGO_WEBHOOK_SECRET:'whsk_fake',PAYMONGO_LIVE_ENABLED:'false'}
     const { validateRuntimeConfig } = require('../../utils/envValidation')
-    assert.throws(()=>validateRuntimeConfig({production:false}), /Only PAYMONGO_MODE=test/)
-    process.env.PAYMONGO_MODE='test'
+    assert.ok(validateRuntimeConfig({production:false}).warnings.some(w=>w.includes('remains disabled')))
+    process.env.PAYMONGO_SECRET_KEY='sk_test_bad'
+    assert.throws(()=>validateRuntimeConfig({production:false}), /PAYMONGO_SECRET_KEY must match PAYMONGO_MODE=live/)
     process.env.PAYMONGO_SECRET_KEY='sk_live_fake'
-    assert.throws(()=>validateRuntimeConfig({production:false}), /Only PayMongo TEST secret keys/)
+    process.env.PAYMONGO_MODE='test'
+    assert.throws(()=>validateRuntimeConfig({production:false}), /PAYMONGO_SECRET_KEY must match PAYMONGO_MODE=test/)
   } finally {process.env=original}
 })
 test('historical procedural SQL can be parsed without mutating its checksum', () => {
@@ -114,3 +117,4 @@ test('dump conversion removes destructive mysqldump controls and personal data b
   assert.doesNotMatch(content,/LOCK TABLES/)
   assert.throws(()=>convertDump(source,{includeData:true}),/requires CARAIT_ACKNOWLEDGE/)
 })
+

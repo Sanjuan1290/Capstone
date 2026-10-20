@@ -1,13 +1,17 @@
 'use strict'
-// Deliberately TEST MODE ONLY. Never accept live keys in this integration stage.
+// TEST and LIVE use separate PayMongo key sets; live payment creation requires explicit activation.
+const { configuredMode, supportsMode, isLiveCollectionEnabled } = require('./paymongoMode')
 const API = 'https://api.paymongo.com/v1'
 const fail = (message, statusCode = 502, code = 'PAYMONGO_ERROR') => Object.assign(new Error(message), { statusCode, code })
 const credentials = () => {
-  if (process.env.PAYMONGO_MODE !== 'test') throw fail('Enable PayMongo test mode in server configuration.', 503, 'PAYMONGO_DISABLED')
+  const mode = configuredMode()
+  if (!supportsMode(mode)) throw fail('Configure PAYMONGO_MODE=test or live.', 503, 'PAYMONGO_DISABLED')
   const secret = String(process.env.PAYMONGO_SECRET_KEY || '')
   const publicKey = String(process.env.PAYMONGO_PUBLIC_KEY || '')
-  if (!secret.startsWith('sk_test_') || !publicKey.startsWith('pk_test_')) throw fail('Configure PayMongo TEST keys in server/.env.', 503, 'PAYMONGO_TEST_KEYS_REQUIRED')
-  return { secret, publicKey }
+  if (!secret.startsWith(`sk_${mode}_`) || !publicKey.startsWith(`pk_${mode}_`)) {
+    throw fail(`Configure matching PayMongo ${mode.toUpperCase()} credentials.`, 503, 'PAYMONGO_KEYS_MISMATCH')
+  }
+  return { secret, publicKey, mode }
 }
 const request = async (path, { body, keyType = 'secret', idempotencyKey } = {}) => {
   const keys = credentials()
@@ -30,6 +34,8 @@ const request = async (path, { body, keyType = 'secret', idempotencyKey } = {}) 
   } finally { clearTimeout(timer) }
 }
 const createQr = async ({ amountCentavos, billId, attemptId, onIntentCreated }) => {
+  const { mode } = credentials()
+  if (mode === 'live' && !isLiveCollectionEnabled()) throw fail('Live QR collection is disabled until explicitly activated.', 503, 'PAYMONGO_LIVE_NOT_ENABLED')
   const intent = await request('/payment_intents', { body: {
     amount: amountCentavos, currency: 'PHP', payment_method_allowed: ['qrph'],
     description: `CARAIT bill ${billId} (attempt ${attemptId})`,
@@ -46,9 +52,10 @@ const createQr = async ({ amountCentavos, billId, attemptId, onIntentCreated }) 
   const qrImage = String(code?.image_url || '')
   if (!qrImage || qrImage.length > 300000) throw fail('PayMongo did not return a usable QR image.')
   return { intentId: intent.id, qrImage: qrImage.startsWith('data:image/') ? qrImage : `data:image/png;base64,${qrImage}`,
-    testUrl: code?.test_url || attached.attributes?.next_action?.test_url || null,
+    testUrl: mode === 'test' ? code?.test_url || attached.attributes?.next_action?.test_url || null : null,
     status: attached.attributes?.status }
 }
 const retrieveIntent = id => request(`/payment_intents/${encodeURIComponent(id)}`)
 const retrieveRefund = id => request(`/refunds/${encodeURIComponent(id)}`)
 module.exports = { credentials, createQr, retrieveIntent, retrieveRefund, fail }
+

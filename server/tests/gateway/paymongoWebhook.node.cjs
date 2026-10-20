@@ -3,8 +3,9 @@ const test=require('node:test')
 const assert=require('node:assert/strict')
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm')
 const source=fs.readFileSync(path.resolve(__dirname,'../../routers/paymongoGateway.js'),'utf8')
-function setup({amount=12500,actualAmount=12500,providerStatus='succeeded'}={}) {
- const attempt={id:101,branch_id:3,billing_id:500,amount_centavos:amount,payment_intent_id:'pi_test123',status:'pending'}
+function setup({amount=12500,actualAmount=12500,providerStatus='succeeded',mode='test',attemptMode=mode}={}) {
+ const live = mode === 'live'
+ const attempt={id:101,branch_id:3,billing_id:500,amount_centavos:amount,payment_intent_id:'pi_test123',status:'pending',mode:attemptMode}
  const eventRows=new Map(), transactions=[]
  let paymentCount=0
  const db={ query:async (sql,params=[])=>{
@@ -26,7 +27,8 @@ function setup({amount=12500,actualAmount=12500,providerStatus='succeeded'}={}) 
  const fakeExpress={Router:()=>({get(){},post(){}})}
  const dependencies={
   express:fakeExpress,'../db/connect':db,
-  '../utils/paymongoClient':{retrieveIntent:async id=>({id,attributes:{status:providerStatus,amount,livemode:false,currency:'PHP'}})},
+  '../utils/paymongoClient':{retrieveIntent:async id=>({id,attributes:{status:providerStatus,amount,livemode:live,currency:'PHP'}})},
+  '../utils/paymongoMode':{configuredMode:()=>mode,expectedLive:()=>live,supportsMode:x=>['test','live'].includes(x),isLiveCollectionEnabled:()=>true,sameConfiguredMode:a=>String(a.mode||'test')===mode},
   '../utils/paymongoWebhookSignature':{verifyPaymongoSignature:()=>true},
   '../utils/paymongoRefundVerification':{assertVerifiedQrRefund:()=>({})},
   '../utils/billing':{getBillingRecordWithItems:()=>({})},
@@ -34,9 +36,9 @@ function setup({amount=12500,actualAmount=12500,providerStatus='succeeded'}={}) 
   '../controllers/staff.controller':staff,'../utils/sse':{broadcast:()=>{}},
  }
  const module={exports:{}}
- vm.runInNewContext(source,{require:moduleName=>{if(!(moduleName in dependencies))throw Error('Missing mock: '+moduleName);return dependencies[moduleName]},module,exports:module.exports,Buffer,URL,console,process})
- const event=id=>({data:{id,attributes:{type:'payment.paid',livemode:false,data:{id:'pay_123456',attributes:{
-    payment_intent_id:'pi_test123',amount:actualAmount,livemode:false,status:'paid',currency:'PHP',source:{type:'qrph'}
+ vm.runInNewContext(source,{require:moduleName=>{if(!(moduleName in dependencies))throw Error('Missing mock: '+moduleName);return dependencies[moduleName]},module,exports:module.exports,Buffer,URL,console,process:{env:{PAYMONGO_MODE:mode}}})
+ const event=id=>({data:{id,attributes:{type:'payment.paid',livemode:live,data:{id:'pay_123456',attributes:{
+    payment_intent_id:'pi_test123',amount:actualAmount,livemode:live,status:'paid',currency:'PHP',source:{type:'qrph'}
  }}}}})
  return {handle:module.exports.handleWebhookEvent,event,attempt,getPaymentCount:()=>paymentCount,eventRows}
 }
@@ -65,5 +67,24 @@ test('non-QR payment payload cannot settle a QR Ph bill',async()=>{
  const forged=event('evt_FORGED99')
  forged.data.attributes.data.attributes.source.type='card'
  await assert.rejects(handle(forged),err=>err.code==='PAYMENT_AMOUNT_MISMATCH')
+ assert.equal(getPaymentCount(),0)
+})
+
+
+test('live signed payment settles exactly once with matching live attempt',async()=>{
+ const {handle,event,getPaymentCount}=setup({mode:'live'})
+ assert.equal((await handle(event('evt_LIVE12345'))).processed,true)
+ assert.equal((await handle(event('evt_LIVE12345'))).duplicate,true)
+ assert.equal(getPaymentCount(),1)
+})
+test('cross-environment live event is rejected even when intent id matches',async()=>{
+ const {handle,event,getPaymentCount}=setup({mode:'live',attemptMode:'test'})
+ await assert.rejects(handle(event('evt_CROSS12345')),e=>e.code==='PAYMONGO_MODE_MISMATCH')
+ assert.equal(getPaymentCount(),0)
+})
+test('test event is rejected when configured for live payment processing',async()=>{
+ const {handle,event,getPaymentCount}=setup({mode:'live'})
+ const wrong=event('evt_BADMODE45');wrong.data.attributes.livemode=false
+ await assert.rejects(handle(wrong),e=>e.code==='INVALID_PAYMONGO_EVENT')
  assert.equal(getPaymentCount(),0)
 })

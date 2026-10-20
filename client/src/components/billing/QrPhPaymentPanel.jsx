@@ -33,23 +33,28 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, 
   const generate = async () => {
     setBusy(true); setError('')
     try { setAttempt(await createQr(billId)) }
-    catch (err) { setError(err.message || 'Could not create a test QR.') }
+    catch (err) { setError(err.message || 'Could not create a QR payment.') }
     finally { setBusy(false) }
   }
   const pending = ['pending', 'creating', 'review'].includes(attempt?.status)
+  const mode = attempt?.current_mode || attempt?.mode || null
+  const modeKnown = ['test', 'live'].includes(mode)
+  const liveDisabled = mode === 'live' && attempt?.enabled === false
+  const displayedMode = attempt?.status === 'pending' ? attempt?.mode : mode
   useEffect(() => { onPendingChange?.(pending) }, [onPendingChange, pending])
   return (
-    <section className="mt-5 rounded-2xl border border-violet-200 bg-violet-50/60 p-4" aria-label="PayMongo QR Ph Test Payment">
-      <div className="flex items-center gap-2 text-violet-900"><MdQrCode2 className="text-2xl" /><h3 className="font-black">QR Ph · PayMongo Test Mode</h3></div>
+    <section className="mt-5 rounded-2xl border border-violet-200 bg-violet-50/60 p-4" aria-label="PayMongo QR Ph Payment">
+      <div className="flex items-center gap-2 text-violet-900"><MdQrCode2 className="text-2xl" /><h3 className="font-black">QR Ph · PayMongo {!modeKnown ? 'Checking mode…' : displayedMode === 'live' ? 'LIVE Mode' : 'TEST Mode'}</h3></div>
       <p className="mt-2 text-sm text-slate-600">Generate a unique QR only after confirming this bill. Exact remaining balance: <strong>₱{Number(remainingBalance || 0).toFixed(2)}</strong>.</p>
-      <p className="mt-2 text-xs font-bold text-rose-700">TEST QR: do not scan or send real money. Use PayMongo's test payment simulator URL when available.</p>
-      {!pending && attempt?.status !== 'succeeded' && <button type="button" className="button-primary mt-4" disabled={busy || Number(remainingBalance) < 1} onClick={generate}><MdQrCode2 />{busy ? 'Generating…' : 'Generate Test QR Ph'}</button>}
+      {modeKnown && (displayedMode === 'test' ? <p className="mt-2 text-xs font-bold text-rose-700">TEST QR: do not scan or send real money. Use PayMongo's test payment simulator URL when available.</p> : <p className="mt-2 text-xs font-bold text-rose-700">LIVE QR: scanning and paying this code will move real money and may incur processing fees.</p>)}
+      {liveDisabled && <p role="alert" className="mt-2 text-sm font-bold text-amber-900">LIVE payments are not enabled by the clinic yet.</p>}
+      {!pending && attempt?.status !== 'succeeded' && <button type="button" className="button-primary mt-4" disabled={busy || !modeKnown || liveDisabled || Number(remainingBalance) < 1} onClick={generate}><MdQrCode2 />{busy ? 'Generating…' : `Generate ${mode === 'live' ? 'LIVE' : 'Test'} QR Ph`}</button>}
       {attempt?.status === 'creating' && <p className="mt-3 text-sm font-semibold">Preparing your QR. Please wait…</p>}
       {attempt?.status === 'pending' && <div className="mt-4 flex flex-col items-center gap-3 rounded-xl border border-violet-100 bg-white p-4">
-        {attempt.qr_image ? <img className="h-56 w-56 max-w-full object-contain" alt="PayMongo test QR Ph - do not scan with real money" src={attempt.qr_image} /> : <p className="text-sm">QR image is unavailable; please review this payment with an administrator.</p>}
+        {attempt.qr_image ? <img className="h-56 w-56 max-w-full object-contain" alt={`PayMongo ${displayedMode} QR Ph payment code`} src={attempt.qr_image} /> : <p className="text-sm">QR image is unavailable; please review this payment with an administrator.</p>}
         <p className="text-sm font-bold">Awaiting verified payment — ₱{Number(attempt.amount || 0).toFixed(2)}</p>
         {attempt.expires_at && <p className="text-xs text-slate-500">QR expiry: {String(attempt.expires_at).replace('T',' ').slice(0,19)}</p>}
-        {attempt.test_url && <a href={attempt.test_url} rel="noopener noreferrer" target="_blank" className="button-primary">Open PayMongo Test Simulator</a>}
+        {attempt.mode === 'test' && attempt.test_url && <a href={attempt.test_url} rel="noopener noreferrer" target="_blank" className="button-primary">Open PayMongo Test Simulator</a>}
         <button type="button" className="button-secondary" onClick={readStatus}><MdRefresh /> Refresh status</button>
         <p className="text-xs text-slate-500">Manual payments and bill edits are locked while this payment is pending.</p>
       </div>}
@@ -60,3 +65,4 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, 
     </section>
   )
 }
+

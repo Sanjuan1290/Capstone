@@ -15,3 +15,11 @@ test('admin notes, pending, mismatched, live and partial refunds cannot prove re
   assert.throws(()=>assertVerifiedQrRefund(bad,attempt),/refund must be fully succeeded/i)
  }
 })
+
+
+test('a live refund matches only a live payment attempt',()=>{
+ const live={...attempt,mode:'live'}
+ const proof={...confirmed,attributes:{...confirmed.attributes,livemode:true}}
+ assert.deepEqual(assertVerifiedQrRefund(proof,live),{refundId:'ref_123456',paymentId:'pay_correct',amountCentavos:50000})
+ assert.throws(()=>assertVerifiedQrRefund(confirmed,live),/correct payment environment/)
+})

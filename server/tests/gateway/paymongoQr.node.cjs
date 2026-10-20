@@ -8,23 +8,29 @@ const body=Buffer.from('{"data":{"id":"evt_1234567"}}')
 const stamp=1720000000
 const secret='whsk_TEST'
 const mac=crypto.createHmac('sha256',secret).update(`${stamp}.`).update(body).digest('hex')
-test('PayMongo test signature validates unmodified raw bytes within five minutes',()=>{
+test('PayMongo test and live signatures validate only the correct signed field',()=>{
  assert.equal(verifyPaymongoSignature(body,`t=${stamp},te=${mac},li=`,secret,stamp),true)
  assert.equal(verifyPaymongoSignature(body,`t=${stamp},te=${mac},li=`,secret,stamp+301),false)
  assert.equal(verifyPaymongoSignature(Buffer.from('changed'),`t=${stamp},te=${mac},li=`,secret,stamp),false)
  assert.equal(verifyPaymongoSignature(body,`t=${stamp},te=invalid,li=`,secret,stamp),false)
  assert.equal(verifyPaymongoSignature(body,`t=${stamp},te=${mac},li=`, 'wrong_secret',stamp),false)
+ assert.equal(verifyPaymongoSignature(body,`t=${stamp},te=,li=${mac}`,secret,stamp,'live'),true)
+ assert.equal(verifyPaymongoSignature(body,`t=${stamp},te=${mac},li=`,secret,stamp,'live'),false)
+ assert.equal(verifyPaymongoSignature(body,`t=${stamp},te=,li=${mac}`,secret,stamp,'test'),false)
+ assert.equal(verifyPaymongoSignature(Buffer.from('changed'),`t=${stamp},te=,li=${mac}`,secret,stamp,'live'),false)
 })
-test('PayMongo client refuses live keys and unconfigured test mode',()=>{
+test('PayMongo credentials enforce matching keys for TEST and LIVE',()=>{
  const filename=path.resolve(__dirname,'../../utils/paymongoClient.js')
  const prior={mode:process.env.PAYMONGO_MODE,secret:process.env.PAYMONGO_SECRET_KEY,public:process.env.PAYMONGO_PUBLIC_KEY}
  const client=require(filename)
  try {
   process.env.PAYMONGO_MODE='test';process.env.PAYMONGO_SECRET_KEY='sk_live_never';process.env.PAYMONGO_PUBLIC_KEY='pk_test_x'
-  assert.throws(()=>client.credentials(),/TEST keys/)
+  assert.throws(()=>client.credentials(),/matching PayMongo TEST credentials/)
   process.env.PAYMONGO_SECRET_KEY='sk_test_a';process.env.PAYMONGO_PUBLIC_KEY='pk_test_a'
-  assert.deepEqual(client.credentials(),{secret:'sk_test_a',publicKey:'pk_test_a'})
-  process.env.PAYMONGO_MODE='live';assert.throws(()=>client.credentials(),/test mode/)
+  assert.deepEqual(client.credentials(),{secret:'sk_test_a',publicKey:'pk_test_a',mode:'test'})
+  process.env.PAYMONGO_MODE='live';assert.throws(()=>client.credentials(),/matching PayMongo LIVE credentials/)
+  process.env.PAYMONGO_SECRET_KEY='sk_live_a';process.env.PAYMONGO_PUBLIC_KEY='pk_live_a'
+  assert.deepEqual(client.credentials(),{secret:'sk_live_a',publicKey:'pk_live_a',mode:'live'})
  } finally {
   for(const [key,value] of Object.entries({PAYMONGO_MODE:prior.mode,PAYMONGO_SECRET_KEY:prior.secret,PAYMONGO_PUBLIC_KEY:prior.public})){
    if(value===undefined)delete process.env[key];else process.env[key]=value
@@ -36,7 +42,8 @@ test('QR Ph only generated for confirmed branch-owned bills; webhooks cannot tru
  assert.match(router,/WHERE id=\? AND branch_id=\? LIMIT 1 FOR UPDATE/)
  assert.match(router,/\['ready','partially_paid'\]/)
  assert.match(router,/amount_centavos/)
- assert.match(router,/paymentAttrs\.livemode !== false/)
+ assert.match(router,/paymentAttrs\.livemode !== expectedLive\(\)/)
+ assert.match(router,/sameConfiguredMode\(attempt\)/)
  assert.match(router,/await retrieveIntent\(intentId\)/)
  assert.match(router,/intent\.attributes\?\.status !== 'succeeded'/)
  assert.match(router,/await staffCtrl\.payBill\(req,res\)/)
@@ -73,4 +80,14 @@ test('webhook settlement preserves the original human bill confirmer',()=>{
  assert.match(source,/confirmed_by_staff_id = CASE WHEN \? = 1 THEN confirmed_by_staff_id/)
  assert.match(source,/WHERE id = \? AND branch_id = \?/ )
  assert.match(source,/userRole: gatewayVerified \? 'system' : actorRole/)
+})
+
+
+test('LIVE QR creation stays disabled until explicitly activated', async()=>{
+ const client=require('../../utils/paymongoClient')
+ const old={...process.env}
+ try {
+  Object.assign(process.env,{PAYMONGO_MODE:'live',PAYMONGO_SECRET_KEY:'sk_live_example',PAYMONGO_PUBLIC_KEY:'pk_live_example',PAYMONGO_LIVE_ENABLED:'false'})
+  await assert.rejects(client.createQr({amountCentavos:2000,billId:1,attemptId:123}), e=>e.code==='PAYMONGO_LIVE_NOT_ENABLED')
+ } finally {process.env=old}
 })
