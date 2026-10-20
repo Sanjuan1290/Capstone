@@ -80,7 +80,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
       '/admin/appointments':'appointments','/admin/patient-records':'patient_records',
       '/admin/doctor-schedules':'doctor_schedules','/admin/billing':'billing',
       '/admin/inventory':'inventory','/admin/supply-requests':'stock_transfers',
-      '/admin/accounts':'accounts','/admin/system-setup':'system_setup','/admin/announcements':'system_setup','/admin/announcements':'system_setup',
+      '/admin/accounts':'accounts','/admin/system-setup':'system_setup','/admin/announcements':'system_setup',
       '/admin/reports':'reports','/admin/audit-logs':'audit_logs'
     })[item.path]
     return !key || permissions.includes(key)

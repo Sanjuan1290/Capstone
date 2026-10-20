@@ -40,7 +40,7 @@ export const Loading=({cards=3})=><div aria-label="Loading information" role="st
 export const Field=({label,required=false,help,children})=><label className="block text-sm font-semibold text-slate-800"><span>{label}{required&&<span className="ml-1 text-rose-600">*</span>}</span>{children}{help&&<span className="mt-1 block text-xs font-normal text-slate-500">{help}</span>}</label>
 export function Modal({open,title,description,onClose,children,wide=false}){
  const panel=useRef(null),closeRef=useRef(onClose)
- closeRef.current=onClose
+ useEffect(()=>{closeRef.current=onClose},[onClose])
  useEffect(()=>{
   if(!open)return undefined
   const previous=document.activeElement,oldOverflow=document.body.style.overflow

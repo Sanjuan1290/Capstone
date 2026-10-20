@@ -14,6 +14,7 @@ const authenticate = require('./middlewares/auth.middleware')
 const branchScope = require('./middlewares/branchScope.middleware')
 const { securityHeaders, originGuard, getAllowedOrigins } = require('./middlewares/httpSecurity.middleware')
 const { validateRuntimeConfig } = require('./utils/envValidation')
+const { trustedProxyClientIp } = require('./middlewares/trustedProxy.middleware')
 
 const patientRouter = require('./routers/patient.router')
 const adminRouter = require('./routers/admin.router')
@@ -26,7 +27,10 @@ const authRouter = require('./routers/auth.router')
 const PORT = process.env.PORT || 3000
 const allowedOrigins = getAllowedOrigins()
 
-app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false)
+// Render is publicly reachable, so Express must not trust arbitrary forwarded
+// headers. The Pages Function signs the Cloudflare-observed client IP instead.
+app.set('trust proxy', false)
+app.use(trustedProxyClientIp)
 app.use(securityHeaders)
 // Exact raw bytes are mandatory for PayMongo HMAC. Register before JSON parsing.
 app.post('/api/webhooks/paymongo', express.raw({ type:'application/json',limit:'256kb' }), rawWebhook)

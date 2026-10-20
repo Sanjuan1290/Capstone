@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { createConnectionOptions } = require('../../db/connectionOptions')
 const { convertDump } = require('../../scripts/prepareTidbDump')
-const { argumentsOf, translateCall, runTiDBMigration } = require('../../scripts/tidbMigrationAdapter')
+const { argumentsOf, translateCall, runTiDBMigration, PROCEDURAL_FILES } = require('../../scripts/tidbMigrationAdapter')
 const { splitMysqlMigration } = require('../../scripts/branchMigrations')
 const base = path.resolve(__dirname, '../../db/migrations')
 test('TiDB connection enforces 4000 and verified TLS', () => {
@@ -55,6 +55,23 @@ test('TiDB adapter executes guarded CALLs without CREATE PROCEDURE',async()=>{
   await translateCall(conn,"CALL carait_branch_index('admins','idx_admin_branch','CREATE INDEX idx_admin_branch ON admins (account_role,branch_id,is_active)')")
   assert(commands.some(([sql])=>sql==='CREATE INDEX idx_admin_branch ON admins (account_role,branch_id,is_active)'))
   await assert.rejects(()=>translateCall(conn, 'CALL malicious()'),/Unrecognized/)
+})
+test('every registered TiDB procedural migration is translated through mocked schema metadata',async()=>{
+  for (const file of PROCEDURAL_FILES) {
+    const commands=[]
+    const conn={query:async(sql,params)=>{
+      commands.push([sql,params])
+      if(/information_schema\.TABLES/i.test(sql)) return [[{n:1}]]
+      if(/information_schema\.COLUMNS/i.test(sql)) return [[{n:0}]]
+      if(/information_schema\.(?:STATISTICS|KEY_COLUMN_USAGE)/i.test(sql)) return [[{n:0}]]
+      return [[{n:1}]]
+    }}
+    const statements=splitMysqlMigration(fs.readFileSync(path.join(base,file),'utf8'))
+    await runTiDBMigration(conn,file,statements)
+    assert(!commands.some(([sql])=>/^\s*(?:CREATE|DROP)\s+PROCEDURE\b/i.test(sql)),`${file} attempted procedure DDL`)
+    assert(!commands.some(([sql])=>/^\s*CALL\b/i.test(sql)),`${file} attempted to execute a stored procedure`)
+    assert(!commands.some(([sql])=>/^\s*DROP\s+TABLE\b/i.test(sql)),`${file} attempted a destructive table drop`)
+  }
 })
 test('dump conversion removes destructive mysqldump controls and personal data by default',()=>{
   const source='-- MySQL dump\nDROP TABLE IF EXISTS `patients`;\n/*!50003 ALTER TABLE `patients` DISABLE KEYS */;\nCREATE TABLE `patients` (id int);\nLOCK TABLES `patients` WRITE;\nINSERT INTO `patients` VALUES (1);\nUNLOCK TABLES;'

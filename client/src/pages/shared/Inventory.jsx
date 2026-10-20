@@ -116,19 +116,6 @@ const getStockBadge = (item) => {
   return 'bg-emerald-50 text-emerald-700 border-emerald-200'
 }
 
-const getLocationTotals = (item) => {
-  const totals = new Map()
-  ;(Array.isArray(item?.batches) ? item.batches : []).filter((batch)=>!batch.archived_at).forEach((batch)=>{
-    ;(Array.isArray(batch?.locations) ? batch.locations : []).forEach((location)=>{
-      const qty=Number(location?.quantity||0)
-      if(qty<=0) return
-      const name=location?.name||'Main Stockroom'
-      totals.set(name,(totals.get(name)||0)+qty)
-    })
-  })
-  return [...totals.entries()].map(([name,quantity])=>({name,quantity})).sort((a,b)=>b.quantity-a.quantity||a.name.localeCompare(b.name))
-}
-
 const parseDateOnly = (value) => {
   const normalized = String(value || '').trim().slice(0, 10)
   const [year, month, day] = normalized.split('-').map(Number)
@@ -152,13 +139,6 @@ const formatBatchLabel = (batch) => {
   const qty = Number(batch?.quantity || 0)
   const expiry = batch?.expiration_date ? formatDate(batch.expiration_date) : 'No expiry'
   return `${formatUnits(qty)} - ${expiry}`
-}
-
-const getBatchLocationQuantity = (batch, locationName = 'Main Stockroom') => {
-  const locations = Array.isArray(batch?.locations) ? batch.locations : []
-  if (!locations.length) return Number(batch?.quantity || 0)
-  const location = locations.find((entry) => String(entry?.name || '') === locationName)
-  return Number(location?.quantity || 0)
 }
 
 const getExpiryMeta = (item) => {

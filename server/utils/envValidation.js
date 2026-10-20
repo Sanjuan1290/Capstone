@@ -34,8 +34,14 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
   if (process.env.PAYMONGO_PUBLIC_KEY && !String(process.env.PAYMONGO_PUBLIC_KEY).startsWith('pk_test_')) {
     errors.push('Only PayMongo TEST public keys are allowed.')
   }
+  if (String(process.env.TRUST_PROXY || '').toLowerCase() === 'true') {
+    errors.push('TRUST_PROXY=true is not supported. Use the signed Cloudflare Pages proxy boundary instead.')
+  }
 
   if (production) {
+    if (String(process.env.API_PROXY_SECRET || '').length < 32) {
+      errors.push('API_PROXY_SECRET must be at least 32 characters in production and match the Cloudflare Pages Function secret.')
+    }
     const clientOrigins = String(process.env.CLIENT_URL || '').split(',').map((value) => value.trim()).filter(Boolean)
     if (clientOrigins.some((origin) => !validateUrl(origin) || new URL(origin).protocol !== 'https:' || new URL(origin).origin !== origin)) {
       errors.push('Every production CLIENT_URL entry must be an HTTPS origin without a path or trailing slash.')

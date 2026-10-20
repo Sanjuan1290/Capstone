@@ -8,7 +8,6 @@ import {
   finalizeAdminCheckoutBill as finalizeBill,
   getAdminCheckoutBill as getBillById,
   getAdminBillAdjustmentRequests as getBillingAdjustmentRequests,
-  getAdminCheckoutCatalog as getBillingCatalog,
   getBillingPaymentSettings,
   getAdminDiscountPresets as getDiscountPresets,
   getAdminFinalizePreview as getFinalizePreview,
@@ -124,14 +123,12 @@ const Admin_CheckoutDetail = () => {
   const toast = useToast()
   const [bill, setBill] = useState(null)
   const [draft, setDraft] = useState(null)
-  const [catalog, setCatalog] = useState([])
   const [inventory, setInventory] = useState([])
   const [paymentSettings, setPaymentSettings] = useState({})
   const [discounts, setDiscounts] = useState([])
   const [adjustments, setAdjustments] = useState([])
   const [clinicSettings, setClinicSettings] = useState({})
   const [selectedDiscountId, setSelectedDiscountId] = useState('')
-  const [discountReference, setDiscountReference] = useState('')
   const [discountProof, setDiscountProof] = useState({ url: '', security_token: '' })
   const [discountReason, setDiscountReason] = useState('')
   const [step, setStep] = useState(1)
@@ -142,7 +139,7 @@ const Admin_CheckoutDetail = () => {
   const [paying, setPaying] = useState(false)
   const [qrPending, setQrPending] = useState(false)
   const [reopening, setReopening] = useState(false)
-  const [adjusting, setAdjusting] = useState(false)
+  const adjusting = false
   const [addOpen, setAddOpen] = useState(false)
   const [paymentConfirm, setPaymentConfirm] = useState(false)
   const [finalizePreview, setFinalizePreview] = useState(null)
@@ -179,7 +176,6 @@ const Admin_CheckoutDetail = () => {
     const discountRequest = approvedDiscount || pendingDiscount
     if (discountRequest?.discount_preset_id) {
       setSelectedDiscountId(String(discountRequest.discount_preset_id))
-      setDiscountReference(discountRequest.reference_text || '')
       setDiscountProof({ url: discountRequest.reference_image_url || current.discount_reference_image_url || '', security_token: '' })
       setDiscountReason(discountRequest.reason || '')
       if (discountRequest.requested_amount) {
@@ -192,7 +188,6 @@ const Admin_CheckoutDetail = () => {
       && p.discount_type === current.discount_type
     ))
     setSelectedDiscountId(preset ? String(preset.id) : '')
-    setDiscountReference(current.discount_reference || '')
     setDiscountProof({ url: current.discount_reference_image_url || '', security_token: '' })
     setDiscountReason('')
   }
@@ -202,13 +197,12 @@ const Admin_CheckoutDetail = () => {
     setError('')
     try {
       const current = await getBillById(billingId)
-      const [items, settings, presets, requests, clinic, services] = await Promise.all([
+      const [items, settings, presets, requests, clinic] = await Promise.all([
         getInventory(),
         getBillingPaymentSettings(),
         getDiscountPresets(),
         getBillingAdjustmentRequests(billingId),
         getClinicSettings(),
-        getBillingCatalog(current.clinic_type || ''),
       ])
       setBill(current)
       setDraft(normalizeBill(current))
@@ -217,7 +211,6 @@ const Admin_CheckoutDetail = () => {
       setDiscounts(Array.isArray(presets) ? presets : [])
       setAdjustments(Array.isArray(requests) ? requests : [])
       setClinicSettings(clinic || {})
-      setCatalog(Array.isArray(services) ? services : [])
       restoreAdjustmentState(current, requests, presets)
       if (!preserveStep || initialLoadRef.current) {
         setStep(['ready', 'partially_paid'].includes(current.status) ? 3 : current.status === 'paid' ? 3 : 1)
@@ -329,7 +322,6 @@ const Admin_CheckoutDetail = () => {
   const selectDiscount = (value) => {
     const preset = discounts.find((item) => Number(item.id) === Number(value)) || null
     setSelectedDiscountId(value)
-    setDiscountReference('')
     setDiscountProof({ url: '', security_token: '' })
     setDiscountReason('')
     markDraft((current) => {

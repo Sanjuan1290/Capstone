@@ -13,7 +13,6 @@ const DEFAULT_THEME = {
   accentBorder: 'border-sky-200',
   accentText: 'text-sky-700',
 }
-const formatDate = (value) => value ? new Date(value).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'
 const hasEnoughStock = (request) => (request.items || []).every((item) => Number(item.main_stockroom_stock || 0) >= Number(item.qty_requested || 0))
 
 const SupplyRequestReviewPanel = ({

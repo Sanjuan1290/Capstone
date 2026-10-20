@@ -11,10 +11,11 @@ const DoctorAvailability = () => {
   const [doctors, setDoctors] = useState([])
   const [branches,setBranches] = useState([])
   const [branchId,setBranchId] = useState('')
-  useEffect(()=>{getActiveBranches().then(setBranches).catch(e=>setError(e.message))},[])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState(null)
+
+  useEffect(()=>{getActiveBranches().then(setBranches).catch(e=>setError(e.message))},[])
 
   const load = async () => {
     setLoading(true)

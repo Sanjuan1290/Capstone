@@ -7,7 +7,6 @@ import Modal from '../../components/ui/Modal'
 import {
   saveConsultationDraft,
   finalizeConsultation,
-  updateConsultation,
   getConsultation,
   getPatientHistory,
   getInventoryItems,
@@ -737,10 +736,13 @@ const Doctor_Consultation = () => {
   }, [diagnosis, notes, prescriptionDecision, prescriptions, progressImages, billableServices, inventoryItems])
 
   const draftSignature = useMemo(() => JSON.stringify(draftPayload), [draftPayload])
-  latestDraftRef.current = { signature: draftSignature, payload: draftPayload }
+  const appointmentId = appt?.id
+  useEffect(() => {
+    latestDraftRef.current = { signature: draftSignature, payload: draftPayload }
+  }, [draftSignature, draftPayload])
 
   const persistDraft = useCallback(async ({ force = false } = {}) => {
-    if (!appt?.id || consultationStatus === 'finalized' || !autosaveReady || uploadingIndex !== null || finalizingRef.current) return false
+    if (!appointmentId || consultationStatus === 'finalized' || !autosaveReady || uploadingIndex !== null || finalizingRef.current) return false
     if (autosaveInFlightRef.current) {
       autosaveQueuedRef.current = true
       return false
@@ -756,7 +758,7 @@ const Doctor_Consultation = () => {
         if (!current.payload || (!forceNext && current.signature === lastSavedSignatureRef.current)) break
         forceNext = false
         setAutoSaveState('saving')
-        await saveConsultationDraft(appt.id, current.payload)
+        await saveConsultationDraft(appointmentId, current.payload)
         lastSavedSignatureRef.current = current.signature
         setConsultationStatus('draft')
         setIsEditMode(false)
@@ -772,7 +774,7 @@ const Doctor_Consultation = () => {
       autosaveInFlightRef.current = false
     }
     return success
-  }, [appt?.id, consultationStatus, autosaveReady, uploadingIndex])
+  }, [appointmentId, consultationStatus, autosaveReady, uploadingIndex])
 
   const handleFinalize = async () => {
     if (!appt || consultationStatus === 'finalized') return

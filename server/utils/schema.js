@@ -20,20 +20,6 @@ const ensureTable = async (sql) => {
   await db.query(sql)
 }
 
-const dropColumnIfExists = async (table, column) => {
-  const [rows] = await db.query(
-    `SELECT COUNT(*) AS count
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?
-       AND COLUMN_NAME = ?`,
-    [table, column]
-  )
-  if (Number(rows[0]?.count || 0) > 0) {
-    await db.query(`ALTER TABLE ${table} DROP COLUMN ${column}`)
-  }
-}
-
 const ensureIndex = async (table, indexName, columnsSql, { unique = false } = {}) => {
   const [rows] = await db.query(
     `SELECT COUNT(*) AS count FROM information_schema.STATISTICS
@@ -56,6 +42,32 @@ const ensureForeignKey = async (table, constraintName, alterSql) => {
     [table, constraintName]
   )
   if (!Number(rows[0]?.count || 0)) await db.query(alterSql)
+}
+
+const backfillUomDecimalPrecision = async (executor = db) => executor.query(
+  `UPDATE inventory_uoms SET decimal_precision=2
+   WHERE allow_decimal_quantity=1 AND (decimal_precision IS NULL OR decimal_precision=0)`
+)
+
+const rebuildInventoryLocationStock = async (executor = db) => {
+  const connection = await executor.getConnection()
+  try {
+    await connection.beginTransaction()
+    await connection.query('DELETE FROM inventory_location_stock')
+    await connection.query(`
+      INSERT INTO inventory_location_stock (location_id, inventory_id, quantity)
+      SELECT location_id, inventory_id, SUM(quantity)
+      FROM inventory_location_batches
+      WHERE quantity > 0
+      GROUP BY location_id, inventory_id
+    `)
+    await connection.commit()
+  } catch (error) {
+    await connection.rollback().catch(() => {})
+    throw error
+  } finally {
+    connection.release()
+  }
 }
 
 const INVENTORY_SEEDS = [
@@ -303,9 +315,8 @@ const ensureAppSchema = async () => {
   `)
   await ensureColumn('inventory_uoms', 'allow_decimal_quantity', 'TINYINT(1) NOT NULL DEFAULT 0').catch(() => {})
   await ensureColumn('inventory_uoms', 'decimal_precision', 'TINYINT NOT NULL DEFAULT 0').catch(() => {})
-  // Abbreviations were removed from System Setup; UOM names are the single display label.
-  await dropColumnIfExists('inventory_uoms', 'abbreviation').catch(() => {})
-  await db.query('UPDATE inventory_uoms SET decimal_precision = CASE WHEN allow_decimal_quantity = 1 THEN 2 ELSE 0 END').catch(() => {})
+  // Backfill newly introduced values once without replacing a precision selected in System Setup.
+  await backfillUomDecimalPrecision(db).catch(() => {})
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_suppliers (
@@ -1329,16 +1340,7 @@ const ensureAppSchema = async () => {
     if (error.code !== 'ER_NO_SUCH_TABLE' && error.code !== 'ER_BAD_FIELD_ERROR') throw error
   }
 
-  await db.query(`
-    DELETE FROM inventory_location_stock
-  `)
-  await db.query(`
-    INSERT INTO inventory_location_stock (location_id, inventory_id, quantity)
-    SELECT location_id, inventory_id, SUM(quantity)
-    FROM inventory_location_batches
-    WHERE quantity > 0
-    GROUP BY location_id, inventory_id
-  `)
+  await rebuildInventoryLocationStock(db)
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS inventory_transfers (
@@ -1664,6 +1666,8 @@ const ensureAppSchema = async () => {
 
 module.exports = {
   ensureAppSchema,
+  backfillUomDecimalPrecision,
+  rebuildInventoryLocationStock,
 }
 
 

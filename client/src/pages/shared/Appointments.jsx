@@ -212,7 +212,7 @@ const AppointmentViewModal = ({ appointment, onClose }) => {
   )
 }
 
-const AddAppointmentModal = ({ services, appointments, onClose, onCreated }) => {
+const AddAppointmentModal = ({ services, onClose, onCreated }) => {
   const [patients, setPatients] = useState([])
   const [doctors, setDoctors] = useState([])
   const [serviceOptions, setServiceOptions] = useState([])
@@ -861,7 +861,7 @@ Confirm this appointment anyway?`)
         onClose={() => setCancelAppointmentTarget(null)}
         onConfirm={confirmCancellation}
       />
-      {showAdd && <AddAppointmentModal services={services} appointments={appointments} onClose={() => setShowAdd(false)} onCreated={loadAppointments} />}
+      {showAdd && <AddAppointmentModal services={services} onClose={() => setShowAdd(false)} onCreated={loadAppointments} />}
     </div>
   )
 }

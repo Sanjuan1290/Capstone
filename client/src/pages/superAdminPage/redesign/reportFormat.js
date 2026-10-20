@@ -4,7 +4,7 @@ export const sumBranchMetric=(rows=[],key)=>rows.reduce((total,row)=>total+Numbe
 export const escapeCsvCell=(value)=>{
  const raw=String(value??'')
  // Spreadsheet tools may interpret these leading characters as formulas.
- const safe=/^[\s\r\n]*[=+@\-]/.test(raw)?`'${raw}`:raw
+ const safe=/^[\s\r\n]*[=+@-]/.test(raw)?`'${raw}`:raw
  return `"${safe.replaceAll('"','""')}"`
 }
 export const BRANCH_CSV_COLUMNS=['name','appointments','pending','completed','no_shows','doctors','billed','collected']

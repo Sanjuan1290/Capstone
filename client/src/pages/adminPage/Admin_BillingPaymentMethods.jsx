@@ -99,7 +99,7 @@ const Admin_BillingPaymentMethods = () => {
 
   const checkPending = async () => {
     if (!pendingScan) return
-    const { provider, asset_id: assetId, url, public_id: publicId, scan_token: scanToken } = pendingScan
+    const { provider, asset_id: assetId, url, scan_token: scanToken } = pendingScan
     setUploading(provider)
     try {
       const result = await getPaymentQrUploadScanStatus(provider, assetId, scanToken)
