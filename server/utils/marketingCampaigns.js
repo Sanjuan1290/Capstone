@@ -59,8 +59,13 @@ const reserveAndClaim = async (campaignId) => {
     await conn.beginTransaction()
     const [[active]]=await conn.query("SELECT id FROM marketing_campaigns WHERE id=? AND status IN ('queued','sending') AND (scheduled_at IS NULL OR scheduled_at<=NOW()) FOR UPDATE",[campaignId])
     if(!active){await conn.rollback();return null}
+    // The campaign row above is already locked, so only one worker can claim
+    // a recipient from this campaign. TiDB does not implement SKIP LOCKED.
+    const recipientLock = String(process.env.DB_PROVIDER || '').toLowerCase() === 'tidb'
+      ? 'FOR UPDATE'
+      : 'FOR UPDATE SKIP LOCKED'
     const [[recipient]] = await conn.query(`SELECT r.id,r.patient_id FROM marketing_campaign_recipients r
-      WHERE r.campaign_id=? AND r.status='pending' ORDER BY r.id LIMIT 1 FOR UPDATE SKIP LOCKED`,[campaignId])
+      WHERE r.campaign_id=? AND r.status='pending' ORDER BY r.id LIMIT 1 ${recipientLock}`,[campaignId])
     if (!recipient) {await conn.rollback();return null}
     const day=getClinicDateTimeSql().slice(0,10), minute=getClinicDateTimeSql().slice(0,16)
     for (const [bucket,period,limit] of [['day',day,setting('MARKETING_DAILY_LIMIT',200,1,10000)],['minute',minute,setting('MARKETING_PER_MINUTE_LIMIT',5,1,60)]]) {
@@ -118,3 +123,4 @@ const startMarketingWorker = () => {
   void runMarketingWorker()
 }
 module.exports={configured,tokenFor,patientFromToken,eligibleSql,escapeHtml,runMarketingWorker,startMarketingWorker}
+

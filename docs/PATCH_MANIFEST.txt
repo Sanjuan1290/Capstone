@@ -1,0 +1,18 @@
+Overlay these patch files onto your ORIGINAL Git repository. This package is not a replacement for your real image/binary assets.
+
+server/db/connect.js
+server/db/connectionOptions.js
+server/utils/envValidation.js
+server/utils/marketingCampaigns.js
+server/scripts/branchMigrations.js
+server/scripts/tidbMigrationAdapter.js
+server/scripts/prepareTidbDump.js
+server/package.json
+server/.env.example
+server/tests/deployment/hostingAndTidb.node.cjs
+client/functions/api/[[path]].js
+client/public/_routes.json
+client/package.json
+client/tests/cloudflareProxy.node.test.mjs
+docs/DEPLOYMENT_RUNBOOK_2026-10-20.md
+docs/PATCH_MANIFEST.txt

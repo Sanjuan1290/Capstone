@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:design": "node --test tests/superAdminDesign.node.test.mjs"
+    "test:design": "node --test tests/superAdminDesign.node.test.mjs",
+    "test:hosting": "node --test tests/cloudflareProxy.node.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",
@@ -34,5 +35,6 @@
     "vite": "^8.0.0"
   }
 }
+
 
 

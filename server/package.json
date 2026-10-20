@@ -10,6 +10,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "migrate": "node scripts/migrate.js",
+    "prepare:tidb-dump": "node scripts/prepareTidbDump.js",
     "verify:deploy": "node scripts/verifyDeployment.js",
     "verify:source": "node scripts/verifySourceGraph.js",
     "test:checkout": "node --test tests/checkouts/reopen-editing.node.cjs",
@@ -40,3 +41,4 @@
     "vitest": "^4.1.10"
   }
 }
+

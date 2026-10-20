@@ -1,5 +1,6 @@
 // db.js
 const mysql = require("mysql2/promise");
+const { createConnectionOptions } = require('./connectionOptions')
 
 // All clinic dates and times are Philippine time. MySQL NOW(), CURDATE() and
 // TIMESTAMP columns follow the *session* time zone, so every pooled connection
@@ -10,16 +11,7 @@ const DB_SESSION_TIME_ZONE = /^[+-]\d{2}:\d{2}$/.test(String(process.env.DB_TIME
   ? process.env.DB_TIME_ZONE
   : '+08:00'
 
-const db = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: process.env.DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  dateStrings: true,
-  timezone: DB_SESSION_TIME_ZONE,
-});
+const db = mysql.createPool(createConnectionOptions(process.env));
 
 // Runs once per new physical connection, before the connection is handed to any
 // caller. Commands on one connection execute in order, so no query can run first.
@@ -32,6 +24,7 @@ db.on('connection', (connection) => {
 db.DB_SESSION_TIME_ZONE = DB_SESSION_TIME_ZONE
 
 module.exports = db;
+
 
 
 

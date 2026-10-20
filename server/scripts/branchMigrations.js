@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
+const { runTiDBMigration, PROCEDURAL_FILES } = require('./tidbMigrationAdapter')
 
 // Handle mysql CLI DELIMITER directives (including stored-procedure bodies).
 // Statements execute serially on a *single* connection. No DROP TABLE and no
@@ -91,13 +92,21 @@ async function runBranchMigrations(db) {
     const connection = await db.getConnection()
     try {
       // MySQL DDL auto-commits; reruns are made safe by guarded, idempotent SQL.
-      for (const statement of splitMysqlMigration(sql)) {
-        if (/^USE\s+/i.test(statement)) continue // connection already selects DB_NAME
-        if (/^DROP\s+TABLE\b/i.test(statement)) throw new Error('Destructive migration blocked')
-        await connection.query(statement)
+      const statements = splitMysqlMigration(sql)
+      if (String(process.env.DB_PROVIDER || '').toLowerCase() === 'tidb' && PROCEDURAL_FILES.has(file)) {
+        // Convert MySQL stored-procedure calls to identical schema guards in JS.
+        // The archived SQL + SHA-256 stay unchanged for existing databases.
+        await runTiDBMigration(connection, file, statements)
+      } else {
+        for (const statement of statements) {
+          if (/^USE\s+/i.test(statement)) continue // connection already selects DB_NAME
+          if (/^DROP\s+TABLE\b/i.test(statement)) throw new Error('Destructive migration blocked')
+          await connection.query(statement)
+        }
       }
       await connection.query('INSERT INTO schema_migrations (filename,content_sha256) VALUES (?,?)',[file,hash])
     } finally { connection.release() }
   }
 }
 module.exports = {splitMysqlMigration,requiredFoundationColumns,verifyFoundationSchema,runBranchMigrations,acceptedContentHashes}
+

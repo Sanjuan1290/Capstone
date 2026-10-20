@@ -19,10 +19,26 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
     if (!isNonEmpty(process.env[key])) errors.push(`${key} is required${production ? ' in production' : ''}.`)
   }
 
+  if (String(process.env.DB_PROVIDER || 'mysql').toLowerCase() === 'tidb' && String(process.env.DB_SSL || 'true').toLowerCase() !== 'true') {
+    errors.push('DB_SSL=true is required for TiDB Cloud.')
+  }
+  if (process.env.DB_PORT && (!/^\d+$/.test(process.env.DB_PORT) || Number(process.env.DB_PORT) < 1 || Number(process.env.DB_PORT) > 65535)) {
+    errors.push('DB_PORT must be between 1 and 65535.')
+  }
+  if (process.env.PAYMONGO_MODE && process.env.PAYMONGO_MODE !== 'test') {
+    errors.push('Only PAYMONGO_MODE=test is supported; live payment processing is disabled pending merchant approval.')
+  }
+  if (process.env.PAYMONGO_SECRET_KEY && !String(process.env.PAYMONGO_SECRET_KEY).startsWith('sk_test_')) {
+    errors.push('Only PayMongo TEST secret keys are allowed.')
+  }
+  if (process.env.PAYMONGO_PUBLIC_KEY && !String(process.env.PAYMONGO_PUBLIC_KEY).startsWith('pk_test_')) {
+    errors.push('Only PayMongo TEST public keys are allowed.')
+  }
+
   if (production) {
     const clientOrigins = String(process.env.CLIENT_URL || '').split(',').map((value) => value.trim()).filter(Boolean)
-    if (clientOrigins.some((origin) => !validateUrl(origin))) {
-      errors.push('Every CLIENT_URL entry must be a valid http(s) origin.')
+    if (clientOrigins.some((origin) => !validateUrl(origin) || new URL(origin).protocol !== 'https:' || new URL(origin).origin !== origin)) {
+      errors.push('Every production CLIENT_URL entry must be an HTTPS origin without a path or trailing slash.')
     }
     if (clientOrigins.some((origin) => /localhost|127\.0\.0\.1/i.test(origin))) {
       errors.push('CLIENT_URL must not point to localhost in production.')
@@ -64,6 +80,7 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
 }
 
 module.exports = { validateRuntimeConfig }
+
 
 
 
