@@ -82,6 +82,29 @@ test('webhook settlement preserves the original human bill confirmer',()=>{
  assert.match(source,/userRole: gatewayVerified \? 'system' : actorRole/)
 })
 
+test('QR settlement reuses the bill-locked payment transaction for receipt and inventory idempotency',()=>{
+ const staff=read('controllers/staff.controller.js')
+ const migration=read('db/migrations/2026-08-27-security-hardening-batches-07-12.sql')
+ assert.match(staff,/WHERE bp\.idempotency_key = \? LIMIT 1/)
+ assert.match(staff,/WHERE id = \? AND branch_id = \? LIMIT 1 FOR UPDATE/)
+ assert.match(staff,/allocateReceiptNumber\(conn, lockedBill\.branch_id\)/)
+ assert.match(staff,/dispenseCheckoutSupplies\([\s\S]*?executor: conn/)
+ assert.match(staff,/INSERT INTO billing_payments[\s\S]*?idempotency_key/)
+ assert.match(staff,/await conn\.commit\(\)/)
+ assert.match(staff,/await conn\.rollback\(\)/)
+ assert.match(migration,/CREATE UNIQUE INDEX uniq_billing_payment_idempotency ON billing_payments \(idempotency_key\)/)
+})
+
+test('Staff and branch-admin QR routes require authorization and derive ownership from branch-scoped context',()=>{
+ const staffRouter=read('routers/staff.router.js')
+ const branchRouter=read('routers/branches.router.js')
+ const gateway=read('routers/paymongoGateway.js')
+ assert.match(staffRouter,/router\.use\('\/billing', \.\.\.auth, can\('checkout'\), require\('\.\/paymongoGateway'\)\.apiRouter\)/)
+ assert.match(branchRouter,/router\.use\(`\$\{prefix\}\/billing`,\.\.\.middle,requirePermission\('billing'\),require\('\.\/paymongoGateway'\)\.apiRouter\)/)
+ assert.match(gateway,/WHERE id=\? AND branch_id=\? LIMIT 1 FOR UPDATE/)
+ assert.match(gateway,/WHERE a\.active_bill_id=\? AND b\.branch_id=\?/)
+})
+
 
 test('LIVE QR creation stays disabled until explicitly activated', async()=>{
  const client=require('../../utils/paymongoClient')

@@ -4,7 +4,7 @@
 
 ## Non-negotiable release rules
 
-1. PayMongo **TEST mode only** (`PAYMONGO_MODE=test`; `sk_test_...` / `pk_test_...`). Do not add live keys until business approval and a separately reviewed live-mode implementation.
+1. Use PayMongo **TEST mode** for staging (`PAYMONGO_MODE=test`; `sk_test_...` / `pk_test_...`). Current source also supports LIVE keys, but new LIVE QR creation is gated by `PAYMONGO_LIVE_ENABLED=true`; keep it `false` until sandbox verification, merchant approval, deployment review, and explicit authorization for any real-money test.
 2. Never import the original MySQL dump on top of an existing clinic database: it includes `DROP TABLE` statements, account records, and potentially private medical/financial information. Store it encrypted/off-repository.
 3. Do not apply any database migration before a verified restorable backup and a disposable TiDB staging test.
 4. Keep the actual source Git repository, including genuine image/binary files. The supplied **flattened .txt source is not a replacement for the original Git repository**: some image entries contain only source URLs, not binary PNG data.
@@ -14,14 +14,14 @@
 
 - `server/db/connectionOptions.js` + `server/db/connect.js`: optional `DB_PROVIDER=tidb`, DB port, verified TLS, optional trusted CA path, bounded pool/queue settings, and connection timeout. `DB_PASSWORD` is preferred while legacy `DB_PASS` remains supported.
 - `server/package.json` + lock file: keep the production dependency tree clear of known advisories; transactional and marketing email use the Resend HTTPS API without Nodemailer or SMTP.
-- `server/utils/envValidation.js`: production HTTPS origin validation and **fail-closed** PayMongo mode/key validation (TEST only).
+- `server/utils/envValidation.js` and `server/utils/paymongoClient.js`: matching TEST/LIVE key validation; new LIVE QR creation remains explicitly gated and disabled by default.
 - `server/middlewares/trustedProxy.middleware.js` + Pages proxy: signed Cloudflare client-IP attribution, forwarded-header stripping, and a 30-second upstream response timeout. Production now requires the same private `API_PROXY_SECRET` in Render and Pages; `TRUST_PROXY=true` is rejected.
 - `server/scripts/tidbMigrationAdapter.js` + `server/scripts/branchMigrations.js`: application-managed schema guards for three historical procedure-based migrations when they are unapplied on TiDB. A database lock row serializes migration runners; failed migrations are not recorded, and guarded DDL can be retried. The original migration SQL and SHA-256 hashes are **unchanged**.
 - `server/utils/schema.js`: preserve saved UOM precision, avoid recurring abbreviation-column deletion, and rebuild the derived stock summary atomically.
 - `server/utils/marketingCampaigns.js`: use normal locking `FOR UPDATE` on TiDB (already protected by the locked campaign row); retain the existing MySQL `SKIP LOCKED` behavior.
 - `server/scripts/prepareTidbDump.js`: non-destructive, offline dump-preparation tool, default **schema-only**, never imports by itself.
 - `client/functions/api/[[path]].js` + `client/public/_routes.json`: Cloudflare Pages same-origin API proxy for Render. Cookies and event-stream body are preserved; signed PayMongo webhook must go directly to Render.
-- New dependency-free tests for the TiDB adapter, TLS, dump safeguards, Cloudflare proxy and test-only PayMongo settings.
+- New dependency-free tests for the TiDB adapter, TLS, dump safeguards, Cloudflare proxy and PayMongo mode, signature, and activation-gate behavior.
 - <code>server/scripts/foundationSchema.js</code> verifies the migration's branch-column definitions, all required index definitions, foreign keys and delete rules, seed records, and existing branch ownership data. <code>branchMigrations.js</code> checks this contract before recording the foundation and rechecks it when the migration was previously recorded.
 - Unrecorded partial migrations can be retried. The runner adds missing branch-scoped unique indexes safely and removes an old global index only after confirming the replacement. A missing or malformed foreign key fails with a diagnostic and is not recreated blindly.
 - <code>client/src/pages/doctorPage/Doctor_Consultation.jsx</code> now protects autosaves from stale consultation loads, route changes, slow requests, and finalization races. <code>client/src/utils/consultationDraftQueue.js</code> serializes saves by appointment.
@@ -126,7 +126,7 @@ openssl rand -hex 32
 - Use TEST dashboard keys and a **test-mode** webhook that points directly to the Render HTTPS endpoint. Subscribe only to event types handled by the current PayMongo integration (`payment.paid`, `payment.failed`, and `qrph.expired`, as configured in source). Use the exact webhook signing secret for that endpoint.
 - Generate QR Ph in the clinic checkout, use PayMongo `test_url` simulation only. **Never scan test QR codes from actual banking or wallet apps.**
 - Confirm: signature failures denied; test-mode only; exact bill amount/branch; duplicate event and retries produce exactly one receipt; bill locks clear on terminal states; inventory is deducted only once after correct settlement; failed/expired payments stay unpaid; race conditions, timeout, sweeper/reconciliation, and refunds require QA.
-- Do **not** change to live keys or enable live processing until account approval and a separately reviewed, tested release.
+- Keep `PAYMONGO_LIVE_ENABLED=false`. Do not authorize a LIVE payment until sandbox end-to-end results, merchant QR Ph capability, and deployed runtime configuration have been independently verified. This repository audit does not establish any of those external facts.
 
 ## Step 6 — QA gates and release decision
 

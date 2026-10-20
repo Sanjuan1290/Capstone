@@ -54,7 +54,7 @@ No production response other than the expected anonymous 401s was observed durin
 - **Unsupported branch legacy routes:** `branches.router.js` retains explicit JSON 501 fallbacks for unregistered `/my/legacy/*` and `/workspace/:branchId/legacy/*` operations. They remain fail-closed; no fake success was added. The reviewed active dashboard and billing paths have explicit handlers. No authenticated request reached the fallback, so this is not a production 501 verification.
 - **Branch Admin landing page:** there is no `/admin/landingpage` route in the current route tree. Global website editing is Super Admin-only. This was not added as a branch feature because it would expose a global operation through a branch role.
 - **Retries/loading:** the proxy returns a bounded 504 on upstream timeout and forwards client disconnect cancellation. Existing UI modules expose loading/error/retry states. React Query is configured for one query retry and zero mutation retries; no generic automatic retries were added to write requests.
-- **Email/payments/security:** source and existing tests enforce Resend HTTPS as the outbound email provider and PayMongo TEST mode only. No email or payment was attempted. Branch scoping and role/session protections were exercised by the existing test suites, not by authenticated production sessions.
+- **Email/payments/security:** source and existing tests enforce Resend HTTPS as the outbound email provider. PayMongo source supports TEST/LIVE modes; new LIVE QR creation requires the explicit gate, which this audit keeps disabled. No email or payment was attempted. Branch scoping and role/session protections were exercised by the existing test suites, not by authenticated production sessions.
 
 ## Complete module coverage
 

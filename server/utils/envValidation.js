@@ -31,6 +31,11 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
   }
   const paymentMode = String(process.env.PAYMONGO_MODE || '').trim().toLowerCase()
   if (paymentMode && !['test', 'live'].includes(paymentMode)) errors.push('PAYMONGO_MODE must be empty, test, or live.')
+  const paymongoCredentialsConfigured = ['PAYMONGO_SECRET_KEY', 'PAYMONGO_PUBLIC_KEY', 'PAYMONGO_WEBHOOK_SECRET']
+    .some((key) => isNonEmpty(process.env[key]))
+  if (!paymentMode && paymongoCredentialsConfigured) {
+    errors.push('PAYMONGO_MODE is required when any PayMongo credential is configured.')
+  }
   if (paymentMode && !String(process.env.PAYMONGO_SECRET_KEY || '').startsWith(`sk_${paymentMode}_`)) {
     errors.push(`PAYMONGO_SECRET_KEY must match PAYMONGO_MODE=${paymentMode}.`)
   }
@@ -40,10 +45,14 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
   if (paymentMode && !String(process.env.PAYMONGO_WEBHOOK_SECRET || '').startsWith('whsk_')) {
     errors.push('PAYMONGO_WEBHOOK_SECRET must be configured for the selected PayMongo mode.')
   }
-  if (String(process.env.PAYMONGO_LIVE_ENABLED || 'false') === 'true' && paymentMode !== 'live') {
+  const liveEnabledValue = String(process.env.PAYMONGO_LIVE_ENABLED ?? 'false').trim()
+  if (!['true', 'false'].includes(liveEnabledValue)) {
+    errors.push('PAYMONGO_LIVE_ENABLED must be true or false.')
+  }
+  if (liveEnabledValue === 'true' && paymentMode !== 'live') {
     errors.push('PAYMONGO_LIVE_ENABLED=true requires PAYMONGO_MODE=live.')
   }
-  if (paymentMode === 'live' && String(process.env.PAYMONGO_LIVE_ENABLED || '') !== 'true') {
+  if (paymentMode === 'live' && liveEnabledValue !== 'true') {
     warnings.push('PayMongo LIVE credentials configured; creating new live QR payments remains disabled until PAYMONGO_LIVE_ENABLED=true.')
   }
   if (String(process.env.TRUST_PROXY || '').toLowerCase() === 'true') {

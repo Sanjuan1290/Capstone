@@ -79,10 +79,10 @@ The complete foundation migration contract is covered by metadata-driven impleme
 |---|---|---|
 | Medium | Pages-to-Render client-IP HMAC includes IP, timestamp, method, and URL and expires after 60 seconds, but does not use a shared one-time nonce or sign the request body. A captured valid header could be replayed within that window for the same method and URL. | TLS protects the normal hop; resolve with distributed replay protection or formally accept before production. Per-process memory is insufficient for multiple Render instances. |
 | High (development tooling) | Full dependency-tree audit reports development/build tool advisories; the production dependency trees have zero reported vulnerabilities. | Use production-only Render installation; restrict CI/build jobs to trusted source and track compatible upstream fixes. |
-| Medium (release gate) | TiDB, hosted Pages/Render behavior, five-role browser UAT, and PayMongo sandbox processing have not been exercised against staging. | Open staging verification items; no live payment mode is supported. |
+| Medium (release gate) | TiDB, hosted Pages/Render behavior, five-role browser UAT, and PayMongo sandbox processing have not been exercised against staging. | Open staging verification items. Source now supports TEST/LIVE modes, with new LIVE QR creation explicitly gated; the deployed commit and environment remain unverified. |
 | Low | ESLint reports 15 existing hook/dependency warnings; production build reports one oversized JavaScript chunk advisory. | No lint errors or build failure; review before unrelated UI refactoring or broader performance work. |
 
-PayMongo remains test-only in code: runtime validation rejects live mode/key prefixes, the Pages proxy blocks PayMongo webhooks so they go directly to Render, and payment handling has idempotency checks. Sandbox behavior was not tested. Do not configure live credentials or process real payments.
+As of source commit `ac11370`, PayMongo supports matching TEST/LIVE key prefixes, mode-specific webhook signatures, and LIVE QR creation behind `PAYMONGO_LIVE_ENABLED=true`; the default remains disabled. The Pages proxy blocks PayMongo webhooks so they go directly to Render, and payment handling has idempotency checks. This audit did not verify the deployed commit, merchant capability, or sandbox behavior. Do not enable live processing or process real payments based on this source review.
 
 ## F. Deployment runbook
 

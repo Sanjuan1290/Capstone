@@ -30,6 +30,7 @@ export const paymentMethodLabel = (method) => ({
   gcash: 'GCash',
   maya: 'Maya',
   bank_transfer: 'Bank Transfer',
+  qrph: 'QR Ph',
 }[method] || String(method || '').replace(/_/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase()))
 
 export const enabledPaymentMethods = (settings = {}) => [
