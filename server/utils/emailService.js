@@ -1,14 +1,4 @@
-const nodemailer = require('nodemailer')
-
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-})
-
-const FROM = `"Carait Clinic" <${process.env.EMAIL_USER}>`
+const { sendResendEmail } = require('./resendEmail')
 
 const formatAppointmentDate = (appointmentDate) => {
   const raw = typeof appointmentDate === 'string'
@@ -30,8 +20,7 @@ const formatAppointmentDate = (appointmentDate) => {
 }
 
 const sendTempPassword = async (email, full_name, role, tempPassword, loginUrl) => {
-  await transporter.sendMail({
-    from: FROM,
+  await sendResendEmail({
     to: email,
     subject: `Welcome to Carait Clinic - Your ${role} Account`,
     html: `
@@ -52,8 +41,7 @@ const sendTempPassword = async (email, full_name, role, tempPassword, loginUrl) 
 }
 
 const sendVerificationCode = async (email, full_name, code) => {
-  await transporter.sendMail({
-    from: FROM,
+  await sendResendEmail({
     to: email,
     subject: 'Carait Clinic - Your Email Verification Code',
     html: `
@@ -74,8 +62,7 @@ const sendVerificationCode = async (email, full_name, code) => {
 const sendAppointmentReminder = async ({ to, patient_name, doctor_name, appointment_date, appointment_time, clinic_type }) => {
   const formattedDate = formatAppointmentDate(appointment_date)
 
-  await transporter.sendMail({
-    from: FROM,
+  await sendResendEmail({
     to,
     subject: 'Reminder: Your Appointment Tomorrow - Carait Clinic',
     html: `
@@ -115,8 +102,7 @@ const sendAppointmentStatusEmail = async ({
   const cfg = statusMap[status]
   if (!cfg) return
 
-  await transporter.sendMail({
-    from: FROM,
+  await sendResendEmail({
     to,
     subject: `Carait Clinic - ${cfg[0]}`,
     html: `
@@ -138,8 +124,7 @@ const sendAppointmentStatusEmail = async ({
 
 const sendPasswordResetOtp = async (email, full_name, role, otp) => {
   const roleLabel = role.charAt(0).toUpperCase() + role.slice(1)
-  await transporter.sendMail({
-    from: FROM,
+  await sendResendEmail({
     to: email,
     subject: 'Carait Clinic - Password Reset Code',
     html: `
@@ -160,8 +145,7 @@ const sendPasswordResetOtp = async (email, full_name, role, otp) => {
 
 
 const sendSecurityOtp = async (email, full_name, title, otp) => {
-  await transporter.sendMail({
-    from: FROM,
+  await sendResendEmail({
     to: email,
     subject: `Carait Clinic - ${title}`,
     html: `
@@ -190,6 +174,7 @@ module.exports = {
   sendAdminMfaOtp,
   sendAccountSecurityOtp,
 }
+
 
 
 

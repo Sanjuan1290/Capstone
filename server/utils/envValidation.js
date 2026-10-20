@@ -42,6 +42,9 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
     errors.push('TRUST_PROXY=true is not supported. Use the signed Cloudflare Pages proxy boundary instead.')
   }
 
+  if (String(process.env.EMAIL_PROVIDER || 'resend').toLowerCase() !== 'resend') {
+    errors.push('EMAIL_PROVIDER must be resend; SMTP is not supported.')
+  }
   if (production) {
     if (String(process.env.API_PROXY_SECRET || '').length < 32) {
       errors.push('API_PROXY_SECRET must be at least 32 characters in production and match the Cloudflare Pages Function secret.')
@@ -59,10 +62,8 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
     if (String(process.env.RUN_SCHEMA_MIGRATIONS_ON_STARTUP || 'false').toLowerCase() === 'true') {
       warnings.push('RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true. Prefer running `npm run migrate` before starting production traffic.')
     }
-    if (String(process.env.ADMIN_MFA_ENABLED || 'true').toLowerCase() !== 'false') {
-      if (!isNonEmpty(process.env.EMAIL_USER) || !isNonEmpty(process.env.EMAIL_PASS)) {
-        errors.push('EMAIL_USER and EMAIL_PASS are required when administrator MFA is enabled.')
-      }
+    if (!isNonEmpty(process.env.RESEND_API_KEY) || !isNonEmpty(process.env.EMAIL_FROM)) {
+      errors.push('RESEND_API_KEY and EMAIL_FROM are required for production email delivery.')
     }
     const queueDisplayPin = String(process.env.QUEUE_DISPLAY_PIN || '').trim()
     if (!/^\d{6,12}$/.test(queueDisplayPin)) {
@@ -90,6 +91,7 @@ const validateRuntimeConfig = ({ production = process.env.NODE_ENV === 'producti
 }
 
 module.exports = { validateRuntimeConfig }
+
 
 
 

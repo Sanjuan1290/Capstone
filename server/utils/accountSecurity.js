@@ -54,6 +54,20 @@ const createSecurityCode = async ({ role, accountId, purpose, payload = null, ex
   return code
 }
 
+// A refused provider request must not force users to wait out the resend cooldown.
+// Match the specific OTP hash so a concurrent replacement is never deleted.
+const removeUndeliveredCode = async ({ role, accountId, purpose, code }) => {
+  try {
+    await db.query(
+      'DELETE FROM account_security_codes WHERE role = ? AND account_id = ? AND purpose = ? AND code = ?',
+      [role, accountId, purpose, hashSecret(code)]
+    )
+  } catch (_) {
+    // Don't mask the underlying email error or log the OTP/code hash.
+    console.error('[security] failed to clear undelivered verification code')
+  }
+}
+
 const verifySecurityCode = async ({ role, accountId, purpose, code, consume = true, executor = db }) => {
   const [rows] = await executor.query(
     `SELECT * FROM account_security_codes
@@ -94,7 +108,12 @@ const requestPasswordChangeCode = async (role, id, currentPassword, newPassword)
     purpose: 'password_change',
     payload: { new_password_hash: newPasswordHash },
   })
-  await sendAccountSecurityOtp(account.email, account.full_name, code)
+  try {
+    await sendAccountSecurityOtp(account.email, account.full_name, code)
+  } catch (error) {
+    await removeUndeliveredCode({ role, accountId: id, purpose: 'password_change', code })
+    throw error
+  }
   return { channel: 'email', destination: account.email }
 }
 
@@ -157,7 +176,12 @@ const confirmPatientPhoneChange = async (patientId, code, res = null) => {
 
 const requestAdminMfa = async (admin) => {
   const code = await createSecurityCode({ role: 'admin', accountId: admin.id, purpose: 'admin_mfa' })
-  await sendAdminMfaOtp(admin.email, admin.full_name, code)
+  try {
+    await sendAdminMfaOtp(admin.email, admin.full_name, code)
+  } catch (error) {
+    await removeUndeliveredCode({ role: 'admin', accountId: admin.id, purpose: 'admin_mfa', code })
+    throw error
+  }
 }
 
 const verifyAdminMfa = async (adminId, code) => verifySecurityCode({ role: 'admin', accountId: adminId, purpose: 'admin_mfa', code })
@@ -174,6 +198,7 @@ module.exports = {
   requestAdminMfa,
   verifyAdminMfa,
 }
+
 
 
 

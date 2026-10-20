@@ -23,7 +23,7 @@ test('rejects excessive article content',()=>assert.throws(()=>validatePost({...
 test('rejects non-date schedule values',()=>assert.equal(dateTime('today'),undefined))
 test('valid date input normalized for MySQL clinic wall time',()=>assert.equal(dateTime('2026-11-02T11:30'),'2026-11-02 11:30:00'))
 const signing=makeModule('utils/marketingCampaigns.js',{
- '../db/connect':{},'./date':{getClinicDateTimeSql:()=> '2026-10-17 18:00:00'},
+ '../db/connect':{},'./date':{getClinicDateTimeSql:()=> '2026-10-17 18:00:00'}, './resendEmail':{sendResendEmail:async()=> 'mocked'},
 },{MARKETING_UNSUBSCRIBE_SECRET:'a-test-only-signature-secret-value-with-32-chars'})
 test('unknown or tampered opt-out token is rejected',()=>{
  assert.equal(signing.patientFromToken('1.bad'),null)
@@ -55,9 +55,10 @@ test('new migration is additive and registered',()=>{
  const source=read('db/migrations/2026-10-17-announcements-campaigns.sql');assert.doesNotMatch(source,/\b(?:TRUNCATE|DROP TABLE|DELETE FROM)\b/i)
  assert.match(read('scripts/branchMigrations.js'),/2026-10-17-announcements-campaigns\.sql/)
 })
-test('email delivery is distinct from existing Gmail transactional service',()=>{
- assert.match(read('utils/marketingCampaigns.js'),/api\.brevo\.com\/v3\/smtp\/email/)
- assert.doesNotMatch(read('utils/emailService.js'),/api\.brevo\.com/)
+test('marketing and transactional delivery use the same Resend HTTPS provider',()=>{
+ assert.match(read('utils/marketingCampaigns.js'),/sendResendEmail/)
+ assert.match(read('utils/emailService.js'),/sendResendEmail/)
+ assert.doesNotMatch(read('utils/marketingCampaigns.js'),/brevo/i)
 })
 
 test('duplicate active campaign is refused under announcement row lock',()=>{
@@ -66,3 +67,4 @@ test('duplicate active campaign is refused under announcement row lock',()=>{
 test('patients can explicitly re-opt-in through Settings after unsubscribe',()=>{
  const s=read('controllers/patient.controller.js');assert.match(s,/DELETE FROM marketing_unsubscribes WHERE patient_id=\?/);assert.match(s,/normalized.receive_promotions === true/)
 })
+

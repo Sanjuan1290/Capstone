@@ -1,12 +1,13 @@
 // Marketing channel is independent of clinical/billing transaction emails.
 const crypto = require('node:crypto')
 const db = require('../db/connect')
+const { sendResendEmail } = require('./resendEmail')
 const { getClinicDateTimeSql } = require('./date')
 const setting = (name, fallback, min, max) => {
   const number = Number(process.env[name])
   return Number.isSafeInteger(number) && number >= min && number <= max ? number : fallback
 }
-const configured = () => Boolean(process.env.BREVO_API_KEY && process.env.MARKETING_FROM_EMAIL && process.env.MARKETING_UNSUBSCRIBE_SECRET?.length >= 24 && process.env.CLIENT_URL && /^https?:\/\//.test(process.env.CLIENT_URL))
+const configured = () => Boolean(process.env.RESEND_API_KEY && process.env.MARKETING_FROM_EMAIL && process.env.MARKETING_UNSUBSCRIBE_SECRET?.length >= 24 && process.env.CLIENT_URL && /^https?:\/\//.test(process.env.CLIENT_URL))
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c])
 const tokenFor = patientId => {
   const secret = process.env.MARKETING_UNSUBSCRIBE_SECRET
@@ -28,7 +29,7 @@ const eligibleSql = `FROM patients p
  AND p.email_verified_at IS NOT NULL AND p.email IS NOT NULL AND p.email <> ''
  AND NOT EXISTS (SELECT 1 FROM marketing_unsubscribes u WHERE u.patient_id=p.id)
  AND EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id=p.id AND a.branch_id=?)`
-const sendBrevo = async ({ patient, campaign, announcement }) => {
+const sendMarketingEmail = async ({ patient, campaign, announcement }) => {
   if (!configured()) throw new Error('Bulk email provider disabled.')
   const base = String(process.env.CLIENT_URL).replace(/\/$/,'')
   const token=encodeURIComponent(tokenFor(patient.id))
@@ -37,20 +38,15 @@ const sendBrevo = async ({ patient, campaign, announcement }) => {
   const article = `${base}/news/${announcement.branch_id}/${encodeURIComponent(announcement.slug)}`
   const safeUrl = escapeHtml(article), safeUnsub = escapeHtml(unsub)
   const html = `<div style="max-width:600px;margin:auto;font-family:Arial,sans-serif;color:#172b42;padding:24px"><h2>${escapeHtml(announcement.title)}</h2><p>${escapeHtml(announcement.caption)}</p>${announcement.cover_image_url ? `<img src="${escapeHtml(announcement.cover_image_url)}" alt="" style="max-width:100%;height:auto"/>` : ''}<p style="white-space:pre-line">${escapeHtml(announcement.body)}</p><p><a href="${safeUrl}">Read the announcement</a></p><hr/><small>Promotional communication from CARAIT Clinic. <a href="${safeUnsub}">Unsubscribe</a></small></div>`
-  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: { 'api-key':process.env.BREVO_API_KEY, 'Content-Type':'application/json', 'Accept':'application/json' },
-    body: JSON.stringify({ sender:{ name:process.env.MARKETING_FROM_NAME || 'CARAIT Clinic', email:process.env.MARKETING_FROM_EMAIL }, to:[{email:patient.email}], subject:announcement.title, htmlContent:html, headers: {'List-Unsubscribe':`<${oneClick}>`, 'List-Unsubscribe-Post':'List-Unsubscribe=One-Click'}, tags:['carait-marketing'] }),
-    signal: AbortSignal.timeout(15000),
+  return sendResendEmail({
+    from: `${process.env.MARKETING_FROM_NAME || 'CARAIT Clinic'} <${process.env.MARKETING_FROM_EMAIL}>`,
+    to: patient.email,
+    subject: announcement.title,
+    html,
+    headers: { 'List-Unsubscribe': `<${oneClick}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+    // One idempotency key for this recipient/campaign, preventing duplicate delivery.
+    idempotencyKey: `carait-marketing-${campaign.id}-${patient.id}`,
   })
-  const payload = await response.json().catch(()=>({}))
-  if (!response.ok) {
-    const error = new Error(`Marketing provider rejected request (${response.status}).`)
-    error.providerStatus=response.status
-    throw error
-  }
-  if (!payload.messageId) throw new Error('Email provider response had no message ID; delivery state is uncertain.')
-  return payload.messageId
 }
 let running = false
 const reserveAndClaim = async (campaignId) => {
@@ -94,7 +90,7 @@ const processCampaign = async campaign => {
   const [[patient]] = await db.query(`SELECT p.id,p.email FROM patients p ${eligibleSql.slice(eligibleSql.indexOf('WHERE'))} AND p.id=?`,[campaign.branch_id,recipient.patient_id])
   if (!patient) {await db.query("UPDATE marketing_campaign_recipients SET status='suppressed' WHERE id=?",[recipient.id]);return}
   try {
-    const messageId = await sendBrevo({patient,campaign,announcement})
+    const messageId = await sendMarketingEmail({patient,campaign,announcement})
     await db.query("UPDATE marketing_campaign_recipients SET status='sent',provider_message_id=?,sent_at=NOW() WHERE id=? AND status='sending'",[messageId,recipient.id])
   } catch(error) {
     // A transport timeout can mean the provider accepted the email. Never retry automatically.
@@ -117,10 +113,11 @@ const runMarketingWorker = async () => {
   } catch(error) {console.error('[marketing] worker failure',error.message)} finally {running=false}
 }
 const startMarketingWorker = () => {
-  if (!configured()) {console.warn('[marketing] Bulk email disabled until Brevo and unsubscribe credentials are configured.');return}
+  if (!configured()) {console.warn('[marketing] Bulk email disabled until Resend and unsubscribe credentials are configured.');return}
   const timer=setInterval(()=>{void runMarketingWorker()},30000)
   timer.unref?.()
   void runMarketingWorker()
 }
 module.exports={configured,tokenFor,patientFromToken,eligibleSql,escapeHtml,reserveAndClaim,runMarketingWorker,startMarketingWorker}
+
 

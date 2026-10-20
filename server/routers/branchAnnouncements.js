@@ -88,7 +88,7 @@ const campaignRecipients=async(req,res)=>{
   res.json({page,recipients:rows})
 }
 const launch=async(req,res)=>{
-  if(!configured())throw bad('Bulk email is disabled. Configure Brevo sender, API key, unsubscribe secret, and CLIENT_URL first.',503)
+  if(!configured())throw bad('Bulk email is disabled. Configure Resend sender, API key, unsubscribe secret, and CLIENT_URL first.',503)
   const id=Number(req.params.id)
   if(!idOk(id))throw bad('Invalid announcement.')
   const mode=String(req.body?.recipient_mode||'random'),requested=Number(req.body?.limit||500)
@@ -170,3 +170,4 @@ publicRouter.post('/unsubscribe',unsubscribe)
 // RFC 8058 one-click unsubscribe: POST only; GET never modifies consent.
 publicRouter.post('/unsubscribe-one-click',unsubscribe)
 module.exports={registerBranchAnnouncements,publicRouter,validatePost,slug,dateTime}
+

@@ -17,9 +17,25 @@ describe('runtime configuration validation', () => {
       JWT_SECRET: 'short',
       CLIENT_URL: 'http://localhost:5173',
       ADMIN_MFA_ENABLED: 'false',
+      RESEND_API_KEY: 're_sample', EMAIL_FROM: 'CARAIT Clinic <no-reply@caraitclinic.com>',
       QUEUE_DISPLAY_PIN: '123456',
     })
     expect(() => validateRuntimeConfig()).toThrow(/JWT_SECRET|localhost/i)
+  })
+
+  it('requires Resend credentials when administrator MFA is enabled', () => {
+    Object.assign(process.env, {
+      NODE_ENV: 'production', DB_HOST: 'db.internal', DB_USER: 'clinic',
+      DB_PASS: 'secret', DB_NAME: 'carait_clinic_system', JWT_SECRET: 'a'.repeat(48),
+      CLIENT_URL: 'https://clinic.example.com', ADMIN_MFA_ENABLED: 'true',
+      QUEUE_DISPLAY_PIN: '839251', SMS_PROVIDER: 'none',
+      API_PROXY_SECRET: 'p'.repeat(40), TRUST_PROXY: 'false',
+      RESEND_API_KEY: '', EMAIL_FROM: '',
+    })
+    expect(() => validateRuntimeConfig()).toThrow(/RESEND_API_KEY/)
+    process.env.RESEND_API_KEY = 're_sample'
+    process.env.EMAIL_FROM = 'CARAIT Clinic <no-reply@caraitclinic.com>'
+    expect(validateRuntimeConfig()).toHaveProperty('warnings')
   })
 
   it('accepts a complete production core configuration', () => {
@@ -32,6 +48,7 @@ describe('runtime configuration validation', () => {
       JWT_SECRET: 'a'.repeat(48),
       CLIENT_URL: 'https://clinic.example.com',
       ADMIN_MFA_ENABLED: 'false',
+      RESEND_API_KEY: 're_sample', EMAIL_FROM: 'CARAIT Clinic <no-reply@caraitclinic.com>',
       QUEUE_DISPLAY_PIN: '839251',
       SMS_PROVIDER: 'none',
       API_PROXY_SECRET: 'p'.repeat(40),
@@ -51,6 +68,7 @@ describe('runtime configuration validation', () => {
       JWT_SECRET: 'a'.repeat(48),
       CLIENT_URL: 'https://clinic.example.com',
       ADMIN_MFA_ENABLED: 'false',
+      RESEND_API_KEY: 're_sample', EMAIL_FROM: 'CARAIT Clinic <no-reply@caraitclinic.com>',
       QUEUE_DISPLAY_PIN: '839251',
       SMS_PROVIDER: 'none',
       API_PROXY_SECRET: 'p'.repeat(40),
@@ -69,6 +87,7 @@ describe('runtime configuration validation', () => {
       JWT_SECRET: 'a'.repeat(48),
       CLIENT_URL: 'https://clinic.example.com',
       ADMIN_MFA_ENABLED: 'false',
+      RESEND_API_KEY: 're_sample', EMAIL_FROM: 'CARAIT Clinic <no-reply@caraitclinic.com>',
       QUEUE_DISPLAY_PIN: '839251',
       SMS_PROVIDER: 'none',
       TRUST_PROXY: 'true',
@@ -80,6 +99,7 @@ describe('runtime configuration validation', () => {
     expect(validateRuntimeConfig()).toHaveProperty('warnings')
   })
 })
+
 
 
 

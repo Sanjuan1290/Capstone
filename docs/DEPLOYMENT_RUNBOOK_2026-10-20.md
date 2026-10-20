@@ -13,7 +13,7 @@
 ## Changes in this patch
 
 - `server/db/connectionOptions.js` + `server/db/connect.js`: optional `DB_PROVIDER=tidb`, DB port, verified TLS, optional trusted CA path, bounded pool/queue settings, and connection timeout. `DB_PASSWORD` is preferred while legacy `DB_PASS` remains supported.
-- `server/package.json` + lock file: keep the production dependency tree clear of the audited Express proxy/query-string and Nodemailer advisories; tests still use the existing CommonJS mail transport API.
+- `server/package.json` + lock file: keep the production dependency tree clear of known advisories; transactional and marketing email use the Resend HTTPS API without Nodemailer or SMTP.
 - `server/utils/envValidation.js`: production HTTPS origin validation and **fail-closed** PayMongo mode/key validation (TEST only).
 - `server/middlewares/trustedProxy.middleware.js` + Pages proxy: signed Cloudflare client-IP attribution, forwarded-header stripping, and a 30-second upstream response timeout. Production now requires the same private `API_PROXY_SECRET` in Render and Pages; `TRUST_PROXY=true` is rejected.
 - `server/scripts/tidbMigrationAdapter.js` + `server/scripts/branchMigrations.js`: application-managed schema guards for three historical procedure-based migrations when they are unapplied on TiDB. A database lock row serializes migration runners; failed migrations are not recorded, and guarded DDL can be retried. The original migration SQL and SHA-256 hashes are **unchanged**.
@@ -86,8 +86,9 @@ API_PROXY_SECRET=<same-random-secret-configured-in-Cloudflare-Pages>
 RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false
 ADMIN_MFA_ENABLED=true
 QUEUE_DISPLAY_PIN=<unique-random-6-to-12-digit-PIN>
-EMAIL_USER=<mfa-mailbox>
-EMAIL_PASS=<app-password>
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=<resend-send-only-api-key>
+EMAIL_FROM=CARAIT Clinic <no-reply@caraitclinic.com>
 PAYMONGO_MODE=test
 PAYMONGO_SECRET_KEY=<sk_test_...>
 PAYMONGO_PUBLIC_KEY=<pk_test_...>
@@ -180,3 +181,4 @@ No database rows or schema were changed. These checks do not authorize productio
 3. Do not run reverse SQL by guesswork. Some MySQL/TiDB DDL auto-commits. If a migration fails, stop the release, retain logs, inspect the migration registry and schema, and rehearse a repair against a disposable copy first.
 4. If data recovery is required, restore the snapshot into a new TiDB database, validate schema and synthetic workflows there, then repoint Render only after the recovered database passes readiness and reconciliation checks. If new clinic activity occurred after the snapshot, reconcile those records before switching.
 5. Recheck `/api/ready`, role logins, branch isolation, receipts, inventory balances, audit records, and PayMongo TEST-mode webhook verification before reopening staging traffic. Real payments remain disabled.
+
