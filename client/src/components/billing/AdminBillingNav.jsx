@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
+import { branchPortalPath } from '../../utils/branchPortalPath.mjs'
 import { MdDashboard, MdReceiptLong, MdApproval, MdPointOfSale, MdFactCheck } from 'react-icons/md'
 
 const ITEMS = [
@@ -26,7 +27,7 @@ const AdminBillingNav = ({ pendingAdjustments = 0, pendingApprovals = 0 }) => {
           return (
             <Link
               key={item.path}
-              to={item.path}
+              to={branchPortalPath(item.path, location.pathname)}
               className={`flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold transition-colors ${active ? 'bg-[#0b1a2c] text-amber-400' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
             >
               <Icon className="text-lg" />

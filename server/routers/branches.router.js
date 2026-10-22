@@ -449,14 +449,29 @@ router.get('/audit/all',requireSuper,async(req,res)=>{
 // through to an unscoped controller. Restore each workflow only after auditing it.
 const bridgeDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
 const originalDashboard = async(req,res) => {
-  const id=req.branchId
-  const [[pending]]=await db.query(`SELECT COUNT(*) AS pendingApprovals FROM appointments WHERE branch_id=? AND status='pending'`,[id])
-  const [[patients]]=await db.query(`SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM appointments WHERE branch_id=?`,[id])
-  const [[lowStock]]=await db.query('SELECT COUNT(*) AS lowStockCount FROM inventory WHERE branch_id=? AND stock<=threshold',[id])
-  const [doctors]=await db.query(`SELECT d.id,d.full_name,d.clinic_type,CASE WHEN d.is_active=1 THEN 'available' ELSE 'inactive' END AS status FROM doctors d WHERE d.branch_id=? ORDER BY d.full_name`,[id])
-  const {getOnlineBookingReadiness}=require('../utils/bookingReadiness')
-  const bookingReadiness=await getOnlineBookingReadiness(db,id)
-  res.json({pendingApprovals:Number(pending.pendingApprovals||0),totalPatients:Number(patients.totalPatients||0),lowStockCount:Number(lowStock.lowStockCount||0),doctorStatus:doctors,bookingReadiness})
+  const { loadBranchDashboard } = require('../utils/branchDashboard')
+  const { getOnlineBookingReadiness } = require('../utils/bookingReadiness')
+  const payload = await loadBranchDashboard({
+    db,
+    branchId: req.branchId,
+    getBookingReadiness: getOnlineBookingReadiness,
+    onSectionError: (section, error) => {
+      // Server-side diagnostics only; no database SQL or sensitive information goes to the browser.
+      console.error('[branch-dashboard-section]', {
+        branchId: req.branchId,
+        section,
+        code: error?.code,
+        sqlState: error?.sqlState,
+        message: error?.message,
+      })
+    },
+  })
+  // A partial response keeps correct data visible while explicitly labelling failures.
+  // If ALL sections fail, communicate a service error instead of false success.
+  if (Object.keys(payload.sectionErrors || {}).length === 5) {
+    return res.status(503).json({ code: 'BRANCH_DASHBOARD_UNAVAILABLE', message: 'Branch dashboard data is temporarily unavailable. Please try again.' })
+  }
+  res.json(payload)
 }
 const originalAppointments = async(req,res) => {
   const date=bridgeDate(req.query.date)

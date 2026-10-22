@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { branchPortalPath } from '../../utils/branchPortalPath.mjs'
 import { MdPayments, MdRefresh, MdArrowForward, MdWarningAmber, MdReceiptLong, MdApproval, MdSettings, MdCheckCircle } from 'react-icons/md'
 import { getBills, getBillingAdjustmentRequests, getBillingReconciliation, getBillingPaymentSettings, getBillingCatalog, getInventory, getClinicSettings } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -12,6 +13,8 @@ import Admin_Checkout from './Admin_Checkout'
 
 const Admin_Billing = () => {
   const toast = useToast()
+  const location = useLocation()
+  const portalPath = (path) => branchPortalPath(path, location.pathname)
   const [searchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') === 'overview' ? 'overview' : 'checkout'
   const [data, setData] = useState({ items: [], summary: {}, pagination: {} })
@@ -142,11 +145,11 @@ const Admin_Billing = () => {
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-xl text-amber-700"><MdWarningAmber /></div>
                   <div><h2 className="font-black text-amber-950">Services & Pricing Setup needs attention</h2><p className="mt-1 text-sm text-amber-800">Fix these items before they interrupt Staff during patient checkout.</p></div>
                 </div>
-                <Link to="/admin/system-setup/billing/services" className="button-secondary"><MdSettings /> Review Services & Pricing Setup</Link>
+                <Link to={portalPath("/admin/system-setup/billing/services")} className="button-secondary"><MdSettings /> Review Services & Pricing Setup</Link>
               </div>
               <div className="mt-4 grid gap-2 lg:grid-cols-2">
                 {setupIssues.slice(0, 6).map((issue, index) => (
-                  <Link key={`${issue.label}-${index}`} to={issue.to} className={`flex items-start gap-2 rounded-2xl border px-3 py-3 text-sm font-semibold ${issue.severity === 'critical' ? 'border-rose-200 bg-white text-rose-800' : 'border-amber-200 bg-white text-amber-900'}`}>
+                  <Link key={`${issue.label}-${index}`} to={portalPath(issue.to)} className={`flex items-start gap-2 rounded-2xl border px-3 py-3 text-sm font-semibold ${issue.severity === 'critical' ? 'border-rose-200 bg-white text-rose-800' : 'border-amber-200 bg-white text-amber-900'}`}>
                     <MdWarningAmber className="mt-0.5 shrink-0" />
                     <span>{issue.label}</span>
                   </Link>
@@ -157,7 +160,7 @@ const Admin_Billing = () => {
           ) : (
             <section className="flex items-center justify-between gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
               <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-xl text-emerald-700"><MdCheckCircle /></div><div><h2 className="font-black text-emerald-950">Services & Pricing Setup looks ready</h2><p className="mt-1 text-sm text-emerald-800">No blocking configuration issues were detected.</p></div></div>
-              <Link to="/admin/system-setup/billing/services" className="text-sm font-black text-emerald-800">Review Setup</Link>
+              <Link to={portalPath("/admin/system-setup/billing/services")} className="text-sm font-black text-emerald-800">Review Setup</Link>
             </section>
           )}
 
@@ -165,7 +168,7 @@ const Admin_Billing = () => {
             <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
               <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
                 <div><h2 className="font-black text-slate-900">Recent Bills</h2><p className="mt-1 text-xs text-slate-500">Latest charges and outstanding balances for this clinic.</p></div>
-                <Link to="/admin/billing/transactions" className="button-secondary">View All <MdArrowForward /></Link>
+                <Link to={portalPath("/admin/billing/transactions")} className="button-secondary">View All <MdArrowForward /></Link>
               </div>
               {!data.items?.length ? <EmptyState title="No billing records yet" description="Bills will appear after consultations create charges." /> : (
                 <div className="overflow-x-auto">
@@ -179,7 +182,7 @@ const Admin_Billing = () => {
                           <td className="px-4 py-4 font-bold text-slate-800">{formatMoney(bill.total_amount)}</td>
                           <td className="px-4 py-4 font-bold text-slate-800">{formatMoney(bill.balance_amount)}</td>
                           <td className="px-4 py-4"><BillingStatusBadge status={bill.status} /></td>
-                          <td className="px-5 py-4 text-right"><Link className="text-sm font-bold text-amber-700 hover:text-amber-800" to={`/admin/billing/transactions/${bill.id}`}>Open</Link></td>
+                          <td className="px-5 py-4 text-right"><Link className="text-sm font-bold text-amber-700 hover:text-amber-800" to={portalPath(`/admin/billing/transactions/${bill.id}`)}>Open</Link></td>
                         </tr>
                       ))}
                     </tbody>
@@ -193,7 +196,7 @@ const Admin_Billing = () => {
                 <div className="flex items-center justify-between"><div><h2 className="font-black text-slate-900">Attention Required</h2><p className="mt-1 text-xs text-slate-500">Items that need action or follow-up.</p></div></div>
                 <div className="mt-4 space-y-2">
                   {attention.map((item) => { const Icon = item.icon; return (
-                    <Link key={item.label} to={item.to} className="flex items-center gap-3 rounded-2xl border border-slate-200 p-3 hover:bg-slate-50">
+                    <Link key={item.label} to={portalPath(item.to)} className="flex items-center gap-3 rounded-2xl border border-slate-200 p-3 hover:bg-slate-50">
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><Icon /></div>
                       <div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-800">{item.label}</p><p className="text-xs text-slate-500">Open the related billing queue</p></div>
                       <span className="text-xl font-black text-slate-900">{item.value}</span>
@@ -203,7 +206,7 @@ const Admin_Billing = () => {
               </section>
 
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-3"><div><h2 className="font-black text-slate-900">Today’s Collection Mix</h2><p className="mt-1 text-xs text-slate-500">{formatDateOnly(reconciliation?.date || getLocalDateOnly())}</p></div><Link to="/admin/reports" className="text-sm font-bold text-amber-700">Open Reports</Link></div>
+                <div className="flex items-center justify-between gap-3"><div><h2 className="font-black text-slate-900">Today’s Collection Mix</h2><p className="mt-1 text-xs text-slate-500">{formatDateOnly(reconciliation?.date || getLocalDateOnly())}</p></div><Link to={portalPath("/admin/reports")} className="text-sm font-bold text-amber-700">Open Reports</Link></div>
                 <div className="mt-4 space-y-3">
                   {!collectionMethods ? <p className="text-sm text-amber-700">Payment method breakdown is temporarily unavailable. Refresh to try again.</p> : collectionMethods.length === 0 ? <p className="text-sm text-slate-500">No payments recorded today.</p> : collectionMethods.slice(0, 4).map((method) => (
                     <div key={method.payment_method} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold text-slate-600">{paymentMethodLabel(method.payment_method)}</span><strong className="text-sm text-slate-900">{formatMoney(method.net)}</strong></div>

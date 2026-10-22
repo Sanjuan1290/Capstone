@@ -127,7 +127,7 @@ const Admin_Dashboard = () => {
     loadAdminDashboardSections({ getDashboard, getAppointments, date: todayISO }).then(result => {
       setDashStats(result.dashboard)
       setTodayAppts(result.appointments)
-      setDoctorStatus(result.dashboard?.doctorStatus || null)
+      setDoctorStatus(result.dashboard?.doctorStatus ?? null)
       setLoadErrors(result.errors)
       setLastUpdated(result.dashboard || result.appointments ? new Date() : null)
     }).finally(() => setLoading(false))
@@ -139,9 +139,9 @@ const Admin_Dashboard = () => {
 
   const stats = [
     { label: 'Today\'s Appts',   value: todayAppts === null ? '—' : todayAppts.length, sub: 'scheduled', color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', up: null },
-    { label: 'Total Patients',   value: dashStats ? dashStats.totalPatients ?? 0 : '—', sub: 'registered', color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-200', up: null },
-    { label: 'Pending Approvals',value: dashStats ? dashStats.pendingApprovals ?? dashStats.pendingCount ?? 0 : '—', sub: 'need review', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', up: false },
-    { label: 'Low Stock Alerts', value: dashStats ? dashStats.lowStockCount ?? dashStats.lowStock ?? 0 : '—', sub: 'items', color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-200', up: false },
+    { label: 'Total Patients',   value: dashStats?.totalPatients ?? '—', sub: 'registered', color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-200', up: null },
+    { label: 'Pending Approvals',value: dashStats?.pendingApprovals ?? dashStats?.pendingCount ?? '—', sub: 'need review', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', up: false },
+    { label: 'Low Stock Alerts', value: dashStats?.lowStockCount ?? dashStats?.lowStock ?? '—', sub: 'items', color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-200', up: false },
   ]
 
   const quickLinks = [
@@ -181,7 +181,7 @@ const Admin_Dashboard = () => {
             <p className="text-slate-400 text-sm mt-1.5 leading-relaxed">
               <span className="text-white font-semibold">{todayAppts === null ? '—' : todayAppts.length} appointments</span> today ·{' '}
               <span className="text-emerald-400 font-semibold">{doctorStatus === null ? '—' : activeDoctorCount} active doctors</span> ·{' '}
-              <span className="text-red-400 font-semibold">{dashStats ? dashStats.lowStockCount ?? dashStats.lowStock ?? 0 : '—'} low-stock items</span>
+              <span className="text-red-400 font-semibold">{dashStats?.lowStockCount ?? dashStats?.lowStock ?? '—'} low-stock items</span>
             </p>
             <div className="mt-2"><LiveDot lastUpdated={lastUpdated} /></div>
           </div>
@@ -207,7 +207,9 @@ const Admin_Dashboard = () => {
         ))}
       </div>
 
-      {loadErrors.dashboard ? <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><p className="font-semibold">Dashboard statistics could not load: {loadErrors.dashboard}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div> : <BookingReadinessPanel readiness={dashStats?.bookingReadiness} portalPath={portalPath} />}
+      {loadErrors.dashboard && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><p className="font-semibold">Unable to load branch dashboard statistics: {loadErrors.dashboard}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div>}
+      {loadErrors.summary && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><p>{loadErrors.summary}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div>}
+      {loadErrors.booking ? <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><p>{loadErrors.booking}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div> : dashStats?.bookingReadiness && <BookingReadinessPanel readiness={dashStats.bookingReadiness} portalPath={portalPath} />}
 
       {/* ── Main 2-col ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-5">
@@ -262,12 +264,12 @@ const Admin_Dashboard = () => {
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <h2 className="text-sm font-bold text-slate-800">Doctor Availability</h2>
-              <NavLink to="/admin/doctor-schedules" className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-0.5">
+              <NavLink to={portalPath('/admin/doctor-schedules')} className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-0.5">
                 Schedules <MdChevronRight className="text-[14px]" />
               </NavLink>
             </div>
             <div className="p-4 space-y-2 max-h-48 overflow-y-auto">
-              {loadErrors.dashboard ? <div role="alert" className="p-4 text-sm text-rose-800"><p>Doctor availability could not load: {loadErrors.dashboard}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div> : doctorStatus?.length === 0 ? (
+              {(loadErrors.doctors || loadErrors.dashboard) ? <div role="alert" className="p-4 text-sm text-rose-800"><p>Doctor availability could not load: {loadErrors.doctors || loadErrors.dashboard}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div> : doctorStatus?.length === 0 ? (
                 <p className="text-xs text-slate-400 text-center py-4">No doctors registered.</p>
               ) : (doctorStatus || []).map(doc => (
                 <div key={doc.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50">
@@ -292,7 +294,7 @@ const Admin_Dashboard = () => {
                 </p>
                 <p className="text-xs text-amber-600 mt-0.5">Consider restocking soon.</p>
               </div>
-              <NavLink to="/admin/inventory"
+              <NavLink to={portalPath('/admin/inventory')}
                 className="text-xs font-bold text-amber-700 bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-xl hover:bg-amber-200 transition-colors shrink-0">
                 View
               </NavLink>
@@ -306,7 +308,7 @@ const Admin_Dashboard = () => {
         <h2 className="text-sm font-bold text-slate-800 mb-4">Quick Navigation</h2>
         <div className="grid grid-cols-3 sm:grid-cols-7 gap-3">
           {quickLinks.map(({ label, path, icon: Icon, color, bg }) => (
-            <NavLink key={path} to={path}
+            <NavLink key={path} to={portalPath(path)}
               className={`flex flex-col items-center gap-2 p-4 rounded-2xl ${bg}
                 hover:opacity-80 hover:-translate-y-0.5 hover:shadow-md transition-all active:scale-95`}>
               <Icon className={`text-[22px] ${color}`} />
@@ -320,6 +322,7 @@ const Admin_Dashboard = () => {
 }
 
 export default Admin_Dashboard
+
 
 
 
