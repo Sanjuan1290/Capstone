@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 // client/src/pages/adminPage/Admin_DoctorAccount.jsx
 // Doctor account management uses Clinic Assignment as the operational classification.
 
@@ -251,6 +252,8 @@ const Admin_DoctorAccount = () => {
       .finally(() => setLoading(false))
   }, [])
 
+  useClinicRefresh(async()=>{const rows=await getDoctors();if(Array.isArray(rows)){setDoctors(rows);setSelected(old=>old?rows.find(row=>row.id===old.id)||null:rows[0]||null)}},['accounts.updated','schedule.updated'],{fallbackMs:120000,skip:()=>showAdd||Boolean(editing)})
+
   const handleToggle = async id => {
     try {
       const res = await toggleDoctor(id)
@@ -381,6 +384,7 @@ const Admin_DoctorAccount = () => {
 }
 
 export default Admin_DoctorAccount
+
 
 
 

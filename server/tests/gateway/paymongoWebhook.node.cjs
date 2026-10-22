@@ -146,3 +146,4 @@ test('reconciliation settles a succeeded provider intent when no webhook was rec
  assert.equal(getReceiptCount(),1)
  assert.equal(getInventoryMovementCount(),1)
 })
+

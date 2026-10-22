@@ -1,4 +1,6 @@
-const db = require('../db/connect')
+// Delay creating the database pool until a query actually needs it.
+// Pure aggregation and tests with an injected executor must not open a connection.
+const defaultExecutor = () => require('../db/connect')
 
 const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100
 const roundQty = (value) => Math.round((Number(value) || 0) * 10000) / 10000
@@ -14,7 +16,7 @@ const USAGE_RETURN_TYPES = ['clinical_return', 'dispense_return']
  * Most used medicines (or supplies) for a date range, ranked by net quantity used.
  * itemType: 'medicine' (default), 'supplies', or 'all'.
  */
-const loadMostUsedMedicines = async ({ startDate, endDate, itemType = 'medicine', limit = 10 } = {}, executor = db) => {
+const loadMostUsedMedicines = async ({ startDate, endDate, itemType = 'medicine', limit = 10 } = {}, executor = defaultExecutor()) => {
   const typeFilter = itemType === 'all'
     ? ''
     : itemType === 'supplies'
@@ -94,7 +96,7 @@ const loadMostUsedMedicines = async ({ startDate, endDate, itemType = 'medicine'
  * current selling price (what it would bill). Batches received without a unit cost are
  * counted so the report can say the cost value is incomplete.
  */
-const loadInventoryValuation = async (executor = db) => {
+const loadInventoryValuation = async (executor = defaultExecutor()) => {
   const [[totals]] = await executor.query(
     `SELECT
        COALESCE(SUM(b.quantity * COALESCE(b.unit_cost,0)),0) AS cost_value,
@@ -164,7 +166,7 @@ const branchLedgerSql = () => LEDGER_SQL.replace(/FROM billing_payments bp\n/g,
   .replace(/JOIN billing_payments bp ON bp.id = r.payment_id\n/,
     'JOIN billing_payments bp ON bp.id = r.payment_id\n  JOIN billing_records br ON br.id = bp.billing_id AND br.branch_id = ?\n')
 
-const loadCollectionLedger = async ({ startDate, endDate, branchId = null }, executor = db) => {
+const loadCollectionLedger = async ({ startDate, endDate, branchId = null }, executor = defaultExecutor()) => {
   const scoped = branchId !== null && branchId !== undefined
   const [rows] = await executor.query(
     `SELECT payment_method, event_date, ym, amount, kind, staff_id, admin_id
@@ -223,6 +225,7 @@ module.exports = {
   summarizeLedgerRows,
   LEDGER_SQL,
 }
+
 
 
 

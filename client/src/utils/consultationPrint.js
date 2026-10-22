@@ -21,3 +21,4 @@ export const printConsultationRecord = ({ patient, diagnosis, notes, prescriptio
 
 
 
+

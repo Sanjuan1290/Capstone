@@ -64,7 +64,7 @@ const StaffLayout = () => {
     if (eventName === 'notification_created') playNotificationSound()
     if (['notification_created','appointment_updated','queue_updated','consultation_saved','supply_request_resolved','billing_finalized','billing_paid'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
-      window.dispatchEvent(new CustomEvent('clinic:refresh', { detail: { eventName } }))
+      // useSSE centralizes branch-aware data invalidation and refresh delivery.
       if (eventName === 'appointment_updated') loadCounts()
     }
   }, [loadCounts])
@@ -135,6 +135,7 @@ const StaffLayout = () => {
   )
 }
 export default StaffLayout
+
 
 
 

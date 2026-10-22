@@ -10,7 +10,7 @@ const makeModule=(filename, stubs={},env={})=>{
 const emptyRouter=()=>({get(){},post(){}})
 const {validatePost,slug,dateTime}=makeModule('routers/branchAnnouncements.js',{
  'express':{Router:emptyRouter,raw:()=>()=>{}},
- '../db/connect':{},'../utils/audit':{},'../utils/marketingCampaigns':{configured:()=>false,eligibleSql:'FROM patients p WHERE p.receive_promotions=1'},'../utils/cloudinarySecurity':{},
+ '../db/connect':{},'../utils/audit':{},'../utils/clinicEvents':{afterSuccessfulMutation:()=> (_req,_res,next)=>next()},'../utils/marketingCampaigns':{configured:()=>false,eligibleSql:'FROM patients p WHERE p.receive_promotions=1'},'../utils/cloudinarySecurity':{},
 })
 const input=()=>({title:'October Skin Care Special',caption:'New service offer',body:'Details and terms of the service',status:'draft',type:'promotion',cta_url:'/patient/book'})
 test('slug strips URL-unsafe characters',()=>assert.equal(slug('Health Care & Deals!!!'),'health-care-deals'))
@@ -67,4 +67,5 @@ test('duplicate active campaign is refused under announcement row lock',()=>{
 test('patients can explicitly re-opt-in through Settings after unsubscribe',()=>{
  const s=read('controllers/patient.controller.js');assert.match(s,/DELETE FROM marketing_unsubscribes WHERE patient_id=\?/);assert.match(s,/normalized.receive_promotions === true/)
 })
+
 

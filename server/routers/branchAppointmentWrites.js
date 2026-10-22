@@ -56,3 +56,4 @@ function registerBranchAppointmentWrites(router,{requireSuper,branchContext,requ
 }
 module.exports={registerBranchAppointmentWrites,createAppointment}
 
+

@@ -1,7 +1,8 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 // client/src/pages/patientPage/BookAppointment.jsx
 // REDESIGNED: 5-step wizard, mobile-first, touch-friendly calendar, clean cards
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
   getActiveBranches, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
@@ -13,6 +14,7 @@ import {
   MdArrowForward, MdWarning, MdRefresh,
 } from 'react-icons/md'
 import { getLocalDateOnly } from '../../utils/date'
+import { readSlotPrefill } from '../../utils/bookingHandoff.mjs'
 import { formatAppointmentTimeRange } from '../../utils/appointmentTime'
 import {
   buildUnavailableDateSet,
@@ -90,7 +92,7 @@ const StepClinicType = ({ value, onChange, readiness, loading, error, onRetry })
               <p className="font-bold text-sm text-slate-800">{label}</p>
               {loading ? <span className="text-[10px] font-bold text-slate-400">Checking…</span> : status && (
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${bookable ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                  {bookable ? 'Online booking available' : 'Setup incomplete'}
+                  {bookable ? 'Online booking available' : status.issues?.includes('CLINIC_TYPE_DISABLED') ? 'Online booking disabled' : 'Setup incomplete'}
                 </span>
               )}
             </div>
@@ -467,6 +469,8 @@ const BookAppointment = () => {
     clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '', notes: '',
   })
   const [policyAccepted, setPolicyAccepted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const bookingSubmissionLock = useRef(false)
   const [doctorList,      setDoctorList]      = useState({ medical: [], derma: [] })
   const [loadingDoctors, setLoadingDoctors] = useState(true)
   const [doctorError, setDoctorError] = useState('')
@@ -483,29 +487,38 @@ const BookAppointment = () => {
   const [bookingReadiness, setBookingReadiness] = useState(null)
   const [loadingReadiness, setLoadingReadiness] = useState(true)
   const [readinessError, setReadinessError] = useState('')
+  const readinessRequestId = useRef(0)
+  const doctorsRequestId = useRef(0)
 
   const loadBookingReadiness = async () => {
+    const requestId = ++readinessRequestId.current
+    const requestedBranch = branchId
     setLoadingReadiness(true)
     setReadinessError('')
     try {
       const result = await getBookingReadiness(branchId)
-      setBookingReadiness(result || null)
-      setForm((current) => {
-        if (!current.clinicType || result?.[current.clinicType]?.bookable) return current
-        return { ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' }
-      })
+      if (requestId === readinessRequestId.current && requestedBranch === branchId) setBookingReadiness(result || null)
     } catch (err) {
-      setBookingReadiness(null)
-      setReadinessError(err.message || 'Failed to check online booking availability.')
+      // Keep last known readiness and the user's draft; never interpret a failed API as empty setup.
+      if (requestId === readinessRequestId.current) setReadinessError('Unable to check booking availability right now. Please retry. Your selections are saved on this page.')
     } finally {
-      setLoadingReadiness(false)
+      if (requestId === readinessRequestId.current) setLoadingReadiness(false)
     }
   }
 
-  useEffect(() => { if(branchId)loadBookingReadiness() }, [branchId])
-  useEffect(() => { getCurrentPromotions().then(rows=>setPromotions(Array.isArray(rows)?rows:[])).catch(()=>setPromotions([])) }, [])
+  useEffect(() => {
+    if (branchId) {
+      setBookingReadiness(null)
+      loadBookingReadiness()
+    }
+    return () => { readinessRequestId.current += 1 }
+  }, [branchId])
+  const loadPromotions=()=>getCurrentPromotions().then(rows=>setPromotions(Array.isArray(rows)?rows:[])).catch(()=>{})
+  useEffect(() => {void loadPromotions()}, [])
+  useClinicRefresh(loadPromotions,['promotion.updated','service.updated'],{fallbackMs:90000})
 
   const loadDoctors = async () => {
+    const requestId = ++doctorsRequestId.current
     setLoadingDoctors(true); setDoctorError('')
     try {
       const summary = await getDoctorsAvailability({ startDate: getLocalDateOnly(), days: 7, branchId })
@@ -513,21 +526,25 @@ const BookAppointment = () => {
       const doctorClinic = (d) => String(d.clinic_type || '')
       const derma = enriched.filter(d => doctorClinic(d) === 'derma' && d.weekly_schedule.some(x => Number(x.is_active)!==0))
       const medical = enriched.filter(d => doctorClinic(d) === 'medical' && d.weekly_schedule.some(x => Number(x.is_active)!==0))
+      if (requestId !== doctorsRequestId.current) return
       setDoctorList({ medical, derma })
       const preDoctor = Number(searchParams.get('doctor')); const preClinic = searchParams.get('clinic')
       if (preDoctor && ['medical','derma'].includes(preClinic)) {
         const found = enriched.find(d => Number(d.id)===preDoctor && String(d.clinic_type || '') === preClinic)
-        if (found) setForm(f => ({...f, clinicType:preClinic, doctor:found}))
+        if (found) {
+          const prefill = readSlotPrefill(searchParams, getLocalDateOnly())
+          setForm(f => ({...f, clinicType:preClinic, doctor:found, date:prefill.date, time:prefill.time}))
+        }
       }
-    } catch (err) { setDoctorError(err.message || 'Failed to load doctors.'); setDoctorList({medical:[],derma:[]}) }
-    finally { setLoadingDoctors(false) }
+    } catch (err) { if (requestId === doctorsRequestId.current) { setDoctorError(err.message || 'Failed to load doctors.'); setDoctorList({medical:[],derma:[]}) } }
+    finally { if (requestId === doctorsRequestId.current) setLoadingDoctors(false) }
   }
-  useEffect(() => { if(branchId)loadDoctors() }, [branchId])
+  useEffect(() => { if(branchId)loadDoctors(); return () => { doctorsRequestId.current += 1 } }, [branchId])
 
   useEffect(() => {
     if (!form.clinicType || !bookingReadiness) return
     if (bookingReadiness?.[form.clinicType]?.bookable) return
-    setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' }))
+    // A configuration change disables submission without discarding a patient's draft.
     setStep(0)
   }, [bookingReadiness, form.clinicType])
 
@@ -617,12 +634,13 @@ const BookAppointment = () => {
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
   const canNext = () => {
+    if (loadingReadiness || readinessError) return false
     if (step===0) return !!form.clinicType && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
-    if (step===1) return !!form.service
+    if (step===1) return !!form.service && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
     if (step===2) return !!form.doctor
     if (step===3) return !!form.date && !!form.time
     if (step===4) return !!form.reason && (form.reason !== 'Other' || form.reasonDetails.trim().length >= 2)
-    if (step===5) return policyAccepted
+    if (step===5) return policyAccepted && !submitting && !loadingReadiness && !readinessError && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
     return true
   }
 
@@ -632,6 +650,9 @@ const BookAppointment = () => {
   }
 
   const handleConfirm = async () => {
+    if (bookingSubmissionLock.current || submitting || !policyAccepted || !bookingReadiness?.[form.clinicType]?.bookable || readinessError) return
+    bookingSubmissionLock.current = true
+    setSubmitting(true)
     try {
       await bookAppointment({
         branch_id:       Number(branchId),
@@ -647,6 +668,9 @@ const BookAppointment = () => {
       setDone(true)
     } catch (err) {
       alert(err.message)
+    } finally {
+      bookingSubmissionLock.current = false
+      setSubmitting(false)
     }
   }
 
@@ -654,6 +678,8 @@ const BookAppointment = () => {
     setStep(0); setDone(false)
     setTimeSlots([]); setDoctorSchedules([])
     setPolicyAccepted(false)
+    setSubmitting(false)
+    bookingSubmissionLock.current = false
     setForm({ clinicType:'', service:null, doctor:null, date:null, time:'', reason:'', reasonDetails:'', notes:'' })
   }
 
@@ -696,9 +722,9 @@ const BookAppointment = () => {
             <SuccessScreen onReset={handleReset} />
           ) : (
             <>
-              {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' }))} readiness={bookingReadiness} loading={loadingReadiness} error={readinessError} onRetry={loadBookingReadiness} />}
+              {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: current.doctor?.clinic_type === clinicType ? current.doctor : null, date: current.doctor?.clinic_type === clinicType ? current.date : null, time: current.doctor?.clinic_type === clinicType ? current.time : '', reason: '', reasonDetails: '' }))} readiness={bookingReadiness} loading={loadingReadiness} error={readinessError} onRetry={loadBookingReadiness} />}
               {step===1 && <StepService clinicType={form.clinicType} value={form.service} onChange={set('service')} services={services} promotions={promotions} loading={loadingServices} error={serviceError} onRetry={loadServices} onBackToClinic={() => { setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' })); setStep(0); loadBookingReadiness() }} />}
-              {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={set('doctor')} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
+              {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={(doctor) => setForm((current) => ({...current, doctor, date: current.doctor?.id===doctor?.id?current.date:null, time: current.doctor?.id===doctor?.id?current.time:''}))} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
               {step===3 && (
                 <StepSchedule
                   date={form.date} time={form.time}
@@ -734,7 +760,7 @@ const BookAppointment = () => {
                   className="flex items-center gap-1.5 px-5 py-2.5 text-sm font-bold text-white
                     bg-emerald-500 hover:bg-emerald-600 rounded-xl disabled:opacity-30 transition-all
                     shadow-lg shadow-emerald-500/20">
-                  {step===5 ? 'Confirm Booking' : 'Next'}
+                  {step===5 ? (submitting ? 'Submitting…' : 'Confirm Booking') : 'Next'}
                   {step<5 && <MdArrowForward className="text-[15px]" />}
                 </button>
               </div>
@@ -747,6 +773,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 

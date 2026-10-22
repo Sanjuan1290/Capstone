@@ -80,3 +80,4 @@ test('credentialed configuration requires a mode and the live gate accepts only 
     assert.throws(() => validateRuntimeConfig({ production: false }), /PAYMONGO_LIVE_ENABLED=true requires PAYMONGO_MODE=live/)
   })
 })
+

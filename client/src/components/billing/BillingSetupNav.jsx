@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'
 import { MdMedicalServices, MdPayments, MdDiscount, MdReceiptLong } from 'react-icons/md'
 
 const ITEMS = [
@@ -10,7 +11,7 @@ const ITEMS = [
 
 const BillingSetupNav = () => {
   const location = useLocation()
-  const base = location.pathname.startsWith('/staff') ? '/staff' : '/admin'
+  const base = portalBaseForPath(location.pathname)
   return (
     <div className="overflow-x-auto border-b border-slate-200">
       <div className="flex min-w-max gap-6 px-1">
@@ -25,6 +26,7 @@ const BillingSetupNav = () => {
   )
 }
 export default BillingSetupNav
+
 
 
 

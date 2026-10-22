@@ -172,3 +172,4 @@ For every protected page below, **Initial Load, API, UI, Workflow, and Result ar
 - The exact TiDB transactions SQL was not executed against a disposable QA database. No test credentials or isolated database were supplied.
 - The branch 501 fallback still covers unregistered legacy operations by design. Any future operation needs a branch-safe handler before it is available to Branch Admin or Super Admin workspace users.
 - All code changes remain local and require a separate review/deployment step before production behavior changes.
+

@@ -86,6 +86,7 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
   const [schedule,  setSchedule]  = useState([])
   const [unavailableDates, setUnavailableDates] = useState([])
   const [timeSlots, setTimeSlots] = useState([])
+  const [slotsError, setSlotsError] = useState('')
 
   useEffect(() => {
     if (!appt?.doctor_id) return
@@ -135,8 +136,8 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
       return
     }
     let cancelled = false
-
-    getDoctorAvailableSlots(appt.doctor_id, { date: dateStr, appointmentId: appt.id, clinicType: appt.clinic_type })
+    setSlotsError('')
+    getDoctorAvailableSlots(appt.doctor_id, { date: dateStr, appointmentId: appt.id, clinicType: appt.clinic_type, branchId: appt.branch_id })
       .then((result) => {
         if (cancelled) return
         const available = Array.isArray(result?.slots) ? result.slots : []
@@ -146,6 +147,7 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
       .catch(() => {
         if (cancelled) return
         setTimeSlots([])
+        setSlotsError('Unable to check available times. Please retry the date selection.')
       })
 
     return () => { cancelled = true }
@@ -204,9 +206,10 @@ const StepSchedule = ({ appt, date, setDate, time, setTime }) => {
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1">
             <MdAccessTime className="text-[13px]" /> Available Time Slots
           </p>
+          {slotsError && <p role="alert" className="mt-2 text-sm text-red-600">{slotsError}</p>}
           {timeSlots.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-4 bg-slate-50 rounded-xl">
-              No slots available for this day.
+              {slotsError ? 'Available times could not be loaded.' : 'No slots available for this day.'}
             </p>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -456,6 +459,7 @@ const RescheduleAppointment = () => {
 }
 
 export default RescheduleAppointment
+
 
 
 

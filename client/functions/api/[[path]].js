@@ -76,3 +76,4 @@ export async function onRequest({ request, env }) {
     request.signal.removeEventListener('abort', abortFromClient)
   }
 }
+

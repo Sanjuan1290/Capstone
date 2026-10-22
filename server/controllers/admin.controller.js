@@ -2652,6 +2652,9 @@ const getInventory = async (req, res) => {
 }
 
 const addInventoryItem = async (req, res) => {
+  if (req.body?.item_type !== 'medicine') {
+    return res.status(400).json({ code: 'MEDICINE_ONLY_CREATION', message: 'New inventory items must be Medicine. Existing supplies can still be managed.' })
+  }
   const validationError = validateInventoryRequiredFields(req.body, { requireOpeningQuantity: true })
   if (validationError) return res.status(400).json(validationError)
 
@@ -4293,6 +4296,7 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

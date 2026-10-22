@@ -1769,6 +1769,9 @@ const getInventory = async (req, res) => {
 }
 
 const addInventoryItem = async (req, res) => {
+  if (req.body?.item_type !== 'medicine') {
+    return res.status(400).json({ code: 'MEDICINE_ONLY_CREATION', message: 'New inventory items must be Medicine. Existing supplies can still be managed.' })
+  }
   if (rejectStaffPricingMutation(req, res)) return
   const validationError = validateInventoryRequiredFields(req.body, { requireOpeningQuantity: true, requireSellingPrice: false })
   if (validationError) return res.status(400).json(validationError)
@@ -2108,6 +2111,7 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

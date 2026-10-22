@@ -123,3 +123,4 @@ test('frontend admin errors retain backend tracking reference and actionable tit
   assert.match(shared,/Error reference:/)
   assert.match(accounts,/Unable to create administrator/)
 })
+

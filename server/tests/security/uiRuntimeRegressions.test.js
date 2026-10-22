@@ -14,10 +14,11 @@ describe('UI runtime regression guards', () => {
 
   it('defines portalBase before System Setup passes it to reference managers', () => {
     const source = readClient('pages/adminPage/Admin_SystemSetup.jsx')
-    expect(source).toContain("const portalBase = location.pathname.startsWith('/staff') ? '/staff' : '/admin'")
+    expect(source).toContain('portalBaseForPath(location.pathname)')
     expect(source).toContain('portalBase={portalBase}')
   })
 })
+
 
 
 

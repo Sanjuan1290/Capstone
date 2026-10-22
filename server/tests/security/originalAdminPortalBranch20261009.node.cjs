@@ -46,9 +46,13 @@ test('branch administrators cannot delegate permissions they lack',()=>{
 })
 test('original dashboard keeps independent sections visible and clears loading after API failures',()=>{
  const dashboard=load('client/src/pages/adminPage/Admin_Dashboard.jsx')
- assert.match(dashboard,/Dashboard statistics could not load:/)
+ // Independent sections retain their own retry messages; partial stats are not represented as zero.
+ assert.match(dashboard,/Unable to load branch dashboard statistics:/)
+ assert.match(dashboard,/loadErrors\.summary/)
  assert.match(dashboard,/Today’s appointments could not load:/)
+ assert.match(dashboard,/Today\\'s Appts[^\n]+todayAppts === null \? '—'/)
  assert.match(dashboard,/finally\(\(\) => setLoading\(false\)\)/)
 })
+
 
 

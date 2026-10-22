@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useMemo, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import useClientPagination from '../../hooks/useClientPagination'
@@ -209,6 +210,7 @@ const Admin_StaffAccount = ({ embedded = false }) => {
   }
 
   useEffect(() => { load() }, [])
+  useClinicRefresh(load,['accounts.updated'],{fallbackMs:120000,skip:()=>showAdd||Boolean(editing)})
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -285,6 +287,7 @@ const Admin_StaffAccount = ({ embedded = false }) => {
 }
 
 export default Admin_StaffAccount
+
 
 
 

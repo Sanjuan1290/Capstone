@@ -64,9 +64,11 @@ const broadcast = (roles, eventName, data, { branchId = null } = {}) => {
     sseClients.get(key)?.forEach(client => recipients.add(client))
   }
   if (deliverToSuper) sseClients.get('superadmin')?.forEach(client => recipients.add(client))
-  recipients.forEach(res => writeEvent(res, eventName, data))
+  const safeData=validBranchId(branchId) && data && typeof data==='object' && !Array.isArray(data) ? {...data,branch_id:Number(branchId)} : data
+  recipients.forEach(res => writeEvent(res, eventName, safeData))
   return recipients.size
 }
 
 module.exports = { sseClients, registerClient, getKeysForClient, writeEvent, broadcast }
+
 

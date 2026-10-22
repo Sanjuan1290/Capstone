@@ -27,19 +27,19 @@ const getActivePromotions = async (req, res) => {
     SELECT p.id,p.title,p.description,p.badge_text,p.branch_id,cb.name AS branch_name,
            DATE_FORMAT(p.starts_on,'%Y-%m-%d') AS starts_on,
            DATE_FORMAT(p.ends_on,'%Y-%m-%d') AS ends_on,
-           p.show_on_dashboard,ps.service_id
+           p.show_on_dashboard,p.image_url,p.featured_order,ps.service_id
     FROM clinic_promotions p
     INNER JOIN clinic_branches cb ON cb.id=p.branch_id AND cb.is_active=1
     INNER JOIN clinic_promotion_services ps ON ps.promotion_id = p.id
     INNER JOIN billing_service_catalog svc ON svc.id=ps.service_id AND svc.branch_id=p.branch_id AND svc.is_active=1
     WHERE p.is_active=1 AND p.starts_on<=CURDATE() AND p.ends_on>=CURDATE()
       AND (? IS NULL OR p.branch_id=?)
-    ORDER BY p.ends_on ASC,p.id DESC`,[requestedBranch,requestedBranch])
+    ORDER BY p.featured_order ASC,p.ends_on ASC,p.id DESC`,[requestedBranch,requestedBranch])
   const promos = new Map()
   for (const row of rows) {
     if (!promos.has(row.id)) promos.set(row.id, {
       id: row.id, title: row.title, description: row.description, badge_text: row.badge_text,branch_id:row.branch_id,branch_name:row.branch_name,
-      starts_on: row.starts_on, ends_on: row.ends_on, show_on_dashboard: Boolean(row.show_on_dashboard),
+      starts_on: row.starts_on, ends_on: row.ends_on, show_on_dashboard: Boolean(row.show_on_dashboard), image_url:row.image_url,featured_order:Number(row.featured_order||0),
       service_ids: [],
     })
     promos.get(row.id).service_ids.push(Number(row.service_id))
@@ -156,6 +156,7 @@ const notifyOptedInPatients = async (req, res) => {
 }
 
 module.exports = { listAllPromotions, getActivePromotions, savePromotion, deletePromotion, notifyOptedInPatients }
+
 
 
 

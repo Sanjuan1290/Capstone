@@ -32,3 +32,4 @@ export const getNotificationPopoverPosition = ({
     placement: shouldPlaceAbove ? 'above' : 'below',
   }
 }
+

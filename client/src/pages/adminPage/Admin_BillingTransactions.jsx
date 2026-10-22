@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { MdReceiptLong, MdRefresh, MdSearch, MdClose } from 'react-icons/md'
@@ -45,6 +46,7 @@ const Admin_BillingTransactions = () => {
     } finally { setLoading(false) }
   }, [dateBasis, dateFrom, dateTo, page, pageSize, paymentMethod, search, status, toast])
 
+  useClinicRefresh(load,['billing.updated'],{fallbackMs:60000})
   useEffect(() => {
     const timer = window.setTimeout(load, search ? 250 : 0)
     return () => window.clearTimeout(timer)
@@ -95,6 +97,7 @@ const Admin_BillingTransactions = () => {
 }
 
 export default Admin_BillingTransactions
+
 
 
 

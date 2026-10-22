@@ -25,3 +25,4 @@ const nextInventoryBarcode = async (category, branchId, executor) => {
 }
 module.exports = { nextInventoryBarcode, requireBranch }
 
+

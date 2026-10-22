@@ -1,4 +1,6 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { BrowserMultiFormatReader } from '@zxing/browser'
+import { selectRearCamera } from '../../utils/scannerCamera.mjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MdAdd, MdCameraAlt, MdClose, MdDelete, MdEdit, MdInventory2,
@@ -183,6 +185,7 @@ const CameraScanner = ({ onDetected, onClose }) => {
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
   const [manualCode, setManualCode] = useState('')
   const [torchOn, setTorchOn] = useState(false)
+  const [torchSupported, setTorchSupported] = useState(false)
   const [retryKey, setRetryKey] = useState(0)
 
   const stopScanner = useCallback(() => {
@@ -211,6 +214,7 @@ const CameraScanner = ({ onDetected, onClose }) => {
       setStatus('starting')
       setErrorMsg('')
       setTorchOn(false)
+      setTorchSupported(false)
 
       if (!navigator.mediaDevices?.getUserMedia) {
         setStatus('error')
@@ -220,7 +224,8 @@ const CameraScanner = ({ onDetected, onClose }) => {
 
       try {
         // Ask for permission first so mobile browsers expose camera labels and rear cameras.
-        permissionStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        permissionStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+        const capturedId = permissionStream.getVideoTracks()[0]?.getSettings?.().deviceId || ''
         permissionStream.getTracks().forEach((track) => track.stop())
         permissionStream = null
 
@@ -228,18 +233,15 @@ const CameraScanner = ({ onDetected, onClose }) => {
         if (!mountedRef.current) return
         setDevices(availableDevices)
 
-        const preferred = selectedDeviceId
-          || availableDevices.find((device) => /back|rear|environment/i.test(device.label))?.deviceId
-          || availableDevices[0]?.deviceId
-          || ''
+        const preferred = selectedDeviceId || selectRearCamera(availableDevices, capturedId)
         if (!selectedDeviceId && preferred) setSelectedDeviceId(preferred)
 
         readerRef.current = new BrowserMultiFormatReader()
         controlsRef.current = await readerRef.current.decodeFromConstraints(
           {
             video: preferred
-              ? { deviceId: { exact: preferred }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-              : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+              ? { deviceId: { ideal: preferred }, width: { ideal: 1280 }, height: { ideal: 720 } }
+              : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
           },
           videoRef.current,
           (result) => {
@@ -247,6 +249,12 @@ const CameraScanner = ({ onDetected, onClose }) => {
             emitCode(result.getText())
           }
         )
+        const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
+        const capabilities = track?.getCapabilities?.() || {}
+        setTorchSupported(Boolean(capabilities.torch))
+        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes('continuous')) {
+          track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {})
+        }
         if (mountedRef.current) setStatus('scanning')
       } catch (err) {
         if (!mountedRef.current) return
@@ -328,7 +336,7 @@ const CameraScanner = ({ onDetected, onClose }) => {
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
             <p className="flex items-center gap-2 text-sm font-bold text-slate-800"><MdCameraAlt className="text-sky-500" /> Camera Barcode Scanner</p>
-            <p className="text-xs text-slate-400">Rear camera is preferred on supported phones</p>
+            <p className="text-xs text-slate-400">Rear camera preferred · move closer until barcode lines are sharp</p>
           </div>
           <button type="button" onClick={onClose} className="icon-button" aria-label="Close barcode scanner"><MdClose /></button>
         </div>
@@ -359,7 +367,7 @@ const CameraScanner = ({ onDetected, onClose }) => {
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={switchCamera} disabled={devices.length < 2} className="icon-button border border-slate-200" aria-label="Switch camera"><MdCameraswitch /></button>
-              <button type="button" onClick={toggleTorch} disabled={status !== 'scanning'} className={`icon-button border border-slate-200 ${torchOn ? 'bg-amber-50 text-amber-600' : ''}`} aria-label="Toggle camera torch"><MdFlashOn /></button>
+              <button type="button" onClick={toggleTorch} disabled={status !== 'scanning' || !torchSupported} className={`icon-button border border-slate-200 ${torchOn ? 'bg-amber-50 text-amber-600' : ''}`} aria-label="Toggle camera torch"><MdFlashOn /></button>
             </div>
           </div>
 
@@ -480,6 +488,8 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     try {
       const payload = {
         ...form,
+        // Existing Supply products retain their historical type when edited.
+        item_type: isEditing ? form.item_type : 'medicine',
         batch_code: '',
         batch_lot_code: '',
         supplier_lot_number: '',
@@ -514,21 +524,21 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     }
   }
 
-  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">
-    <div className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-2 py-2 sm:px-4">
+    <div role="dialog" aria-modal="true" aria-label={title} className="flex w-full max-w-2xl max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[min(92dvh,850px)] sm:rounded-3xl">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
         <div>
-          <p className="text-base font-bold text-slate-900">{title}</p>
+          <p className="text-base font-bold text-slate-900">{isEditing ? title : 'Add Medicine'}</p>
           <p className="mt-0.5 text-sm text-slate-500">{isEditing ? 'Edit product-level details only. Batch quantity and expiry are managed in Manage Batches.' : 'Create the inventory item and opening stock. The first batch is generated automatically.'}</p>
         </div>
-        <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100" aria-label="Close"><MdClose/></button>
+        <button type="button" onClick={onClose} disabled={submitting} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100" aria-label="Close"><MdClose/></button>
       </div>
 
-      <div className="max-h-[72vh] overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
         <div className="grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2"><Field label="Item Name *"><input maxLength={150} value={form.name} onChange={update('name')} className={inputClass} placeholder={form.item_type==='medicine'?'e.g. Amoxicillin 500mg':'e.g. Sterile Gauze Pad'}/></Field></div>
           <Field label="Category *"><select value={form.category} onChange={(e)=>{setForm(p=>({...p,category:e.target.value}));setSupplierChoice('')}} className={inputClass}>{CATEGORIES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
-          <Field label="Type *"><select value={form.item_type} onChange={(e)=>{const value=e.target.value;setForm((p)=>({...p,item_type:value}));if(value==='medicine')setNoExpiry(false)}} className={inputClass}>{ITEM_TYPES.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
+          {isEditing && form.item_type === 'supplies' ? <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">Existing supply item — type preserved for compatibility.</div> : null}
           <div className="md:col-span-2">
             <Field label="Product Barcode"><div className="flex flex-col gap-2 sm:flex-row">
               <input maxLength={50} value={form.barcode} onChange={update('barcode')} className={`${inputClass} flex-1`} placeholder={`Leave blank to auto-generate ${form.category==='derma'?'DRM':'GMED'} code`} />
@@ -546,9 +556,9 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
         </div>
       </div>
 
-      <div className="flex gap-3 border-t border-slate-100 px-6 py-5">
-        <button onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button>
-        <button onClick={handleSubmit} disabled={!canSaveDetails || submitting} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? (isEditing ? 'Saving…' : 'Adding…') : (isEditing ? 'Save Item Details' : 'Add Item')}</button>
+      <div className="flex shrink-0 gap-3 border-t border-slate-100 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
+        <button type="button" onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button>
+        <button type="button" onClick={handleSubmit} disabled={!canSaveDetails || submitting} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? (isEditing ? 'Saving…' : 'Adding…') : (isEditing ? 'Save Item Details' : 'Add Medicine')}</button>
       </div>
     </div>
     {barcodeScannerOpen && <CameraScanner onDetected={handleScannedBarcode} onClose={()=>setBarcodeScannerOpen(false)} />}
@@ -837,6 +847,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   }, [getInventory, getInventoryMasterData])
 
   useEffect(() => { load() }, [load])
+  useClinicRefresh(load,['inventory.updated','service.updated','settings.updated'],{fallbackMs:60000,skip:()=>showAdd||Boolean(editItem)||Boolean(stockItem)||Boolean(moveItem)||Boolean(batchManagerItem)})
 
   const openMoveStock = async (item) => {
     try {
@@ -1136,6 +1147,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+
 
 
 

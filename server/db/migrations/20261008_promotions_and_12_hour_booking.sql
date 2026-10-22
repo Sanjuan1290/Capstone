@@ -44,3 +44,4 @@ SELECT COUNT(*) AS `promo_count` FROM `clinic_promotions`;
 
 
 
+

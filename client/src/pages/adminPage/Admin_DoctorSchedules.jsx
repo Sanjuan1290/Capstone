@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useState } from 'react'
 import {
   deleteDoctorUnavailableDate,
@@ -183,6 +184,12 @@ const Admin_DoctorSchedules = () => {
     }
   }
 
+  useClinicRefresh(async()=>{
+    const rows=await getDoctors()
+    if(Array.isArray(rows))setDoctors(rows)
+    if(selected && !schedLoading)await loadScheduleData(selected)
+  },['schedule.updated','accounts.updated'],{fallbackMs:90000,skip:()=>schedLoading||showPicker})
+
   const getForDay = (day) => schedules.find((schedule) => schedule.day_of_week === day)
   const activeDays = DAYS.filter((day) => getForDay(day)?.is_active)
   const inactiveDays = DAYS.filter((day) => !getForDay(day)?.is_active)
@@ -338,6 +345,7 @@ const Admin_DoctorSchedules = () => {
 }
 
 export default Admin_DoctorSchedules
+
 
 
 

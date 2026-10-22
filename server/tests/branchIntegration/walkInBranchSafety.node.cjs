@@ -86,3 +86,4 @@ test('Staff delegated reports, audits and core setup use only branch-aware read 
  for(const handler of ['readBranchReport','readBranchAuditPage','readBranchArchives','readBranchArchiveDetail','readSystemSetup','saveVisitReason','saveCancellation','saveCategory'])assert.match(router,new RegExp(handler))
 })
 
+

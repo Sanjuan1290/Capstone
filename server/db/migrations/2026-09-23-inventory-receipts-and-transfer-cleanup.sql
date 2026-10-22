@@ -45,3 +45,4 @@ GROUP BY location_id, inventory_id;
 
 
 
+

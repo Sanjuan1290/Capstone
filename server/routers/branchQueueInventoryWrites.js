@@ -92,7 +92,7 @@ function registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,r
   reg('post','/inventory/locations','inventory',createLocation)
   reg('put','/inventory/locations/:id','inventory',updateLocation)
   reg('delete','/inventory/locations/:id','inventory',deleteLocation)
-  reg('patch','/inventory/:id/stock','inventory',updateStock)
+  reg('patch','/inventory/:id/stock','inventory',updateStock,afterSuccessfulMutation('inventory.updated'))
   reg('patch','/supply-requests/:id','stock_transfers',safeLegacy(admin.resolveSupplyRequest))
  }
 }
@@ -123,8 +123,9 @@ async function moveStockLocation(req,res){
 }
 function registerBranchMoveStock(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]])
-  router.post(`${prefix}/inventory/:id/move-location`,...middle,requirePermission('inventory'),moveStockLocation)
+  router.post(`${prefix}/inventory/:id/move-location`,...middle,requirePermission('inventory'),afterSuccessfulMutation('inventory.updated'),moveStockLocation)
 }
 module.exports.moveStockLocation=moveStockLocation
 module.exports.registerBranchMoveStock=registerBranchMoveStock
+
 

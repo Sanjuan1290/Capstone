@@ -29,7 +29,7 @@ const { writeAuditLog } = require('../utils/audit')
 const { listBillingCatalog } = require('../utils/billing')
 const { assertPlainObject, normalizeText } = require('../utils/inputValidation')
 const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
-const { getOnlineBookingReadiness } = require('../utils/bookingReadiness')
+const { getOnlineBookingReadiness, applyBranchBookingOfferings } = require('../utils/bookingReadiness')
 const { isOtherVisitReason, withSystemOtherVisitReason } = require('../utils/appointmentReasons')
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000
@@ -608,9 +608,7 @@ const validatePatientBranch = async (req,res) => {
 const getBookingReadiness = async (req, res) => {
   const branch=await validatePatientBranch(req,res);if(!branch)return
   const readiness=await getOnlineBookingReadiness(db,branch.id)
-  if(!branch.offers_medical)readiness.medical.bookable=false
-  if(!branch.offers_derma)readiness.derma.bookable=false
-  res.json(readiness)
+  res.json(applyBranchBookingOfferings(readiness,branch))
 }
 
 const getBookingServices = async (req, res) => {
@@ -1135,3 +1133,4 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+

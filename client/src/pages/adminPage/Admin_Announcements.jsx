@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MdCampaign, MdAdd, MdRefresh, MdCloudUpload, MdSend, MdPause, MdPlayArrow, MdCancel } from 'react-icons/md'
@@ -44,6 +45,7 @@ const Admin_Announcements = () => {
     setLoading(false)
   },[])
   useEffect(()=>{void refresh()},[refresh])
+  useClinicRefresh(refresh,['promotion.updated'],{fallbackMs:120000,skip:()=>editing!==null||busy})
   const edit = post => {setEditing(post?.id||'new');setScan(null);setForm(post?{...post,publish_at:fmt(post.publish_at),expires_at:fmt(post.expires_at),promotion_id:post.promotion_id||'',cover_image_token:''}:blank())}
   const update=(key,value)=>setForm(s=>({...s,[key]:value}))
   const onImage=async file=>{
@@ -137,4 +139,5 @@ const Admin_Announcements = () => {
   </section>
 }
 export default Admin_Announcements
+
 

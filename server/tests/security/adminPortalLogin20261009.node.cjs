@@ -9,8 +9,14 @@ const branch = read('client/src/pages/auth/Admin/AdminLogin.jsx')
 const superadmin = read('client/src/pages/auth/Admin/SuperAdminLogin.jsx')
 const controller = read('server/controllers/admin.controller.js')
 
-assert.match(routes, /path='\/admin\/login' element=\{<AdminLogin\s*\/>\}/)
-assert.match(routes, /path='\/superadmin\/login' element=\{<SuperAdminLogin\s*\/>\}/)
+// Login pages are guest-only. A logged-in user must never see a second sign-in form.
+assert.match(routes, /path='\/admin\/login' element=\{<GuestOnlyRoute><AdminLogin\s*\/><\/GuestOnlyRoute>\}/)
+assert.match(routes, /path='\/superadmin\/login' element=\{<GuestOnlyRoute><SuperAdminLogin\s*\/><\/GuestOnlyRoute>\}/)
+assert.match(routes, /path='\/login'\s+element=\{<GuestOnlyRoute><PatientLogin\s*\/><\/GuestOnlyRoute>\}/)
+const guestGuard=read('client/src/components/GuestOnlyRoute.jsx')
+assert.match(guestGuard,/if \(!ready\)/)
+assert.match(guestGuard,/destinationForAuthenticatedUser/)
+assert.match(guestGuard,/<Navigate to=\{destination\} replace \/>/)
 assert.match(branch, /portal="admin"/)
 assert.match(superadmin, /portal="superadmin"/)
 console.log('PASS: role-specific login routes and components')
@@ -25,6 +31,7 @@ assert.match(controller, /code: 'WRONG_ADMIN_PORTAL'/)
 assert.match(controller, /'superadmin_mfa_pending'/)
 assert.match(controller, /decoded\.portal/)
 console.log('PASS: server portal validation and separated MFA pending cookies')
+
 
 
 

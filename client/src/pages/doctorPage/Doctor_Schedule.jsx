@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useState } from 'react'
 import {
   deleteMyUnavailableDate,
@@ -138,6 +139,7 @@ const Doctor_Schedule = () => {
   useEffect(() => {
     loadScheduleData()
   }, [])
+  useClinicRefresh(loadScheduleData,['schedule.updated','appointment.updated'],{fallbackMs:90000})
 
   const getForDay = (day) => schedules.find((schedule) => schedule.day_of_week === day)
   const activeDays = DAYS.filter((day) => getForDay(day)?.is_active)
@@ -239,6 +241,7 @@ const Doctor_Schedule = () => {
 }
 
 export default Doctor_Schedule
+
 
 
 

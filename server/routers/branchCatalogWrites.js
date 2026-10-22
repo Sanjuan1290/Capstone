@@ -1,6 +1,7 @@
 // Per-branch service catalog and discount presets. All reference IDs are resolved
 // within the same transaction as the mutation; no cross-branch materials allowed.
 const db=require('../db/connect')
+const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const {writeAuditLog}=require('../utils/audit')
 const {normalizeServiceMaterials}=require('../utils/billing')
 const {validateAverageDurationMinutes}=require('../utils/bookingPolicy')
@@ -109,12 +110,13 @@ async function saveDiscount(req,res){
 function registerBranchCatalogWrites(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const guard=[...middle,requirePermission('system_setup')]
-  router.post(`${prefix}/billing/catalog`,...guard,saveService)
-  router.put(`${prefix}/billing/catalog/:serviceId`,...guard,saveService)
-  router.delete(`${prefix}/billing/catalog/:serviceId`,...guard,deleteService)
-  router.post(`${prefix}/billing/discount-presets`,...middle,requirePermission('billing'),saveDiscount)
-  router.put(`${prefix}/billing/discount-presets/:id`,...middle,requirePermission('billing'),saveDiscount)
+  router.post(`${prefix}/billing/catalog`,...guard,afterSuccessfulMutation('service.updated'),saveService)
+  router.put(`${prefix}/billing/catalog/:serviceId`,...guard,afterSuccessfulMutation('service.updated'),saveService)
+  router.delete(`${prefix}/billing/catalog/:serviceId`,...guard,afterSuccessfulMutation('service.updated'),deleteService)
+  router.post(`${prefix}/billing/discount-presets`,...middle,requirePermission('billing'),afterSuccessfulMutation('settings.updated'),saveDiscount)
+  router.put(`${prefix}/billing/discount-presets/:id`,...middle,requirePermission('billing'),afterSuccessfulMutation('settings.updated'),saveDiscount)
  }
 }
 module.exports={registerBranchCatalogWrites,saveService,deleteService,saveDiscount}
+
 

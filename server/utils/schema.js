@@ -1641,6 +1641,11 @@ const ensureAppSchema = async () => {
       INDEX idx_promo_public (is_active, starts_on, ends_on)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `)
+  // Batch 7: optional, moderation-approved promotional art and stable featured ordering.
+  // Existing promotions and their service associations are never replaced.
+  await ensureColumn('clinic_promotions', 'image_url', 'VARCHAR(500) NULL')
+  await ensureColumn('clinic_promotions', 'image_asset_id', 'VARCHAR(200) NULL')
+  await ensureColumn('clinic_promotions', 'featured_order', 'INT NOT NULL DEFAULT 0')
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS clinic_promotion_services (
       promotion_id INT NOT NULL,
@@ -1673,6 +1678,7 @@ module.exports = {
   backfillUomDecimalPrecision,
   rebuildInventoryLocationStock,
 }
+
 
 
 

@@ -1,4 +1,6 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useMemo, useState } from 'react'
+import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import {
   MdAdd,
@@ -398,10 +400,10 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 
 const Admin_SystemSetup = () => {
   const location = useLocation()
-  const portalBase = location.pathname.startsWith('/staff') ? '/staff' : '/admin'
+  const portalBase = portalBaseForPath(location.pathname)
   const [searchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
-  const validTab = TABS.some((item) => item.key === requestedTab) && (requestedTab !== 'promotions' || portalBase === '/admin') ? requestedTab : 'visits'
+  const validTab = TABS.some((item) => item.key === requestedTab) && (requestedTab !== 'promotions' || portalBase !== '/staff') ? requestedTab : 'visits'
   const [tab, setTab] = useState(validTab)
   const [data, setData] = useState({ cancellation_reasons: [], service_categories: [], suppliers: [], location_types: [], movement_reasons: [] })
   const [loading, setLoading] = useState(false)
@@ -418,6 +420,8 @@ const Admin_SystemSetup = () => {
       setLoading(false)
     }
   }
+
+  useClinicRefresh(load,['service.updated','settings.updated'],{fallbackMs:90000,skip:()=>['visits','stock_rooms','promotions'].includes(tab)})
 
   useEffect(() => {
     if (validTab !== tab) setTab(validTab)
@@ -441,7 +445,7 @@ const Admin_SystemSetup = () => {
 
       {tab === 'visits' ? (
         <Admin_PatientBooking embedded />
-      ) : tab === 'promotions' && portalBase === '/admin' ? (
+      ) : tab === 'promotions' && portalBase !== '/staff' ? (
         <Admin_Promotions />
       ) : tab === 'stock_rooms' ? (
         <StockRoomsManager />
@@ -457,6 +461,7 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
 
 
 

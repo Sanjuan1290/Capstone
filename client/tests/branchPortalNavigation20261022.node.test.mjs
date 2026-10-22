@@ -21,3 +21,4 @@ test('Billing navigation and related action links resolve using the selected bra
  assert.match(overview,/to=\{portalPath\(item.to\)\}/)
  assert.match(overview,/to=\{portalPath\(issue.to\)\}/)
 })
+

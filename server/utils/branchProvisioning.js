@@ -32,7 +32,12 @@ const mustId = value => {
   return id
 }
 
-async function provisionBranch(conn, branchId, copyFromBranchId = null) {
+async function provisionBranch(conn, branchId, copyFromBranchId = null, setupMode = null) {
+  // Keep backwards compatibility with older callers; new branch creation passes an explicit mode.
+  const mode = setupMode || (copyFromBranchId == null ? 'standard' : 'copy')
+  if (!['blank', 'standard', 'copy'].includes(mode)) throw new Error('Invalid branch setup mode.')
+  if (mode === 'copy' && copyFromBranchId == null) throw new Error('A source branch is required for copy mode.')
+  if (mode !== 'copy' && copyFromBranchId != null) throw new Error('Only copy mode accepts a source branch.')
   const id=mustId(branchId)
   const from=copyFromBranchId==null?null:mustId(copyFromBranchId)
   if (from===id) throw new Error('Cannot copy setup from the same branch.')
@@ -59,7 +64,12 @@ async function provisionBranch(conn, branchId, copyFromBranchId = null) {
     await conn.query(`INSERT IGNORE INTO billing_service_catalog
       (category_id,category,service_name,clinic_type,default_price,consultation_fee,average_duration_minutes,is_active,sort_order,profit_percentage,pricing_notes,branch_id)
       SELECT destination.id, source.category,source.service_name,source.clinic_type,source.default_price,
-       source.consultation_fee,source.average_duration_minutes,source.is_active,source.sort_order,source.profit_percentage,source.pricing_notes,?
+       source.consultation_fee,source.average_duration_minutes,
+       CASE WHEN EXISTS (SELECT 1 FROM billing_service_materials material WHERE material.billing_service_id=source.id) THEN 0 ELSE source.is_active END,
+       source.sort_order,source.profit_percentage,
+       CASE WHEN EXISTS (SELECT 1 FROM billing_service_materials material WHERE material.billing_service_id=source.id)
+         THEN CONCAT('[REVIEW MATERIALS BEFORE ACTIVATING] ', COALESCE(source.pricing_notes,''))
+         ELSE source.pricing_notes END,?
       FROM billing_service_catalog source
       LEFT JOIN billing_service_categories original ON original.id=source.category_id AND original.branch_id=?
       LEFT JOIN billing_service_categories destination ON destination.name=original.name AND destination.clinic_type=original.clinic_type AND destination.branch_id=?
@@ -68,7 +78,7 @@ async function provisionBranch(conn, branchId, copyFromBranchId = null) {
       (label,discount_type,value,requires_reference,requires_admin_approval,is_active,sort_order,branch_id)
       SELECT label,discount_type,value,requires_reference,requires_admin_approval,is_active,sort_order,?
       FROM discount_presets WHERE branch_id=?`,[id,from])
-  } else {
+  } else if (mode === 'standard') {
     for (const [label,clinic_type,sort_order] of visitReasons)
       await conn.query('INSERT IGNORE INTO appointment_reason_options (label,clinic_type,sort_order,branch_id) VALUES (?,?,?,?)',[label,clinic_type,sort_order,id])
     for (const [label,sort_order] of cancellationReasons)
@@ -76,6 +86,9 @@ async function provisionBranch(conn, branchId, copyFromBranchId = null) {
     for (const [name,clinic_type,sort_order] of categories)
       await conn.query('INSERT IGNORE INTO billing_service_categories (name,clinic_type,sort_order,branch_id) VALUES (?,?,?,?)',[name,clinic_type,sort_order,id])
   }
+  // Blank mode intentionally creates only core branch infrastructure above.
+  // Services requiring inventory are copied INACTIVE; do not copy source inventory IDs or stock.
 }
 module.exports={provisionBranch}
+
 

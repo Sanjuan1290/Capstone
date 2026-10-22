@@ -59,3 +59,4 @@ const retrieveIntent = id => request(`/payment_intents/${encodeURIComponent(id)}
 const retrieveRefund = id => request(`/refunds/${encodeURIComponent(id)}`)
 module.exports = { credentials, createQr, retrieveIntent, retrieveRefund, fail }
 
+

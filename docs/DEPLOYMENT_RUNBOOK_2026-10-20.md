@@ -182,3 +182,4 @@ No database rows or schema were changed. These checks do not authorize productio
 4. If data recovery is required, restore the snapshot into a new TiDB database, validate schema and synthetic workflows there, then repoint Render only after the recovered database passes readiness and reconciliation checks. If new clinic activity occurred after the snapshot, reconcile those records before switching.
 5. Recheck `/api/ready`, role logins, branch isolation, receipts, inventory balances, audit records, and PayMongo TEST-mode webhook verification before reopening staging traffic. Real payments remain disabled.
 
+

@@ -13,3 +13,4 @@ ALTER TABLE clinic_payment_settings
 
 
 
+

@@ -146,3 +146,4 @@ test('concurrent migration invocations serialize through the database lock row',
     else process.env.DB_PROVIDER = previousProvider
   }
 })
+

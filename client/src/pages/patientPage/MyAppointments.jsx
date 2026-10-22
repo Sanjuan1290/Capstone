@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 // client/src/pages/patientPage/MyAppointments.jsx
 // FIX: Completed and cancelled appointments no longer show here — they live in History.
 //      Only pending / confirmed / rescheduled appointments are shown.
@@ -275,6 +276,8 @@ const MyAppointments = () => {
       .finally(() => setLoadingData(false))
   }, [])
 
+  useClinicRefresh(async()=>{const data=await getMyAppointments();setAppointments((Array.isArray(data)?data:[]).filter(a=>ACTIVE_STATUSES.includes(a.status)))},['appointment.updated','schedule.updated'],{fallbackMs:60000,skip:()=>Boolean(modal)||Boolean(cancelTarget)})
+
   const handleCancel = (appointmentOrId) => {
     const target = typeof appointmentOrId === 'object'
       ? appointmentOrId
@@ -421,6 +424,7 @@ const MyAppointments = () => {
 }
 
 export default MyAppointments
+
 
 
 

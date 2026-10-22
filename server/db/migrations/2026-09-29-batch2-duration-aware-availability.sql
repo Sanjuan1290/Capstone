@@ -32,3 +32,4 @@ WHERE a.requested_service_duration_minutes_snapshot IS NULL
 
 
 
+

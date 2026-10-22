@@ -25,3 +25,4 @@ WHERE average_duration_minutes IS NULL
 
 
 
+

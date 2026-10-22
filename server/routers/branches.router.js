@@ -1,3 +1,4 @@
+const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 // Physical-branch management. Unlike the legacy admin controller, every data
 // query here contains an explicit authorized physical-branch predicate.
 const express = require('express')
@@ -61,9 +62,12 @@ router.get('/', requireSuper, async(req,res)=>{
 router.post('/',requireSuper,async(req,res)=>{
   const name=String(req.body?.name||'').trim(),code=`BR-${randomBytes(8).toString('hex').toUpperCase()}`
   if(!name||name.length>180)return res.status(400).json({message:'Enter a branch name (up to 180 characters).'})
-  // The form's 'Use default setup' option submits an empty string; treat it as no source.
   const rawCopyFrom=req.body?.copy_setup_from_branch_id
+  const requestedMode=String(req.body?.setup_mode || (rawCopyFrom ? 'copy' : 'standard'))
+  if(!['blank','standard','copy'].includes(requestedMode))return res.status(400).json({code:'INVALID_SETUP_MODE',message:'Select a valid branch setup mode.'})
   const copyFrom=rawCopyFrom==null||String(rawCopyFrom).trim()===''?null:Number(rawCopyFrom)
+  if(requestedMode==='copy' && copyFrom===null)return res.status(400).json({code:'SOURCE_BRANCH_REQUIRED',message:'Select a source branch to copy setup.'})
+  if(requestedMode!=='copy' && copyFrom!==null)return res.status(400).json({code:'UNEXPECTED_SOURCE_BRANCH',message:'Only Copy Setup can use a source branch.'})
   if(copyFrom!==null){
     if(!validId(copyFrom))return res.status(400).json({message:'Select a valid source branch.'})
     const [[source]]=await db.query('SELECT id FROM clinic_branches WHERE id=? AND is_active=1',[copyFrom])
@@ -75,11 +79,11 @@ router.post('/',requireSuper,async(req,res)=>{
     await conn.beginTransaction()
     const [result]=await conn.query('INSERT INTO clinic_branches (name,code,address,phone,email,offers_medical,offers_derma,is_active) VALUES (?,?,?,?,?,?,?,?)',[name,code,String(req.body.address||'').slice(0,255)||null,String(req.body.phone||'').slice(0,80)||null,String(req.body.email||'').slice(0,160)||null,req.body.offers_medical===false?0:1,req.body.offers_derma===false?0:1,req.body.is_active===false?0:1])
     id=result.insertId
-    await provisionBranch(conn,id,copyFrom)
+    await provisionBranch(conn,id,copyFrom,requestedMode)
     await conn.commit()
   }catch(e){await conn.rollback();throw e}finally{conn.release()}
-  await audit(req,'branch.created','clinic_branch',id,null,{name,code,copy_setup_from_branch_id:copyFrom},id)
-  res.status(201).json({id,name,code})
+  await audit(req,'branch.created','clinic_branch',id,null,{name,code,setup_mode:requestedMode,copy_setup_from_branch_id:copyFrom},id)
+  res.status(201).json({id,name,code,setup_mode:requestedMode})
 })
 
 router.put('/:branchId',requireSuper,branchContext,async(req,res)=>{
@@ -550,17 +554,17 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
     if(!person)return res.status(404).json({message:'Account not found in your branch.'})
     return Promise.resolve(controller(req,res)).catch(next)
   }]
-  router.post(`${prefix}/staff`,...middle,requirePermission('accounts'),validateDelegation,(req,res,next)=>Promise.resolve(oldAdmin.createStaff(req,res)).catch(next))
-  router.put(`${prefix}/staff/:id`,validateDelegation,...ownedPerson('staff','accounts',oldAdmin.updateStaff))
+  router.post(`${prefix}/staff`,...middle,requirePermission('accounts'),validateDelegation,afterSuccessfulMutation('accounts.updated'),(req,res,next)=>Promise.resolve(oldAdmin.createStaff(req,res)).catch(next))
+  router.put(`${prefix}/staff/:id`,validateDelegation,afterSuccessfulMutation('accounts.updated'),...ownedPerson('staff','accounts',oldAdmin.updateStaff))
   router.patch(`${prefix}/staff/:id/toggle`,...ownedPerson('staff','accounts',oldAdmin.toggleStaff))
-  router.post(`${prefix}/doctors`,...middle,requirePermission('accounts'),(req,res,next)=>Promise.resolve(oldAdmin.createDoctor(req,res)).catch(next))
-  router.put(`${prefix}/doctors/:id`,...ownedPerson('doctors','accounts',oldAdmin.updateDoctor))
-  router.patch(`${prefix}/doctors/:id/toggle`,...ownedPerson('doctors','accounts',oldAdmin.toggleDoctor))
-  router.put(`${prefix}/doctors/:id/schedules`,...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDaySchedule))
+  router.post(`${prefix}/doctors`,...middle,requirePermission('accounts'),afterSuccessfulMutation('accounts.updated'),(req,res,next)=>Promise.resolve(oldAdmin.createDoctor(req,res)).catch(next))
+  router.put(`${prefix}/doctors/:id`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.updateDoctor))
+  router.patch(`${prefix}/doctors/:id/toggle`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.toggleDoctor))
+  router.put(`${prefix}/doctors/:id/schedules`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDaySchedule))
   router.get(`${prefix}/doctors/:id/unavailable-dates`,...ownedPerson('doctors','doctor_schedules',oldAdmin.getDoctorUnavailableDatesAdmin))
   router.get(`${prefix}/doctors/:id/available-slots`,...ownedPerson('doctors','doctor_schedules',oldAdmin.getAppointmentAvailableSlotsAdmin))
-  router.put(`${prefix}/doctors/:id/unavailable-dates`,...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDoctorUnavailableDateAdmin))
-  router.delete(`${prefix}/doctors/:id/unavailable-dates/:date`,...ownedPerson('doctors','doctor_schedules',oldAdmin.deleteDoctorUnavailableDateAdmin))
+  router.put(`${prefix}/doctors/:id/unavailable-dates`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDoctorUnavailableDateAdmin))
+  router.delete(`${prefix}/doctors/:id/unavailable-dates/:date`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.deleteDoctorUnavailableDateAdmin))
   router.get(`${prefix}/appointment-reasons`,...middle,requirePermission('appointments'),async(req,res)=>{
     const [rows]=await db.query(`SELECT id,label,clinic_type,is_active,created_at FROM appointment_reason_options WHERE branch_id=? ORDER BY label`,[req.branchId]);res.json(rows)
   })
@@ -571,7 +575,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.get(`${prefix}/billing/catalog`,...middle,allowAnyPermission('system_setup','appointments','billing'),originalServices)
   router.get(`${prefix}/inventory`,...middle,allowAnyPermission('inventory','billing'),originalInventory)
   router.get(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),getBookingPolicy)
-  router.put(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),saveBookingPolicy)
+  router.put(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),afterSuccessfulMutation('settings.updated'),saveBookingPolicy)
   // Existing appointment transitions retain their original payload and status codes.
   for(const [action,controller] of Object.entries({confirm:oldAdmin.confirmAppointment,cancel:oldAdmin.cancelAppointment,'no-show':oldAdmin.markAppointmentNoShow,reschedule:oldAdmin.rescheduleAppointment})){
    router.patch(`${prefix}/appointments/:appointmentId/${action}`,...middle,...ownedAppointmentAction(controller))
@@ -619,5 +623,6 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 
 

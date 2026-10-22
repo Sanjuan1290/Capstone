@@ -1,3 +1,4 @@
+const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 // Branch-local reference-data mutations used by the ORIGINAL Admin System Setup.
 // Record ownership is checked server-side for every update.
 const db=require('../db/connect')
@@ -141,15 +142,16 @@ async function updateBranchClinicSettings(req,res){
 function registerBranchExtraSetup(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const guard=[...middle,requirePermission('system_setup')]
-  router.post(`${prefix}/system-setup/suppliers`,...guard,saveBranchSupplier)
-  router.put(`${prefix}/system-setup/suppliers/:id`,...guard,saveBranchSupplier)
-  router.post(`${prefix}/system-setup/location-types`,...guard,saveBranchLocationType)
-  router.put(`${prefix}/system-setup/location-types/:id`,...guard,saveBranchLocationType)
-  router.put(`${prefix}/clinic-settings`,...guard,updateBranchClinicSettings)
+  router.post(`${prefix}/system-setup/suppliers`,...guard,afterSuccessfulMutation('settings.updated'),saveBranchSupplier)
+  router.put(`${prefix}/system-setup/suppliers/:id`,...guard,afterSuccessfulMutation('settings.updated'),saveBranchSupplier)
+  router.post(`${prefix}/system-setup/location-types`,...guard,afterSuccessfulMutation('settings.updated'),saveBranchLocationType)
+  router.put(`${prefix}/system-setup/location-types/:id`,...guard,afterSuccessfulMutation('settings.updated'),saveBranchLocationType)
+  router.put(`${prefix}/clinic-settings`,...guard,afterSuccessfulMutation('settings.updated'),updateBranchClinicSettings)
  }
 }
 module.exports.registerBranchExtraSetup=registerBranchExtraSetup
 module.exports.saveBranchSupplier=saveBranchSupplier
 module.exports.saveBranchLocationType=saveBranchLocationType
 module.exports.updateBranchClinicSettings=updateBranchClinicSettings
+
 

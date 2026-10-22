@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { portalBaseForPath, canManageServicePricingAtPath } from '../../utils/branchPortalPath.mjs'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { MdAdd, MdClose, MdDelete, MdEdit, MdLock, MdPayments, MdRefresh, MdSearch, MdWarning } from 'react-icons/md'
 import { deleteBillingCatalogService, getBillingCatalog } from '../../services/admin.service'
@@ -22,8 +23,8 @@ const servicePrice = (service) => Number(service?.consultation_fee || 0) > 0
 
 const Admin_BillingCatalog = () => {
   const location = useLocation()
-  const portalBase = location.pathname.startsWith('/staff') ? '/staff' : '/admin'
-  const canEditPricing = portalBase === '/admin'
+  const portalBase = portalBaseForPath(location.pathname)
+  const canEditPricing = canManageServicePricingAtPath(location.pathname)
   const [searchParams] = useSearchParams()
   const requestedClinic = ['medical', 'derma'].includes(searchParams.get('clinic')) ? searchParams.get('clinic') : 'all'
   const toast = useToast()
@@ -155,6 +156,7 @@ const Admin_BillingCatalog = () => {
 }
 
 export default Admin_BillingCatalog
+
 
 
 

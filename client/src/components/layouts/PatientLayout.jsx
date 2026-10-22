@@ -35,7 +35,7 @@ const PatientLayout = () => {
   const handleSSEMessage = useCallback((eventName) => {
     if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
-      window.dispatchEvent(new CustomEvent('clinic:refresh', { detail: { eventName } }))
+      // useSSE centralizes branch-aware data invalidation and refresh delivery.
     }
   }, [])
 
@@ -267,6 +267,7 @@ const PatientLayout = () => {
 }
 
 export default PatientLayout
+
 
 
 

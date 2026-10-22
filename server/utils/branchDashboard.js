@@ -50,3 +50,4 @@ const loadBranchDashboard = async ({ db, branchId, getBookingReadiness, onSectio
 }
 
 module.exports = { SECTION_MESSAGES, loadBranchDashboard }
+

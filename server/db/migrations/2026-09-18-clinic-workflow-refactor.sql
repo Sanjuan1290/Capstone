@@ -160,3 +160,4 @@ INSERT IGNORE INTO inventory_locations (name, location_type, is_active) VALUES
 
 
 
+

@@ -23,3 +23,4 @@ test('a live refund matches only a live payment attempt',()=>{
  assert.deepEqual(assertVerifiedQrRefund(proof,live),{refundId:'ref_123456',paymentId:'pay_correct',amountCentavos:50000})
  assert.throws(()=>assertVerifiedQrRefund(confirmed,live),/correct payment environment/)
 })
+

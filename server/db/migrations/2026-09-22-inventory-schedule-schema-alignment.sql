@@ -64,3 +64,4 @@ CREATE TABLE IF NOT EXISTS inventory_location_types (
 
 
 
+

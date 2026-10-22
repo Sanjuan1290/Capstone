@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { portalBaseForPath, canManageServicePricingAtPath } from '../../utils/branchPortalPath.mjs'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { MdAdd, MdArrowBack, MdCheck, MdClose, MdDelete, MdLock, MdPayments } from 'react-icons/md'
 import { createBillingCatalogService, deleteBillingCatalogService, getBillingCatalog, getInventory, getSystemSetup, updateBillingCatalogService } from '../../services/admin.service'
@@ -31,8 +32,8 @@ const Admin_BillingServiceForm = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
-  const portalBase = location.pathname.startsWith('/staff') ? '/staff' : '/admin'
-  const canEditPricing = portalBase === '/admin'
+  const portalBase = portalBaseForPath(location.pathname)
+  const canEditPricing = canManageServicePricingAtPath(location.pathname)
   const requestedClinic = ['medical', 'derma'].includes(searchParams.get('clinic')) ? searchParams.get('clinic') : 'medical'
   const toast = useToast()
   const [form, setForm] = useState(() => ({ ...blank, clinic_type: requestedClinic }))
@@ -190,6 +191,7 @@ const Admin_BillingServiceForm = () => {
 }
 
 export default Admin_BillingServiceForm
+
 
 
 

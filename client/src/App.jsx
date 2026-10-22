@@ -1,3 +1,4 @@
+import PatientOffers from './pages/patientPage/PatientOffers.jsx'
 // client/src/App.jsx
 // ADDED: /terms route → TermsOfService page
 
@@ -19,7 +20,7 @@ import SuperAdminAllInventory from './pages/superAdminPage/AllInventory'
 import PatientRegister       from './pages/auth/Patient/PatientRegister'
 import PatientLogin          from './pages/auth/Patient/PatientLogin'
 import PatientRoute          from './components/PatientRoute'
-import PatientAuthRoute      from './components/PatientAuthRoute'
+import GuestOnlyRoute       from './components/GuestOnlyRoute'
 import PatientLayout         from './components/layouts/PatientLayout'
 import PatientDashboard      from './pages/patientPage/PatientDashboard'
 import BookAppointment       from './pages/patientPage/BookAppointment'
@@ -127,9 +128,9 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/terms'          element={<TermsOfService />} />   {/* NEW */}
 
       {/* ── Patient auth ────────────────────────────────── */}
-      <Route path='/login'                  element={<PatientAuthRoute><PatientLogin /></PatientAuthRoute>} />
-      <Route path='/patient/register'        element={<PatientAuthRoute><PatientRegister /></PatientAuthRoute>} />
-      <Route path='/patient/login'           element={<PatientAuthRoute><PatientLogin /></PatientAuthRoute>} />
+      <Route path='/login'                  element={<GuestOnlyRoute><PatientLogin /></GuestOnlyRoute>} />
+      <Route path='/patient/register'        element={<GuestOnlyRoute><PatientRegister /></GuestOnlyRoute>} />
+      <Route path='/patient/login'           element={<GuestOnlyRoute><PatientLogin /></GuestOnlyRoute>} />
       <Route path='/patient/forgot-password' element={<ForgotPassword role="patient" />} />
       <Route path='/patient/reset-password'  element={<ForgotPassword role="patient" />} />
 
@@ -137,6 +138,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/patient' element={<PatientRoute><PatientLayout /></PatientRoute>}>
         <Route index                         element={<PatientDashboard />} />
         <Route path='doctors'                element={<DoctorAvailability />} />
+        <Route path='offers'                 element={<PatientOffers />} />
         <Route path='book'                   element={<BookAppointment />} />
         <Route path='appointments'           element={<MyAppointments />} />
         <Route path='reschedule-appointment' element={<RescheduleAppointment />} />
@@ -146,7 +148,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       </Route>
 
       {/* ── Staff auth ──────────────────────────────────── */}
-      <Route path='/staff/login'           element={<StaffLogin />} />
+      <Route path='/staff/login'           element={<GuestOnlyRoute><StaffLogin /></GuestOnlyRoute>} />
       <Route path='/staff/change-password-required' element={<RequiredPasswordChange />} />
       <Route path='/staff/forgot-password' element={<ForgotPassword role="staff" />} />
       <Route path='/staff/reset-password'  element={<ForgotPassword role="staff" />} />
@@ -184,7 +186,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       </Route>
 
       {/* ── Doctor auth ─────────────────────────────────── */}
-      <Route path='/doctor/login'           element={<DoctorLogin />} />
+      <Route path='/doctor/login'           element={<GuestOnlyRoute><DoctorLogin /></GuestOnlyRoute>} />
       <Route path='/doctor/change-password-required' element={<RequiredPasswordChange />} />
       <Route path='/doctor/forgot-password' element={<ForgotPassword role="doctor" />} />
       <Route path='/doctor/reset-password'  element={<ForgotPassword role="doctor" />} />
@@ -204,12 +206,12 @@ const router = createBrowserRouter(createRoutesFromElements(
       </Route>
 
       {/* ── Admin auth ──────────────────────────────────── */}
-      <Route path='/admin/login' element={<AdminLogin />} />
+      <Route path='/admin/login' element={<GuestOnlyRoute><AdminLogin /></GuestOnlyRoute>} />
       <Route path='/admin/change-password-required' element={<RequiredPasswordChange />} />
       <Route path='/admin/forgot-password' element={<ForgotPassword role="admin" />} />
       <Route path='/admin/reset-password' element={<ForgotPassword role="admin" />} />
 
-      <Route path='/superadmin/login' element={<SuperAdminLogin />} />
+      <Route path='/superadmin/login' element={<GuestOnlyRoute><SuperAdminLogin /></GuestOnlyRoute>} />
       <Route path='/superadmin/forgot-password' element={<ForgotPassword role="admin" />} />
       <Route path='/superadmin' element={<SuperAdminRoute><SuperAdminLayout /></SuperAdminRoute>}>
         <Route index element={<SuperAdminDashboard />} />
@@ -314,4 +316,5 @@ const App = () => (
 )
 
 export default App
+
 

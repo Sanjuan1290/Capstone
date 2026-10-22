@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import { MdArchive, MdHistory, MdRefresh, MdSearch, MdVisibility, MdEventAvailable, MdInventory2, MdSwapHoriz, MdCalendarMonth, MdPayments, MdSettings, MdSecurity } from 'react-icons/md'
 import { createAuditArchive, getAuditLogs } from '../../services/admin.service'
@@ -296,6 +297,8 @@ const Admin_AuditLogs = () => {
     return () => controller.abort()
   }, [load])
 
+  useClinicRefresh(()=>load(),['billing.updated','accounts.updated','service.updated','inventory.updated'],{fallbackMs:120000,skip:()=>Boolean(selected)})
+
   useEffect(() => { const timer = setTimeout(() => { if (searchDraft !== filters.search) { setPage(1); setFilters(previous => ({ ...previous, search: searchDraft })) } }, 350); return () => clearTimeout(timer) }, [searchDraft, filters.search])
 
   const update = (key, value) => { setPage(1); setFilters((prev) => ({ ...prev, [key]: value })) }
@@ -396,6 +399,7 @@ const Admin_AuditLogs = () => {
 }
 
 export default Admin_AuditLogs
+
 
 
 

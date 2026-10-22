@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import { MdLockOpen, MdPointOfSale, MdRefresh } from 'react-icons/md'
 import { getBillingReconciliation, getBillingAdjustmentRequests, reopenCashierClosing } from '../../services/admin.service'
@@ -47,6 +48,7 @@ const Admin_BillingReconciliation = () => {
   }, [date])
 
   useEffect(() => { load() }, [load])
+  useClinicRefresh(load,['billing.updated'],{fallbackMs:60000,skip:()=>Boolean(reopenTarget)||busy})
 
   const submitReopen = async () => {
     if (!reopenTarget || reason.trim().length < 5) return
@@ -181,6 +183,7 @@ const Admin_BillingReconciliation = () => {
 }
 
 export default Admin_BillingReconciliation
+
 
 
 

@@ -1,5 +1,7 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { buildSlotBookingPath } from '../../utils/bookingHandoff.mjs'
 import { MdCalendarToday, MdEventBusy, MdRefresh } from 'react-icons/md'
 import { getDoctorsAvailability, getActiveBranches } from '../../services/patient.service'
 import { getLocalDateOnly } from '../../utils/date'
@@ -14,6 +16,7 @@ const DoctorAvailability = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState(null)
+  const [clinicFilter, setClinicFilter] = useState('all')
 
   useEffect(()=>{getActiveBranches().then(setBranches).catch(e=>setError(e.message))},[])
 
@@ -32,6 +35,7 @@ const DoctorAvailability = () => {
   }
 
   useEffect(() => { if(branchId)load() }, [branchId])
+  useClinicRefresh(()=>{if(branchId)return load()},['schedule.updated','appointment.updated','service.updated'],{fallbackMs:60000})
 
   if(!branchId)return <div className="mx-auto max-w-3xl space-y-4"><h1 className="text-2xl font-bold">Choose a Branch</h1><p className="text-slate-500 text-sm">Select the clinic location to view its doctors and schedules.</p>{branches.map(b=><button className="w-full rounded-xl border bg-white p-5 text-left hover:border-emerald-500" key={b.id} onClick={()=>{setBranchId(String(b.id));setExpanded(null)}}><b>{b.name}</b><p className="text-sm text-slate-500">{b.address}</p></button>)}{error&&<p className="text-red-600">{error}</p>}</div>
 
@@ -43,7 +47,7 @@ const DoctorAvailability = () => {
     <div className="mx-auto w-full max-w-5xl space-y-5">
       <div>
         <h1 className="text-2xl font-black text-slate-900">Doctor Availability</h1>
-        <p className="mt-1 text-sm text-slate-500">View available doctors and schedules at {branches.find(b=>String(b.id)===branchId)?.name||'this branch'}.</p><button className="mt-2 text-sm font-semibold text-emerald-700 underline" onClick={()=>{setBranchId('');setDoctors([]);setExpanded(null)}}>Change Branch</button>
+        <p className="mt-1 text-sm text-slate-500">Select a displayed time to prefill your booking. The final time is checked again after you choose your service. View available doctors and schedules at {branches.find(b=>String(b.id)===branchId)?.name||'this branch'}.</p><button className="mt-2 text-sm font-semibold text-emerald-700 underline" onClick={()=>{setBranchId('');setDoctors([]);setExpanded(null)}}>Change Branch</button>
       </div>
 
       {error && (
@@ -61,7 +65,10 @@ const DoctorAvailability = () => {
         </div>
       )}
 
-      {doctors.map((doctor) => {
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3" role="group" aria-label="Filter doctors by clinic type">
+        {[['all','All Doctors'],['medical','General Medicine'],['derma','Dermatology']].map(([value,label])=><button key={value} type="button" aria-pressed={clinicFilter===value} onClick={()=>setClinicFilter(value)} className={`rounded-xl px-3 py-2 text-sm font-semibold ${clinicFilter===value?'bg-emerald-600 text-white':'bg-slate-100 text-slate-700'}`}>{label}</button>)}
+      </div>
+      {doctors.filter(doctor=>clinicFilter==='all'||doctor.clinic_type===clinicFilter).map((doctor) => {
         const active = Array.isArray(doctor.weekly_schedule) ? doctor.weekly_schedule : []
         const isOpen = expanded === doctor.id
         const clinicType = doctor.clinic_type
@@ -82,7 +89,7 @@ const DoctorAvailability = () => {
                   )) : <span className="text-xs font-semibold text-amber-600">No active online schedule</span>}
                 </div>
                 {doctor.next_available ? (
-                  <p className="mt-2 text-xs font-bold text-emerald-700">Next available: {fmtDate(doctor.next_available.date)} · {doctor.next_available.time}</p>
+                  <p className="mt-2 text-xs font-bold text-emerald-700">Next schedule opening (subject to booking rules): {fmtDate(doctor.next_available.date)} · {doctor.next_available.time}</p>
                 ) : active.length > 0 ? (
                   <p className="mt-2 text-xs font-semibold text-amber-600">No open slots in the next 7 days.</p>
                 ) : null}
@@ -91,7 +98,7 @@ const DoctorAvailability = () => {
                 <button disabled={!active.length} onClick={() => setExpanded(isOpen ? null : doctor.id)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-40">
                   {isOpen ? 'Hide Slots' : 'View Slots'}
                 </button>
-                <NavLink to={`/patient/book?doctor=${doctor.id}&clinic=${clinicType}&branch_id=${branchId}`} className={`rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white ${!active.length ? 'pointer-events-none opacity-40' : ''}`}>Book</NavLink>
+                <NavLink to={buildSlotBookingPath({branchId,doctorId:doctor.id,clinicType})} className={`rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white ${!active.length ? 'pointer-events-none opacity-40' : ''}`}>Book</NavLink>
               </div>
             </div>
 
@@ -105,11 +112,9 @@ const DoctorAvailability = () => {
                         <p className="mt-3 text-xs text-slate-400">{day.unavailable_reason || 'Doctor unavailable / no schedule.'}</p>
                       ) : (
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {day.slots.map((slot) => (
-                            <span key={slot.time} className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold ${slot.available ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-400'}`}>
-                              {slot.time} · {slot.available ? 'Available' : 'Booked'}
-                            </span>
-                          ))}
+                          {day.slots.map((slot) => slot.available ? (
+                            <NavLink key={slot.time} aria-label={`Book ${fmtDate(day.date)} at ${slot.time} with ${doctor.full_name}`} to={buildSlotBookingPath({branchId,doctorId:doctor.id,clinicType,date:day.date,time:slot.time})} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">{slot.time} · Check Time</NavLink>
+                          ) : <span key={slot.time} aria-label={`${slot.time} booked`} className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-400">{slot.time} · Booked</span>)}
                         </div>
                       )}
                     </div>
@@ -125,6 +130,7 @@ const DoctorAvailability = () => {
 }
 
 export default DoctorAvailability
+
 
 
 

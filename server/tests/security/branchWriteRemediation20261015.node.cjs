@@ -52,7 +52,7 @@ test('inventory item creation must verify supplier and location within branch',a
  const statements=[]
  const c=conn(async(sql,args)=>{statements.push([sql,args]);return [[]]})
  const h=loadTarget(targetInventory,{getConnection:async()=>c}).createItem
- const res=response();await h({branchId:2,user:{id:1},body},res)
+ const res=response();await h({branchId:2,user:{id:1},body:{...body,item_type:'medicine'}},res)
  assert.equal(res.code,400)
  assert.equal(res.body.code,'INVALID_LOCATION_TYPE')
  assert.equal(c.rolledBack,true)
@@ -86,4 +86,5 @@ test('appointment validates the doctor and service inside the requested branch t
  assert.ok(calls.some(([sql,args])=>sql.includes('FROM doctors')&&sql.includes('branch_id=?')&&args[1]===2))
  assert.ok(calls.some(([sql,args])=>sql.includes('FROM billing_service_catalog')&&sql.includes('branch_id=?')&&args[1]===2))
 })
+
 

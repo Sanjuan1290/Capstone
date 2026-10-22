@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   MdAssessment,
@@ -202,6 +203,8 @@ const Admin_Reports = () => {
     load()
     return () => activeReportRequest.current?.abort()
   }, [appliedRange.startDate, appliedRange.endDate])
+
+  useClinicRefresh(load,['billing.updated','appointment.updated','inventory.updated'],{fallbackMs:0})
 
   const applyPreset = (nextPreset) => {
     if (nextPreset === 'custom') {
@@ -547,6 +550,7 @@ const Admin_Reports = () => {
 }
 
 export default Admin_Reports
+
 
 
 

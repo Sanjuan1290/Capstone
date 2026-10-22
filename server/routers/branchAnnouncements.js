@@ -4,6 +4,7 @@ const db = require('../db/connect')
 const { writeAuditLog } = require('../utils/audit')
 const { configured, eligibleSql, patientFromToken } = require('../utils/marketingCampaigns')
 const cloud = require('../utils/cloudinarySecurity')
+const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const idOk = n => Number.isSafeInteger(Number(n)) && Number(n) > 0
 const bad = (message,status=400) => Object.assign(new Error(message), {statusCode:status})
 const clean = (v,max=255) => String(v ?? '').trim().slice(0,max)
@@ -132,8 +133,8 @@ const registerBranchAnnouncements=(router,{requireSuper,branchContext,requirePer
   for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
     const auth=[...middle,requirePermission('system_setup')]
     router.get(`${prefix}/announcements`,...auth,list)
-    router.post(`${prefix}/announcements`,...auth,save)
-    router.put(`${prefix}/announcements/:id`,...auth,save)
+    router.post(`${prefix}/announcements`,...auth,afterSuccessfulMutation('promotion.updated'),save)
+    router.put(`${prefix}/announcements/:id`,...auth,afterSuccessfulMutation('promotion.updated'),save)
     router.post(`${prefix}/announcements/image`,...auth,express.raw({type:['image/png','image/jpeg','application/octet-stream'],limit:'5mb'}),uploadImage)
     router.post(`${prefix}/announcements/image/status`,...auth,imageStatus)
     router.get(`${prefix}/announcements/audience`,...auth,countEligible)
@@ -170,4 +171,5 @@ publicRouter.post('/unsubscribe',unsubscribe)
 // RFC 8058 one-click unsubscribe: POST only; GET never modifies consent.
 publicRouter.post('/unsubscribe-one-click',unsubscribe)
 module.exports={registerBranchAnnouncements,publicRouter,validatePost,slug,dateTime}
+
 

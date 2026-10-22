@@ -1,6 +1,7 @@
 // Branch-owned inventory master records. Stock movements MUST go through the
 // existing batch receipt / manual-stock-out engine; an item edit never updates stock.
 const db = require('../db/connect')
+const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const { writeAuditLog } = require('../utils/audit')
 const { nextInventoryBarcode } = require('../utils/barcodes')
 const { receiveInventoryBatch, syncInventorySnapshot, attachBatchesToInventory } = require('../utils/inventoryBatches')
@@ -53,6 +54,10 @@ const returnItem=async(id,branchId)=>{
   return enriched[0]
 }
 async function createItem(req,res){
+  // New items are Medicine only. Historical Supplies remain editable through updateItem.
+  if (String(req.body?.item_type || '') !== 'medicine') {
+    return res.status(400).json({code:'MEDICINE_ONLY_CREATION',message:'New inventory items must be Medicine. Existing supplies can still be managed.'})
+  }
   let conn
   try{
     const p=normalize(req.body||{})
@@ -131,10 +136,11 @@ async function archiveItem(req,res){
 function registerBranchInventoryItems(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const guard=[...middle,requirePermission('inventory')]
-  router.post(`${prefix}/inventory`,...guard,createItem)
-  router.put(`${prefix}/inventory/:id`,...guard,updateItem)
-  router.delete(`${prefix}/inventory/:id`,...guard,archiveItem)
+  router.post(`${prefix}/inventory`,...guard,afterSuccessfulMutation('inventory.updated'),createItem)
+  router.put(`${prefix}/inventory/:id`,...guard,afterSuccessfulMutation('inventory.updated'),updateItem)
+  router.delete(`${prefix}/inventory/:id`,...guard,afterSuccessfulMutation('inventory.updated'),archiveItem)
  }
 }
 module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem}
+
 

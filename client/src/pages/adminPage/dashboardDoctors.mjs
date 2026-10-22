@@ -7,3 +7,4 @@ export const doctorAvailabilityLabel = doctor => {
   if (status === 'on-duty') return 'On duty'
   return isDoctorAvailable(doctor) ? 'Available' : 'Inactive'
 }
+

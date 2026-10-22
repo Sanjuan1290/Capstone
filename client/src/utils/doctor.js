@@ -12,3 +12,4 @@ export const isKnownDoctorClinicType = (value) => ['medical', 'derma'].includes(
 
 
 
+

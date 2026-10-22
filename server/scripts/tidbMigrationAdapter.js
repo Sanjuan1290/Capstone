@@ -114,3 +114,4 @@ async function runTiDBMigration(conn, file, statements) {
   }
 }
 module.exports = { runTiDBMigration, PROCEDURAL_FILES, argumentsOf, translateCall }
+

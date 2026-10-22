@@ -26,3 +26,4 @@ Copy the contents of this package **over the matching relative paths** in the `S
 5. Validate the homepage's structured data using Google's Rich Results Test: https://search.google.com/test/rich-results.
 
 Notes: The website is a React SPA and Google's live URL Inspection shows its content renders successfully. New build files are not guaranteed to rank or appear in search immediately. No backend API, database, or private data changes are included.
+

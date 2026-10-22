@@ -47,7 +47,7 @@ const DoctorLayout = () => {
     }
     if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
-      window.dispatchEvent(new CustomEvent('clinic:refresh', { detail: { eventName } }))
+      // useSSE centralizes branch-aware data invalidation and refresh delivery.
       if (['appointment_updated','queue_updated','consultation_saved'].includes(eventName)) loadAppointmentCount()
     }
   }, [loadAppointmentCount])
@@ -274,6 +274,7 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
+
 
 
 

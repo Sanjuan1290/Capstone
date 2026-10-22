@@ -36,6 +36,14 @@ export const saveAdminPromotion = (payload, id = null) => requestJson(`${getAdmi
 export const deleteAdminPromotion = (id) => requestJson(`${getAdminApiBase()}/promotions/${id}`, { method:'DELETE' })
 export const notifyAdminPromotion = (id) => requestJson(`${getAdminApiBase()}/promotions/${id}/notify`, { method:'POST' })
 
+export const uploadPromotionImage = async file => {
+  const res=await fetch(`${getAdminApiBase()}/promotions/image`,{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file})
+  const data=await res.json().catch(()=>({}))
+  if(!res.ok)throw new Error(data.message||'Promotion image upload failed.')
+  return data
+}
+export const checkPromotionImage = token => requestJson(`${getAdminApiBase()}/promotions/image/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scan_token:token})})
+
 // Branch-scoped announcements and opt-in campaign administration.
 export const listAnnouncements = () => requestJson(`${getAdminApiBase()}/announcements`)
 export const saveAnnouncement = (payload,id=null) => requestJson(`${getAdminApiBase()}/announcements${id?`/${id}`:''}`, { method:id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
@@ -516,3 +524,4 @@ export const reopenCashierClosing = (closingId, reason) => postJson(`${getAdminA
 export const createAdminQrPayment = id => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment`, { method:'POST' })
 export const getAdminQrStatus = (id, { reconcile = false } = {}) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/status${reconcile ? '?reconcile=1' : ''}`)
 export const resolveAdminQrReview = (id, attemptId, body) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/${attemptId}/resolve`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+

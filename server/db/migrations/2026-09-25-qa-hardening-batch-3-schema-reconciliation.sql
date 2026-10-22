@@ -107,3 +107,4 @@ WHERE selling_price IS NOT NULL AND selling_price > 0
 
 
 
+
