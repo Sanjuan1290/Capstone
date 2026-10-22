@@ -5,13 +5,14 @@ const ITEMS = [
   { label: 'Checkout', path: '/admin/billing?tab=checkout', icon: MdPointOfSale, tab: 'checkout' },
   { label: 'Overview', path: '/admin/billing?tab=overview', icon: MdDashboard, tab: 'overview' },
   { label: 'Transactions', path: '/admin/billing/transactions', icon: MdReceiptLong, route: '/admin/billing/transactions' },
-  { label: 'Adjustments', path: '/admin/billing/adjustments', icon: MdApproval, route: '/admin/billing/adjustments' },
-  { label: 'Daily Close', path: '/admin/billing/reconciliation', icon: MdFactCheck, route: '/admin/billing/reconciliation' },
+  { label: 'Adjustment Requests', path: '/admin/billing/approvals', icon: MdApproval, route: '/admin/billing/approvals' },
+  { label: 'Daily Cash Reconciliation', path: '/admin/billing/reconciliation', icon: MdFactCheck, route: '/admin/billing/reconciliation' },
 ]
 
 const AdminBillingNav = ({ pendingAdjustments = 0, pendingApprovals = 0 }) => {
   const location = useLocation()
   const queryTab = new URLSearchParams(location.search).get('tab') || 'checkout'
+  const currentPath = location.pathname.replace(/^\/superadmin\/branches\/\d+(?=\/|$)/, '/admin')
   const pending = Number(pendingAdjustments || pendingApprovals || 0)
 
   return (
@@ -20,8 +21,8 @@ const AdminBillingNav = ({ pendingAdjustments = 0, pendingApprovals = 0 }) => {
         {ITEMS.map((item) => {
           const Icon = item.icon
           const active = item.tab
-            ? location.pathname === '/admin/billing' && queryTab === item.tab
-            : location.pathname.startsWith(item.route)
+            ? currentPath === '/admin/billing' && queryTab === item.tab
+            : currentPath.startsWith(item.route)
           return (
             <Link
               key={item.path}
@@ -30,7 +31,7 @@ const AdminBillingNav = ({ pendingAdjustments = 0, pendingApprovals = 0 }) => {
             >
               <Icon className="text-lg" />
               <span>{item.label}</span>
-              {item.label === 'Adjustments' && pending > 0 && (
+              {item.label === 'Adjustment Requests' && pending > 0 && (
                 <span className="min-w-5 rounded-full bg-amber-400 px-1.5 py-0.5 text-center text-[10px] font-black text-[#0b1a2c]">{pending > 99 ? '99+' : pending}</span>
               )}
             </Link>
@@ -42,6 +43,7 @@ const AdminBillingNav = ({ pendingAdjustments = 0, pendingApprovals = 0 }) => {
 }
 
 export default AdminBillingNav
+
 
 
 

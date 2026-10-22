@@ -37,7 +37,10 @@ test('Admin accounts include persistently stored contact number',()=>{
  assert.match(read('server/utils/schema.js'),/ensureColumn\('admins', 'phone'/)
 })
 test('Settings and password change normalize superadmin API role to admin',()=>{
- assert.match(read('client/src/pages/shared/SettingsPage.jsx'),/accountRole === 'superadmin' \? 'admin'/)
+ // UAT 2026-10-22: collapsing the role in SettingsPage dropped X-Admin-Portal and caused HTTP 401.
+ // The page keeps 'superadmin'; portal.service maps the API path to /api/admin and adds the header.
+ assert.doesNotMatch(read('client/src/pages/shared/SettingsPage.jsx'),/accountRole === 'superadmin' \? 'admin'/)
+ assert.match(read('client/src/services/portal.service.js'),/role === 'superadmin' \? \{ 'X-Admin-Portal': 'superadmin' \}/)
  assert.match(read('client/src/services/portal.service.js'),/role === 'superadmin' \? 'admin'/)
  assert.match(read('client/src/components/PasswordSecurityCard.jsx'),/role === 'superadmin'/)
 })
@@ -48,5 +51,6 @@ test('Audit UI displays readable names and only changed, non-sensitive fields',(
  assert.doesNotMatch(audit,/Account #/)
  assert.doesNotMatch(audit,/\[REDACTED\]/)
 })
+
 
 

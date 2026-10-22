@@ -207,7 +207,11 @@ async function settleVerifiedPayment(attempt,payment) {
     try { receiptId = await settleThroughExistingCheckout(attempt,payment) }
     catch (error) {
       if (error.code !== 'PAYMENT_RECONCILIATION_REQUIRED') throw error // database/transient: let PayMongo retry
-      return markPaidForReview(attempt,payment,error)
+      // A concurrent delivery (webhook retry, status poll or sweeper) may have just
+      // recorded this exact provider payment on this bill; that is settled, not a review case.
+      const [[settled]] = await db.query('SELECT id FROM billing_payments WHERE billing_id=? AND idempotency_key=? AND status=? LIMIT 1',[attempt.billing_id,`paymongo:${payment.id}`,'completed'])
+      if (!settled) return markPaidForReview(attempt,payment,error)
+      receiptId = settled.id
     }
   }
   await db.query(`UPDATE payment_gateway_attempts SET status='succeeded',active_bill_id=NULL,
@@ -291,4 +295,5 @@ const rawWebhook = async (req,res) => {
   }
 }
 module.exports = { apiRouter, rawWebhook, handleWebhookEvent, publicAttempt, isTestSimulationUrl, reconcileAttempt, startReconciliationSweeper }
+
 

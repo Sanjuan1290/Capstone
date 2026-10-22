@@ -80,7 +80,7 @@ function PortalSignInForm({ portal }) {
         return
       }
       login(data.user, actualPortal)
-      navigate(config.destination, { replace: true })
+      navigate(portal === 'admin' && data.user.must_change_password ? '/admin/change-password-required' : config.destination, { replace: true })
     } catch (err) {
       setError(err.message || 'Cannot connect to the server. Please try again.')
     } finally {
@@ -228,5 +228,6 @@ const PortalAdminLogin = ({ portal = 'admin' }) => {
 }
 
 export default PortalAdminLogin
+
 
 

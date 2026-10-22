@@ -46,6 +46,8 @@ function foundationColumnDefinitions(source) {
   return columns
 }
 
+const isBranchReferenceColumn = (column) => /(^|_)branch_id$/.test(String(column || ''))
+
 function requiredFoundationColumns(source) {
   return foundationColumnDefinitions(source).map((item) => [item.table, item.column])
 }
@@ -341,6 +343,9 @@ async function verifyFoundationSchema(db, source) {
   const optionalBranchColumns = new Set(['admins.branch_id', 'audit_logs.branch_id'])
   for (const item of contract.ownershipColumns) {
     const key = item.table + '.' + item.column
+    // carait_branch_column() also adds non-reference columns (admins.account_role,
+    // admins.is_active). Only *branch_id columns reference clinic_branches.id.
+    if (!isBranchReferenceColumn(item.column)) continue
     if (!columnMap.has(key)) continue
     const nullable = optionalBranchColumns.has(key)
     const nullPredicate = nullable ? '' : ' OR t.' + identifier(item.column) + ' IS NULL'
@@ -363,4 +368,5 @@ async function verifyFoundationSchema(db, source) {
   }
 }
 
-module.exports = { foundationContract, requiredFoundationColumns, ensureFoundationRekeys, verifyFoundationSchema, groupIndexes, indexMatches }
+module.exports = { foundationContract, isBranchReferenceColumn, requiredFoundationColumns, ensureFoundationRekeys, verifyFoundationSchema, groupIndexes, indexMatches }
+

@@ -1450,6 +1450,10 @@ const ensureAppSchema = async () => {
 
   await ensureColumn('admins', 'phone', 'VARCHAR(30) NULL')
   await ensureColumn('admins', 'session_version', "INT NOT NULL DEFAULT 1")
+  // Existing administrator accounts keep their current sign-in behavior (default 0).
+  // Newly invited Branch Admin accounts explicitly require a first password change.
+  await ensureColumn('admins', 'must_change_password', 'TINYINT(1) NOT NULL DEFAULT 0')
+  await ensureColumn('admins', 'password_changed_at', 'DATETIME NULL')
   await ensureColumn('staff', 'session_version', "INT NOT NULL DEFAULT 1")
   await ensureColumn('doctors', 'session_version', "INT NOT NULL DEFAULT 1")
   await ensureColumn('patients', 'session_version', "INT NOT NULL DEFAULT 1")
@@ -1669,6 +1673,7 @@ module.exports = {
   backfillUomDecimalPrecision,
   rebuildInventoryLocationStock,
 }
+
 
 
 

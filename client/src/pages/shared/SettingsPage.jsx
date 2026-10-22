@@ -25,7 +25,9 @@ const minBirthdate = () => { const d = new Date(); d.setFullYear(d.getFullYear()
 const SettingsPage = () => {
   const navigate = useNavigate()
   const { role: accountRole, setUser } = useAuth()
-  const role = accountRole === 'superadmin' ? 'admin' : accountRole
+  // Keep 'superadmin' distinct: the portal service sends X-Admin-Portal only for it,
+  // and the server selects the Super Admin session cookie from that header.
+  const role = accountRole
   const [form, setForm] = useState(null)
   const [original, setOriginal] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -307,6 +309,7 @@ const SettingsPage = () => {
 }
 
 export default SettingsPage
+
 
 
 

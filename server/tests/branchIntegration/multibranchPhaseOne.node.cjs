@@ -14,7 +14,7 @@ test('all branch report operational queries use the authorized branch',async()=>
 })
 test('billing settings are registered before dynamic bill id',()=>{
  const db={query:async()=>[[]]};const handler=()=>()=>{}
- const {registerBranchOperationalReads}=load(billing,{'../db/connect':db,'../utils/billing':{getBillingRecordWithItems:async()=>{}},'../utils/supplyTransfers':{groupTransferRows:v=>v}})
+ const {registerBranchOperationalReads}=load(billing,{'../db/connect':db,'../utils/billing':{getBillingRecordWithItems:async()=>{}},'../utils/supplyTransfers':{groupTransferRows:v=>v},'../utils/reportMetrics':{loadCollectionLedger:async()=>({rows:[],byMethod:[],summary:{}}),summarizeLedgerRows:()=>({})}})
  const paths=[];const router={get(path){paths.push(path)}};registerBranchOperationalReads(router,{requireSuper:handler(),branchContext:handler(),requirePermission:handler,allowAnyPermission:handler})
  for(const prefix of ['/my/legacy','/workspace/:branchId/legacy']){assert.ok(paths.indexOf(`${prefix}/billing/payment-settings`)<paths.indexOf(`${prefix}/billing/:id`));assert.ok(paths.indexOf(`${prefix}/billing/reconciliation`)<paths.indexOf(`${prefix}/billing/:id`))}
 })
@@ -55,5 +55,6 @@ test('promotions cannot link services or recipients from another branch',()=>{
  assert.ok(src.includes('a.patient_id=patient.id AND a.branch_id=?'))
  assert.ok(src.includes('branch_id:req.branchId'))
 })
+
 
 

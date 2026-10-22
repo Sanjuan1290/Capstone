@@ -362,8 +362,8 @@ const computeCashierExpectations = async ({ cashierRole, cashierId, date, branch
   const receivedColumn = cashierRole === 'admin' ? 'received_by_admin_id' : 'received_by_staff_id'
   const [[payments]] = await executor.query(
     `SELECT COUNT(*) AS transactions,
-            COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END),0) AS cash_received,
-            COALESCE(SUM(CASE WHEN payment_method <> 'cash' THEN amount ELSE 0 END),0) AS non_cash_received
+            COALESCE(SUM(CASE WHEN bp.payment_method = 'cash' THEN bp.amount ELSE 0 END),0) AS cash_received,
+            COALESCE(SUM(CASE WHEN bp.payment_method <> 'cash' THEN bp.amount ELSE 0 END),0) AS non_cash_received
      FROM billing_payments bp JOIN billing_records br ON br.id=bp.billing_id
      WHERE bp.status = 'completed' AND bp.${receivedColumn} = ? AND DATE(bp.paid_at) = ? AND br.branch_id=?`,
     [cashierId, date,branchId]
@@ -541,6 +541,7 @@ module.exports = {
   closeMyCashier,
   reopenCashierClosing,
 }
+
 
 
 

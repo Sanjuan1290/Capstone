@@ -516,7 +516,7 @@ const login = async (req, res) => {
   await writeAuditLog({ userId: admin.id, userRole: req.user?.role || 'admin', action: 'auth.login_success', entityType: 'admin', entityId: admin.id, ipAddress: req.ip || null }).catch(() => {})
   return res.status(200).json({
     message: 'Login successful.',
-    user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', account_role:admin.account_role, branch_id:admin.branch_id, theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
+    user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', account_role:admin.account_role, branch_id:admin.branch_id, theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url, must_change_password: Boolean(admin.must_change_password) },
   })
 }
 
@@ -534,7 +534,7 @@ const verifyLoginMfa = async (req, res) => {
     if (req.body?.portal && decoded.portal && req.body.portal !== decoded.portal) {
       return res.status(403).json({ code: 'WRONG_ADMIN_PORTAL', message: 'This security code belongs to the other administrator sign-in page. Please restart sign-in.' })
     }
-    const [rows] = await db.query('SELECT id, full_name, email, account_role, branch_id, theme_preference, profile_image_url, COALESCE(session_version,1) AS session_version FROM admins WHERE id = ? LIMIT 1', [decoded.id])
+    const [rows] = await db.query('SELECT id, full_name, email, account_role, branch_id, theme_preference, profile_image_url, COALESCE(session_version,1) AS session_version, must_change_password FROM admins WHERE id = ? LIMIT 1', [decoded.id])
     if (!rows.length || Number(decoded.session_version || 0) !== Number(rows[0].session_version || 1)) {
       return res.status(401).json({ message: 'Administrator sign-in session expired. Please sign in again.' })
     }
@@ -546,7 +546,7 @@ const verifyLoginMfa = async (req, res) => {
     const admin = rows[0]
     return res.json({
       message: 'Login successful.',
-      user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', account_role:admin.account_role, branch_id:admin.branch_id, theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url },
+      user: { id: admin.id, full_name: admin.full_name, email: admin.email, role: 'admin', account_role:admin.account_role, branch_id:admin.branch_id, theme_preference: admin.theme_preference, profile_image_url: admin.profile_image_url, must_change_password: Boolean(admin.must_change_password) },
     })
   } catch (err) {
     return res.status(400).json({ message: err.message === 'jwt expired' ? 'Administrator sign-in session expired. Please sign in again.' : (err.message || 'Invalid security code.') })
@@ -560,9 +560,9 @@ const checkAuth = async (req, res) => {
   if (!token) return res.status(200).json({ authenticated: false })
   try {
     const decoded = await verifySessionToken(token, 'admin')
-    const [rows] = await db.query("SELECT a.id,a.full_name,a.email,a.account_role,a.branch_id,a.theme_preference,a.profile_image_url,b.name AS branch_name FROM admins a LEFT JOIN clinic_branches b ON b.id=a.branch_id WHERE a.id = ? AND a.is_active=1 AND (a.account_role='superadmin' OR b.is_active=1)", [decoded.id])
+    const [rows] = await db.query("SELECT a.id,a.full_name,a.email,a.account_role,a.branch_id,a.theme_preference,a.profile_image_url,a.must_change_password,b.name AS branch_name FROM admins a LEFT JOIN clinic_branches b ON b.id=a.branch_id WHERE a.id = ? AND a.is_active=1 AND (a.account_role='superadmin' OR b.is_active=1)", [decoded.id])
     if (rows.length === 0 || (rows[0].account_role === 'superadmin') !== isSuper) return res.status(200).json({ authenticated: false })
-    res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'admin' } })
+    res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'admin', must_change_password: Boolean(Number(rows[0].must_change_password)) } })
   } catch {
     res.clearCookie(cookieName, { path: '/' })
     res.status(200).json({ authenticated: false })
@@ -4293,6 +4293,7 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

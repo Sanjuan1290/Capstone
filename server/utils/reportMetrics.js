@@ -158,12 +158,19 @@ const summarizeLedgerRows = (rows) => {
   }
 }
 
-const loadCollectionLedger = async ({ startDate, endDate }, executor = db) => {
+// Optional branchId restricts every ledger leg to bills owned by that branch.
+const branchLedgerSql = () => LEDGER_SQL.replace(/FROM billing_payments bp\n/g,
+  'FROM billing_payments bp\n  JOIN billing_records br ON br.id = bp.billing_id AND br.branch_id = ?\n')
+  .replace(/JOIN billing_payments bp ON bp.id = r.payment_id\n/,
+    'JOIN billing_payments bp ON bp.id = r.payment_id\n  JOIN billing_records br ON br.id = bp.billing_id AND br.branch_id = ?\n')
+
+const loadCollectionLedger = async ({ startDate, endDate, branchId = null }, executor = db) => {
+  const scoped = branchId !== null && branchId !== undefined
   const [rows] = await executor.query(
     `SELECT payment_method, event_date, ym, amount, kind, staff_id, admin_id
-     FROM (${LEDGER_SQL}) ledger
+     FROM (${scoped ? branchLedgerSql() : LEDGER_SQL}) ledger
      WHERE event_date BETWEEN ? AND ?`,
-    [startDate, endDate]
+    scoped ? [branchId, branchId, branchId, startDate, endDate] : [startDate, endDate]
   ).catch((error) => {
     if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
     throw error
@@ -216,6 +223,7 @@ module.exports = {
   summarizeLedgerRows,
   LEDGER_SQL,
 }
+
 
 
 

@@ -121,3 +121,24 @@ test('partial rekey recovery refuses to drop a legacy index with an unexpected d
   )
   assert.equal(fixture.commands.some((sql) => /^ALTER TABLE /i.test(sql)), false)
 })
+
+
+
+// Regression (UAT 2026-10-22): `npm run migrate` failed on the production-shaped
+// database because admins.account_role ('superadmin') and admins.is_active were
+// joined against clinic_branches.id as if they were branch references.
+test('foundation verifier only checks *branch_id columns as branch references', async () => {
+  const { isBranchReferenceColumn } = require('../../scripts/foundationSchema')
+  assert.equal(isBranchReferenceColumn('branch_id'), true)
+  assert.equal(isBranchReferenceColumn('source_branch_id'), true)
+  assert.equal(isBranchReferenceColumn('account_role'), false)
+  assert.equal(isBranchReferenceColumn('is_active'), false)
+  // A real database returns a non-zero "orphan" count for these columns because
+  // 'superadmin' / 0 never match a branch id. They must not fail verification.
+  const fixture = createFoundationSchemaFixture({ ownershipErrors: { 'admins.account_role': 1, 'admins.is_active': 3 } })
+  const result = await verifyFoundationSchema(fixture.db, migrationSource)
+  assert.deepEqual(result.seeds, ['clinic_branches:1', 'branch_booking_settings:1', 'admins:1'])
+  // Real branch references are still enforced.
+  const orphan = createFoundationSchemaFixture({ ownershipErrors: { 'admins.account_role': 1, 'appointments.branch_id': 1 } })
+  await assert.rejects(verifyFoundationSchema(orphan.db, migrationSource), /appointments\.branch_id has 1 row/)
+})

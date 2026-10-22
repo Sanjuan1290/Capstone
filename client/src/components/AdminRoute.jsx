@@ -10,10 +10,12 @@ const AdminRoute = ({ children }) => {
     </div>
   )
   if (!user || role !== 'admin' || user.account_role !== 'admin') return <Navigate to="/admin/login" replace />
+  if (user.must_change_password) return <Navigate to="/admin/change-password-required" replace />
   return children
 }
 
 export default AdminRoute
+
 
 
 

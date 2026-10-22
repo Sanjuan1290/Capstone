@@ -20,7 +20,7 @@ const REQUIRED_TABLES = [
 ]
 
 const REQUIRED_COLUMNS = {
-  admins: ['session_version'],
+  admins: ['session_version', 'must_change_password', 'password_changed_at'],
   staff: ['must_change_password', 'password_changed_at', 'session_version'],
   doctors: ['must_change_password', 'password_changed_at', 'session_version', 'clinic_type'],
   doctor_schedules: ['spans_next_day', 'is_24_hours'],
@@ -252,6 +252,7 @@ const run = async () => {
 }
 
 run()
+
 
 
 

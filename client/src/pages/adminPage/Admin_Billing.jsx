@@ -60,6 +60,7 @@ const Admin_Billing = () => {
   }, [load])
 
   const summary = data.summary || {}
+  const collectionMethods = Array.isArray(reconciliation?.methods) ? reconciliation.methods : null
   const partial = Number(summary.partially_paid || 0)
   const ready = Number(summary.ready || 0)
   const collectedToday = Number(reconciliation?.summary?.net_collected ?? (Number(reconciliation?.summary?.gross_collected || 0) - Number(reconciliation?.summary?.refunded || 0)))
@@ -163,7 +164,7 @@ const Admin_Billing = () => {
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
             <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
               <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-                <div><h2 className="font-black text-slate-900">Recent Transactions</h2><p className="mt-1 text-xs text-slate-500">Latest billing activity across the clinic.</p></div>
+                <div><h2 className="font-black text-slate-900">Recent Bills</h2><p className="mt-1 text-xs text-slate-500">Latest charges and outstanding balances for this clinic.</p></div>
                 <Link to="/admin/billing/transactions" className="button-secondary">View All <MdArrowForward /></Link>
               </div>
               {!data.items?.length ? <EmptyState title="No billing records yet" description="Bills will appear after consultations create charges." /> : (
@@ -204,7 +205,7 @@ const Admin_Billing = () => {
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3"><div><h2 className="font-black text-slate-900">Today’s Collection Mix</h2><p className="mt-1 text-xs text-slate-500">{formatDateOnly(reconciliation?.date || getLocalDateOnly())}</p></div><Link to="/admin/reports" className="text-sm font-bold text-amber-700">Open Reports</Link></div>
                 <div className="mt-4 space-y-3">
-                  {(reconciliation?.methods || []).length === 0 ? <p className="text-sm text-slate-500">No payments recorded today.</p> : reconciliation.methods.slice(0, 4).map((method) => (
+                  {!collectionMethods ? <p className="text-sm text-amber-700">Payment method breakdown is temporarily unavailable. Refresh to try again.</p> : collectionMethods.length === 0 ? <p className="text-sm text-slate-500">No payments recorded today.</p> : collectionMethods.slice(0, 4).map((method) => (
                     <div key={method.payment_method} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold text-slate-600">{paymentMethodLabel(method.payment_method)}</span><strong className="text-sm text-slate-900">{formatMoney(method.net)}</strong></div>
                   ))}
                 </div>
@@ -218,6 +219,7 @@ const Admin_Billing = () => {
 }
 
 export default Admin_Billing
+
 
 
 

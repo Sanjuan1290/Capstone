@@ -10,6 +10,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './context/AuthContext'
 import { queryClient } from './lib/queryClient'
 import Layout from './components/layouts/Layout'
+import PortalErrorPage from './components/ui/PortalErrorPage'
 import LandingPage from './pages/LandingPages/LandingPage'
 import { NewsList,NewsDetail,MarketingUnsubscribe } from './pages/LandingPages/News'
 import Admin_Announcements from './pages/adminPage/Admin_Announcements'
@@ -204,6 +205,7 @@ const router = createBrowserRouter(createRoutesFromElements(
 
       {/* ── Admin auth ──────────────────────────────────── */}
       <Route path='/admin/login' element={<AdminLogin />} />
+      <Route path='/admin/change-password-required' element={<RequiredPasswordChange />} />
       <Route path='/admin/forgot-password' element={<ForgotPassword role="admin" />} />
       <Route path='/admin/reset-password' element={<ForgotPassword role="admin" />} />
 
@@ -224,7 +226,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       {/* The 07:54 pre-branch Admin modules are the canonical visual implementation.
           Original screens now call the explicitly scoped /api/branches/.../legacy adapter;
           unsupported operations fail closed until each backend workflow is audited. */}
-      <Route path='/superadmin/branches/:branchId' element={<SuperAdminRoute><BranchOperationsLayout /></SuperAdminRoute>}>
+      <Route path='/superadmin/branches/:branchId' element={<SuperAdminRoute><BranchOperationsLayout /></SuperAdminRoute>} errorElement={<PortalErrorPage />}>
         <Route index element={<Admin_Dashboard />} />
         <Route path='appointments' element={<Admin_Appointments />} />
         <Route path='patient-records' element={<Admin_PatientRecord />} />
@@ -259,7 +261,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='change-password' element={<ChangePassword />} />
       </Route>
 
-      <Route path='/admin' element={<AdminRoute><BranchOperationsLayout admin /></AdminRoute>}>
+      <Route path='/admin' element={<AdminRoute><BranchOperationsLayout admin /></AdminRoute>} errorElement={<PortalErrorPage />}>
         <Route index element={<Admin_Dashboard />} />
         <Route path='appointments' element={<Admin_Appointments />} />
         <Route path='patient-records' element={<Admin_PatientRecord />} />
@@ -312,3 +314,4 @@ const App = () => (
 )
 
 export default App
+

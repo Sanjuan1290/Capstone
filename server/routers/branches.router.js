@@ -61,7 +61,9 @@ router.get('/', requireSuper, async(req,res)=>{
 router.post('/',requireSuper,async(req,res)=>{
   const name=String(req.body?.name||'').trim(),code=`BR-${randomBytes(8).toString('hex').toUpperCase()}`
   if(!name||name.length>180)return res.status(400).json({message:'Enter a branch name (up to 180 characters).'})
-  const copyFrom=req.body?.copy_setup_from_branch_id==null?null:Number(req.body.copy_setup_from_branch_id)
+  // The form's 'Use default setup' option submits an empty string; treat it as no source.
+  const rawCopyFrom=req.body?.copy_setup_from_branch_id
+  const copyFrom=rawCopyFrom==null||String(rawCopyFrom).trim()===''?null:Number(rawCopyFrom)
   if(copyFrom!==null){
     if(!validId(copyFrom))return res.status(400).json({message:'Select a valid source branch.'})
     const [[source]]=await db.query('SELECT id FROM clinic_branches WHERE id=? AND is_active=1',[copyFrom])
@@ -126,7 +128,7 @@ router.post('/accounts/admins',requireSuper,async(req,res)=>{
   let id
   try{
     await connection.beginTransaction()
-    const [result]=await connection.query("INSERT INTO admins (full_name,email,phone,password,account_role,branch_id,is_active) VALUES (?,?,?,?,'admin',?,1)",[full_name,email,phone,password,branchId])
+    const [result]=await connection.query("INSERT INTO admins (full_name,email,phone,password,account_role,branch_id,is_active,must_change_password) VALUES (?,?,?,?,'admin',?,1,1)",[full_name,email,phone,password,branchId])
     id=result.insertId
     for(const permission of permissions){
       await connection.query('INSERT INTO admin_branch_permissions (admin_id,permission_key,granted) VALUES (?,?,1)',[id,permission])
@@ -149,7 +151,7 @@ router.post('/accounts/admins',requireSuper,async(req,res)=>{
   await audit(req,'branch_admin.created','admin',id,null,{full_name,email,phone,permissions,invitationSent},branchId)
   return res.status(201).json({
     id,full_name,email,phone,branch_id:branchId,permissions,invitation_sent:invitationSent,
-    message:invitationSent?'Administrator created; invitation email sent.':'Administrator created, but the invitation email was not delivered. Verify SMTP and arrange secure account recovery.'
+    message:invitationSent?'Administrator created; invitation email sent.':'Administrator created, but the invitation email was not delivered. Check Resend delivery and arrange secure account recovery.'
   })
 })
 router.put('/accounts/admins/:adminId',requireSuper,async(req,res)=>{
@@ -602,4 +604,5 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 

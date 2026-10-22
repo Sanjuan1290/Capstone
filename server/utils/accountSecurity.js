@@ -133,14 +133,14 @@ const changeWithCode = async (role, id, code, res = null) => {
   const newPasswordHash = String(verified.payload?.new_password_hash || '')
   if (!newPasswordHash.startsWith('$2')) throw new Error('Password change session is invalid. Start again.')
   const table = ROLE_TABLE[role]
-  const extra = ['staff', 'doctor'].includes(role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
+  const extra = ['staff', 'doctor', 'admin'].includes(role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
   await db.query(`UPDATE ${table} SET password = ?${extra} WHERE id = ?`, [newPasswordHash, id])
   await revokeSessions(role, id)
   if (res) await issueSession(res, role, id)
 }
 
 const completeRequiredChange = async (role, id, newPassword, res = null) => {
-  if (!['staff', 'doctor'].includes(role)) throw new Error('This account does not require first-login password setup.')
+  if (!['staff', 'doctor', 'admin'].includes(role)) throw new Error('This account does not require first-login password setup.')
   const error = validatePassword(newPassword)
   if (error) throw new Error(error)
   const table = ROLE_TABLE[role]
@@ -209,6 +209,7 @@ module.exports = {
   requestAdminMfa,
   verifyAdminMfa,
 }
+
 
 
 

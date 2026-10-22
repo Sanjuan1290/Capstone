@@ -248,7 +248,7 @@ const Admin_StaffAccount = ({ embedded = false }) => {
           <div className="space-y-3 border-b border-slate-100 p-4">
             <div className="flex items-center gap-2">
               <div className="relative min-w-0 flex-1"><MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search Staff..." className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-amber-400" /></div>
-              <button onClick={() => setShowAdd(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white hover:bg-amber-600" title="Add Staff"><MdAdd /></button>
+              <button onClick={() => setShowAdd(true)} className="inline-flex h-10 shrink-0 items-center justify-center gap-1 rounded-xl bg-amber-500 px-3 text-sm font-bold text-white hover:bg-amber-600" title="Add Staff" aria-label="Add Staff"><MdAdd /> Add Staff</button>
             </div>
             <p className="text-xs text-slate-400">{filtered.length} staff account{filtered.length === 1 ? '' : 's'}</p>
           </div>
@@ -285,6 +285,7 @@ const Admin_StaffAccount = ({ embedded = false }) => {
 }
 
 export default Admin_StaffAccount
+
 
 
 

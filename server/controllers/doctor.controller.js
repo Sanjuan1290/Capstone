@@ -175,7 +175,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
           consultationId,
           batch.batch_id,
           batch.location || preferredLocation,
-          branchId,
+          appointment.branch_id,
         ]
       )
     }
@@ -190,7 +190,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
 const getDashboard = async (req, res) => {
   const today = getTodayDateOnly()
   const [[{ totalToday }]]      = await db.query(
-    'SELECT COUNT(*) AS totalToday FROM appointments WHERE doctor_id = ? AND appointment_date = ?',
+    'SELECT COUNT(*) AS totalToday FROM appointments WHERE doctor_id = ? AND branch_id = ? AND appointment_date = ?',
     [req.user.id, req.branchId, today]
   )
   const [[{ completed }]]       = await db.query(
@@ -219,7 +219,7 @@ const getDashboard = async (req, res) => {
      FROM queue q
      WHERE q.doctor_id = ? AND q.branch_id=? AND q.queue_date = ? AND q.status IN ('waiting','called','in_consultation')
      ORDER BY q.queue_number ASC`,
-    [req.user.id, today]
+    [req.user.id, req.branchId, today]
   )
   const [schedule] = await db.query(
     'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND is_active = 1 ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
@@ -1659,6 +1659,7 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 
 
 

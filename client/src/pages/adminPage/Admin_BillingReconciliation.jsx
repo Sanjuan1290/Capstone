@@ -64,6 +64,7 @@ const Admin_BillingReconciliation = () => {
   }
 
   const summary = data?.summary || {}
+  const paymentMethods = Array.isArray(data?.methods) ? data.methods : null
   const cashiers = Array.isArray(data?.cashiers) ? data.cashiers : []
   const closings = Array.isArray(data?.closings) ? data.closings : []
   const closingsWithoutPayments = closings.filter((closing) => !cashiers.some((cashier) => cashier.closing?.id === closing.id))
@@ -76,7 +77,7 @@ const Admin_BillingReconciliation = () => {
     <div className="mx-auto w-full max-w-7xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPointOfSale className="text-amber-500" /> Daily Close</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPointOfSale className="text-amber-500" /> Daily Cash Reconciliation</h1>
           <p className="mt-1 text-sm text-slate-500">Money collected on one day and each cashier's counted cash. Voids and refunds count on the day they were recorded.</p>
         </div>
         <div className="flex items-end gap-2">
@@ -86,7 +87,7 @@ const Admin_BillingReconciliation = () => {
       </div>
       <AdminBillingNav pendingApprovals={pendingApprovals} />
 
-      {loading ? <LoadingState label="Loading daily close..." /> : error ? <ErrorState message={error} onRetry={load} /> : (
+      {loading ? <LoadingState label="Loading cash reconciliation..." /> : error ? <ErrorState message={error} onRetry={load} /> : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
@@ -142,12 +143,12 @@ const Admin_BillingReconciliation = () => {
 
           <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-black text-slate-900">By Payment Method</h2></div>
-            {(data?.methods || []).length === 0 ? <p className="p-5 text-sm text-slate-500">No money movement on this day.</p> : (
+            {!paymentMethods ? <p className="p-5 text-sm text-amber-700">Payment method details could not be displayed. Refresh to try again.</p> : paymentMethods.length === 0 ? <p className="p-5 text-sm text-slate-500">No money movement on this day.</p> : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-5 py-3">Method</th><th className="px-4 py-3 text-right">Payments</th><th className="px-4 py-3 text-right">Received</th><th className="px-4 py-3 text-right">Voided</th><th className="px-4 py-3 text-right">Refunded</th><th className="px-5 py-3 text-right">Net</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
-                    {data.methods.map((row) => (
+                    {paymentMethods.map((row) => (
                       <tr key={row.payment_method}>
                         <td className="px-5 py-3 font-bold text-slate-800">{paymentMethodLabel(row.payment_method)}</td>
                         <td className="px-4 py-3 text-right">{row.transactions}</td>
@@ -180,6 +181,7 @@ const Admin_BillingReconciliation = () => {
 }
 
 export default Admin_BillingReconciliation
+
 
 
 

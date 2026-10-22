@@ -28,6 +28,8 @@ router.post('/login',      loginLimiter, adminCtrl.login)
 router.post('/login/mfa',  otpVerifyLimiter, adminCtrl.verifyLoginMfa)
 router.get('/check-auth',  adminCtrl.checkAuth)
 router.post('/logout',     adminCtrl.logout)
+// Accessible with a first-login session; all other protected APIs remain blocked until completion.
+router.post('/security/password/required', ...accountAuth, commonCtrl.completeRequiredPasswordChange)
 router.post('/security/password/request-code', ...accountAuth, otpRequestLimiter, commonCtrl.requestMyPasswordCode)
 router.post('/security/password/change', ...accountAuth, otpVerifyLimiter, commonCtrl.changeMyPassword)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
@@ -182,6 +184,7 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
+
 
 
 

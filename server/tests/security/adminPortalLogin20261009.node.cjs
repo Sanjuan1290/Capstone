@@ -17,7 +17,7 @@ console.log('PASS: role-specific login routes and components')
 
 for (const expected of ['Super Admin Sign In', 'Branch Admin Sign In', '/superadmin/forgot-password', '/admin/forgot-password', '6-digit security code', 'Verify & Sign In']) assert.ok(shared.includes(expected), expected)
 assert.match(shared, /body: JSON.stringify\(mfaRequired \? \{ code, portal \} : \{ \.\.\.form, portal \}\)/)
-assert.match(shared, /navigate\(config.destination, \{ replace: true \}\)/)
+assert.match(shared, /data\.user\.must_change_password \? '\/admin\/change-password-required' : config\.destination/)
 console.log('PASS: distinct design, recovery link, login request, and MFA form')
 
 assert.match(controller, /requestedPortal !== actualPortal/)
@@ -25,5 +25,6 @@ assert.match(controller, /code: 'WRONG_ADMIN_PORTAL'/)
 assert.match(controller, /'superadmin_mfa_pending'/)
 assert.match(controller, /decoded\.portal/)
 console.log('PASS: server portal validation and separated MFA pending cookies')
+
 
 

@@ -18,6 +18,7 @@ const Admin_Announcements = () => {
   const [editing,setEditing]=useState(null)
   const [form,setForm]=useState(blank())
   const [error,setError]=useState('')
+  const [sectionErrors,setSectionErrors]=useState({})
   const [loading,setLoading]=useState(true)
   const [busy,setBusy]=useState(false)
   const [scan,setScan]=useState(null)
@@ -26,10 +27,21 @@ const Admin_Announcements = () => {
   const [details,setDetails]=useState(null)
   const refresh=useCallback(async()=>{
     setLoading(true)
-    try{
-      const [announcements,campaignList,count,promos]=await Promise.all([listAnnouncements(),listMarketingCampaigns(),getCampaignAudience(),getAdminPromotions()])
-      setPosts(announcements);setCampaigns(campaignList);setAudience(count);setPromotions(promos);setError('')
-    }catch(e){setError(e.message||'Could not load announcements.')}finally{setLoading(false)}
+    setError('')
+    // Posts, campaigns, audience/readiness, and promotions must not block each other.
+    const results=await Promise.allSettled([listAnnouncements(),listMarketingCampaigns(),getCampaignAudience(),getAdminPromotions()])
+    const [postResult,campaignResult,audienceResult,promotionResult]=results
+    const failed={}
+    if(postResult.status==='fulfilled' && Array.isArray(postResult.value))setPosts(postResult.value)
+    else {setPosts([]);failed.posts='Unable to load announcements. Please try Refresh.'}
+    if(campaignResult.status==='fulfilled' && Array.isArray(campaignResult.value))setCampaigns(campaignResult.value)
+    else {setCampaigns([]);failed.campaigns='Unable to load email campaign history.'}
+    if(audienceResult.status==='fulfilled' && audienceResult.value && typeof audienceResult.value==='object')setAudience(audienceResult.value)
+    else {setAudience(null);failed.audience='Unable to check email service or eligible patient count.'}
+    if(promotionResult.status==='fulfilled' && Array.isArray(promotionResult.value))setPromotions(promotionResult.value)
+    else {setPromotions([]);failed.promotions='Unable to load linked service promotions.'}
+    setSectionErrors(failed)
+    setLoading(false)
   },[])
   useEffect(()=>{void refresh()},[refresh])
   const edit = post => {setEditing(post?.id||'new');setScan(null);setForm(post?{...post,publish_at:fmt(post.publish_at),expires_at:fmt(post.expires_at),promotion_id:post.promotion_id||'',cover_image_token:''}:blank())}
@@ -79,8 +91,9 @@ const Admin_Announcements = () => {
         <p className="mt-1 max-w-3xl text-sm text-slate-500">Create public News & Offers posts independently of email campaigns. Email is sent only to eligible, consenting patients of this branch. Posting an offer never changes checkout prices.</p></div>
       <div className="flex gap-2"><button type="button" className="button-secondary" onClick={refresh}><MdRefresh/> Refresh</button><button type="button" className="button-primary" onClick={()=>edit(null)}><MdAdd/> New post</button></div>
     </header>
+    {Object.keys(sectionErrors).length>0&&<div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p className="font-semibold">Some sections could not load:</p>{Object.values(sectionErrors).map((message)=><p key={message}>{message}</p>)}<button className="mt-2 font-bold underline" type="button" onClick={refresh}>Try again</button></div>}
     {error&&<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700" role="alert">{error}</div>}
-    <div className="flex flex-wrap gap-3 text-sm"><span className="rounded-full bg-sky-50 px-3 py-2 text-sky-800">Eligible patients: {audience?.eligible??'—'}</span><span className={`rounded-full px-3 py-2 ${audience?.provider_ready?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800'}`}>Email provider: {audience?.provider_ready?'Configured':'Not configured — sending disabled'}</span><Link to="/news" target="_blank" rel="noreferrer" className="button-secondary">View public News & Offers ↗</Link></div>
+    <div className="flex flex-wrap gap-3 text-sm"><span className="rounded-full bg-sky-50 px-3 py-2 text-sky-800">Eligible patients: {audience?.eligible??'—'}</span><span className={`rounded-full px-3 py-2 ${audience?.provider_ready?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800'}`}>Email campaigns: {audience===null?'Status unavailable':audience.provider_ready?'Ready':'Paused — check sender and unsubscribe settings'}</span><Link to="/news" target="_blank" rel="noreferrer" className="button-secondary">View public News & Offers ↗</Link></div>
     {editing!==null&&<form onSubmit={save} className="space-y-4 rounded-2xl border border-emerald-200 bg-white p-5">
       <h2 className="font-bold">{editing==='new'?'Create a news post or promotion':'Edit announcement'}</h2>
       <div className="grid gap-3 md:grid-cols-3">
@@ -114,13 +127,14 @@ const Admin_Announcements = () => {
       <div className="flex justify-end gap-2"><button className="button-secondary" type="button" onClick={()=>setCampaignPost(null)}>Cancel</button><button type="button" className="button-primary" disabled={busy||!audience?.provider_ready} onClick={queue}><MdSend/> Queue campaign</button></div>
     </div>}
     <div className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="mb-3 font-bold">Posts</h2>
-      {loading?<p className="text-sm text-slate-500">Loading posts…</p>:!posts.length?<p className="text-sm text-slate-500">No announcements created yet.</p>:<div className="space-y-2">{posts.map(post=><div key={post.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 p-3"><div className="flex items-center gap-3">{post.cover_image_url&&<img src={post.cover_image_url} className="h-14 w-20 rounded-lg object-cover" alt=""/>}<div><p className="font-semibold text-slate-900">{post.title}</p><p className="text-xs text-slate-500">{post.type} · {post.status} · /news/{post.branch_id}/{post.slug}</p></div></div><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>edit(post)}>Edit</button><button type="button" className="button-primary" disabled={!audience?.provider_ready||!['published','scheduled'].includes(post.status)} onClick={()=>setCampaignPost(post)}><MdSend/> Email patients</button></div></div>)}</div>}
+      {loading?<p className="text-sm text-slate-500">Loading posts…</p>:!posts.length?<p className="text-sm text-slate-500">{sectionErrors.posts?'Announcements are unavailable right now.':'No announcements created yet.'}</p>:<div className="space-y-2">{posts.map(post=><div key={post.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 p-3"><div className="flex items-center gap-3">{post.cover_image_url&&<img src={post.cover_image_url} className="h-14 w-20 rounded-lg object-cover" alt=""/>}<div><p className="font-semibold text-slate-900">{post.title}</p><p className="text-xs text-slate-500">{post.type} · {post.status} · /news/{post.branch_id}/{post.slug}</p></div></div><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>edit(post)}>Edit</button><button type="button" className="button-primary" disabled={!audience?.provider_ready||!['published','scheduled'].includes(post.status)} onClick={()=>setCampaignPost(post)}><MdSend/> Email patients</button></div></div>)}</div>}
     </div>
     <div className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="mb-3 font-bold">Campaign history</h2>
-      {!campaigns.length?<p className="text-sm text-slate-500">No email campaigns yet.</p>:<div className="space-y-2">{campaigns.map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><p className="font-bold">{c.title}</p><p className="text-slate-500">{c.status} · {c.recipient_total} selected · {c.sent||0} accepted by provider · {c.pending||0} pending · {c.needs_review||0} uncertain (review)</p></div><div className="flex gap-2"><button type="button" className="button-secondary" onClick={()=>inspectCampaign(c.id)}>Details</button>{['queued','sending'].includes(c.status)&&<button type="button" className="button-secondary" onClick={()=>changeCampaign(c.id,'pause')}><MdPause/> Pause</button>}{c.status==='paused'&&<button type="button" className="button-secondary" onClick={()=>changeCampaign(c.id,'resume')}><MdPlayArrow/> Resume</button>}{['queued','sending','paused'].includes(c.status)&&<button type="button" className="button-secondary text-rose-600" onClick={()=>changeCampaign(c.id,'cancel')}><MdCancel/> Cancel unsent</button>}</div></div>)}</div>}
+      {!campaigns.length?<p className="text-sm text-slate-500">{sectionErrors.campaigns?'Campaign history is unavailable right now.':'No email campaigns yet.'}</p>:<div className="space-y-2">{campaigns.map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><div><p className="font-bold">{c.title}</p><p className="text-slate-500">{c.status} · {c.recipient_total} selected · {c.sent||0} accepted by provider · {c.pending||0} pending · {c.needs_review||0} uncertain (review)</p></div><div className="flex gap-2"><button type="button" className="button-secondary" onClick={()=>inspectCampaign(c.id)}>Details</button>{['queued','sending'].includes(c.status)&&<button type="button" className="button-secondary" onClick={()=>changeCampaign(c.id,'pause')}><MdPause/> Pause</button>}{c.status==='paused'&&<button type="button" className="button-secondary" onClick={()=>changeCampaign(c.id,'resume')}><MdPlayArrow/> Resume</button>}{['queued','sending','paused'].includes(c.status)&&<button type="button" className="button-secondary text-rose-600" onClick={()=>changeCampaign(c.id,'cancel')}><MdCancel/> Cancel unsent</button>}</div></div>)}</div>}
       {details&&<div className="mt-3 space-y-2 rounded-xl bg-slate-50 p-3"><h3 className="text-sm font-bold">Campaign #{details.id} — recipient delivery attempts</h3><div className="max-h-64 overflow-auto">{details.recipients.map(r=><div key={r.id} className="border-b border-slate-200 py-2 text-xs"><span className="font-semibold">{r.email}</span> · {r.status} · attempts: {r.attempts}{r.last_error&&<p className="text-rose-600">{r.last_error}</p>}</div>)}</div><div className="flex gap-2"><button type="button" className="button-secondary" disabled={details.page<=1} onClick={()=>listCampaignRecipients(details.id,details.page-1).then(page=>setDetails({id:details.id,...page})).catch(e=>setError(e.message))}>Previous</button><button type="button" className="button-secondary" disabled={details.recipients.length<50} onClick={()=>listCampaignRecipients(details.id,details.page+1).then(page=>setDetails({id:details.id,...page})).catch(e=>setError(e.message))}>Next</button></div></div>}
       <p className="mt-2 text-xs text-slate-500">Provider acceptance is not proof of inbox delivery. Unknown outcomes require provider-log review; they are not automatically resent.</p>
     </div>
   </section>
 }
 export default Admin_Announcements
+

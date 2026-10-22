@@ -3,6 +3,7 @@
 const db = require('../db/connect')
 const { getBillingRecordWithItems } = require('../utils/billing')
 const { groupTransferRows } = require('../utils/supplyTransfers')
+const { loadCollectionLedger, summarizeLedgerRows } = require('../utils/reportMetrics')
 
 const dateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : ''
 const pageOptions = (query) => {
@@ -129,20 +130,33 @@ async function readSystemSetup(req,res){
   res.json({visit_reasons:visit[0],cancellation_reasons:cancel[0],service_categories:categories[0],uoms:uoms[0],suppliers:suppliers[0],location_types:types[0],movement_reasons:movements[0]})
 }
 
+// Same contract as the original admin Daily Close (methods/cashiers arrays) so the
+// shared Billing Overview and Daily Close screens render; every query is branch-scoped.
 async function readReconciliation(req,res){
   const date=dateOnly(req.query.date)||new Date().toISOString().slice(0,10)
-  const [methods]=await db.query(`SELECT bp.payment_method,COUNT(*) AS transactions,COALESCE(SUM(bp.amount),0) AS amount
-       FROM billing_payments bp JOIN billing_records b ON b.id=bp.billing_id
-       WHERE b.branch_id=? AND bp.status='completed' AND DATE(bp.paid_at)=? GROUP BY bp.payment_method`,[req.branchId,date])
-  const [[gross]]=await db.query(`SELECT COUNT(*) AS transactions,COALESCE(SUM(bp.amount),0) AS gross_collected FROM billing_payments bp
-       JOIN billing_records b ON b.id=bp.billing_id WHERE b.branch_id=? AND bp.status='completed' AND DATE(bp.paid_at)=?`,[req.branchId,date])
-  const [[refund]]=await db.query('SELECT COALESCE(SUM(r.amount),0) AS refunded FROM billing_payment_refunds r JOIN billing_payments bp ON bp.id=r.payment_id JOIN billing_records b ON b.id=bp.billing_id WHERE b.branch_id=? AND DATE(r.refunded_at)=?',[req.branchId,date])
+  const ledger=await loadCollectionLedger({startDate:date,endDate:date,branchId:req.branchId})
+  const cash=summarizeLedgerRows(ledger.rows.filter(r=>r.payment_method==='cash'))
   const [[discount]]=await db.query("SELECT COALESCE(SUM(discount_amount),0) AS discounts FROM billing_records WHERE branch_id=? AND status<>'voided' AND DATE(COALESCE(finalized_at,created_at))=?",[req.branchId,date])
   const [[voids]]=await db.query("SELECT COUNT(*) AS total FROM billing_payments bp JOIN billing_records b ON b.id=bp.billing_id WHERE b.branch_id=? AND bp.status='voided' AND DATE(COALESCE(bp.voided_at,bp.paid_at))=?",[req.branchId,date])
-  const [closings]=await db.query('SELECT * FROM cashier_closings WHERE branch_id=? AND closing_date=?',[req.branchId,date])
-  const grossAmount=Number(gross.gross_collected||0),refundAmount=Number(refund.refunded||0)
-  const byMethod=Object.fromEntries(methods.map(m=>[m.payment_method,{transactions:Number(m.transactions),amount:Number(m.amount)}]))
-  res.json({date,methods:byMethod,summary:{transactions:Number(gross.transactions||0),gross_collected:grossAmount,voided:Number(voids.total||0),refunded:refundAmount,net_collected:grossAmount-refundAmount,discounts:Number(discount.discounts||0)},cashiers:[],closings})
+  const [cashiers]=await db.query(`SELECT x.cashier_role,x.cashier_id,x.cashier_name,COUNT(*) AS transactions,
+      COALESCE(SUM(CASE WHEN x.payment_method='cash' THEN x.amount ELSE 0 END),0) AS cash_received,
+      COALESCE(SUM(CASE WHEN x.payment_method<>'cash' THEN x.amount ELSE 0 END),0) AS non_cash_received
+    FROM (SELECT CASE WHEN bp.received_by_admin_id IS NOT NULL THEN 'admin' ELSE 'staff' END AS cashier_role,
+            COALESCE(bp.received_by_staff_id,bp.received_by_admin_id) AS cashier_id,
+            COALESCE(s.full_name,a.full_name,'Unknown') AS cashier_name,bp.payment_method,bp.amount
+          FROM billing_payments bp JOIN billing_records b ON b.id=bp.billing_id AND b.branch_id=?
+          LEFT JOIN staff s ON s.id=bp.received_by_staff_id LEFT JOIN admins a ON a.id=bp.received_by_admin_id
+          WHERE bp.status='completed' AND DATE(bp.paid_at)=?) x
+    GROUP BY x.cashier_role,x.cashier_id,x.cashier_name ORDER BY x.cashier_name`,[req.branchId,date])
+  const [closings]=await db.query(`SELECT cc.*,COALESCE(s.full_name,a.full_name) AS cashier_name FROM cashier_closings cc
+    LEFT JOIN staff s ON cc.cashier_role='staff' AND s.id=cc.staff_id LEFT JOIN admins a ON cc.cashier_role='admin' AND a.id=cc.staff_id
+    WHERE cc.branch_id=? AND cc.closing_date=? ORDER BY cc.closed_at ASC`,[req.branchId,date])
+  res.json({date,methods:ledger.byMethod,summary:{transactions:ledger.rows.filter(r=>r.kind==='payment').length,
+    gross_collected:ledger.summary.gross_received,voided:ledger.summary.voided,refunded:ledger.summary.refunded,
+    net_collected:ledger.summary.net_collected,voided_transactions:Number(voids.total||0),cash_collected:cash.net_collected,
+    discounts:Number(discount.discounts||0)},
+    cashiers:cashiers.map(row=>({...row,transactions:Number(row.transactions||0),cash_received:Number(row.cash_received||0),non_cash_received:Number(row.non_cash_received||0),
+      closing:closings.find(c=>c.cashier_role===row.cashier_role&&Number(c.staff_id)===Number(row.cashier_id))||null})),closings})
 }
 
 async function readAdjustments(req,res){
@@ -211,6 +225,8 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
     reg('/billing/cashier-closing','billing',readCashDrawer)
     reg('/billing/reconciliation','billing',readReconciliation)
     reg('/billing/adjustment-requests','billing',readAdjustments)
+    // Must precede /billing/:id, otherwise 'discount-presets' is parsed as a bill number.
+    reg('/billing/discount-presets','billing',async(req,res)=>{const [rows]=await db.query('SELECT * FROM discount_presets WHERE branch_id=? ORDER BY sort_order,created_at,id',[req.branchId]);res.json(rows)})
     reg('/supply-requests','stock_transfers',readTransferGroups)
     reg('/system-setup','system_setup',readSystemSetup)
     router.get(`${prefix}/billing/payment-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})})
@@ -225,5 +241,6 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
   }
 }
 module.exports={registerBranchOperationalReads,readBills,readCashDrawer,readTransferGroups,readSystemSetup}
+
 
 

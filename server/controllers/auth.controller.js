@@ -223,7 +223,7 @@ const resetPassword = async (req, res) => {
   if (!config || !reset.account_id) return res.status(400).json({ message: 'Reset session is invalid. Please start over.' })
 
   const hashed = await bcrypt.hash(password, 10)
-  const extra = ['staff', 'doctor'].includes(reset.role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
+  const extra = ['staff', 'doctor', 'admin'].includes(reset.role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
   await db.query(`UPDATE ${config.table} SET password = ?${extra} WHERE id = ?`, [hashed, reset.account_id])
   await revokeSessions(reset.role, reset.account_id)
   await db.query('DELETE FROM password_resets WHERE id = ?', [reset.id])
@@ -232,6 +232,7 @@ const resetPassword = async (req, res) => {
 }
 
 module.exports = { forgotPassword, verifyOtp, resetPassword }
+
 
 
 
