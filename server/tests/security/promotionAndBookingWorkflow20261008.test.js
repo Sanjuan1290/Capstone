@@ -33,7 +33,7 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(read('client/src/pages/auth/Patient/PatientRegister.jsx')).toContain('name="receive_promotions"')
     expect(read('server/controllers/patient.controller.js')).toContain('receive_promotions: normalizedProfile.receive_promotions ? 1 : 0')
   })
-  it('integrates the promo lifecycle without automatically discounting bills',()=>{
+  it('integrates the promo lifecycle without automatically discounting bills',async()=>{
     const schema=read('server/utils/schema.js'), admin=read('server/routers/admin.router.js'), patient=read('server/routers/patient.router.js')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS clinic_promotions')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS clinic_promotion_services')
@@ -45,14 +45,30 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(patient).toContain("router.get('/promotions'")
     expect(read('client/src/pages/adminPage/Admin_Promotions.jsx')).toContain('Promotions are informational')
     expect(read('client/src/pages/patientPage/BookAppointment.jsx')).toContain('promo.service_ids.includes(Number(service.id))')
-    expect(read('client/src/pages/patientPage/PatientDashboard.jsx')).toContain('Current clinic offers')
+    // Verify the current patient-facing promo contract, not the old section copy.
+    const dashboard=read('client/src/pages/patientPage/PatientDashboard.jsx')
+    const cards=read('client/src/components/promotions/PromotionCards.jsx')
+    expect(dashboard).toContain('<FeaturedOffers promotions={promotions} />')
+    expect(cards).toContain('Special Offers')
+    expect(cards).toContain('visiblePromotions(promotions,true)')
+    expect(cards).toContain('to="/patient/offers"')
+    expect(cards).toContain('Explore eligible services')
+    expect(cards).not.toMatch(/discount_amount|billing_payments/)
+    const {visiblePromotions}=await import('../../../client/src/utils/promotionPresentation.mjs')
+    const promotions=[
+      {id:1,featured_order:4,show_on_dashboard:true},
+      {id:2,featured_order:1,show_on_dashboard:true},
+      {id:3,featured_order:2,show_on_dashboard:true},
+      {id:4,featured_order:0,show_on_dashboard:false},
+      {id:5,is_active:0,featured_order:0,show_on_dashboard:true},
+      {id:6,featured_order:3,show_on_dashboard:true},
+    ]
+    expect(visiblePromotions(promotions,true).map(p=>p.id)).toEqual([2,3,6])
+    expect(promotions).toHaveLength(6) // presentation never mutates records
+
   })
   it('keeps icon and text separated',()=>{
     expect(read('client/src/index.css')).toContain('.form-control.pl-11 { padding-left: 2.75rem; }')
     expect(read('client/src/index.css')).toContain('.form-control.pl-10 { padding-left: 2.5rem; }')
   })
 })
-
-
-
-

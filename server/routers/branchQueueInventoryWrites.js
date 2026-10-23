@@ -4,6 +4,7 @@ const db=require('../db/connect')
 const {writeAuditLog}=require('../utils/audit')
 const {applyManualInventoryMovement}=require('../utils/manualInventoryMovement')
 const {attachBatchesToInventory}=require('../utils/inventoryBatches')
+const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const admin=require('../controllers/admin.controller')
 const isId=x=>Number.isSafeInteger(Number(x))&&Number(x)>0
 const audit=(req,action,type,id,before,after)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action,entityType:type,entityId:id,branchId:req.branchId,oldValues:before,newValues:after,ipAddress:req.ip})
@@ -127,5 +128,3 @@ function registerBranchMoveStock(router,{requireSuper,branchContext,requirePermi
 }
 module.exports.moveStockLocation=moveStockLocation
 module.exports.registerBranchMoveStock=registerBranchMoveStock
-
-

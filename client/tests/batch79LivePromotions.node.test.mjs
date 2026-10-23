@@ -8,6 +8,11 @@ test('featured offers show at most three in stable order and exclude disabled da
  const source=[{id:1,featured_order:4,show_on_dashboard:true},{id:2,featured_order:2,show_on_dashboard:true},{id:3,featured_order:3,show_on_dashboard:false},{id:4,featured_order:1,show_on_dashboard:true},{id:5,featured_order:6,show_on_dashboard:true},{id:6,is_active:false,featured_order:0,show_on_dashboard:true}]
  assert.deepEqual(visiblePromotions(source,true).map(x=>x.id),[4,2,1]);assert.equal(visiblePromotions(source).length,5);assert.deepEqual(source.map(x=>x.id),[1,2,3,4,5,6])
 })
+test('API active-only offers without an is_active field remain visible but explicit database 0 is hidden',()=>{
+ const rows=[{id:11,featured_order:2,show_on_dashboard:true},{id:12,is_active:0,featured_order:0,show_on_dashboard:true},{id:13,is_active:'0',featured_order:1,show_on_dashboard:true},{id:14,is_active:1,featured_order:3,show_on_dashboard:true}]
+ assert.deepEqual(visiblePromotions(rows,true).map(p=>p.id),[11,14])
+ assert.deepEqual(rows.map(p=>p.id),[11,12,13,14])
+})
 test('legacy SSE event names map to module change subjects',()=>{
  assert.equal(normalizeClinicEvent('appointment_updated'),'appointment.updated');assert.equal(normalizeClinicEvent('billing_paid'),'billing.updated');assert.equal(normalizeClinicEvent('inventory_updated'),'inventory.updated');assert.equal(normalizeClinicEvent('promotion.updated'),'promotion.updated')
  assert.equal(clinicEventAffects('queue_updated',['queue.updated']),true)
