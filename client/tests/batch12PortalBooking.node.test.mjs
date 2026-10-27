@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { portalBaseForPath, canManageServicePricingAtPath } from '../src/utils/branchPortalPath.mjs'
-import { destinationForAuthenticatedUser } from '../src/utils/guestNavigation.mjs'
+import { destinationForAuthenticatedUser, guestPortalForPath, isSamePortalGuestRoute } from '../src/utils/guestNavigation.mjs'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -31,6 +31,34 @@ test('guest login redirects respect active role, account identity and required p
   assert.equal(destinationForAuthenticatedUser('patient', {}), '/patient')
   assert.equal(destinationForAuthenticatedUser(null, null), null)
   assert.match(read('../src/App.jsx'), /path='\/superadmin\/login' element=\{<GuestOnlyRoute><SuperAdminLogin/)
+})
+
+test('portal-specific guest pages never redirect an authenticated user from another role', () => {
+  const pages = {
+    '/login': 'patient',
+    '/patient/login': 'patient',
+    '/patient/register': 'patient',
+    '/staff/login': 'staff',
+    '/doctor/login': 'doctor',
+    '/admin/login': 'admin',
+    '/superadmin/login': 'superadmin',
+  }
+  for (const [page, targetRole] of Object.entries(pages)) {
+    assert.equal(guestPortalForPath(page), targetRole, page)
+    for (const activeRole of ['patient', 'staff', 'doctor', 'admin', 'superadmin']) {
+      assert.equal(isSamePortalGuestRoute(page, activeRole), activeRole === targetRole,
+        `${page} with ${activeRole} session`)
+    }
+  }
+  assert.equal(isSamePortalGuestRoute('/patient/register/', 'superadmin'), false)
+  assert.equal(isSamePortalGuestRoute('/patient/register/', 'patient'), true)
+  assert.equal(isSamePortalGuestRoute('/login', null), false)
+  assert.equal(isSamePortalGuestRoute('/', 'superadmin'), false)
+  assert.equal(guestPortalForPath('/superadmin'), null)
+  const guard = read('../src/components/GuestOnlyRoute.jsx')
+  assert.match(guard, /useLocation\(/)
+  assert.match(guard, /isSamePortalGuestRoute\(pathname, role\)/)
+  assert.match(guard, /destinationForAuthenticatedUser\(role, user\)/)
 })
 
 test('booking state is preserved on transient API failures and submission is gated', () => {
