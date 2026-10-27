@@ -424,6 +424,8 @@ export const createWalkInPatient = (payload) =>
 export const getQueue = (date = '') =>
   requestJson(`${getAdminApiBase()}/queue${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 
+export const getWalkInAvailableDoctors = (clinicType) =>
+  requestJson(`${getAdminApiBase()}/walk-in/doctors?clinic_type=${encodeURIComponent(clinicType || '')}`)
 export const getQueuePrecheck = (patientId) => requestJson(`${getAdminApiBase()}/queue/precheck/${patientId}`)
 
 export const addToQueue = (payload) =>
@@ -523,5 +525,7 @@ export const reopenCashierClosing = (closingId, reason) => postJson(`${getAdminA
 
 export const createAdminQrPayment = id => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment`, { method:'POST' })
 export const getAdminQrStatus = (id, { reconcile = false } = {}) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/status${reconcile ? '?reconcile=1' : ''}`)
+export const cancelAdminQrPayment = (id, attemptId) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/${attemptId}/cancel`, { method:'POST' })
 export const resolveAdminQrReview = (id, attemptId, body) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/${attemptId}/resolve`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+
 

@@ -102,4 +102,3 @@ function invokeLogin(req) {
     } catch (error) { reject(error) }
   })
 }
-

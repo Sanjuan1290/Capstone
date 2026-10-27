@@ -16,6 +16,3 @@ export const SuperAdminSettings=()=> <div className="space-y-6">
   <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4"><div className="flex items-start gap-3"><MdSecurity className="mt-0.5 shrink-0 text-teal-700" size={23}/><div><h2 className="font-bold text-slate-900">Profile & Security</h2><p className="mt-1 text-sm text-slate-500">Use the original secure verification process to change sensitive account information. Existing account and password safeguards remain in place.</p></div></div></div>
   <SettingsPage/>
  </div>
-
-
-

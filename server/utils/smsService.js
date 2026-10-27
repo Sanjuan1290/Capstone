@@ -170,7 +170,3 @@ module.exports = {
   sendDoctorAppointmentSms,
   sendPatientAppointmentStatusSms,
 }
-
-
-
-

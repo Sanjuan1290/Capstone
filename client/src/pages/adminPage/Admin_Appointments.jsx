@@ -17,6 +17,9 @@ import {
   getAppointmentCancellationReasons,
   getAppointmentAvailableSlots,
   getBookingServices,
+  getWalkInAvailableDoctors,
+  getQueuePrecheck,
+  addToQueue,
 } from '../../services/admin.service'
 
 const adminServices = {
@@ -34,11 +37,15 @@ const adminServices = {
   getAppointmentCancellationReasons,
   getAppointmentAvailableSlots,
   getBookingServices,
+  getWalkInAvailableDoctors,
+  getQueuePrecheck,
+  addToQueue,
 }
 
 const Admin_Appointments = () => <Appointments services={adminServices} />
 
 export default Admin_Appointments
+
 
 
 

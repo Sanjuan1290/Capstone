@@ -599,7 +599,7 @@ const rescheduleAppointment = async (req, res) => {
   )
   if (!rows.length) return res.status(404).json({ message: 'Not found.' })
   if (!['pending','confirmed','rescheduled'].includes(rows[0].status)) return res.status(400).json({ message:'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
-  const settings=await loadBookingSettings()
+  const settings=await loadBookingSettings(db,req.branchId)
   const durationMinutes=getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status,'rescheduled')
   await withAppointmentSlotLock({doctorId:rows[0].doctor_id},async()=>{
@@ -620,12 +620,12 @@ const getAppointmentAvailableSlotsForStaff = async (req, res) => {
   if (!isValidDateOnly(date)) return res.status(400).json({ message: 'A valid date is required.' })
   const doctorId = Number(req.params.id)
   const appointmentId = Number(req.query.appointment_id)
-  const settings = await loadBookingSettings()
+  const settings = await loadBookingSettings(db, req.branchId)
   let clinicType = String(req.query.clinic_type || '').trim()
   let durationMinutes = 60
   let excludeAppointmentId = null
   if (appointmentId > 0) {
-    const [[appointment]] = await db.query(`SELECT doctor_id,clinic_type,reserved_duration_minutes_snapshot,requested_service_duration_minutes_snapshot FROM appointments WHERE id=? LIMIT 1`,[appointmentId])
+    const [[appointment]] = await db.query(`SELECT doctor_id,clinic_type,reserved_duration_minutes_snapshot,requested_service_duration_minutes_snapshot FROM appointments WHERE id=? AND branch_id=? LIMIT 1`,[appointmentId,req.branchId])
     if (!appointment || Number(appointment.doctor_id)!==doctorId) return res.status(404).json({ message:'Appointment not found for this doctor.' })
     clinicType=appointment.clinic_type
     durationMinutes=getAppointmentReservedDuration(appointment)
@@ -633,7 +633,7 @@ const getAppointmentAvailableSlotsForStaff = async (req, res) => {
   } else {
     const serviceId=Number(req.query.service_id)
     if (!serviceId || !['medical','derma'].includes(clinicType)) return res.status(400).json({ message:'Clinic and service are required.' })
-    const [[service]]=await db.query(`SELECT id,clinic_type,average_duration_minutes,is_active FROM billing_service_catalog WHERE id=? LIMIT 1`,[serviceId])
+    const [[service]]=await db.query(`SELECT id,clinic_type,average_duration_minutes,is_active FROM billing_service_catalog WHERE id=? AND branch_id=? LIMIT 1`,[serviceId,req.branchId])
     if (!service || Number(service.is_active)!==1 || ![clinicType,'all'].includes(String(service.clinic_type||''))) return res.status(409).json({ message:'The selected service is unavailable for this clinic.' })
     durationMinutes=roundReservedDurationMinutes(Number(service.average_duration_minutes||60),settings.booking_start_interval_minutes)
   }
@@ -1287,6 +1287,31 @@ const updateBill = async (req, res) => {
     }
 
     const totals = computeBillingTotals({ items: allItems, discount_amount: discount.amount })
+    // A promotion review is an explicit cashier decision. Never equate selection
+    // with a discount, or record an applied promotion before a real authorized save.
+    const reviewProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'promotion_review_outcome')
+    let promoReview = null
+    let promoReviewNote = null
+    if (reviewProvided) {
+      if (!currentBill.selected_promotion) {
+        await conn.rollback()
+        return res.status(400).json({ message:'There is no selected promotion for this appointment.' })
+      }
+      promoReview = String(req.body.promotion_review_outcome || '').trim() || null
+      if (promoReview && !['needs_review','reviewed_no_discount','manual_discount_applied'].includes(promoReview)) {
+        await conn.rollback()
+        return res.status(400).json({ message:'Select a valid promotion review outcome.' })
+      }
+      promoReviewNote = String(req.body.promotion_review_note || '').trim()
+      if (promoReviewNote.length > 255 || (promoReview === 'reviewed_no_discount' && promoReviewNote.length < 2)) {
+        await conn.rollback()
+        return res.status(400).json({ message:'Enter a short reason when you decide not to apply an offer (up to 255 characters).' })
+      }
+      if (promoReview === 'manual_discount_applied' && (!discount.preset || totals.discount <= 0)) {
+        await conn.rollback()
+        return res.status(409).json({ message:'Save an authorized, positive manual discount to mark this selected promotion as applied.' })
+      }
+    }
     const nextVersion = expectedVersion + 1
 
     await replaceStaffBillingItems(billingId, securedConsultationItems, normalizedStaffItems, conn)
@@ -1299,6 +1324,20 @@ const updateBill = async (req, res) => {
     if (Number(billUpdate.affectedRows || 0) !== 1) {
       const err = new Error('This bill changed while it was being saved. Reload the latest version and try again.')
       err.statusCode = 409; err.code = 'BILL_VERSION_CONFLICT'; throw err
+    }
+    if (reviewProvided) {
+      await conn.query(`UPDATE billing_records SET promotion_review_outcome=?, promotion_review_note=?,
+        promotion_review_by_role=?, promotion_review_by_user_id=?, promotion_reviewed_bill_version=?,
+        promotion_reviewed_at=IF(? IS NULL, NULL, CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) WHERE id=? AND branch_id=?`,
+        [promoReview, promoReviewNote || null, promoReview ? actorRole : null,
+         promoReview ? req.user.id : null, promoReview ? nextVersion : null, promoReview, billingId, req.branchId])
+    } else if (currentBill.promotion_review_outcome === 'manual_discount_applied' &&
+      (Number(totals.discount_amount) !== Number(currentBill.discount_amount) || discount.label !== currentBill.discount_label)) {
+      // Later bill edits must not leave a stale claim that a particular discount was applied.
+      await conn.query(`UPDATE billing_records SET promotion_review_outcome=NULL, promotion_review_note=NULL,
+        promotion_review_by_role=NULL, promotion_review_by_user_id=NULL,
+        promotion_reviewed_bill_version=NULL, promotion_reviewed_at=NULL WHERE id=? AND branch_id=?`,
+        [billingId, req.branchId])
     }
 
     // Pending requests for the old revision are no longer safe after a material save.
@@ -1315,7 +1354,7 @@ const updateBill = async (req, res) => {
     await writeAuditLog({
       userId: req.user.id, userRole: actorRole, action: 'billing.draft_updated', entityType: 'billing_record', entityId: billingId,
       oldValues: { version: expectedVersion, subtotal: currentBill.subtotal, discount_amount: currentBill.discount_amount, total_amount: currentBill.total_amount },
-      newValues: { version: nextVersion, subtotal: totals.subtotal, discount_type: discount.type, discount_label: discount.label, discount_amount: totals.discount_amount, total_amount: totals.total_amount },
+      newValues: { version: nextVersion, subtotal: totals.subtotal, discount_type: discount.type, discount_label: discount.label, discount_amount: totals.discount_amount, total_amount: totals.total_amount, ...(reviewProvided ? {promotion_id:currentBill.selected_promotion.id, promotion_review_outcome:promoReview, promotion_review_note:promoReviewNote || null, promotion_review_bill_version:nextVersion} : {}) },
       ipAddress: req.ip || null, branchId: req.branchId,
     }, conn)
     await conn.commit()
@@ -2111,6 +2150,7 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

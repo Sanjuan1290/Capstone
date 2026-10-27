@@ -533,8 +533,8 @@ const Doctor_Appointments = () => {
     navigate(`/doctor/consultation?id=${appointmentId}`)
   }
 
-  const remainingToday = Number(summary.remainingToday || appointments.filter(a => ['confirmed','rescheduled','in-progress'].includes(a.status)).length)
-  const upcomingCount = Number(summary.upcomingCount || (viewMode === 'upcoming' ? appointments.length : 0))
+  const remainingToday = Number(summary.remainingToday ?? 0)
+  const upcomingCount = Number(summary.upcomingCount ?? 0)
   const filteredAppointments = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return appointments.filter((appt) => {
@@ -729,6 +729,7 @@ const Doctor_Appointments = () => {
 }
 
 export default Doctor_Appointments
+
 
 
 

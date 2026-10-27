@@ -62,7 +62,3 @@ export const TableWrap=({children})=><div className="overflow-x-auto rounded-xl 
 export const PrimaryButton=({children,...props})=><button type="button" className="button-primary inline-flex items-center justify-center gap-2" {...props}>{children}</button>
 export const SecondaryButton=({children,...props})=><button type="button" className="button-secondary inline-flex items-center justify-center gap-2" {...props}>{children}</button>
 export function useAsync(load,deps=[]){const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);useEffect(()=>{let active=true;setLoading(true);setError('');Promise.resolve().then(load).then(v=>{if(active)setData(v)}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},deps);return {data,error,loading,setData}}
-
-
-
-

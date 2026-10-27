@@ -5,6 +5,7 @@ const path = require('path')
 const crypto = require('crypto')
 const { runTiDBMigration, PROCEDURAL_FILES } = require('./tidbMigrationAdapter')
 const { requiredFoundationColumns, verifyFoundationSchema, ensureFoundationRekeys } = require('./foundationSchema')
+const { MIGRATION_FILE: promotionMigrationFile, runSelectedPromotionMigration, verifyPromotionSchema } = require('./promotionMigration')
 
 // Handle mysql CLI DELIMITER directives (including stored-procedure bodies).
 // Statements execute serially on a single connection. A migration is recorded
@@ -47,6 +48,7 @@ const migrationFiles = [
   '2026-10-15-cashier-branch-uniqueness.sql',
   '2026-10-16-paymongo-test-qr.sql',
   '2026-10-17-announcements-campaigns.sql',
+  promotionMigrationFile,
 ]
 
 const schemaMigrationsSql = [
@@ -100,6 +102,7 @@ async function runRegisteredBranchMigrations(db) {
       // A recorded foundation migration is not proof that its schema still
       // matches. Detect drift before later migrations or application startup.
       if (file === migrationFiles[0]) await verifyFoundationSchema(db, sql)
+      if (file === promotionMigrationFile) await verifyPromotionSchema(db)
       continue
     }
 
@@ -107,7 +110,10 @@ async function runRegisteredBranchMigrations(db) {
     try {
       // MySQL DDL auto-commits; reruns are made safe by guarded, idempotent SQL.
       const statements = splitMysqlMigration(sql)
-      if (String(process.env.DB_PROVIDER || '').toLowerCase() === 'tidb' && PROCEDURAL_FILES.has(file)) {
+      if (file === promotionMigrationFile) {
+        // Metadata-checked, resumable per-table DDL. Never mark an incomplete schema as applied.
+        await runSelectedPromotionMigration(connection, statements)
+      } else if (String(process.env.DB_PROVIDER || '').toLowerCase() === 'tidb' && PROCEDURAL_FILES.has(file)) {
         // Convert MySQL stored-procedure calls to equivalent schema guards in JS.
         // The archived SQL and SHA-256 stay unchanged for existing databases.
         await runTiDBMigration(connection, file, statements)
@@ -143,4 +149,3 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
-

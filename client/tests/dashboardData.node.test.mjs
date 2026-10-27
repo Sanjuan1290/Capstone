@@ -38,4 +38,3 @@ test('branch dashboard encodes the local date in the appointments query', async 
   })
   assert.equal(request, '?date=2026-10-20')
 })
-

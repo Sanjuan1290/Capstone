@@ -94,7 +94,3 @@ module.exports = {
   zonedDateTimeToUtc,
   getNextClinicRunAt,
 }
-
-
-
-

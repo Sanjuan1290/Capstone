@@ -541,8 +541,3 @@ module.exports = {
   closeMyCashier,
   reopenCashierClosing,
 }
-
-
-
-
-

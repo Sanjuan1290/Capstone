@@ -1,7 +1,7 @@
 'use strict'
 const express = require('express')
 const db = require('../db/connect')
-const { createQr, retrieveIntent, retrieveRefund, credentials, fail } = require('../utils/paymongoClient')
+const { createQr, retrieveIntent, retrieveRefund, cancelIntent, credentials, fail } = require('../utils/paymongoClient')
 const { assertVerifiedQrRefund } = require('../utils/paymongoRefundVerification')
 const { verifyPaymongoSignature } = require('../utils/paymongoWebhookSignature')
 const { getBillingRecordWithItems } = require('../utils/billing')
@@ -11,13 +11,19 @@ const { broadcast } = require('../utils/sse')
 const { configuredMode, expectedLive, supportsMode, isLiveCollectionEnabled, sameConfiguredMode } = require('../utils/paymongoMode')
 
 const apiRouter = express.Router()
-const knownStatus = new Set(['creating','pending','succeeded','failed','expired','review','refunded'])
+const knownStatus = new Set(['creating','pending','succeeded','failed','expired','review','refunded','cancelled'])
 const http = (code, message, status = 409) => Object.assign(new Error(message), {statusCode: status, code})
 const validId = id => Number.isSafeInteger(Number(id)) && Number(id) > 0
 const isTestSimulationUrl = url => {
   try { const parsed = new URL(url); return parsed.protocol === 'https:' && (parsed.hostname === 'paymongo.com' || parsed.hostname.endsWith('.paymongo.com')) }
   catch { return false }
 }
+const cancellationEnabled = row => process.env.PAYMONGO_QR_CANCEL_ENABLED === 'true'
+  && (String(row?.mode || 'test') === 'test' || process.env.PAYMONGO_QR_CANCEL_LIVE_ENABLED === 'true')
+  && sameConfiguredMode(row)
+const canRequestCancel = row => Boolean(row && row.active_bill_id && row.payment_intent_id && !row.provider_payment_id
+  && ['pending','review'].includes(row.status) && cancellationEnabled(row))
+const canCollectAlternate = row => !row || (!row.active_bill_id && ['cancelled','expired','failed','refunded','succeeded'].includes(row.status))
 const publicAttempt = row => ({
   id: Number(row.id), billing_id:Number(row.billing_id), branch_id: Number(row.branch_id),
   mode: String(row.mode || 'test'), current_mode: configuredMode() || null,
@@ -26,6 +32,8 @@ const publicAttempt = row => ({
   expires_at: row.expires_at, qr_image: row.status === 'pending' ? row.qr_image : null,
   test_url: String(row.mode || 'test') === 'test' && row.status === 'pending' && isTestSimulationUrl(row.test_url) ? row.test_url : null,
   error_code: row.error_code || null,
+  can_request_cancel: canRequestCancel(row), can_collect_alternate: canCollectAlternate(row),
+  needs_admin_review: row.status === 'review' || Boolean(row.active_bill_id && !row.payment_intent_id),
 })
 const getLatest = async (billId, branchId) => {
   const [[row]] = await db.query('SELECT * FROM payment_gateway_attempts WHERE billing_id=? AND branch_id=? ORDER BY id DESC LIMIT 1', [billId,branchId])
@@ -38,8 +46,7 @@ const makeQr = async (req, res) => {
   if (!String(process.env.PAYMONGO_WEBHOOK_SECRET || '').startsWith('whsk_')) throw http('PAYMONGO_WEBHOOK_NOT_CONFIGURED','Configure the webhook signing secret for the active PayMongo mode.',503)
   const billId = Number(req.params.id), branchId = Number(req.branchId)
   if (!validId(billId) || !validId(branchId)) throw http('BRANCH_REQUIRED','Valid branch and bill are required.',400)
-  // An expired or never-issued QR must not hold the bill forever: settle or
-  // release it against PayMongo before deciding whether a new QR is allowed.
+  // Never release a bill lock based only on local expiry or missing provider identifiers.
   const [[stale]] = await db.query('SELECT a.id FROM payment_gateway_attempts a JOIN billing_records b ON b.id=a.billing_id WHERE a.active_bill_id=? AND b.branch_id=? LIMIT 1',[billId,branchId])
   if (stale) await reconcileAttempt(stale.id,{force:true}).catch(error=>console.warn('[paymongo-reconciliation] pre-QR check failed',{attemptId:stale.id,code:error.code}))
   const conn = await db.getConnection()
@@ -94,6 +101,81 @@ const status = async (req,res) => {
   }
   res.json(attempt ? publicAttempt(attempt) : {status:'not_created',mode:configuredMode() || null,enabled:configuredMode() === 'test' || isLiveCollectionEnabled()})
 }
+// Release a lock only after independently retrieved, identity-matched PayMongo
+// evidence that the intent is terminal AND cannot receive another payment.
+const terminalNonpayable = status => ['cancelled','canceled'].includes(String(status || '').toLowerCase())
+function assertMatchingIntent(attempt, intent) {
+  if (intent?.id !== attempt.payment_intent_id || intent.attributes?.livemode !== expectedLive()
+      || String(intent.attributes?.currency).toUpperCase() !== 'PHP'
+      || Number(intent.attributes?.amount) !== Number(attempt.amount_centavos)) {
+    throw http('PAYMENT_INTENT_MISMATCH','PayMongo intent does not match this QR attempt.')
+  }
+}
+async function releaseVerifiedCancelled(attempt, intent, actor = {userId:null,userRole:'system',ipAddress:null}) {
+  assertMatchingIntent(attempt, intent)
+  if (!terminalNonpayable(intent.attributes?.status) || (intent.attributes?.payments || []).some(p => p?.attributes?.status === 'paid')) {
+    throw http('CANCELLATION_NOT_CONFIRMED','PayMongo has not confirmed that this QR can no longer be paid.')
+  }
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    // Match the bill -> attempt locking order used by payBill and makeQr.
+    const [[bill]] = await conn.query('SELECT id FROM billing_records WHERE id=? AND branch_id=? LIMIT 1 FOR UPDATE',[attempt.billing_id,attempt.branch_id])
+    if (!bill) throw http('BILL_NOT_FOUND','Bill no longer exists in this branch.',404)
+    const [[latest]] = await conn.query('SELECT * FROM payment_gateway_attempts WHERE id=? AND billing_id=? AND branch_id=? LIMIT 1 FOR UPDATE',[attempt.id,attempt.billing_id,attempt.branch_id])
+    if (!latest) throw http('QR_NOT_FOUND','QR attempt no longer exists.',404)
+    if (latest.status === 'succeeded' || latest.provider_payment_id) throw http('PAYMENT_ALREADY_RECORDED','This QR has a payment to reconcile, not cancel.')
+    if (latest.status === 'cancelled' && !latest.active_bill_id) {await conn.commit(); return latest}
+    if (!latest.active_bill_id || !ACTIVE.has(latest.status) || latest.payment_intent_id !== attempt.payment_intent_id) {
+      throw http('QR_ATTEMPT_CHANGED','QR attempt changed during cancellation; reload.')
+    }
+    const [result] = await conn.query(`UPDATE payment_gateway_attempts SET status='cancelled',active_bill_id=NULL,qr_image=NULL,
+      error_code='PROVIDER_CANCELLED_VERIFIED' WHERE id=? AND branch_id=? AND active_bill_id=?
+      AND payment_intent_id=? AND provider_payment_id IS NULL AND status IN ('pending','creating','review')`,
+      [attempt.id,attempt.branch_id,attempt.billing_id,attempt.payment_intent_id])
+    if (Number(result.affectedRows) !== 1) throw http('QR_ATTEMPT_CHANGED','QR attempt changed during cancellation; reload.')
+    await writeAuditLog({userId:actor.userId,userRole:actor.userRole,
+      action:'billing.gateway_qr_cancelled',entityType:'billing_record',entityId:attempt.billing_id,
+      oldValues:{attempt_id:attempt.id,status:latest.status},newValues:{attempt_id:attempt.id,provider_status:intent.attributes?.status},
+      ipAddress:actor.ipAddress,branchId:attempt.branch_id}, conn)
+    await conn.commit()
+    return {...latest,status:'cancelled',active_bill_id:null,qr_image:null,error_code:'PROVIDER_CANCELLED_VERIFIED'}
+  } catch (error) {await conn.rollback().catch(()=>{}); throw error}
+  finally {conn.release()}
+}
+// Provider cancellation is disabled by default; TEST-mode verification and
+// explicit production approval are prerequisites for enabling this endpoint.
+const requestCancel = async (req,res) => {
+  const billId = Number(req.params.id), attemptId = Number(req.params.attemptId), branchId = Number(req.branchId)
+  if (![billId,attemptId,branchId].every(validId)) throw http('INVALID_BILL','Valid branch, bill and attempt are required.',400)
+  const [[bill]] = await db.query('SELECT id FROM billing_records WHERE id=? AND branch_id=? LIMIT 1',[billId,branchId])
+  if (!bill) throw http('BILL_NOT_FOUND','Bill not found in this branch.',404)
+  const [[attempt]] = await db.query('SELECT * FROM payment_gateway_attempts WHERE id=? AND billing_id=? AND branch_id=? LIMIT 1',[attemptId,billId,branchId])
+  if (!attempt) throw http('QR_NOT_FOUND','QR attempt not found in this branch.',404)
+  if (!sameConfiguredMode(attempt)) throw http('PAYMONGO_MODE_MISMATCH','Use the original PayMongo payment mode to resolve this attempt.')
+  if (!cancellationEnabled(attempt)) throw http('QR_CANCELLATION_DISABLED','QR cancellation is not enabled. Ask an administrator to reconcile the pending attempt.',403)
+  if (attempt.status === 'cancelled' && !attempt.active_bill_id) return res.json(publicAttempt(attempt))
+  if (!canRequestCancel(attempt)) throw http('QR_NOT_CANCELLABLE','This attempt is not available for cashier cancellation. Reconcile it first.')
+  let intent = await retrieveIntent(attempt.payment_intent_id)
+  assertMatchingIntent(attempt,intent)
+  if (intent.attributes?.status === 'succeeded') {
+    const payment = (intent.attributes?.payments || []).find(p => p?.attributes?.status === 'paid')
+    if (payment) await settleVerifiedPayment(attempt,payment)
+    throw http('PAYMENT_ALREADY_SUCCEEDED','PayMongo confirms the payment succeeded. Refresh the receipt; do not collect cash.')
+  }
+  if (!terminalNonpayable(intent.attributes?.status)) {
+    // Requests to cancel an in-flight payment are unsafe. PayMongo must
+    // reject or confirm the cancellation before the cash lock is released.
+    if (!['awaiting_next_action','awaiting_payment_method'].includes(String(intent.attributes?.status))) {
+      throw http('QR_PROVIDER_PROCESSING','QR status is not safely cancellable; retain the payment lock for administrator review.')
+    }
+    await cancelIntent(attempt.payment_intent_id)
+    intent = await retrieveIntent(attempt.payment_intent_id)
+  }
+  const result = await releaseVerifiedCancelled(attempt,intent,{
+    userId:req.user.id,userRole:req.adminContext?.account_role || req.user.role,ipAddress:req.ip||null})
+  return res.json(publicAttempt(result))
+}
 // Administrator-only resolution for a provider payment that could not be applied
 // (for example the patient paid an old QR after the bill was settled in cash).
 // 'apply' retries settlement when the balance now allows it; 'refunded' records
@@ -131,6 +213,7 @@ const resolveReview = async (req,res) => {
 }
 apiRouter.post('/:id/qr-payment', (req,res,next)=>Promise.resolve(makeQr(req,res)).catch(next))
 apiRouter.get('/:id/qr-payment/status', (req,res,next)=>Promise.resolve(status(req,res)).catch(next))
+apiRouter.post('/:id/qr-payment/:attemptId/cancel', (req,res,next)=>Promise.resolve(requestCancel(req,res)).catch(next))
 apiRouter.post('/:id/qr-payment/:attemptId/resolve', (req,res,next)=>Promise.resolve(resolveReview(req,res)).catch(next))
 
 // Called ONLY after signature, test-mode, intent and amount verification.
@@ -172,7 +255,11 @@ async function handleWebhookEvent(event) {
   if (type !== 'payment.paid') {
     // Failure/expiry must not override a succeeded payment. A failed method can
     // have another attempt pending; do not assume the whole intent is terminal.
-    if (type === 'qrph.expired') await db.query("UPDATE payment_gateway_attempts SET status='expired',active_bill_id=NULL WHERE id=? AND status='pending'",[attempt.id])
+    if (type === 'qrph.expired') {
+      // A signed expiry event does not by itself prove that the intent cannot
+      // settle; keep the lock until an independent terminal-status check.
+      await reconcileAttempt(attempt.id,{force:true})
+    }
     await db.query("UPDATE payment_gateway_webhook_events SET status='processed',processed_at=NOW() WHERE event_id=?",[eid])
     return {processed:true}
   }
@@ -233,7 +320,6 @@ async function markPaidForReview(attempt,payment,cause) {
   return {review:true,error_code:errorCode}
 }
 const ACTIVE = new Set(['pending','creating','review'])
-const UNISSUED_RELEASE_SECONDS = 120
 const lastChecked = new Map()
 // Bring one local attempt in line with PayMongo. Never marks anything paid
 // without a provider-confirmed succeeded intent and a matching paid payment.
@@ -247,25 +333,17 @@ async function reconcileAttempt(attemptId,{force=false}={}) {
   lastChecked.set(attempt.id,now)
   if (attempt.payment_intent_id) {
     const intent = await retrieveIntent(attempt.payment_intent_id)
-    if (intent.id !== attempt.payment_intent_id || intent.attributes?.livemode !== expectedLive()
-        || String(intent.attributes?.currency).toUpperCase() !== 'PHP'
-        || Number(intent.attributes?.amount) !== Number(attempt.amount_centavos)) throw http('PAYMENT_INTENT_MISMATCH','PayMongo intent does not match this QR attempt.')
+    assertMatchingIntent(attempt,intent)
     const providerStatus = intent.attributes?.status
     if (providerStatus === 'succeeded') {
       const payment = (intent.attributes?.payments||[]).find(p=>p?.attributes?.status==='paid')
       if (payment) await settleVerifiedPayment(attempt,payment)
       return load()
     }
-    if (providerStatus === 'processing') return attempt
+    if (terminalNonpayable(providerStatus)) await releaseVerifiedCancelled(attempt,intent)
   }
-  // Only a QR that was actually shown (status pending) can be scanned. It is
-  // released once past its expiry; an attempt that never produced a QR is
-  // released after a grace period that exceeds every PayMongo request timeout.
-  if (attempt.status === 'pending' && Number(attempt.is_expired)) {
-    await db.query("UPDATE payment_gateway_attempts SET status='expired',active_bill_id=NULL,qr_image=NULL WHERE id=? AND status='pending' AND provider_payment_id IS NULL",[attempt.id])
-  } else if (attempt.status !== 'pending' && Number(attempt.age_seconds) >= UNISSUED_RELEASE_SECONDS) {
-    await db.query("UPDATE payment_gateway_attempts SET status='failed',active_bill_id=NULL,error_code=COALESCE(error_code,'QR_NOT_ISSUED') WHERE id=? AND status IN ('creating','review') AND provider_payment_id IS NULL",[attempt.id])
-  }
+  // Never infer payment terminality from a 30-minute local timer, an absent
+  // provider ID, or an unrecognized/nonterminal provider status.
   return load()
 }
 // Recovers payments whose webhook never arrived (ngrok outage, browser closed).
@@ -294,7 +372,8 @@ const rawWebhook = async (req,res) => {
     return res.status(error.statusCode || 503).json({code:error.code||'RETRY_LATER'})
   }
 }
-module.exports = { apiRouter, rawWebhook, handleWebhookEvent, publicAttempt, isTestSimulationUrl, reconcileAttempt, startReconciliationSweeper }
+module.exports = { apiRouter, rawWebhook, handleWebhookEvent, publicAttempt, isTestSimulationUrl, reconcileAttempt, startReconciliationSweeper, requestCancel, terminalNonpayable }
+
 
 
 

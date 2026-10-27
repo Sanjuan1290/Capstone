@@ -123,7 +123,7 @@ const StepClinicType = ({ value, onChange, readiness, loading, error, onRetry })
 )
 
 // ── Step 2: Service ───────────────────────────────────────────────────────────
-const StepService = ({ clinicType, value, onChange, services, promotions = [], loading, error, onRetry, onBackToClinic }) => (
+const StepService = ({ clinicType, value, onChange, services, promotions = [], selectedPromotionId, onPromotionChange, loading, error, onRetry, onBackToClinic }) => (
   <div className="space-y-3">
     <div>
       <h2 className="text-lg font-bold text-slate-800">Choose a Service</h2>
@@ -154,6 +154,16 @@ const StepService = ({ clinicType, value, onChange, services, promotions = [], l
         </div>
       </button>
     ))}
+    {!!value && <fieldset className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <legend className="px-1 text-sm font-bold text-amber-900">Promotion for this appointment (optional)</legend>
+      <p className="mb-3 text-xs text-amber-900">Selecting an offer records your request. The clinic will review eligibility and any discount at checkout; no discount is automatically applied.</p>
+      {[null,...promotions.filter(promo=>Array.isArray(promo.service_ids) && promo.service_ids.includes(Number(value.id)))].map(promo=>(
+        <label key={promo?.id ?? 'none'} className="mb-2 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm">
+          <input type="radio" name="promotion" className="mt-1" checked={String(selectedPromotionId||'')===String(promo?.id||'')} onChange={()=>onPromotionChange(promo?.id||null)} />
+          <span><strong className="block">{promo?.title||'No promotion'}</strong>{promo && <span className="text-xs text-slate-600">{promo.description} · Valid through {promo.ends_on}</span>}</span>
+        </label>
+      ))}
+    </fieldset>}
   </div>
 )
 
@@ -363,7 +373,7 @@ const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadingReaso
 )
 
 // ── Step 6: Confirm ───────────────────────────────────────────────────────────
-const StepConfirm = ({ form, policyAccepted, onPolicyAcceptedChange }) => {
+const StepConfirm = ({ form, selectedPromotion, policyAccepted, onPolicyAcceptedChange }) => {
   const ct   = CLINIC_TYPES.find(c => c.id === form.clinicType)
   const Icon = ct?.Icon || MdMedicalServices
   const [y,m,d] = (form.date||'').split('-').map(Number)
@@ -412,6 +422,11 @@ const StepConfirm = ({ form, policyAccepted, onPolicyAcceptedChange }) => {
         </div>
       )}
 
+      {selectedPromotion && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+        <p className="font-bold text-amber-900">Selected offer: {selectedPromotion.title}</p>
+        <p className="mt-1 text-amber-800">{selectedPromotion.description}</p>
+        <p className="mt-2 text-xs text-amber-800">Selection does not automatically reduce your bill. The clinic will review eligibility at checkout.</p>
+      </div>}
       {form.notes && (
         <div className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-200">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Notes</p>
@@ -482,6 +497,10 @@ const BookAppointment = () => {
   const [loadingReasons, setLoadingReasons] = useState(false)
   const [services, setServices] = useState([])
   const [promotions, setPromotions] = useState([])
+  const promotionsRequestId = useRef(0)
+  const [selectedPromotionId, setSelectedPromotionId] = useState(null)
+  const linkedPromotionConsumed = useRef(false)
+  const linkedPromotionId = /^[1-9]\d*$/.test(searchParams.get('promotion_id') || '') ? Number(searchParams.get('promotion_id')) : null
   const [loadingServices, setLoadingServices] = useState(false)
   const [serviceError, setServiceError] = useState('')
   const [bookingReadiness, setBookingReadiness] = useState(null)
@@ -513,8 +532,29 @@ const BookAppointment = () => {
     }
     return () => { readinessRequestId.current += 1 }
   }, [branchId])
-  const loadPromotions=()=>getCurrentPromotions().then(rows=>setPromotions(Array.isArray(rows)?rows:[])).catch(()=>{})
-  useEffect(() => {void loadPromotions()}, [])
+  const loadPromotions=()=>{
+    const requestId=++promotionsRequestId.current
+    const requestedBranch=branchId
+    if(!requestedBranch){setPromotions([]);return Promise.resolve()}
+    return getCurrentPromotions(requestedBranch)
+      .then(rows=>{if(requestId===promotionsRequestId.current)setPromotions(Array.isArray(rows)?rows.filter(p=>Number(p.branch_id)===Number(requestedBranch)):[])})
+      .catch(()=>{if(requestId===promotionsRequestId.current)setPromotions([])})
+  }
+  useEffect(() => {setPromotions([]);setSelectedPromotionId(null);void loadPromotions();return ()=>{promotionsRequestId.current+=1}}, [branchId])
+  useEffect(()=>{
+    if(!form.service){setSelectedPromotionId(null);return}
+    const applicable=promotions.filter(p=>Number(p.branch_id)===Number(branchId) && Array.isArray(p.service_ids) && p.service_ids.includes(Number(form.service.id)))
+    setSelectedPromotionId(current=>{
+      if(current && applicable.some(p=>Number(p.id)===Number(current)))return current
+      if(!linkedPromotionConsumed.current && linkedPromotionId && applicable.some(p=>Number(p.id)===linkedPromotionId)){linkedPromotionConsumed.current=true;return linkedPromotionId}
+      return null
+    })
+  },[form.service?.id,branchId,promotions])
+  useEffect(()=>{
+    if(!form.date || !selectedPromotionId)return
+    const offer=promotions.find(p=>Number(p.id)===Number(selectedPromotionId))
+    if(!offer || form.date<offer.starts_on || form.date>offer.ends_on)setSelectedPromotionId(null)
+  },[form.date,selectedPromotionId,promotions])
   useClinicRefresh(loadPromotions,['promotion.updated','service.updated'],{fallbackMs:90000})
 
   const loadDoctors = async () => {
@@ -659,6 +699,7 @@ const BookAppointment = () => {
         doctor_id:        form.doctor.id,
         clinic_type:      form.clinicType,
         requested_service_id: form.service.id,
+        promotion_id: selectedPromotionId || undefined,
         reason:           form.reason,
         reason_details:   form.reason === 'Other' ? form.reasonDetails.trim() : '',
         appointment_date: form.date,
@@ -678,12 +719,13 @@ const BookAppointment = () => {
     setStep(0); setDone(false)
     setTimeSlots([]); setDoctorSchedules([])
     setPolicyAccepted(false)
+    setSelectedPromotionId(null)
     setSubmitting(false)
     bookingSubmissionLock.current = false
     setForm({ clinicType:'', service:null, doctor:null, date:null, time:'', reason:'', reasonDetails:'', notes:'' })
   }
 
-  if(!branchId)return <div className="max-w-2xl mx-auto space-y-4"><h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{setBranchId(String(b.id));setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
+  if(!branchId)return <div className="max-w-2xl mx-auto space-y-4"><h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{setBranchId(String(b.id));setSelectedPromotionId(null);setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -723,7 +765,7 @@ const BookAppointment = () => {
           ) : (
             <>
               {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: current.doctor?.clinic_type === clinicType ? current.doctor : null, date: current.doctor?.clinic_type === clinicType ? current.date : null, time: current.doctor?.clinic_type === clinicType ? current.time : '', reason: '', reasonDetails: '' }))} readiness={bookingReadiness} loading={loadingReadiness} error={readinessError} onRetry={loadBookingReadiness} />}
-              {step===1 && <StepService clinicType={form.clinicType} value={form.service} onChange={set('service')} services={services} promotions={promotions} loading={loadingServices} error={serviceError} onRetry={loadServices} onBackToClinic={() => { setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' })); setStep(0); loadBookingReadiness() }} />}
+              {step===1 && <StepService clinicType={form.clinicType} value={form.service} onChange={set('service')} services={services} promotions={promotions} selectedPromotionId={selectedPromotionId} onPromotionChange={setSelectedPromotionId} loading={loadingServices} error={serviceError} onRetry={loadServices} onBackToClinic={() => { setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' })); setStep(0); loadBookingReadiness() }} />}
               {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={(doctor) => setForm((current) => ({...current, doctor, date: current.doctor?.id===doctor?.id?current.date:null, time: current.doctor?.id===doctor?.id?current.time:''}))} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
               {step===3 && (
                 <StepSchedule
@@ -746,7 +788,7 @@ const BookAppointment = () => {
                   onNotesChange={set('notes')}
                 />
               )}
-              {step===5 && <StepConfirm form={form} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}
+              {step===5 && <StepConfirm form={form} selectedPromotion={promotions.find(p=>Number(p.id)===Number(selectedPromotionId))} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}
 
               {/* Nav */}
               <div className="flex items-center justify-between mt-8 pt-5 border-t border-slate-100">
@@ -773,6 +815,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 

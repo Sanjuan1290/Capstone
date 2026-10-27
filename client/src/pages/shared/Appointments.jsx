@@ -18,6 +18,7 @@ import {
   MdHome,
 } from 'react-icons/md'
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
+import { getClinicToday, getMinPatientBirthdate } from '../../utils/patientBirthdate.mjs'
 import CancellationReasonModal from '../../components/appointments/CancellationReasonModal'
 import {
   formatAppointmentRange,
@@ -28,8 +29,8 @@ import {
   roundToBookingBlock,
 } from '../../utils/appointmentTime'
 
-const maxPatientBirthdate = () => new Date().toISOString().slice(0,10)
-const minPatientBirthdate = () => { const d = new Date(); d.setFullYear(d.getFullYear()-100); return d.toISOString().slice(0,10) }
+const maxPatientBirthdate = getClinicToday
+const minPatientBirthdate = getMinPatientBirthdate
 
 const PAGE_SIZE = 10
 const STATUS_TABS = [
@@ -220,6 +221,11 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [mode, setMode] = useState('existing')
+  const [visitType, setVisitType] = useState('scheduled')
+  const [walkInDoctors, setWalkInDoctors] = useState([])
+  const [walkInLoading, setWalkInLoading] = useState(false)
+  const [createdPatientId, setCreatedPatientId] = useState(null)
+  const [queueReceipt, setQueueReceipt] = useState(null)
   const [step, setStep] = useState(1)
   const [selectedPatient, setSelectedPatient] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -262,27 +268,49 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
   }, [mode, search, selectedPatient, services])
 
   const filteredDoctors = doctors.filter((doctor) => String(doctor.clinic_type || doctor.type || '') === form.clinic_type)
-  const selectedDoctor = doctors.find((doctor) => String(doctor.id) === String(form.doctor_id))
+  const selectedDoctor = (visitType === 'walk_in' ? walkInDoctors : doctors).find((doctor) => String(doctor.id) === String(form.doctor_id))
   const selectedService = serviceOptions.find((service) => String(service.id) === String(form.requested_service_id))
 
   useEffect(() => {
-    if (!services.getBookingServices) { setServiceOptions([]); return }
-    services.getBookingServices(form.clinic_type).then((rows)=>setServiceOptions((Array.isArray(rows)?rows:[]).filter((service)=>Number(service.is_active??1)===1))).catch(()=>setServiceOptions([]))
-  }, [form.clinic_type, services])
+    if (visitType !== 'scheduled' || !services.getBookingServices) { setServiceOptions([]); return }
+    let active = true
+    setServiceOptions([])
+    services.getBookingServices(form.clinic_type)
+      .then((rows) => {
+        if (!active) return
+        setServiceOptions((Array.isArray(rows) ? rows : []).filter((service) =>
+          Number(service.is_active ?? 1) === 1 && ['all', form.clinic_type].includes(String(service.clinic_type || ''))))
+      })
+      .catch(() => { if (active) setServiceOptions([]) })
+    return () => { active = false }
+  }, [form.clinic_type, services, visitType])
 
   useEffect(() => {
-    if (!form.doctor_id || !form.appointment_date || !form.requested_service_id || !services.getAppointmentAvailableSlots) { setAvailableSlots([]); return }
+    if (visitType !== 'walk_in' || !services.getWalkInAvailableDoctors) { setWalkInDoctors([]); return }
+    let active = true
+    setWalkInLoading(true)
+    services.getWalkInAvailableDoctors(form.clinic_type)
+      .then((response) => { if (active) setWalkInDoctors((response?.doctors || []).filter((d) => d.available_now)) })
+      .catch(() => { if (active) setWalkInDoctors([]) })
+      .finally(() => { if (active) setWalkInLoading(false) })
+    return () => { active = false }
+  }, [visitType, form.clinic_type, services])
+
+  useEffect(() => {
+    if (visitType !== 'scheduled' || !form.doctor_id || !form.appointment_date || !form.requested_service_id || !services.getAppointmentAvailableSlots) { setAvailableSlots([]); return }
     let active=true; setSlotsLoading(true)
     services.getAppointmentAvailableSlots(form.doctor_id,{date:form.appointment_date,serviceId:form.requested_service_id,clinicType:form.clinic_type})
       .then((result)=>{ if(!active)return; const slots=Array.isArray(result?.slots)?result.slots:[]; setAvailableSlots(slots); setForm((current)=>current.appointment_time&&!slots.includes(current.appointment_time)?{...current,appointment_time:''}:current) })
       .catch(()=>active&&setAvailableSlots([])).finally(()=>active&&setSlotsLoading(false))
     return()=>{active=false}
-  }, [form.doctor_id, form.appointment_date, form.requested_service_id, form.clinic_type, services])
+  }, [form.doctor_id, form.appointment_date, form.requested_service_id, form.clinic_type, services, visitType])
 
   const patientReady = mode === 'existing'
     ? Boolean(form.patient_id && selectedPatient)
     : Boolean(patientForm.full_name.trim() && patientForm.birthdate && patientForm.phone.trim() && patientForm.consent_given)
-  const scheduleReady = Boolean(form.requested_service_id && form.doctor_id && form.appointment_date && form.appointment_time && form.reason.trim())
+  const scheduleReady = visitType === 'walk_in'
+    ? Boolean(form.doctor_id && form.reason.trim() && walkInDoctors.some((d) => String(d.id) === String(form.doctor_id)))
+    : Boolean(form.requested_service_id && form.doctor_id && form.appointment_date && form.appointment_time && form.reason.trim())
 
   const goNext = () => {
     setError('')
@@ -291,7 +319,7 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
       return
     }
     if (step === 2 && !scheduleReady) {
-      setError('Select the service, doctor, date, time, and appointment reason before continuing.')
+      setError(visitType === 'walk_in' ? 'Choose a currently available doctor and a reason for this walk-in.' : 'Select the service, doctor, date, time, and appointment reason before continuing.')
       return
     }
     setStep((current) => Math.min(3, current + 1))
@@ -301,19 +329,40 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
     setSaving(true)
     setError('')
     try {
-      let patientId = form.patient_id
-      if (mode === 'new') {
+      let patientId = mode === 'new' ? createdPatientId : form.patient_id
+      if (mode === 'new' && !patientId) {
         const createdPatient = await services.createWalkInPatient?.(patientForm)
         patientId = createdPatient?.id
+        if (patientId) setCreatedPatientId(patientId) // Reuse after a failed booking/queue request.
       }
       if (!patientId) throw new Error('Select an existing patient or complete the new patient details first.')
-      await services.createAppointment({
-        ...form,
-        patient_id: patientId,
-        override_no_show_warning: overrideNoShowWarning,
-      })
-      await onCreated()
-      onClose()
+      if (visitType === 'walk_in') {
+        if (!services.getQueuePrecheck || !services.addToQueue) throw new Error('Walk-in registration is not available for this role.')
+        const precheck = await services.getQueuePrecheck(patientId)
+        if (precheck?.active_queue) throw new Error('This patient is already in today’s queue. Open the Walk-in Queue to continue.')
+        const existing = precheck?.today_appointment
+        if (existing && !window.confirm(`This patient already has an appointment today with ${existing.doctor_name || 'their doctor'}. Check in to that appointment instead of creating another visit?`)) {
+          throw new Error('Walk-in registration cancelled. Review the patient’s existing appointment.')
+        }
+        const queued = await services.addToQueue({
+          patient_id: patientId,
+          patient_name: patientName,
+          doctor_id: existing ? existing.doctor_id : Number(form.doctor_id),
+          type: existing ? existing.clinic_type : form.clinic_type,
+          reason: existing ? (existing.reason || form.reason) : form.reason,
+          ...(existing ? {check_in_appointment_id:existing.id} : {}),
+        })
+        setQueueReceipt(queued)
+        await onCreated().catch(() => {})
+      } else {
+        await services.createAppointment({
+          ...form,
+          patient_id: patientId,
+          override_no_show_warning: overrideNoShowWarning,
+        })
+        await onCreated()
+        onClose()
+      }
     } catch (err) {
       if (err.code === 'NO_SHOW_WARNING') {
         setNoShowWarning({ message: err.message, policy: err.policy, lastNoShow: err.last_no_show })
@@ -331,7 +380,7 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
 
   const steps = [
     { number: 1, label: 'Patient' },
-    { number: 2, label: 'Schedule' },
+    { number: 2, label: 'Visit Details' },
     { number: 3, label: 'Review' },
   ]
 
@@ -344,7 +393,7 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-base font-bold text-slate-900">New Appointment</p>
-                <p className="mt-0.5 text-xs text-slate-500">Choose a patient, schedule the visit, then review before creating.</p>
+                <p className="mt-0.5 text-xs text-slate-500">Choose a patient, select scheduled or walk-in, then review.</p>
               </div>
               <button disabled={saving} onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 disabled:opacity-40"><MdClose /></button>
             </div>
@@ -373,6 +422,7 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
                       type="button"
                       onClick={() => {
                         setMode(option.key)
+                        setCreatedPatientId(null)
                         setError('')
                         setSelectedPatient(null)
                         setForm((prev) => ({ ...prev, patient_id: '' }))
@@ -455,16 +505,26 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
 
             {step === 2 && (
               <div className="space-y-5">
+                <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Visit type">
+                  {[{value:'scheduled',label:'Scheduled Appointment',help:'Choose a date and available time.'},{value:'walk_in',label:'Walk-in Now',help:'Check in immediately and receive a queue number.'}].map((option) => (
+                    <button type="button" key={option.value} aria-pressed={visitType===option.value}
+                      onClick={()=>{setVisitType(option.value);setError('');setForm((current)=>({...current,doctor_id:'',requested_service_id:'',appointment_date:'',appointment_time:''}))}}
+                      className={`rounded-2xl border p-3 text-left text-sm ${visitType===option.value?'border-emerald-500 bg-emerald-50 text-emerald-900':'border-slate-200 bg-white text-slate-700'}`}>
+                      <strong className="block">{option.label}</strong><span className="mt-1 block text-xs">{option.help}</span>
+                    </button>
+                  ))}
+                </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic Type</span><select value={form.clinic_type} onChange={(e) => setForm((prev) => ({ ...prev, clinic_type: e.target.value, requested_service_id: '', doctor_id: '', appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="medical">Medical</option><option value="derma">Dermatology</option></select></label>
-                  <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Service *</span><select value={form.requested_service_id} onChange={(e)=>setForm((prev)=>({...prev,requested_service_id:e.target.value,appointment_time:''}))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="">Select service</option>{serviceOptions.map((service)=><option key={service.id} value={service.id}>{service.service_name} · {formatDurationMinutes(roundToBookingBlock(service.average_duration_minutes || 60))} reserved</option>)}</select></label>
-                  <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor *</span><select value={form.doctor_id} onChange={(e) => setForm((prev) => ({ ...prev, doctor_id: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="">Select doctor</option>{filteredDoctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>)}</select></label>
-                  <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date *</span><input type="date" min={getLocalDateOnly()} value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" /></label>
+                  {visitType === 'scheduled' && <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Service *</span><select value={form.requested_service_id} onChange={(e)=>setForm((prev)=>({...prev,requested_service_id:e.target.value,appointment_time:''}))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="">Select service</option>{serviceOptions.map((service)=><option key={service.id} value={service.id}>{service.service_name} · {formatDurationMinutes(roundToBookingBlock(service.average_duration_minutes || 60))} reserved</option>)}</select></label>}
+                  <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor *</span><select value={form.doctor_id} onChange={(e) => setForm((prev) => ({ ...prev, doctor_id: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="">Select doctor</option>{(visitType === 'walk_in' ? walkInDoctors : filteredDoctors).map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>)}</select></label>
+                  {visitType === 'scheduled' && <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date *</span><input type="date" min={getLocalDateOnly()} value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" /></label>}
                 </div>
-                <div>
+                {visitType === 'walk_in' && <p className="rounded-xl bg-sky-50 p-3 text-xs text-sky-800">{walkInLoading ? 'Checking doctors available now…' : 'Only doctors currently accepting walk-ins are listed. The queue will assign the visit time and number.'} No service price is automatically selected; billing is reviewed at checkout.</p>}
+                {visitType === 'scheduled' && <div>
                   <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-400">Available Time *</span>
                   <TimeSlotPicker date={form.appointment_date} value={form.appointment_time} onChange={(slot) => setForm((prev) => ({ ...prev, appointment_time: slot }))} availableSlots={availableSlots} loading={slotsLoading} emptyMessage={form.doctor_id && form.requested_service_id ? 'No start time can fit the full service duration on this date.' : 'Select a service and doctor first to view available time slots.'} />
-                </div>
+                </div>}
                 <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Reason *</span><input value={form.reason} onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="e.g. General Consultation" /></label>
               </div>
             )}
@@ -477,27 +537,31 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
                   <p className="mt-1 text-sm text-slate-500">{mode === 'existing' ? selectedPatient?.phone || 'No phone' : patientForm.phone}</p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-<div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Service</p><p className="mt-1 font-bold text-slate-900">{selectedService?.service_name || '—'}</p><p className="text-xs text-slate-500">{selectedService ? `${formatDurationMinutes(roundToBookingBlock(selectedService.average_duration_minutes || 60))} reserved` : ''}</p></div>                  <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</p><p className="mt-1 font-bold text-slate-900">{selectedDoctor?.full_name || selectedDoctor?.name || '—'}</p><p className="text-xs text-slate-500">{form.clinic_type === 'derma' ? 'Dermatology' : 'Medical'}</p></div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Schedule</p><p className="mt-1 font-bold text-slate-900">{formatDate(form.appointment_date)}</p><p className="text-xs text-slate-500">{form.appointment_time ? formatAppointmentTimeRange(form.appointment_time, roundToBookingBlock(selectedService?.average_duration_minutes || 60)) : '—'}</p></div>
+{visitType === 'scheduled' && <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Service</p><p className="mt-1 font-bold text-slate-900">{selectedService?.service_name || '—'}</p><p className="text-xs text-slate-500">{selectedService ? `${formatDurationMinutes(roundToBookingBlock(selectedService.average_duration_minutes || 60))} reserved` : ''}</p></div>}                  <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</p><p className="mt-1 font-bold text-slate-900">{selectedDoctor?.full_name || selectedDoctor?.name || '—'}</p><p className="text-xs text-slate-500">{form.clinic_type === 'derma' ? 'Dermatology' : 'Medical'}</p></div>
+                  {visitType === 'scheduled' && <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Schedule</p><p className="mt-1 font-bold text-slate-900">{formatDate(form.appointment_date)}</p><p className="text-xs text-slate-500">{form.appointment_time ? formatAppointmentTimeRange(form.appointment_time, roundToBookingBlock(selectedService?.average_duration_minutes || 60)) : '—'}</p></div>}
+                  {visitType === 'walk_in' && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><strong>Walk-in now</strong><p>The queue number and appointment time are assigned at check-in.</p></div>}
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Reason</p><p className="mt-1 font-semibold text-slate-800">{form.reason || '—'}</p></div>
-                <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Scheduling Notes</span><textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} rows={3} className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Optional referral notes, symptoms, intake remarks, preferred contact, etc." /></label>
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Review the patient and schedule above before creating the appointment.</div>
+                {visitType === 'scheduled' && <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Scheduling Notes</span><textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} rows={3} className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Optional referral notes, symptoms, intake remarks, preferred contact, etc." /></label>}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{visitType === 'walk_in' ? 'Review the walk-in. If the patient already has an appointment today, you will be prompted to check them in instead.' : 'Review the patient and schedule above before creating the appointment.'}</div>
               </div>
             )}
 
+            {queueReceipt && <div role="status" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-900"><strong>Walk-in successfully checked in</strong><p className="mt-2 text-lg font-bold">Queue #{queueReceipt.queue_number}</p><p className="text-sm">Appointment #{queueReceipt.appointment_id}. {queueReceipt.checked_in_existing_appointment ? 'Existing appointment checked in.' : 'New walk-in visit linked to the queue.'}</p></div>}
             {error && <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
           </div>
 
           <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] sm:px-6">
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <button disabled={saving} onClick={step === 1 ? onClose : () => { setError(''); setStep((current) => current - 1) }} className="w-full rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50 sm:w-auto sm:min-w-[120px]">
+              <button disabled={saving || Boolean(queueReceipt)} onClick={step === 1 ? onClose : () => { setError(''); setStep((current) => current - 1) }} className="w-full rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50 sm:w-auto sm:min-w-[120px]">
                 {step === 1 ? 'Cancel' : 'Back'}
               </button>
-              {step < 3 ? (
+              {queueReceipt ? (
+                <button onClick={onClose} className="w-full rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-semibold text-white sm:w-auto">Done</button>
+              ) : step < 3 ? (
                 <button onClick={goNext} className="w-full rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white sm:w-auto sm:min-w-[140px]">Next</button>
               ) : (
-                <button onClick={() => handleCreate()} disabled={saving} className="w-full rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto sm:min-w-[180px]">{saving ? 'Creating...' : 'Create Appointment'}</button>
+                <button onClick={() => handleCreate()} disabled={saving} className="w-full rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto sm:min-w-[180px]">{saving ? 'Creating...' : (visitType === 'walk_in' ? 'Check In Walk-in' : 'Create Appointment')}</button>
               )}
             </div>
           </div>
@@ -867,6 +931,7 @@ Confirm this appointment anyway?`)
 }
 
 export default Appointments
+
 
 
 

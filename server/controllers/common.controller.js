@@ -37,8 +37,13 @@ const getMySettings = async (req, res) => {
 }
 
 const saveMySettings = async (req, res) => {
-  const settings = await updateSettings(req.user.role, req.user.id, req.body || {})
-  res.json(settings)
+  try {
+    const settings = await updateSettings(req.user.role, req.user.id, req.body || {})
+    res.json(settings)
+  } catch (error) {
+    if (error.statusCode === 400) return res.status(400).json({ message: error.message })
+    throw error
+  }
 }
 
 
@@ -278,7 +283,3 @@ module.exports = {
   getAdminLandingPage,
   saveAdminLandingPage,
 }
-
-
-
-

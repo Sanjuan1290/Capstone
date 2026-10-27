@@ -178,9 +178,3 @@ module.exports = {
   getAppointmentInventoryReadiness,
   getBillingInventoryReadiness,
 }
-
-
-
-
-
-

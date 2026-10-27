@@ -171,5 +171,3 @@ publicRouter.post('/unsubscribe',unsubscribe)
 // RFC 8058 one-click unsubscribe: POST only; GET never modifies consent.
 publicRouter.post('/unsubscribe-one-click',unsubscribe)
 module.exports={registerBranchAnnouncements,publicRouter,validatePost,slug,dateTime}
-
-

@@ -33,8 +33,8 @@ const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
         const count = keys.filter((key) => selectedSet.has(key)).length
         const allSelected = count === keys.length
         return (
-          <section key={group.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <button type="button" disabled={disabled} onClick={() => toggleGroup(group)} className="flex w-full items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 text-left disabled:cursor-not-allowed">
+          <section key={group.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+            <button type="button" disabled={disabled} onClick={() => toggleGroup(group)} className="flex w-full items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 dark:bg-slate-800 text-left disabled:cursor-not-allowed">
               {allSelected ? <MdCheckBox className="shrink-0 text-xl text-amber-500" /> : <MdCheckBoxOutlineBlank className="shrink-0 text-xl text-slate-300" />}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-black text-slate-800">{group.label}</p>
@@ -48,7 +48,7 @@ const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
                 const checked = selectedSet.has(permission.key)
                 const helpOpen = openHelp === permission.key
                 return (
-                  <div key={permission.key} className={`rounded-xl border p-3 transition ${checked ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200 bg-white'}`}>
+                  <div key={permission.key} className={`rounded-xl border p-3 transition ${checked ? 'border-amber-200 bg-amber-50/50 dark:border-amber-700 dark:bg-amber-950/40' : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900'}`}>
                     <div className="flex items-start gap-2">
                       <button type="button" disabled={disabled} onClick={() => toggle(permission.key)} className="mt-0.5 shrink-0 disabled:opacity-40" aria-label={`${checked ? 'Remove' : 'Grant'} ${permission.label} permission`}>
                         {checked ? <MdCheckBox className="text-xl text-amber-500" /> : <MdCheckBoxOutlineBlank className="text-xl text-slate-300" />}
@@ -57,11 +57,11 @@ const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
                         <p className="text-sm font-bold text-slate-800">{permission.label}</p>
                         <p className="mt-0.5 text-[11px] font-semibold text-slate-500">{permission.short}</p>
                       </button>
-                      <button type="button" title={permission.description} aria-label={`About ${permission.label}`} onClick={() => setOpenHelp(helpOpen ? null : permission.key)} className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-700">
+                      <button type="button" title={permission.description} aria-label={`About ${permission.label}`} onClick={() => setOpenHelp(helpOpen ? null : permission.key)} className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-700 dark:hover:bg-slate-700">
                         <MdInfoOutline />
                       </button>
                     </div>
-                    {helpOpen && <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs leading-relaxed text-slate-600 shadow-sm">{permission.description}</p>}
+                    {helpOpen && <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs dark:bg-slate-800 leading-relaxed text-slate-600 shadow-sm">{permission.description}</p>}
                   </div>
                 )
               })}
@@ -70,7 +70,7 @@ const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
         )
       })}
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:bg-slate-800 text-xs font-semibold text-slate-600">
         {selected.length} of {STAFF_PERMISSION_KEYS.length} permissions selected
       </div>
     </div>
@@ -78,7 +78,3 @@ const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
 }
 
 export default StaffPermissionPicker
-
-
-
-

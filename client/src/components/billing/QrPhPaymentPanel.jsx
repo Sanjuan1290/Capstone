@@ -3,7 +3,7 @@ import { MdQrCode2, MdRefresh, MdCheckCircleOutline } from 'react-icons/md'
 
 // QR Ph is an asynchronous, exact-balance payment; never record payment on scan.
 // Server webhooks, not this polling component, mutate the billing ledger.
-export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, createQr, onPaid, onPendingChange }) {
+export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, createQr, cancelQr, onPaid, onPendingChange }) {
   const [attempt, setAttempt] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -36,6 +36,18 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, 
     catch (err) { setError(err.message || 'Could not create a QR payment.') }
     finally { setBusy(false) }
   }
+  const requestCancellation = async () => {
+    if (!cancelQr || !attempt?.can_request_cancel || !window.confirm('Cancel the current PayMongo QR? Cash remains blocked unless PayMongo confirms cancellation.')) return
+    setBusy(true); setError('')
+    try {
+      const result = await cancelQr(billId,attempt.id)
+      setAttempt(result)
+      if (result?.status !== 'cancelled') setError('Cancellation was not confirmed. Contact an administrator; do not collect cash.')
+    } catch (err) {
+      setError(err.message || 'PayMongo cancellation is not verified. Cash remains locked.')
+      await readStatus()
+    } finally {setBusy(false)}
+  }
   const pending = ['pending', 'creating', 'review'].includes(attempt?.status)
   const mode = attempt?.current_mode || attempt?.mode || null
   const modeKnown = ['test', 'live'].includes(mode)
@@ -56,14 +68,20 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, 
         {attempt.expires_at && <p className="text-xs text-slate-500">QR expiry: {String(attempt.expires_at).replace('T',' ').slice(0,19)}</p>}
         {attempt.mode === 'test' && attempt.test_url && <a href={attempt.test_url} rel="noopener noreferrer" target="_blank" className="button-primary">Open PayMongo Test Simulator</a>}
         <button type="button" className="button-secondary" onClick={readStatus}><MdRefresh /> Refresh status</button>
+        {attempt?.can_request_cancel && cancelQr && <button type="button" className="button-secondary" disabled={busy} onClick={requestCancellation}>{busy ? 'Verifying…' : 'Request QR cancellation'}</button>}
         <p className="text-xs text-slate-500">Manual payments and bill edits are locked while this payment is pending.</p>
       </div>}
-      {attempt?.status === 'review' && <p role="alert" className="mt-3 rounded-xl bg-amber-100 p-3 text-sm font-bold text-amber-900">PayMongo status could not be confirmed. Do not generate another QR or record a manual payment; contact an administrator to reconcile this attempt.</p>}
+      {attempt?.status === 'review' && <div role="alert" className="mt-3 rounded-xl bg-amber-100 p-3 text-sm font-bold text-amber-900">
+        <p>PayMongo status could not be confirmed. Do not generate another QR or record a manual payment; contact an administrator to reconcile this attempt.</p>
+        {attempt?.can_request_cancel && cancelQr && <button type="button" className="button-secondary mt-3" disabled={busy} onClick={requestCancellation}>{busy ? 'Verifying…' : 'Request verified cancellation'}</button>}
+      </div>}
+      {attempt?.status === 'cancelled' && <p role="status" className="mt-3 text-sm font-bold text-emerald-800">PayMongo cancellation verified. You can select another payment method after refreshing the bill.</p>}
       {attempt?.status === 'succeeded' && <p role="status" className="mt-3 flex items-center gap-2 text-sm font-bold text-emerald-700"><MdCheckCircleOutline /> Verified payment recorded. Receipt is available on the updated bill.</p>}
       {['expired','failed'].includes(attempt?.status) && <p className="mt-3 text-sm font-bold text-amber-800">Previous QR expired or failed. You may generate another QR for the outstanding balance.</p>}
       {error && <p role="alert" className="mt-3 text-sm font-bold text-rose-700">{error}</p>}
     </section>
   )
 }
+
 
 

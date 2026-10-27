@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { MdArrowBack, MdBlock, MdLock, MdMail, MdOpenInNew, MdPayments, MdPrint, MdReceiptLong, MdRefresh, MdUndo } from 'react-icons/md'
 import { confirmBillingPaymentAction, getBillById, refundBillingPayment, voidBillingPayment, getBillingAdjustmentRequests } from '../../services/admin.service'
 import { getClinicSettings } from '../../services/clinic.service'
@@ -12,10 +12,15 @@ import { formatMoney, paymentMethodLabel } from '../../utils/billingUi'
 import { formatDateOnly } from '../../utils/date'
 import { printBillingReceipt } from '../../utils/billingReceipt'
 import { doctorClinicLabel } from '../../utils/doctor'
+import { branchPortalPath } from '../../utils/branchPortalPath.mjs'
 import BillCorrectionsPanel from '../../components/billing/BillCorrectionsPanel'
 
 const Admin_BillingTransactionDetail = () => {
   const { billingId } = useParams()
+  const location = useLocation()
+  const portalPath = (path) => branchPortalPath(path, location.pathname)
+  const parsedBillingId = Number(billingId)
+  const validBillingId = /^\d+$/.test(String(billingId || '')) && Number.isSafeInteger(parsedBillingId) && parsedBillingId > 0
   const toast = useToast()
   const [bill, setBill] = useState(null)
   const [clinic, setClinic] = useState({})
@@ -32,6 +37,7 @@ const Admin_BillingTransactionDetail = () => {
   const [verificationMessage, setVerificationMessage] = useState('')
 
   const load = useCallback(async () => {
+    if (!validBillingId) return
     setLoading(true); setError('')
     try {
       const [record, clinicSettings, pending] = await Promise.all([
@@ -46,9 +52,9 @@ const Admin_BillingTransactionDetail = () => {
       const message = err.message || 'Could not load the transaction.'
       setError(message); toast.error(message)
     } finally { setLoading(false) }
-  }, [billingId, toast])
+  }, [billingId, toast, validBillingId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (validBillingId) load(); else setLoading(false) }, [load, validBillingId])
 
   const openAction = (payment, action) => {
     const available = Math.max(0, Number(payment.amount || 0) - Number(payment.refund_amount || 0))
@@ -88,14 +94,15 @@ const Admin_BillingTransactionDetail = () => {
     finally { setBusy(false) }
   }
 
+  if (!validBillingId) return <div className="mx-auto w-full max-w-7xl space-y-5"><AdminBillingNav pendingApprovals={pendingApprovals} /><ErrorState message="Transaction not found." /><Link to={portalPath('/admin/billing/transactions')} className="button-secondary"><MdArrowBack /> Back to Transactions</Link></div>
   if (loading) return <div className="mx-auto w-full max-w-7xl space-y-5"><AdminBillingNav pendingApprovals={pendingApprovals} /><LoadingState label="Loading transaction..." /></div>
   if (error || !bill) return <div className="mx-auto w-full max-w-7xl space-y-5"><AdminBillingNav pendingApprovals={pendingApprovals} /><ErrorState message={error || 'Transaction not found.'} onRetry={load} /></div>
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><Link to="/admin/billing/transactions" className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-800"><MdArrowBack /> Back to Transactions</Link><div className="flex flex-wrap items-center gap-3"><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdReceiptLong className="text-amber-500" /> Bill #{bill.id}</h1><BillingStatusBadge status={bill.status} /></div><p className="mt-1 text-sm text-slate-500">Complete financial record for {bill.patient_name}.</p></div>
-        <div className="flex flex-wrap items-center gap-2">{['draft','pending'].includes(bill.status) && <Link to={`/admin/billing/checkout/${bill.id}`} className="button-primary"><MdPayments /> Open in Checkout</Link>}{['ready','partially_paid'].includes(bill.status) && Number(bill.balance_amount || 0) > 0 && <Link to={`/admin/billing/checkout/${bill.id}`} className="button-primary"><MdPayments /> {bill.status === 'partially_paid' ? 'Continue Payment' : 'Collect Payment'}</Link>}<button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
+        <div><Link to={portalPath('/admin/billing/transactions')} className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-800"><MdArrowBack /> Back to Transactions</Link><div className="flex flex-wrap items-center gap-3"><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdReceiptLong className="text-amber-500" /> Bill #{bill.id}</h1><BillingStatusBadge status={bill.status} /></div><p className="mt-1 text-sm text-slate-500">Complete financial record for {bill.patient_name}.</p></div>
+        <div className="flex flex-wrap items-center gap-2">{['draft','pending'].includes(bill.status) && <Link to={portalPath(`/admin/billing/checkout/${bill.id}`)} className="button-primary"><MdPayments /> Open in Checkout</Link>}{['ready','partially_paid'].includes(bill.status) && Number(bill.balance_amount || 0) > 0 && <Link to={portalPath(`/admin/billing/checkout/${bill.id}`)} className="button-primary"><MdPayments /> {bill.status === 'partially_paid' ? 'Continue Payment' : 'Collect Payment'}</Link>}<button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
       </div>
       <AdminBillingNav pendingApprovals={pendingApprovals} />
 
@@ -164,6 +171,7 @@ const Admin_BillingTransactionDetail = () => {
 }
 
 export default Admin_BillingTransactionDetail
+
 
 
 

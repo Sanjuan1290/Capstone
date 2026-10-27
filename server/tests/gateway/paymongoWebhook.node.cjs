@@ -114,7 +114,7 @@ test('test event is rejected when configured for live payment processing',async(
  assert.equal(getPaymentCount(),0)
 })
 
-test('failed payment keeps the attempt unpaid and expired QR releases its active bill',async()=>{
+test('failed payment and signed expiry alone cannot release an unresolved QR lock',async()=>{
  const failed=setup()
  assert.equal((await failed.handle(failed.event('evt_FAILED123',{type:'payment.failed',paymentStatus:'failed'}))).processed,true)
  assert.equal(failed.attempt.status,'pending')
@@ -122,8 +122,8 @@ test('failed payment keeps the attempt unpaid and expired QR releases its active
 
  const expired=setup()
  assert.equal((await expired.handle(expired.event('evt_EXPIRED12',{type:'qrph.expired'}))).processed,true)
- assert.equal(expired.attempt.status,'expired')
- assert.equal(expired.attempt.active_bill_id,null)
+ assert.equal(expired.attempt.status,'pending')
+ assert.notEqual(expired.attempt.active_bill_id,null)
  assert.equal(expired.getPaymentCount(),0)
 })
 
@@ -146,4 +146,5 @@ test('reconciliation settles a succeeded provider intent when no webhook was rec
  assert.equal(getReceiptCount(),1)
  assert.equal(getInventoryMovementCount(),1)
 })
+
 

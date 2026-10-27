@@ -13,14 +13,14 @@ const credentials = () => {
   }
   return { secret, publicKey, mode }
 }
-const request = async (path, { body, keyType = 'secret', idempotencyKey } = {}) => {
+const request = async (path, { body, keyType = 'secret', idempotencyKey, method } = {}) => {
   const keys = credentials()
   const key = keyType === 'public' ? keys.publicKey : keys.secret
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 12000)
   try {
     const response = await fetch(`${API}${path}`, {
-      method: body ? 'POST' : 'GET', signal: controller.signal,
+      method: method || (body ? 'POST' : 'GET'), signal: controller.signal,
       headers: { 'Authorization': `Basic ${Buffer.from(`${key}:`).toString('base64')}`, 'Content-Type': 'application/json',
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
       ...(body ? { body: JSON.stringify({ data: { attributes: body } }) } : {}),
@@ -57,6 +57,8 @@ const createQr = async ({ amountCentavos, billId, attemptId, onIntentCreated }) 
 }
 const retrieveIntent = id => request(`/payment_intents/${encodeURIComponent(id)}`)
 const retrieveRefund = id => request(`/refunds/${encodeURIComponent(id)}`)
-module.exports = { credentials, createQr, retrieveIntent, retrieveRefund, fail }
+const cancelIntent = id => request(`/payment_intents/${encodeURIComponent(id)}/cancel`,{method:'POST'})
+module.exports = { credentials, createQr, retrieveIntent, retrieveRefund, cancelIntent, fail }
+
 
 

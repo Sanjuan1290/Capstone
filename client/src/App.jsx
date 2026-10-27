@@ -236,7 +236,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing' element={<Admin_Billing />} />
         <Route path='billing/checkout/:billingId' element={<Admin_CheckoutDetail />} />
         <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
-        <Route path='billing/transactions/:id' element={<Admin_BillingTransactionDetail />} />
+        <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
         <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
         <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
         <Route path='inventory' element={<Admin_Inventory />} />
@@ -271,7 +271,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing' element={<Admin_Billing />} />
         <Route path='billing/checkout/:billingId' element={<Admin_CheckoutDetail />} />
         <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
-        <Route path='billing/transactions/:id' element={<Admin_BillingTransactionDetail />} />
+        <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
         <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
         <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
         <Route path='inventory' element={<Admin_Inventory />} />
@@ -316,5 +316,6 @@ const App = () => (
 )
 
 export default App
+
 
 

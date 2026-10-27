@@ -25,7 +25,3 @@ const PasswordRequirements = ({ password = '', className = '' }) => {
 }
 
 export default PasswordRequirements
-
-
-
-

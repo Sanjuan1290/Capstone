@@ -37,10 +37,12 @@ async function createAppointment(req,res){
    await validateAppointmentSlot({doctorId,clinicType:type,date,time,durationMinutes:reserved,startIntervalMinutes:settings.booking_start_interval_minutes,executor:conn})
    const [r]=await conn.query(`INSERT INTO appointments (patient_id,doctor_id,clinic_type,requested_service_id,requested_service_name_snapshot,requested_service_price_snapshot,requested_service_duration_minutes_snapshot,reserved_duration_minutes_snapshot,reason,appointment_date,appointment_time,notes,appointment_source,branch_id)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[patientId,doctorId,type,serviceId,service.service_name,service.default_price,duration,reserved,String(b.reason||'').slice(0,255)||null,date,time,String(b.notes||'').slice(0,2000)||null,'admin_booking',req.branchId])
-   return r.insertId
+   const insertedId=r.insertId
+   await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action:'appointment.created',entityType:'appointment',entityId:insertedId,branchId:req.branchId,newValues:{patient_id:patientId,doctor_id:doctorId,requested_service_id:serviceId,appointment_date:date,appointment_time:time},ipAddress:req.ip},conn)
+   // Keep doctor lock until commit, not just until INSERT executes.
+   await conn.commit();committed=true
+   return insertedId
   },conn)
-  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action:'appointment.created',entityType:'appointment',entityId:resultId,branchId:req.branchId,newValues:{patient_id:patientId,doctor_id:doctorId,requested_service_id:serviceId,appointment_date:date,appointment_time:time},ipAddress:req.ip},conn)
-  await conn.commit();committed=true
   res.status(201).json({message:'Appointment created.',id:resultId})
   // Notification failures must not make a successful booking look like a failure.
   notifyRoles(['admin','staff'],{branch_id:req.branchId,type:'appointment_booked',title:'New appointment',message:`${patient.full_name} booked with ${doctor.full_name} on ${date} at ${time}.`,reference_type:'appointment',reference_id:resultId}).catch(e=>console.error('[branch booking] notification failed',e.message))
@@ -55,5 +57,6 @@ function registerBranchAppointmentWrites(router,{requireSuper,branchContext,requ
   router.post(`${prefix}/appointments`,...middle,requirePermission('appointments'),createAppointment)
 }
 module.exports={registerBranchAppointmentWrites,createAppointment}
+
 
 

@@ -10,6 +10,7 @@ const { notifyRoles, createNotification } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly } = require('../utils/date')
+const { parsePromotionId, resolveSelectedPromotion } = require('../utils/promotionEligibility')
 const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendPatientRegistrationOtp } = require('../utils/smsService')
 const { buildDoctorAvailabilitySummary } = require('../utils/doctorAvailabilitySummary')
@@ -630,7 +631,10 @@ const getBookingServices = async (req, res) => {
 }
 
 const createAppointment = async (req, res) => {
-  const { doctor_id, clinic_type, requested_service_id, reason, reason_details, appointment_date, appointment_time, notes } = req.body
+  const { doctor_id, clinic_type, requested_service_id, reason, reason_details, appointment_date, appointment_time, notes, promotion_id } = req.body
+  let selectedPromotionId
+  try { selectedPromotionId = parsePromotionId(promotion_id) }
+  catch (err) { return res.status(err.status || 400).json({code:err.code,message:err.message}) }
   const branch=await validatePatientBranch(req,res);if(!branch)return
   if ((clinic_type === 'medical' && !branch.offers_medical) || (clinic_type === 'derma' && !branch.offers_derma)) return res.status(409).json({message:'This branch does not offer the selected clinic type.'})
   const [[assignedDoctor]]=await db.query('SELECT id FROM doctors WHERE id=? AND is_active=1 AND branch_id=? AND clinic_type=?',[doctor_id,branch.id,clinic_type])
@@ -717,17 +721,37 @@ const createAppointment = async (req, res) => {
       enforceLeadTime: true,
       minLeadMinutes: bookingSettings.online_min_lead_minutes,
     })
-    const [inserted] = await db.query(
-      `INSERT INTO appointments
-       (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
-        requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot, confirmation_deadline_at,
-        reason, appointment_date, appointment_time, notes, appointment_source, branch_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?)`,
-      [req.user.id, doctor_id, clinic_type, requestedService.id, requestedService.service_name, requestedService.default_price,
-       averageDurationMinutes, reservedDurationMinutes, confirmationDeadline,
-       storedReason, normalizedDate, appointment_time, notes || null, branch.id]
-    )
-    return inserted
+    // A selected promotion must be revalidated under a transaction and the
+    // promotion row locked until the booking snapshot has been saved.
+    // Legacy no-promotion bookings intentionally keep the old INSERT contract.
+    const connection = selectedPromotionId ? await db.getConnection() : null
+    const executor = connection || db
+    try {
+      if (connection) await connection.beginTransaction()
+      const selected = selectedPromotionId ? await resolveSelectedPromotion(executor, {
+        promotionId:selectedPromotionId, branchId:branch.id, serviceId:requestedService.id,
+        appointmentDate:normalizedDate, lock:true,
+      }) : null
+      const cols = `patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot,
+        requested_service_price_snapshot, requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot,
+        confirmation_deadline_at, reason, appointment_date, appointment_time, notes, appointment_source, branch_id`
+      const values = [req.user.id, doctor_id, clinic_type, requestedService.id, requestedService.service_name,
+        requestedService.default_price, averageDurationMinutes, reservedDurationMinutes, confirmationDeadline,
+        storedReason, normalizedDate, appointment_time, notes || null, branch.id]
+      const sql = selected ? `INSERT INTO appointments (${cols}, promotion_id, promotion_title_snapshot,
+        promotion_terms_snapshot, promotion_badge_snapshot, promotion_starts_on_snapshot, promotion_ends_on_snapshot,
+        promotion_selected_for_service_id, promotion_selected_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00'))`
+        : `INSERT INTO appointments (${cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?)`
+      const params = selected ? [...values, selected.id, selected.title, selected.terms, selected.badge,
+        selected.starts_on, selected.ends_on, selected.service_id] : values
+      const [inserted] = await executor.query(sql, params)
+      if (connection) await connection.commit()
+      return inserted
+    } catch (err) {
+      if (connection) await connection.rollback().catch(() => {})
+      throw err
+    } finally { if (connection) connection.release() }
   })
 
   const [details] = await db.query(
@@ -763,7 +787,7 @@ const createAppointment = async (req, res) => {
     reference_id: result.insertId,
   })
 
-  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId, newValues: { doctor_id: Number(doctor_id), clinic_type, requested_service_id: Number(requestedService.id), requested_service_name: requestedService.service_name, appointment_date: normalizedDate, appointment_time, appointment_source: 'online' }, ipAddress: req.ip || null }).catch(() => {})
+  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.created', entityType: 'appointment', entityId: result.insertId, newValues: { doctor_id: Number(doctor_id), clinic_type, requested_service_id: Number(requestedService.id), requested_service_name: requestedService.service_name, appointment_date: normalizedDate, appointment_time, appointment_source: 'online', promotion_id: selectedPromotionId || null }, ipAddress: req.ip || null }).catch(() => {})
   broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', {
     appointmentId: result.insertId,
     status: 'pending',
@@ -1133,4 +1157,5 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 

@@ -174,8 +174,3 @@ module.exports = {
   sendAdminMfaOtp,
   sendAccountSecurityOtp,
 }
-
-
-
-
-

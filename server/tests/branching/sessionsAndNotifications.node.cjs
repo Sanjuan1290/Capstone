@@ -57,6 +57,3 @@ test('creating branch cancellation reason writes the explicit branch',async()=>{
  assert.match(queries[0].sql,/branch_id\)/)
  assert.deepEqual(queries[0].args,['Transport problem',1,4])
 })
-
-
-

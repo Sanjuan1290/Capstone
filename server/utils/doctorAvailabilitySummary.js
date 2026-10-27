@@ -42,7 +42,8 @@ const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days
             COALESCE(spans_next_day,0) AS spans_next_day,
             COALESCE(is_24_hours,0) AS is_24_hours
      FROM doctor_schedules
-     WHERE doctor_id IN (${placeholders}) AND is_active = 1`,
+     WHERE doctor_id IN (${placeholders}) AND is_active = 1
+     ORDER BY doctor_id, FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')`,
     doctorIds
   )
   const [blocks] = await executor.query(
@@ -197,7 +198,3 @@ module.exports = {
   buildWalkInDoctorAvailability,
   formatSlotLabel,
 }
-
-
-
-

@@ -39,4 +39,3 @@ test('failed Resend MFA delivery does not leave a 60-second cooldown', async () 
   assert.equal(attempts,2)
   assert.ok(stored,'retry creates a new challenge')
 })
-

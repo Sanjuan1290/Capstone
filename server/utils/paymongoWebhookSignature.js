@@ -11,5 +11,3 @@ const verifyPaymongoSignature = (raw, header, secret, nowSeconds = Date.now()/10
   return signed.length === expected.length && crypto.timingSafeEqual(expected, signed)
 }
 module.exports = { verifyPaymongoSignature }
-
-

@@ -156,7 +156,3 @@ const PatientLogin = () => {
 }
 
 export default PatientLogin
-
-
-
-

@@ -119,6 +119,3 @@ const startMarketingWorker = () => {
   void runMarketingWorker()
 }
 module.exports={configured,tokenFor,patientFromToken,eligibleSql,escapeHtml,reserveAndClaim,runMarketingWorker,startMarketingWorker}
-
-
-

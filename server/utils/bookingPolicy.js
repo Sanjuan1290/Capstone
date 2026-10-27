@@ -165,8 +165,3 @@ module.exports = {
   isOnlineAppointmentStartAllowed,
   buildConfirmationDeadlineSql,
 }
-
-
-
-
-

@@ -179,4 +179,3 @@ test('a failed save from an old appointment does not show an error on the newly 
     [42, { notes: 'appointment B' }],
   ])
 })
-

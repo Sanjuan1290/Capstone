@@ -32,12 +32,14 @@ describe('appointment server-side security', () => {
       clinicType: 'medical',
       date: '2026-08-28',
       time: '2:37 AM',
+      now: new Date('2026-08-27T00:00:00Z'),
       executor,
     })).rejects.toMatchObject({
       code: 'APPOINTMENT_DURATION_OUTSIDE_SCHEDULE',
     })
   })
 })
+
 
 
 

@@ -666,9 +666,3 @@ module.exports = {
   transferInventoryBatchesFEFO,
   attachBatchesToInventory,
 }
-
-
-
-
-
-

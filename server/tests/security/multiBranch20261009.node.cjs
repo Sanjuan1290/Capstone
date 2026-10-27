@@ -33,7 +33,7 @@ test('patient booking explicitly requires branch-owned doctor and service', () =
   assert.match(bookings, /validatePatientBranch/)
   assert.match(bookings, /FROM doctors WHERE id=\? AND is_active=1 AND branch_id=\?/)
   assert.match(bookings, /FROM billing_service_catalog\s+WHERE id = \? AND branch_id = \?/)
-  assert.match(bookings, /appointment_source, branch_id\)/)
+  assert.match(bookings, /appointment_source, branch_id/)
 })
 test('no-show grace uses branch setting and excludes checked-in and walk-ins', () => {
   assert.match(noShows, /LEFT JOIN branch_booking_settings bbs ON bbs.branch_id = a.branch_id/)
@@ -47,6 +47,7 @@ test('UI has separate Super Admin and Branch Admin layouts and usable service to
   assert.match(client, /Reasons for Cancellation/)
   assert.match(client, /No-Show Grace Period/)
 })
+
 
 
 

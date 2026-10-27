@@ -43,4 +43,3 @@ test('Resend rejects unconfigured sending without calling any provider', async (
     else process.env.EMAIL_FROM = origFrom
   }
 })
-

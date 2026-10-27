@@ -64,8 +64,3 @@ router.get('/doctors/:id/available-slots',          getDoctorAvailableSlots)
 router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router
-
-
-
-
-

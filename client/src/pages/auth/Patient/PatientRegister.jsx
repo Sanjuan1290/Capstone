@@ -16,6 +16,7 @@ import { useAuth } from '../../../context/AuthContext'
 import PasswordRequirements from '../../../components/PasswordRequirements'
 import PhilippinePhoneInput from '../../../components/ui/PhilippinePhoneInput'
 import { getPasswordValidationError, isPasswordValid } from '../../../utils/passwordPolicy'
+import { getClinicToday, getMinPatientBirthdate, validatePatientBirthdate } from '../../../utils/patientBirthdate.mjs'
 
 const INPUT_CLASS = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 text-sm
   text-slate-800 placeholder-slate-300 transition-all focus:border-emerald-400 focus:bg-white
@@ -23,19 +24,9 @@ const INPUT_CLASS = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-
 const LABEL_CLASS = 'mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500'
 const GENDER_OPTIONS = ['Male', 'Female', 'Other']
 
-const maxBirthdate = () => new Date().toISOString().slice(0, 10)
-const minBirthdate = () => {
-  const d = new Date()
-  d.setFullYear(d.getFullYear() - 100)
-  return d.toISOString().slice(0, 10)
-}
-
-const validateBirthdate = (value) => {
-  if (!value) return 'Birthdate is required.'
-  if (value > maxBirthdate()) return 'Birthdate cannot be in the future.'
-  if (value < minBirthdate()) return 'Patient age cannot exceed 100 years.'
-  return ''
-}
+const maxBirthdate = getClinicToday
+const minBirthdate = getMinPatientBirthdate
+const validateBirthdate = validatePatientBirthdate
 
 const PasswordInput = ({ name, value, onChange, placeholder, preventPaste = false }) => {
   const [show, setShow] = useState(false)
@@ -274,8 +265,3 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
-
-
-
-
-

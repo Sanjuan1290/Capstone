@@ -869,7 +869,7 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
   }
 
-  const settings = await loadBookingSettings()
+  const settings = await loadBookingSettings(db, req.branchId || null)
   const durationMinutes = getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status, 'rescheduled')
   await withAppointmentSlotLock({ doctorId: rows[0].doctor_id }, async () => {
@@ -1639,7 +1639,7 @@ const getAppointmentAvailableSlotsAdmin = async (req, res) => {
   if (!isValidDateOnly(date)) return res.status(400).json({ message: 'A valid date is required.' })
   const doctorId = Number(req.params.id)
   const appointmentId = Number(req.query.appointment_id)
-  const settings = await loadBookingSettings()
+  const settings = await loadBookingSettings(db, req.branchId || null)
   let clinicType = String(req.query.clinic_type || '').trim()
   let durationMinutes = 60
   let excludeAppointmentId = null
@@ -1647,7 +1647,7 @@ const getAppointmentAvailableSlotsAdmin = async (req, res) => {
   if (appointmentId > 0) {
     const [[appointment]] = await db.query(
       `SELECT doctor_id, clinic_type, reserved_duration_minutes_snapshot, requested_service_duration_minutes_snapshot
-       FROM appointments WHERE id = ? LIMIT 1`, [appointmentId])
+       FROM appointments WHERE id = ?${req.branchId ? ' AND branch_id=?' : ''} LIMIT 1`, req.branchId ? [appointmentId,req.branchId] : [appointmentId])
     if (!appointment || Number(appointment.doctor_id) !== doctorId) return res.status(404).json({ message: 'Appointment not found for this doctor.' })
     clinicType = appointment.clinic_type
     durationMinutes = getAppointmentReservedDuration(appointment)
@@ -1655,7 +1655,7 @@ const getAppointmentAvailableSlotsAdmin = async (req, res) => {
   } else {
     const serviceId = Number(req.query.service_id)
     if (!serviceId || !['medical','derma'].includes(clinicType)) return res.status(400).json({ message: 'Clinic and service are required.' })
-    const [[service]] = await db.query(`SELECT id,clinic_type,average_duration_minutes,is_active FROM billing_service_catalog WHERE id=? LIMIT 1`,[serviceId])
+    const [[service]] = await db.query(`SELECT id,clinic_type,average_duration_minutes,is_active FROM billing_service_catalog WHERE id=?${req.branchId ? ' AND branch_id=?' : ''} LIMIT 1`,req.branchId ? [serviceId,req.branchId] : [serviceId])
     if (!service || Number(service.is_active)!==1 || ![clinicType,'all'].includes(String(service.clinic_type||''))) return res.status(409).json({ message: 'The selected service is unavailable for this clinic.' })
     durationMinutes = roundReservedDurationMinutes(Number(service.average_duration_minutes||60),settings.booking_start_interval_minutes)
   }
@@ -4296,6 +4296,7 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

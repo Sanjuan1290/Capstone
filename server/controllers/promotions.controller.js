@@ -1,5 +1,6 @@
 // Service-targeted patient-facing promotions. These do not change billing totals.
 const db = require('../db/connect')
+const { getTodayDateOnly } = require('../utils/date')
 const { writeAuditLog } = require('../utils/audit')
 const { createNotification } = require('../utils/notifications')
 
@@ -32,9 +33,9 @@ const getActivePromotions = async (req, res) => {
     INNER JOIN clinic_branches cb ON cb.id=p.branch_id AND cb.is_active=1
     INNER JOIN clinic_promotion_services ps ON ps.promotion_id = p.id
     INNER JOIN billing_service_catalog svc ON svc.id=ps.service_id AND svc.branch_id=p.branch_id AND svc.is_active=1
-    WHERE p.is_active=1 AND p.starts_on<=CURDATE() AND p.ends_on>=CURDATE()
+    WHERE p.is_active=1 AND p.starts_on<=? AND p.ends_on>=?
       AND (? IS NULL OR p.branch_id=?)
-    ORDER BY p.featured_order ASC,p.ends_on ASC,p.id DESC`,[requestedBranch,requestedBranch])
+    ORDER BY p.featured_order ASC,p.ends_on ASC,p.id DESC`,[getTodayDateOnly(),getTodayDateOnly(),requestedBranch,requestedBranch])
   const promos = new Map()
   for (const row of rows) {
     if (!promos.has(row.id)) promos.set(row.id, {
@@ -156,6 +157,7 @@ const notifyOptedInPatients = async (req, res) => {
 }
 
 module.exports = { listAllPromotions, getActivePromotions, savePromotion, deletePromotion, notifyOptedInPatients }
+
 
 
 

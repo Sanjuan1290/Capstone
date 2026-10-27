@@ -67,4 +67,3 @@ test('invalid date ranges make no analytics requests', async () => {
   assert.match(result.errors.period, /valid reporting period/)
   assert.equal(result.rows, null)
 })
-

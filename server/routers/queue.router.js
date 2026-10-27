@@ -140,7 +140,3 @@ router.get('/live', requireDisplaySession, async (req, res) => {
 })
 
 module.exports = router
-
-
-
-

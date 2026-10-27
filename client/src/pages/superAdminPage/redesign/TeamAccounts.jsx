@@ -63,5 +63,3 @@ export default function TeamAccounts({branches=[]}) {
     </Modal>
   </section>
 }
-
-

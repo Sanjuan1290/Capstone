@@ -34,11 +34,3 @@ const SystemSetupTabs = () => {
 }
 
 export default SystemSetupTabs
-
-
-
-
-
-
-
-

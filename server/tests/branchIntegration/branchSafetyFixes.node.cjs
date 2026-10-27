@@ -127,5 +127,3 @@ test('foreign branch queue IDs return 404 before any write', async () => {
   assert.deepEqual(operations,['BEGIN','ROLLBACK','RELEASE'])
   await assert.rejects(workflow.setQueueState({queueId:202,nextStatus:'called',actorRole:'staff',actorId:4}),error=>error.statusCode===403)
 })
-
-

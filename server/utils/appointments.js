@@ -51,8 +51,3 @@ module.exports = {
   getBranchNoShowGraceMinutes,
   canMarkNoShow,
 }
-
-
-
-
-

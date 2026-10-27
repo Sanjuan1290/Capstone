@@ -68,5 +68,3 @@ test('missing or foreign locations are not created or accepted', async () => {
   assert.ok(calls.every(({ sql }) => /^\s*SELECT\b/i.test(sql)))
   await assert.rejects(() => resolveLocation('Main Stockroom', executor), { code: 'BRANCH_CONTEXT_REQUIRED' })
 })
-
-

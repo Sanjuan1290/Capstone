@@ -78,7 +78,3 @@ module.exports = {
   assertDoctorIsAvailableOnDate,
   countActiveAppointmentsOnDate,
 }
-
-
-
-

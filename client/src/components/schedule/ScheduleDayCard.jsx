@@ -3,13 +3,13 @@ import { MdCheck, MdClose, MdEdit, MdSave, MdToggleOff, MdToggleOn } from 'react
 import { formatScheduleTime, scheduleSummary } from '../../utils/schedule'
 
 const DAY_CFG = {
-  Monday: { abbr: 'Mon', color: 'bg-sky-500', light: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', ring: 'focus:border-sky-400' },
-  Tuesday: { abbr: 'Tue', color: 'bg-violet-500', light: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-700', ring: 'focus:border-violet-400' },
-  Wednesday: { abbr: 'Wed', color: 'bg-emerald-500', light: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', ring: 'focus:border-emerald-400' },
-  Thursday: { abbr: 'Thu', color: 'bg-amber-500', light: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', ring: 'focus:border-amber-400' },
-  Friday: { abbr: 'Fri', color: 'bg-rose-500', light: 'bg-rose-50', border: 'border-rose-200', text: 'text-rose-700', ring: 'focus:border-rose-400' },
-  Saturday: { abbr: 'Sat', color: 'bg-indigo-500', light: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', ring: 'focus:border-indigo-400' },
-  Sunday: { abbr: 'Sun', color: 'bg-red-400', light: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', ring: 'focus:border-red-400' },
+  Monday: { abbr: 'Mon', color: 'bg-sky-500', light: 'bg-sky-50 dark:bg-slate-800', border: 'border-sky-200 dark:border-slate-600', text: 'text-sky-700 dark:text-sky-300', ring: 'focus:border-sky-400' },
+  Tuesday: { abbr: 'Tue', color: 'bg-violet-500', light: 'bg-violet-50 dark:bg-slate-800', border: 'border-violet-200 dark:border-slate-600', text: 'text-violet-700 dark:text-violet-300', ring: 'focus:border-violet-400' },
+  Wednesday: { abbr: 'Wed', color: 'bg-emerald-500', light: 'bg-emerald-50 dark:bg-slate-800', border: 'border-emerald-200 dark:border-slate-600', text: 'text-emerald-700 dark:text-emerald-300', ring: 'focus:border-emerald-400' },
+  Thursday: { abbr: 'Thu', color: 'bg-amber-500', light: 'bg-amber-50 dark:bg-slate-800', border: 'border-amber-200 dark:border-slate-600', text: 'text-amber-700 dark:text-amber-300', ring: 'focus:border-amber-400' },
+  Friday: { abbr: 'Fri', color: 'bg-rose-500', light: 'bg-rose-50 dark:bg-slate-800', border: 'border-rose-200 dark:border-slate-600', text: 'text-rose-700 dark:text-rose-300', ring: 'focus:border-rose-400' },
+  Saturday: { abbr: 'Sat', color: 'bg-indigo-500', light: 'bg-indigo-50 dark:bg-slate-800', border: 'border-indigo-200 dark:border-slate-600', text: 'text-indigo-700 dark:text-indigo-300', ring: 'focus:border-indigo-400' },
+  Sunday: { abbr: 'Sun', color: 'bg-red-400', light: 'bg-red-50 dark:bg-slate-800', border: 'border-red-200 dark:border-slate-600', text: 'text-red-700 dark:text-red-300', ring: 'focus:border-red-400' },
 }
 
 const asBool = (value) => value === true || Number(value) === 1
@@ -95,8 +95,8 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
     } finally { setSaving(false) }
   }
 
-  return <div className={`overflow-hidden rounded-2xl border transition-all ${isActive ? `${cfg.border} shadow-sm` : 'border-slate-100'}`}>
-    <div className={`px-4 py-3 ${isActive ? cfg.light : 'bg-slate-50'}`}>
+  return <div className={`overflow-hidden rounded-2xl border transition-all ${isActive ? `${cfg.border} shadow-sm` : 'border-slate-100 dark:border-slate-700'}`}>
+    <div className={`px-4 py-3 ${isActive ? cfg.light : 'bg-slate-50 dark:bg-slate-800'}`}>
       <div className="space-y-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-black text-white ${isActive ? cfg.color : 'bg-slate-200'}`}>{cfg.abbr}</div>
@@ -108,13 +108,13 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
       </div>
     </div>
 
-    {isActive && <div className="space-y-3 bg-white px-4 py-4">
+    {isActive && <div className="space-y-3 bg-white px-4 py-4 dark:bg-slate-900">
       {!editing ? <>
         <div className="grid grid-cols-3 gap-2">
           {[{label:'Start',value:is24Hours?'12:00 AM':formatScheduleTime(form.start_time)},{label:'End',value:is24Hours?'Next day':formatScheduleTime(form.end_time)},{label:'Slot',value:`${form.slot_duration_mins}m`}].map(({label,value})=><div key={label} className={`${cfg.light} ${cfg.border} rounded-xl border px-2 py-2.5 text-center`}><p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><p className={`text-xs font-black ${cfg.text}`}>{value}</p></div>)}
         </div>
-        {spansNextDay && !is24Hours && <p className="rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700">Overnight schedule: the end time is on the following day.</p>}
-        {is24Hours && <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">Available for the full 24-hour calendar day.</p>}
+        {spansNextDay && !is24Hours && <p className="rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200">Overnight schedule: the end time is on the following day.</p>}
+        {is24Hours && <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">Available for the full 24-hour calendar day.</p>}
         <button type="button" onClick={()=>{setEditing(true);setError('')}} className={`flex w-full items-center justify-center gap-1.5 rounded-xl border-2 py-2.5 text-xs font-bold ${cfg.border} ${cfg.light} ${cfg.text}`}><MdEdit/> {schedule ? 'Edit Schedule' : 'Set Schedule'}</button>
       </> : <>
         <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700"><span>Available 24 hours</span><input type="checkbox" checked={is24Hours} onChange={(e)=>setForm((v)=>{const checked=e.target.checked;if(checked)return {...v,is_24_hours:1,spans_next_day:1,start_time:'00:00',end_time:'00:00'};const wasFullDay=v.start_time==='00:00'&&v.end_time==='00:00';return {...v,is_24_hours:0,spans_next_day:wasFullDay?0:v.spans_next_day,start_time:wasFullDay?'08:00':v.start_time,end_time:wasFullDay?'17:00':v.end_time}})}/></label>
@@ -123,17 +123,13 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
           <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700"><span><strong>Ends next day</strong><span className="mt-0.5 block text-xs font-normal text-slate-500">Use for overnight availability, e.g. 8:00 PM–2:00 AM.</span></span><input type="checkbox" checked={spansNextDay} onChange={(e)=>setForm(v=>({...v,spans_next_day:e.target.checked?1:0}))}/></label>
         </>}
         <div><label className="mb-1 block text-xs font-bold uppercase text-slate-500">Slot Duration</label><select value={form.slot_duration_mins} onChange={(e)=>setForm(v=>({...v,slot_duration_mins:Number(e.target.value)}))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none ${cfg.ring}`}>{[15,20,30,45,60,90].map(v=><option key={v} value={v}>{v} minutes</option>)}</select></div>
-        {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{error}</p>}
+        {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 dark:bg-red-950/40 dark:text-red-300">{error}</p>}
         <div className="flex gap-2"><button type="button" onClick={cancelEditing} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-semibold text-slate-600"><span className="flex items-center justify-center gap-1"><MdClose/> Cancel</span></button><button type="button" onClick={handleSave} disabled={saving} className={`flex-1 rounded-xl py-2.5 text-xs font-bold text-white disabled:opacity-50 ${saved?'bg-emerald-500':cfg.color}`}><span className="flex items-center justify-center gap-1.5">{saved?<><MdCheck/> Saved!</>:saving?'Saving...':<><MdSave/> Save</>}</span></button></div>
       </>}
-      {!editing && error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{error}</p>}
+      {!editing && error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 dark:bg-red-950/40 dark:text-red-300">{error}</p>}
     </div>}
-    {!isActive && <div className="bg-white px-4 py-3 text-center text-xs text-slate-400">Enable this day to accept bookings.</div>}
+    {!isActive && <div className="bg-white px-4 py-3 text-center text-xs text-slate-400 dark:bg-slate-900">Enable this day to accept bookings.</div>}
   </div>
 }
 
 export default ScheduleDayCard
-
-
-
-

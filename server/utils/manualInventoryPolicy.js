@@ -39,7 +39,3 @@ const resolveManualStockOutSelection = (body = {}) => {
 }
 
 module.exports = { resolveManualStockOutSelection }
-
-
-
-

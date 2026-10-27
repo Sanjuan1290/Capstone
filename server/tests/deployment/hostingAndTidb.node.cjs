@@ -117,5 +117,3 @@ test('dump conversion removes destructive mysqldump controls and personal data b
   assert.doesNotMatch(content,/LOCK TABLES/)
   assert.throws(()=>convertDump(source,{includeData:true}),/requires CARAIT_ACKNOWLEDGE/)
 })
-
-

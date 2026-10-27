@@ -44,4 +44,3 @@ test('a complete dashboard returns all numbers and no partial errors',async()=>{
   assert.equal(result.sectionErrors,undefined)
   assert.equal(result.lowStockCount,2)
 })
-

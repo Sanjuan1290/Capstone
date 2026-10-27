@@ -87,7 +87,3 @@ module.exports = {
   getNotifications,
   markNotificationRead,
 }
-
-
-
-

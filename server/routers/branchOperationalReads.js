@@ -4,6 +4,7 @@ const db = require('../db/connect')
 const { getBillingRecordWithItems } = require('../utils/billing')
 const { groupTransferRows } = require('../utils/supplyTransfers')
 const { loadCollectionLedger, summarizeLedgerRows } = require('../utils/reportMetrics')
+const { getTodayDateOnly } = require('../utils/date')
 
 const dateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : ''
 const pageOptions = (query) => {
@@ -15,27 +16,33 @@ const pageOptions = (query) => {
 async function readBills(req,res) {
   const { page,limit,offset }=pageOptions(req.query)
   const statuses=String(req.query.status||'').split(',').map(s=>s.trim()).filter(Boolean).slice(0,10)
-  const conditions=['b.branch_id=?'];const args=[req.branchId]
-  if (statuses.length){conditions.push(`b.status IN (${statuses.map(()=>'?').join(',')})`);args.push(...statuses)}
   const search=String(req.query.search||'').trim().slice(0,120)
-  if (search){conditions.push('(p.full_name LIKE ? OR d.full_name LIKE ? OR CAST(b.id AS CHAR) LIKE ?)');args.push(...Array(3).fill(`%${search}%`))}
   const paymentMethod=String(req.query.payment_method||'').trim().toLowerCase().slice(0,50)
   const requestedBasis=String(req.query.date_basis||'').trim().toLowerCase()
   const dateBasis=['visit','payment','finalized'].includes(requestedBasis)?requestedBasis:'visit'
   const from=dateOnly(req.query.date_from),to=dateOnly(req.query.date_to)
-  if(dateBasis==='payment' && (paymentMethod||from||to)) {
-    const paymentConditions=['bpf.billing_id=b.id',"bpf.status='completed'"]
-    if(paymentMethod){paymentConditions.push('bpf.payment_method=?');args.push(paymentMethod)}
-    if(from){paymentConditions.push('DATE(bpf.paid_at)>=?');args.push(from)}
-    if(to){paymentConditions.push('DATE(bpf.paid_at)<=?');args.push(to)}
-    conditions.push(`EXISTS (SELECT 1 FROM billing_payments bpf WHERE ${paymentConditions.join(' AND ')})`)
-  } else {
-    if(paymentMethod){conditions.push("EXISTS (SELECT 1 FROM billing_payments bpm WHERE bpm.billing_id=b.id AND bpm.status='completed' AND bpm.payment_method=?)");args.push(paymentMethod)}
-    const dateColumn=dateBasis==='finalized'?'b.finalized_at':'a.appointment_date'
-    if(from){conditions.push(`DATE(${dateColumn})>=?`);args.push(from)}
-    if(to){conditions.push(`DATE(${dateColumn})<=?`);args.push(to)}
+  // Keep all scope/search/date/payment filters for the tiles, but omit selected
+  // status. List rows and pagination still honor the status tab.
+  const buildFilters=(includeStatus)=>{
+    const conditions=['b.branch_id=?'];const args=[req.branchId]
+    if(includeStatus && statuses.length){conditions.push(`b.status IN (${statuses.map(()=>'?').join(',')})`);args.push(...statuses)}
+    if(search){conditions.push('(p.full_name LIKE ? OR d.full_name LIKE ? OR CAST(b.id AS CHAR) LIKE ?)');args.push(...Array(3).fill(`%${search}%`))}
+    if(dateBasis==='payment' && (paymentMethod||from||to)) {
+      const paymentConditions=['bpf.billing_id=b.id',"bpf.status='completed'"]
+      if(paymentMethod){paymentConditions.push('bpf.payment_method=?');args.push(paymentMethod)}
+      if(from){paymentConditions.push('DATE(bpf.paid_at)>=?');args.push(from)}
+      if(to){paymentConditions.push('DATE(bpf.paid_at)<=?');args.push(to)}
+      conditions.push(`EXISTS (SELECT 1 FROM billing_payments bpf WHERE ${paymentConditions.join(' AND ')})`)
+    } else {
+      if(paymentMethod){conditions.push("EXISTS (SELECT 1 FROM billing_payments bpm WHERE bpm.billing_id=b.id AND bpm.status='completed' AND bpm.payment_method=?)");args.push(paymentMethod)}
+      const dateColumn=dateBasis==='finalized'?'b.finalized_at':'a.appointment_date'
+      if(from){conditions.push(`DATE(${dateColumn})>=?`);args.push(from)}
+      if(to){conditions.push(`DATE(${dateColumn})<=?`);args.push(to)}
+    }
+    return {where:`WHERE ${conditions.join(' AND ')}`,args}
   }
-  const where=`WHERE ${conditions.join(' AND ')}`
+  const {where,args}=buildFilters(true)
+  const {where:summaryWhere,args:summaryArgs}=buildFilters(false)
   const joins=`FROM billing_records b
      JOIN appointments a ON a.id=b.appointment_id AND a.branch_id=b.branch_id
      JOIN patients p ON p.id=b.patient_id
@@ -49,16 +56,16 @@ async function readBills(req,res) {
      DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,a.appointment_time,a.reason AS appointment_reason,a.clinic_type,a.appointment_source,
      p.full_name AS patient_name,p.phone AS patient_phone,d.full_name AS doctor_name,d.specialty AS doctor_specialty
      ${joins} ${where} ORDER BY b.created_at DESC,b.id DESC LIMIT ? OFFSET ?`,[...args,limit,offset])
-  // Summary follows the selected filters but is independent of the current page.
+  // Summary shares branch/search/date/payment filters, but not the selected status tab.
   const [[summary]]=await db.query(`SELECT COUNT(*) AS total,
-     SUM(b.status IN ('draft','pending')) AS draft,SUM(b.status='ready') AS ready,SUM(b.status='partially_paid') AS partially_paid,SUM(b.status='paid') AS paid,
+     SUM(b.status IN ('draft','pending')) AS draft,SUM(b.status='pending') AS pending,SUM(b.status='ready') AS ready,SUM(b.status='partially_paid') AS partially_paid,SUM(b.status='paid') AS paid,
      COALESCE(SUM(CASE WHEN b.status IN ('draft','pending','ready','partially_paid') THEN GREATEST(0,b.total_amount-COALESCE(pay.paid_amount,0)) ELSE 0 END),0) AS outstanding,
      COALESCE(SUM(COALESCE(pay.paid_amount,0)),0) AS collected
-     ${joins} ${where}`,args)
+     ${joins} ${summaryWhere}`,summaryArgs)
   const total=Number(count?.total||0),totalPages=Math.max(1,Math.ceil(total/limit))
   return res.json({items:rows.map(r=>({...r,paid_amount:Number(r.paid_amount||0),balance_amount:Number(r.balance_amount||0),payment_methods:String(r.payment_methods||'').split(',').filter(Boolean)})),
     pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages},
-    summary:{total:Number(summary.total||0),draft:Number(summary.draft||0),pending:Number(summary.draft||0),ready:Number(summary.ready||0),partially_paid:Number(summary.partially_paid||0),paid:Number(summary.paid||0),outstanding:Number(summary.outstanding||0),collected:Number(summary.collected||0)}})
+    summary:{total:Number(summary.total||0),draft:Number(summary.draft||0),pending:Number(summary.pending||0),ready:Number(summary.ready||0),partially_paid:Number(summary.partially_paid||0),paid:Number(summary.paid||0),outstanding:Number(summary.outstanding||0),collected:Number(summary.collected||0)}})
 }
 
 async function readBill(req,res){
@@ -71,7 +78,7 @@ async function readBill(req,res){
 }
 
 async function readCashDrawer(req,res){
-  const date=dateOnly(req.query.date) || new Date().toISOString().slice(0,10)
+  const date=dateOnly(req.query.date) || getTodayDateOnly()
   const cashierId=req.user.id
   const [[payments]]=await db.query(`SELECT COUNT(*) AS transactions,
       COALESCE(SUM(IF(bp.payment_method='cash',bp.amount,0)),0) AS cash_received,
@@ -133,7 +140,7 @@ async function readSystemSetup(req,res){
 // Same contract as the original admin Daily Close (methods/cashiers arrays) so the
 // shared Billing Overview and Daily Close screens render; every query is branch-scoped.
 async function readReconciliation(req,res){
-  const date=dateOnly(req.query.date)||new Date().toISOString().slice(0,10)
+  const date=dateOnly(req.query.date)||getTodayDateOnly()
   const ledger=await loadCollectionLedger({startDate:date,endDate:date,branchId:req.branchId})
   const cash=summarizeLedgerRows(ledger.rows.filter(r=>r.payment_method==='cash'))
   const [[discount]]=await db.query("SELECT COALESCE(SUM(discount_amount),0) AS discounts FROM billing_records WHERE branch_id=? AND status<>'voided' AND DATE(COALESCE(finalized_at,created_at))=?",[req.branchId,date])
@@ -241,6 +248,7 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
   }
 }
 module.exports={registerBranchOperationalReads,readBills,readCashDrawer,readTransferGroups,readSystemSetup}
+
 
 
 

@@ -488,6 +488,11 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
        a.appointment_time,
        a.reason AS appointment_reason,
        a.clinic_type,
+       a.promotion_id, a.promotion_title_snapshot, a.promotion_terms_snapshot,
+       a.promotion_badge_snapshot, a.promotion_selected_for_service_id,
+       DATE_FORMAT(a.promotion_starts_on_snapshot,'%Y-%m-%d') AS promotion_starts_on_snapshot,
+       DATE_FORMAT(a.promotion_ends_on_snapshot,'%Y-%m-%d') AS promotion_ends_on_snapshot,
+       DATE_FORMAT(a.promotion_selected_at,'%Y-%m-%d %H:%i:%s') AS promotion_selected_at,
        p.full_name AS patient_name,
        p.phone AS patient_phone,
        d.full_name AS doctor_name,
@@ -566,6 +571,17 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
 
   return {
     ...records[0],
+    selected_promotion: records[0].promotion_title_snapshot ? {
+      id: records[0].promotion_id || null,
+      title_at_booking: records[0].promotion_title_snapshot,
+      terms_at_booking: records[0].promotion_terms_snapshot,
+      badge_at_booking: records[0].promotion_badge_snapshot,
+      starts_on_at_booking: records[0].promotion_starts_on_snapshot,
+      ends_on_at_booking: records[0].promotion_ends_on_snapshot,
+      service_id: records[0].promotion_selected_for_service_id,
+      selected_at: records[0].promotion_selected_at,
+      status: 'patient_selected_not_automatically_applied',
+    } : null,
     paid_amount: paidAmount,
     balance_amount: balanceAmount,
     items: items.map((item) => ({
@@ -821,6 +837,7 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
+
 
 
 

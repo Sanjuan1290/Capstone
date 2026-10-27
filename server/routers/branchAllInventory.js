@@ -87,5 +87,3 @@ function registerAllInventory(router,requireSuper) {
   })
 }
 module.exports={registerAllInventory,keyOf}
-
-

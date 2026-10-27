@@ -11,9 +11,25 @@ const {
   DEFAULT_BOOKING_START_INTERVAL_MINUTES,
   roundReservedDurationMinutes,
   isOnlineAppointmentStartAllowed,
+  appointmentStartUtc,
 } = require('./bookingPolicy')
 
 const ACTIVE_SLOT_STATUSES = ['pending', 'confirmed', 'rescheduled', 'in-progress']
+
+// Independently enforce the actual start instant for ALL scheduled bookings.
+// Unlike the online notice period, this applies to staff/admin bookings too.
+const isFutureAppointmentStart = ({ date, time, now = new Date() }) => {
+  const start = appointmentStartUtc(date, time)
+  return Boolean(start && start.getTime() > now.getTime())
+}
+const assertFutureAppointmentStart = ({ date, time, now = new Date() }) => {
+  if (!isFutureAppointmentStart({ date, time, now })) {
+    throw Object.assign(new Error('That appointment time has already passed. Choose a future slot.'), {
+      statusCode: 409, code: 'APPOINTMENT_START_IN_PAST',
+    })
+  }
+}
+
 
 const clinicMatchesDoctor = (clinicType, doctor) => {
   const assignedClinic = String(doctor?.clinic_type || '').trim()
@@ -155,6 +171,7 @@ const validateAppointmentSlot = async ({
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw Object.assign(new Error('Select a valid appointment date.'), { statusCode: 400 })
   const requestedMinutes = parseTimeToMinutes(time)
   if (requestedMinutes === null) throw Object.assign(new Error('Select a valid appointment time.'), { statusCode: 400 })
+  assertFutureAppointmentStart({ date, time, now })
 
   const { doctor, schedules } = await loadDoctorAndSchedules({ doctorId, clinicType, executor })
   const blocked = await getDoctorUnavailableDate(Number(doctorId), date, executor)
@@ -225,7 +242,8 @@ const getAvailableAppointmentSlots = async ({
       if (end <= coverage.end) {
         const label = formatSlotLabel(cursor)
         const allowedByLead = !enforceLeadTime || isOnlineAppointmentStartAllowed({ date, time: label, minLeadMinutes, now })
-        if (allowedByLead && !overlapsAny(cursor, end, activeWindows) && !seen.has(label)) {
+        const futureStart = isFutureAppointmentStart({ date, time: label, now })
+        if (futureStart && allowedByLead && !overlapsAny(cursor, end, activeWindows) && !seen.has(label)) {
           seen.add(label)
           slots.push({ label, minutes: cursor })
         }
@@ -289,6 +307,8 @@ const assertAppointmentTransition = (from, to) => {
 
 module.exports = {
   ACTIVE_SLOT_STATUSES,
+  isFutureAppointmentStart,
+  assertFutureAppointmentStart,
   parseTimeToMinutes,
   getAppointmentReservedDuration,
   buildScheduleCoverageIntervals,
@@ -298,6 +318,7 @@ module.exports = {
   assertAppointmentTransition,
   assertAppointmentMutationApplied,
 }
+
 
 
 

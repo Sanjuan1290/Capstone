@@ -100,6 +100,13 @@ const addWalkInVisit = async ({
   const ownsConnection = executor === db
   let lockKey = null
   try {
+    // Patient-scoped lock acquired BEFORE precheck, and held until commit.
+    // Prevents concurrent requests from creating two active queue entries.
+    patientLockKey = `queue:patient:${branchId}:${id}`
+    const [[patientLock]] = await conn.query('SELECT GET_LOCK(?, 5) AS acquired',[patientLockKey])
+    if(Number(patientLock?.acquired)!==1){
+      throw Object.assign(new Error('Patient check-in is already processing. Please retry.'),{statusCode:409,code:'QUEUE_BUSY'})
+    }
     if (ownsConnection) await conn.beginTransaction()
     const precheck = await getWalkInPrecheck(id, branchId, conn)
     if (precheck.active_queue) {
@@ -142,6 +149,13 @@ const addWalkInVisit = async ({
       appointmentId = appointmentResult.insertId
     }
 
+    // An existing appointment may have been checked in earlier and completed.
+    // Never link the same appointment to a second queue entry.
+    const [[alreadyLinked]]=await conn.query('SELECT id FROM queue WHERE appointment_id=? AND branch_id=? LIMIT 1',[appointmentId,branchId])
+    if(alreadyLinked){
+      if(ownsConnection)await conn.rollback()
+      return {ok:false,status:409,body:{code:'APPOINTMENT_ALREADY_CHECKED_IN',message:'This appointment already has a queue entry.'}}
+    }
     const today = getTodayDateOnly()
     lockKey = `queue:${branchId}:${today}:${resolvedDoctorId}`
     const [[queueLock]] = await conn.query('SELECT GET_LOCK(?, 5) AS acquired', [lockKey])
@@ -162,8 +176,7 @@ const addWalkInVisit = async ({
        VALUES (?,?,?,?,?,'waiting',?,?,?)`,
       [id, resolvedDoctorId, queueNumber, patientName || 'Walk-in', clinicType, today, appointmentId, branchId]
     )
-    await conn.query('SELECT RELEASE_LOCK(?)', [lockKey])
-    lockKey = null
+    // Queue-number lock remains held until after commit to prevent MAX()+1 races.
 
     await writeAuditLog({
       userId: actorId,
@@ -186,9 +199,14 @@ const addWalkInVisit = async ({
     }, conn)
 
     if (ownsConnection) await conn.commit()
+    if(lockKey){await conn.query('SELECT RELEASE_LOCK(?)',[lockKey]).catch(()=>{});lockKey=null}
 
-    broadcast(['admin', 'staff', `doctor_${resolvedDoctorId}`], 'queue_updated', { queueId: queueResult.insertId, status: 'added', doctorId: Number(resolvedDoctorId) }, { branchId })
-    broadcast(['admin', 'staff', `doctor_${resolvedDoctorId}`, `patient_${id}`], 'appointment_updated', { appointmentId, status: 'confirmed' }, { branchId })
+    try {
+      broadcast(['admin', 'staff', `doctor_${resolvedDoctorId}`], 'queue_updated', { queueId: queueResult.insertId, status: 'added', doctorId: Number(resolvedDoctorId) }, { branchId })
+      broadcast(['admin', 'staff', `doctor_${resolvedDoctorId}`, `patient_${id}`], 'appointment_updated', { appointmentId, status: 'confirmed' }, { branchId })
+    } catch (notificationError) {
+      console.error('[walk-in] notification failed after commit:', notificationError.message)
+    }
 
     return {
       ok: true,
@@ -204,10 +222,11 @@ const addWalkInVisit = async ({
       },
     }
   } catch (error) {
-    if (lockKey) await conn.query('SELECT RELEASE_LOCK(?)', [lockKey]).catch(() => {})
     if (ownsConnection) await conn.rollback().catch(() => {})
+    if (lockKey) { await conn.query('SELECT RELEASE_LOCK(?)', [lockKey]).catch(() => {}); lockKey = null }
     throw error
   } finally {
+    if(patientLockKey)await conn.query('SELECT RELEASE_LOCK(?)',[patientLockKey]).catch(()=>{})
     if (ownsConnection) conn.release()
   }
 }
@@ -217,6 +236,7 @@ module.exports = {
   resolveWalkInDoctor,
   addWalkInVisit,
 }
+
 
 
 

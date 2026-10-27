@@ -41,5 +41,3 @@ export async function loadAdminDashboardSections({ getDashboard, getAppointments
 
   return { dashboard, appointments, errors }
 }
-
-

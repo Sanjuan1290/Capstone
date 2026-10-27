@@ -1,5 +1,5 @@
 const db = require('../db/connect')
-const { normalizePatientProfileInput, getPatientProfileStatus } = require('./patientProfile')
+const { normalizePatientProfileInput, getPatientProfileStatus, validateBirthdate } = require('./patientProfile')
 
 const TABLE_MAP = {
   admin: 'admins',
@@ -35,6 +35,14 @@ const updateSettings = async (role, id, payload) => {
     const current = await getSettings(role, id)
     if (!current) return null
 
+    if (payload.birthdate !== undefined) {
+      const error = validateBirthdate(payload.birthdate)
+      if (error) {
+        const validationError = new Error(error)
+        validationError.statusCode = 400
+        throw validationError
+      }
+    }
     const normalized = normalizePatientProfileInput(payload)
     const nextValues = {
       full_name: payload.full_name === undefined ? current.full_name : (payload.full_name || '').trim() || current.full_name,
@@ -106,7 +114,3 @@ module.exports = {
   getSettings,
   updateSettings,
 }
-
-
-
-

@@ -53,7 +53,7 @@ test('new walk-in writes its appointment, queue number and audit to the verified
   release:()=>traces.push(['RELEASE']),
   query:async(sql,args)=>{
    traces.push(['SQL',sql,args])
-   if(sql.includes('FROM queue q')||sql.includes('FROM appointments a'))return [[]]
+   if(sql.includes('FROM queue q')||sql.includes('FROM appointments a')||sql.includes('FROM queue WHERE appointment_id'))return [[]]
    if(sql.startsWith('INSERT INTO appointments'))return [{insertId:71}]
    if(sql.startsWith('SELECT GET_LOCK'))return [[{acquired:1}]]
    if(sql.startsWith('SELECT COALESCE(MAX(queue_number)'))return [[{maxQ:4}]]
@@ -73,9 +73,44 @@ test('new walk-in writes its appointment, queue number and audit to the verified
  }
  assert.ok(traces.find(t=>t[0]==='AVAILABILITY'&&t[1]===22))
  assert.ok(traces.find(t=>t[0]==='AUDIT'&&t[1]===22))
+ // Both advisory locks must be acquired before writes and released after COMMIT.
+ const patientLock = traces.findIndex(t=>t[0]==='SQL'&&t[1].startsWith('SELECT GET_LOCK')&&String(t[2]?.[0]).includes('queue:patient:'))
+ const precheckIndex = traces.findIndex(t=>t[0]==='SQL'&&t[1].includes('FROM queue q'))
+ const commitIndex = traces.findIndex(t=>t[0]==='COMMIT')
+ const queueRelease = traces.findIndex(t=>t[0]==='SQL'&&t[1].startsWith('SELECT RELEASE_LOCK')&&String(t[2]?.[0]).startsWith('queue:22:'))
+ const patientRelease = traces.findIndex(t=>t[0]==='SQL'&&t[1].startsWith('SELECT RELEASE_LOCK')&&String(t[2]?.[0]).includes('queue:patient:'))
+ assert.ok(patientLock>=0 && patientLock<precheckIndex)
+ assert.ok(queueRelease>commitIndex && patientRelease>commitIndex)
  assert.equal(events.length,2)
  assert.ok(events.every(call=>call[3]?.branchId===22))
  assert.deepEqual(traces.filter(t=>t[0]==='BEGIN'||t[0]==='COMMIT'||t[0]==='ROLLBACK').map(t=>t[0]),['BEGIN','COMMIT'])
+})
+
+test('already checked-in scheduled appointment cannot get a second queue entry', async()=>{
+ traces.length=0;events.length=0
+ const today=require('../../utils/date').getTodayDateOnly()
+ fakeConnection={
+  beginTransaction:async()=>traces.push(['BEGIN']),
+  commit:async()=>traces.push(['COMMIT']),
+  rollback:async()=>traces.push(['ROLLBACK']),
+  release:()=>traces.push(['RELEASE']),
+  query:async(sql,args)=>{
+   traces.push(['SQL',sql,args])
+   if(sql.startsWith('SELECT GET_LOCK'))return [[{acquired:1}]]
+   if(sql.startsWith('SELECT RELEASE_LOCK'))return [[{ok:1}]]
+   if(sql.includes('FROM queue q'))return [[]]
+   if(sql.includes('FROM appointments a'))return [[{id:71,status:'confirmed',clinic_type:'medical',appointment_date:today,appointment_time:'2:30 PM',doctor_id:6,doctor_name:'Owned doctor'}]]
+   if(sql.startsWith('UPDATE appointments'))return [{affectedRows:1}]
+   if(sql.startsWith('SELECT id FROM queue WHERE appointment_id'))return [[{id:91}]]
+   throw Error(`Unexpected query ${sql}`)
+  },
+ }
+ const result=await walkIn.addWalkInVisit({patientId:8,doctorId:6,clinicType:'medical',checkInAppointmentId:71,actorRole:'staff',actorId:3,branchId:22})
+ assert.equal(result.status,409)
+ assert.equal(result.body.code,'APPOINTMENT_ALREADY_CHECKED_IN')
+ assert.ok(traces.some(t=>t[0]==='ROLLBACK'))
+ assert.ok(!traces.some(t=>t[0]==='COMMIT'))
+ assert.equal(events.length,0)
 })
 
 test('Staff delegated reports, audits and core setup use only branch-aware read handlers',()=>{
@@ -85,5 +120,6 @@ test('Staff delegated reports, audits and core setup use only branch-aware read 
  }
  for(const handler of ['readBranchReport','readBranchAuditPage','readBranchArchives','readBranchArchiveDetail','readSystemSetup','saveVisitReason','saveCancellation','saveCategory'])assert.match(router,new RegExp(handler))
 })
+
 
 

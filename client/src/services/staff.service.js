@@ -275,4 +275,6 @@ export const closeMyCashier = (payload) => postStaffJson(`${BASE}/billing/cashie
 // PayMongo Dynamic QR Ph (test mode only).
 export const createStaffQrPayment = id => requestJson(`${BASE}/billing/${id}/qr-payment`, { method:'POST' })
 export const getStaffQrStatus = id => requestJson(`${BASE}/billing/${id}/qr-payment/status`)
+export const cancelStaffQrPayment = (id, attemptId) => requestJson(`${BASE}/billing/${id}/qr-payment/${attemptId}/cancel`, { method:'POST' })
+
 

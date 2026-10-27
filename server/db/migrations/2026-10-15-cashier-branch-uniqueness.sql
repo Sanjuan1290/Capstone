@@ -25,4 +25,3 @@ END$$
 DELIMITER ;
 CALL carait_cashier_branch_unique();
 DROP PROCEDURE IF EXISTS carait_cashier_branch_unique;
-

@@ -521,10 +521,17 @@ const originalDoctorSchedules=async(req,res)=>{
   if(!validId(doctorId))return res.status(400).json({message:'Invalid doctor.'})
   const [[doctor]]=await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=?',[doctorId,req.branchId])
   if(!doctor)return res.status(404).json({message:'Doctor not found in this branch.'})
-  const [rows]=await db.query('SELECT * FROM doctor_schedules WHERE doctor_id=? ORDER BY day_of_week',[doctorId]);res.json(rows)
+  const [rows]=await db.query(`SELECT * FROM doctor_schedules WHERE doctor_id=? ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')`,[doctorId]);res.json(rows)
 }
 const originalServices=async(req,res)=>{
-  const [rows]=await db.query(`SELECT * FROM billing_service_catalog WHERE branch_id=? ORDER BY created_at,id LIMIT 500`,[req.branchId]);res.json(rows)
+  const clinicType=String(req.query.clinic_type||'').trim()
+  if(clinicType && !['medical','derma'].includes(clinicType))return res.status(400).json({message:'Invalid clinic type.'})
+  // Booking queries must not leak inactive or other-clinic services.
+  // Setup screens without clinic_type retain their full authorized catalog.
+  const filter=clinicType ? " AND is_active=1 AND clinic_type IN (?,'all')" : ''
+  const params=clinicType ? [req.branchId,clinicType] : [req.branchId]
+  const [rows]=await db.query(`SELECT * FROM billing_service_catalog WHERE branch_id=?${filter} ORDER BY created_at,id LIMIT 500`,params)
+  res.json(rows)
 }
 const originalInventory=async(req,res)=>{
   const [rows]=await db.query('SELECT * FROM inventory WHERE branch_id=? ORDER BY name LIMIT 500',[req.branchId]);res.json(rows)
@@ -534,6 +541,12 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.get(`${prefix}/appointments`,...middle,requirePermission('appointments'),originalAppointments)
   router.get(`${prefix}/patients`,...middle,allowAnyPermission('patient_records','appointments'),originalPatients)
   router.get(`${prefix}/patients/:id`,...middle,requirePermission('patient_records'),originalPatientDetails)
+  router.get(`${prefix}/walk-in/doctors`,...middle,requirePermission('appointments'),async(req,res,next)=>{
+    try{
+      const {buildWalkInDoctorAvailability}=require('../utils/doctorAvailabilitySummary')
+      res.json(await buildWalkInDoctorAvailability({clinicType:String(req.query.clinic_type||''),branchId:req.branchId}))
+    }catch(error){next(error)}
+  })
   router.get(`${prefix}/doctors`,...middle,allowAnyPermission('doctor_schedules','accounts','appointments'),originalDoctors)
   router.get(`${prefix}/doctors/:id/schedules`,...middle,requirePermission('doctor_schedules'),originalDoctorSchedules)
   router.get(`${prefix}/staff`,...middle,requirePermission('accounts'),originalStaff)
@@ -562,7 +575,15 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.patch(`${prefix}/doctors/:id/toggle`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.toggleDoctor))
   router.put(`${prefix}/doctors/:id/schedules`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDaySchedule))
   router.get(`${prefix}/doctors/:id/unavailable-dates`,...ownedPerson('doctors','doctor_schedules',oldAdmin.getDoctorUnavailableDatesAdmin))
-  router.get(`${prefix}/doctors/:id/available-slots`,...ownedPerson('doctors','doctor_schedules',oldAdmin.getAppointmentAvailableSlotsAdmin))
+  router.get(`${prefix}/doctors/:id/available-slots`,...middle,allowAnyPermission('appointments','doctor_schedules'),async(req,res,next)=>{
+    const id=Number(req.params.id)
+    if(!validId(id))return res.status(400).json({message:'Invalid doctor.'})
+    try{
+      const [[doctor]]=await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=?',[id,req.branchId])
+      if(!doctor)return res.status(404).json({message:'Doctor not found in this branch.'})
+      return await oldAdmin.getAppointmentAvailableSlotsAdmin(req,res)
+    }catch(error){next(error)}
+  })
   router.put(`${prefix}/doctors/:id/unavailable-dates`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDoctorUnavailableDateAdmin))
   router.delete(`${prefix}/doctors/:id/unavailable-dates/:date`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.deleteDoctorUnavailableDateAdmin))
   router.get(`${prefix}/appointment-reasons`,...middle,requirePermission('appointments'),async(req,res)=>{
@@ -623,6 +644,7 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 
 
 

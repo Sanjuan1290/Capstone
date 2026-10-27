@@ -95,6 +95,7 @@ function patterns(){
  if (branchMount.includes('require(\'./paymongoGateway\').apiRouter') && branchMount.includes('`${prefix}/billing`')) {
   if (gateway.includes("apiRouter.post('/:id/qr-payment'")) add('POST','/billing/:param/qr-payment','paymongoGateway.js')
   if (gateway.includes("apiRouter.get('/:id/qr-payment/status'")) add('GET','/billing/:param/qr-payment/status','paymongoGateway.js')
+  if (gateway.includes("apiRouter.post('/:id/qr-payment/:attemptId/cancel'")) add('POST','/billing/:param/qr-payment/:param/cancel','paymongoGateway.js')
   if (gateway.includes("apiRouter.post('/:id/qr-payment/:attemptId/resolve'")) add('POST','/billing/:param/qr-payment/:param/resolve','paymongoGateway.js')
  }
  for(const a of ['confirm','cancel','no-show','reschedule'])add('PATCH',`/appointments/:param/${a}`,'branches.router.js')
@@ -108,4 +109,5 @@ function analyze(){
 const output=analyze()
 if(require.main===module){console.log(JSON.stringify(output,null,2));if(output.unmatched)process.exitCode=1}
 module.exports={patterns,serviceCalls,analyze,output}
+
 

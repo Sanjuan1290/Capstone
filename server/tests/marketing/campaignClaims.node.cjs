@@ -131,4 +131,3 @@ test('MySQL keeps its existing SKIP LOCKED query variant', async () => {
   const claimSql = db.queries.find(sql => /SELECT r\.id,r\.patient_id FROM marketing_campaign_recipients/i.test(sql))
   assert.match(claimSql, /LIMIT 1 FOR UPDATE SKIP LOCKED$/)
 })
-

@@ -24,7 +24,9 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { LoadingState, ErrorState } from '../../components/ui/PageState'
 import BillingStatusBadge from '../../components/billing/BillingStatusBadge'
 import QrPhPaymentPanel from '../../components/billing/QrPhPaymentPanel'
-import { createAdminQrPayment, getAdminQrStatus } from '../../services/admin.service'
+import SelectedPromotionNotice from '../../components/billing/SelectedPromotionNotice'
+import PaymentPreview from '../../components/billing/PaymentPreview'
+import { createAdminQrPayment, getAdminQrStatus, cancelAdminQrPayment } from '../../services/admin.service'
 import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
 import DiscountProofField from '../../components/billing/DiscountProofField'
 import { enabledPaymentMethods, formatMoney, paymentMethodLabel, roundMoney } from '../../utils/billingUi'
@@ -377,6 +379,10 @@ const Admin_CheckoutDetail = () => {
         discount_reference_security_token: discountProof.security_token || null,
         discount_amount: workingDraft.discount_amount,
         payment_notes: workingDraft.payment_notes || null,
+        ...(bill.selected_promotion ? {
+          promotion_review_outcome: workingDraft.promotion_review_outcome || null,
+          promotion_review_note: workingDraft.promotion_review_note || '',
+        } : {}),
       })
       setBill(updated)
       setDraft(normalizeBill(updated))
@@ -577,6 +583,7 @@ const Admin_CheckoutDetail = () => {
               <button className="button-secondary" onClick={() => setAddOpen(true)}><MdAdd /> Add Charge</button>
             </div>
 
+            <SelectedPromotionNotice promotion={bill.selected_promotion} />
             {zeroPriceItems.length > 0 && <div className="mt-4 flex gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900"><MdWarning /> {zeroPriceItems.length} charge{zeroPriceItems.length === 1 ? '' : 's'} currently {zeroPriceItems.length === 1 ? 'has' : 'have'} a missing/₱0.00 price. Fix the price before continuing.</div>}
 
             <div className="mt-5 space-y-3">
@@ -644,6 +651,24 @@ const Admin_CheckoutDetail = () => {
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-black text-slate-900">Confirm Bill</h2>
             <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
+            <SelectedPromotionNotice promotion={bill.selected_promotion} />
+            {bill.selected_promotion && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <label><span className="form-label">Promotion review outcome</span>
+                <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
+                  onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
+                  <option value="">Not reviewed yet</option>
+                  <option value="needs_review">Needs clinic review</option>
+                  <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
+                  <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
+                </select>
+              </label>
+              <label><span className="form-label">Review notes</span>
+                <textarea className="form-control mt-1.5" maxLength={255} rows={2}
+                  value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
+                  placeholder="Reason for review decision (required when no promotional discount is applied)" />
+              </label>
+              <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
+            </div>}
             <label className="mt-5 block"><span className="form-label">Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
             {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
               {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={draft.discount_amount} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, Math.max(0, Number(e.target.value || 0))) }))} /></label>}
@@ -680,7 +705,7 @@ const Admin_CheckoutDetail = () => {
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-black text-slate-900">Collect Payment</h2><p className="mt-1 text-sm text-slate-500">Only payment methods enabled by Admin are shown here.</p>
             <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-center"><p className="text-xs font-black uppercase tracking-wide text-sky-700">Amount Due</p><p className="mt-2 text-3xl font-black text-sky-950">{formatMoney(bill.balance_amount)}</p></div>
-            <QrPhPaymentPanel billId={billingId} remainingBalance={bill.balance_amount} getStatus={getAdminQrStatus} createQr={createAdminQrPayment} onPaid={() => load({ preserveStep: true })} onPendingChange={setQrPending} />
+            <QrPhPaymentPanel billId={billingId} remainingBalance={bill.balance_amount} getStatus={getAdminQrStatus} createQr={createAdminQrPayment} cancelQr={cancelAdminQrPayment} onPaid={() => load({ preserveStep: true })} onPendingChange={setQrPending} />
             <div className="mt-5"><p className="form-label">Payment Method</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{paymentMethods.map((method) => <button key={method.value} onClick={() => setDraft((current) => ({ ...current, payment_method: method.value, reference_number: '', amount_received: current.payment_amount || bill.balance_amount }))} className={`rounded-2xl border p-4 text-left font-black ${draft.payment_method === method.value ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 hover:bg-slate-50'}`}>{method.label}</button>)}</div>{paymentMethods.length === 0 && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">No payment methods are enabled. Ask an administrator to update Billing → Setup → Payment Methods.</div>}</div>
             {draft.payment_method && <div className="mt-5 space-y-4"><label><span className="form-label">Payment Amount</span><input type="number" min="0.01" max={bill.balance_amount} step="0.01" className="form-control mt-1.5" value={draft.payment_amount} onChange={(e) => setDraft((current) => ({ ...current, payment_amount: e.target.value, amount_received: current.payment_method === 'cash' ? e.target.value : current.amount_received }))} /></label>
               {draft.payment_method === 'cash' ? <label><span className="form-label">Cash Received</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={draft.amount_received} onChange={(e) => setDraft((current) => ({ ...current, amount_received: e.target.value }))} />{Number(draft.amount_received || 0) >= Number(draft.payment_amount || 0) && Number(draft.payment_amount || 0) > 0 && <span className="mt-2 block rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">Change: {formatMoney(Number(draft.amount_received || 0) - Number(draft.payment_amount || 0))}</span>}</label> : <>
@@ -691,7 +716,7 @@ const Admin_CheckoutDetail = () => {
               <label><span className="form-label">Payment Notes</span><textarea maxLength={500} rows={2} className="form-control mt-1.5 resize-none" value={draft.payment_notes || ''} onChange={(e) => setDraft((current) => ({ ...current, payment_notes: e.target.value }))} /></label>
             </div>}
           </section>
-          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || qrPending || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
+          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div><PaymentPreview bill={bill} draft={draft} formatMoney={formatMoney} /></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || qrPending || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
           </div>
         </div>
       )}
@@ -714,6 +739,7 @@ const Admin_CheckoutDetail = () => {
 }
 
 export default Admin_CheckoutDetail
+
 
 
 

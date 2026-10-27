@@ -33,7 +33,3 @@ describe('billing input hardening', () => {
     })
   })
 })
-
-
-
-

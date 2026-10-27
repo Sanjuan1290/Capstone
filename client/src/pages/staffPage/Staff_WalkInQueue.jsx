@@ -30,9 +30,10 @@ import {
 } from '../../services/staff.service'
 import { printWalkInIntakeForm } from '../../utils/printWalkInIntakeForm'
 import { getLocalDateOnly } from '../../utils/date'
+import { getClinicToday, getMinPatientBirthdate } from '../../utils/patientBirthdate.mjs'
 
-const maxPatientBirthdate = () => getLocalDateOnly()
-const minPatientBirthdate = () => { const d = new Date(); d.setFullYear(d.getFullYear() - 100); return getLocalDateOnly(d) }
+const maxPatientBirthdate = getClinicToday
+const minPatientBirthdate = getMinPatientBirthdate
 const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : 'General Medicine'
 
 const QueueCard = ({ entry, onCall, onReturn, onRemove }) => {
@@ -345,7 +346,3 @@ const StaffWalkInQueue = () => {
 }
 
 export default StaffWalkInQueue
-
-
-
-

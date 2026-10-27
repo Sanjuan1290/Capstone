@@ -30,7 +30,7 @@ export const getBookingReadiness = async (branchId) => {
   return parseJson(res)
 }
 
-export const getCurrentPromotions = () => fetch(`${BASE}/promotions`, { credentials: 'include' }).then(parseJson)
+export const getCurrentPromotions = (branchId = null) => fetch(`${BASE}/promotions${branchId ? `?branch_id=${encodeURIComponent(branchId)}` : ''}`, { credentials: 'include' }).then(parseJson)
 
 export const getBookingServices = async (clinicType = '', branchId = '') => {
   const query = `?branch_id=${encodeURIComponent(branchId)}${clinicType?`&clinic_type=${encodeURIComponent(clinicType)}`:''}`
@@ -154,6 +154,7 @@ export const updatePatientProfile = async (payload) => {
   })
   return parseJson(res)
 }
+
 
 
 

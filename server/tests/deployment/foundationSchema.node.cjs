@@ -142,4 +142,3 @@ test('foundation verifier only checks *branch_id columns as branch references', 
   const orphan = createFoundationSchemaFixture({ ownershipErrors: { 'admins.account_role': 1, 'appointments.branch_id': 1 } })
   await assert.rejects(verifyFoundationSchema(orphan.db, migrationSource), /appointments\.branch_id has 1 row/)
 })
-

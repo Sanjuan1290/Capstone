@@ -54,7 +54,3 @@ ALTER TABLE queue
   ADD CONSTRAINT fk_queue_appointment
   FOREIGN KEY (appointment_id) REFERENCES appointments(id)
   ON DELETE SET NULL;
-
-
-
-
