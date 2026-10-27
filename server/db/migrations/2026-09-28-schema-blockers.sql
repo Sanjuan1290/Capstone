@@ -13,3 +13,4 @@ ALTER TABLE supply_requests
 -- Movement-reason internal codes are VARCHAR(80); the inventory log must be able to store them.
 ALTER TABLE inventory_logs
   MODIFY COLUMN movement_type VARCHAR(80) NOT NULL DEFAULT 'adjustment';
+

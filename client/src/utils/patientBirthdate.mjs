@@ -31,3 +31,4 @@ export const validatePatientBirthdate = (value, now = new Date()) => {
   if (age > 100) return 'Patient age cannot exceed 100 years.'
   return ''
 }
+

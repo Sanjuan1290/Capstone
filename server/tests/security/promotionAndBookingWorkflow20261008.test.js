@@ -50,7 +50,9 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     const cards=read('client/src/components/promotions/PromotionCards.jsx')
     expect(dashboard).toContain('<FeaturedOffers promotions={promotions} />')
     expect(cards).toContain('Special Offers')
-    expect(cards).toContain('visiblePromotions(promotions,true)')
+    // Match the featured-promotion filter independent of harmless spacing or line breaks.
+    // Behavior (ordering, visibility, and non-mutation) is verified below.
+    expect(cards).toMatch(/\bvisiblePromotions\s*\(\s*promotions\s*,\s*true\s*\)/)
     expect(cards).toContain('to="/patient/offers"')
     expect(cards).toContain('Explore eligible services')
     expect(cards).not.toMatch(/discount_amount|billing_payments/)
@@ -72,3 +74,4 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(read('client/src/index.css')).toContain('.form-control.pl-10 { padding-left: 2.5rem; }')
   })
 })
+

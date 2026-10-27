@@ -58,3 +58,4 @@ export async function loadOverviewSections({ from, to, branch = 'all', fetchJson
 
   return { rows: values[0], trends: values[1], readiness: values[2], errors }
 }
+

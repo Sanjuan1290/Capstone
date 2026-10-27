@@ -105,3 +105,4 @@ module.exports = {
   resolveClinicTreatmentRoom,
   resolveLocationIdByName,
 }
+

@@ -29,3 +29,4 @@ WHERE a.requested_service_duration_minutes_snapshot IS NULL
    OR a.requested_service_duration_minutes_snapshot <= 0
    OR a.reserved_duration_minutes_snapshot IS NULL
    OR a.reserved_duration_minutes_snapshot <= 0;
+

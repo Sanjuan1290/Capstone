@@ -11,3 +11,4 @@ test('branch doctor schedule endpoint uses weekday order and retains doctor owne
   const code=fs.readFileSync(path.join(root,'routers/branches.router.js'),'utf8')
   assert.match(code,/SELECT \* FROM doctor_schedules WHERE doctor_id=\? ORDER BY FIELD\(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'\)/)
 })
+

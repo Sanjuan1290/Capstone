@@ -30,3 +30,4 @@ describe('Batch 6F empty service workflow', () => {
     expect(dashboard).toContain('`${baseAction.path}?clinic=${id}`')
   })
 })
+

@@ -181,3 +181,4 @@ No database rows or schema were changed. These checks do not authorize productio
 3. Do not run reverse SQL by guesswork. Some MySQL/TiDB DDL auto-commits. If a migration fails, stop the release, retain logs, inspect the migration registry and schema, and rehearse a repair against a disposable copy first.
 4. If data recovery is required, restore the snapshot into a new TiDB database, validate schema and synthetic workflows there, then repoint Render only after the recovered database passes readiness and reconciliation checks. If new clinic activity occurred after the snapshot, reconcile those records before switching.
 5. Recheck `/api/ready`, role logins, branch isolation, receipts, inventory balances, audit records, and PayMongo TEST-mode webhook verification before reopening staging traffic. Real payments remain disabled.
+

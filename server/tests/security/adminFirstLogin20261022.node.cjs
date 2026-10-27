@@ -66,3 +66,4 @@ test('first-login schema, invitation, login, password reset and UI all use the s
   assert.match(required,/\['staff', 'doctor', 'admin'\]/)
   assert.match(reset,/\['staff', 'doctor', 'admin'\]/)
 })
+

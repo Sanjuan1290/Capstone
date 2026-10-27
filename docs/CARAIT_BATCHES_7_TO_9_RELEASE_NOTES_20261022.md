@@ -81,3 +81,4 @@ Each generated Git patch was tested with `git apply --check` against the corresp
 - Existing invoices, medical records, inventory movements, patient accounts and audit history are retained.
 - The server still determines actual doctor/bookable slot status, inventory balance and payment settlement; client-side update events never claim a payment or booking succeeded.
 - The October 22 source export and previously prepared local patches are **not proof** of what is currently deployed to `caraitclinic.com`.
+

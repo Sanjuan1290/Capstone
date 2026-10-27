@@ -213,3 +213,4 @@ const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, 
 }
 
 module.exports = { applyManualInventoryMovement }
+

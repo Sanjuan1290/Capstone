@@ -53,3 +53,4 @@ test('original dashboard keeps independent sections visible and clears loading a
  assert.match(dashboard,/Today\\'s Appts[^\n]+todayAppts === null \? '—'/)
  assert.match(dashboard,/finally\(\(\) => setLoading\(false\)\)/)
 })
+

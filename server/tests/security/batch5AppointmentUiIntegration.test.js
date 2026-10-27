@@ -38,3 +38,4 @@ describe('Batch 5 appointment scheduling UI integration', () => {
     expect(reschedule).toContain('formatAppointmentTimeRange')
   })
 })
+

@@ -65,3 +65,4 @@ test('live worker also starts, and disabled worker does not', () => {
   const off=loadGateway('')
   assert.equal(off.gateway.startReconciliationSweeper(), null)
 })
+

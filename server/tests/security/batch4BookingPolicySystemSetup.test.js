@@ -34,3 +34,4 @@ describe('Batch 4 booking policy System Setup exposure', () => {
     expect(service).toContain('/system-setup/booking-policy')
   })
 })
+

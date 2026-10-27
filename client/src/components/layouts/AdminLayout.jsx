@@ -127,3 +127,4 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
 }
 
 export default AdminLayout
+

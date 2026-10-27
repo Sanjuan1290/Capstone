@@ -93,3 +93,4 @@ test('popover stays below the bell when the viewport has room there', () => {
   assert.equal(position.left, 12)
   assert.equal(position.maxHeight, 384)
 })
+

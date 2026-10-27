@@ -66,3 +66,4 @@ test('migration parser handles DELIMITER procedure bodies',()=>{
   assert.ok(sql.some(s=>s.startsWith('CREATE PROCEDURE')&&s.includes('END IF;')))
   assert.ok(sql.every(s=>!/^DROP\s+TABLE\b/i.test(s)))
 })
+

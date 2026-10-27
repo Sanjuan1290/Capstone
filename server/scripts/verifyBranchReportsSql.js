@@ -65,3 +65,4 @@ if (require.main === module) {
 }
 
 module.exports = { collectBranchReportQueries, verifyBranchReportsSql }
+

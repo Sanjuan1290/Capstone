@@ -46,3 +46,4 @@ test('Super Admin and Branch Admin layouts preserve separate workflows',()=>{
  assert.match(ui,/BranchAdminLayout/)
  assert.match(ui,/BranchWorkspace/)
 })
+

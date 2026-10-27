@@ -27,3 +27,4 @@ describe('Batch 2 appointment scheduling policy', () => {
     expect(isOnlineAppointmentStartAllowed({ date: '2026-09-29', time: '11:00 PM', minLeadMinutes: 720, now })).toBe(true)
   })
 })
+

@@ -56,3 +56,4 @@ describe('consultation extra consumables billing', () => {
     expect(line.line_total).toBe(80)
   })
 })
+

@@ -43,3 +43,4 @@ describe('patient login channel verification policy', () => {
     expect(source).toContain('phone_verified_at = NOW()')
   })
 })
+

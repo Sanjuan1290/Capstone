@@ -59,3 +59,4 @@ test('featured offers preserve selected promotion while providing bounded scroll
   assert.match(source,/prefers-reduced-motion/)
   assert.match(source,/ResizeObserver/)
 })
+

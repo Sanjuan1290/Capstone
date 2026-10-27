@@ -29,3 +29,4 @@ describe('September 30 progress-image preview regression', () => {
     expect(consultation).toContain("if (event.key === 'ArrowRight') moveProgressImagePreview(1)")
   })
 })
+

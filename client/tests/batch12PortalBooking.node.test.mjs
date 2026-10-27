@@ -40,3 +40,4 @@ test('booking state is preserved on transient API failures and submission is gat
   assert.match(source, /if \(bookingSubmissionLock\.current \|\| submitting \|\| !policyAccepted/)
   assert.doesNotMatch(source, /setBookingReadiness\(null\)\s*setReadinessError\(err\.message/)
 })
+

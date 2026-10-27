@@ -450,3 +450,4 @@ const Admin_PatientRecord = () => {
 }
 
 export default Admin_PatientRecord
+

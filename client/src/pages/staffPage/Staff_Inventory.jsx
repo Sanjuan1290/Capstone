@@ -22,3 +22,4 @@ const staffServices = {
 const Staff_Inventory = () => <Inventory services={staffServices} canManageSellingPrice={false} />
 
 export default Staff_Inventory
+

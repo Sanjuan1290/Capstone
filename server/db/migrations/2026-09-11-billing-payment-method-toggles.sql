@@ -30,3 +30,4 @@ SET @sql = IF(
   'ALTER TABLE clinic_payment_settings ADD COLUMN bank_transfer_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER maya_enabled'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+

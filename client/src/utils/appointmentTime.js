@@ -71,3 +71,4 @@ export const formatAppointmentRange = (appointment) => formatAppointmentTimeRang
   appointment?.appointment_time || appointment?.time,
   getReservedDurationMinutes(appointment)
 )
+

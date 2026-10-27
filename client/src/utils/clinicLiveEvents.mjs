@@ -20,3 +20,4 @@ export const sameActiveBranch=(data,pathname='')=>{
  if(!selected||!data?.branch_id)return true
  return Number(selected[1])===Number(data.branch_id)
 }
+

@@ -267,3 +267,4 @@ const PatientLayout = () => {
 }
 
 export default PatientLayout
+

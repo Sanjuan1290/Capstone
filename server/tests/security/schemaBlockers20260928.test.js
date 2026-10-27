@@ -22,3 +22,4 @@ describe('2026-09-28 schema blocker reconciliation', () => {
     expect(admin).toContain("80 - suffixText.length")
   })
 })
+

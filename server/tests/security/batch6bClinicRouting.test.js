@@ -45,3 +45,4 @@ describe('September 29 Batch 6B — clinic assignment is authoritative', () => {
     expect(schedules).not.toContain("specialty || '').toLowerCase().includes('derm')")
   })
 })
+

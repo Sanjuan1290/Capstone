@@ -70,3 +70,4 @@ export function FeaturedOffers({ promotions = [] }) {
     </div>
   </section>
 }
+

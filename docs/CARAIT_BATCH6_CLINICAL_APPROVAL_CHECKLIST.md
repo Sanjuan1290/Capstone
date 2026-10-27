@@ -18,3 +18,4 @@ Before proposing any new prescription document endpoints or migrations, the clin
 **Non-negotiable implementation rules if approved:** separate prescription attachments from `consultation_images` (which are replaced during image synchronization); preserve typed medicines; enforce server-side treating doctor/branch/patient ownership; use a dedicated scanner-token context; append amendments after finalization; audit all access; use additive, forward-compatible migrations only.
 
 No clinic decisions were inferred from the submitted testing screenshot.
+

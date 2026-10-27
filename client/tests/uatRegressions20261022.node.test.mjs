@@ -24,3 +24,4 @@ test("branch form submits null, not '', for the 'Use default setup' option", () 
   assert.doesNotMatch(src, /copy_setup_from_branch_id:''/)
   assert.match(src, /title="Branch was not saved"/)
 })
+

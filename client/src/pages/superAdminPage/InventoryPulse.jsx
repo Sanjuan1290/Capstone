@@ -8,3 +8,4 @@ export default function InventoryPulse(){
   {error?<p className="text-sm text-rose-700">{error}</p>:!data?<p className="text-sm text-slate-500">Loading inventory totals…</p>:<div className="grid gap-3 sm:grid-cols-3"><StatCard label="Out of stock" value={data.out_of_stock}/><StatCard label="Low stock" value={data.low_stock}/><StatCard label="Stock value at cost" value={pesos(data.total_stock_value)}/></div>}
  </Card>
 }
+

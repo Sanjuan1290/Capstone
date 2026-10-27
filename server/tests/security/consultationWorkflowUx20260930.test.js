@@ -67,3 +67,4 @@ describe('September 30 consultation workflow UX', () => {
     expect(block).not.toContain('WHERE i.stock > 0')
   })
 })
+

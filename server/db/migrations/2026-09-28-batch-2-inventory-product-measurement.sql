@@ -35,3 +35,4 @@ DEALLOCATE PREPARE stmt;
 -- Existing legacy `strength` text is deliberately preserved. It is not parsed
 -- automatically because values such as "500mg/5mL" are not safely reversible
 -- into one numeric measurement_value + measurement_unit pair.
+

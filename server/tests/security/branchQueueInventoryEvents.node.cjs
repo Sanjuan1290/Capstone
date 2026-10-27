@@ -96,3 +96,4 @@ test('both workspace and branch-admin stock/move routes install authorized event
     }
   }
 })
+

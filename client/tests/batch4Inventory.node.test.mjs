@@ -10,3 +10,4 @@ test('mobile Add Medicine dialog has accessible scrolling and preserves old Supp
  assert.match(src,/item_type: isEditing \? form.item_type : 'medicine'/)
  assert.match(src,/Existing supply item — type preserved/)
 })
+

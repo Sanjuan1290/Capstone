@@ -19,3 +19,4 @@ describe('appointment rules', () => {
     expect(result.last_no_show.id).toBe(4)
   })
 })
+

@@ -24,3 +24,4 @@ const nextInventoryBarcode = async (category, branchId, executor) => {
   return `${prefix}-${branchCode}-${String(number).padStart(5, '0')}`
 }
 module.exports = { nextInventoryBarcode, requireBranch }
+

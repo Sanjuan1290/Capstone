@@ -19,3 +19,4 @@ test('mutation events only emit after successful response, not rejected writes',
  const done=(status)=>{const res=new EventEmitter();res.statusCode=status;let called=false;afterSuccessfulMutation('inventory.updated')({branchId:1,params:{}},res,()=>called=true);assert.ok(called);res.emit('finish')}
  done(400);done(500);assert.equal(events.length,0);done(201);assert.equal(events.length,1);off()
 })
+

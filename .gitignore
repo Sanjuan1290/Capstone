@@ -20,3 +20,4 @@ server/etc/secrets/
 **/*.pem
 **/*.p12
 **/*.pfx
+

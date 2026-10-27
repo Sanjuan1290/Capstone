@@ -43,3 +43,4 @@ test('settings must reject supplied invalid birthdate before changing patient re
   assert.match(file, /validateBirthdate\(payload\.birthdate\)/)
   assert.match(file, /throw validationError/)
 })
+

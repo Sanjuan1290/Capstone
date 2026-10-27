@@ -76,3 +76,4 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     expect(transfers).not.toContain('billing_records')
   })
 })
+

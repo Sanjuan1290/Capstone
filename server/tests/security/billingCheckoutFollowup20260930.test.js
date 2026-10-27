@@ -89,3 +89,4 @@ describe('billing checkout follow-up regressions', () => {
     expect(schema).toContain("reference_image_url")
   })
 })
+

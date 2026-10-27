@@ -9,3 +9,4 @@ test('migration checksum accepts only line ending and final newline variants',()
  assert.ok(allowed.has(hash(sql.trimEnd())))
  assert.ok(!allowed.has(hash(sql.replace('INT','VARCHAR(10)'))))
 })
+

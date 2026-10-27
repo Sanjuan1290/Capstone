@@ -111,3 +111,4 @@ if(require.main===module){console.log(JSON.stringify(output,null,2));if(output.u
 module.exports={patterns,serviceCalls,analyze,output}
 
 
+

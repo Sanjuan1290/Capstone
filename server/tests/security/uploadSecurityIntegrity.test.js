@@ -58,3 +58,4 @@ describe('upload security integrity', () => {
     expect(result[0].security_scan_status).toBe('bypassed')
   })
 })
+

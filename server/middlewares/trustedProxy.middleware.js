@@ -48,3 +48,4 @@ function trustedProxyClientIp(req, _res, next) {
 }
 
 module.exports = { trustedProxyClientIp, hasValidProxySignature, signatureMessage, MAX_SIGNATURE_AGE_SECONDS }
+
