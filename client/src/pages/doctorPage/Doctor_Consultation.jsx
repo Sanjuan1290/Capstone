@@ -288,9 +288,9 @@ const Doctor_Consultation = () => {
         setAutoSaveError('')
         updateAutoSaveState('saved')
       },
-      onError: (err) => {
+      onError: (err, blocked) => {
         setAutoSaveError(err.message || 'Consultation progress could not be saved.')
-        updateAutoSaveState('error')
+        updateAutoSaveState(blocked ? 'blocked' : 'error')
       },
     })
   }, [])
@@ -895,7 +895,7 @@ const Doctor_Consultation = () => {
   useEffect(() => {
     if (!appt?.id || consultationStatus === 'finalized' || !autosaveReady || uploadingIndex !== null) return undefined
     if (draftSignature === autosaveQueueRef.current.getLastSavedSignature()) return undefined
-    if (autoSaveStateRef.current !== 'saving') updateAutoSaveState('pending')
+    if (autoSaveStateRef.current !== 'saving' && !autosaveQueueRef.current.isBlocked()) updateAutoSaveState('pending')
     const timer = window.setTimeout(() => { persistDraft() }, 1500)
     return () => window.clearTimeout(timer)
   }, [appt?.id, consultationStatus, autosaveReady, uploadingIndex, draftSignature, persistDraft])
@@ -1359,9 +1359,10 @@ const Doctor_Consultation = () => {
                     <div>
                       {autoSaveState === 'saving' && <span className="font-semibold text-sky-700">Saving consultation progress…</span>}
                       {autoSaveState === 'pending' && <span className="font-semibold text-slate-600">Changes detected — saving automatically…</span>}
-                      {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Could not save — the system will retry automatically. {autoSaveError}</span>}
-                      {!['saving','pending','error'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
-                      {!['saving','pending','error'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
+                      {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Save failed temporarily — your latest changes have not been saved. Retrying. {autoSaveError}</span>}
+                      {autoSaveState === 'blocked' && <div role="alert" className="flex flex-wrap items-center gap-2 text-rose-700 dark:text-rose-300"><span className="font-semibold">Not saved — automatic retries stopped because the server rejected this request. Keep this page open. {autoSaveError}</span><button type="button" className="rounded-md border border-rose-500 px-2 py-1 text-xs font-bold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></div>}
+                      {!['saving','pending','error','blocked'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
+                      {!['saving','pending','error','blocked'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
                     </div>
                     <span className="text-slate-400">No inventory is reserved when an appointment is confirmed.</span>
                   </div>
@@ -1504,9 +1505,10 @@ const Doctor_Consultation = () => {
                     <div>
                       {autoSaveState === 'saving' && <span className="font-semibold text-sky-700">Saving consultation progress…</span>}
                       {autoSaveState === 'pending' && <span className="font-semibold text-slate-600">Changes detected — saving automatically…</span>}
-                      {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Could not save — the system will retry automatically. {autoSaveError}</span>}
-                      {!['saving','pending','error'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
-                      {!['saving','pending','error'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
+                      {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Save failed temporarily — your latest changes have not been saved. Retrying. {autoSaveError}</span>}
+                      {autoSaveState === 'blocked' && <div role="alert" className="flex flex-wrap items-center gap-2 text-rose-700 dark:text-rose-300"><span className="font-semibold">Not saved — automatic retries stopped because the server rejected this request. Keep this page open. {autoSaveError}</span><button type="button" className="rounded-md border border-rose-500 px-2 py-1 text-xs font-bold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></div>}
+                      {!['saving','pending','error','blocked'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
+                      {!['saving','pending','error','blocked'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
                     </div>
                     <span className="text-slate-400">Prescriptions never reserve or deduct inventory.</span>
                   </div>

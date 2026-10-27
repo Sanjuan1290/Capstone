@@ -180,3 +180,61 @@ test('a failed save from an old appointment does not show an error on the newly 
   ])
 })
 
+
+test('schema mismatch blocks repeated autosave until manual retry and keeps draft dirty', async () => {
+  const latest = { appointmentId: 63, signature: 'unsaved', payload: { prescription: 'important' } }
+  let tries = 0
+  const errors = []
+  const queue = createConsultationDraftQueue({
+    getAppointmentId: () => 63,
+    getLatestDraft: () => latest,
+    saveDraft: async () => {
+      tries++
+      if (tries === 1) throw Object.assign(new Error('schema requires migration'), { code: 'SCHEMA_MIGRATION_REQUIRED', httpStatus: 503 })
+    },
+    onError: (error, blocked) => errors.push([error.code, blocked]),
+  })
+  assert.equal(await queue.persist(), false)
+  assert.equal(queue.isBlocked(), true)
+  assert.equal(queue.getLastSavedSignature(), '')
+  for (let i = 0; i < 3; i++) assert.equal(await queue.persist(), false)
+  assert.equal(tries, 1, 'do not send recurring writes on permanent failures')
+  assert.deepEqual(errors, [['SCHEMA_MIGRATION_REQUIRED', true]])
+  assert.equal(await queue.retryBlocked(), true)
+  assert.equal(tries, 2)
+  assert.equal(queue.getLastSavedSignature(), 'unsaved')
+})
+
+test('transient network failure remains eligible for automatic retry', async () => {
+  const latest = { appointmentId: 64, signature: 'dirty', payload: { notes: 'a' } }
+  let calls = 0
+  const queue = createConsultationDraftQueue({
+    getAppointmentId: () => 64, getLatestDraft: () => latest,
+    saveDraft: async () => { if (++calls === 1) throw new Error('network unavailable') },
+  })
+  assert.equal(await queue.persist(), false)
+  assert.equal(queue.isBlocked(), false)
+  assert.equal(await queue.persist(), true)
+  assert.equal(queue.getLastSavedSignature(), 'dirty')
+})
+
+test('an appointment reset clears only its own blocked state', async () => {
+  let id = 65
+  let latest = { appointmentId: id, signature: 'one', payload: { notes: 'one' } }
+  const requests = []
+  const queue = createConsultationDraftQueue({
+    getAppointmentId: () => id, getLatestDraft: () => latest,
+    saveDraft: async (appointmentId) => {
+      requests.push(appointmentId)
+      if (appointmentId === 65) throw Object.assign(new Error('validation'), { httpStatus: 400 })
+    },
+  })
+  assert.equal(await queue.persist(), false)
+  assert.equal(queue.isBlocked(), true)
+  id = 66
+  latest = { appointmentId: id, signature: 'two', payload: { notes: 'two' } }
+  queue.reset(id)
+  assert.equal(queue.isBlocked(), false)
+  assert.equal(await queue.persist(), true)
+  assert.deepEqual(requests, [65, 66])
+})

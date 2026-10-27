@@ -8,6 +8,7 @@ const requestJson = async (url, options = {}) => {
     const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
     const err = new Error(`${data.message || 'Request failed.'}${reference}`)
     Object.assign(err, data)
+    err.httpStatus = res.status
     throw err
   }
   return data

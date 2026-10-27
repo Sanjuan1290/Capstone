@@ -144,7 +144,7 @@ app.use((err, req, res, next) => {
         ? 'VALIDATION_ERROR'
         : (err.code && !/^ER_/.test(String(err.code)) ? err.code : undefined)
   const message = schemaMismatch
-    ? 'The database schema is out of date for this feature. Run `npm run migrate`, then restart the server.'
+    ? 'Database schema update required. This request was not saved. Ask an administrator to run `npm run diagnose:consultation` and apply reviewed migrations before retrying.'
     : payloadTooLarge
       ? 'The uploaded file is larger than the allowed limit.'
       : databaseInputError
