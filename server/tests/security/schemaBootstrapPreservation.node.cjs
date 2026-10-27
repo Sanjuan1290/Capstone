@@ -40,3 +40,4 @@ test('failed stock summary rebuild rolls back before releasing its connection', 
   assert.deepEqual(calls, ['begin', 'delete', 'insert', 'rollback', 'release'])
 })
 
+

@@ -64,3 +64,4 @@ test('walk-in mode uses existing authorized queue endpoint and receipt instead o
   assert.match(ui,/queueReceipt\.queue_number/)
 })
 
+

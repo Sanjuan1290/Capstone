@@ -58,3 +58,4 @@ test('legacy organization-level readiness still works without a branch filter', 
   assert.ok(seen.every(({ sql, params }) => !sql.includes('branch_id = ?') && params.length === 0))
 })
 
+

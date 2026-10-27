@@ -16,3 +16,4 @@ WHERE COALESCE(il.branch_id,0)<>i.branch_id ORDER BY il.id;
 --   SET il.branch_id=i.branch_id WHERE COALESCE(il.branch_id,0)<>i.branch_id;
 -- VERIFY counts and reports again, then COMMIT; otherwise ROLLBACK.
 
+

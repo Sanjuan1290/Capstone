@@ -115,3 +115,4 @@ test('LIVE QR creation stays disabled until explicitly activated', async()=>{
  } finally {process.env=old}
 })
 
+

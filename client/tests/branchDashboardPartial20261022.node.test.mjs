@@ -30,3 +30,4 @@ test('malformed dashboard responses do not mask failures with zero',async()=>{
  assert.match(result.errors.dashboard,/unexpected dashboard/)
 })
 
+

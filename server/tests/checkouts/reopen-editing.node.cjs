@@ -169,3 +169,4 @@ test('cannot reopen a bill while a QR Ph payment is active', async () => {
   assertUnchanged(state)
 })
 
+

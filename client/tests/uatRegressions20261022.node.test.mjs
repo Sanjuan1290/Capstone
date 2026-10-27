@@ -25,3 +25,4 @@ test("branch form submits null, not '', for the 'Use default setup' option", () 
   assert.match(src, /title="Branch was not saved"/)
 })
 
+

@@ -8,3 +8,4 @@ export default function PatientOffers(){
   return <main className="mx-auto max-w-5xl space-y-5"><header><h1 className="text-2xl font-black text-slate-900">Clinic Offers</h1><p className="text-sm text-slate-500">Currently active offers. Promotion details do not automatically reduce checkout prices.</p></header>{error&&<div role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error} <button type="button" onClick={load} className="font-bold underline">Try Again</button></div>}{loading?<p role="status">Loading current offers…</p>:promos.length?<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{promos.map(p=><PromotionCard key={p.id} promotion={p}/>)}</div>:<p className="rounded-xl bg-slate-50 p-5 text-sm text-slate-600">No active offers at the moment.</p>}</main>
 }
 
+

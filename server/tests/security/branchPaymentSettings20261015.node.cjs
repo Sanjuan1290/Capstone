@@ -59,3 +59,4 @@ test('unsafe payment QR URL rejected before database write',async()=>{
  assert.equal(r.statusCode,400);assert.equal(r.body.code,'INVALID_IMAGE_URL')
 })
 
+

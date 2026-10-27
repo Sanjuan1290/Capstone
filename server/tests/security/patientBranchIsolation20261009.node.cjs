@@ -31,3 +31,4 @@ test('Branch Admin account self-service is permitted but global legacy operation
   assert.match(app, /path='change-password' element=\{<ChangePassword \/>\}/)
 })
 
+

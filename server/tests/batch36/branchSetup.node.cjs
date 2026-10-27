@@ -34,3 +34,4 @@ test('reject inconsistent setup configurations before SQL',async()=>{
  await assert.rejects(()=>capture('invalid'),/Invalid branch setup/i)
 })
 
+

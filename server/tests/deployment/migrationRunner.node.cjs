@@ -242,3 +242,4 @@ test('Batch 4 rejects unexpected partly-added columns without applying new DDL o
   assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length, 0)
 })
 
+

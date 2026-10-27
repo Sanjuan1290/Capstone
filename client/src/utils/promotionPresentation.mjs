@@ -4,3 +4,4 @@ export const visiblePromotions = (rows,featured=false) => {
   return featured?sorted.filter(p=>p.show_on_dashboard).slice(0,3):sorted
 }
 
+

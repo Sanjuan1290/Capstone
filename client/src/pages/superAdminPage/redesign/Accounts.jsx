@@ -16,3 +16,4 @@ export const SuperAdminAccounts=()=>{
  <Modal open={confirm} title="Confirm Branch Reassignment" description="The administrator will immediately lose access to the previous branch." onClose={()=>setConfirm(false)}><div className="space-y-4"><Banner type="warning" title="Access will change">Verify the new branch assignment before continuing. Open sessions will be invalidated.</Banner><div className="flex justify-end gap-2"><SecondaryButton onClick={()=>setConfirm(false)}>Keep Existing Branch</SecondaryButton><PrimaryButton disabled={saving} onClick={()=>save({preventDefault:()=>{}},true)}>Confirm Reassignment</PrimaryButton></div></div></Modal><TeamAccounts branches={branches}/></div>
 }
 
+

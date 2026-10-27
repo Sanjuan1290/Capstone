@@ -32,3 +32,4 @@ ON DUPLICATE KEY UPDATE
   requires_batch = VALUES(requires_batch),
   is_system = VALUES(is_system);
 
+

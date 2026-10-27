@@ -5,3 +5,4 @@ export const getClinicSettings = async () => {
   return data
 }
 
+

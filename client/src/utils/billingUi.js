@@ -40,3 +40,4 @@ export const enabledPaymentMethods = (settings = {}) => [
   { value: 'bank_transfer', label: 'Bank Transfer', enabled: settings.bank_transfer_enabled !== 0 && settings.bank_transfer_enabled !== false },
 ].filter((method) => method.enabled)
 
+

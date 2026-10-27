@@ -132,3 +132,4 @@ test('MySQL keeps its existing SKIP LOCKED query variant', async () => {
   assert.match(claimSql, /LIMIT 1 FOR UPDATE SKIP LOCKED$/)
 })
 
+

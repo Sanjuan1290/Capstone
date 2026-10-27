@@ -50,3 +50,4 @@ describe('billing catalog pricing', () => {
   })
 })
 
+

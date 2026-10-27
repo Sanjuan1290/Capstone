@@ -370,3 +370,4 @@ async function verifyFoundationSchema(db, source) {
 
 module.exports = { foundationContract, isBranchReferenceColumn, requiredFoundationColumns, ensureFoundationRekeys, verifyFoundationSchema, groupIndexes, indexMatches }
 
+

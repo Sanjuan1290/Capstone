@@ -50,3 +50,4 @@ Use five role-specific synthetic accounts (Super Admin, Branch Admin, Staff, Doc
 
 Zero unresolved P0/P1 defects; build and supported CI suites pass; branch isolation verified; provider/device UAT signed off; data backup verified and rollback tested; matching backend/frontend commits approved. **Until then: BLOCKED — NO PRODUCTION DEPLOYMENT.**
 
+

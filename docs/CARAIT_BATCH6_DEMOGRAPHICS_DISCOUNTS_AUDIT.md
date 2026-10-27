@@ -29,3 +29,4 @@ Before running, independently verify the DB target and SELECT-only permissions. 
 3. Prepare a synthetic/demo environment from privacy-safe fixtures, not from a lightly edited production backup. Any future sanitization command must be dry-run by default and explicitly reject non-disposable DB targets.
 4. Retain the live dataset unchanged. No `DELETE`, `UPDATE`, `TRUNCATE`, or financial seeding belongs to this audit.
 
+

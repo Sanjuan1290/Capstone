@@ -18,3 +18,4 @@ test('scanner requests environment camera and retains manual/image recovery',()=
  assert.match(src,/capabilities\.focusMode/)
 })
 
+

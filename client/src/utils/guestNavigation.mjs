@@ -27,3 +27,4 @@ export const destinationForAuthenticatedUser = (role, user = {}) => {
   return HOME[role]
 }
 
+

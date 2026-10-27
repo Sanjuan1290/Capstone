@@ -11,3 +11,4 @@ if (!files.length) { console.error('No Node regression tests found'); process.ex
 const result = spawnSync(process.execPath, ['--test', ...files], { stdio:'inherit' })
 process.exit(result.status === null ? 1 : result.status)
 
+

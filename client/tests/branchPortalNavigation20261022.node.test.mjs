@@ -55,3 +55,4 @@ test('doctor Today and Upcoming indicators use independent dashboard totals',()=
  assert.doesNotMatch(content,/upcomingCount \|\| \(viewMode/)
 })
 
+

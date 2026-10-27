@@ -142,3 +142,4 @@ function createFoundationSchemaFixture(options = {}) {
 
 module.exports = { createFoundationSchemaFixture, migrationSource, contract }
 
+

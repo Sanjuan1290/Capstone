@@ -12,3 +12,4 @@ export const readSlotPrefill = (params, nowDate) => {
   return { date: validDate ? date : null, time: validDate && time.length <= 30 ? time : '' }
 }
 
+

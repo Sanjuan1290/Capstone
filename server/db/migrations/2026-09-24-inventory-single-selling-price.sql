@@ -19,3 +19,4 @@ WHERE selling_price IS NOT NULL
 
 COMMIT;
 
+

@@ -46,3 +46,4 @@ test('invalid featured order is rejected',()=>{
  assert.equal(moduleObj.exports.validate({...req({}).body,featured_order:2}),null)
 })
 
+

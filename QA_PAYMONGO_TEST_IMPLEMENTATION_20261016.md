@@ -109,3 +109,4 @@ The earlier report's **38/38 MySQL integration tests are NOT re-runnable from `A
 ## Caution about this package
 
 The **patch archive** is intended for your current repository. The **full reconstructed source** is provided for code review and testing but should not overwrite binary assets from your real repository. Neither ZIP includes `.env`, API keys, database contents or credentials. Only additive, non-destructive migration included. **Use staging only.**
+

@@ -211,3 +211,4 @@ export function printWalkInIntakeForm() {
   popup.onload = () => popup.print()
 }
 
+

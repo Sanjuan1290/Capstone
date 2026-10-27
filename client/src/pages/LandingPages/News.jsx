@@ -38,3 +38,4 @@ export const MarketingUnsubscribe = () => {
   return <main className="mx-auto max-w-xl px-4 py-16 text-center"><h1 className="text-2xl font-bold">Promotional email preferences</h1><p className="my-4 text-slate-600">Unsubscribe from CARAIT marketing campaigns. Appointment and account security messages are not affected.</p>{message?<p role="status">{message}</p>:<button className="button-primary" disabled={!token||busy} onClick={submit}>{busy?'Updating…':'Unsubscribe from promotions'}</button>}</main>
 }
 
+

@@ -54,3 +54,4 @@ test('original dashboard keeps independent sections visible and clears loading a
  assert.match(dashboard,/finally\(\(\) => setLoading\(false\)\)/)
 })
 
+

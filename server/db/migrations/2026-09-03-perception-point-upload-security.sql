@@ -11,3 +11,4 @@ ALTER TABLE clinic_payment_settings
 
 -- Existing images/QRs predate malware-scan tracking and remain marked `legacy`.
 
+

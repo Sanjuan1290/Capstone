@@ -55,3 +55,4 @@ ALTER TABLE queue
   FOREIGN KEY (appointment_id) REFERENCES appointments(id)
   ON DELETE SET NULL;
 
+

@@ -18,3 +18,4 @@ test('QR cancel button is guarded by server capability; no optimistic manual-unl
  assert.doesNotMatch(p,/setQrPending\(false\)/)
 })
 
+

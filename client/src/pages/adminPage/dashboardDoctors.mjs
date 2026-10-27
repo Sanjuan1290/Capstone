@@ -8,3 +8,4 @@ export const doctorAvailabilityLabel = doctor => {
   return isDoctorAvailable(doctor) ? 'Available' : 'Inactive'
 }
 
+

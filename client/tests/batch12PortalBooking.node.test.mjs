@@ -69,3 +69,4 @@ test('booking state is preserved on transient API failures and submission is gat
   assert.doesNotMatch(source, /setBookingReadiness\(null\)\s*setReadinessError\(err\.message/)
 })
 
+

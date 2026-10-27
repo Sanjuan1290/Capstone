@@ -9,3 +9,4 @@ export default function SelectedPromotionNotice({ promotion }) {
   </div>
 }
 
+

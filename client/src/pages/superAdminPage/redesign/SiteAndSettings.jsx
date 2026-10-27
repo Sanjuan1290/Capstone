@@ -17,3 +17,4 @@ export const SuperAdminSettings=()=> <div className="space-y-6">
   <SettingsPage/>
  </div>
 
+

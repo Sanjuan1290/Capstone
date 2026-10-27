@@ -6,3 +6,4 @@ test('QR Ph payments have the correct label in billing history and printed recei
   assert.equal(paymentMethodLabel('qrph'), 'QR Ph')
 })
 
+

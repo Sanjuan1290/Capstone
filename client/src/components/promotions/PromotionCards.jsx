@@ -71,3 +71,4 @@ export function FeaturedOffers({ promotions = [] }) {
   </section>
 }
 
+

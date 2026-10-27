@@ -12,3 +12,4 @@ test('branch doctor schedule endpoint uses weekday order and retains doctor owne
   assert.match(code,/SELECT \* FROM doctor_schedules WHERE doctor_id=\? ORDER BY FIELD\(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'\)/)
 })
 
+

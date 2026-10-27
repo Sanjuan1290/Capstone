@@ -35,3 +35,4 @@ test('registration, admin and staff intake use shared clinic-date bounds', () =>
   }
 })
 
+

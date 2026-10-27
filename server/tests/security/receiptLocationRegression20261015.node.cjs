@@ -69,3 +69,4 @@ test('missing or foreign locations are not created or accepted', async () => {
   await assert.rejects(() => resolveLocation('Main Stockroom', executor), { code: 'BRANCH_CONTEXT_REQUIRED' })
 })
 
+

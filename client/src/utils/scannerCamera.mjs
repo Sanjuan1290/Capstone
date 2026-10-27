@@ -5,3 +5,4 @@ export const selectRearCamera = (devices = [], capturedId = '') => {
   return rear?.deviceId || (candidates.some(d => d.deviceId === capturedId) ? capturedId : '') || candidates.find(d => !/front|selfie|user/i.test(d.label || ''))?.deviceId || candidates[0]?.deviceId || ''
 }
 
+

@@ -27,3 +27,4 @@ Copy the contents of this package **over the matching relative paths** in the `S
 
 Notes: The website is a React SPA and Google's live URL Inspection shows its content renders successfully. New build files are not guaranteed to rank or appear in search immediately. No backend API, database, or private data changes are included.
 
+

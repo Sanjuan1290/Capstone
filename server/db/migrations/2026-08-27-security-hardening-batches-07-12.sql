@@ -49,3 +49,4 @@ CREATE INDEX idx_consultations_doctor_patient ON consultations (doctor_id, patie
 CREATE INDEX idx_inventory_batches_item_expiry ON inventory_batches (inventory_id, expiration_date, quantity);
 CREATE INDEX idx_audit_action_created ON audit_logs (action, created_at);
 
+

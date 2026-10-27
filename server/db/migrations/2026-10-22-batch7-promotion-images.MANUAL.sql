@@ -5,3 +5,4 @@ ALTER TABLE clinic_promotions ADD COLUMN image_url VARCHAR(500) NULL;
 ALTER TABLE clinic_promotions ADD COLUMN image_asset_id VARCHAR(200) NULL;
 ALTER TABLE clinic_promotions ADD COLUMN featured_order INT NOT NULL DEFAULT 0;
 
+

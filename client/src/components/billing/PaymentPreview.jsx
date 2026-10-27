@@ -24,3 +24,4 @@ export default function PaymentPreview({ bill, draft, formatMoney }) {
   )
 }
 
+

@@ -68,3 +68,4 @@ test('patients can explicitly re-opt-in through Settings after unsubscribe',()=>
  const s=read('controllers/patient.controller.js');assert.match(s,/DELETE FROM marketing_unsubscribes WHERE patient_id=\?/);assert.match(s,/normalized.receive_promotions === true/)
 })
 
+

@@ -87,3 +87,4 @@ test('appointment validates the doctor and service inside the requested branch t
  assert.ok(calls.some(([sql,args])=>sql.includes('FROM billing_service_catalog')&&sql.includes('branch_id=?')&&args[1]===2))
 })
 
+

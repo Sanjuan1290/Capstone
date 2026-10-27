@@ -4,3 +4,4 @@
 ALTER TABLE admins ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0;
 ALTER TABLE admins ADD COLUMN password_changed_at DATETIME NULL;
 
+

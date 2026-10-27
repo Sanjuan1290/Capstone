@@ -7,3 +7,4 @@ const isLiveCollectionEnabled = () => expectedLive() && process.env.PAYMONGO_LIV
 const sameConfiguredMode = attempt => supportsMode(configuredMode()) && String(attempt?.mode || 'test') === configuredMode()
 module.exports = { configuredMode, expectedLive, supportsMode, isLiveCollectionEnabled, sameConfiguredMode }
 
+

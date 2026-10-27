@@ -25,3 +25,4 @@ ALTER TABLE billing_records
   ADD COLUMN promotion_reviewed_bill_version INT NULL,
   ADD COLUMN promotion_reviewed_at DATETIME NULL;
 
+

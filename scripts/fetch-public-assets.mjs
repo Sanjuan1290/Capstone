@@ -29,3 +29,4 @@ for (const [relativePath, url] of assets) {
   console.log(`Downloaded ${relativePath}`)
 }
 
+

@@ -59,3 +59,4 @@ test('foreign inventory item cannot trigger a stock movement',async()=>{
   assert.equal(res.code,404);assert.equal(committed,false);assert.equal(rolledBack,true)
 })
 
+

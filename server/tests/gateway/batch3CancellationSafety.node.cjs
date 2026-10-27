@@ -102,3 +102,4 @@ test('server payment collection guard remains independent from the React pending
  assert.match(staff,/QR_PAYMENT_PENDING/)
 })
 
+

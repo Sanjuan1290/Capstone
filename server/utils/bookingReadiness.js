@@ -89,3 +89,4 @@ const applyBranchBookingOfferings = (readiness, branch) => {
 
 module.exports = { CLINIC_TYPES, ISSUE_LABELS, buildClinicReadiness, getOnlineBookingReadiness, applyBranchBookingOfferings }
 
+

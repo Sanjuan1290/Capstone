@@ -33,3 +33,4 @@ test('aggregate audit issues only SELECTs and produces no individual patient rec
   assert.equal('patient_id' in report.patient_aggregates, false)
 })
 
+

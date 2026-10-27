@@ -228,3 +228,4 @@ The QA harness (provider emulator, Playwright helpers and the phase scripts) is 
 4. Execute the untested journeys in section D, especially refund/void, bill correction and discounts at checkout, since they touch money.
 5. Deploy D9 and D7 first: D9 blocks billing for any service with consumables, and D7 breaks every doctor's home page.
 
+

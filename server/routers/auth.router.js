@@ -17,3 +17,4 @@ router.get('/clinic-settings',   commonCtrl.getPublicClinicSettings)
 
 module.exports = router
 
+

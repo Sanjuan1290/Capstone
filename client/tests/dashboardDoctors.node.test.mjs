@@ -21,3 +21,4 @@ test('dashboard retains compatible handling for existing name and on-duty fields
   assert.equal(doctorAvailabilityLabel(onDuty), 'On duty')
 })
 
+

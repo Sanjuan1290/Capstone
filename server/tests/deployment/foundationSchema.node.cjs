@@ -143,3 +143,4 @@ test('foundation verifier only checks *branch_id columns as branch references', 
   await assert.rejects(verifyFoundationSchema(orphan.db, migrationSource), /appointments\.branch_id has 1 row/)
 })
 
+

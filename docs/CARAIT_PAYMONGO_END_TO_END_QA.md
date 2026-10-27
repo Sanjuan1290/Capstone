@@ -83,3 +83,4 @@ PayMongo's testing guide says TEST QR payments must be completed with the return
 
 The source changes and local regression suites are present and pass, but no real provider sandbox transaction, signed provider delivery, isolated TiDB commit, receipt, inventory movement, browser flow, or deployed runtime was verified. No production record was modified, no money was charged, and no secret value was exposed in logs or this report.
 
+

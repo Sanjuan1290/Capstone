@@ -238,3 +238,4 @@ test('an appointment reset clears only its own blocked state', async () => {
   assert.equal(await queue.persist(), true)
   assert.deepEqual(requests, [65, 66])
 })
+

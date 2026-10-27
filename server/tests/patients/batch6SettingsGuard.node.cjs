@@ -26,3 +26,4 @@ test('invalid birthdate in patient settings never reaches the UPDATE query', asy
   assert.match(queries[0], /^SELECT /)
 })
 
+

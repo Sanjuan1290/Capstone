@@ -16,3 +16,4 @@ export const portalBaseForPath = (pathname = '') => {
 }
 export const canManageServicePricingAtPath = (pathname = '') => portalBaseForPath(pathname) !== '/staff'
 
+
