@@ -10,5 +10,3 @@ const files = walk(resolve(__dirname,'../tests')).sort()
 if (!files.length) { console.error('No Node regression tests found'); process.exit(1) }
 const result = spawnSync(process.execPath, ['--test', ...files], { stdio:'inherit' })
 process.exit(result.status === null ? 1 : result.status)
-
-

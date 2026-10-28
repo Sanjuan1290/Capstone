@@ -37,5 +37,3 @@ describe('shared input validation', () => {
     expect(assertPlainObject({ ok: true })).toEqual({ ok: true })
   })
 })
-
-

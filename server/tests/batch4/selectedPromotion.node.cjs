@@ -69,5 +69,3 @@ test('offer deep-link and patient form pass only selected promotion ID',()=>{
  assert.match(form,/onPromotionChange=\{setSelectedPromotionId\}/)
  assert.doesNotMatch(card,/discount_amount|billing_payments/)
 })
-
-

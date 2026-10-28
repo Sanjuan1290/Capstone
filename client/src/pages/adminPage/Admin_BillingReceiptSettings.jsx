@@ -65,5 +65,3 @@ const Admin_BillingReceiptSettings = () => {
   </div>
 }
 export default Admin_BillingReceiptSettings
-
-

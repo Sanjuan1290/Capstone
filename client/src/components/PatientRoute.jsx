@@ -14,5 +14,3 @@ const PatientRoute = ({ children }) => {
 }
 
 export default PatientRoute
-
-

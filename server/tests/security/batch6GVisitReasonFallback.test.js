@@ -50,5 +50,3 @@ describe('Batch 6G visit reason fallback', () => {
     expect(staffUi).toContain('Other remains available and requires an explanation.')
   })
 })
-
-

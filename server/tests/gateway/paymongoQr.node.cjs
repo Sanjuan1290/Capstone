@@ -114,5 +114,3 @@ test('LIVE QR creation stays disabled until explicitly activated', async()=>{
   await assert.rejects(client.createQr({amountCentavos:2000,billId:1,attemptId:123}), e=>e.code==='PAYMONGO_LIVE_NOT_ENABLED')
  } finally {process.env=old}
 })
-
-

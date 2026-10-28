@@ -67,5 +67,3 @@ const PasswordSecurityCard = ({ initialOpen = false }) => {
 }
 
 export default PasswordSecurityCard
-
-

@@ -20,5 +20,3 @@ const StaffPermissionRoute = ({ permission, children }) => {
   return children
 }
 export default StaffPermissionRoute
-
-

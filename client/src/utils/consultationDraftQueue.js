@@ -93,5 +93,3 @@ export function createConsultationDraftQueue({
     retryBlocked: () => { blockedError = null; return persist({ force: true }) },
   }
 }
-
-

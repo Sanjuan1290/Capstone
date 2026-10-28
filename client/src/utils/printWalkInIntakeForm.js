@@ -210,5 +210,3 @@ export function printWalkInIntakeForm() {
   popup.focus()
   popup.onload = () => popup.print()
 }
-
-

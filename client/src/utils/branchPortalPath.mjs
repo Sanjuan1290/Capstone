@@ -15,5 +15,3 @@ export const portalBaseForPath = (pathname = '') => {
   return /^\/staff(?=\/|$)/.test(pathname) ? '/staff' : '/admin'
 }
 export const canManageServicePricingAtPath = (pathname = '') => portalBaseForPath(pathname) !== '/staff'
-
-

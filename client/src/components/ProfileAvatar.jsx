@@ -18,5 +18,3 @@ const ProfileAvatar = ({ user, size = 'md' }) => {
 }
 
 export default ProfileAvatar
-
-

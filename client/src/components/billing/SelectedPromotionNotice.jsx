@@ -8,5 +8,3 @@ export default function SelectedPromotionNotice({ promotion }) {
     <p className="mt-2 font-semibold text-xs">Selection is not a discount. Validate applicable terms and use the existing manual discount approval process before reducing the bill.</p>
   </div>
 }
-
-

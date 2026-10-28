@@ -318,10 +318,3 @@ module.exports = {
   assertAppointmentTransition,
   assertAppointmentMutationApplied,
 }
-
-
-
-
-
-
-

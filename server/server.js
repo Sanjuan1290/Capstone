@@ -9,6 +9,7 @@ const app = express()
 const { rawWebhook, startReconciliationSweeper } = require('./routers/paymongoGateway')
 const db = require('./db/connect')
 const { ensureAppSchema } = require('./utils/schema')
+const { assertLegacyBatchMode } = require('./utils/inventoryModeSafety')
 const { registerClient, writeEvent, broadcast } = require('./utils/sse')
 const authenticate = require('./middlewares/auth.middleware')
 const branchScope = require('./middlewares/branchScope.middleware')
@@ -157,6 +158,11 @@ app.use((err, req, res, next) => {
 
 const start = async () => {
   try {
+    // Do not activate the incomplete batch-free cutover. Several clinical,
+    // cashier and return writers still use historical batch allocations.
+    if (process.env.CARAIT_INVENTORY_LOCATION_MODE === 'enabled') {
+      throw new Error('LOCATION_CUTOVER_BLOCKED: clinical, billing, returns, transfers, and expiry reconciliation are not yet migrated; refusing to serve traffic.')
+    }
     const { warnings } = validateRuntimeConfig()
     warnings.forEach((warning) => console.warn(`[startup] ${warning}`))
 
@@ -164,6 +170,7 @@ const start = async () => {
       console.warn('[startup] RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true; applying schema migrations before serving traffic.')
       await ensureAppSchema()
     }
+    await assertLegacyBatchMode(db)
     const [rows] = await db.query('SELECT 1 AS result')
     console.log(`MySQL connected. Test query: ${rows[0].result}`)
     app.listen(PORT, () => {
@@ -182,5 +189,3 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
-
-

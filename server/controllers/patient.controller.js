@@ -1158,7 +1158,3 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
-
-
-
-

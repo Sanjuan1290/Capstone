@@ -49,11 +49,14 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, 
     } finally {setBusy(false)}
   }
   const pending = ['pending', 'creating', 'review'].includes(attempt?.status)
+  // The provider may report an expired/failed QR while its bill lock remains.
+  // The server, not the displayed status alone, decides when cash is safe.
+  const alternatePaymentBlocked = pending || attempt?.can_collect_alternate === false
   const mode = attempt?.current_mode || attempt?.mode || null
   const modeKnown = ['test', 'live'].includes(mode)
   const liveDisabled = mode === 'live' && attempt?.enabled === false
   const displayedMode = attempt?.status === 'pending' ? attempt?.mode : mode
-  useEffect(() => { onPendingChange?.(pending) }, [onPendingChange, pending])
+  useEffect(() => { onPendingChange?.(alternatePaymentBlocked) }, [onPendingChange, alternatePaymentBlocked])
   return (
     <section className="mt-5 rounded-2xl border border-violet-200 bg-violet-50/60 p-4" aria-label="PayMongo QR Ph Payment">
       <div className="flex items-center gap-2 text-violet-900"><MdQrCode2 className="text-2xl" /><h3 className="font-black">QR Ph · PayMongo {!modeKnown ? 'Checking mode…' : displayedMode === 'live' ? 'LIVE Mode' : 'TEST Mode'}</h3></div>
@@ -68,13 +71,14 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, 
         {attempt.expires_at && <p className="text-xs text-slate-500">QR expiry: {String(attempt.expires_at).replace('T',' ').slice(0,19)}</p>}
         {attempt.mode === 'test' && attempt.test_url && <a href={attempt.test_url} rel="noopener noreferrer" target="_blank" className="button-primary">Open PayMongo Test Simulator</a>}
         <button type="button" className="button-secondary" onClick={readStatus}><MdRefresh /> Refresh status</button>
-        {attempt?.can_request_cancel && cancelQr && <button type="button" className="button-secondary" disabled={busy} onClick={requestCancellation}>{busy ? 'Verifying…' : 'Request QR cancellation'}</button>}
+        {attempt?.can_request_cancel && cancelQr && <button type="button" className="button-secondary" disabled={busy} onClick={requestCancellation}>{busy ? 'Verifying…' : 'Cancel QR to switch to cash'}</button>}
         <p className="text-xs text-slate-500">Manual payments and bill edits are locked while this payment is pending.</p>
       </div>}
       {attempt?.status === 'review' && <div role="alert" className="mt-3 rounded-xl bg-amber-100 p-3 text-sm font-bold text-amber-900">
         <p>PayMongo status could not be confirmed. Do not generate another QR or record a manual payment; contact an administrator to reconcile this attempt.</p>
-        {attempt?.can_request_cancel && cancelQr && <button type="button" className="button-secondary mt-3" disabled={busy} onClick={requestCancellation}>{busy ? 'Verifying…' : 'Request verified cancellation'}</button>}
+        {attempt?.can_request_cancel && cancelQr && <button type="button" className="button-secondary mt-3" disabled={busy} onClick={requestCancellation}>{busy ? 'Verifying…' : 'Cancel QR to switch to cash'}</button>}
       </div>}
+      {alternatePaymentBlocked && !attempt?.can_request_cancel && <p role="alert" className="mt-3 text-sm font-bold text-amber-800">To switch to Cash, the clinic must first verify that PayMongo can no longer accept this QR payment. Cancellation is unavailable here; contact an administrator for verified reconciliation. Do not collect cash while the bill is locked.</p>}
       {attempt?.status === 'cancelled' && <p role="status" className="mt-3 text-sm font-bold text-emerald-800">PayMongo cancellation verified. You can select another payment method after refreshing the bill.</p>}
       {attempt?.status === 'succeeded' && <p role="status" className="mt-3 flex items-center gap-2 text-sm font-bold text-emerald-700"><MdCheckCircleOutline /> Verified payment recorded. Receipt is available on the updated bill.</p>}
       {['expired','failed'].includes(attempt?.status) && <p className="mt-3 text-sm font-bold text-amber-800">Previous QR expired or failed. You may generate another QR for the outstanding balance.</p>}
@@ -82,8 +86,3 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, 
     </section>
   )
 }
-
-
-
-
-

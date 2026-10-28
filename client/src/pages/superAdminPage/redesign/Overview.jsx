@@ -98,5 +98,3 @@ export const SuperAdminReports = () => {
     </>}
   </div>
 }
-
-

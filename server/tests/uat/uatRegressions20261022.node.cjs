@@ -82,5 +82,3 @@ test("branch creation treats the 'Use default setup' empty value as no source br
   const src = read('routers/branches.router.js')
   assert.match(src, /String\(rawCopyFrom\)\.trim\(\)===''\?null/)
 })
-
-

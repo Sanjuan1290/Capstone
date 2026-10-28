@@ -39,5 +39,3 @@ test('failed stock summary rebuild rolls back before releasing its connection', 
   await assert.rejects(rebuildInventoryLocationStock({ getConnection: async () => connection }), /synthetic insert failure/)
   assert.deepEqual(calls, ['begin', 'delete', 'insert', 'rollback', 'release'])
 })
-
-

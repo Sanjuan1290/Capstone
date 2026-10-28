@@ -75,5 +75,3 @@ module.exports = {
   allocateReceiptNumber,
   calculatePaymentAmounts,
 }
-
-

@@ -57,5 +57,3 @@ test('legacy organization-level readiness still works without a branch filter', 
   assert.equal(result.all_bookable, true)
   assert.ok(seen.every(({ sql, params }) => !sql.includes('branch_id = ?') && params.length === 0))
 })
-
-

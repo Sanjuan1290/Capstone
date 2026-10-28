@@ -47,9 +47,3 @@ test('UI has separate Super Admin and Branch Admin layouts and usable service to
   assert.match(client, /Reasons for Cancellation/)
   assert.match(client, /No-Show Grace Period/)
 })
-
-
-
-
-
-

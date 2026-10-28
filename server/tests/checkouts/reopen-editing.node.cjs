@@ -168,5 +168,3 @@ test('cannot reopen a bill while a QR Ph payment is active', async () => {
   assert.equal(res.payload.code,'QR_PAYMENT_PENDING')
   assertUnchanged(state)
 })
-
-

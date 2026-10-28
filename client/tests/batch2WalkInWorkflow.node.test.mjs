@@ -33,5 +33,3 @@ test('newly created patient is reused after a failed queue attempt; receipt disp
   assert.match(modal,/setCreatedPatientId\(patientId\)/)
   assert.match(modal,/queueReceipt\.queue_number/)
 })
-
-

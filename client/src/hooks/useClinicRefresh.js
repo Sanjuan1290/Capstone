@@ -28,5 +28,3 @@ export default function useClinicRefresh(refresh,topics=[],{skip=()=>false,fallb
    return()=>{window.removeEventListener('clinic:refresh',onEvent);window.removeEventListener('focus',onFocus);document.removeEventListener('visibilitychange',onVisible);if(timer!==null)window.clearTimeout(timer);if(interval!==null)window.clearInterval(interval)}
  },[key,fallbackMs])
 }
-
-

@@ -837,14 +837,3 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
-
-
-
-
-
-
-
-
-
-
-

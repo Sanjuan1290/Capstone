@@ -76,5 +76,3 @@ function registerBranchPaymentSettingsWrites(router,{requireSuper,branchContext,
  }
 }
 module.exports={registerBranchPaymentSettingsWrites,save,branchBillForProof,secureImageUrl}
-
-

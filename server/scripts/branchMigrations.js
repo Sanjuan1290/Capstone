@@ -149,5 +149,3 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
-
-

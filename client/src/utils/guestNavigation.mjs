@@ -26,5 +26,3 @@ export const destinationForAuthenticatedUser = (role, user = {}) => {
     return `/${role}/change-password-required`
   return HOME[role]
 }
-
-

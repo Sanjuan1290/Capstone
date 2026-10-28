@@ -235,5 +235,3 @@ module.exports = {
   startQueueConsultationByAppointment,
   callNextQueuePatient,
 }
-
-

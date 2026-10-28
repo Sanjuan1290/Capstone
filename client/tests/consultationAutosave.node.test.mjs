@@ -297,4 +297,3 @@ test('doctor API retains HTTP errors and never treats unreadable or null JSON as
     await assert.rejects(saveConsultationDraft(74, {}), error => error.httpStatus === 503 && error.code === 'SCHEMA_MIGRATION_REQUIRED')
   } finally { globalThis.fetch = original }
 })
-

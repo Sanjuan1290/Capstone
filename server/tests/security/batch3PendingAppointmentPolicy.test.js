@@ -37,5 +37,3 @@ describe('Batch 3 pending appointment policy', () => {
     expect(() => assertAppointmentTransition('pending', 'rejected')).not.toThrow()
   })
 })
-
-

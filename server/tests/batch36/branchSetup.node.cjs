@@ -33,5 +33,3 @@ test('reject inconsistent setup configurations before SQL',async()=>{
  await assert.rejects(()=>capture('blank',17),/Only copy mode/i)
  await assert.rejects(()=>capture('invalid'),/Invalid branch setup/i)
 })
-
-

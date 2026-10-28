@@ -49,5 +49,3 @@ describe('billing catalog pricing', () => {
     expect(result.patient_price).toBe(0)
   })
 })
-
-

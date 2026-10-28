@@ -8,5 +8,3 @@ const result = generateSourceExports({ root })
 console.log('Generated deterministic source exports:')
 console.log(result.textPath + ' (' + result.readableFiles + ' readable files)')
 console.log(result.zipPath + ' (' + result.zipEntries + ' entries, ' + result.binaryFiles + ' binary assets)')
-
-

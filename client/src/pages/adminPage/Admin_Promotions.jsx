@@ -107,5 +107,3 @@ const Admin_Promotions = () => {
   </div>
 }
 export default Admin_Promotions
-
-

@@ -101,5 +101,3 @@ test('server payment collection guard remains independent from the React pending
  assert.match(staff,/SELECT id,payment_intent_id FROM payment_gateway_attempts WHERE active_bill_id=\? LIMIT 1 FOR UPDATE/)
  assert.match(staff,/QR_PAYMENT_PENDING/)
 })
-
-

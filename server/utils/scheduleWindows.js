@@ -222,5 +222,3 @@ module.exports = {
   isTimeCoveredByWeeklySchedule,
   buildSlotsForCalendarDate,
 }
-
-

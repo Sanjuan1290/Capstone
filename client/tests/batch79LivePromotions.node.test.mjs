@@ -34,5 +34,3 @@ test('patient offers have a registered route and frontend image does not alter b
  assert.match(cards,/image_url/)
  assert.doesNotMatch(cards,/discount_amount|billing_payments/)
 })
-
-

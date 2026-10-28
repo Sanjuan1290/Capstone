@@ -93,5 +93,3 @@ Chrome 155.0.8059.80 and Edge 155.0.4283.62 were present. Chrome's DevTools vers
 - No confirmed screenshot of the legacy or corrected panel exists because the browser could not render a page. The mobile overflow is reproduced by the old header/panel geometry in regression tests, and the corrected placement passes those tests.
 - The mobile keyboard, touch behavior, browser zoom, dark mode, modals/toasts over real portal pages, responsive tables/charts, and full Dashboard/Transactions workflows still need rendered verification.
 - No production records, authentication settings, backend code, payments, or database schema were changed.
-
-

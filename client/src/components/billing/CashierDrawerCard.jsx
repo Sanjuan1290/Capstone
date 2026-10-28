@@ -136,5 +136,3 @@ const CashierDrawerCard = ({ loadDrawer, closeDrawer }) => {
 }
 
 export default CashierDrawerCard
-
-

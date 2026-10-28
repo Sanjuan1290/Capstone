@@ -29,5 +29,3 @@ describe('discount proof upload security', () => {
     })).toThrow(/does not match/i)
   })
 })
-
-

@@ -28,5 +28,3 @@ for (const [relativePath, url] of assets) {
   await fs.writeFile(destination, buffer)
   console.log(`Downloaded ${relativePath}`)
 }
-
-

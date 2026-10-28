@@ -19,5 +19,3 @@ describe('Doctor branch guard regressions', () => {
     expect(source).toContain('branch_id: req.branchId')
   })
 })
-
-

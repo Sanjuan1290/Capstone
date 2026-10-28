@@ -17,5 +17,3 @@ test('QR cancel button is guarded by server capability; no optimistic manual-unl
  assert.match(p,/Cash remains blocked unless PayMongo confirms cancellation/)
  assert.doesNotMatch(p,/setQrPending\(false\)/)
 })
-
-

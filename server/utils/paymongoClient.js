@@ -59,8 +59,3 @@ const retrieveIntent = id => request(`/payment_intents/${encodeURIComponent(id)}
 const retrieveRefund = id => request(`/refunds/${encodeURIComponent(id)}`)
 const cancelIntent = id => request(`/payment_intents/${encodeURIComponent(id)}/cancel`,{method:'POST'})
 module.exports = { credentials, createQr, retrieveIntent, retrieveRefund, cancelIntent, fail }
-
-
-
-
-

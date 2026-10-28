@@ -31,5 +31,3 @@ async function main(){
   if(failures)process.exitCode=1
 }
 main().catch(error=>{console.error(error.message);process.exitCode=1})
-
-

@@ -157,5 +157,3 @@ async function runSelectedPromotionMigration(db, statements) {
 }
 
 module.exports = { MIGRATION_FILE, runSelectedPromotionMigration, verifyPromotionSchema }
-
-

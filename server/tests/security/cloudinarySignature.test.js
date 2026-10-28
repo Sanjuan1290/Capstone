@@ -132,5 +132,3 @@ describe('signed Cloudinary uploads', () => {
   })
 
 })
-
-

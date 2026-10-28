@@ -27,5 +27,3 @@ export function calculatePaymentPreview({ bill, draft }) {
     balanceAfter: (balance - payment) / 100,
   }
 }
-
-

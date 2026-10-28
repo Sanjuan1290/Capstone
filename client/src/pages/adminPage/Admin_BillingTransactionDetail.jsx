@@ -171,13 +171,3 @@ const Admin_BillingTransactionDetail = () => {
 }
 
 export default Admin_BillingTransactionDetail
-
-
-
-
-
-
-
-
-
-

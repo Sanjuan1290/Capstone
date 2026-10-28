@@ -111,4 +111,3 @@ async function main() {
 
 if (require.main === module) void main()
 module.exports = { REQUIRED_FIELDS, evaluateSchema, diagnose, PROMOTION_MIGRATION }
-

@@ -42,5 +42,3 @@ const assertConsultationVersion = (body, consultation) => {
 }
 
 module.exports = { loadConsultationAmendments, assertConsultationEditable, assertConsultationVersion }
-
-

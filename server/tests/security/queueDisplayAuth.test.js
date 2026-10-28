@@ -47,5 +47,3 @@ describe('queue display access control', () => {
     expect(response.body.code).toBe('BRANCH_NOT_FOUND')
   })
 })
-
-

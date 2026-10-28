@@ -97,5 +97,3 @@ test('Cloudflare proxy returns a bounded timeout response when Render does not a
     globalThis.clearTimeout=oldClearTimeout
   }
 })
-
-

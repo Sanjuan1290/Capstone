@@ -109,7 +109,3 @@ function analyze(){
 const output=analyze()
 if(require.main===module){console.log(JSON.stringify(output,null,2));if(output.unmatched)process.exitCode=1}
 module.exports={patterns,serviceCalls,analyze,output}
-
-
-
-

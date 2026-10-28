@@ -90,5 +90,3 @@ async function provisionBranch(conn, branchId, copyFromBranchId = null, setupMod
   // Services requiring inventory are copied INACTIVE; do not copy source inventory IDs or stock.
 }
 module.exports={provisionBranch}
-
-

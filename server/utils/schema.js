@@ -1,5 +1,6 @@
 const db = require('../db/connect')
 const { applyFlowFixes20261004 } = require('./schemaFlowFixes20261004')
+const { assertLegacyBatchMode } = require('./inventoryModeSafety')
 
 const ensureColumn = async (table, column, definition) => {
   const [rows] = await db.query(
@@ -50,6 +51,7 @@ const backfillUomDecimalPrecision = async (executor = db) => executor.query(
 )
 
 const rebuildInventoryLocationStock = async (executor = db) => {
+  await assertLegacyBatchMode(executor)
   const connection = await executor.getConnection()
   try {
     await connection.beginTransaction()
@@ -267,6 +269,10 @@ const seedInventoryAndBillingMaterials = async () => {
 }
 
 const ensureAppSchema = async () => {
+  await assertLegacyBatchMode(db)
+  if (process.env.CARAIT_INVENTORY_LOCATION_MODE === 'enabled') {
+    throw new Error('LOCATION_SCHEMA_RECONCILER_BLOCKED: old batch bootstrap may rebuild canonical stock.');
+  }
   await ensureColumn('appointments', 'status', "VARCHAR(32) NOT NULL DEFAULT 'pending'")
     .catch(() => {})
   // Appointment status must remain extensible (for example automatic 'rejected' booking requests).
@@ -1678,5 +1684,3 @@ module.exports = {
   backfillUomDecimalPrecision,
   rebuildInventoryLocationStock,
 }
-
-

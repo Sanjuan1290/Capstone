@@ -7,5 +7,3 @@ for(const file of ['routers/branchInventoryItems.js','controllers/admin.controll
   assert.match(add,/MEDICINE_ONLY_CREATION/)
  })
 }
-
-

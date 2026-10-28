@@ -283,5 +283,3 @@ module.exports = {
   getAdminLandingPage,
   saveAdminLandingPage,
 }
-
-

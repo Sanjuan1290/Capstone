@@ -345,5 +345,3 @@ const resolveSupplyTransfer = async ({ requestId, branchId, status, actorRole, a
 }
 
 module.exports = { resolveSupplyTransfer, listSupplyTransferGroups, groupTransferRows }
-
-

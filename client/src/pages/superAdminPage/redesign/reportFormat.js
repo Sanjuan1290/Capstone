@@ -12,5 +12,3 @@ export const buildBranchReportCsv=(rows=[])=>[
  BRANCH_CSV_COLUMNS.join(','),
  ...rows.map(row=>BRANCH_CSV_COLUMNS.map(key=>escapeCsvCell(row[key])).join(',')),
 ].join('\r\n')
-
-

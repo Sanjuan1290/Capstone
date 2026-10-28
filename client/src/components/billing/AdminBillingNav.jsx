@@ -44,5 +44,3 @@ const AdminBillingNav = ({ pendingAdjustments = 0, pendingApprovals = 0 }) => {
 }
 
 export default AdminBillingNav
-
-

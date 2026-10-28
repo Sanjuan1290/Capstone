@@ -273,5 +273,3 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
-
-

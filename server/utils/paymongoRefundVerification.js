@@ -16,5 +16,3 @@ const assertVerifiedQrRefund = (refund, attempt) => {
   return { refundId: String(refund.id), paymentId: String(attrs.payment_id), amountCentavos: Number(attrs.amount) }
 }
 module.exports = { assertVerifiedQrRefund }
-
-

@@ -225,5 +225,3 @@ module.exports = {
   summarizeLedgerRows,
   LEDGER_SQL,
 }
-
-

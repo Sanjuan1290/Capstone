@@ -4,5 +4,3 @@ import PortalAdminLogin from './PortalAdminLogin'
 const SuperAdminLogin = () => <PortalAdminLogin portal="superadmin" />
 
 export default SuperAdminLogin
-
-

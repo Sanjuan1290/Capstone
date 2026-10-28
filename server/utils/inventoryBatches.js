@@ -1,3 +1,4 @@
+const { assertLegacyBatchMode } = require('./inventoryModeSafety')
 const db = require('../db/connect')
 const { resolveMainStockroom } = require('./inventoryLocations')
 
@@ -62,6 +63,7 @@ const getInventoryLocationById = async (id, executor = db, branchId = null) => {
 }
 
 const syncLocationSnapshot = async (inventoryId, executor = db) => {
+  await assertLegacyBatchMode(executor)
   // Kept for backward compatibility with existing report/UI queries.
   await executor.query('DELETE FROM inventory_location_stock WHERE inventory_id = ?', [inventoryId])
   await executor.query(
@@ -75,6 +77,7 @@ const syncLocationSnapshot = async (inventoryId, executor = db) => {
 }
 
 const ensureInventoryLocationAllocations = async (inventoryId, executor = db) => {
+  await assertLegacyBatchMode(executor)
   const branchId = await getInventoryBranchId(inventoryId, executor)
   const mainLocationId = await getLocationId(MAIN_LOCATION, executor, { branchId })
   if (!mainLocationId) throw Object.assign(new Error('This branch has no active Main Stockroom.'), { statusCode: 409, code: 'MAIN_STOCKROOM_MISSING' })
@@ -116,6 +119,7 @@ const ensureInventoryLocationAllocations = async (inventoryId, executor = db) =>
 }
 
 const syncInventorySnapshot = async (inventoryId, executor = db) => {
+  await assertLegacyBatchMode(executor)
   const [[item]] = await executor.query(
     `SELECT id, unit, base_unit, unit_size
      FROM inventory
@@ -162,6 +166,7 @@ const addInventoryBatch = async (
   { quantity, expiration_date, note = null, batch_code = null, supplier_lot_number = null, supplier_id = null, unit_cost = 0, location = MAIN_LOCATION, location_id = null },
   executor = db
 ) => {
+  await assertLegacyBatchMode(executor)
   const batchQty = toPositiveNumber(quantity)
   if (batchQty <= 0) return null
 
@@ -230,6 +235,7 @@ const receiveInventoryBatch = async (
   },
   executor = db
 ) => {
+  await assertLegacyBatchMode(executor)
   const batchQty = toPositiveNumber(quantity)
   if (batchQty <= 0) throw Object.assign(new Error('Quantity must be greater than zero.'), { statusCode: 400 })
 
@@ -327,6 +333,7 @@ const consumeInventoryFromLocationFEFO = async (
   executor = db,
   options = {}
 ) => {
+  await assertLegacyBatchMode(executor)
   const requestedQty = toPositiveNumber(quantity)
   if (requestedQty <= 0) {
     return { ok: false, message: 'Quantity must be greater than zero.', shortage: 0, consumed: [] }
@@ -396,6 +403,7 @@ const consumeInventoryFromLocationByBatches = async (
   locationName = MAIN_LOCATION,
   executor = db
 ) => {
+  await assertLegacyBatchMode(executor)
   const normalizedSelections = Array.isArray(selections)
     ? selections
       .map((entry) => ({ batch_id: Number(entry?.batch_id), quantity: toPositiveNumber(entry?.quantity) }))
@@ -463,6 +471,7 @@ const transferInventoryBatchesFEFO = async (
   toLocation,
   executor = db
 ) => {
+  await assertLegacyBatchMode(executor)
   const requestedQty = toPositiveNumber(quantity)
   if (requestedQty <= 0 || !String(toLocation || '').trim()) {
     return { ok: false, message: 'A positive quantity and destination are required.', transferred: [] }
@@ -507,6 +516,7 @@ const transferInventoryBatchesFEFO = async (
 // location. Used for reversals (voided/reopened bills, unused consultation consumables).
 // A new batch is never created, so expiry/lot traceability is preserved.
 const returnQuantityToBatch = async (inventoryId, batchId, locationId, quantity, executor = db) => {
+  await assertLegacyBatchMode(executor)
   const qty = toPositiveNumber(quantity)
   if (qty <= 0) throw Object.assign(new Error('Return quantity must be greater than zero.'), { statusCode: 400 })
   const [[batch]] = await executor.query(
@@ -536,6 +546,7 @@ const returnQuantityToBatch = async (inventoryId, batchId, locationId, quantity,
 
 // Moves one exact batch between two locations without changing clinic-wide stock.
 const moveBatchBetweenLocations = async (inventoryId, batchId, fromLocationId, toLocationId, quantity, executor = db) => {
+  await assertLegacyBatchMode(executor)
   const qty = toPositiveNumber(quantity)
   if (qty <= 0) throw Object.assign(new Error('Quantity must be greater than zero.'), { statusCode: 400 })
   if (Number(fromLocationId) === Number(toLocationId)) throw Object.assign(new Error('Source and destination must be different locations.'), { statusCode: 400 })
@@ -666,5 +677,3 @@ module.exports = {
   transferInventoryBatchesFEFO,
   attachBatchesToInventory,
 }
-
-

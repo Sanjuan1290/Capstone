@@ -34,5 +34,3 @@ test('registration, admin and staff intake use shared clinic-date bounds', () =>
     assert.match(source,/getMinPatientBirthdate/,rel)
   }
 })
-
-

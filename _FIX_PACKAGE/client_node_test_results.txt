@@ -1,0 +1,628 @@
+TAP version 13
+# Subtest: service workflows retain the authorized portal and selected branch
+ok 1 - service workflows retain the authorized portal and selected branch
+  ---
+  duration_ms: 1.084276
+  type: 'test'
+  ...
+# Subtest: service editor, catalog, System Setup and both tab bars use branch-preserving destinations
+ok 2 - service editor, catalog, System Setup and both tab bars use branch-preserving destinations
+  ---
+  duration_ms: 2.967736
+  type: 'test'
+  ...
+# Subtest: guest login redirects respect active role, account identity and required password change
+ok 3 - guest login redirects respect active role, account identity and required password change
+  ---
+  duration_ms: 0.547123
+  type: 'test'
+  ...
+# Subtest: portal-specific guest pages never redirect an authenticated user from another role
+ok 4 - portal-specific guest pages never redirect an authenticated user from another role
+  ---
+  duration_ms: 0.540838
+  type: 'test'
+  ...
+# Subtest: booking state is preserved on transient API failures and submission is gated
+ok 5 - booking state is preserved on transient API failures and submission is gated
+  ---
+  duration_ms: 2.211356
+  type: 'test'
+  ...
+# Subtest: cash remains blocked while a PayMongo attempt retains its active bill lock
+ok 6 - cash remains blocked while a PayMongo attempt retains its active bill lock
+  ---
+  duration_ms: 0.833555
+  type: 'test'
+  ...
+# Subtest: switch to cash requests verified cancellation; no direct forced unlocking
+ok 7 - switch to cash requests verified cancellation; no direct forced unlocking
+  ---
+  duration_ms: 0.19565
+  type: 'test'
+  ...
+# Subtest: walk-in now is an explicit choice; scheduled booking remains the default
+ok 8 - walk-in now is an explicit choice; scheduled booking remains the default
+  ---
+  duration_ms: 2.026386
+  type: 'test'
+  ...
+# Subtest: branch/admin/staff services expose the same walk-in queue primitives
+ok 9 - branch/admin/staff services expose the same walk-in queue primitives
+  ---
+  duration_ms: 2.853209
+  type: 'test'
+  ...
+# Subtest: walk-in path checks an existing appointment and never writes a second scheduled one
+ok 10 - walk-in path checks an existing appointment and never writes a second scheduled one
+  ---
+  duration_ms: 1.689829
+  type: 'test'
+  ...
+# Subtest: switching clinic isolates async service and doctor responses
+ok 11 - switching clinic isolates async service and doctor responses
+  ---
+  duration_ms: 0.30962
+  type: 'test'
+  ...
+# Subtest: newly created patient is reused after a failed queue attempt; receipt displays its queue number
+ok 12 - newly created patient is reused after a failed queue attempt; receipt displays its queue number
+  ---
+  duration_ms: 0.199336
+  type: 'test'
+  ...
+# Subtest: availability slot builds branch-scoped doctor/date/time link
+ok 13 - availability slot builds branch-scoped doctor/date/time link
+  ---
+  duration_ms: 4.791486
+  type: 'test'
+  ...
+# Subtest: doctor availability shows selectable only for available slots
+ok 14 - doctor availability shows selectable only for available slots
+  ---
+  duration_ms: 2.362873
+  type: 'test'
+  ...
+# Subtest: booking prefill is revalidated with the available-slots endpoint
+ok 15 - booking prefill is revalidated with the available-slots endpoint
+  ---
+  duration_ms: 0.934891
+  type: 'test'
+  ...
+# Subtest: rescheduling passes branch context and shows failed availability as error
+ok 16 - rescheduling passes branch context and shows failed availability as error
+  ---
+  duration_ms: 0.358223
+  type: 'test'
+  ...
+# Subtest: branch form includes blank, standard, copy, preview and creation guidance
+ok 17 - branch form includes blank, standard, copy, preview and creation guidance
+  ---
+  duration_ms: 4.430469
+  type: 'test'
+  ...
+# Subtest: both checkout portals supply branch scoped cancellation to the shared QR panel
+ok 18 - both checkout portals supply branch scoped cancellation to the shared QR panel
+  ---
+  duration_ms: 9.198777
+  type: 'test'
+  ...
+# Subtest: QR cancel button is guarded by server capability; no optimistic manual-unlock after request
+ok 19 - QR cancel button is guarded by server capability; no optimistic manual-unlock after request
+  ---
+  duration_ms: 0.523476
+  type: 'test'
+  ...
+# Subtest: mobile Add Medicine dialog has accessible scrolling and preserves old Supplies
+ok 20 - mobile Add Medicine dialog has accessible scrolling and preserves old Supplies
+  ---
+  duration_ms: 4.312224
+  type: 'test'
+  ...
+# Subtest: rear device is preferred over front-facing camera
+ok 21 - rear device is preferred over front-facing camera
+  ---
+  duration_ms: 1.37279
+  type: 'test'
+  ...
+# Subtest: scanner requests environment camera and retains manual/image recovery
+ok 22 - scanner requests environment camera and retains manual/image recovery
+  ---
+  duration_ms: 0.932344
+  type: 'test'
+  ...
+# Subtest: cash estimate shows ₱4 change on ₱1 payment without changing persisted bill
+ok 23 - cash estimate shows ₱4 change on ₱1 payment without changing persisted bill
+  ---
+  duration_ms: 3.698136
+  type: 'test'
+  ...
+# Subtest: partial payment uses outstanding balance and centavo precision
+ok 24 - partial payment uses outstanding balance and centavo precision
+  ---
+  duration_ms: 0.219304
+  type: 'test'
+  ...
+# Subtest: noncash estimate never displays cash received/change
+ok 25 - noncash estimate never displays cash received/change
+  ---
+  duration_ms: 0.290109
+  type: 'test'
+  ...
+# Subtest: invalid, over-balance and insufficient cash amounts are rejected
+ok 26 - invalid, over-balance and insufficient cash amounts are rejected
+  ---
+  duration_ms: 0.60281
+  type: 'test'
+  ...
+# Subtest: both Staff and Admin render the same isolated estimated preview
+ok 27 - both Staff and Admin render the same isolated estimated preview
+  ---
+  duration_ms: 1.344506
+  type: 'test'
+  ...
+# Subtest: dark-mode components explicitly handle translucent and weekday surfaces
+ok 28 - dark-mode components explicitly handle translucent and weekday surfaces
+  ---
+  duration_ms: 0.301754
+  type: 'test'
+  ...
+# Subtest: doctor availability sorts weekdays while preserving booking routes
+ok 29 - doctor availability sorts weekdays while preserving booking routes
+  ---
+  duration_ms: 0.210811
+  type: 'test'
+  ...
+# Subtest: featured offers preserve selected promotion while providing bounded scroll controls
+ok 30 - featured offers preserve selected promotion while providing bounded scroll controls
+  ---
+  duration_ms: 0.349056
+  type: 'test'
+  ...
+# Subtest: patient form uses the Manila date at local midnight
+ok 31 - patient form uses the Manila date at local midnight
+  ---
+  duration_ms: 85.20653
+  type: 'test'
+  ...
+# Subtest: rejects calendar rollover, malformed strings and timestamps
+ok 32 - rejects calendar rollover, malformed strings and timestamps
+  ---
+  duration_ms: 2.183187
+  type: 'test'
+  ...
+# Subtest: supports newborns and exact 100-year boundary
+ok 33 - supports newborns and exact 100-year boundary
+  ---
+  duration_ms: 0.885902
+  type: 'test'
+  ...
+# Subtest: registration, admin and staff intake use shared clinic-date bounds
+ok 34 - registration, admin and staff intake use shared clinic-date bounds
+  ---
+  duration_ms: 1.041201
+  type: 'test'
+  ...
+# Subtest: featured offers show at most three in stable order and exclude disabled dashboard flags
+ok 35 - featured offers show at most three in stable order and exclude disabled dashboard flags
+  ---
+  duration_ms: 2.281768
+  type: 'test'
+  ...
+# Subtest: API active-only offers without an is_active field remain visible but explicit database 0 is hidden
+ok 36 - API active-only offers without an is_active field remain visible but explicit database 0 is hidden
+  ---
+  duration_ms: 0.34378
+  type: 'test'
+  ...
+# Subtest: legacy SSE event names map to module change subjects
+ok 37 - legacy SSE event names map to module change subjects
+  ---
+  duration_ms: 0.249642
+  type: 'test'
+  ...
+# Subtest: selected Super Admin branch ignores another branch event
+ok 38 - selected Super Admin branch ignores another branch event
+  ---
+  duration_ms: 0.419048
+  type: 'test'
+  ...
+# Subtest: promotions require accepted, branch-owned upload token, not arbitrary image URLs
+ok 39 - promotions require accepted, branch-owned upload token, not arbitrary image URLs
+  ---
+  duration_ms: 1.196858
+  type: 'test'
+  ...
+# Subtest: patient offers have a registered route and frontend image does not alter billing
+ok 40 - patient offers have a registered route and frontend image does not alter billing
+  ---
+  duration_ms: 1.444055
+  type: 'test'
+  ...
+# Subtest: partial stats are retained and failed sections are clearly labelled
+ok 41 - partial stats are retained and failed sections are clearly labelled
+  ---
+  duration_ms: 2.280964
+  type: 'test'
+  ...
+# Subtest: doctor query failure is isolated from booking readiness and summary
+ok 42 - doctor query failure is isolated from booking readiness and summary
+  ---
+  duration_ms: 0.25735
+  type: 'test'
+  ...
+# Subtest: malformed dashboard responses do not mask failures with zero
+ok 43 - malformed dashboard responses do not mask failures with zero
+  ---
+  duration_ms: 3.768607
+  type: 'test'
+  ...
+# Subtest: branch workspace billing tabs stay in the selected branch
+ok 44 - branch workspace billing tabs stay in the selected branch
+  ---
+  duration_ms: 0.93464
+  type: 'test'
+  ...
+# Subtest: ordinary Branch Admin navigation is unchanged
+ok 45 - ordinary Branch Admin navigation is unchanged
+  ---
+  duration_ms: 1.618049
+  type: 'test'
+  ...
+# Subtest: Billing navigation and related action links resolve using the selected branch
+ok 46 - Billing navigation and related action links resolve using the selected branch
+  ---
+  duration_ms: 0.861118
+  type: 'test'
+  ...
+# Subtest: billing transaction and checkout action links preserve selected superadmin branch
+ok 47 - billing transaction and checkout action links preserve selected superadmin branch
+  ---
+  duration_ms: 0.927911
+  type: 'test'
+  ...
+# Subtest: transaction details reject invalid billing ids without network retry
+ok 48 - transaction details reject invalid billing ids without network retry
+  ---
+  duration_ms: 0.462232
+  type: 'test'
+  ...
+# Subtest: doctor Today and Upcoming indicators use independent dashboard totals
+ok 49 - doctor Today and Upcoming indicators use independent dashboard totals
+  ---
+  duration_ms: 1.05498
+  type: 'test'
+  ...
+# Subtest: Cloudflare proxy forwards API method, credentials, query and request origin
+ok 50 - Cloudflare proxy forwards API method, credentials, query and request origin
+  ---
+  duration_ms: 180.559675
+  type: 'test'
+  ...
+# Subtest: cloudflare API gateway refuses webhooks and unsafe/missing origins
+ok 51 - cloudflare API gateway refuses webhooks and unsafe/missing origins
+  ---
+  duration_ms: 13.413898
+  type: 'test'
+  ...
+# Subtest: Cloudflare proxy preserves a streaming response
+ok 52 - Cloudflare proxy preserves a streaming response
+  ---
+  duration_ms: 14.14839
+  type: 'test'
+  ...
+# Subtest: Cloudflare proxy forwards each supported API method and request body
+ok 53 - Cloudflare proxy forwards each supported API method and request body
+  ---
+  duration_ms: 17.382376
+  type: 'test'
+  ...
+# Subtest: Cloudflare proxy returns a bounded timeout response when Render does not answer
+ok 54 - Cloudflare proxy returns a bounded timeout response when Render does not answer
+  ---
+  duration_ms: 8.518245
+  type: 'test'
+  ...
+# Subtest: existing saved draft is not written again until its signature changes
+ok 55 - existing saved draft is not written again until its signature changes
+  ---
+  duration_ms: 3.797979
+  type: 'test'
+  ...
+# Subtest: slow writes coalesce newer edits and save the latest draft after the first response
+ok 56 - slow writes coalesce newer edits and save the latest draft after the first response
+  ---
+  duration_ms: 4.317633
+  type: 'test'
+  ...
+# Subtest: edits made during a slow response are saved even if a second timer did not fire
+ok 57 - edits made during a slow response are saved even if a second timer did not fire
+  ---
+  duration_ms: 2.427019
+  type: 'test'
+  ...
+# Subtest: failed writes remain dirty and a later retry saves the draft
+ok 58 - failed writes remain dirty and a later retry saves the draft
+  ---
+  duration_ms: 3.269758
+  type: 'test'
+  ...
+# Subtest: switching appointments during an in-flight save never sends the new draft to the old appointment
+ok 59 - switching appointments during an in-flight save never sends the new draft to the old appointment
+  ---
+  duration_ms: 24.836569
+  type: 'test'
+  ...
+# Subtest: finalization prevents a queued draft from starting after the current save resolves
+ok 60 - finalization prevents a queued draft from starting after the current save resolves
+  ---
+  duration_ms: 1.217805
+  type: 'test'
+  ...
+# Subtest: a failed save from an old appointment does not show an error on the newly selected appointment
+ok 61 - a failed save from an old appointment does not show an error on the newly selected appointment
+  ---
+  duration_ms: 5.146947
+  type: 'test'
+  ...
+# Subtest: schema mismatch blocks repeated autosave until manual retry and keeps draft dirty
+ok 62 - schema mismatch blocks repeated autosave until manual retry and keeps draft dirty
+  ---
+  duration_ms: 3.820422
+  type: 'test'
+  ...
+# Subtest: transient network failure remains eligible for automatic retry
+ok 63 - transient network failure remains eligible for automatic retry
+  ---
+  duration_ms: 4.788735
+  type: 'test'
+  ...
+# Subtest: an appointment reset clears only its own blocked state
+ok 64 - an appointment reset clears only its own blocked state
+  ---
+  duration_ms: 2.463523
+  type: 'test'
+  ...
+# Subtest: returning to the same appointment ignores an earlier generation response and saves the current draft
+ok 65 - returning to the same appointment ignores an earlier generation response and saves the current draft
+  ---
+  duration_ms: 11.715045
+  type: 'test'
+  ...
+# Subtest: oversized drafts stop retrying while request timeout and rate limit failures remain retryable
+ok 66 - oversized drafts stop retrying while request timeout and rate limit failures remain retryable
+  ---
+  duration_ms: 2.120541
+  type: 'test'
+  ...
+# Subtest: initial network, auth and schema failures cannot initialize a blank editable consultation
+ok 67 - initial network, auth and schema failures cannot initialize a blank editable consultation
+  ---
+  duration_ms: 4.094457
+  type: 'test'
+  ...
+# Subtest: doctor API retains HTTP errors and never treats unreadable or null JSON as a saved draft
+ok 68 - doctor API retains HTTP errors and never treats unreadable or null JSON as a saved draft
+  ---
+  duration_ms: 109.348736
+  type: 'test'
+  ...
+# Subtest: branch dashboard keeps its successful section when the other request fails
+ok 69 - branch dashboard keeps its successful section when the other request fails
+  ---
+  duration_ms: 1.10891
+  type: 'test'
+  ...
+# Subtest: branch dashboard reports a bad response shape without fabricating empty data
+ok 70 - branch dashboard reports a bad response shape without fabricating empty data
+  ---
+  duration_ms: 0.721917
+  type: 'test'
+  ...
+# Subtest: branch dashboard encodes the local date in the appointments query
+ok 71 - branch dashboard encodes the local date in the appointments query
+  ---
+  duration_ms: 1.520952
+  type: 'test'
+  ...
+# Subtest: dashboard reflects the branch API available/inactive contract
+ok 72 - dashboard reflects the branch API available/inactive contract
+  ---
+  duration_ms: 1.485478
+  type: 'test'
+  ...
+# Subtest: dashboard retains compatible handling for existing name and on-duty fields
+ok 73 - dashboard retains compatible handling for existing name and on-duty fields
+  ---
+  duration_ms: 0.448715
+  type: 'test'
+  ...
+# Subtest: notification popover escapes layout clipping and stays above portal navigation layers
+ok 74 - notification popover escapes layout clipping and stays above portal navigation layers
+  ---
+  duration_ms: 2.212255
+  type: 'test'
+  ...
+# Subtest: notification popover repositions on viewport, orientation, keyboard, and scroll changes
+ok 75 - notification popover repositions on viewport, orientation, keyboard, and scroll changes
+  ---
+  duration_ms: 0.184179
+  type: 'test'
+  ...
+# Subtest: notification popover exposes its state and supports outside-click and Escape dismissal
+ok 76 - notification popover exposes its state and supports outside-click and Escape dismissal
+  ---
+  duration_ms: 0.178355
+  type: 'test'
+  ...
+# Subtest: notification content wraps long strings and keeps the notification list scrollable
+ok 77 - notification content wraps long strings and keeps the notification list scrollable
+  ---
+  duration_ms: 0.216813
+  type: 'test'
+  ...
+# Subtest: notification panel stays inside every required viewport width when the bell is left of header actions
+ok 78 - notification panel stays inside every required viewport width when the bell is left of header actions
+  ---
+  duration_ms: 1.932249
+  type: 'test'
+  ...
+# Subtest: narrow viewport shrinks the panel and clamps a left-side bell to the screen edge
+ok 79 - narrow viewport shrinks the panel and clamps a left-side bell to the screen edge
+  ---
+  duration_ms: 1.02445
+  type: 'test'
+  ...
+# Subtest: patient and staff header action groups no longer push the bell panel past the phone edge
+ok 80 - patient and staff header action groups no longer push the bell panel past the phone edge
+  ---
+  duration_ms: 0.523841
+  type: 'test'
+  ...
+# Subtest: popover uses visible viewport offsets when a mobile keyboard or zoom shifts the visual viewport
+ok 81 - popover uses visible viewport offsets when a mobile keyboard or zoom shifts the visual viewport
+  ---
+  duration_ms: 0.174743
+  type: 'test'
+  ...
+# Subtest: short landscape viewports place the panel above the bell when that provides more scrolling room
+ok 82 - short landscape viewports place the panel above the bell when that provides more scrolling room
+  ---
+  duration_ms: 0.125754
+  type: 'test'
+  ...
+# Subtest: popover stays below the bell when the viewport has room there
+ok 83 - popover stays below the bell when the viewport has room there
+  ---
+  duration_ms: 0.106752
+  type: 'test'
+  ...
+# Subtest: organization dashboard sections load independently and include the selected branch in trends
+ok 84 - organization dashboard sections load independently and include the selected branch in trends
+  ---
+  duration_ms: 2.261438
+  type: 'test'
+  ...
+# Subtest: one failed analytics request leaves successful dashboard sections available
+ok 85 - one failed analytics request leaves successful dashboard sections available
+  ---
+  duration_ms: 2.866484
+  type: 'test'
+  ...
+# Subtest: malformed response shapes fail only their own sections
+ok 86 - malformed response shapes fail only their own sections
+  ---
+  duration_ms: 1.975126
+  type: 'test'
+  ...
+# Subtest: invalid date ranges make no analytics requests
+ok 87 - invalid date ranges make no analytics requests
+  ---
+  duration_ms: 0.324318
+  type: 'test'
+  ...
+# Subtest: password policy accepts the bcrypt byte boundary but rejects ignored suffixes
+ok 88 - password policy accepts the bcrypt byte boundary but rejects ignored suffixes
+  ---
+  duration_ms: 1.486493
+  type: 'test'
+  ...
+# Subtest: password policy measures Unicode bytes rather than UTF-16 character count
+ok 89 - password policy measures Unicode bytes rather than UTF-16 character count
+  ---
+  duration_ms: 0.336205
+  type: 'test'
+  ...
+# Subtest: QR Ph payments have the correct label in billing history and printed receipts
+ok 90 - QR Ph payments have the correct label in billing history and printed receipts
+  ---
+  duration_ms: 2.484704
+  type: 'test'
+  ...
+# Subtest: logout sends exactly one request to the chosen role portal
+ok 91 - logout sends exactly one request to the chosen role portal
+  ---
+  duration_ms: 41.877883
+  type: 'test'
+  ...
+# Subtest: logout rejects HTTP and network failures before local identity can be cleared
+ok 92 - logout rejects HTTP and network failures before local identity can be cleared
+  ---
+  duration_ms: 2.260619
+  type: 'test'
+  ...
+# Subtest: reporting dates validate the full period
+ok 93 - reporting dates validate the full period
+  ---
+  duration_ms: 1.450266
+  type: 'test'
+  ...
+# Subtest: branch metrics correctly aggregate zero and numeric data
+ok 94 - branch metrics correctly aggregate zero and numeric data
+  ---
+  duration_ms: 0.252431
+  type: 'test'
+  ...
+# Subtest: CSV export escapes quotes and blocks formula execution in spreadsheet clients
+ok 95 - CSV export escapes quotes and blocks formula execution in spreadsheet clients
+  ---
+  duration_ms: 0.579696
+  type: 'test'
+  ...
+# Subtest: dashboard and reports never display zero-valued KPIs on request failure
+ok 96 - dashboard and reports never display zero-valued KPIs on request failure
+  ---
+  duration_ms: 0.577283
+  type: 'test'
+  ...
+# Subtest: branch activation retains the confirmation flow and readiness details
+ok 97 - branch activation retains the confirmation flow and readiness details
+  ---
+  duration_ms: 0.445789
+  type: 'test'
+  ...
+# Subtest: administrator permissions are grouped and require branch assignment
+ok 98 - administrator permissions are grouped and require branch assignment
+  ---
+  duration_ms: 0.430635
+  type: 'test'
+  ...
+# Subtest: audit display retains redaction and improved filtering
+ok 99 - audit display retains redaction and improved filtering
+  ---
+  duration_ms: 0.324479
+  type: 'test'
+  ...
+# Subtest: superadmin includes notification readiness and settings navigation
+ok 100 - superadmin includes notification readiness and settings navigation
+  ---
+  duration_ms: 0.338341
+  type: 'test'
+  ...
+# Subtest: Super Admin settings keep the superadmin role so the portal header is sent (was HTTP 401)
+ok 101 - Super Admin settings keep the superadmin role so the portal header is sent (was HTTP 401)
+  ---
+  duration_ms: 2.904578
+  type: 'test'
+  ...
+# Subtest: every billing tab links to a route that exists (Adjustments went to the public homepage)
+ok 102 - every billing tab links to a route that exists (Adjustments went to the public homepage)
+  ---
+  duration_ms: 2.511014
+  type: 'test'
+  ...
+# Subtest: branch form submits null, not '', for the 'Use default setup' option
+ok 103 - branch form submits null, not '', for the 'Use default setup' option
+  ---
+  duration_ms: 0.326925
+  type: 'test'
+  ...
+1..103
+# tests 103
+# suites 0
+# pass 103
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1421.99114

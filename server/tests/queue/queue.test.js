@@ -10,5 +10,3 @@ describe('queue status rules', () => {
     expect(isValidQueueStatus('in-progress')).toBe(true)
   })
 })
-
-

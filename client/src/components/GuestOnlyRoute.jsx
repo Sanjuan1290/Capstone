@@ -15,5 +15,3 @@ const GuestOnlyRoute = ({ children }) => {
   return destination ? <Navigate to={destination} replace /> : children
 }
 export default GuestOnlyRoute
-
-

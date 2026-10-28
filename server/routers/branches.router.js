@@ -1,4 +1,5 @@
 const {afterSuccessfulMutation}=require('../utils/clinicEvents')
+const {attachBatchesToInventory}=require('../utils/inventoryBatches')
 // Physical-branch management. Unlike the legacy admin controller, every data
 // query here contains an explicit authorized physical-branch predicate.
 const express = require('express')
@@ -534,7 +535,14 @@ const originalServices=async(req,res)=>{
   res.json(rows)
 }
 const originalInventory=async(req,res)=>{
-  const [rows]=await db.query('SELECT * FROM inventory WHERE branch_id=? ORDER BY name LIMIT 500',[req.branchId]);res.json(rows)
+  // The shared Inventory UI requires item.batches[].locations for Stock Out,
+  // Move Stock, and Manage Batches. Do not return bare inventory rows.
+  // Keep the authorized branch predicate and do not mutate stock during reads.
+  const [rows]=await db.query(
+    'SELECT * FROM inventory WHERE branch_id=? AND archived_at IS NULL ORDER BY name LIMIT 500',
+    [req.branchId]
+  )
+  res.json(await attachBatchesToInventory(rows,db))
 }
 for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   router.get(`${prefix}/dashboard`,...middle,requirePermission('dashboard'),originalDashboard)
@@ -617,6 +625,8 @@ require('./branchSystemWrites').registerBranchExtraSetup(router,{requireSuper,br
 require('./branchQueueInventoryWrites').registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchQueueInventoryWrites').registerBranchMoveStock(router,{requireSuper,branchContext,requirePermission})
 require('./branchInventoryItems').registerBranchInventoryItems(router,{requireSuper,branchContext,requirePermission})
+// New additive location-ledger API remains fail-closed until full cutover approval.
+require('./branchLocationStock').registerBranchLocationStock(router,{requireSuper,branchContext,requirePermission})
 require('./branchCatalogWrites').registerBranchCatalogWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchAppointmentWrites').registerBranchAppointmentWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchBillPreviewReads').registerBranchBillPreviewReads(router,{requireSuper,branchContext,requirePermission})
@@ -644,9 +654,3 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
-
-
-
-
-
-

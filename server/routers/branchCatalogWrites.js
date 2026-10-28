@@ -118,5 +118,3 @@ function registerBranchCatalogWrites(router,{requireSuper,branchContext,requireP
  }
 }
 module.exports={registerBranchCatalogWrites,saveService,deleteService,saveDiscount}
-
-

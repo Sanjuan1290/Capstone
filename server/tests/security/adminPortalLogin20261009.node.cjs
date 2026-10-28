@@ -31,5 +31,3 @@ assert.match(controller, /code: 'WRONG_ADMIN_PORTAL'/)
 assert.match(controller, /'superadmin_mfa_pending'/)
 assert.match(controller, /decoded\.portal/)
 console.log('PASS: server portal validation and separated MFA pending cookies')
-
-

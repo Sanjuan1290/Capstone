@@ -47,4 +47,3 @@ test('deployment gate covers all Batch 4 fields queried by the billing reader', 
     assert(gate.includes(`'${col}'`), `deployment verifier must require ${col}`)
   }
 })
-

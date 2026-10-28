@@ -270,5 +270,3 @@ test('Batch 4 recovers manually applied complete columns while adding only the m
   assert.ok(ddl.every(sql => !/ADD COLUMN/i.test(sql)))
   assert.equal(db.applied.has(migrationFiles.at(-1)), true)
 })
-
-

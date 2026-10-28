@@ -33,5 +33,3 @@ const resolveSelectedPromotion = async (executor, { promotionId, branchId, servi
 }
 
 module.exports = { parsePromotionId, resolveSelectedPromotion }
-
-

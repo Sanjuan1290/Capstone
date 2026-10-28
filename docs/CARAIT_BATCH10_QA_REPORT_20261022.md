@@ -102,5 +102,3 @@ Baseline run: **241 pass / 12 fail**. Final local run: **251 pass / 2 fail**. Th
 ## Final decision
 
 **BLOCKED.** The available dependency-free and static checks are encouraging and ten of twelve previous local backend failures have been reconciled. However, **the live clinic system is not certified**, and no evidence exists here for a successful production build, real TiDB migration, physical camera validation, authenticated E2E patient-to-payment journey, provider payment settlement, or release rollback. This report intentionally does **not** claim deployment or production verification.
-
-

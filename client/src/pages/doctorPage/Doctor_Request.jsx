@@ -74,5 +74,3 @@ const Doctor_Request = () => {
 }
 
 export default Doctor_Request
-
-

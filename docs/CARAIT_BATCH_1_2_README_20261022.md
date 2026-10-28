@@ -70,5 +70,3 @@
 - No inventory, checkout, receipt, PayMongo or production patient data was changed.
 - Doctor Availability UI redesign, mobile scanner, item modal, promotions, branch-copy setup and general SSE live-update rollout belong to later batches and were **not** included here.
 - If the booking-readiness request still returns 500 after deploying the tested changes, obtain the sanitized Render log, request ID and SQL exception before making further changes.
-
-

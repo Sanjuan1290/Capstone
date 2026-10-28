@@ -58,5 +58,3 @@ test('unsafe payment QR URL rejected before database write',async()=>{
  const r=resp();await mod.save(req(2,{...settings,gcash_qr_url:'http://nonsecure.test/qr.png'}),r)
  assert.equal(r.statusCode,400);assert.equal(r.body.code,'INVALID_IMAGE_URL')
 })
-
-

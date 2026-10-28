@@ -195,5 +195,3 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), s
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 
 module.exports = router
-
-

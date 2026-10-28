@@ -54,5 +54,3 @@ test('superadmin includes notification readiness and settings navigation',()=>{
  assert.match(source,/Account settings/)
  assert.match(source,/superMode/)
 })
-
-

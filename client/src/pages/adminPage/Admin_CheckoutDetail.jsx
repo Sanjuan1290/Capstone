@@ -739,10 +739,3 @@ const Admin_CheckoutDetail = () => {
 }
 
 export default Admin_CheckoutDetail
-
-
-
-
-
-
-

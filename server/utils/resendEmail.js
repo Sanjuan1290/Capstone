@@ -32,5 +32,3 @@ const sendResendEmail = async ({ to, subject, html, headers, from, idempotencyKe
 }
 
 module.exports = { sendResendEmail }
-
-

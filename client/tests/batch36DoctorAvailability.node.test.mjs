@@ -30,5 +30,3 @@ test('rescheduling passes branch context and shows failed availability as error'
  assert.match(src,/setSlotsError\('Unable to check available times/)
  assert.match(src,/slotsError &&/)
 })
-
-

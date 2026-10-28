@@ -67,5 +67,3 @@ describe('account security OTP purpose isolation', () => {
     expect(calls.some((sql) => sql.includes('INSERT INTO account_security_codes'))).toBe(true)
   })
 })
-
-

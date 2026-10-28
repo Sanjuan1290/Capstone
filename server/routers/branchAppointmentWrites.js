@@ -57,8 +57,3 @@ function registerBranchAppointmentWrites(router,{requireSuper,branchContext,requ
   router.post(`${prefix}/appointments`,...middle,requirePermission('appointments'),createAppointment)
 }
 module.exports={registerBranchAppointmentWrites,createAppointment}
-
-
-
-
-

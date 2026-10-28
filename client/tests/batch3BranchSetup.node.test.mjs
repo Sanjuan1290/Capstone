@@ -10,5 +10,3 @@ test('branch form includes blank, standard, copy, preview and creation guidance'
  assert.match(src,/Branch Created — Complete Setup/)
  assert.match(src,/savingRef\.current/)
 })
-
-

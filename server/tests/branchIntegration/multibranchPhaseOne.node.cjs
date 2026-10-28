@@ -55,10 +55,3 @@ test('promotions cannot link services or recipients from another branch',()=>{
  assert.ok(src.includes('a.patient_id=patient.id AND a.branch_id=?'))
  assert.ok(src.includes('branch_id:req.branchId'))
 })
-
-
-
-
-
-
-

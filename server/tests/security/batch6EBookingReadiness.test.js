@@ -84,5 +84,3 @@ describe('Batch 6E online booking readiness', () => {
     expect(source).toContain('Manage Schedules')
   })
 })
-
-

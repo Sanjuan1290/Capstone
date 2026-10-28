@@ -13,5 +13,3 @@ function registerBranchCheckoutDraftWrites(router,{requireSuper,branchContext,re
  }
 }
 module.exports={registerBranchCheckoutDraftWrites}
-
-

@@ -70,5 +70,3 @@ const broadcast = (roles, eventName, data, { branchId = null } = {}) => {
 }
 
 module.exports = { sseClients, registerClient, getKeysForClient, writeEvent, broadcast }
-
-

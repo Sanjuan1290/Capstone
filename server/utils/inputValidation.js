@@ -85,5 +85,3 @@ module.exports = {
   assertPlainObject,
   isScalarText,
 }
-
-

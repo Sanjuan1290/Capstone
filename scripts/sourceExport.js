@@ -201,5 +201,3 @@ function generateSourceExports(options = {}) {
 }
 
 module.exports = { isExcludedPath, collectSourceFiles, decodeText, createZip, generateSourceExports }
-
-
