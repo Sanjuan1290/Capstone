@@ -3,8 +3,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
-const root = path.resolve(__dirname, '../..')
-const out = path.join(root, 'docs/audit-2026-10-28/evidence')
+const { root, out } = require('./output.cjs')
 fs.mkdirSync(out, { recursive: true })
 const env = { ...process.env }
 // Remove inherited configuration too. Only key names are inspected; values are
@@ -24,7 +23,8 @@ Object.assign(env, {
 const checks = {
   'server-source': ['server', ['npm', 'run', 'verify:source']],
   'browser-smoke': ['.', ['node', 'scripts/audit/browserSmoke.cjs']],
-  'server-coverage': ['server', ['node', 'node_modules/vitest/vitest.mjs', 'run', '--coverage', '--coverage.include=controllers/**', '--coverage.include=routers/**', '--coverage.include=utils/**', '--coverage.include=middlewares/**', '--coverage.include=db/*.js', '--coverage.include=server.js', '--coverage.reporter=json-summary', '--coverage.reporter=text-summary', '--coverage.reportsDirectory=../docs/audit-2026-10-28/evidence/coverage']],
+  'server-coverage': ['server', ['node', 'node_modules/vitest/vitest.mjs', 'run', '--coverage', '--coverage.include=controllers/**', '--coverage.include=routers/**', '--coverage.include=utils/**', '--coverage.include=middlewares/**', '--coverage.include=db/*.js', '--coverage.include=server.js', '--coverage.reporter=json-summary', '--coverage.reporter=text-summary', `--coverage.reportsDirectory=${path.join(out, 'coverage')}`]],
+  'appointment-node': ['server', ['node', '--test', 'tests/appointments/workflowSafety.node.cjs', 'tests/branchIntegration/walkInBranchSafety.node.cjs', 'tests/branchIntegration/batch2AppointmentWorkflows.node.cjs']],
   'server-vitest': ['server', ['npm', 'test']],
   'server-node': ['server', ['npm', 'run', 'test:node']],
   'client-node': ['client', ['node', '--test', ...fs.readdirSync(path.join(root, 'client/tests')).filter(n => n.endsWith('.mjs')).map(n => `tests/${n}`)]],

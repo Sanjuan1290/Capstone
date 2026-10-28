@@ -3,8 +3,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const parser = require('../../client/node_modules/@babel/parser')
-const root = path.resolve(__dirname, '../..')
-const out = path.join(root, 'docs/audit-2026-10-28/evidence')
+const { root, out } = require('./output.cjs')
 const schema = JSON.parse(fs.readFileSync(path.join(out, 'backup-audit.json'))).schema
 const coverageFile=path.join(out,'coverage/coverage-summary.json')
 const coverage=fs.existsSync(coverageFile)?JSON.parse(fs.readFileSync(coverageFile)):{}

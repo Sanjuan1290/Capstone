@@ -3,8 +3,8 @@
 // reminders, or payment/email/upload providers. No row values enter the report.
 const fs = require('node:fs')
 const path = require('node:path')
-const root = path.resolve(__dirname, '../..')
-const out = path.join(root, 'docs/audit-2026-10-28/evidence/live-read-only.json')
+const { root, out: evidenceDir } = require('./output.cjs')
+const out = path.join(evidenceDir, 'live-read-only.json')
 let pool
 async function main() {
   require('../../server/node_modules/dotenv').config({ path: path.join(root, 'server/.env'), quiet: true })
@@ -22,7 +22,7 @@ async function main() {
     result.reachable = true
     const [[engine]] = await db.query('SELECT VERSION() AS version')
     result.engine = engine.version
-    const snapshot = JSON.parse(fs.readFileSync(path.join(root,'docs/audit-2026-10-28/evidence/backup-audit.json'))).schema
+    const snapshot = JSON.parse(fs.readFileSync(path.join(evidenceDir,'backup-audit.json'))).schema
     const [liveColumns] = await db.query('SELECT TABLE_NAME,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT,EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()')
     const live = new Map(liveColumns.map(col=>[col.TABLE_NAME+'.'+col.COLUMN_NAME,col]))
     result.backupComparison = { missingColumns:[], addedColumns:[], typeOrNullabilityDifferences:[], defaultDifferences:[], extraDifferences:[] }
@@ -80,7 +80,12 @@ async function main() {
     const { verifyBranchReportsSql } = require('../../server/scripts/verifyBranchReportsSql')
     try { result.reportsSqlStatements = await verifyBranchReportsSql(db) }
     catch (error) { result.reportsSql = { passed: false, code: error.cause?.code || 'SQL_VALIDATION_FAILED' } }
-    const source=JSON.parse(fs.readFileSync(path.join(root,'docs/audit-2026-10-28/evidence/source-inventory.json')))
+    const [settings] = await db.query('SELECT branch_id,online_min_lead_minutes,pending_confirmation_cutoff_minutes,booking_start_interval_minutes,no_show_grace_minutes FROM branch_booking_settings ORDER BY branch_id')
+    const [globalSettings] = await db.query('SELECT online_min_lead_minutes,pending_confirmation_cutoff_minutes,booking_start_interval_minutes FROM booking_settings WHERE id=1')
+    result.bookingPolicy = { branches: settings, legacyGlobal: globalSettings }
+    const [[pending]] = await db.query("SELECT COUNT(*) AS missingDeadlines FROM appointments WHERE status='pending' AND appointment_source='online' AND confirmation_deadline_at IS NULL")
+    result.pendingMissingDeadlines = Number(pending.missingDeadlines)
+    const source=JSON.parse(fs.readFileSync(path.join(evidenceDir,'source-inventory.json')))
     result.literalSelectValidation={total:source.readQueries.length,passed:0,failures:[],scope:'Only literal SELECT query/execute arguments; dynamic SQL and DML are excluded. EXPLAIN does not execute application actions.'}
     for(const query of source.readQueries){
       try{await db.query('EXPLAIN '+query.sql,Array((query.sql.match(/\?/g)||[]).length).fill(1));result.literalSelectValidation.passed++}
