@@ -66,6 +66,22 @@ const revokeSessions = async (role, id, executor = db) => {
   await executor.query(`UPDATE ${config.table} SET session_version = COALESCE(session_version, 1) + 1 WHERE id = ?`, [id])
 }
 
+// Logout invalidates replayed tokens, including copies held outside this browser.
+// Session versions intentionally revoke every session for this account/role.
+const invalidateRequestSession = async (req, cookieName, role, executor = db) => {
+  const token = req.cookies?.[cookieName]
+  if (!token) return null
+  let user
+  try { user = await verifySessionToken(token, role, executor) }
+  catch (error) {
+    if (['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name) || error.statusCode === 401) return null
+    throw error
+  }
+  if (role === 'admin' && ((cookieName === 'superadmin_token') !== (user.account_role === 'superadmin'))) return null
+  await revokeSessions(role, user.id, executor)
+  return user
+}
+
 const findAuthenticatedRequestSession = async (req) => {
   // Include the separately signed Super Admin cookie in generic identity checks.
   const candidates = [...Object.entries(ROLE_CONFIG).map(([role, config]) => ({ role, cookie: config.cookie })), { role: 'admin', cookie: 'superadmin_token' }]
@@ -84,6 +100,6 @@ const findAuthenticatedRequestSession = async (req) => {
   return null
 }
 
-module.exports = { ROLE_CONFIG, loadSessionAccount, makeSessionToken, issueSession, verifySessionToken, revokeSessions, findAuthenticatedRequestSession }
+module.exports = { ROLE_CONFIG, loadSessionAccount, makeSessionToken, issueSession, verifySessionToken, revokeSessions, invalidateRequestSession, findAuthenticatedRequestSession }
 
 

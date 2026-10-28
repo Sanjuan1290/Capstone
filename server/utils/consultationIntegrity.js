@@ -27,6 +27,20 @@ const assertConsultationEditable = (consultation) => {
   }
 }
 
-module.exports = { loadConsultationAmendments, assertConsultationEditable }
+// Optional for legacy API callers; current clients send the version loaded from
+// the server, including 0 when no draft exists yet. Check under the write lock.
+const assertConsultationVersion = (body, consultation) => {
+  if (!Object.prototype.hasOwnProperty.call(body, 'expected_version')) return
+  const expected = body.expected_version
+  if (!Number.isSafeInteger(expected) || expected < 0) {
+    throw Object.assign(new Error('A valid consultation version is required.'), { statusCode: 400, code: 'VALIDATION_ERROR' })
+  }
+  const actual = consultation ? Number(consultation.version || 1) : 0
+  if (expected !== actual) {
+    throw Object.assign(new Error('This consultation changed in another session. Your changes were not saved. Keep a copy of your draft and reload the saved record before continuing.'), { statusCode: 409, code: 'CONSULTATION_VERSION_CONFLICT' })
+  }
+}
+
+module.exports = { loadConsultationAmendments, assertConsultationEditable, assertConsultationVersion }
 
 

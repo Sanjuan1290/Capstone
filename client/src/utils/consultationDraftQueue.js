@@ -11,18 +11,21 @@ export function createConsultationDraftQueue({
   let queued = false
   let lastSavedSignature = ''
   let blockedError = null
+  let generation = 0
   // Schema, auth, or validation failures cannot be fixed by repeating the same request.
   const isPermanentError = (error) => (
     ['SCHEMA_MIGRATION_REQUIRED', 'CONSULTATION_FINALIZED', 'CONSULTATION_NOT_EDITABLE',
       'VALIDATION_ERROR', 'PROGRESS_IMAGE_LIMIT', 'BOOKED_SERVICE_REQUIRED',
       'BOOKED_SERVICE_FIXED', 'SERVICE_NOT_FOUND', 'CLINICAL_IMAGE_TOKEN_INVALID']
       .includes(String(error?.code || ''))
-    || [400, 401, 403, 404, 409, 422].includes(Number(error?.httpStatus))
+    || (Number(error?.httpStatus) >= 400 && Number(error?.httpStatus) < 500
+      && ![408, 429].includes(Number(error?.httpStatus)))
   )
 
   const appointmentKey = (value) => value == null ? '' : String(value)
 
   function reset(_appointmentId, savedSignature = '') {
+    generation += 1
     lastSavedSignature = savedSignature
     blockedError = null
     queued = false
@@ -31,6 +34,7 @@ export function createConsultationDraftQueue({
   async function persist({ force = false } = {}) {
     const targetId = getAppointmentId()
     const targetKey = appointmentKey(targetId)
+    const targetGeneration = generation
     if (!targetKey || blockedError) return false
     if (inFlight) {
       queued = true
@@ -50,17 +54,17 @@ export function createConsultationDraftQueue({
           || (!forceNext && current.signature === lastSavedSignature)) break
         forceNext = false
         onSaving(current)
-        await saveDraft(targetId, current.payload)
-        if (appointmentKey(getAppointmentId()) !== targetKey) break
+        const result = await saveDraft(targetId, current.payload)
+        if (generation !== targetGeneration || appointmentKey(getAppointmentId()) !== targetKey) break
         lastSavedSignature = current.signature
-        onSaved(current)
+        onSaved(current, result)
       } while (queued || (
         appointmentKey(getLatestDraft()?.appointmentId) === targetKey
         && getLatestDraft()?.signature !== lastSavedSignature
       ))
     } catch (error) {
       success = false
-      if (appointmentKey(getAppointmentId()) === targetKey) {
+      if (generation === targetGeneration && appointmentKey(getAppointmentId()) === targetKey) {
         if (isPermanentError(error)) blockedError = error
         onError(error, Boolean(blockedError))
       }
@@ -68,7 +72,7 @@ export function createConsultationDraftQueue({
       const latest = getLatestDraft()
       const currentId = getAppointmentId()
       const resumeForChangedAppointment = queued
-        && appointmentKey(currentId) !== targetKey
+        && (generation !== targetGeneration || appointmentKey(currentId) !== targetKey)
         && latest?.payload
         && appointmentKey(latest.appointmentId) === appointmentKey(currentId)
         && latest.signature !== lastSavedSignature

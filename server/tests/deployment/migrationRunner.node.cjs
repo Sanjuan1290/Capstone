@@ -31,7 +31,7 @@ const promotionColumns = {
   ],
 }
 
-function createMockDb({ failOnceOn, foundationOptions, initialPromotionState } = {}) {
+function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, initialPromotionIndex, initialPromotionFk } = {}) {
   const foundation = createFoundationSchemaFixture(foundationOptions)
   const applied = new Map()
   const commands = []
@@ -40,6 +40,8 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState } =
     billing_records: false,
     ...(initialPromotionState || {}),
   }
+  let promotionIndex = initialPromotionIndex ?? initialPromotionState?.appointments === true
+  let promotionFk = initialPromotionFk ?? initialPromotionState?.appointments === true
   const promotionMetadata = (sql, params) => {
     const table = params?.[0]
     if (!['appointments', 'billing_records'].includes(table) || !/TABLE_NAME=\?/i.test(sql)) return null
@@ -49,11 +51,11 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState } =
         IS_NULLABLE: 'YES',
       })) : [], []]
     }
-    if (/information_schema\.STATISTICS/i.test(sql)) return [promotionState.appointments === true ? [
+    if (/information_schema\.STATISTICS/i.test(sql)) return [promotionIndex ? [
       { INDEX_NAME: 'idx_appointments_selected_promotion', NON_UNIQUE: 1, SEQ_IN_INDEX: 1, COLUMN_NAME: 'branch_id' },
       { INDEX_NAME: 'idx_appointments_selected_promotion', NON_UNIQUE: 1, SEQ_IN_INDEX: 2, COLUMN_NAME: 'promotion_id' },
     ] : [], []]
-    if (/information_schema\.KEY_COLUMN_USAGE/i.test(sql)) return [promotionState.appointments === true ? [
+    if (/information_schema\.KEY_COLUMN_USAGE/i.test(sql)) return [promotionFk ? [
       { CONSTRAINT_NAME: 'fk_appointments_selected_promotion', COLUMN_NAME: 'promotion_id', REFERENCED_TABLE_NAME: 'clinic_promotions', REFERENCED_COLUMN_NAME: 'id', DELETE_RULE: 'SET NULL' },
     ] : [], []]
     return null
@@ -86,7 +88,12 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState } =
           failure = null
           throw new Error('synthetic migration DDL failure')
         }
-        if (/^ALTER TABLE appointments\s/i.test(String(sql))) promotionState.appointments = true
+        if (/^ALTER TABLE appointments\s/i.test(String(sql))) {
+          assert.ok(!(/ADD COLUMN/i.test(sql) && /ADD (INDEX|CONSTRAINT)/i.test(sql)), 'TiDB must never receive combined promotion column/index/FK DDL')
+          if (/ADD COLUMN/i.test(sql)) promotionState.appointments = true
+          if (/ADD INDEX/i.test(sql)) { assert.equal(promotionState.appointments, true); promotionIndex = true }
+          if (/ADD CONSTRAINT/i.test(sql)) { assert.equal(promotionState.appointments, true); promotionFk = true }
+        }
         if (/^ALTER TABLE billing_records\s/i.test(String(sql))) promotionState.billing_records = true
         if (/^INSERT INTO schema_migrations/i.test(String(sql))) {
           applied.set(params[0], params[1])
@@ -196,7 +203,7 @@ test('Batch 4 registration is additive, ordered, and does not repeat DDL on a cl
   assert.equal(db.promotionState.billing_records, true)
   assert.deepEqual([...db.applied.keys()], migrationFiles)
   const ddlCount = db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length
-  assert.equal(ddlCount, 2)
+  assert.equal(ddlCount, 4)
   await runBranchMigrations(db)
   assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length, ddlCount)
 })
@@ -210,7 +217,7 @@ test('Batch 4 resumes after the first ALTER committed but the second failed', as
   await runBranchMigrations(db)
   assert.equal(db.promotionState.billing_records, true)
   assert.equal(db.applied.has(migrationFiles.at(-1)), true)
-  assert.equal(db.commands.filter(sql => /^ALTER TABLE appointments\s/i.test(sql)).length, 1)
+  assert.equal(db.commands.filter(sql => /^ALTER TABLE appointments\s/i.test(sql) && /ADD COLUMN/i.test(sql)).length, 1)
 })
 
 test('Batch 4 records an already complete but unregistered schema without re-running ALTER', async () => {
@@ -240,6 +247,28 @@ test('Batch 4 rejects unexpected partly-added columns without applying new DDL o
   await assert.rejects(runBranchMigrations(db), /Unsafe partial Batch 4 migration for appointments/)
   assert.equal(db.applied.has(migrationFiles.at(-1)), false)
   assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length, 0)
+})
+
+for (const operation of ['ADD INDEX', 'ADD CONSTRAINT']) {
+  test(`Batch 4 resumes after a TiDB ${operation} interruption without repeating committed operations`, async () => {
+    const db = createMockDb({ failOnceOn: operation })
+    await assert.rejects(runBranchMigrations(db), /synthetic migration DDL failure/)
+    assert.equal(db.applied.has(migrationFiles.at(-1)), false)
+    assert.equal(db.promotionState.appointments, true)
+    await runBranchMigrations(db)
+    assert.equal(db.applied.has(migrationFiles.at(-1)), true)
+    assert.equal(db.commands.filter(sql => /^ALTER TABLE appointments\s/i.test(sql) && /ADD COLUMN/i.test(sql)).length, 1)
+    if (operation === 'ADD CONSTRAINT') assert.equal(db.commands.filter(sql => /^ALTER TABLE appointments\s/i.test(sql) && /ADD INDEX/i.test(sql)).length, 1)
+  })
+}
+
+test('Batch 4 recovers manually applied complete columns while adding only the missing TiDB index and FK', async () => {
+  const db = createMockDb({ initialPromotionState: { appointments: true, billing_records: true }, initialPromotionIndex: false, initialPromotionFk: false })
+  await runBranchMigrations(db)
+  const ddl = db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql))
+  assert.equal(ddl.length, 2)
+  assert.ok(ddl.every(sql => !/ADD COLUMN/i.test(sql)))
+  assert.equal(db.applied.has(migrationFiles.at(-1)), true)
 })
 
 

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { logoutRoleSession } from '../utils/sessionLogout.mjs'
 
 const AuthContext = createContext()
 
@@ -8,14 +9,6 @@ const ENDPOINT_MAP = {
   staff: '/api/staff/check-auth',
   doctor: '/api/doctor/check-auth',
   patient: '/api/patient/check-auth',
-}
-
-const LOGOUT_MAP = {
-  superadmin: '/api/admin/logout?portal=superadmin',
-  admin: '/api/admin/logout',
-  staff: '/api/staff/logout',
-  doctor: '/api/doctor/logout',
-  patient: '/api/patient/logout',
 }
 
 const roleFromPath = (pathname = '') => {
@@ -73,13 +66,7 @@ export const AuthProvider = ({ children }) => {
   }
 
   const logout = async () => {
-    if (role && LOGOUT_MAP[role]) {
-      try {
-        await fetch(LOGOUT_MAP[role], { method: 'POST', credentials: 'include' })
-      } catch {
-        // Local auth state is still cleared if the network request fails.
-      }
-    }
+    await logoutRoleSession(role)
     setUser(null)
     setRole(null)
     sessionStorage.removeItem('auth_role')

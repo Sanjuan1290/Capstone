@@ -25,7 +25,7 @@ const db           = require('../db/connect')
 const bcrypt       = require('bcrypt')
 const jwt          = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
-const { issueSession, verifySessionToken, revokeSessions } = require('../utils/sessionSecurity')
+const { issueSession, verifySessionToken, revokeSessions, invalidateRequestSession } = require('../utils/sessionSecurity')
 const { requestAdminMfa, verifyAdminMfa, createSecurityCode, verifySecurityCode } = require('../utils/accountSecurity')
 const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendTempPassword, sendAppointmentStatusEmail, sendAccountSecurityOtp } = require('../utils/emailService')
@@ -570,8 +570,10 @@ const checkAuth = async (req, res) => {
 }
 
 const logout = async (req, res) => {
+  const cookieName = req.query?.portal === 'superadmin' ? 'superadmin_token' : 'admin_token'
+  req.user = await invalidateRequestSession(req, cookieName, 'admin')
   await writeAuditLog({ userId: req.user?.id || null, userRole: req.user?.role || 'admin', action: 'auth.logout', entityType: 'admin', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
-  res.clearCookie(req.query?.portal === 'superadmin' ? 'superadmin_token' : 'admin_token', { path: '/' })
+  res.clearCookie(cookieName, { path: '/' })
   res.clearCookie('admin_mfa_pending', { path: '/' })
   res.clearCookie('superadmin_mfa_pending', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })

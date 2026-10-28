@@ -17,6 +17,7 @@ import { doctorClinicLabel } from '../../utils/doctor'
 import { getClinicSettings } from '../../services/clinic.service'
 import { printConsultationRecord } from '../../utils/consultationPrint'
 import { createConsultationDraftQueue } from '../../utils/consultationDraftQueue'
+import { loadConsultationForEditing } from '../../utils/consultationLoad.mjs'
 import {
   MdAccessTime,
   MdAdd,
@@ -234,6 +235,8 @@ const Doctor_Consultation = () => {
   const [appt, setAppt] = useState(apptFromState || null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [initLoading, setInitLoading] = useState(Boolean(apptFromState?.id || apptIdParam))
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   const [diagnosis, setDiagnosis] = useState('')
   const [notes, setNotes] = useState('')
@@ -272,9 +275,15 @@ const Doctor_Consultation = () => {
   const billingCatalogLoadRef = useRef(0)
   const autosaveQueueRef = useRef(null)
   const autosaveEligibleRef = useRef(false)
+  const consultationVersionsRef = useRef(new Map())
   useEffect(() => {
     autosaveQueueRef.current = createConsultationDraftQueue({
-      saveDraft: saveConsultationDraft,
+      saveDraft: async (id, payload) => {
+        const key = String(id)
+        const result = await saveConsultationDraft(id, { ...payload, expected_version: consultationVersionsRef.current.get(key) ?? 0 })
+        consultationVersionsRef.current.set(key, Math.max(consultationVersionsRef.current.get(key) ?? 0, Number(result.consultation_version || 1)))
+        return result
+      },
       getAppointmentId: () => selectedAppointmentIdRef.current,
       getLatestDraft: () => latestDraftRef.current,
       canSave: () => !finalizingRef.current
@@ -400,6 +409,7 @@ const Doctor_Consultation = () => {
     finalizedAppointmentIdRef.current = null
     setAppt(apptFromState || null)
     setInitLoading(true)
+    setLoadError('')
     setAutosaveReady(false)
     setIsEditMode(false)
     setDiagnosis('')
@@ -407,6 +417,13 @@ const Doctor_Consultation = () => {
     setPrescriptions([])
     setPrescriptionDecision('not_recorded')
     setProgressImages([])
+    setUploadingIndex(null)
+    setImageUploadStatus({})
+    setScanBypassPrompt(null)
+    setPendingScanPrompt(null)
+    setAddingAmendment(false)
+    setAmendmentReason('')
+    setAmendmentText('')
     setPatientHistory([])
     setAmendments([])
     setBillableServices([])
@@ -418,9 +435,11 @@ const Doctor_Consultation = () => {
     setSaving(false)
     setTab('consultation')
 
-    getConsultation(requestedId)
+    loadConsultationForEditing(getConsultation, requestedId, apptFromState)
       .then((consult) => {
         if (consultationLoadGenerationRef.current !== loadToken) return
+        consultationVersionsRef.current.set(String(requestedId), Number(consult?.version || (consult ? 1 : 0)))
+        if (!consult) { setAutosaveReady(true); return }
         if (!apptFromState) {
           setAppt({
             id: requestedId,
@@ -441,22 +460,22 @@ const Doctor_Consultation = () => {
         }
         applyConsultationData(consult)
         setIsEditMode((consult.status || 'finalized') === 'finalized')
+        setAutosaveReady(true)
       })
-      .catch(() => {
+      .catch((error) => {
         if (consultationLoadGenerationRef.current !== loadToken) return
-        // A consultation does not exist until the doctor starts entering clinical information.
-        if (apptFromState?.status === 'completed') setIsEditMode(true)
+        setLoadError(error.message || 'Unable to load the saved consultation. Retry before entering clinical information.')
+        setAutosaveReady(false)
       })
       .finally(() => {
         if (consultationLoadGenerationRef.current !== loadToken) return
-        setAutosaveReady(true)
         setInitLoading(false)
       })
 
     return () => {
       if (consultationLoadGenerationRef.current === loadToken) consultationLoadGenerationRef.current += 1
     }
-  }, [routeAppointmentId, apptFromState])
+  }, [routeAppointmentId, apptFromState, loadAttempt])
 
   // Flush a dirty draft when the doctor changes appointments or leaves this page.
   // The queue captures the old appointment id before the next route effect resets it.
@@ -590,6 +609,15 @@ const Doctor_Consultation = () => {
     setImageUploadStatus((current) => ({ ...current, [index]: status }))
   }
 
+  // Async actions may finish after this mounted route selects another patient,
+  // including A -> B -> A. Only the initiating load may update its UI state.
+  const captureCurrentConsultation = () => {
+    const generation = consultationLoadGenerationRef.current
+    const key = String(appt?.id ?? '')
+    return () => Boolean(key && generation === consultationLoadGenerationRef.current
+      && key === String(selectedAppointmentIdRef.current ?? ''))
+  }
+
   const applyClinicalUploadResult = (index, file, result) => {
     setProgressImages((current) => {
       const next = [...current]
@@ -607,6 +635,8 @@ const Doctor_Consultation = () => {
   }
 
   const handleUploadProgressImages = async (selectedFiles) => {
+    const isCurrent = captureCurrentConsultation()
+    if (!isCurrent()) return
     const requestedFiles = Array.isArray(selectedFiles) ? selectedFiles : Array.from(selectedFiles || [])
     if (!requestedFiles.length) return
 
@@ -633,11 +663,14 @@ const Doctor_Consultation = () => {
     const start = progressImages.length
     setProgressImages((prev) => [...prev, ...files.map(() => createBlankProgressImage())])
     for (let offset = 0; offset < files.length; offset += 1) {
+      if (!isCurrent()) break
       await handleUploadProgressImage(start + offset, files[offset])
     }
   }
 
   const handleUploadProgressImage = async (index, file) => {
+    const isCurrent = captureCurrentConsultation()
+    if (!isCurrent()) return
     if (!file) return
     if (!['image/png','image/jpeg'].includes(String(file.type || '').toLowerCase())) {
       setClinicalUploadStatus(index, { tone: 'danger', message: 'Select a PNG or JPG image.' })
@@ -654,14 +687,16 @@ const Doctor_Consultation = () => {
     try {
       const result = await uploadClinicalImageSigned(file, appt?.id, {
         scanMode: 'scan',
-        onStatus: (status) => setClinicalUploadStatus(index, status),
+        onStatus: (status) => { if (isCurrent()) setClinicalUploadStatus(index, status) },
       })
+      if (!isCurrent()) return
       applyClinicalUploadResult(index, file, result)
       setClinicalUploadStatus(index, {
         tone: result.scan_status === 'bypassed' ? 'warning' : 'success',
         message: result.scan_status === 'bypassed' ? 'Upload complete without malware scanning.' : 'Upload complete. Security scan passed.',
       })
     } catch (err) {
+      if (!isCurrent()) return
       if (err.code === 'SCAN_UNAVAILABLE' || err.code === 'SCAN_LIMIT_REACHED') {
         const limitReached = err.code === 'SCAN_LIMIT_REACHED'
         setClinicalUploadStatus(index, { tone: 'warning', message: limitReached ? 'Security scanner usage limit reached — confirmation required.' : 'Security scanner unavailable — confirmation required.' })
@@ -675,17 +710,20 @@ const Doctor_Consultation = () => {
         setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Failed to upload image.' })
       }
     } finally {
-      setUploadingIndex(null)
+      if (isCurrent()) setUploadingIndex(null)
     }
   }
 
   const checkPendingClinicalScan = async () => {
+    const isCurrent = captureCurrentConsultation()
+    if (!isCurrent()) return
     if (!pendingScanPrompt?.asset_id || !Number.isInteger(pendingScanPrompt?.index)) return
     const { index, file, asset_id: assetId, url, scan_token: scanToken } = pendingScanPrompt
     setUploadingIndex(index)
     setClinicalUploadStatus(index, { tone: 'info', message: 'Checking security scan status…' })
     try {
       const result = await getClinicalImageScanStatus(appt?.id, assetId, scanToken)
+      if (!isCurrent()) return
       if (result.status === 'approved') {
         applyClinicalUploadResult(index, file, { url: result.secure_url || url, scan_status: 'approved', asset_id: assetId, security_token: result.security_token })
         setClinicalUploadStatus(index, { tone: 'success', message: 'Upload complete. Security scan passed.' })
@@ -701,13 +739,16 @@ const Doctor_Consultation = () => {
         setClinicalUploadStatus(index, { tone: 'info', message: 'Security scan is still in progress. The image remains quarantined.' })
       }
     } catch (err) {
+      if (!isCurrent()) return
       setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Could not check the security scan.' })
     } finally {
-      setUploadingIndex(null)
+      if (isCurrent()) setUploadingIndex(null)
     }
   }
 
   const continueClinicalUploadWithoutScan = async () => {
+    const isCurrent = captureCurrentConsultation()
+    if (!isCurrent()) return
     if (!scanBypassPrompt?.file || !Number.isInteger(scanBypassPrompt?.index)) return
     const { index, file, bypass_token: bypassToken } = scanBypassPrompt
     if (!bypassToken) {
@@ -720,14 +761,16 @@ const Doctor_Consultation = () => {
       const result = await uploadClinicalImageSigned(file, appt?.id, {
         scanMode: 'bypass',
         bypassToken,
-        onStatus: (status) => setClinicalUploadStatus(index, status),
+        onStatus: (status) => { if (isCurrent()) setClinicalUploadStatus(index, status) },
       })
+      if (!isCurrent()) return
       applyClinicalUploadResult(index, file, result)
       setClinicalUploadStatus(index, { tone: 'warning', message: 'Upload complete without malware scanning.' })
     } catch (err) {
+      if (!isCurrent()) return
       setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Failed to upload image.' })
     } finally {
-      setUploadingIndex(null)
+      if (isCurrent()) setUploadingIndex(null)
     }
   }
 
@@ -801,6 +844,8 @@ const Doctor_Consultation = () => {
   }
 
   const handleAddAmendment = async () => {
+    const isCurrent = captureCurrentConsultation()
+    if (!isCurrent()) return
     if (!appt?.id || !amendmentReason.trim() || !amendmentText.trim()) return
     setAddingAmendment(true)
     try {
@@ -808,13 +853,14 @@ const Doctor_Consultation = () => {
         reason: amendmentReason.trim(),
         amendment_text: amendmentText.trim(),
       })
+      if (!isCurrent()) return
       setAmendments(Array.isArray(result.amendments) ? result.amendments : [])
       setAmendmentReason('')
       setAmendmentText('')
     } catch (err) {
-      alert(err.message || 'Failed to add amendment.')
+      if (isCurrent()) alert(err.message || 'Failed to add amendment.')
     } finally {
-      setAddingAmendment(false)
+      if (isCurrent()) setAddingAmendment(false)
     }
   }
 
@@ -866,11 +912,14 @@ const Doctor_Consultation = () => {
       return
     }
     if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct the actual recorded consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
+    const isCurrent = captureCurrentConsultation()
+    if (!isCurrent()) return
     finalizingRef.current = true
     setSaving(true)
     const finalizingDraft = latestDraftRef.current
     try {
-      await finalizeConsultation(appt.id, finalizingDraft.payload)
+      await finalizeConsultation(appt.id, { ...finalizingDraft.payload, expected_version: consultationVersionsRef.current.get(String(appt.id)) ?? 0 })
+      if (!isCurrent()) return
       finalizedAppointmentIdRef.current = appt.id
       autosaveQueueRef.current.reset(appt.id, finalizingDraft.signature)
       setConsultationStatus('finalized')
@@ -881,11 +930,13 @@ const Doctor_Consultation = () => {
       setAppt((prev) => (prev ? { ...prev, status: 'completed' } : prev))
       await loadHistory(appt.patient_id)
     } catch (err) {
-      alert(err.message || 'Failed to complete consultation. The record has not been finalized.')
+      if (isCurrent()) alert(err.message || 'Failed to complete consultation. The record has not been finalized.')
     } finally {
-      finalizingRef.current = false
-      setSaving(false)
-      queueMicrotask(() => { void persistDraft() })
+      if (isCurrent()) {
+        finalizingRef.current = false
+        setSaving(false)
+        queueMicrotask(() => { void persistDraft() })
+      }
     }
   }
 
@@ -924,6 +975,15 @@ const Doctor_Consultation = () => {
         Loading consultation...
       </div>
     )
+  }
+
+  if (loadError) {
+    return <div role="alert" className="mx-auto max-w-2xl rounded-xl border border-rose-200 bg-rose-50 p-6 text-rose-800">
+      <h2 className="font-bold">Consultation could not be loaded</h2>
+      <p className="mt-2 text-sm">{loadError}</p>
+      <p className="mt-2 text-sm">Editing is paused until the saved record can be loaded.</p>
+      <button type="button" onClick={() => setLoadAttempt(value => value + 1)} className="mt-4 rounded-lg bg-violet-600 px-4 py-2 font-semibold text-white">Retry loading</button>
+    </div>
   }
 
   if (!appt) {
@@ -1026,7 +1086,17 @@ const Doctor_Consultation = () => {
           )}
         </div>
 
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        {consultationStatus !== 'finalized' && ['error', 'blocked'].includes(autoSaveState) && (
+          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            <p className="font-semibold">Your latest consultation changes have not been saved.</p>
+            <p className="mt-1">{autoSaveError}</p>
+            {autoSaveState === 'blocked'
+              ? <><p className="mt-1">Automatic retries stopped. Keep this page open until the problem is resolved.</p><button type="button" className="mt-2 rounded-md border border-rose-500 px-3 py-1 font-semibold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></>
+              : <p className="mt-1">The system will retry automatically. Keep this page open.</p>}
+          </div>
+        )}
+
+        <div className="flex w-full flex-wrap gap-1 bg-slate-100 p-1 rounded-xl sm:w-fit">
           {[
             { key: 'consultation', label: 'Consultation', icon: MdMedicalServices },
             { key: 'prescriptions', label: 'Prescriptions', icon: MdLocalPharmacy },

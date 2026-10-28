@@ -1,0 +1,61 @@
+{
+  "api": "Synthetic local HTTP responses; no live accounts, database or providers",
+  "browser": "chrome.exe",
+  "results": [
+    {
+      "name": "Superadmin session permits patient login and registration",
+      "passed": true,
+      "durationMs": 596
+    },
+    {
+      "name": "Five role portals reject an expired session on direct navigation",
+      "passed": true,
+      "durationMs": 762
+    },
+    {
+      "name": "Every role login remains reachable while a different role is signed in",
+      "passed": true,
+      "durationMs": 751
+    },
+    {
+      "name": "Consultation load failure pauses editing and sends no autosave",
+      "passed": true,
+      "durationMs": 2043
+    },
+    {
+      "name": "Retry restores the saved record and autosaves edits with successive versions",
+      "passed": true,
+      "durationMs": 3173
+    },
+    {
+      "name": "Schema save rejection stays dirty and stops automatic retries",
+      "passed": true,
+      "durationMs": 4774
+    },
+    {
+      "name": "Consultation with rejected save fits a 390px mobile viewport",
+      "passed": true,
+      "durationMs": 38
+    },
+    {
+      "name": "Delayed finalization cannot mark the next patient finalized",
+      "passed": true,
+      "durationMs": 551
+    },
+    {
+      "name": "Delayed image completion and remaining files cannot attach to the next patient",
+      "passed": true,
+      "durationMs": 541
+    },
+    {
+      "name": "Failed logout preserves the session and a confirmed retry sends one request",
+      "passed": true,
+      "durationMs": 44
+    }
+  ],
+  "uncaughtExceptions": [],
+  "blockedExternalHosts": [
+    "fonts.googleapis.com"
+  ],
+  "writes": 3
+}

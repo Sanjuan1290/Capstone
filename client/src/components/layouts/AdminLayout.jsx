@@ -69,7 +69,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
   const handleLogout = async () => {
     if (!window.confirm('Are you sure you want to log out of Carait Clinic?')) return
     setLoggingOut(true); setLogoutError('')
-    try { await fetch(superBranch ? '/api/admin/logout?portal=superadmin' : '/api/admin/logout', { method: 'POST', credentials: 'include' }); clearAuth(); navigate(superBranch ? '/superadmin/login' : '/admin/login') }
+    try { await clearAuth(); navigate(superBranch ? '/superadmin/login' : '/admin/login') }
     catch { setLogoutError('Could not log out. Try again.'); setLoggingOut(false) }
   }
 

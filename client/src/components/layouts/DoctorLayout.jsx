@@ -59,9 +59,8 @@ const DoctorLayout = () => {
     setLoggingOut(true)
     setLogoutError('')
     try {
-      await fetch('/api/doctor/logout', { method: 'POST', credentials: 'include' })
+      await clearAuth()
       navigate('/doctor/login')
-      clearAuth()
     } catch {
       setLogoutError('Could not log out. Try again.')
       setLoggingOut(false)

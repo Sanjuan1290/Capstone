@@ -1,0 +1,106 @@
+{
+  "reachable": true,
+  "statementPolicy": "SELECT and EXPLAIN SELECT only",
+  "scope": "Configured server database; metadata and aggregate validation only",
+  "engine": "8.0.11-TiDB-v8.5.3-serverless",
+  "backupComparison": {
+    "missingColumns": [],
+    "addedColumns": [],
+    "typeOrNullabilityDifferences": [],
+    "defaultDifferences": [],
+    "extraDifferences": [],
+    "indexDifferences": [],
+    "addedIndexes": []
+  },
+  "foreignKeyChecks": {
+    "total": 89,
+    "nonzero": []
+  },
+  "consultation": {
+    "ok": true,
+    "migration": "2026-10-26-batch4-selected-promotion.sql",
+    "promotionMigrationRecorded": false,
+    "missing": [],
+    "affectedFeatures": [],
+    "promotionSchemaIncomplete": false
+  },
+  "promotionSchema": "complete",
+  "migrations": [
+    {
+      "filename": "2026-10-09-multi-branch-foundation.sql",
+      "recorded": true,
+      "checksumMatches": true
+    },
+    {
+      "filename": "2026-10-15-branch-ledgers.sql",
+      "recorded": true,
+      "checksumMatches": true
+    },
+    {
+      "filename": "2026-10-15-cashier-branch-uniqueness.sql",
+      "recorded": true,
+      "checksumMatches": true
+    },
+    {
+      "filename": "2026-10-16-paymongo-test-qr.sql",
+      "recorded": true,
+      "checksumMatches": true
+    },
+    {
+      "filename": "2026-10-17-announcements-campaigns.sql",
+      "recorded": true,
+      "checksumMatches": true
+    },
+    {
+      "filename": "2026-10-26-batch4-selected-promotion.sql",
+      "recorded": false,
+      "checksumMatches": null
+    }
+  ],
+  "foundation": {
+    "tables": 28,
+    "columns": 60,
+    "indexes": 22,
+    "foreignKeys": 5,
+    "ownershipColumns": 27,
+    "seeds": [
+      "clinic_branches:1",
+      "branch_booking_settings:1",
+      "admins:1"
+    ]
+  },
+  "reportsSqlStatements": 20,
+  "literalSelectValidation": {
+    "total": 571,
+    "passed": 566,
+    "failures": [
+      {
+        "file": "server/controllers/admin.controller.js",
+        "line": 4176,
+        "code": "ER_PARSE_ERROR"
+      },
+      {
+        "file": "server/controllers/admin.controller.js",
+        "line": 4184,
+        "code": "ER_PARSE_ERROR"
+      },
+      {
+        "file": "server/routers/branchAnnouncements.js",
+        "line": 78,
+        "code": "ER_WRONG_FIELD_WITH_GROUP"
+      },
+      {
+        "file": "server/routers/branchAnnouncements.js",
+        "line": 86,
+        "code": "ER_PARSE_ERROR"
+      },
+      {
+        "file": "server/routers/branchAudit.js",
+        "line": 51,
+        "code": "ER_PARSE_ERROR"
+      }
+    ],
+    "scope": "Only literal SELECT query/execute arguments; dynamic SQL and DML are excluded. EXPLAIN does not execute application actions."
+  },
+  "readStatements": 636
+}

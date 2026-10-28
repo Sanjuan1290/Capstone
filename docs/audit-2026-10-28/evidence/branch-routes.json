@@ -1,0 +1,7 @@
+{
+  "command": "node scripts/verifyBranchRouteCoverage.js",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 60
+}

@@ -2,7 +2,7 @@ const db = require('../db/connect')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
-const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
+const { issueSession, verifySessionToken, invalidateRequestSession } = require('../utils/sessionSecurity')
 const { validatePassword } = require('../utils/accountSecurity')
 const { makeNumericCode, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')
 const { sendAppointmentStatusEmail } = require('../utils/emailService')
@@ -443,6 +443,7 @@ const checkAuth = async (req, res) => {
 }
 
 const logout = async (req, res) => {
+  req.user = await invalidateRequestSession(req, 'patient_token', 'patient')
   await writeAuditLog({ userId: req.user?.id || null, userRole: 'patient', action: 'auth.logout', entityType: 'patient', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
   res.clearCookie('patient_token', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })

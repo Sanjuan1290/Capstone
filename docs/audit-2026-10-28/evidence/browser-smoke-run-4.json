@@ -1,0 +1,7 @@
+{
+  "command": "node scripts/audit/browserSmoke.cjs",
+  "cwd": ".",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 14063
+}

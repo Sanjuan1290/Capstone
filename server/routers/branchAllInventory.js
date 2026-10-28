@@ -1,11 +1,12 @@
 // Super Admin only. Read-only cross-branch inventory summaries.
 const db = require('../db/connect')
+const { getTodayDateOnly, addDaysDateOnly } = require('../utils/date')
 const safeId = value => Number.isSafeInteger(Number(value)) && Number(value)>0
 const stockOf = i => Number(i.stock_base ?? i.stock ?? 0)
 const keyOf = item => [item.name,item.strength,item.dosage_form,item.measurement_value,item.measurement_unit,item.base_unit,item.category]
   .map(v=>String(v??'').trim().toLowerCase()).join('\u001f')
 const statusOf = item => {
-  const quantity=stockOf(item),threshold=Number(item.threshold||0),today=new Date().toISOString().slice(0,10)
+  const quantity=stockOf(item),threshold=Number(item.threshold||0),today=getTodayDateOnly()
   const expired=item.nearest_expiry && String(item.nearest_expiry).slice(0,10)<today
   return {out:quantity<=0,low:quantity>0&&quantity<=threshold,expired:Boolean(expired)}
 }
@@ -42,14 +43,14 @@ function registerAllInventory(router,requireSuper) {
       FROM inventory i JOIN clinic_branches b ON b.id=i.branch_id
       WHERE ${conditions.join(' AND ')} ORDER BY i.name,i.branch_id,i.id`,args)
     const byBranch=items.map(i=>({ ...i,quantity_base:stockOf(i),cost_value:Number(i.cost_value||0),selling_value:Number(i.stock||0)*Number(i.selling_price||0),...statusOf(i)}))
-    const expiryCutoff=new Date(Date.now()+days*86400000).toISOString().slice(0,10)
+    const today=getTodayDateOnly(),expiryCutoff=addDaysDateOnly(today,days)
     const filtered=byBranch.filter(i=>{
       if(!status)return true
       if(status==='out')return i.out
       if(status==='low')return i.low
       if(status==='in_stock')return !i.low&&!i.out
       if(status==='expired')return i.expired
-      return i.nearest_expiry && String(i.nearest_expiry).slice(0,10)>=new Date().toISOString().slice(0,10) && String(i.nearest_expiry).slice(0,10)<=expiryCutoff
+      return i.nearest_expiry && String(i.nearest_expiry).slice(0,10)>=today && String(i.nearest_expiry).slice(0,10)<=expiryCutoff
     })
     const grouped=new Map()
     for(const i of filtered){
@@ -63,7 +64,7 @@ function registerAllInventory(router,requireSuper) {
       if(i.nearest_expiry&&(!g.nearest_expiry||String(i.nearest_expiry)<String(g.nearest_expiry))){g.nearest_expiry=i.nearest_expiry;g.nearest_expiry_branch=i.branch_name}
     }
     const summary={total_items:filtered.length,out_of_stock:filtered.filter(i=>i.out).length,low_stock:filtered.filter(i=>i.low).length,expired:filtered.filter(i=>i.expired).length,
-      expiring_30_days:filtered.filter(i=>i.nearest_expiry&&String(i.nearest_expiry).slice(0,10)<=new Date(Date.now()+30*86400000).toISOString().slice(0,10)&&!i.expired).length,
+      expiring_30_days:filtered.filter(i=>i.nearest_expiry&&String(i.nearest_expiry).slice(0,10)<=addDaysDateOnly(today,30)&&!i.expired).length,
       total_stock_value:filtered.reduce((sum,i)=>sum+i.cost_value,0)}
     const comparison=branches.map(b=>{const rows=filtered.filter(i=>Number(i.branch_id)===Number(b.id));return {branch_id:b.id,branch_name:b.name,item_count:rows.length,quantity_base:rows.reduce((s,i)=>s+i.quantity_base,0),low_stock:rows.filter(i=>i.low).length,cost_value:rows.reduce((s,i)=>s+i.cost_value,0)}})
     const result=view==='combined'?[...grouped.values()]:filtered

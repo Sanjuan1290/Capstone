@@ -22,7 +22,9 @@ const getAccount = async (role, id, executor = db) => {
 const validatePassword = (password) => {
   const value = String(password || '')
   if (value.length < 8) return 'Password must be at least 8 characters.'
-  if (value.length > 128) return 'Password is too long.'
+  // bcrypt uses only the first 72 UTF-8 bytes. Reject new secrets that would
+  // silently lose their suffix; existing password verification stays compatible.
+  if (Buffer.byteLength(value, 'utf8') > 72) return 'Password is too long. Shorten it, especially if it contains accented letters or emoji.'
   if (!/[a-z]/.test(value) || !/[A-Z]/.test(value) || !/\d/.test(value)) {
     return 'Password must contain uppercase, lowercase, and a number.'
   }

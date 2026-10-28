@@ -1,0 +1,7 @@
+{
+  "command": "node node_modules/vitest/vitest.mjs run --coverage --coverage.include=controllers/** --coverage.include=routers/** --coverage.include=utils/** --coverage.include=middlewares/** --coverage.include=db/*.js --coverage.include=server.js --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=../docs/audit-2026-10-28/evidence/coverage",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 4583
+}

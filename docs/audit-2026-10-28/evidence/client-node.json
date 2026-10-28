@@ -1,0 +1,7 @@
+{
+  "command": "node --test tests/batch12PortalBooking.node.test.mjs tests/batch2WalkInWorkflow.node.test.mjs tests/batch36DoctorAvailability.node.test.mjs tests/batch3BranchSetup.node.test.mjs tests/batch3QrCancellationUi.node.test.mjs tests/batch4Inventory.node.test.mjs tests/batch5Camera.node.test.mjs tests/batch5VisualAndPaymentPreview.node.test.mjs tests/batch6PatientBirthdate.node.test.mjs tests/batch79LivePromotions.node.test.mjs tests/branchDashboardPartial20261022.node.test.mjs tests/branchPortalNavigation20261022.node.test.mjs tests/cloudflareProxy.node.test.mjs tests/consultationAutosave.node.test.mjs tests/dashboardData.node.test.mjs tests/dashboardDoctors.node.test.mjs tests/notificationBellResponsive.node.test.mjs tests/notificationPopoverPosition.node.test.mjs tests/overviewData.node.test.mjs tests/passwordPolicy.node.test.mjs tests/paymongoBillingUi.node.test.mjs tests/sessionLogout.node.test.mjs tests/superAdminDesign.node.test.mjs tests/uatRegressions20261022.node.test.mjs",
+  "cwd": "client",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 377
+}

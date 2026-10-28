@@ -517,7 +517,7 @@ const BookAppointment = () => {
     try {
       const result = await getBookingReadiness(branchId)
       if (requestId === readinessRequestId.current && requestedBranch === branchId) setBookingReadiness(result || null)
-    } catch (err) {
+    } catch {
       // Keep last known readiness and the user's draft; never interpret a failed API as empty setup.
       if (requestId === readinessRequestId.current) setReadinessError('Unable to check booking availability right now. Please retry. Your selections are saved on this page.')
     } finally {

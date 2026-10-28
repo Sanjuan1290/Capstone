@@ -1,0 +1,7 @@
+{
+  "command": "npm run verify:source",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 564
+}

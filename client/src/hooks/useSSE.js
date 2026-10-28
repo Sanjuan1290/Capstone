@@ -4,7 +4,7 @@ import { queryClient } from '../lib/queryClient.js'
 
 export function useSSE(role, userId, onMessage) {
   const listener=useRef(onMessage)
-  listener.current=onMessage
+  useEffect(()=>{listener.current=onMessage},[onMessage])
   useEffect(() => {
     if (!role || !userId) return undefined
 

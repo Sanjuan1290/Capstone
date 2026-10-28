@@ -1,0 +1,7 @@
+{
+  "command": "npm run test:node",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 1679
+}

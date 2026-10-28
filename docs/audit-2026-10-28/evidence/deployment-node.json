@@ -1,0 +1,7 @@
+{
+  "command": "node --test tests/deployment/sourceExport.node.cjs",
+  "cwd": ".",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 150
+}

@@ -73,8 +73,8 @@ const StaffLayout = () => {
   const logout = async () => {
     if (!window.confirm('Are you sure you want to log out of Carait Clinic?')) return
     setLoggingOut(true)
-    try { await fetch('/api/staff/logout', { method: 'POST', credentials: 'include' }); clearAuth(); navigate('/staff/login') }
-    catch { setLoggingOut(false) }
+    try { await clearAuth(); navigate('/staff/login') }
+    catch { window.alert('Could not log out. Please try again.'); setLoggingOut(false) }
   }
 
   const badgeFor = (item) => item.badge === 'pending' ? pending : 0

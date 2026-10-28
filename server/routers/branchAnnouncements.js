@@ -75,7 +75,18 @@ const imageStatus=async(req,res)=>{
   return res.json({status:'approved',url:pending.url,security_token:cloud.issueAcceptedUploadToken({role:'admin',userId:req.user.id,contextType:'announcement',contextId:req.branchId,status:'approved',assetId:pending.asset_id,url:pending.url,publicId:pending.public_id})})
 }
 const countEligible=async(req,res)=>{const audienceArgs=[req.branchId];const [[row]]=await db.query(`SELECT COUNT(*) AS eligible ${eligibleSql}`,audienceArgs);res.json({eligible:Number(row.eligible),provider_ready:configured(),daily_limit:Number(process.env.MARKETING_DAILY_LIMIT)||200,per_minute_limit:Number(process.env.MARKETING_PER_MINUTE_LIMIT)||5})}
-const campaigns=async(req,res)=>{const [rows]=await db.query(`SELECT c.*,a.title, SUM(r.status='sent') AS sent,SUM(r.status='pending') AS pending,SUM(r.status='unknown') AS needs_review,SUM(r.status='suppressed') AS suppressed FROM marketing_campaigns c JOIN clinic_announcements a ON a.id=c.announcement_id LEFT JOIN marketing_campaign_recipients r ON r.campaign_id=c.id WHERE c.branch_id=? GROUP BY c.id ORDER BY c.id DESC LIMIT 100`,[req.branchId]);res.json(rows)}
+const campaigns=async(req,res)=>{
+  // Aggregate recipients before joining campaign/article fields. TiDB's strict
+  // GROUP BY rejects c.* and a.title when only c.id is grouped.
+  const [rows]=await db.query(`SELECT c.*,a.title,COALESCE(r.sent,0) AS sent,COALESCE(r.pending,0) AS pending,
+    COALESCE(r.needs_review,0) AS needs_review,COALESCE(r.suppressed,0) AS suppressed
+    FROM marketing_campaigns c JOIN clinic_announcements a ON a.id=c.announcement_id AND a.branch_id=c.branch_id
+    LEFT JOIN (SELECT campaign_id,SUM(status='sent') AS sent,SUM(status='pending') AS pending,
+      SUM(status='unknown') AS needs_review,SUM(status='suppressed') AS suppressed
+      FROM marketing_campaign_recipients GROUP BY campaign_id) r ON r.campaign_id=c.id
+    WHERE c.branch_id=? ORDER BY c.id DESC LIMIT 100`,[req.branchId])
+  res.json(rows)
+}
 const campaignRecipients=async(req,res)=>{
   const id=Number(req.params.id)
   if(!idOk(id))throw bad('Invalid campaign ID.')

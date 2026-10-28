@@ -1,0 +1,7 @@
+{
+  "command": "node --test tests/consultations/clinicalSafety.node.cjs tests/security/sessionLifecycle.node.cjs tests/deployment/migrationRunner.node.cjs tests/gateway/paymongoWebhook.node.cjs tests/gateway/batch3CancellationSafety.node.cjs tests/gateway/paymongoRefundProof20261017.node.cjs tests/branchIntegration/walkInBranchSafety.node.cjs tests/inventory/clinicExpiry.node.cjs",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 345
+}

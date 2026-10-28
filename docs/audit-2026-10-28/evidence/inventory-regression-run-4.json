@@ -1,0 +1,7 @@
+{
+  "command": "node node_modules/vitest/vitest.mjs run tests/security/inventoryConcurrency.test.js tests/inventory/manualStockOut.test.js tests/supplyRequests/multiItemStockTransfers.test.js",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 600
+}

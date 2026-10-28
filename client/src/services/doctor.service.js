@@ -2,16 +2,24 @@
 const BASE = '/api/doctor'
 
 const requestJson = async (url, options = {}) => {
-  const res = await fetch(url, { credentials: 'include', ...options })
-  const data = await res.json()
-  if (!res.ok) {
-    const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
-    const err = new Error(`${data.message || 'Request failed.'}${reference}`)
-    Object.assign(err, data)
-    err.httpStatus = res.status
-    throw err
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000)
+  try {
+    const res = await fetch(url, { credentials: 'include', signal: controller.signal, ...options })
+    let data
+    try { data = await res.json() } catch {
+      throw Object.assign(new Error('The server returned an unreadable response. Your changes have not been confirmed saved.'), { code: 'INVALID_API_RESPONSE', httpStatus: res.ok ? 502 : res.status })
+    }
+    if (!data || typeof data !== 'object') throw Object.assign(new Error('The server returned an invalid response.'), { code: 'INVALID_API_RESPONSE', httpStatus: res.ok ? 502 : res.status })
+    if (!res.ok) {
+      const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
+      const message = `${data.message || 'Request failed.'}${reference}`
+      throw Object.assign(new Error(message), data, { message, httpStatus: res.status })
+    }
+    return data
+  } finally {
+    clearTimeout(timeout)
   }
-  return data
 }
 
 export const getDashboard = () => requestJson(`${BASE}/dashboard`)

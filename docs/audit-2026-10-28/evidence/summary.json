@@ -1,0 +1,104 @@
+{
+  "decision": "NO-GO for full production sign-off",
+  "productionWrites": false,
+  "deployments": false,
+  "tests": {
+    "server-vitest": 262,
+    "server-node": 331,
+    "client-node": 101,
+    "deployment-node": 1
+  },
+  "repeated": {
+    "focused-node": [
+      61,
+      61,
+      61,
+      61,
+      61
+    ],
+    "focused-client": [
+      25,
+      25,
+      25,
+      25,
+      25
+    ],
+    "inventory-regression": [
+      11,
+      11,
+      11,
+      11,
+      11
+    ]
+  },
+  "warnings": {
+    "lint": 16,
+    "largeBundle": true
+  },
+  "uniqueTestPasses": 695,
+  "repeatedTestPasses": 485,
+  "browserRuns": [
+    10,
+    10,
+    10,
+    10,
+    10
+  ],
+  "browserScenarioPasses": 50,
+  "coverageVitestOnly": {
+    "lines": {
+      "total": 11121,
+      "covered": 2726,
+      "skipped": 0,
+      "pct": 24.51
+    },
+    "statements": {
+      "total": 13426,
+      "covered": 2918,
+      "skipped": 0,
+      "pct": 21.73
+    },
+    "functions": {
+      "total": 1721,
+      "covered": 297,
+      "skipped": 0,
+      "pct": 17.25
+    },
+    "branches": {
+      "total": 12144,
+      "covered": 1519,
+      "skipped": 0,
+      "pct": 12.5
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 100
+    }
+  },
+  "database": {
+    "tables": 73,
+    "columns": 831,
+    "indexes": 233,
+    "foreignKeys": 89,
+    "literalSelectExplainsPassed": 571,
+    "reportExplainsPassed": 20,
+    "aggregateChecks": 32,
+    "aggregateViolations": 0,
+    "batch4SchemaComplete": true,
+    "batch4HistoryRecorded": false,
+    "deploymentVerifier": {
+      "passed": true,
+      "warnings": 1,
+      "errors": 0,
+      "scope": "Existing verifyDeployment.js logic under read-only SQL guard; configuration is local, not the Render deployment environment"
+    }
+  },
+  "inventory": {
+    "fileCount": 486,
+    "totalLines": 66506,
+    "testFileCount": 163,
+    "sourceInspectionTestFiles": 98
+  }
+}

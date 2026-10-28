@@ -1,5 +1,5 @@
 export const PASSWORD_MIN_LENGTH = 8
-export const PASSWORD_MAX_LENGTH = 128
+export const PASSWORD_MAX_LENGTH = 72
 
 export const getPasswordChecks = (password = '') => {
   const value = String(password || '')
@@ -8,7 +8,7 @@ export const getPasswordChecks = (password = '') => {
     uppercase: /[A-Z]/.test(value),
     lowercase: /[a-z]/.test(value),
     number: /\d/.test(value),
-    maxLength: value.length <= PASSWORD_MAX_LENGTH,
+    maxLength: new TextEncoder().encode(value).length <= PASSWORD_MAX_LENGTH,
   }
 }
 

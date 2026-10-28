@@ -4,7 +4,7 @@ const db = require('../db/connect')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const generateCookie = require('../utils/generateCookie')
-const { issueSession, verifySessionToken } = require('../utils/sessionSecurity')
+const { issueSession, verifySessionToken, invalidateRequestSession } = require('../utils/sessionSecurity')
 const { createNotification, notifyRoles } = require('../utils/notifications')
 const { markOverdueAppointments } = require('../utils/appointments')
 const { broadcast } = require('../utils/sse')
@@ -34,7 +34,7 @@ const {
   verifyUploadSecurityToken,
   hashUploadBuffer,
 } = require('../utils/cloudinarySecurity')
-const { loadConsultationAmendments, assertConsultationEditable } = require('../utils/consultationIntegrity')
+const { loadConsultationAmendments, assertConsultationEditable, assertConsultationVersion } = require('../utils/consultationIntegrity')
 const { assertPlainObject, normalizeOptionalText, normalizeText } = require('../utils/inputValidation')
 const { listSupplyTransferGroups } = require('../utils/supplyTransfers')
 const { getAppointmentInventoryReadiness } = require('../utils/inventoryReadiness')
@@ -80,6 +80,7 @@ const checkAuth = async (req, res) => {
 }
 
 const logout = async (req, res) => {
+  req.user = await invalidateRequestSession(req, 'doctor_token', 'doctor')
   await writeAuditLog({ userId: req.user?.id || null, userRole: 'doctor', action: 'auth.logout', entityType: 'doctor', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
   res.clearCookie('doctor_token', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })
@@ -583,6 +584,7 @@ const saveConsultationDraft = async (req, res) => {
   const payload = buildConsultationPayload(req)
   const conn = await db.getConnection()
   let consultationId
+  let consultationVersion
   let billing = null
   let appt
 
@@ -610,6 +612,8 @@ const saveConsultationDraft = async (req, res) => {
       await conn.rollback()
       return res.status(409).json({ code: 'CONSULTATION_FINALIZED', message: 'This consultation is already finalized. Add an amendment instead.' })
     }
+    assertConsultationVersion(req.body, existing[0])
+    consultationVersion = existing[0] ? Number(existing[0].version || 1) + 1 : 1
 
     if (existing[0]) {
       consultationId = existing[0].id
@@ -663,7 +667,7 @@ const saveConsultationDraft = async (req, res) => {
   broadcast([`doctor_${req.user.id}`], 'consultation_draft_saved', {
     appointmentId: Number(appointmentId), consultationId,
   }, { branchId: req.branchId })
-  res.json({ message: 'Draft saved.', consultation_id: consultationId, status: 'draft', billing })
+  res.json({ message: 'Draft saved.', consultation_id: consultationId, consultation_version: consultationVersion, status: 'draft', billing })
 }
 
 const finalizeConsultation = async (req, res) => {
@@ -717,9 +721,10 @@ const finalizeConsultation = async (req, res) => {
     }
 
     const [existing] = await conn.query(
-      'SELECT id, status FROM consultations WHERE appointment_id = ? FOR UPDATE',
+      'SELECT id, status, version FROM consultations WHERE appointment_id = ? FOR UPDATE',
       [appointmentId]
     )
+    assertConsultationVersion(req.body, existing[0])
 
     if (existing.length > 0) {
       if (String(existing[0].status || 'draft') === 'finalized') {
@@ -754,7 +759,7 @@ const finalizeConsultation = async (req, res) => {
 
     await conn.query(
       `UPDATE consultations
-       SET status='finalized', finalized_at=NOW(), finalized_by_doctor_id=?, updated_at=NOW()
+       SET status='finalized', finalized_at=NOW(), finalized_by_doctor_id=?, updated_at=NOW(), version=COALESCE(version,1)+1
        WHERE id=?`,
       [req.user.id, consultationId]
     )
@@ -845,8 +850,8 @@ const getConsultation = async (req, res) => {
      FROM consultations c
      JOIN appointments a ON c.appointment_id = a.id
      JOIN patients p ON c.patient_id = p.id
-     WHERE c.appointment_id = ? AND c.doctor_id = ?`,
-    [appointmentId, req.user.id]
+     WHERE c.appointment_id = ? AND c.doctor_id = ? AND c.branch_id = ? AND a.branch_id = ?`,
+    [appointmentId, req.user.id, req.branchId, req.branchId]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Consultation not found.' })
   const consultation = rows[0]
@@ -877,12 +882,22 @@ const updateConsultation = async (req, res) => {
 
   try {
     await conn.beginTransaction()
+    // Use the same appointment -> consultation lock order as draft/finalize.
+    // An edit must recheck finalized state after any concurrent finalizer commits.
+    const [apptRows] = await conn.query(
+      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? AND branch_id=? FOR UPDATE',
+      [appointmentId, req.user.id, req.branchId]
+    )
+    if (!apptRows.length) {
+      await conn.rollback()
+      return res.status(404).json({ message: 'Consultation not found.' })
+    }
     const [rows] = await conn.query(
-      `SELECT c.id, c.patient_id, c.status, a.id AS appointment_id, a.patient_id AS appointment_patient_id
+      `SELECT c.id, c.patient_id, c.status, c.version, a.id AS appointment_id, a.patient_id AS appointment_patient_id
        FROM consultations c
        JOIN appointments a ON a.id = c.appointment_id
-       WHERE c.appointment_id = ? AND c.doctor_id = ?`,
-      [appointmentId, req.user.id]
+       WHERE c.appointment_id = ? AND c.doctor_id = ? AND c.branch_id = ? AND a.branch_id = ? FOR UPDATE`,
+      [appointmentId, req.user.id, req.branchId, req.branchId]
     )
     if (rows.length === 0) {
       await conn.rollback()
@@ -891,10 +906,11 @@ const updateConsultation = async (req, res) => {
 
     const consultation = rows[0]
     assertConsultationEditable(consultation)
+    assertConsultationVersion(req.body, consultation)
     patientId = consultation.appointment_patient_id || consultation.patient_id
 
     await conn.query(
-      'UPDATE consultations SET diagnosis = ?, prescription = ?, prescription_status = ?, notes = ?, updated_at = NOW() WHERE id = ?',
+      'UPDATE consultations SET diagnosis = ?, prescription = ?, prescription_status = ?, notes = ?, updated_at = NOW(), version=COALESCE(version,1)+1 WHERE id = ?',
       [diagnosis || null, prescription || null, prescriptionStatus, notes || null, consultation.id]
     )
     if (hasImagesPayload) {
@@ -902,10 +918,6 @@ const updateConsultation = async (req, res) => {
       await syncConsultationImages(consultation.id, authorizedImages, conn)
     }
 
-    const [apptRows] = await conn.query(
-      'SELECT * FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1',
-      [appointmentId, req.user.id]
-    )
     if (hasBillableServicesPayload) {
       const fixedBillableServices = await enforceFixedCatalogConsumables(req.body.billable_services, conn, req.branchId)
       assertBookedServicePresent(apptRows[0], fixedBillableServices)
@@ -950,9 +962,9 @@ const addConsultationAmendment = async (req, res) => {
     const [rows] = await conn.query(
       `SELECT c.id, c.patient_id, c.status
        FROM consultations c
-       WHERE c.appointment_id = ? AND c.doctor_id = ?
+       WHERE c.appointment_id = ? AND c.doctor_id = ? AND c.branch_id = ?
        FOR UPDATE`,
-      [appointmentId, req.user.id]
+      [appointmentId, req.user.id, req.branchId]
     )
     if (!rows.length) {
       await conn.rollback()
@@ -997,8 +1009,8 @@ const getPatientHistory = async (req, res) => {
   // Object-level authorization: a doctor may open a patient history only when the
   // clinic has an appointment relationship between that doctor and patient.
   const [relationship] = await db.query(
-    `SELECT id FROM appointments WHERE patient_id = ? AND doctor_id = ? LIMIT 1`,
-    [patientId, req.user.id]
+    `SELECT id FROM appointments WHERE patient_id = ? AND doctor_id = ? AND branch_id = ? LIMIT 1`,
+    [patientId, req.user.id, req.branchId]
   )
   if (!relationship.length) {
     await writeAuditLog({
@@ -1013,9 +1025,9 @@ const getPatientHistory = async (req, res) => {
             a.clinic_type AS type, c.id AS consultation_id, c.diagnosis, c.prescription, c.prescription_status,
             c.notes, c.notes AS consultation_notes, c.consulted_at
      FROM appointments a LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.doctor_id = ? AND a.status IN ('completed','cancelled','no_show')
+     WHERE a.patient_id = ? AND a.doctor_id = ? AND a.branch_id = ? AND a.status IN ('completed','cancelled','no_show')
      ORDER BY a.appointment_date DESC`,
-    [patientId, req.user.id]
+    [patientId, req.user.id, req.branchId]
   )
   const consultationIds = rows.map((row) => row.consultation_id)
   const imagesByConsultationId = await loadImagesForConsultationIds(consultationIds)
@@ -1027,10 +1039,10 @@ const getPatientHistory = async (req, res) => {
   res.json(rows.map((row) => ({ ...row, progress_images: imagesByConsultationId[row.consultation_id] || [], amendments: amendmentsByConsultationId[row.consultation_id] || [] })))
 }
 
-const getClinicalUploadAppointment = async (appointmentId, doctorId) => {
+const getClinicalUploadAppointment = async (appointmentId, doctorId, branchId) => {
   const [rows] = await db.query(
-    `SELECT id, patient_id, clinic_type FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1`,
-    [appointmentId, doctorId]
+    `SELECT id, patient_id, clinic_type FROM appointments WHERE id = ? AND doctor_id = ? AND branch_id = ? LIMIT 1`,
+    [appointmentId, doctorId, branchId]
   )
   return rows[0] || null
 }
@@ -1039,7 +1051,7 @@ const uploadClinicalImage = async (req, res) => {
   const appointmentId = Number(req.query?.appointment_id)
   const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
   if (!appointmentId) return res.status(400).json({ message: 'A valid appointment is required.' })
-  const uploadAppointment = await getClinicalUploadAppointment(appointmentId, req.user.id)
+  const uploadAppointment = await getClinicalUploadAppointment(appointmentId, req.user.id, req.branchId)
   if (!uploadAppointment) {
     return res.status(403).json({ message: 'You are not authorized to upload images for this appointment.' })
   }
@@ -1134,7 +1146,7 @@ const getClinicalUploadScanStatus = async (req, res) => {
   if (!appointmentId || !assetId || !scanToken) {
     return res.status(400).json({ message: 'Appointment, Cloudinary asset ID, and scan verification are required.' })
   }
-  const uploadAppointment = await getClinicalUploadAppointment(appointmentId, req.user.id)
+  const uploadAppointment = await getClinicalUploadAppointment(appointmentId, req.user.id, req.branchId)
   if (!uploadAppointment) {
     return res.status(403).json({ message: 'You are not authorized to check this clinical image.' })
   }

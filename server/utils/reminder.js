@@ -34,7 +34,7 @@ async function sendTomorrowReminders() {
           clinic_type: appt.clinic_type,
         })
       } catch (err) {
-        console.error('[Reminder] Failed for %s: %s', appt.patient_email, err.message)
+        console.error('[Reminder] Appointment reminder delivery failed', { appointmentId: appt.id, code: err.code || 'EMAIL_DELIVERY_FAILED' })
       }
     }
   } catch (err) {

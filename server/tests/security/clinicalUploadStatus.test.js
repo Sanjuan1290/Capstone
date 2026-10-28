@@ -9,7 +9,7 @@ describe('clinical upload scan-status handler', () => {
     )
 
     expect(source).toContain('const getClinicalUploadAppointment = async')
-    expect(source).toContain('await getClinicalUploadAppointment(appointmentId, req.user.id)')
+    expect(source).toContain('await getClinicalUploadAppointment(appointmentId, req.user.id, req.branchId)')
     expect(source).not.toContain('assertClinicalUploadAppointment')
   })
 })

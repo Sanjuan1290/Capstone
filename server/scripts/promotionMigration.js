@@ -1,10 +1,8 @@
 'use strict'
 
-// Batch 4 uses two independently committed ALTER TABLE statements. On TiDB/MySQL
-// an interruption after the first ALTER must not cause the second run to add
-// the first table's columns again or record a migration with an incomplete schema.
-// Never rewrite the original SQL: this guard only chooses whether each original
-// statement needs execution and verifies the resulting metadata.
+// Keep the historical SQL/checksum unchanged, but execute columns, index and
+// foreign key in separate DDL operations. TiDB cannot resolve a newly added
+// column while creating its index/foreign key in the same ALTER statement.
 const MIGRATION_FILE = '2026-10-26-batch4-selected-promotion.sql'
 
 const columns = {
@@ -48,11 +46,11 @@ async function inspectTable(db, table) {
   return { rows, index, foreignKeys }
 }
 
-function classify(table, schema) {
+function columnProblems(table, schema) {
   const expected = columns[table]
   const found = new Map(schema.rows.map(row => [String(row.COLUMN_NAME).toLowerCase(), row]))
   const matchingNames = Object.keys(expected).filter(name => found.has(name))
-  if (matchingNames.length === 0 && schema.index.length === 0 && schema.foreignKeys.length === 0) return 'missing'
+  if (matchingNames.length === 0) return 'missing'
 
   const problems = []
   for (const [name, [type, length]] of Object.entries(expected)) {
@@ -63,6 +61,13 @@ function classify(table, schema) {
       problems.push('incompatible column ' + name)
     }
   }
+  return problems.length ? { problems } : 'complete'
+}
+
+function classify(table, schema) {
+  const state = columnProblems(table, schema)
+  if (state === 'missing' && schema.index.length === 0 && schema.foreignKeys.length === 0) return 'missing'
+  const problems = state === 'complete' ? [] : state === 'missing' ? ['all promotion columns absent'] : [...state.problems]
   if (table === 'appointments') {
     const indexRows = [...schema.index].sort((a,b) => Number(a.SEQ_IN_INDEX)-Number(b.SEQ_IN_INDEX))
     const expectedIndexColumns = ['branch_id', 'promotion_id']
@@ -103,11 +108,45 @@ async function runSelectedPromotionMigration(db, statements) {
   const tables = Object.keys(columns)
   for (let i = 0; i < tables.length; i++) {
     const table = tables[i]
-    const state = classify(table, await inspectTable(db, table))
+    let schema = await inspectTable(db, table)
+    const state = columnProblems(table, schema)
+    // A complete column group with a missing index/FK is a recognized recovery
+    // point. Incompatible metadata or arbitrary partial columns require review.
+    const fullState = classify(table, schema)
+    const incompatible = fullState.problems?.filter(problem =>
+      !(problem.includes('promotion index') && schema.index.length === 0) &&
+      !(problem.includes('promotion foreign key') && schema.foreignKeys.length === 0)) || []
+    if ((state !== 'missing' && state !== 'complete') ||
+        (state === 'missing' && (schema.index.length || schema.foreignKeys.length)) ||
+        (state === 'complete' && incompatible.length)) {
+      throw new Error(`Unsafe partial Batch 4 migration for ${table}: ${(fullState.problems || []).join('; ')}. Manual review required.`)
+    }
+
+    // Split only at top-level commas, preserving VARCHAR sizes, index columns,
+    // and the immutable migration's exact column/constraint definitions.
+    const body = statements[i].replace(/^ALTER TABLE \w+\s+/i, '')
+    const operations = []
+    let depth = 0, start = 0
+    for (let n = 0; n < body.length; n++) {
+      if (body[n] === '(') depth++
+      else if (body[n] === ')') depth--
+      else if (body[n] === ',' && depth === 0) { operations.push(body.slice(start, n).trim()); start = n + 1 }
+    }
+    operations.push(body.slice(start).trim())
+    const columnOperations = operations.filter(op => /^ADD COLUMN /i.test(op))
+    if (columnOperations.length !== Object.keys(columns[table]).length ||
+        operations.some(op => !/^ADD (COLUMN|INDEX|CONSTRAINT) /i.test(op)) ||
+        operations.length !== columnOperations.length + (table === 'appointments' ? 2 : 0)) {
+      throw new Error('Unexpected Batch 4 ALTER operations; review the migration file')
+    }
     if (state === 'missing') {
-      await db.query(statements[i])
-    } else if (state !== 'complete') {
-      throw new Error(`Unsafe partial Batch 4 migration for ${table}: ${state.problems.join('; ')}. Manual review required.`)
+      await db.query(`ALTER TABLE ${table}\n  ${columnOperations.join(',\n  ')}`)
+      schema = await inspectTable(db, table)
+      if (columnProblems(table, schema) !== 'complete') throw new Error(`Batch 4 column verification failed for ${table}`)
+    }
+    if (table === 'appointments') {
+      if (!schema.index.length) await db.query(`ALTER TABLE ${table} ${operations.find(op => /^ADD INDEX /i.test(op))}`)
+      if (!schema.foreignKeys.length) await db.query(`ALTER TABLE ${table} ${operations.find(op => /^ADD CONSTRAINT /i.test(op))}`)
     }
     const after = classify(table, await inspectTable(db, table))
     if (after !== 'complete') {

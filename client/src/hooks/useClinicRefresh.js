@@ -3,7 +3,8 @@ import {clinicEventAffects,sameActiveBranch} from '../utils/clinicLiveEvents.mjs
 // Avoid tearing down the subscription when a screen changes its local state.
 // Refresh *data*, not mounted form components: drafts and open dialogs are preserved.
 export default function useClinicRefresh(refresh,topics=[],{skip=()=>false,fallbackMs=0}={}){
- const latest=useRef({refresh,skip});latest.current={refresh,skip}
+ const latest=useRef({refresh,skip})
+ useEffect(()=>{latest.current={refresh,skip}},[refresh,skip])
  const key=topics.join('|')
  useEffect(()=>{
    let timer=null,inFlight=false,queued=false,last=0

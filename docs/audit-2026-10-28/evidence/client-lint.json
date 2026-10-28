@@ -1,0 +1,7 @@
+{
+  "command": "npm run lint",
+  "cwd": "client",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 14607
+}

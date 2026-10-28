@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createConsultationDraftQueue } from '../src/utils/consultationDraftQueue.js'
+import { loadConsultationForEditing } from '../src/utils/consultationLoad.mjs'
+import { getConsultation, saveConsultationDraft } from '../src/services/doctor.service.js'
 
 const deferred = () => {
   let resolve
@@ -237,5 +239,62 @@ test('an appointment reset clears only its own blocked state', async () => {
   assert.equal(queue.isBlocked(), false)
   assert.equal(await queue.persist(), true)
   assert.deepEqual(requests, [65, 66])
+})
+
+test('returning to the same appointment ignores an earlier generation response and saves the current draft', async () => {
+  let latest = { appointmentId: 70, signature: 'old', payload: { notes: 'old' } }
+  const first = deferred(), calls = [], saved = []
+  const queue = createConsultationDraftQueue({
+    getAppointmentId: () => latest.appointmentId, getLatestDraft: () => latest,
+    saveDraft: async (id, payload) => { calls.push([id, payload]); if (calls.length === 1) await first.promise; return { consultation_version: calls.length } },
+    onSaved: (draft, result) => saved.push([draft.signature, result.consultation_version]),
+  })
+  const pending = queue.persist()
+  latest = { appointmentId: 71, signature: 'other', payload: { notes: 'other' } }; queue.reset(71)
+  latest = { appointmentId: 70, signature: 'current', payload: { notes: 'current' } }; queue.reset(70, 'loaded')
+  await queue.persist()
+  first.resolve(); await pending
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(saved, [['current', 2]])
+  assert.equal(queue.getLastSavedSignature(), 'current')
+  assert.equal(calls.length, 2)
+})
+
+test('oversized drafts stop retrying while request timeout and rate limit failures remain retryable', async () => {
+  for (const status of [413, 408, 429]) {
+    let calls = 0
+    const queue = createConsultationDraftQueue({ getAppointmentId: () => 72,
+      getLatestDraft: () => ({ appointmentId: 72, signature: 'dirty', payload: {} }),
+      saveDraft: async () => { calls++; throw Object.assign(Error('synthetic rejection'), { httpStatus: status }) },
+    })
+    await queue.persist(); await queue.persist()
+    assert.equal(queue.isBlocked(), status === 413)
+    assert.equal(calls, status === 413 ? 1 : 2)
+    assert.equal(queue.getLastSavedSignature(), '')
+  }
+})
+
+test('initial network, auth and schema failures cannot initialize a blank editable consultation', async () => {
+  const appointment = { id: 73, status: 'in-progress' }
+  for (const status of [401, 403, 409, 503]) {
+    const error = Object.assign(Error('synthetic load failure'), { httpStatus: status })
+    await assert.rejects(loadConsultationForEditing(async () => { throw error }, 73, appointment), candidate => candidate === error)
+  }
+  const missing = Object.assign(Error('missing'), { httpStatus: 404 })
+  assert.equal(await loadConsultationForEditing(async () => { throw missing }, 73, appointment), null)
+  await assert.rejects(loadConsultationForEditing(async () => { throw missing }, 73, { ...appointment, status: 'completed' }))
+  await assert.rejects(loadConsultationForEditing(async () => { throw missing }, 73, null))
+})
+
+test('doctor API retains HTTP errors and never treats unreadable or null JSON as a saved draft', async () => {
+  const original = globalThis.fetch
+  try {
+    globalThis.fetch = async () => new Response('<html>gateway failure</html>', { status: 503 })
+    await assert.rejects(getConsultation(74), error => error.httpStatus === 503 && error.code === 'INVALID_API_RESPONSE')
+    globalThis.fetch = async () => new Response('null', { status: 200 })
+    await assert.rejects(saveConsultationDraft(74, {}), error => error.httpStatus === 502)
+    globalThis.fetch = async () => new Response(JSON.stringify({ code: 'SCHEMA_MIGRATION_REQUIRED', message: 'synthetic schema failure' }), { status: 503 })
+    await assert.rejects(saveConsultationDraft(74, {}), error => error.httpStatus === 503 && error.code === 'SCHEMA_MIGRATION_REQUIRED')
+  } finally { globalThis.fetch = original }
 })
 

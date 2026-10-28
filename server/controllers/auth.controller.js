@@ -212,21 +212,33 @@ const resetPassword = async (req, res) => {
   const passwordError = validatePassword(password)
   if (passwordError) return res.status(400).json({ message: passwordError })
 
-  const [rows] = await db.query(
-    `SELECT * FROM password_resets WHERE token = ? AND verified_at IS NOT NULL AND expires_at > NOW() LIMIT 1`,
-    [resetToken]
-  )
-  if (!rows.length) return res.status(400).json({ message: 'Reset session expired. Please start over.' })
-
-  const reset = rows[0]
-  const config = ROLE_CONFIG[reset.role]
-  if (!config || !reset.account_id) return res.status(400).json({ message: 'Reset session is invalid. Please start over.' })
-
   const hashed = await bcrypt.hash(password, 10)
-  const extra = ['staff', 'doctor', 'admin'].includes(reset.role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
-  await db.query(`UPDATE ${config.table} SET password = ?${extra} WHERE id = ?`, [hashed, reset.account_id])
-  await revokeSessions(reset.role, reset.account_id)
-  await db.query('DELETE FROM password_resets WHERE id = ?', [reset.id])
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query(
+      `SELECT * FROM password_resets WHERE token = ? AND verified_at IS NOT NULL AND expires_at > NOW() LIMIT 1 FOR UPDATE`,
+      [resetToken]
+    )
+    if (!rows.length) {
+      await conn.rollback()
+      return res.status(400).json({ message: 'Reset session expired. Please start over.' })
+    }
+    const reset = rows[0]
+    const config = ROLE_CONFIG[reset.role]
+    if (!config || !reset.account_id) {
+      await conn.rollback()
+      return res.status(400).json({ message: 'Reset session is invalid. Please start over.' })
+    }
+    const extra = ['staff', 'doctor', 'admin'].includes(reset.role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
+    await conn.query(`UPDATE ${config.table} SET password = ?${extra} WHERE id = ?`, [hashed, reset.account_id])
+    await revokeSessions(reset.role, reset.account_id, conn)
+    await conn.query('DELETE FROM password_resets WHERE id = ?', [reset.id])
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    throw error
+  } finally { conn.release() }
 
   return res.json({ message: 'Password reset successfully. You can now log in.' })
 }

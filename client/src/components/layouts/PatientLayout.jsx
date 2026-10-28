@@ -46,8 +46,7 @@ const PatientLayout = () => {
     setLoggingOut(true)
     setLogoutError("")
     try {
-      await fetch("/api/patient/logout", { method: "POST", credentials: "include" })
-      clearAuth()
+      await clearAuth()
       navigate("/")
     } catch {
       setLogoutError("Could not log out. Please try again.")

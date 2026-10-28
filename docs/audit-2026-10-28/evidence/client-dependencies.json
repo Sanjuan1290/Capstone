@@ -1,0 +1,7 @@
+{
+  "command": "npm audit --json --ignore-scripts --fetch-retries=0 --fetch-timeout=15000",
+  "cwd": "client",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 1328
+}
