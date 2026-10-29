@@ -29,6 +29,8 @@ router.post('/security/password/required', commonCtrl.completeRequiredPasswordCh
 router.use(requirePasswordChangeCompleted)
 router.post('/security/password/request-code', otpRequestLimiter, commonCtrl.requestMyPasswordCode)
 router.post('/security/password/change', otpVerifyLimiter, commonCtrl.changeMyPassword)
+router.post('/security/recovery-phone/request', otpRequestLimiter, commonCtrl.requestMyRecoveryPhoneCode)
+router.post('/security/recovery-phone/verify', otpVerifyLimiter, commonCtrl.verifyMyRecoveryPhoneCode)
 
 router.get('/notifications',                commonCtrl.listNotifications)
 router.patch('/notifications/read-all',     commonCtrl.readAllNotifications)
@@ -71,4 +73,3 @@ router.put('/schedule/unavailable-dates',      saveMyUnavailableDate)
 router.delete('/schedule/unavailable-dates/:date', deleteMyUnavailableDate)
 
 module.exports = router
-

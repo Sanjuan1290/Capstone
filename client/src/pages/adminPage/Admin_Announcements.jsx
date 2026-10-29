@@ -8,7 +8,7 @@ import {
 } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 
-const blank = () => ({type:'promotion',title:'',slug:'',caption:'',body:'',status:'draft',publish_at:'',expires_at:'',cta_label:'Book an Appointment',cta_url:'/patient/book',promotion_id:'',cover_image_url:'',cover_image_token:''})
+const blank = () => ({type:'news',title:'',slug:'',caption:'',body:'',status:'draft',publish_at:'',expires_at:'',cta_label:'Book an Appointment',cta_url:'/patient/book',promotion_id:'',cover_image_url:'',cover_image_token:''})
 const fmt = s => s ? String(s).replace(' ','T').slice(0,16) : ''
 const Admin_Announcements = () => {
   const toast=useToast()
@@ -90,16 +90,16 @@ const Admin_Announcements = () => {
   return <section className="mx-auto max-w-7xl space-y-5">
     <header className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5">
       <div><h1 className="flex items-center gap-2 text-xl font-black text-slate-900"><MdCampaign className="text-amber-500"/> Announcements & Campaigns</h1>
-        <p className="mt-1 max-w-3xl text-sm text-slate-500">Create public News & Offers posts independently of email campaigns. Email is sent only to eligible, consenting patients of this branch. Posting an offer never changes checkout prices.</p></div>
+        <p className="mt-1 max-w-3xl text-sm text-slate-500">Create clinic news and articles. Create promotions once in System Setup → Promotions; they appear automatically on the homepage and patient dashboard. Email is sent only to eligible, consenting patients of this branch. Posting an offer never changes checkout prices.</p></div>
       <div className="flex gap-2"><button type="button" className="button-secondary" onClick={refresh}><MdRefresh/> Refresh</button><button type="button" className="button-primary" onClick={()=>edit(null)}><MdAdd/> New post</button></div>
     </header>
     {Object.keys(sectionErrors).length>0&&<div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p className="font-semibold">Some sections could not load:</p>{Object.values(sectionErrors).map((message)=><p key={message}>{message}</p>)}<button className="mt-2 font-bold underline" type="button" onClick={refresh}>Try again</button></div>}
     {error&&<div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700" role="alert">{error}</div>}
     <div className="flex flex-wrap gap-3 text-sm"><span className="rounded-full bg-sky-50 px-3 py-2 text-sky-800">Eligible patients: {audience?.eligible??'—'}</span><span className={`rounded-full px-3 py-2 ${audience?.provider_ready?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800'}`}>Email campaigns: {audience===null?'Status unavailable':audience.provider_ready?'Ready':'Paused — check sender and unsubscribe settings'}</span><Link to="/news" target="_blank" rel="noreferrer" className="button-secondary">View public News & Offers ↗</Link></div>
     {editing!==null&&<form onSubmit={save} className="space-y-4 rounded-2xl border border-emerald-200 bg-white p-5">
-      <h2 className="font-bold">{editing==='new'?'Create a news post or promotion':'Edit announcement'}</h2>
+      <h2 className="font-bold">{editing==='new'?'Create a news post':'Edit announcement'}</h2>
       <div className="grid gap-3 md:grid-cols-3">
-        <label className="form-label">Category<select className="form-control mt-1" value={form.type} onChange={e=>update('type',e.target.value)}><option value="promotion">Promotion</option><option value="news">Clinic News</option><option value="article">Health Article</option></select></label>
+        <label className="form-label">Category<select className="form-control mt-1" value={form.type} onChange={e=>update('type',e.target.value)}>{editing!=='new' && form.type==='promotion' && <option value="promotion">Promotion (existing)</option>}<option value="news">Clinic News</option><option value="article">Health Article</option></select></label>
         <label className="form-label md:col-span-2">Title *<input className="form-control mt-1" required maxLength={160} value={form.title} onChange={e=>update('title',e.target.value)}/></label>
         <label className="form-label md:col-span-2">Short caption *<input className="form-control mt-1" required maxLength={350} value={form.caption} onChange={e=>update('caption',e.target.value)}/></label>
         <label className="form-label">URL slug<input className="form-control mt-1" value={form.slug||''} onChange={e=>update('slug',e.target.value)} placeholder="auto from title"/></label>

@@ -82,7 +82,7 @@ const forgotPassword = async (req, res) => {
   if (!config) return res.status(400).json({ message: 'A valid role is required.' })
 
   const requestedMethod = String(req.body.delivery_method || '').toLowerCase()
-  const deliveryMethod = role === 'patient' && requestedMethod === 'sms' ? 'sms' : 'email'
+  const deliveryMethod = requestedMethod === 'sms' ? 'sms' : 'email'
   const normalizedInputEmail = normalizeEmail(email)
   const normalizedInputPhone = normalizePhilippinePhone(phone)
 
@@ -114,21 +114,24 @@ const forgotPassword = async (req, res) => {
           count: patientMatch.rows.length,
         })
       }
-      return res.json(generic)
+      return res.json({ ...generic, request_started: true })
     }
 
     account = patientMatch.rows[0]
     const channelVerified = deliveryMethod === 'sms'
       ? Boolean(account.phone_verified_at)
       : Boolean(account.email_verified_at)
-    if (!channelVerified) return res.json(generic)
+    if (!channelVerified) return res.json({ ...generic, request_started: true })
   } else {
-    const [rows] = await db.query(
-      `SELECT id, full_name, email FROM ${config.table} WHERE ${config.where}`,
-      [normalizedInputEmail]
-    )
-    if (rows.length !== 1) return res.json(generic)
+    const query = deliveryMethod === 'sms'
+      ? `SELECT id, full_name, email, phone, phone_verified_at FROM ${config.table}
+         WHERE ${NORMALIZED_PHONE_SQL} IN (?, ?, ?) AND ${config.where.replace('email = ? AND ', '')}`
+      : `SELECT id, full_name, email FROM ${config.table} WHERE ${config.where}`
+    const params = deliveryMethod === 'sms' ? getPhoneVariants(normalizedInputPhone) : [normalizedInputEmail]
+    const [rows] = await db.query(query, params)
+    if (rows.length !== 1) return res.json({ ...generic, request_started: true })
     account = rows[0]
+    if (deliveryMethod === 'sms' && !account.phone_verified_at) return res.json({ ...generic, request_started: true })
   }
 
   const otp = makeNumericCode()
@@ -145,7 +148,7 @@ const forgotPassword = async (req, res) => {
   )
 
   try {
-    if (role === 'patient' && deliveryMethod === 'sms') {
+    if (deliveryMethod === 'sms') {
       await sendPatientPasswordResetOtp({ phone: account.phone, code: otp, fullName: account.full_name })
     } else {
       await sendPasswordResetOtp(account.email, account.full_name, role, otp)
@@ -160,7 +163,7 @@ const forgotPassword = async (req, res) => {
       message: err.message,
     })
     await db.query('DELETE FROM password_resets WHERE role = ? AND account_id = ?', [role, account.id])
-    return res.json(generic)
+    return res.json({ ...generic, request_started: true })
   }
 
   return res.json({ ...generic, request_started: true, message: 'A verification code has been sent to your registered contact.' })
@@ -173,10 +176,10 @@ const verifyOtp = async (req, res) => {
   }
 
   const requestedMethod = String(req.body.delivery_method || '').toLowerCase()
-  const deliveryMethod = role === 'patient' && requestedMethod === 'sms' ? 'sms' : 'email'
+  const deliveryMethod = requestedMethod === 'sms' ? 'sms' : 'email'
 
   let identifier = normalizeEmail(email)
-  if (role === 'patient' && deliveryMethod === 'sms') {
+  if (deliveryMethod === 'sms') {
     identifier = normalizePhilippinePhone(phone)
     if (!identifier) return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
   } else if (!identifier) {
@@ -247,4 +250,3 @@ const resetPassword = async (req, res) => {
 }
 
 module.exports = { forgotPassword, verifyOtp, resetPassword }
-

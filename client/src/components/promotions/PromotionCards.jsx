@@ -15,6 +15,8 @@ const formatOfferEndDate = (value) => {
 
 export function PromotionCard({ promotion: p }) {
   const endDate = formatOfferEndDate(p.ends_on)
+  const serviceOffer = Array.isArray(p.service_ids) && p.service_ids.length > 0
+  const bookingPath = `/patient/book?branch_id=${encodeURIComponent(p.branch_id)}${serviceOffer ? `&promotion_id=${encodeURIComponent(p.id)}` : ''}`
   return <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
     {p.image_url
       ? <img src={p.image_url} alt="" loading="lazy" className="aspect-video w-full bg-emerald-50 object-cover" />
@@ -24,7 +26,7 @@ export function PromotionCard({ promotion: p }) {
       <h3 className="text-base font-black text-slate-900">{p.title}</h3>
       <p className="line-clamp-4 text-sm text-slate-600">{p.description}</p>
       <p className="mt-auto pt-2 text-xs text-slate-500">{endDate ? `Valid until ${endDate} · ` : ''}{p.branch_name || 'Selected branch'}</p>
-      <NavLink to={`/patient/book?branch_id=${encodeURIComponent(p.branch_id)}&promotion_id=${encodeURIComponent(p.id)}`} className="mt-2 inline-flex items-center gap-1 text-sm font-bold text-emerald-700 dark:text-emerald-300">Explore eligible services <MdArrowForward aria-hidden="true" /></NavLink>
+      <NavLink to={bookingPath} className="mt-2 inline-flex items-center gap-1 text-sm font-bold text-emerald-700 dark:text-emerald-300">{serviceOffer ? 'Book eligible service' : 'Book at this branch'} <MdArrowForward aria-hidden="true" /></NavLink>
     </div>
   </article>
 }

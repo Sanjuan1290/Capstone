@@ -12,12 +12,12 @@ const validate=body=>{
  if(!title||title.length>120||!description||description.length>1000||badge.length>48)return 'Enter a title, description and optional badge within the character limits.'
  if(!validDate(start)||!validDate(end)||start>end)return 'Enter a valid promotion start and end date.'
  if(body?.featured_order!==undefined && (!Number.isSafeInteger(Number(body.featured_order)) || Number(body.featured_order)<0 || Number(body.featured_order)>9999))return 'Featured order must be between 0 and 9999.'
- if(!Array.isArray(body?.service_ids)||!body.service_ids.length||body.service_ids.length>100||body.service_ids.some(i=>!validId(i)))return 'Select at least one valid branch service.'
+ if(body?.service_ids!==undefined && (!Array.isArray(body.service_ids)||body.service_ids.length>100||body.service_ids.some(i=>!validId(i))))return 'Select valid branch services or leave them blank.'
  return null
 }
 const audit=(req,conn,action,id,data)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role || 'staff',branchId:req.branchId,action,entityType:'promotion',entityId:id,newValues:data,ipAddress:req.ip},conn)
 const list=async(req,res)=>{
- const [rows]=await db.query("SELECT id,title,description,badge_text,image_url,featured_order,DATE_FORMAT(starts_on,'%Y-%m-%d') starts_on,DATE_FORMAT(ends_on,'%Y-%m-%d') ends_on,is_active,show_on_dashboard,created_at FROM clinic_promotions WHERE branch_id=? ORDER BY created_at DESC,id DESC",[req.branchId])
+ const [rows]=await db.query("SELECT p.id,p.title,p.description,p.badge_text,p.image_url,p.featured_order,cb.name AS branch_name,DATE_FORMAT(p.starts_on,'%Y-%m-%d') starts_on,DATE_FORMAT(p.ends_on,'%Y-%m-%d') ends_on,p.is_active,p.show_on_dashboard,p.created_at FROM clinic_promotions p JOIN clinic_branches cb ON cb.id=p.branch_id WHERE p.branch_id=? ORDER BY p.created_at DESC,p.id DESC",[req.branchId])
  if(!rows.length)return res.json([])
  const ids=rows.map(r=>r.id)
  const [services]=await db.query(`SELECT ps.promotion_id,ps.service_id FROM clinic_promotion_services ps JOIN billing_service_catalog bc ON bc.id=ps.service_id AND bc.branch_id=? WHERE ps.promotion_id IN (${ids.map(()=>'?').join(',')})`,[req.branchId,...ids])
@@ -26,11 +26,14 @@ const list=async(req,res)=>{
 const save=async(req,res)=>{
  const failure=validate(req.body);if(failure)return res.status(400).json({message:failure})
  const id=req.params.id?Number(req.params.id):null;if(id!==null&&!validId(id))return res.status(400).json({message:'Invalid promotion.'})
- const data={title:String(req.body.title).trim(),description:String(req.body.description).trim(),badge_text:String(req.body.badge_text||'').trim()||null,starts_on:req.body.starts_on,ends_on:req.body.ends_on,is_active:req.body.is_active===true||Number(req.body.is_active)===1?1:0,show_on_dashboard:req.body.show_on_dashboard===false||Number(req.body.show_on_dashboard)===0?0:1,featured_order:Number(req.body.featured_order||0),service_ids:[...new Set(req.body.service_ids.map(Number))]}
+ const data={title:String(req.body.title).trim(),description:String(req.body.description).trim(),badge_text:String(req.body.badge_text||'').trim()||null,starts_on:req.body.starts_on,ends_on:req.body.ends_on,is_active:req.body.is_active===true||Number(req.body.is_active)===1?1:0,show_on_dashboard:req.body.show_on_dashboard===false||Number(req.body.show_on_dashboard)===0?0:1,featured_order:Number(req.body.featured_order||0),service_ids:[...new Set((req.body.service_ids||[]).map(Number))]}
  const conn=await db.getConnection()
  try{
   await conn.beginTransaction()
-  const [services]=await conn.query(`SELECT id FROM billing_service_catalog WHERE branch_id=? AND id IN (${data.service_ids.map(()=>'?').join(',')})`,[req.branchId,...data.service_ids]);if(services.length!==data.service_ids.length){await conn.rollback();return res.status(400).json({message:'One or more services do not belong to the selected branch.'})}
+  if(data.service_ids.length){
+   const [services]=await conn.query(`SELECT id FROM billing_service_catalog WHERE branch_id=? AND is_active=1 AND id IN (${data.service_ids.map(()=>'?').join(',')})`,[req.branchId,...data.service_ids]);
+   if(services.length!==data.service_ids.length){await conn.rollback();return res.status(400).json({message:'Choose active services from this branch only.'})}
+  }
   let savedId=id
   const [[oldImage]]=id?await conn.query('SELECT id,image_url,image_asset_id FROM clinic_promotions WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId]):[[]]
   let imageUrl=oldImage?.image_url||null,imageAssetId=oldImage?.image_asset_id||null
@@ -93,4 +96,3 @@ const registerBranchPromotions=(router,{requireSuper,branchContext,requirePermis
  }
 }
 module.exports={registerBranchPromotions,validate,list,save,deactivate,uploadImage,imageStatus}
-

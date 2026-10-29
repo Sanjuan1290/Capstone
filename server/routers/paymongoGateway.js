@@ -215,6 +215,27 @@ const resolveReview = async (req,res) => {
     oldValues:{attempt_id:attempt.id,error_code:attempt.error_code},newValues:{provider_payment_id:attempt.provider_payment_id,provider_refund_id:action==='refunded'?refundId:null,note},ipAddress:req.ip||null,branchId}).catch(()=>{})
   res.json({...result,attempt:publicAttempt((await db.query('SELECT * FROM payment_gateway_attempts WHERE id=?',[attempt.id]))[0][0])})
 }
+// Administrator-only, branch-scoped list for payments that need checking.
+// This view is read-only; the existing provider-verification routes handle changes.
+const listPaymentIssues = async (req,res) => {
+  if (!req.adminContext || !['admin','superadmin'].includes(req.adminContext.account_role))
+    throw http('ADMIN_REQUIRED','Only an administrator can review payment issues.',403)
+  const branchId = Number(req.branchId)
+  if (!validId(branchId)) throw http('BRANCH_REQUIRED','Choose a valid branch.',400)
+  const [rows] = await db.query(`SELECT a.id,a.billing_id,a.status,a.mode,a.error_code,
+      a.amount_centavos,a.created_at,a.expires_at,a.active_bill_id,
+      a.payment_intent_id,a.provider_payment_id
+    FROM payment_gateway_attempts a
+    INNER JOIN billing_records b ON b.id=a.billing_id AND b.branch_id=a.branch_id
+    WHERE a.branch_id=? AND ((a.active_bill_id IS NOT NULL AND a.status IN ('creating','pending','review'))
+      OR (a.status='review' AND a.provider_payment_id IS NOT NULL))
+    ORDER BY a.created_at DESC, a.id DESC LIMIT 100`,[branchId])
+  res.json(rows.map(a=>({id:Number(a.id),billing_id:Number(a.billing_id),status:a.status,
+    mode:a.mode,error_code:a.error_code||null,amount:Number(a.amount_centavos)/100,
+    created_at:a.created_at,expires_at:a.expires_at,has_provider_payment:Boolean(a.provider_payment_id),
+    can_request_cancel:canRequestCancel(a),needs_admin_review:a.status==='review'})))
+}
+apiRouter.get('/payment-issues',(req,res,next)=>Promise.resolve(listPaymentIssues(req,res)).catch(next))
 apiRouter.post('/:id/qr-payment', (req,res,next)=>Promise.resolve(makeQr(req,res)).catch(next))
 apiRouter.get('/:id/qr-payment/status', (req,res,next)=>Promise.resolve(status(req,res)).catch(next))
 apiRouter.post('/:id/qr-payment/:attemptId/cancel', (req,res,next)=>Promise.resolve(requestCancel(req,res)).catch(next))
@@ -377,4 +398,3 @@ const rawWebhook = async (req,res) => {
   }
 }
 module.exports = { apiRouter, rawWebhook, handleWebhookEvent, publicAttempt, isTestSimulationUrl, reconcileAttempt, startReconciliationSweeper, requestCancel, terminalNonpayable }
-

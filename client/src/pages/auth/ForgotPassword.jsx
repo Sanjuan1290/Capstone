@@ -1,5 +1,5 @@
 // client/src/pages/auth/ForgotPassword.jsx
-// 4-step role-aware password recovery. Patients recover by their verified SMS number; clinic roles recover by portal email.
+// Shared password recovery: verified email or mobile for every portal.
 
 import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
@@ -112,10 +112,9 @@ const Steps = ({ current, cfg }) => {
 
 const ForgotPassword = ({ role }) => {
   const cfg = ROLE_CFG[role] || ROLE_CFG.patient
-  const isPatient = role === 'patient'
 
   const [step, setStep] = useState('request')
-  const [deliveryMethod] = useState(isPatient ? 'sms' : 'email')
+  const [deliveryMethod, setDeliveryMethod] = useState('email')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [maskedDestination, setMaskedDestination] = useState('')
@@ -136,7 +135,7 @@ const ForgotPassword = ({ role }) => {
     return () => clearTimeout(timer)
   }, [countdown])
 
-  const effectiveMethod = isPatient ? 'sms' : deliveryMethod
+  const effectiveMethod = deliveryMethod
   const stepNum = { request: 0, otp: 1, reset: 2, done: 3 }[step]
   const loginPath = `/${role}/login`
   const recoveryLabel = effectiveMethod === 'sms' ? 'mobile number' : 'email address'
@@ -305,11 +304,17 @@ const ForgotPassword = ({ role }) => {
             {step === 'request' && (
               <form onSubmit={handleRequest} className="space-y-4">
                 <p className="text-center text-sm text-slate-500">
-                  {isPatient
-                    ? 'Enter the mobile number verified during Patient registration. We will send the password-reset code by SMS.'
-                    : `Enter the email address registered to your ${cfg.badge} Portal account. We will validate it only against this portal.`}
+                  Choose a verified email address or mobile number registered to your account. We will send a verification code.
                 </p>
 
+                <fieldset className="grid grid-cols-2 gap-2" aria-label="Send verification code by">
+                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'email' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'email'} onChange={() => {setDeliveryMethod('email');resetToRequest()}} /> Email
+                  </label>
+                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'sms' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'sms'} onChange={() => {setDeliveryMethod('sms');resetToRequest()}} /> Mobile Number
+                  </label>
+                </fieldset>
                 <div>
                   <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">
                     {effectiveMethod === 'sms' ? 'Mobile Number' : 'Email Address'}
@@ -365,9 +370,7 @@ const ForgotPassword = ({ role }) => {
                   </p>
                   <p className="mt-1 text-xs text-slate-400">Expires in 10 minutes</p>
                   <p className="mt-2 text-xs text-slate-400">
-                    {isPatient
-                      ? 'If no SMS arrives, confirm that this is the mobile number verified on your Patient account.'
-                      : `If no email arrives, confirm that the address belongs to your ${cfg.badge} Portal account.`}
+                    If no code arrives, check that this contact is verified on your account. You can also try the other option.
                   </p>
                 </div>
 
@@ -430,6 +433,14 @@ const ForgotPassword = ({ role }) => {
                   <p className="text-xs text-emerald-700">Code verified! Choose your new password.</p>
                 </div>
 
+                <fieldset className="grid grid-cols-2 gap-2" aria-label="Send verification code by">
+                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'email' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'email'} onChange={() => {setDeliveryMethod('email');resetToRequest()}} /> Email
+                  </label>
+                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'sms' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'sms'} onChange={() => {setDeliveryMethod('sms');resetToRequest()}} /> Mobile Number
+                  </label>
+                </fieldset>
                 <div>
                   <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">New Password</label>
                   <div className="relative">
@@ -458,6 +469,14 @@ const ForgotPassword = ({ role }) => {
 
                 <PasswordRequirements password={password} />
 
+                <fieldset className="grid grid-cols-2 gap-2" aria-label="Send verification code by">
+                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'email' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'email'} onChange={() => {setDeliveryMethod('email');resetToRequest()}} /> Email
+                  </label>
+                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'sms' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'sms'} onChange={() => {setDeliveryMethod('sms');resetToRequest()}} /> Mobile Number
+                  </label>
+                </fieldset>
                 <div>
                   <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">Confirm Password</label>
                   <div className="relative">
@@ -535,4 +554,3 @@ const ForgotPassword = ({ role }) => {
 }
 
 export default ForgotPassword
-

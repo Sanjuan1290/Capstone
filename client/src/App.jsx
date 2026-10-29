@@ -70,6 +70,7 @@ import Admin_BillingTransactions from './pages/adminPage/Admin_BillingTransactio
 import Admin_BillingTransactionDetail from './pages/adminPage/Admin_BillingTransactionDetail'
 import Admin_BillingApprovals from './pages/adminPage/Admin_BillingApprovals'
 import Admin_BillingReconciliation from './pages/adminPage/Admin_BillingReconciliation'
+import Admin_PaymentIssues from './pages/adminPage/Admin_PaymentIssues'
 import Admin_BillingPaymentMethods from './pages/adminPage/Admin_BillingPaymentMethods'
 import Admin_BillingDiscounts from './pages/adminPage/Admin_BillingDiscounts'
 import Admin_BillingReceiptSettings from './pages/adminPage/Admin_BillingReceiptSettings'
@@ -231,6 +232,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
         <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
         <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
+        <Route path='billing/payment-issues' element={<Admin_PaymentIssues />} />
         <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
         <Route path='inventory' element={<Admin_Inventory />} />
         <Route path='accounts' element={<Admin_Accounts />} />
@@ -265,6 +267,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
         <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
         <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
+        <Route path='billing/payment-issues' element={<Admin_PaymentIssues />} />
         <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
         <Route path='inventory' element={<Admin_Inventory />} />
         <Route path='accounts' element={<Admin_Accounts />} />
@@ -307,4 +310,3 @@ const App = () => (
 )
 
 export default App
-

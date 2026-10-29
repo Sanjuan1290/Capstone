@@ -9,9 +9,9 @@ const TABLE_MAP = {
 }
 
 const selectFieldsByRole = {
-  admin: 'id, full_name, email, theme_preference, profile_image_url',
-  staff: 'id, full_name, email, phone, theme_preference, profile_image_url',
-  doctor: 'id, full_name, email, phone, clinic_type, theme_preference, profile_image_url',
+  admin: 'id, full_name, email, phone, phone_verified_at, theme_preference, profile_image_url',
+  staff: 'id, full_name, email, phone, phone_verified_at, theme_preference, profile_image_url',
+  doctor: 'id, full_name, email, phone, phone_verified_at, clinic_type, theme_preference, profile_image_url',
   patient: 'id, full_name, email, email_verified_at, phone, address, COALESCE(gender, sex) AS gender, COALESCE(gender, sex) AS sex, DATE_FORMAT(birthdate, "%Y-%m-%d") AS birthdate, receive_promotions, is_profile_complete, theme_preference, profile_image_url',
 }
 
@@ -103,8 +103,17 @@ const updateSettings = async (role, id, payload) => {
   const entries = Object.entries(payload).filter(([key, value]) => allowed.includes(key) && value !== undefined)
   if (!entries.length) return getSettings(role, id)
 
-  const setters = entries.map(([key]) => `${key} = ?`).join(', ')
-  const values = entries.map(([, value]) => value || null)
+  const phoneEntry = entries.find(([key]) => key === 'phone')
+  // Compare the previous stored phone before updating it; editing a name must
+  // not silently invalidate a previously verified recovery number.
+  const setters = [
+    ...(phoneEntry ? ['phone_verified_at = IF(phone <=> ?, phone_verified_at, NULL)'] : []),
+    ...entries.map(([key]) => `${key} = ?`),
+  ].join(', ')
+  const values = [
+    ...(phoneEntry ? [phoneEntry[1] || null] : []),
+    ...entries.map(([, value]) => value || null),
+  ]
 
   await db.query(`UPDATE ${table} SET ${setters} WHERE id = ?`, [...values, id])
   return getSettings(role, id)

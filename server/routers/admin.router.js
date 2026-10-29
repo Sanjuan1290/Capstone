@@ -33,6 +33,8 @@ router.post('/logout',     adminCtrl.logout)
 router.post('/security/password/required', ...accountAuth, commonCtrl.completeRequiredPasswordChange)
 router.post('/security/password/request-code', ...accountAuth, otpRequestLimiter, commonCtrl.requestMyPasswordCode)
 router.post('/security/password/change', ...accountAuth, otpVerifyLimiter, commonCtrl.changeMyPassword)
+router.post('/security/recovery-phone/request', ...accountAuth, otpRequestLimiter, commonCtrl.requestMyRecoveryPhoneCode)
+router.post('/security/recovery-phone/verify', ...accountAuth, otpVerifyLimiter, commonCtrl.verifyMyRecoveryPhoneCode)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
@@ -185,5 +187,3 @@ router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
 
 
 module.exports = router
-
-

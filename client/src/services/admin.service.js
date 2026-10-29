@@ -532,3 +532,5 @@ export const resolveAdminQrReview = (id, attemptId, body) => requestJson(`${getA
 export const getReminderSettings = () => requestJson(`${getAdminApiBase()}/reminder-settings`)
 export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}/reminder-settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)})
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
+
+export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)

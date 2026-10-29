@@ -30,7 +30,7 @@ import {
   saveInventorySupplier,
 } from '../../services/admin.service'
 
-const TABS = SYSTEM_SETUP_TABS.filter((item) => !['billing_setup', 'promotions', 'location_types'].includes(item.key))
+const TABS = SYSTEM_SETUP_TABS.filter((item) => !['billing_setup', 'location_types'].includes(item.key))
 
 const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : 'General Medicine'
 const parseSupplierClinics = (value) => String(value || '').split(',').map((entry) => entry.trim()).filter((entry) => ['medical','derma'].includes(entry))
@@ -461,5 +461,3 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
-
-

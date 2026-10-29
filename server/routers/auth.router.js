@@ -12,6 +12,7 @@ const { otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimi
 router.post('/forgot-password', otpRequestLimiter, forgotPassword)  // Step 1: validates account and sends OTP by email/SMS
 router.post('/verify-otp',      otpVerifyLimiter, verifyOtp)        // Step 2: verifies OTP, returns resetToken
 router.post('/reset-password',  otpVerifyLimiter, resetPassword)    // Step 3: sets new password
+router.get('/promotions', require('../controllers/promotions.controller').getPublicPromotions)
 router.get('/landing-page',     commonCtrl.getPublicLandingPage)
 router.get('/clinic-settings',   commonCtrl.getPublicClinicSettings)
 

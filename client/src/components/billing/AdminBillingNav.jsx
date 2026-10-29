@@ -1,12 +1,13 @@
 import { Link, useLocation } from 'react-router-dom'
 import { branchPortalPath } from '../../utils/branchPortalPath.mjs'
-import { MdDashboard, MdReceiptLong, MdApproval, MdPointOfSale, MdFactCheck } from 'react-icons/md'
+import { MdDashboard, MdReceiptLong, MdApproval, MdPointOfSale, MdFactCheck, MdWarningAmber } from 'react-icons/md'
 
 const ITEMS = [
   { label: 'Checkout', path: '/admin/billing?tab=checkout', icon: MdPointOfSale, tab: 'checkout' },
   { label: 'Overview', path: '/admin/billing?tab=overview', icon: MdDashboard, tab: 'overview' },
   { label: 'Transactions', path: '/admin/billing/transactions', icon: MdReceiptLong, route: '/admin/billing/transactions' },
   { label: 'Adjustment Requests', path: '/admin/billing/approvals', icon: MdApproval, route: '/admin/billing/approvals' },
+  { label: 'Payment Issues', path: '/admin/billing/payment-issues', icon: MdWarningAmber, route: '/admin/billing/payment-issues' },
   { label: 'Daily Cash Reconciliation', path: '/admin/billing/reconciliation', icon: MdFactCheck, route: '/admin/billing/reconciliation' },
 ]
 

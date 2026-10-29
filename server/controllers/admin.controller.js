@@ -1210,9 +1210,9 @@ const updateStaff = async (req, res) => {
   try {
     await conn.beginTransaction()
     await conn.query(
-      `UPDATE staff SET full_name = ?, email = ?, phone = ?,
-       session_version = session_version + ? WHERE id = ?`,
-      [String(full_name).trim(), String(email).trim(), normalizedPhone, permissionChanged ? 1 : 0, req.params.id]
+      `UPDATE staff SET phone_verified_at = IF(phone <=> ?, phone_verified_at, NULL),
+       full_name = ?, email = ?, phone = ?, session_version = session_version + ? WHERE id = ?`,
+      [normalizedPhone, String(full_name).trim(), String(email).trim(), normalizedPhone, permissionChanged ? 1 : 0, req.params.id]
     )
     if (nextPermissions) await replaceStaffPermissions(req.params.id, nextPermissions, conn)
     await writeAuditLog({
@@ -1305,8 +1305,8 @@ const updateDoctor = async (req, res) => {
     return res.status(409).json({ message: 'That email is already in use by another doctor account.' })
 
   await db.query(
-    'UPDATE doctors SET full_name = ?, email = ?, phone = ?, clinic_type = ?, prc_license = ? WHERE id = ?',
-    [full_name.trim(), email.trim(), normalizedPhone, clinic_type, prc_license?.trim() || null, req.params.id]
+    'UPDATE doctors SET phone_verified_at = IF(phone <=> ?, phone_verified_at, NULL), full_name = ?, email = ?, phone = ?, clinic_type = ?, prc_license = ? WHERE id = ?',
+    [normalizedPhone, full_name.trim(), email.trim(), normalizedPhone, clinic_type, prc_license?.trim() || null, req.params.id]
   )
   const [updated] = await db.query(
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?',
@@ -4300,4 +4300,3 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
-

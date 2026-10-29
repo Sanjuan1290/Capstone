@@ -21,9 +21,12 @@ const listAllPromotions = async (req, res) => {
   res.json(grouped(promotions, linked))
 }
 
-const getActivePromotions = async (req, res) => {
-  const requestedBranch=Number(req.query.branch_id)
-  if(!Number.isSafeInteger(requestedBranch)||requestedBranch<1)return res.status(400).json({message:'Select a valid clinic branch to view promotions.'})
+// General offers have no linked services. Service-specific offers require at least
+// one active service in the same branch. This endpoint is read-only and never
+// changes checkout amounts or exposes patient information.
+const readCurrentPromotions = async (branchId = null) => {
+  const scope = branchId ? ' AND p.branch_id=?' : ''
+  const params = branchId ? [branchId] : []
   const [rows] = await db.query(`
     SELECT p.id,p.title,p.description,p.badge_text,p.branch_id,cb.name AS branch_name,
            DATE_FORMAT(p.starts_on,'%Y-%m-%d') AS starts_on,
@@ -31,24 +34,30 @@ const getActivePromotions = async (req, res) => {
            p.show_on_dashboard,p.image_url,p.featured_order,ps.service_id
     FROM clinic_promotions p
     INNER JOIN clinic_branches cb ON cb.id=p.branch_id AND cb.is_active=1
-    INNER JOIN clinic_promotion_services ps ON ps.promotion_id = p.id
-    INNER JOIN billing_service_catalog svc ON svc.id=ps.service_id AND svc.branch_id=p.branch_id AND svc.is_active=1
-    WHERE p.is_active=1 AND p.starts_on<=? AND p.ends_on>=?
-      AND p.branch_id=?
-    ORDER BY p.featured_order ASC,p.ends_on ASC,p.id DESC`,[getTodayDateOnly(),getTodayDateOnly(),requestedBranch])
+    LEFT JOIN clinic_promotion_services ps ON ps.promotion_id=p.id
+    LEFT JOIN billing_service_catalog svc ON svc.id=ps.service_id
+       AND svc.branch_id=p.branch_id AND svc.is_active=1
+    WHERE p.is_active=1 AND p.starts_on<=CURDATE() AND p.ends_on>=CURDATE()
+      AND (ps.service_id IS NULL OR svc.id IS NOT NULL)${scope}
+    ORDER BY p.featured_order ASC,p.ends_on ASC,p.id DESC`,params)
   const promos = new Map()
   for (const row of rows) {
     if (!promos.has(row.id)) promos.set(row.id, {
-      id: row.id, title: row.title, description: row.description, badge_text: row.badge_text,branch_id:row.branch_id,branch_name:row.branch_name,
-      starts_on: row.starts_on, ends_on: row.ends_on, show_on_dashboard: Boolean(row.show_on_dashboard), image_url:row.image_url,featured_order:Number(row.featured_order||0),
-      service_ids: [],
+      id:row.id, title:row.title, description:row.description, badge_text:row.badge_text,
+      branch_id:row.branch_id, branch_name:row.branch_name, starts_on:row.starts_on,
+      ends_on:row.ends_on, is_active:true, show_on_dashboard:Boolean(row.show_on_dashboard),
+      image_url:row.image_url, featured_order:Number(row.featured_order||0), service_ids:[],
     })
-    promos.get(row.id).service_ids.push(Number(row.service_id))
+    if (row.service_id != null) promos.get(row.id).service_ids.push(Number(row.service_id))
   }
-  // Anyone logged into the patient portal sees on-site offers. Consent controls
-  // marketing delivery, not on-site service information.
-  res.json([...promos.values()])
+  return [...promos.values()]
 }
+const getActivePromotions = async (req, res) => {
+  const branchId = Number(req.query.branch_id)
+  if (!Number.isSafeInteger(branchId) || branchId < 1) return res.status(400).json({message:'Select a valid clinic branch to view promotions.'})
+  res.json(await readCurrentPromotions(branchId))
+}
+const getPublicPromotions = async (_req, res) => res.json(await readCurrentPromotions())
 
 const validate = (body) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw Object.assign(new Error('Invalid promotion.'), {status: 400})
@@ -156,5 +165,4 @@ const notifyOptedInPatients = async (req, res) => {
   res.json({message:`${delivered} promotional notification(s) delivered to opted-in patients.`, delivered, failed, more_possible:patients.length>=500})
 }
 
-module.exports = { listAllPromotions, getActivePromotions, savePromotion, deletePromotion, notifyOptedInPatients }
-
+module.exports = { listAllPromotions, getActivePromotions, getPublicPromotions, savePromotion, deletePromotion, notifyOptedInPatients }

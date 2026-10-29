@@ -68,6 +68,8 @@ router.post('/logout',    staffCtrl.logout)
 router.post('/security/password/required', ...baseAuth, commonCtrl.completeRequiredPasswordChange)
 router.post('/security/password/request-code', ...auth, otpRequestLimiter, commonCtrl.requestMyPasswordCode)
 router.post('/security/password/change', ...auth, otpVerifyLimiter, commonCtrl.changeMyPassword)
+router.post('/security/recovery-phone/request', ...auth, otpRequestLimiter, commonCtrl.requestMyRecoveryPhoneCode)
+router.post('/security/recovery-phone/verify', ...auth, otpVerifyLimiter, commonCtrl.verifyMyRecoveryPhoneCode)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
@@ -209,6 +211,3 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), u
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
 
 module.exports = router
-
-
-

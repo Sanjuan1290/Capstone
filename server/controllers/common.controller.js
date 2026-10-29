@@ -2,7 +2,7 @@ const { getNotifications, markNotificationRead } = require('../utils/notificatio
 const { getSettings, updateSettings } = require('../utils/accountSettings')
 const { getLandingPageContent, updateLandingPageContent } = require('../utils/landingPageContent')
 const db = require('../db/connect')
-const { requestPasswordChangeCode, changeWithCode, completeRequiredChange, requestPatientPhoneChange, confirmPatientPhoneChange, createSecurityCode, verifySecurityCode } = require('../utils/accountSecurity')
+const { requestPasswordChangeCode, changeWithCode, completeRequiredChange, requestPatientPhoneChange, confirmPatientPhoneChange, createSecurityCode, verifySecurityCode, requestClinicPhoneVerification, confirmClinicPhoneVerification } = require('../utils/accountSecurity')
 const { sendAccountSecurityOtp } = require('../utils/emailService')
 const { writeAuditLog } = require('../utils/audit')
 
@@ -145,6 +145,20 @@ const changeMyPassword = async (req, res) => {
   } catch (err) { res.status(400).json({ message: err.message }) }
 }
 
+const requestMyRecoveryPhoneCode = async (req,res) => {
+  try {
+    await requestClinicPhoneVerification(req.user.role,req.user.id,req.body?.current_password)
+    res.json({message:'Code sent to your registered mobile number.'})
+  } catch (err) {res.status(err.statusCode || 400).json({message:err.message})}
+}
+const verifyMyRecoveryPhoneCode = async (req,res) => {
+  try {
+    await confirmClinicPhoneVerification(req.user.role,req.user.id,req.body?.code)
+    await writeAuditLog({userId:req.user.id,userRole:req.user.role,action:'security.recovery_phone_verified',entityType:req.user.role,entityId:req.user.id,ipAddress:req.ip||null}).catch(()=>{})
+    res.json({message:'Mobile number verified. You can now use it to reset your password.'})
+  } catch (err) {res.status(400).json({message:err.message})}
+}
+
 const completeRequiredPasswordChange = async (req, res) => {
   try {
     await completeRequiredChange(req.user.role, req.user.id, req.body?.new_password, res)
@@ -272,6 +286,8 @@ module.exports = {
   confirmMySettingsVerification,
   requestMyPasswordCode,
   changeMyPassword,
+  requestMyRecoveryPhoneCode,
+  verifyMyRecoveryPhoneCode,
   completeRequiredPasswordChange,
   completePatientOnboarding,
   requestMyPhoneChange,

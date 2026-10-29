@@ -187,6 +187,26 @@ const confirmPatientPhoneChange = async (patientId, code, res = null) => {
   return newPhone
 }
 
+const requestClinicPhoneVerification = async (role, id, currentPassword) => {
+  if (!['admin', 'staff', 'doctor'].includes(role)) throw new Error('Clinic account required.')
+  const table = ROLE_TABLE[role]
+  const [[account]] = await db.query(`SELECT id, full_name, phone, password FROM ${table} WHERE id=? LIMIT 1`,[id])
+  if (!account || !account.phone || !normalizePhilippinePhone(account.phone)) throw new Error('Add a valid mobile number to your account first.')
+  if (!currentPassword || !await bcrypt.compare(String(currentPassword), account.password)) throw new Error('Current password is incorrect.')
+  // An existing staff/doctor phone is not automatically a verified recovery channel.
+  const code = await createSecurityCode({role, accountId:id, purpose:'verify_recovery_phone',payload:{phone:normalizePhilippinePhone(account.phone)}})
+  try { await sendPatientPhoneChangeOtp({phone:account.phone,code,fullName:account.full_name}) }
+  catch (err) { await removeUndeliveredCode({role,accountId:id,purpose:'verify_recovery_phone',code});throw err }
+}
+const confirmClinicPhoneVerification = async (role, id, code) => {
+  if (!['admin', 'staff', 'doctor'].includes(role)) throw new Error('Clinic account required.')
+  const table = ROLE_TABLE[role]
+  const verified = await verifySecurityCode({role,accountId:id,purpose:'verify_recovery_phone',code})
+  const [[account]] = await db.query(`SELECT phone FROM ${table} WHERE id=? LIMIT 1`,[id])
+  if (!account || normalizePhilippinePhone(account.phone)!==verified.payload?.phone) throw new Error('The mobile number has changed. Start verification again.')
+  await db.query(`UPDATE ${table} SET phone_verified_at=NOW() WHERE id=? AND phone=?`,[id,account.phone])
+}
+
 const requestAdminMfa = async (admin) => {
   const code = await createSecurityCode({ role: 'admin', accountId: admin.id, purpose: 'admin_mfa' })
   try {
@@ -206,6 +226,8 @@ module.exports = {
   validatePassword,
   createSecurityCode,
   verifySecurityCode,
+  requestClinicPhoneVerification,
+  confirmClinicPhoneVerification,
   requestPatientPhoneChange,
   confirmPatientPhoneChange,
   requestAdminMfa,

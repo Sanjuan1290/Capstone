@@ -4,7 +4,8 @@
 
 import { NavLink } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { getPublicLandingPage } from '../../services/landing.service'
+import { getPublicLandingPage, getPublicPromotions } from '../../services/landing.service'
+import { PromotionCard } from '../../components/promotions/PromotionCards'
 import { isExternalPath, normalizeAppPath } from '../../utils/navigation'
 import { MdLocationOn, MdPhone, MdAccessTime } from 'react-icons/md'
 
@@ -34,8 +35,10 @@ const InfoCard = ({ title, children, tone }) => {
 
 const LandingPage = () => {
   const [content, setContent] = useState(null)
+  const [promotions, setPromotions] = useState([])
 
   useEffect(() => {
+    getPublicPromotions().then(setPromotions).catch(() => setPromotions([]))
     getPublicLandingPage()
       .then(data => setContent(data?.content || null))
       .catch(() => setContent(null))
@@ -67,7 +70,7 @@ const LandingPage = () => {
         id={hero.section_id || 'home'}
         className="relative isolate min-h-screen overflow-hidden px-4 sm:px-6 lg:px-10"
       >
-        {/* Background */}
+      {/* Background */}
         <img
           src={hero.background_image_url || '/homeBG.png'}
           alt=""
@@ -136,6 +139,17 @@ const LandingPage = () => {
           </div>
         </div>
       </section>
+
+      {/* Active branch offers — published from System Setup, no duplicate announcement needed. */}
+      {promotions.length > 0 && <section id="special-offers" className="bg-slate-50 px-4 py-14 sm:px-6 lg:px-10" aria-labelledby="special-offers-title">
+        <div className="mx-auto max-w-6xl">
+          <h2 id="special-offers-title" className="text-2xl font-black text-slate-900">Special Offers</h2>
+          <p className="mb-6 mt-2 text-sm text-slate-600">Check the branch on each offer before booking. Offers do not automatically change your bill.</p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {promotions.map(promo => <PromotionCard key={`${promo.branch_id}-${promo.id}`} promotion={promo} />)}
+          </div>
+        </div>
+      </section>}
 
       {/* ── About ────────────────────────────────────────────────────────── */}
       <section id={about.section_id || 'about'} className="px-4 py-16 bg-white scroll-mt-24 sm:px-6 sm:py-20 lg:px-10 lg:py-24">
