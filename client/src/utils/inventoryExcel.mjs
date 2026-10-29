@@ -117,19 +117,24 @@ export const readInventoryFile=async file=>{
         const txt=kind==='s'?shared[Number(v)]??'':kind==='inlineStr'?byTag(inline,'t').map(x=>x.textContent).join(''):v??''
         out[column]=txt
       }
+      // Preserve original Excel line numbers even if the user left blank rows.
+      out._excelRow=Number(row.getAttribute('r'))||null
       return out
     })
   }else throw new Error('Choose an .xlsx or .csv spreadsheet.')
-  const [head,...body]=grid.filter(row=>row.some(value=>String(value??'').trim()))
-  const headers=(head||[]).map(value=>String(value??'').trim().toLowerCase().replace(/\s+/g,' '))
+  const records=grid.map((cells,i)=>({cells,excelRow:cells._excelRow||i+1}))
+    .filter(({cells})=>cells.some(value=>String(value??'').trim()))
+  const [head,...body]=records
+  const headers=(head?.cells||[]).map(value=>String(value??'').trim().toLowerCase().replace(/\s+/g,' '))
   const required=['item name','selling price','initial stock','quantity','expiration date','category','stock room','low stock alert']
   if(required.some(key=>!headers.includes(key)))throw new Error(`Missing columns: ${required.filter(key=>!headers.includes(key)).join(', ')}. Download the CARAIT template.`)
+  if(headers.some((h,i)=>h && headers.indexOf(h)!==i))throw new Error('Duplicate Excel column headers found. Use exactly one column for each field.')
   if(body.length>MAX_ROWS)throw new Error('Maximum 2,000 items per spreadsheet.')
-  return body.map((cells,i)=>Object.fromEntries(INVENTORY_BULK_EDIT_HEADERS.map(header=>{
+  return body.map(({cells,excelRow})=>Object.fromEntries(INVENTORY_BULK_EDIT_HEADERS.map(header=>{
     const idx=headers.indexOf(header.toLowerCase());let value=idx<0?'':String(cells[idx]??'').trim()
     if(header==='Expiration Date'&&/^\d{5}(?:\.\d+)?$/.test(value))value=excelDate(value)
     return [header,value]
-  }).concat([['_excelRow',i+2]])))
+  }).concat([['_excelRow',excelRow]])))
 }
 export const asInventoryRow = (item,rooms,kind='view')=>{
   const room=rooms.find(x=>Number(x.id)===Number(item.default_location_id))
@@ -137,4 +142,5 @@ export const asInventoryRow = (item,rooms,kind='view')=>{
   const values=[item.name||'',Number(item.selling_price??item.price??0)||'', '',Number(item.stock??0),kind==='edit'?'':expiry,item.category==='derma'?'Dermatology':'General Medicine',room?.name||'',Number(item.threshold??5),item.supplier||'JAS']
   return kind==='edit'?[...values,item.id,item.barcode||'']:values
 }
+
 
