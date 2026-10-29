@@ -87,6 +87,88 @@ router.post('/',requireSuper,async(req,res)=>{
   res.status(201).json({id,name,code,setup_mode:requestedMode})
 })
 
+// Independent Superadmin-only state transition: inactive branches must be
+// reactivatable even though normal branch operations are intentionally blocked.
+// Never pass through branchContext here, because it denies inactive branches.
+router.patch('/:branchId/status', requireSuper, async (req, res) => {
+  const branchId = Number(req.params.branchId)
+  if (!validId(branchId)) return res.status(400).json({code:'INVALID_BRANCH_ID',message:'Select a valid branch.'})
+  if (typeof req.body?.is_active !== 'boolean') return res.status(400).json({code:'INVALID_BRANCH_STATUS',message:'Provide is_active as true or false.'})
+  const requested = Number(req.body.is_active)
+  const connection = await db.getConnection()
+  let previous
+  let changed = false
+  try {
+    await connection.beginTransaction()
+    const [[branch]] = await connection.query('SELECT id,name,is_active FROM clinic_branches WHERE id=? FOR UPDATE',[branchId])
+    if (!branch) {
+      await connection.rollback()
+      return res.status(404).json({code:'BRANCH_NOT_FOUND',message:'Branch not found.'})
+    }
+    previous = Number(branch.is_active)
+    if (previous !== requested) {
+      if (requested === 0) {
+        const [[pending]] = await connection.query("SELECT COUNT(*) AS total FROM appointments WHERE branch_id=? AND appointment_date>=CURRENT_DATE() AND status IN ('pending','confirmed','rescheduled','in-progress')",[branchId])
+        if (Number(pending?.total || 0) > 0) {
+          await connection.rollback()
+          return res.status(409).json({code:'BRANCH_HAS_ACTIVE_APPOINTMENTS',message:`This branch has ${pending.total} upcoming or active appointment(s). Resolve or transfer them before deactivation.`})
+        }
+      }
+      await connection.query('UPDATE clinic_branches SET is_active=? WHERE id=?',[requested,branchId])
+      changed = true
+    }
+    await connection.commit()
+  } catch (error) {
+    try {await connection.rollback()} catch (_) { /* Preserve the original failure. */ }
+    throw error
+  } finally {
+    connection.release()
+  }
+  if (changed) await audit(req,requested?'branch.reactivated':'branch.deactivated','clinic_branch',branchId,{is_active:previous},{is_active:requested},branchId)
+  res.json({id:branchId,is_active:requested,changed,message:requested?'Branch is active.':'Branch is inactive.'})
+})
+
+// Independent Superadmin-only state transition: inactive branches must be
+// reactivatable even though normal branch operations are intentionally blocked.
+// Never pass through branchContext here, because it denies inactive branches.
+router.patch('/:branchId/status', requireSuper, async (req, res) => {
+  const branchId = Number(req.params.branchId)
+  if (!validId(branchId)) return res.status(400).json({code:'INVALID_BRANCH_ID',message:'Select a valid branch.'})
+  if (typeof req.body?.is_active !== 'boolean') return res.status(400).json({code:'INVALID_BRANCH_STATUS',message:'Provide is_active as true or false.'})
+  const requested = Number(req.body.is_active)
+  const connection = await db.getConnection()
+  let previous
+  let changed = false
+  try {
+    await connection.beginTransaction()
+    const [[branch]] = await connection.query('SELECT id,name,is_active FROM clinic_branches WHERE id=? FOR UPDATE',[branchId])
+    if (!branch) {
+      await connection.rollback()
+      return res.status(404).json({code:'BRANCH_NOT_FOUND',message:'Branch not found.'})
+    }
+    previous = Number(branch.is_active)
+    if (previous !== requested) {
+      if (requested === 0) {
+        const [[pending]] = await connection.query("SELECT COUNT(*) AS total FROM appointments WHERE branch_id=? AND appointment_date>=CURRENT_DATE() AND status IN ('pending','confirmed','rescheduled','in-progress')",[branchId])
+        if (Number(pending?.total || 0) > 0) {
+          await connection.rollback()
+          return res.status(409).json({code:'BRANCH_HAS_ACTIVE_APPOINTMENTS',message:`This branch has ${pending.total} upcoming or active appointment(s). Resolve or transfer them before deactivation.`})
+        }
+      }
+      await connection.query('UPDATE clinic_branches SET is_active=? WHERE id=?',[requested,branchId])
+      changed = true
+    }
+    await connection.commit()
+  } catch (error) {
+    try {await connection.rollback()} catch (_) { /* Preserve the original failure. */ }
+    throw error
+  } finally {
+    connection.release()
+  }
+  if (changed) await audit(req,requested?'branch.reactivated':'branch.deactivated','clinic_branch',branchId,{is_active:previous},{is_active:requested},branchId)
+  res.json({id:branchId,is_active:requested,changed,message:requested?'Branch is active.':'Branch is inactive.'})
+})
+
 router.put('/:branchId',requireSuper,branchContext,async(req,res)=>{
   const current=req.branch
   const name=String(req.body?.name??current.name).trim(),code=current.code
@@ -654,3 +736,4 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
