@@ -45,5 +45,7 @@ test('UI has separate Super Admin and Branch Admin layouts and usable service to
   assert.match(client, /export const BranchAdminLayout/)
   assert.match(client, /role="switch"/)
   assert.match(client, /Reasons for Cancellation/)
-  assert.match(client, /No-Show Grace Period/)
+  assert.match(client, /Late Arrival Grace Period/)
+  assert.doesNotMatch(client, /No-Show Grace Period/)
 })
+

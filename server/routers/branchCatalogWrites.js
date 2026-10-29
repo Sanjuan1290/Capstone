@@ -22,10 +22,10 @@ async function run(req,res,action){
    throw error
  }
 }
-const normalizeService=body=>{
+const normalizeService=(body,unchangedLegacyMinutes=null)=>{
  const p={service_name:String(body.service_name||'').trim().slice(0,180),clinic_type:String(body.clinic_type||''),category_id:Number(body.category_id),
   consultation_fee:number(body.consultation_fee??body.base_service_price,{min:0.01,max:99999999}),
-  average_duration_minutes:validateAverageDurationMinutes(body.average_duration_minutes,{fallback:60}),
+  average_duration_minutes:validateAverageDurationMinutes(body.average_duration_minutes,{fallback:60,unchangedLegacyMinutes}),
   sort_order:Number(body.sort_order||0),is_active:body.is_active===false||body.is_active===0?0:1,
   pricing_notes:String(body.pricing_notes||'').trim().slice(0,255)||null,
   materials:normalizeServiceMaterials(body.materials||[])}
@@ -54,9 +54,10 @@ async function validatePricing(conn,branchId,p){
 }
 async function saveService(req,res){
  return run(req,res,async conn=>{
-  const p=normalizeService(req.body||{}),id=req.params.serviceId?Number(req.params.serviceId):0
+  const id=req.params.serviceId?Number(req.params.serviceId):0
   if(id&&!validId(id))throw err(400,'INVALID_ID','Invalid service ID.')
   const before=id?await verifyService(conn,req.branchId,id):null
+  const p=normalizeService(req.body||{},before?.average_duration_minutes)
   if(before?.category_id && Number(before.category_id)!==p.category_id){/* category remains in same branch, verified below */}
   const {category,total}=await validatePricing(conn,req.branchId,p)
   const args=[p.category_id,category.name,p.service_name,p.clinic_type,total,p.consultation_fee,p.average_duration_minutes,0,p.is_active,p.sort_order,p.pricing_notes]
@@ -118,4 +119,5 @@ function registerBranchCatalogWrites(router,{requireSuper,branchContext,requireP
  }
 }
 module.exports={registerBranchCatalogWrites,saveService,deleteService,saveDiscount}
+
 

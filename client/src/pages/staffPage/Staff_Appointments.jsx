@@ -4,6 +4,7 @@
 import Appointments from '../shared/Appointments'
 import {
   getAppointments,
+  sendAppointmentReminderNow,
   getAppointmentInventoryReadiness,
   confirmAppointment,
   cancelAppointment,
@@ -24,6 +25,7 @@ import {
 
 const staffServices = {
   getAppointments,
+  sendAppointmentReminderNow,
   getAppointmentInventoryReadiness,
   confirmAppointment,
   cancelAppointment,
@@ -45,3 +47,4 @@ const staffServices = {
 const Staff_Appointments = () => <Appointments services={staffServices} />
 
 export default Staff_Appointments
+

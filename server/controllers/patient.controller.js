@@ -711,8 +711,8 @@ const createAppointment = async (req, res) => {
     cutoffMinutes: bookingSettings.pending_confirmation_cutoff_minutes,
   })
 
-  const result = await withAppointmentSlotLock({ doctorId: doctor_id }, async () => {
-    await validateAppointmentSlot({
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id  , patientId: req.user.id }, async () => {
+    await validateAppointmentSlot({patientId: req.user.id, 
       doctorId: doctor_id,
       clinicType: clinic_type,
       date: normalizedDate,
@@ -880,8 +880,8 @@ const rescheduleAppointment = async (req, res) => {
   })
 
   assertAppointmentTransition(rows[0].status, 'rescheduled')
-  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id }, async () => {
-    await validateAppointmentSlot({
+  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id  , patientId: req.user.id }, async () => {
+    await validateAppointmentSlot({patientId: req.user.id, 
       doctorId: rows[0].doctor_id,
       clinicType: rows[0].clinic_type,
       date: normalizedDate,
@@ -1078,6 +1078,7 @@ const getDoctorAvailableSlots = async (req, res) => {
   }
 
   const slots = await getAvailableAppointmentSlots({
+    patientId: req.user.id,
     doctorId: req.params.id,
     clinicType,
     date: normalizedDate,
@@ -1158,3 +1159,4 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+

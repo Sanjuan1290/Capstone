@@ -387,8 +387,8 @@ const createAppointment = async (req, res) => {
 
   const [[doctorBranch]] = await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [doctor_id, req.branchId])
   if (!doctorBranch) return res.status(404).json({ message: 'Doctor not found in your branch.' })
-  const result = await withAppointmentSlotLock({ doctorId: doctor_id }, async () => {
-    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id  , patientId: patient_id }, async () => {
+    await validateAppointmentSlot({patientId: patient_id,  doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
     const [inserted] = await db.query(
       `INSERT INTO appointments
        (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
@@ -596,8 +596,8 @@ const rescheduleAppointment = async (req, res) => {
   const settings=await loadBookingSettings(db,req.branchId)
   const durationMinutes=getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status,'rescheduled')
-  await withAppointmentSlotLock({doctorId:rows[0].doctor_id},async()=>{
-    await validateAppointmentSlot({doctorId:rows[0].doctor_id,clinicType:rows[0].clinic_type,date:normalizedDate,time:appointment_time,durationMinutes,startIntervalMinutes:settings.booking_start_interval_minutes,excludeAppointmentId:req.params.id})
+  await withAppointmentSlotLock({doctorId:rows[0].doctor_id , patientId: rows[0].patient_id },async()=>{
+    await validateAppointmentSlot({patientId: rows[0].patient_id, doctorId:rows[0].doctor_id,clinicType:rows[0].clinic_type,date:normalizedDate,time:appointment_time,durationMinutes,startIntervalMinutes:settings.booking_start_interval_minutes,excludeAppointmentId:req.params.id})
     const [updated]=await db.query("UPDATE appointments SET appointment_date=?,appointment_time=?,status='confirmed',confirmation_deadline_at=NULL WHERE id=? AND status=?",[normalizedDate,appointment_time,req.params.id,rows[0].status])
     await assertAppointmentMutationApplied(updated,req.params.id)
   })

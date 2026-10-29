@@ -9,9 +9,9 @@ const { parseTimeToMinutes } = require('./scheduleWindows')
 const DEFAULT_ONLINE_MIN_LEAD_MINUTES = 720
 const DEFAULT_PENDING_CONFIRMATION_CUTOFF_MINUTES = 60
 const DEFAULT_BOOKING_START_INTERVAL_MINUTES = 30
-const MIN_SERVICE_DURATION_MINUTES = 15
+const MIN_SERVICE_DURATION_MINUTES = 30
 const MAX_SERVICE_DURATION_MINUTES = 8 * 60
-const SERVICE_DURATION_STEP_MINUTES = 15
+const SERVICE_DURATION_STEP_MINUTES = 30
 // Explicit branch-scoped QA override, including on the production runtime.
 // BOTH the flag and an exact branch ID in the allowlist are mandatory.
 // Never enable zero notice for the global booking policy or for other branches.
@@ -129,14 +129,15 @@ const saveBookingSettings = async (input = {}, { role = null, userId = null, exe
   return settings
 }
 
-const validateAverageDurationMinutes = (value, { fallback = null } = {}) => {
+const validateAverageDurationMinutes = (value, { fallback = null, unchangedLegacyMinutes = null } = {}) => {
   const parsed = Number(value)
   if ((!Number.isInteger(parsed) || parsed <= 0) && fallback !== null) return Number(fallback)
+  if (Number(unchangedLegacyMinutes) === parsed && parsed >= 15 && parsed <= MAX_SERVICE_DURATION_MINUTES && parsed % 15 === 0) return parsed
   if (!Number.isInteger(parsed)
       || parsed < MIN_SERVICE_DURATION_MINUTES
       || parsed > MAX_SERVICE_DURATION_MINUTES
       || parsed % SERVICE_DURATION_STEP_MINUTES !== 0) {
-    const error = new Error('Average Duration must be between 15 minutes and 8 hours in 15-minute increments.')
+    const error = new Error('Appointment length must be 30 minutes to 8 hours, in 30-minute steps.')
     error.statusCode = 400
     error.code = 'SERVICE_DURATION_INVALID'
     throw error
@@ -145,7 +146,7 @@ const validateAverageDurationMinutes = (value, { fallback = null } = {}) => {
 }
 
 const roundReservedDurationMinutes = (averageMinutes, intervalMinutes = DEFAULT_BOOKING_START_INTERVAL_MINUTES) => {
-  const average = validateAverageDurationMinutes(averageMinutes, { fallback: 60 })
+  const average = validateAverageDurationMinutes(averageMinutes, { fallback: 60, unchangedLegacyMinutes: averageMinutes })
   const interval = Math.max(1, Number(intervalMinutes) || DEFAULT_BOOKING_START_INTERVAL_MINUTES)
   return Math.ceil(average / interval) * interval
 }

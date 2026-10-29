@@ -162,7 +162,16 @@ const sendPatientPhoneChangeOtp = async ({ phone, code, fullName }) => {
   return sendSemaphore('/otp', { number: normalized, message, code }, `Phone-change OTP for ${fullName || 'patient'} (${normalized})`)
 }
 
+const sendPatientAppointmentReminderSms = async ({patientPhone,appointment_date,appointment_time,doctor_name,branch_name,branch_phone}) => {
+  const normalized=normalizePhilippinePhone(patientPhone)
+  if(!normalized) return {skipped:true}
+  const message=`CARAIT Clinic reminder: Your appointment with ${String(doctor_name||'your doctor').slice(0,45)} is on ${appointment_date} at ${appointment_time}, ${String(branch_name||'clinic').slice(0,45)}. No reply needed. ${branch_phone?`Contact: ${String(branch_phone).slice(0,25)}`:''}`
+  return sendSemaphore('/messages',{number:normalized,message},'Appointment reminder')
+}
+
 module.exports = {
+  isSmsConfigured,
+  sendPatientAppointmentReminderSms,
   isSmsConfigured,
   sendPatientRegistrationOtp,
   sendPatientPasswordResetOtp,
@@ -170,3 +179,4 @@ module.exports = {
   sendDoctorAppointmentSms,
   sendPatientAppointmentStatusSms,
 }
+

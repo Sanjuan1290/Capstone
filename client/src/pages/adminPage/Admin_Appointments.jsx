@@ -4,6 +4,7 @@
 import Appointments from '../shared/Appointments'
 import {
   getAppointments,
+  sendAppointmentReminderNow,
   getAppointmentInventoryReadiness,
   confirmAppointment,
   cancelAppointment,
@@ -24,6 +25,7 @@ import {
 
 const adminServices = {
   getAppointments,
+  sendAppointmentReminderNow,
   getAppointmentInventoryReadiness,
   confirmAppointment,
   cancelAppointment,
@@ -45,3 +47,4 @@ const adminServices = {
 const Admin_Appointments = () => <Appointments services={adminServices} />
 
 export default Admin_Appointments
+

@@ -7,7 +7,7 @@ import {isValidReportPeriod,sumBranchMetric,buildBranchReportCsv} from './report
 import {loadOverviewSections} from './overviewData.mjs'
 
 const sum=sumBranchMetric
-const cols=['Branch','Appointments','Pending','Completed','No Shows','Doctors','Billed','Collected']
+const cols=['Branch','Appointments','Pending','Completed','Did Not Arrive','Doctors','Billed','Collected']
 export const BranchPerformance=({rows=[]})=><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">{cols.map(h=><th key={h} scope="col" className="px-3 py-3">{h}</th>)}<th scope="col" className="px-3 py-3">Action</th></tr></thead><tbody>{rows.map(r=><tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50"><td className="px-3 py-4 font-semibold text-slate-900">{r.name}{!Number(r.is_active)&&<span className="ml-2"><Pill>Inactive</Pill></span>}</td>{['appointments','pending','completed','no_shows','doctors'].map(k=><td key={k} className="px-3 py-4 tabular-nums">{whole(r[k])}</td>)}<td className="px-3 py-4 tabular-nums">{pesos(r.billed)}</td><td className="px-3 py-4 tabular-nums">{pesos(r.collected)}</td><td className="px-3 py-4"><NavLink to={`/superadmin/branches/${r.id}`} className="inline-flex items-center gap-1 font-semibold text-amber-700 hover:underline">Manage <MdArrowForward/></NavLink></td></tr>)}</tbody></table></div>
 export const Filters=({range,setRange,from,setFrom,to,setTo,branch,setBranch,branches=[],branchFilter=true})=><div className="flex flex-wrap items-end gap-4"><label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">Reporting Period<select className="form-control min-w-[150px]" value={range} onChange={e=>{const r=e.target.value;setRange(r);if(r!=='custom'){setFrom(beforeISO(Number(r)));setTo(todayISO())}}}><option value="1">Today</option><option value="7">Last 7 Days</option><option value="30">Last 30 Days</option><option value="90">Last 90 Days</option><option value="custom">Custom Date Range</option></select></label>{range==='custom'&&<><label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">From<input type="date" className="form-control" value={from} max={to||undefined} onChange={e=>setFrom(e.target.value)}/></label><label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">To<input type="date" className="form-control" value={to} min={from||undefined} onChange={e=>setTo(e.target.value)}/></label></>}{branchFilter&&<label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">Clinic Branch<select className="form-control min-w-[190px]" value={branch} onChange={e=>setBranch(e.target.value)}><option value="all">All Branches</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>}<span className="pb-2 text-xs text-slate-500">{from&&to?`${from} to ${to}`:'Select a valid date range'}</span></div>
 export const TrendBars=({values=[]})=>{const entries=values.slice(-14),max=Math.max(...entries.map(r=>Number(r.appointments)||0),1);return <div className="space-y-3"><div className="flex h-48 items-end gap-2 rounded-xl bg-slate-50 px-3 pt-4" role="img" aria-label={entries.length?`Appointment activity: ${entries.map(r=>`${r.date}: ${r.appointments}`).join(', ')}`:'No appointment activity in the selected reporting period'}>{entries.length?entries.map(r=><div key={r.date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${r.date}: ${r.appointments} appointments`}><span className="text-[10px] font-semibold text-slate-600">{r.appointments}</span><div className="w-full max-w-10 rounded-t-md bg-teal-600/80" style={{height:`${Math.max(3,Number(r.appointments)/max*123)}px`}}/><span className="truncate text-[10px] text-slate-500">{String(r.date).slice(5)}</span></div>):<p className="w-full self-center text-center text-sm text-slate-500">No appointment activity during this period.</p>}</div><p className="text-xs text-slate-500">Latest 14 dates with recorded activity. Dates with no recorded activity are omitted.</p></div>}
@@ -39,7 +39,7 @@ export const SuperAdminDashboard = () => {
           <StatCard label="Appointments" value={whole(sum(rows, 'appointments'))} icon={MdCalendarMonth} />
           <StatCard label="Pending" value={whole(sum(rows, 'pending'))} icon={MdPendingActions} />
           <StatCard label="Completed Visits" value={whole(sum(rows, 'completed'))} icon={MdCheckCircle} />
-          <StatCard label="No Shows" value={whole(sum(rows, 'no_shows'))} icon={MdPersonOff} />
+          <StatCard label="Did Not Arrive" value={whole(sum(rows, 'no_shows'))} icon={MdPersonOff} />
           <StatCard label="Collected Revenue" value={pesos(sum(rows, 'collected'))} icon={MdPayments} helper="Payments less recorded refunds" />
         </> : <div className="sm:col-span-2 lg:col-span-3 xl:col-span-5"><Banner onRetry={reload}>{errors.rows || errors.period || 'Branch metrics are unavailable.'}</Banner></div>}
       </div>
@@ -85,7 +85,7 @@ export const SuperAdminReports = () => {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard label="Appointments" value={whole(sum(filtered, 'appointments'))} icon={MdCalendarMonth} />
           <StatCard label="Completed Visits" value={whole(sum(filtered, 'completed'))} icon={MdCheckCircle} />
-          <StatCard label="No Shows" value={whole(sum(filtered, 'no_shows'))} icon={MdPersonOff} />
+          <StatCard label="Did Not Arrive" value={whole(sum(filtered, 'no_shows'))} icon={MdPersonOff} />
           <StatCard label="Pending" value={whole(sum(filtered, 'pending'))} icon={MdPendingActions} />
           <StatCard label="Billed Amount" value={pesos(sum(filtered, 'billed'))} icon={MdPayments} helper="Non-voided bills created in the period" />
           <StatCard label="Collected Revenue" value={pesos(sum(filtered, 'collected'))} icon={MdPayments} helper="Payments less recorded refunds" />
@@ -98,3 +98,4 @@ export const SuperAdminReports = () => {
     </>}
   </div>
 }
+

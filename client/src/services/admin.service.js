@@ -527,3 +527,8 @@ export const createAdminQrPayment = id => requestJson(`${getAdminApiBase()}/bill
 export const getAdminQrStatus = (id, { reconcile = false } = {}) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/status${reconcile ? '?reconcile=1' : ''}`)
 export const cancelAdminQrPayment = (id, attemptId) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/${attemptId}/cancel`, { method:'POST' })
 export const resolveAdminQrReview = (id, attemptId, body) => requestJson(`${getAdminApiBase()}/billing/${id}/qr-payment/${attemptId}/resolve`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+
+
+export const getReminderSettings = () => requestJson(`${getAdminApiBase()}/reminder-settings`)
+export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}/reminder-settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)})
+export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})

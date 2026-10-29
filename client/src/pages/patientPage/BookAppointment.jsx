@@ -416,7 +416,7 @@ const StepConfirm = ({ form, selectedPromotion, policyAccepted, onPolicyAccepted
       {form.service && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Requested Service</p><p className="mt-1 text-sm font-bold text-emerald-900">{form.service.service_name}</p></div>
+            <div><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Service</p><p className="mt-1 text-sm font-bold text-emerald-900">{form.service.service_name}</p></div>
             <p className="text-sm font-black text-emerald-800">₱{Number(form.service.default_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-emerald-700">This is the standard clinic price. Final charges may change if additional services, medicines, or supplies are used during your visit.</p>
@@ -814,4 +814,5 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 

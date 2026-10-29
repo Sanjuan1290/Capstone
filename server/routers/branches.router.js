@@ -364,9 +364,13 @@ const saveBookingPolicy = async(req,res)=>{
  await db.query(`INSERT INTO branch_booking_settings (branch_id,online_min_lead_minutes,pending_confirmation_cutoff_minutes,booking_start_interval_minutes,no_show_grace_minutes,updated_by_admin_id) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE online_min_lead_minutes=VALUES(online_min_lead_minutes),pending_confirmation_cutoff_minutes=VALUES(pending_confirmation_cutoff_minutes),booking_start_interval_minutes=30,no_show_grace_minutes=VALUES(no_show_grace_minutes),updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,input.online_min_lead_minutes,input.pending_confirmation_cutoff_minutes,30,grace,req.user.id]);
  await audit(req,'booking_policy.updated','branch_booking_policy',req.branchId,null,{...input,no_show_grace_minutes:grace},req.branchId);await getBookingPolicy(req,res)
 }
+const reminderEndpoints=require('./appointmentReminderRoutes')
 const installBranchEndpoints = (prefix, context) => {
  router.get(`${prefix}/dashboard`,context,requirePermission('dashboard'),branchDashboard)
  for(const [resource,permission] of Object.entries({appointments:'appointments',inventory:'inventory',services:'system_setup',doctors:'doctor_schedules',staff:'accounts',patients:'patient_records',billing:'billing',transfers:'stock_transfers',audits:'audit_logs'})) router.get(`${prefix}/${resource}`,context,...listResource(resource,permission))
+ router.get(`${prefix}/reminder-settings`,context,requirePermission('system_setup'),reminderEndpoints.ensureBranch,reminderEndpoints.get)
+ router.put(`${prefix}/reminder-settings`,context,requirePermission('system_setup'),reminderEndpoints.ensureBranch,reminderEndpoints.put)
+ router.post(`${prefix}/appointments/:id/remind`,context,requirePermission('appointments'),reminderEndpoints.ensureBranch,reminderEndpoints.manual)
  router.get(`${prefix}/booking-policy`,context,requirePermission('system_setup'),getBookingPolicy)
  router.put(`${prefix}/booking-policy`,context,requirePermission('system_setup'),saveBookingPolicy)
 }
@@ -380,9 +384,9 @@ router.get('/workspace/:branchId/booking-policy',requireSuper,branchContext,requ
 router.put('/workspace/:branchId/booking-policy',requireSuper,branchContext,requirePermission('system_setup'),saveBookingPolicy)
 
 
-const serviceBody = async (req,res,branchId) => {
+const serviceBody = async (req,res,branchId,unchangedLegacyMinutes=null) => {
  const name=String(req.body?.service_name||'').trim(),type=String(req.body?.clinic_type||''),price=Number(req.body?.default_price),duration=Number(req.body?.average_duration_minutes||60),categoryId=Number(req.body?.category_id||0)
- if(!name||name.length>180||!['medical','derma'].includes(type)||!Number.isFinite(price)||price<0||price>10000000||!Number.isInteger(duration)||duration<15||duration>480||duration%15!==0){res.status(400).json({message:'Enter a valid service name, clinic type, price and 15–480 minute duration.'});return null}
+ if(!name||name.length>180||!['medical','derma'].includes(type)||!Number.isFinite(price)||price<0||price>10000000||!Number.isInteger(duration)||(duration<30||duration>480||duration%30!==0) && !(duration===Number(unchangedLegacyMinutes)&&duration>=15&&duration<=480&&duration%15===0)){res.status(400).json({message:'Enter a valid service name, clinic type, price and appointment length (30-minute steps, up to 8 hours).'});return null}
  let category='Other Services'
  if(categoryId){const [[cat]]=await db.query('SELECT name FROM billing_service_categories WHERE id=? AND branch_id=? AND clinic_type=?',[categoryId,branchId,type]);if(!cat){res.status(400).json({message:'Choose a category from this branch.'});return null}category=cat.name}
  return {name,type,price,duration,categoryId:categoryId||null,category,isActive:req.body?.is_active===false || Number(req.body?.is_active)===0?0:1}
@@ -395,7 +399,7 @@ const addService=async(req,res)=>{
 }
 const editService=async(req,res)=>{
  const [[old]]=await db.query('SELECT * FROM billing_service_catalog WHERE id=? AND branch_id=?',[req.params.serviceId,req.branchId]);if(!old)return res.status(404).json({message:'Service not found in your branch.'})
- const v=await serviceBody({body:{...old,...req.body}},res,req.branchId);if(!v)return
+ const v=await serviceBody({body:{...old,...req.body}},res,req.branchId,old.average_duration_minutes);if(!v)return
  await db.query(`UPDATE billing_service_catalog SET category_id=?,category=?,service_name=?,clinic_type=?,default_price=?,consultation_fee=?,average_duration_minutes=?,is_active=? WHERE id=? AND branch_id=?`,[v.categoryId,v.category,v.name,v.type,v.price,v.price,v.duration,v.isActive,old.id,req.branchId])
  await audit(req,'service.updated','billing_service',old.id,old,{service_name:v.name,default_price:v.price,is_active:v.isActive},req.branchId)
  res.json({id:old.id,branch_id:req.branchId,...v})
@@ -685,6 +689,9 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
 
   router.get(`${prefix}/billing/catalog`,...middle,allowAnyPermission('system_setup','appointments','billing'),originalServices)
   router.get(`${prefix}/inventory`,...middle,allowAnyPermission('inventory','billing'),originalInventory)
+  router.get(`${prefix}/reminder-settings`,...middle,requirePermission('system_setup'),reminderEndpoints.ensureBranch,reminderEndpoints.get)
+  router.put(`${prefix}/reminder-settings`,...middle,requirePermission('system_setup'),reminderEndpoints.ensureBranch,reminderEndpoints.put)
+  router.post(`${prefix}/appointments/:id/remind`,...middle,requirePermission('appointments'),reminderEndpoints.ensureBranch,reminderEndpoints.manual)
   router.get(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),getBookingPolicy)
   router.put(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),afterSuccessfulMutation('settings.updated'),saveBookingPolicy)
   // Existing appointment transitions retain their original payload and status codes.

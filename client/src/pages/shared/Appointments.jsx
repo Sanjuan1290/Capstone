@@ -40,7 +40,7 @@ const STATUS_TABS = [
   { key: 'completed', label: 'Completed' },
   { key: 'cancelled', label: 'Cancelled' },
   { key: 'rescheduled', label: 'Rescheduled' },
-  { key: 'no_show', label: 'No Show' },
+  { key: 'no_show', label: 'Did Not Arrive' },
   { key: 'rejected', label: 'Rejected' },
 ]
 
@@ -80,7 +80,7 @@ const StatusBadge = ({ status }) => (
   </span>
 )
 
-const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onReschedule, onView }) => {
+const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onReschedule, onView, onReminder }) => {
   const actions = getActionsForStatus(appointment.status)
   const busy = busyId === appointment.id
 
@@ -89,6 +89,11 @@ const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onR
       {actions.includes('confirm') && (
         <button disabled={busy} onClick={() => onConfirm(appointment)} className={`${buttonBase} bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60`}>
           Confirm
+        </button>
+      )}
+      {appointment.status === 'confirmed' && typeof onReminder === 'function' && (
+        <button disabled={busy} onClick={() => onReminder(appointment)} className={`${buttonBase} bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-60`}>
+          Send Reminder
         </button>
       )}
       {actions.includes('cancel') && (
@@ -103,7 +108,7 @@ const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onR
       )}
       {actions.includes('no_show') && (
         <button disabled={busy} onClick={() => onNoShow(appointment)} className={`${buttonBase} bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-60`}>
-          Mark No-Show
+          Mark as Did Not Arrive
         </button>
       )}
       {actions.includes('view') && (
@@ -197,7 +202,7 @@ const AppointmentViewModal = ({ appointment, onClose }) => {
         <div className="grid gap-3 rounded-3xl bg-slate-50 p-4 text-sm text-slate-700 sm:grid-cols-2">
           <div><span className="block text-xs text-slate-400">Date</span>{formatDate(appointment.appointment_date || appointment.date)}</div>
           <div><span className="block text-xs text-slate-400">Schedule</span>{formatAppointmentRange(appointment)}</div>
-          <div><span className="block text-xs text-slate-400">Reserved Duration</span>{formatDurationMinutes(getReservedDurationMinutes(appointment))}</div>
+          <div><span className="block text-xs text-slate-400">Appointment Length</span>{formatDurationMinutes(getReservedDurationMinutes(appointment))}</div>
           <div><span className="block text-xs text-slate-400">Service</span>{appointment.requested_service_name_snapshot || '—'}</div>
           <div><span className="block text-xs text-slate-400">Reason</span>{appointment.reason || '—'}</div>
           <div><span className="block text-xs text-slate-400">Notes</span>{appointment.notes || '—'}</div>
@@ -586,6 +591,7 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
 
 const Appointments = ({ services }) => {
   const [appointments, setAppointments] = useState([])
+  const [reminding, setReminding] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('all')
   const [query, setQuery] = useState('')
@@ -715,6 +721,18 @@ Confirm this appointment anyway?`)
       setBusyId(null)
     }
   }
+  const handleReminder = async (appointment) => {
+    if (!services.sendAppointmentReminderNow) return
+    if (!window.confirm(`Send an appointment reminder to ${appointment.patient_name || 'this patient'}? Only verified, permitted contact channels will be used.`)) return
+    setReminding(appointment.id)
+    try {
+      const result = await services.sendAppointmentReminderNow(appointment.id,['email','sms'])
+      const text=(result.results || []).map(item=>`${item.channel}: ${item.status}`).join(', ') || 'No eligible contact channels.'
+      window.alert(`Reminder result — ${text}. The appointment status is unchanged.`)
+    } catch (error) { window.alert(error.message || 'Could not send reminder.') }
+    finally { setReminding(null) }
+  }
+
   const handleCancel = (appointment) => {
     setCancelAppointmentTarget(appointment)
   }
@@ -826,18 +844,19 @@ Confirm this appointment anyway?`)
                 <div className="grid grid-cols-2 gap-3 text-sm text-slate-600">
                   <div><span className="block text-xs text-slate-400">Date</span>{formatDate(appointment.appointment_date || appointment.date)}</div>
                   <div><span className="block text-xs text-slate-400">Schedule</span>{formatAppointmentRange(appointment)}</div>
-                  <div><span className="block text-xs text-slate-400">Reserved Duration</span>{formatDurationMinutes(getReservedDurationMinutes(appointment))}</div>
+                  <div><span className="block text-xs text-slate-400">Appointment Length</span>{formatDurationMinutes(getReservedDurationMinutes(appointment))}</div>
                   <div><span className="block text-xs text-slate-400">Service</span>{appointment.requested_service_name_snapshot || '—'}</div>
                   <div><span className="block text-xs text-slate-400">Reason</span>{appointment.reason || '—'}</div>
                 </div>
                 <div className="mt-4">
                   <ActionButtons
                     appointment={appointment}
-                    busyId={busyId}
+                    busyId={reminding || busyId}
                     onConfirm={handleConfirm}
                     onCancel={handleCancel}
                     onNoShow={handleNoShow}
                     onReschedule={setRescheduleAppointment}
+                    onReminder={handleReminder}
                     onView={setViewAppointment}
                   />
                 </div>
@@ -853,7 +872,7 @@ Confirm this appointment anyway?`)
                   <th className="px-5 py-4">Doctor</th>
                   <th className="px-5 py-4">Date</th>
                   <th className="px-5 py-4">Schedule</th>
-                  <th className="px-5 py-4">Requested Service</th>
+                  <th className="px-5 py-4">Service</th>
                   <th className="px-5 py-4">Reason</th>
                   <th className="px-5 py-4">Status</th>
                   <th className="px-5 py-4">Actions</th>
@@ -878,12 +897,13 @@ Confirm this appointment anyway?`)
                     <td className="px-5 py-4">
                       <ActionButtons
                         appointment={appointment}
-                        busyId={busyId}
+                        busyId={reminding || busyId}
                         onConfirm={handleConfirm}
                         onCancel={handleCancel}
                         onNoShow={handleNoShow}
                         onReschedule={setRescheduleAppointment}
-                        onView={setViewAppointment}
+                        onReminder={handleReminder}
+                    onView={setViewAppointment}
                       />
                     </td>
                   </tr>
@@ -931,3 +951,4 @@ Confirm this appointment anyway?`)
 }
 
 export default Appointments
+

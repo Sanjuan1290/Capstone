@@ -8,6 +8,8 @@ import {
   deleteAppointmentReason,
   getBookingPolicy,
   updateBookingPolicy,
+  getReminderSettings,
+  saveReminderSettings,
 } from '../../services/admin.service'
 import {
   MdAdd,
@@ -62,6 +64,9 @@ const Admin_PatientBooking = () => {
   const [savedBookingPolicy, setSavedBookingPolicy] = useState({ online_min_lead_minutes: 720, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
+  const [reminderSettings,setReminderSettings]=useState({enabled:false,lead_hours:3,email_enabled:true,sms_enabled:false})
+  const [reminderError,setReminderError]=useState('')
+  const [savingReminders,setSavingReminders]=useState(false)
 
   const loadReasons = async () => {
     setLoading(true)
@@ -95,6 +100,7 @@ const Admin_PatientBooking = () => {
   useEffect(() => {
     loadReasons()
     loadPolicy()
+    getReminderSettings().then((data)=>setReminderSettings({enabled:Boolean(data.enabled),lead_hours:Number(data.lead_hours||3),email_enabled:Boolean(data.email_enabled),sms_enabled:Boolean(data.sms_enabled)})).catch(()=>setReminderError('Reminder settings need a staging database update. Automatic reminders remain off.'))
   }, [])
 
   const policyError = useMemo(() => {
@@ -234,7 +240,7 @@ const Admin_PatientBooking = () => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <MdPeople className="text-amber-500 text-[22px]" /> Patient Visit Details
+            <MdPeople className="text-amber-500 text-[22px]" /> Appointment Settings
           </h1>
           <p className="text-xs lg:text-sm text-slate-500 mt-0.5">
             Manage the reason options patients see in Book Appointment.
@@ -266,15 +272,15 @@ const Admin_PatientBooking = () => {
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label>
-            <span className="form-label">Minimum Online Booking Notice</span>
+            <span className="form-label">How Early Patients Must Book</span>
             <select disabled={!editingPolicy} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.online_min_lead_minutes} onChange={(e)=>setBookingPolicy((current)=>{const selected=Number(e.target.value);return {...current,online_min_lead_minutes:selected,pending_confirmation_cutoff_minutes:selected===0?0:current.pending_confirmation_cutoff_minutes===0?60:current.pending_confirmation_cutoff_minutes}})}>
               {zeroNoticeTestingEnabled && <option value={0}>No minimum time (Testing Only)</option>}
               {BOOKING_POLICY_MINUTE_OPTIONS.filter((minutes)=>minutes>=720).map((minutes)=><option key={minutes} value={minutes}>{durationLabel(minutes)}</option>)}
             </select>
-            <span className="form-helper">{bookingPolicy.online_min_lead_minutes === 0 ? "Testing only: future appointment slots can be booked without advance notice. Never enable on production." : `${durationLabel(bookingPolicy.online_min_lead_minutes)} before the appointment. Adjust only in 30-minute increments. Minimum: 12 hours.`}</span>
+            <span className="form-helper">{bookingPolicy.online_min_lead_minutes === 0 ? "Testing only: future appointment slots can be booked without advance notice. Use only for approved test branches." : `${durationLabel(bookingPolicy.online_min_lead_minutes)} before the appointment. Adjust only in 30-minute increments. Minimum: 12 hours.`}</span>
           </label>
           <label>
-            <span className="form-label">Pending Confirmation Cutoff</span>
+            <span className="form-label">Latest Time to Confirm</span>
             <select disabled={!editingPolicy || bookingPolicy.online_min_lead_minutes === 0} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.pending_confirmation_cutoff_minutes} onChange={(e)=>setBookingPolicy((current)=>({...current,pending_confirmation_cutoff_minutes:Number(e.target.value)}))}>
               {bookingPolicy.online_min_lead_minutes === 0 && <option value={0}>At appointment start (Testing Only)</option>}
               {BOOKING_POLICY_MINUTE_OPTIONS.map((minutes)=><option key={minutes} value={minutes}>{durationLabel(minutes)}</option>)}
@@ -282,12 +288,36 @@ const Admin_PatientBooking = () => {
             <span className="form-helper">{bookingPolicy.online_min_lead_minutes === 0 ? "Testing only: pending requests expire at appointment start, not before." : `Auto-reject if still pending ${durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)} before the appointment. Adjust only in 30-minute increments. Default: 1 hour.`}</span>
           </label>
           <div>
-            <span className="form-label">Booking Start Interval</span>
+            <span className="form-label">Available Start Times</span>
             <div className="form-control mt-1.5 bg-slate-50 font-bold text-slate-700">30 minutes</div>
             <span className="form-helper">Fixed at 30 minutes. Available start times move in 30-minute increments; service duration determines how many blocks are reserved.</span>
           </div>
         </div>
         {editingPolicy && policyError ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{policyError}</div> : <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">{bookingPolicy.online_min_lead_minutes === 0 ? "TESTING ONLY: Patients may book future available slots with no advance notice. Pending requests expire at appointment start." : <>Patients must book at least <strong>{durationLabel(bookingPolicy.online_min_lead_minutes)}</strong> ahead. If Staff has not confirmed the request by <strong>{durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)}</strong> before its start time, the system automatically marks it Rejected and releases the slot.</>}</div>}
+      </section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <div><h2 className="font-bold text-slate-800">Appointment Reminders</h2>
+          <p className="text-xs text-slate-500 mt-1">Only confirmed appointments receive reminders. No reply is needed to keep a booking.</p></div>
+        <label className="flex items-center justify-between text-sm font-semibold">Send reminders automatically
+          <input type="checkbox" role="switch" checked={reminderSettings.enabled} onChange={e=>setReminderSettings(v=>({...v,enabled:e.target.checked}))}/>
+        </label>
+        <label className="block text-sm font-semibold">Remind patients before their appointment
+          <select className="form-control mt-1" value={reminderSettings.lead_hours} onChange={e=>setReminderSettings(v=>({...v,lead_hours:Number(e.target.value)}))}>
+            {[1,2,3,6,12,24].map(h=><option key={h} value={h}>{h} hour{h===1?'':'s'} before</option>)}
+          </select>
+        </label>
+        <div className="flex flex-wrap gap-5">
+          <label className="flex gap-2 text-sm"><input type="checkbox" checked={reminderSettings.email_enabled} onChange={e=>setReminderSettings(v=>({...v,email_enabled:e.target.checked}))}/>Email</label>
+          <label className="flex gap-2 text-sm"><input type="checkbox" checked={reminderSettings.sms_enabled} onChange={e=>setReminderSettings(v=>({...v,sms_enabled:e.target.checked}))}/>Text message (SMS)</label>
+        </div>
+        {reminderError && <p className="text-xs text-rose-600" role="alert">{reminderError}</p>}
+        <button type="button" className="button-primary" disabled={savingReminders} onClick={async()=>{
+          setSavingReminders(true);setReminderError('')
+          try {const saved=await saveReminderSettings(reminderSettings);setReminderSettings({enabled:Boolean(saved.enabled),lead_hours:Number(saved.lead_hours),email_enabled:Boolean(saved.email_enabled),sms_enabled:Boolean(saved.sms_enabled)})}
+          catch(e){setReminderError(e.message||'Reminder settings could not be saved.')}
+          finally {setSavingReminders(false)}
+        }}>{savingReminders?'Saving…':'Save Reminder Settings'}</button>
+        <p className="text-xs text-slate-500">Requires verified contacts, consent and configured delivery providers. A failed message never cancels an appointment.</p>
       </section>
 
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">

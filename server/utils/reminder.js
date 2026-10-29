@@ -54,7 +54,15 @@ function scheduleDaily(fn, hour = 8, minute = 0) {
   scheduleNext()
 }
 
-scheduleDaily(sendTomorrowReminders)
+// The legacy "tomorrow" job must not run alongside the durable reminder engine.
+// It was undeduplicated and could send twice after a restart.
+// Keep its function for existing callers but disable automatic invocation.
+if (process.env.CARAIT_ENABLE_DURABLE_REMINDERS === 'true') {
+  const {runAutomatic}=require('./appointmentReminders')
+  const run=()=>runAutomatic().catch(err=>console.error('[Reminders] Worker error:',err.code||'REMINDER_WORKER_ERROR'))
+  run()
+  setInterval(run,60*1000)
+}
 expirePendingAppointments().catch(err => console.error('[Appointments] Pending expiry sync error:', err.message))
 setInterval(() => {
   expirePendingAppointments().catch(err => console.error('[Appointments] Pending expiry sync error:', err.message))
@@ -64,3 +72,4 @@ setInterval(() => {
 }, 60 * 1000)
 
 module.exports = { sendTomorrowReminders, scheduleDaily }
+

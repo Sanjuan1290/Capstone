@@ -59,24 +59,27 @@ const sendVerificationCode = async (email, full_name, code) => {
   })
 }
 
-const sendAppointmentReminder = async ({ to, patient_name, doctor_name, appointment_date, appointment_time, clinic_type }) => {
-  const formattedDate = formatAppointmentDate(appointment_date)
-
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+const sendAppointmentReminder = async ({to,patient_name,doctor_name,appointment_date,appointment_time,branch_name,branch_address,branch_phone}) => {
+  const date=escapeHtml(formatAppointmentDate(appointment_date))
+  const person=escapeHtml(patient_name)
+  const doctor=escapeHtml(doctor_name)
+  const time=escapeHtml(appointment_time)
+  const branch=escapeHtml(branch_name||'CARAIT Clinic')
+  const address=escapeHtml(branch_address||'Contact the clinic for directions')
+  const phone=escapeHtml(branch_phone||'')
   await sendResendEmail({
-    to,
-    subject: 'Reminder: Your Appointment Tomorrow - Carait Clinic',
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px">
-        <h2 style="color:#0b1a2c">Appointment Reminder</h2>
-        <p>Hi <strong>${patient_name}</strong>,</p>
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:24px 0">
-          <p style="margin:0 0 8px 0"><strong>Doctor:</strong> ${doctor_name}</p>
-          <p style="margin:0 0 8px 0"><strong>Date:</strong> ${formattedDate}</p>
-          <p style="margin:0 0 8px 0"><strong>Time:</strong> ${appointment_time}</p>
-          <p style="margin:0"><strong>Clinic:</strong> ${clinic_type === 'derma' ? 'Dermatology' : 'General Medicine'}</p>
-        </div>
+    to,subject:`CARAIT Clinic appointment reminder — ${date}`,
+    html:`<div style="margin:0 auto;max-width:600px;font-family:Arial,sans-serif;color:#122036;background:white">
+      <div style="background:#0b1a2c;color:white;padding:24px 28px"><h1 style="margin:0;font-size:23px">CARAIT CLINIC</h1><p style="margin:8px 0 0">Appointment reminder</p></div>
+      <div style="padding:28px"><p>Hi ${person},</p><p>Your confirmed appointment is coming up.</p>
+      <div style="padding:20px;background:#f8fafc;border:1px solid #dbe3ed;border-radius:12px;line-height:1.9">
+        <b>Date:</b> ${date}<br><b>Time:</b> ${time} (Philippine time)<br><b>Doctor:</b> ${doctor}<br><b>Branch:</b> ${branch}<br><b>Location:</b> ${address}
       </div>
-    `,
+      <p>Please arrive a few minutes early. To cancel or reschedule, contact the clinic.</p>
+      <a href="https://caraitclinic.com/patient/my-appointments" style="display:inline-block;background:#f59e0b;padding:13px 22px;border-radius:8px;color:#0b1a2c;text-decoration:none;font-weight:bold">View My Appointment</a>
+      <p style="color:#64748b;font-size:12px">${phone} · No reply is required. Not replying will never cancel your appointment.</p>
+      </div></div>`,
   })
 }
 
@@ -174,3 +177,4 @@ module.exports = {
   sendAdminMfaOtp,
   sendAccountSecurityOtp,
 }
+

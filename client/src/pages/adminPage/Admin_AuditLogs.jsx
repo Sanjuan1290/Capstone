@@ -121,7 +121,7 @@ const auditPresentation = (row) => {
         : `${actor} cancelled ${appointmentPatient}'s appointment.`
       break
     case 'appointment.no_show':
-      description = `${actor} marked ${appointmentPatient}'s appointment as No Show.`
+      description = `${actor} marked ${appointmentPatient}'s appointment as Did Not Arrive.`
       break
     case 'appointment.rescheduled':
       description = `${actor} rescheduled ${appointmentPatient}'s appointment.`
@@ -399,3 +399,4 @@ const Admin_AuditLogs = () => {
 }
 
 export default Admin_AuditLogs
+

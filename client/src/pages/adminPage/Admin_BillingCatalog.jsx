@@ -123,7 +123,7 @@ const Admin_BillingCatalog = () => {
     <div className="grid gap-3 sm:grid-cols-3">
       <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-400">Services</p><p className="mt-2 text-2xl font-black">{services.length}</p></div>
       <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-400">Active</p><p className="mt-2 text-2xl font-black text-emerald-600">{activeCount}</p></div>
-      <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-400">Linked Consumables</p><p className="mt-2 text-2xl font-black text-violet-600">{linkedConsumables}</p></div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase text-slate-400">Supplies Used</p><p className="mt-2 text-2xl font-black text-violet-600">{linkedConsumables}</p></div>
     </div>
 
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -137,7 +137,7 @@ const Admin_BillingCatalog = () => {
           : rows.length === 0 ? <div className="p-8 text-center">{search ? <EmptyState title="No matching services" description="Clear the search or change the clinic filter." /> : <EmptyState title={filter !== 'all' ? `No ${clinicLabel(filter)} services configured` : 'No services configured yet'} description={canEditPricing ? 'Add an active service with a Service Price so it can be used for booking and billing.' : 'An Admin must configure Services & Pricing.'} />}{canEditPricing && filter !== 'all' && <Link to={newServicePath(filter)} className="button-primary mt-4 inline-flex"><MdAdd /> Add {clinicLabel(filter)} Service</Link>}</div>
             : <>
               <div className="overflow-x-auto"><table className="min-w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Service</th><th className="px-5 py-3">Clinic</th><th className="px-5 py-3">Service Price</th><th className="px-5 py-3">Duration</th><th className="px-5 py-3">Consumables</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Service</th><th className="px-5 py-3">Clinic</th><th className="px-5 py-3">Service Price</th><th className="px-5 py-3">Appointment Length</th><th className="px-5 py-3">Supplies Used</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">{rows.map((service) => <tr key={service.id}>
                   <td className="px-5 py-4"><p className="font-black text-slate-800">{service.service_name}</p><p className="mt-1 text-xs text-slate-500">{service.category || 'Uncategorized'}</p></td>
                   <td className="px-5 py-4">{clinicLabel(service.clinic_type)}</td>
@@ -156,3 +156,4 @@ const Admin_BillingCatalog = () => {
 }
 
 export default Admin_BillingCatalog
+

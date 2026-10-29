@@ -1,3 +1,4 @@
+const reminderRoutes=require('./appointmentReminderRoutes')
 // server/routers/staff.router.js
 const express    = require('express')
 const db = require('../db/connect')
@@ -166,6 +167,9 @@ router.post('/admin-access/promotions/image/status', ...auth, can('system_setup'
 
 // ── System Setup ─────────────────────────────────────────────────────────────
 router.get('/admin-access/system-setup', ...auth, can('system_setup'), readSystemSetup)
+router.get('/admin-access/reminder-settings', ...auth, can('system_setup'), reminderRoutes.ensureBranch, reminderRoutes.get)
+router.put('/admin-access/reminder-settings', ...auth, can('system_setup'), reminderRoutes.ensureBranch, reminderRoutes.put)
+router.post('/appointments/:id/remind', ...auth, can('appointments'), reminderRoutes.ensureBranch, reminderRoutes.manual)
 router.get('/admin-access/system-setup/booking-policy', ...auth, can('system_setup'), readBranchPolicy)
 router.put('/admin-access/system-setup/booking-policy', ...auth, can('system_setup'), writeBranchPolicy)
 router.post('/admin-access/system-setup/cancellation-reasons', ...auth, can('system_setup'), saveCancellation)

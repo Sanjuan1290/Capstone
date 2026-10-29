@@ -1280,7 +1280,7 @@ const Doctor_Consultation = () => {
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
               <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                 <div>
-                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Actual Consumables</h2>
+                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Supplies Used</h2>
                   <p className="mt-1 text-xs text-slate-500">The booked service and its configured consumables are fixed. Record any additional items separately under Extra Consumables. Inventory is checked and stocked out only when the consultation is completed.</p>
                 </div>
                 {isEditMode && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">Clinical usage locked after completion</span>}
@@ -1311,7 +1311,7 @@ const Doctor_Consultation = () => {
 
                         <div className="mt-4 border-t border-violet-100 pt-4">
                           <div>
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Service Consumables · Fixed</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Supplies Included · Fixed</p>
                             <p className="mt-1 text-xs text-slate-500">These consumables and quantities come directly from the service setup and cannot be changed during consultation.</p>
                           </div>
                           {defaultMaterials.length ? (
@@ -1350,7 +1350,7 @@ const Doctor_Consultation = () => {
                   <div className="rounded-2xl border border-amber-200 bg-amber-50/30 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-bold text-slate-800">Extra Consumables</p>
+                        <p className="text-sm font-bold text-slate-800">Extra Supplies</p>
                         <p className="mt-1 text-xs text-slate-500">Record the quantity used in addition to the fixed Service Consumables. You may add a different item or add more of the same consumable already included in the fixed service setup.</p>
                       </div>
                       {consultationStatus !== 'finalized' && extraConsumableTarget && (
@@ -1796,3 +1796,4 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+

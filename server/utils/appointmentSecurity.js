@@ -134,6 +134,37 @@ const loadActiveAppointmentWindows = async ({ doctorId, date, excludeAppointment
 
 const overlapsAny = (start, end, windows = []) => windows.some((window) => start < window.end && end > window.start)
 
+// A patient cannot hold overlapping active appointments across doctors OR branches.
+// Query neighbouring dates too, because overnight appointments can overlap the next day.
+const loadActivePatientWindows = async ({ patientId, date, excludeAppointmentId = null, executor = db }) => {
+  const params = [Number(patientId), addDaysDateOnly(date,-1), addDaysDateOnly(date,1)]
+  let sql = `SELECT id, DATE_FORMAT(appointment_date,'%Y-%m-%d') AS appointment_date,
+    appointment_time, reserved_duration_minutes_snapshot, requested_service_duration_minutes_snapshot
+    FROM appointments WHERE patient_id=? AND appointment_date BETWEEN ? AND ?
+    AND status IN ('pending','confirmed','rescheduled','in-progress')`
+  if(Number(excludeAppointmentId)>0){sql+=' AND id <> ?';params.push(Number(excludeAppointmentId))}
+  // Locking read is essential for branch writes that started a transaction before the named lock.
+  if (executor !== db) sql += ' FOR UPDATE'
+  const [rows] = await executor.query(sql,params)
+  return rows.map(row=>{
+    const offset=dateOffsetDays(date,row.appointment_date)
+    const minutes=parseTimeToMinutes(row.appointment_time)
+    if(offset===null||minutes===null)return null
+    const start=offset*1440+minutes
+    return {id:row.id,start,end:start+getAppointmentReservedDuration(row)}
+  }).filter(Boolean)
+}
+
+const assertPatientAppointmentAvailable = async ({patientId,date,time,durationMinutes,excludeAppointmentId=null,executor=db}) => {
+  if(!Number.isSafeInteger(Number(patientId))||Number(patientId)<=0) throw Object.assign(new Error('Select a patient.'),{statusCode:400})
+  const start=parseTimeToMinutes(time)
+  if(start===null) throw Object.assign(new Error('Select a valid appointment time.'),{statusCode:400})
+  const windows=await loadActivePatientWindows({patientId,date,excludeAppointmentId,executor})
+  if(overlapsAny(start,start+normalizeDuration(durationMinutes),windows))
+    throw Object.assign(new Error('You already have an appointment during this time. Please choose another time.'),{statusCode:409,code:'PATIENT_APPOINTMENT_CONFLICT'})
+}
+
+
 const loadDoctorAndSchedules = async ({ doctorId, clinicType, executor = db }) => {
   const id = Number(doctorId)
   if (!id) throw Object.assign(new Error('Select a valid doctor.'), { statusCode: 400 })
@@ -157,6 +188,7 @@ const loadDoctorAndSchedules = async ({ doctorId, clinicType, executor = db }) =
 
 const validateAppointmentSlot = async ({
   doctorId,
+  patientId = null,
   clinicType,
   date,
   time,
@@ -196,6 +228,8 @@ const validateAppointmentSlot = async ({
     throw Object.assign(new Error('That start time overlaps another active appointment.'), { statusCode: 409, code: 'APPOINTMENT_TIME_CONFLICT' })
   }
 
+  if (Number(patientId) > 0) await assertPatientAppointmentAvailable({patientId,date,time,durationMinutes:duration,excludeAppointmentId,executor})
+
   return {
     doctor,
     schedules,
@@ -206,6 +240,7 @@ const validateAppointmentSlot = async ({
 
 const getAvailableAppointmentSlots = async ({
   doctorId,
+  patientId = null,
   clinicType,
   date,
   durationMinutes = 60,
@@ -225,6 +260,7 @@ const getAvailableAppointmentSlots = async ({
   const interval = Math.max(1, Number(startIntervalMinutes) || DEFAULT_BOOKING_START_INTERVAL_MINUTES)
   const coverageIntervals = buildScheduleCoverageIntervals(date, schedules)
   const activeWindows = await loadActiveAppointmentWindows({ doctorId, date, excludeAppointmentId, executor })
+  const patientWindows = Number(patientId)>0 ? await loadActivePatientWindows({patientId,date,excludeAppointmentId,executor}) : []
   const slots = []
   const seen = new Set()
 
@@ -243,7 +279,7 @@ const getAvailableAppointmentSlots = async ({
         const label = formatSlotLabel(cursor)
         const allowedByLead = !enforceLeadTime || isOnlineAppointmentStartAllowed({ date, time: label, minLeadMinutes, now })
         const futureStart = isFutureAppointmentStart({ date, time: label, now })
-        if (futureStart && allowedByLead && !overlapsAny(cursor, end, activeWindows) && !seen.has(label)) {
+        if (futureStart && allowedByLead && !overlapsAny(cursor, end, activeWindows) && !overlapsAny(cursor,end,patientWindows) && !seen.has(label)) {
           seen.add(label)
           slots.push({ label, minutes: cursor })
         }
@@ -255,25 +291,24 @@ const getAvailableAppointmentSlots = async ({
   return slots.sort((a, b) => a.minutes - b.minutes).map((slot) => slot.label)
 }
 
-const withAppointmentSlotLock = async ({ doctorId }, fn, executor = db) => {
-  // Duration-aware appointments can conflict even when their start times differ.
-  // Serialize booking changes per doctor so two overlapping requests cannot both
-  // pass validation before either one is inserted.
-  const lockName = `carait:appt:doctor:${Number(doctorId)}`.slice(0, 64)
-  const ownsConnection = executor === db && typeof db.getConnection === 'function'
-  const lockExecutor = ownsConnection ? await db.getConnection() : executor
-  try {
-    const [[lockRow]] = await lockExecutor.query('SELECT GET_LOCK(?, 5) AS acquired', [lockName])
-    if (Number(lockRow?.acquired) !== 1) {
-      throw Object.assign(new Error('This doctor’s schedule is being updated. Please try again.'), { statusCode: 409 })
+const withAppointmentSlotLock = async ({ doctorId, patientId = null }, fn, executor = db) => {
+  // Consistent order: doctor lock -> patient lock. The patient lock serializes
+  // bookings with DIFFERENT doctors and branches (including concurrent requests).
+  const doctorLock=`carait:appt:doctor:${Number(doctorId)}`.slice(0,64)
+  const patientLock=Number(patientId)>0?`carait:appt:patient:${Number(patientId)}`.slice(0,64):null
+  const ownsConnection=executor===db && typeof db.getConnection==='function'
+  const conn=ownsConnection?await db.getConnection():executor
+  const acquired=[]
+  try{
+    for(const name of [doctorLock,patientLock].filter(Boolean)){
+      const [[result]]=await conn.query('SELECT GET_LOCK(?,5) AS acquired',[name])
+      if(Number(result?.acquired)!==1)throw Object.assign(new Error('The appointment schedule is being updated. Please try again.'),{statusCode:409,code:'APPOINTMENT_LOCK_TIMEOUT'})
+      acquired.push(name)
     }
-    try {
-      return await fn()
-    } finally {
-      await lockExecutor.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {})
-    }
-  } finally {
-    if (ownsConnection) lockExecutor.release()
+    return await fn()
+  }finally{
+    for(const name of acquired.reverse()) await conn.query('SELECT RELEASE_LOCK(?)',[name]).catch(()=>{})
+    if(ownsConnection)conn.release()
   }
 }
 
@@ -314,7 +349,10 @@ module.exports = {
   buildScheduleCoverageIntervals,
   validateAppointmentSlot,
   getAvailableAppointmentSlots,
+  loadActivePatientWindows,
+  assertPatientAppointmentAvailable,
   withAppointmentSlotLock,
   assertAppointmentTransition,
   assertAppointmentMutationApplied,
 }
+

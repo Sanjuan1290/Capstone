@@ -206,14 +206,14 @@ const resolveInventorySetupSelection = async ({ location_type_id }, executor = d
   }
 }
 
-const normalizeBillingCatalogPayload = (body = {}) => ({
+const normalizeBillingCatalogPayload = (body = {}, unchangedLegacyMinutes = null) => ({
   category_id: Number(body.category_id) || null,
   category: String(body.category || '').trim(),
   service_name: String(body.service_name || '').trim(),
   clinic_type: ['all', 'medical', 'derma'].includes(body.clinic_type) ? body.clinic_type : 'all',
   default_price: Math.max(0, Number(body.default_price ?? body.patient_price) || 0),
   consultation_fee: Math.max(0, Number(body.consultation_fee ?? body.base_service_price) || 0),
-  average_duration_minutes: validateAverageDurationMinutes(body.average_duration_minutes, { fallback: 60 }),
+  average_duration_minutes: validateAverageDurationMinutes(body.average_duration_minutes, { fallback: 60, unchangedLegacyMinutes }),
   profit_percentage: 0,
   is_active: body.is_active === 0 ? 0 : 1,
   sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
@@ -874,8 +874,8 @@ const rescheduleAppointment = async (req, res) => {
   const settings = await loadBookingSettings(db, req.branchId || null)
   const durationMinutes = getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status, 'rescheduled')
-  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id }, async () => {
-    await validateAppointmentSlot({
+  await withAppointmentSlotLock({ doctorId: rows[0].doctor_id  , patientId: rows[0].patient_id }, async () => {
+    await validateAppointmentSlot({patientId: rows[0].patient_id, 
       doctorId: rows[0].doctor_id,
       clinicType: rows[0].clinic_type,
       date: normalizedDate,
@@ -930,8 +930,8 @@ const createAppointment = async (req, res) => {
   )
   if (activeWithDoctor.length) return res.status(409).json({ message: 'This patient already has an active appointment with this doctor.' })
 
-  const result = await withAppointmentSlotLock({ doctorId: doctor_id }, async () => {
-    await validateAppointmentSlot({ doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
+  const result = await withAppointmentSlotLock({ doctorId: doctor_id  , patientId: patient_id }, async () => {
+    await validateAppointmentSlot({patientId: patient_id,  doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
     const [inserted] = await db.query(
       `INSERT INTO appointments
        (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
@@ -1727,7 +1727,8 @@ const createBillingCatalogService = async (req, res) => {
 
 const updateBillingCatalogService = async (req, res) => {
   if (!requireAdminPricingAccess(req, res)) return
-  const payload = normalizeBillingCatalogPayload(req.body)
+  const [[existingDuration]] = await db.query('SELECT average_duration_minutes FROM billing_service_catalog WHERE id=? LIMIT 1',[req.params.serviceId])
+  const payload = normalizeBillingCatalogPayload(req.body,existingDuration?.average_duration_minutes)
   if (!payload.service_name) {
     return res.status(400).json({ message: 'Service name is required.' })
   }

@@ -112,7 +112,7 @@ const VisitCard = ({ visit }) => {
     completed: { label: 'Completed', badge: 'bg-slate-100 text-slate-500 border-slate-200', card: 'border-slate-200 shadow-sm' },
     cancelled: { label: 'Cancelled', badge: 'bg-red-50 text-red-500 border-red-200', card: 'border-red-100 opacity-70' },
     rejected: { label: 'Rejected', badge: 'bg-violet-50 text-violet-700 border-violet-200', card: 'border-violet-100 bg-violet-50/20' },
-    no_show: { label: 'No Show', badge: 'bg-amber-50 text-amber-700 border-amber-200', card: 'border-amber-100 bg-amber-50/20' },
+    no_show: { label: 'Did Not Arrive', badge: 'bg-amber-50 text-amber-700 border-amber-200', card: 'border-amber-100 bg-amber-50/20' },
   }[visit.status] || { label: String(visit.status || 'History').replace(/_/g, ' '), badge: 'bg-slate-100 text-slate-500 border-slate-200', card: 'border-slate-200 shadow-sm' }
   const isCancelled = visit.status === 'cancelled'
   const isRejected = visit.status === 'rejected'
@@ -396,3 +396,4 @@ const History = () => {
 }
 
 export default History
+

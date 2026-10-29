@@ -31,10 +31,10 @@ async function createAppointment(req,res){
   const settings=await loadBookingSettings(conn,req.branchId)
   const duration=Number(service.average_duration_minutes||60)
   const reserved=roundReservedDurationMinutes(duration,settings.booking_start_interval_minutes)
-  resultId=await withAppointmentSlotLock({doctorId},async()=>{
+  resultId=await withAppointmentSlotLock({doctorId,patientId},async()=>{
    const [[duplicate]]=await conn.query(`SELECT id FROM appointments WHERE patient_id=? AND doctor_id=? AND branch_id=? AND status IN ('pending','confirmed','rescheduled','in-progress') LIMIT 1`,[patientId,doctorId,req.branchId])
    if(duplicate)throw fail(409,'DUPLICATE_APPOINTMENT','This patient already has an active appointment with this doctor.')
-   await validateAppointmentSlot({doctorId,clinicType:type,date,time,durationMinutes:reserved,startIntervalMinutes:settings.booking_start_interval_minutes,executor:conn})
+   await validateAppointmentSlot({patientId,doctorId,clinicType:type,date,time,durationMinutes:reserved,startIntervalMinutes:settings.booking_start_interval_minutes,executor:conn})
    const [r]=await conn.query(`INSERT INTO appointments (patient_id,doctor_id,clinic_type,requested_service_id,requested_service_name_snapshot,requested_service_price_snapshot,requested_service_duration_minutes_snapshot,reserved_duration_minutes_snapshot,reason,appointment_date,appointment_time,notes,appointment_source,branch_id)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[patientId,doctorId,type,serviceId,service.service_name,service.default_price,duration,reserved,String(b.reason||'').slice(0,255)||null,date,time,String(b.notes||'').slice(0,2000)||null,'admin_booking',req.branchId])
    const insertedId=r.insertId
@@ -57,3 +57,4 @@ function registerBranchAppointmentWrites(router,{requireSuper,branchContext,requ
   router.post(`${prefix}/appointments`,...middle,requirePermission('appointments'),createAppointment)
 }
 module.exports={registerBranchAppointmentWrites,createAppointment}
+
