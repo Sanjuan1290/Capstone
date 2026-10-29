@@ -12,6 +12,7 @@ const empty = () => ({ title:'', description:'', badge_text:'Special offer', sta
 const Admin_Promotions = () => {
   const toast=useToast()
   const location=useLocation()
+  const isStaff = location.pathname.startsWith('/staff')
   const [imageScan,setImageScan]=useState(null)
   const [promotions,setPromotions]=useState([])
   const [services,setServices]=useState([])
@@ -69,7 +70,7 @@ const Admin_Promotions = () => {
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5">
       <div><h2 className="flex items-center gap-2 text-lg font-black text-slate-900"><MdCampaign className="text-amber-500"/>Promotions</h2>
-        <p className="mt-1 max-w-3xl text-sm text-slate-500">Display service-specific offers while patients book and, optionally, on their dashboard. Promotions are informational and do not automatically discount bills. They appear on the site for everyone; use Notify opted-in patients for in-app notifications to patients who consented. Monetary discounts at checkout still require the normal approved discount flow.</p>
+        <p className="mt-1 max-w-3xl text-sm text-slate-500">Display service-specific offers while patients book and, optionally, on their dashboard. Promotions are informational and do not automatically discount bills. They appear only to patients viewing this branch; Administrators may notify opted-in patients. Monetary discounts at checkout still require the normal approved discount flow.</p>
       </div><div className="flex flex-wrap gap-2"><Link className="button-secondary" to={branchPortalPath("/admin/announcements",location.pathname)}>News & Email Campaigns</Link><button type="button" onClick={load} className="button-secondary" aria-label="Refresh promotions"><MdRefresh/> Refresh</button><button type="button" onClick={()=>open()} className="button-primary"><MdAdd/> Add Promo</button></div>
     </div>
     {error&&<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
@@ -102,8 +103,9 @@ const Admin_Promotions = () => {
     {loading?<p className="text-sm text-slate-500">Loading promotions…</p>:promotions.length===0?<div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">No promotions yet. Create a service-specific promotion above.</div>:
       <div className="grid gap-3">{promotions.map(promo=>{
         const live=promo.is_active && promo.starts_on<=today && promo.ends_on>=today
-        return <div key={promo.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white sm:flex">{promo.image_url&&<img alt="" src={promo.image_url} loading="lazy" className="h-44 w-full object-cover sm:h-auto sm:w-48"/>}<div className="min-w-0 flex-1 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-slate-900">{promo.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${live?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-500'}`}>{live?'Live':promo.is_active?'Scheduled or expired':'Inactive'}</span></div><p className="mt-1 text-sm text-slate-600">{promo.description}</p><p className="mt-2 text-xs text-slate-400">{promo.starts_on} – {promo.ends_on} · {promo.service_ids.length} service(s) · {promo.show_on_dashboard?'Dashboard + booking':'Booking only'}</p></div><div className="flex shrink-0 gap-2">{live&&<button type="button" className="button-secondary" onClick={()=>notify(promo)}><MdNotificationsActive/> Notify opted-in patients</button>}<button type="button" className="button-secondary" onClick={()=>open(promo)}><MdEdit/> Edit</button><button type="button" className="button-secondary text-rose-600" disabled={!promo.is_active} onClick={()=>remove(promo)}><MdDelete/> {promo.is_active?'Deactivate':'Inactive'}</button></div></div></div></div>
+        return <div key={promo.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white sm:flex">{promo.image_url&&<img alt="" src={promo.image_url} loading="lazy" className="h-44 w-full object-cover sm:h-auto sm:w-48"/>}<div className="min-w-0 flex-1 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-slate-900">{promo.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${live?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-500'}`}>{live?'Live':promo.is_active?'Scheduled or expired':'Inactive'}</span></div><p className="mt-1 text-sm text-slate-600">{promo.description}</p><p className="mt-2 text-xs text-slate-400">{promo.starts_on} – {promo.ends_on} · {promo.service_ids.length} service(s) · {promo.show_on_dashboard?'Dashboard + booking':'Booking only'}</p></div><div className="flex shrink-0 gap-2">{live&&!isStaff&&<button type="button" className="button-secondary" onClick={()=>notify(promo)}><MdNotificationsActive/> Notify opted-in patients</button>}<button type="button" className="button-secondary" onClick={()=>open(promo)}><MdEdit/> Edit</button><button type="button" className="button-secondary text-rose-600" disabled={!promo.is_active} onClick={()=>remove(promo)}><MdDelete/> {promo.is_active?'Deactivate':'Inactive'}</button></div></div></div></div>
       })}</div>}
   </div>
 }
 export default Admin_Promotions
+

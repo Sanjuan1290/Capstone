@@ -6,7 +6,7 @@ const { writeAuditLog }=require('../utils/audit')
 const TYPES=new Set(['medical','derma','all'])
 const safeId=value=>Number.isSafeInteger(Number(value))&&Number(value)>0
 const active=(value,fallback=1)=>value===undefined?fallback:(value===false||Number(value)===0?0:1)
-const writeAudit=async(req,action,kind,id,before,after)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action,entityType:kind,entityId:id,branchId:req.branchId,oldValues:before,newValues:after,ipAddress:req.ip}).catch(()=>{})
+const writeAudit=async(req,action,kind,id,before,after)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action,entityType:kind,entityId:id,branchId:req.branchId,oldValues:before,newValues:after,ipAddress:req.ip}).catch(()=>{})
 
 async function saveVisitReason(req,res){
  const id=Number(req.params.reasonId||0),label=String(req.body?.label||'').trim(),type=String(req.body?.clinic_type||'all').trim()
@@ -73,7 +73,7 @@ module.exports={registerBranchSystemWrites,saveVisitReason,deactivateVisitReason
 // Branch-owned suppliers and location types. UOMs and movement reasons are
 // global policy tables; they must not be silently changed by a Branch Admin.
 const safeText=(v,max)=>String(v??'').trim().slice(0,max)
-const systemAudit=(req,action,type,id,before,after)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action,entityType:type,entityId:id,oldValues:before,newValues:after,branchId:req.branchId,ipAddress:req.ip})
+const systemAudit=(req,action,type,id,before,after)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action,entityType:type,entityId:id,oldValues:before,newValues:after,branchId:req.branchId,ipAddress:req.ip})
 const duplicateError=(e,res)=>{
  if(e.code==='ER_DUP_ENTRY')return res.status(409).json({message:'This entry already exists in your branch.'})
  throw e
@@ -153,3 +153,4 @@ module.exports.registerBranchExtraSetup=registerBranchExtraSetup
 module.exports.saveBranchSupplier=saveBranchSupplier
 module.exports.saveBranchLocationType=saveBranchLocationType
 module.exports.updateBranchClinicSettings=updateBranchClinicSettings
+

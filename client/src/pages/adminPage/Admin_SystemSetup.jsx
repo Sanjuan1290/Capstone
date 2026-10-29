@@ -403,7 +403,7 @@ const Admin_SystemSetup = () => {
   const portalBase = portalBaseForPath(location.pathname)
   const [searchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
-  const validTab = TABS.some((item) => item.key === requestedTab) && (requestedTab !== 'promotions' || portalBase !== '/staff') ? requestedTab : 'visits'
+  const validTab = TABS.some((item) => item.key === requestedTab) ? requestedTab : 'visits'
   const [tab, setTab] = useState(validTab)
   const [data, setData] = useState({ cancellation_reasons: [], service_categories: [], suppliers: [], location_types: [], movement_reasons: [] })
   const [loading, setLoading] = useState(false)
@@ -445,7 +445,7 @@ const Admin_SystemSetup = () => {
 
       {tab === 'visits' ? (
         <Admin_PatientBooking embedded />
-      ) : tab === 'promotions' && portalBase !== '/staff' ? (
+      ) : tab === 'promotions' ? (
         <Admin_Promotions />
       ) : tab === 'stock_rooms' ? (
         <StockRoomsManager />
@@ -461,3 +461,4 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+

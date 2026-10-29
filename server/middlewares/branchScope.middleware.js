@@ -13,7 +13,7 @@ const branchScope = role => {
       if (!isValidId(req.user?.id)) return res.status(401).json({ code: 'SESSION_INVALID', message: 'Session invalid.' })
       const active = role === 'staff' ? "a.status='active'" : role === 'doctor' ? 'a.is_active=1' : 'a.is_active=1'
       const [[account]] = await db.query(
-        `SELECT a.branch_id, b.id AS branch_exists, b.name AS branch_name, b.is_active AS branch_active
+        `SELECT a.branch_id, b.id AS branch_exists, b.name AS branch_name, b.address AS branch_address, b.phone AS branch_phone, b.email AS branch_email, b.is_active AS branch_active
          FROM ${table} a LEFT JOIN clinic_branches b ON b.id=a.branch_id
          WHERE a.id=? AND ${active} LIMIT 1`, [req.user.id]
       )
@@ -24,10 +24,11 @@ const branchScope = role => {
         return res.status(403).json({ code: 'BRANCH_INACTIVE', message: 'This clinic branch is inactive. Contact the Super Admin.' })
       }
       req.branchId = Number(account.branch_id)
-      req.branch = { id: req.branchId, name: account.branch_name, is_active: 1 }
+      req.branch = { id: req.branchId, name: account.branch_name, address: account.branch_address, phone: account.branch_phone, email: account.branch_email, is_active: 1 }
       next()
     } catch (error) { next(error) }
   }
 }
 
 module.exports = branchScope
+

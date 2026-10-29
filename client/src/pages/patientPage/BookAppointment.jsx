@@ -1,3 +1,4 @@
+import { usePatientBranch } from '../../context/PatientBranchContext'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 // client/src/pages/patientPage/BookAppointment.jsx
 // REDESIGNED: 5-step wizard, mobile-first, touch-friendly calendar, clean cards
@@ -5,7 +6,7 @@ import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
-  getActiveBranches, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
+  getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import {
@@ -475,10 +476,8 @@ const SuccessScreen = ({ onReset }) => (
 // ── Main ──────────────────────────────────────────────────────────────────────
 const BookAppointment = () => {
   const [step, setStep] = useState(0)
-  const [branches,setBranches] = useState([])
-  const [branchId,setBranchId] = useState('')
-  const [branchError,setBranchError] = useState('')
-  useEffect(()=>{getActiveBranches().then(rows=>{setBranches(rows);const chosen=new URLSearchParams(window.location.search).get('branch_id');if(chosen && rows.some(b=>String(b.id)===chosen))setBranchId(chosen)}).catch(e=>setBranchError(e.message))},[])
+  const { branches, branchId, selectBranch } = usePatientBranch()
+  const branchError = ''
   const [done, setDone] = useState(false)
   const [form, setForm] = useState({
     clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '', notes: '',
@@ -725,7 +724,7 @@ const BookAppointment = () => {
     setForm({ clinicType:'', service:null, doctor:null, date:null, time:'', reason:'', reasonDetails:'', notes:'' })
   }
 
-  if(!branchId)return <div className="max-w-2xl mx-auto space-y-4"><h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{setBranchId(String(b.id));setSelectedPromotionId(null);setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
+  if(!branchId)return <div className="max-w-2xl mx-auto space-y-4"><h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{selectBranch(String(b.id));setSelectedPromotionId(null);setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -735,7 +734,7 @@ const BookAppointment = () => {
         <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
           <MdAdd className="text-emerald-500 text-[22px]" /> Book an Appointment
         </h1>
-        <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Branch: {branches.find(b=>String(b.id)===branchId)?.name||'Selected Branch'}</p><button className="mt-2 text-sm font-semibold text-emerald-700 underline" onClick={()=>{setBranchId('');setStep(0)}} type="button">Change Branch</button>
+        <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Branch: {branches.find(b=>String(b.id)===branchId)?.name||'Selected Branch'}</p><button className="mt-2 text-sm font-semibold text-emerald-700 underline" onClick={()=>{selectBranch('');setStep(0)}} type="button">Change Branch</button>
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -815,3 +814,4 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+

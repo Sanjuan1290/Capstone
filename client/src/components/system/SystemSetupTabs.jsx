@@ -24,7 +24,7 @@ const SystemSetupTabs = () => {
 
   return (
     <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2">
-      {SYSTEM_SETUP_TABS.filter((item) => base !== '/staff' || item.key !== 'promotions').map(({ key, label, Icon, suffix }) => (
+      {SYSTEM_SETUP_TABS.map(({ key, label, Icon, suffix }) => (
         <Link key={key} to={`${base}${suffix}`} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${activeKey === key ? 'bg-[#0b1a2c] text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
           <Icon /> {label}
         </Link>
@@ -34,3 +34,4 @@ const SystemSetupTabs = () => {
 }
 
 export default SystemSetupTabs
+

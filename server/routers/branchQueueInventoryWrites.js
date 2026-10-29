@@ -7,7 +7,7 @@ const {attachBatchesToInventory}=require('../utils/inventoryBatches')
 const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const admin=require('../controllers/admin.controller')
 const isId=x=>Number.isSafeInteger(Number(x))&&Number(x)>0
-const audit=(req,action,type,id,before,after)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action,entityType:type,entityId:id,branchId:req.branchId,oldValues:before,newValues:after,ipAddress:req.ip})
+const audit=(req,action,type,id,before,after)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action,entityType:type,entityId:id,branchId:req.branchId,oldValues:before,newValues:after,ipAddress:req.ip})
 const owner=table=>async(req,res,next)=>{
  if(!isId(req.params.id))return res.status(400).json({message:'Invalid record ID.'})
  const [[row]]=await db.query(`SELECT id FROM ${table} WHERE id=? AND branch_id=? LIMIT 1`,[req.params.id,req.branchId])
@@ -64,7 +64,7 @@ async function deleteLocation(req,res){
   const [[occupied]]=await connection.query('SELECT COUNT(*) AS count FROM inventory_location_batches WHERE location_id=? AND quantity>0',[prior.id])
   if(Number(occupied.count)>0){await connection.rollback();return res.status(409).json({message:'Move or use up all stock in this location before deactivating it.'})}
   await connection.query('UPDATE inventory_locations SET is_active=0 WHERE id=? AND branch_id=?',[prior.id,req.branchId])
-  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action:'inventory.location_deactivated',entityType:'inventory_location',entityId:prior.id,branchId:req.branchId,oldValues:prior,newValues:{is_active:0},ipAddress:req.ip},connection)
+  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action:'inventory.location_deactivated',entityType:'inventory_location',entityId:prior.id,branchId:req.branchId,oldValues:prior,newValues:{is_active:0},ipAddress:req.ip},connection)
   await connection.commit();res.json({message:'Location deactivated.'})
  }catch(e){await connection.rollback();throw e}finally{connection.release()}
 }
@@ -116,7 +116,7 @@ async function moveStockLocation(req,res){
   const note=String(p.note||'').trim().slice(0,255)||null
   await conn.query(`INSERT INTO inventory_transfers (inventory_id,from_location,to_location,quantity,transferred_by_role,transferred_by_user_id,notes,from_branch_id,to_branch_id)
     VALUES (?,?,?,?,'admin',?,?,?,?)`,[item.id,moved.from.name,moved.to.name,qty,req.user.id,note,req.branchId,req.branchId])
-  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action:'inventory.location_transfer',entityType:'inventory_item',entityId:item.id,branchId:req.branchId,newValues:{batch_id:batchId,from_location_id:from,to_location_id:to,quantity:qty,note},ipAddress:req.ip},conn)
+  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action:'inventory.location_transfer',entityType:'inventory_item',entityId:item.id,branchId:req.branchId,newValues:{batch_id:batchId,from_location_id:from,to_location_id:to,quantity:qty,note},ipAddress:req.ip},conn)
   await conn.commit()
   return res.json({message:'Batch stock moved between locations.',batch_id:batchId,quantity:qty,from_location:moved.from.name,to_location:moved.to.name})
  }catch(e){await conn.rollback().catch(()=>{});if(e.statusCode)return res.status(e.statusCode).json({code:e.code,message:e.message});throw e}
@@ -128,3 +128,4 @@ function registerBranchMoveStock(router,{requireSuper,branchContext,requirePermi
 }
 module.exports.moveStockLocation=moveStockLocation
 module.exports.registerBranchMoveStock=registerBranchMoveStock
+

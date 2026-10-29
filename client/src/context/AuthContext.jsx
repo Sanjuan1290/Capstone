@@ -60,6 +60,9 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => { checkAuth() }, [checkAuth])
 
   const login = (userData, userRole) => {
+    // Every new Patient login starts with an explicit clinic-branch selection.
+    // Refresh/checkAuth does not clear the choice made during this login session.
+    if (userRole === 'patient' && userData?.id) sessionStorage.removeItem(`carait:selected-branch:${userData.id}`)
     setUser(userData)
     setRole(userRole)
     sessionStorage.setItem('auth_role', userRole)
@@ -67,6 +70,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     await logoutRoleSession(role)
+    if (role === 'patient' && user?.id) sessionStorage.removeItem(`carait:selected-branch:${user.id}`)
     setUser(null)
     setRole(null)
     sessionStorage.removeItem('auth_role')
@@ -80,3 +84,4 @@ export const AuthProvider = ({ children }) => {
 }
 
 export const useAuth = () => useContext(AuthContext)
+

@@ -8,7 +8,7 @@ const {validateAverageDurationMinutes}=require('../utils/bookingPolicy')
 const err=(status,code,message)=>Object.assign(new Error(message),{statusCode:status,code})
 const number=(value,{min=0,max=100000000}={})=>Number.isFinite(Number(value))&&Number(value)>=min&&Number(value)<=max?Number(value):null
 const validId=v=>Number.isSafeInteger(Number(v))&&Number(v)>0
-const audit=(req,conn,action,type,id,oldValues,newValues)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action,entityType:type,entityId:id,branchId:req.branchId,oldValues,newValues,ipAddress:req.ip},conn)
+const audit=(req,conn,action,type,id,oldValues,newValues)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action,entityType:type,entityId:id,branchId:req.branchId,oldValues,newValues,ipAddress:req.ip},conn)
 async function run(req,res,action){
  let conn
  try{
@@ -118,3 +118,4 @@ function registerBranchCatalogWrites(router,{requireSuper,branchContext,requireP
  }
 }
 module.exports={registerBranchCatalogWrites,saveService,deleteService,saveDiscount}
+

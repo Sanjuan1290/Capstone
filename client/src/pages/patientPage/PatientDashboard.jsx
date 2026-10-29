@@ -6,6 +6,7 @@ import { FeaturedOffers } from '../../components/promotions/PromotionCards'
 import { useEffect, useState } from "react"
 import { useAuth } from "../../context/AuthContext"
 import { getMyAppointments, getCurrentPromotions } from "../../services/patient.service"
+import { usePatientBranch } from "../../context/PatientBranchContext"
 import {
   MdCalendarToday, MdEventAvailable, MdHistory,
   MdAdd, MdPerson, MdArrowForward, MdAccessTime,
@@ -51,6 +52,7 @@ const CONSULTATION_PRICING = [
 
 const PatientDashboard = () => {
   const { user } = useAuth()
+  const { branchId } = usePatientBranch()
   const [upcoming,    setUpcoming]    = useState(null)
   const [recentVisits,setRecentVisits]= useState([])
   const [totalVisits, setTotalVisits] = useState(0)
@@ -80,8 +82,8 @@ const PatientDashboard = () => {
   useEffect(() => {void loadAppointments()},[])
   useClinicRefresh(loadAppointments,['appointment.updated','queue.updated'],{fallbackMs:60000})
 
-  const loadOffers=()=>getCurrentPromotions().then(rows=>setPromotions((Array.isArray(rows)?rows:[]).filter(promo=>promo.show_on_dashboard))).catch(()=>{})
-  useEffect(() => { void loadOffers() }, [])
+  const loadOffers=()=>getCurrentPromotions(branchId).then(rows=>setPromotions((Array.isArray(rows)?rows:[]).filter(promo=>promo.show_on_dashboard))).catch(()=>{})
+  useEffect(() => { setPromotions([]); void loadOffers() }, [branchId])
   useClinicRefresh(loadOffers,['promotion.updated','service.updated'],{fallbackMs:60000})
 
   const firstName = user?.full_name?.split(" ")[0] || "Patient"
@@ -333,3 +335,4 @@ const PatientDashboard = () => {
 }
 
 export default PatientDashboard
+

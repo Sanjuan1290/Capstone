@@ -8,6 +8,7 @@ import { useTheme } from "../../context/ThemeContext"
 import NotificationBell from "../NotificationBell"
 import ProfileAvatar from "../ProfileAvatar"
 import PatientOnboardingTour from "../PatientOnboardingTour"
+import { PatientBranchProvider, usePatientBranch } from "../../context/PatientBranchContext"
 import { useSSE } from "../../hooks/useSSE"
 import {
   MdDashboard, MdCalendarToday, MdEventAvailable, MdHistory,
@@ -23,13 +24,14 @@ const sideNav = [
   { name: "History", path: "/patient/history", icon: MdHistory },
 ]
 
-const PatientLayout = () => {
+const PatientPortalShell = () => {
   const [collapsed,   setCollapsed]   = useState(false)
   const [mobileOpen,  setMobileOpen]  = useState(false)
   const [loggingOut,  setLoggingOut]  = useState(false)
   const [logoutError, setLogoutError] = useState("")
   const navigate  = useNavigate()
   const { user, logout: clearAuth } = useAuth()
+  const { branches, branchId, selectedBranch, selectBranch, clearBranch, loading: branchLoading, error: branchError, refreshBranches } = usePatientBranch()
   const { theme, toggleTheme } = useTheme()
   const settingsActionCount = user?.email && !user?.email_verified_at ? 1 : 0
   const handleSSEMessage = useCallback((eventName) => {
@@ -46,6 +48,7 @@ const PatientLayout = () => {
     setLoggingOut(true)
     setLogoutError("")
     try {
+      clearBranch()
       await clearAuth()
       navigate("/")
     } catch {
@@ -91,7 +94,7 @@ const PatientLayout = () => {
 
   return (
     <>
-      <PatientOnboardingTour />
+      {branchId && <PatientOnboardingTour />}
       <div className="flex h-screen bg-slate-50 overflow-hidden">
 
       {/* ── Mobile overlay ──────────────────────────────────────────────────── */}
@@ -203,6 +206,12 @@ const PatientLayout = () => {
 
           {/* Right side */}
           <div className="flex items-center gap-2 lg:gap-3">
+            {branchId && <label className="flex min-w-0 items-center gap-1 text-xs font-semibold text-slate-600">
+              <span className="hidden sm:inline">Branch:</span>
+              <select aria-label="Change clinic branch" value={branchId} onChange={e => selectBranch(e.target.value)} className="max-w-[125px] rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs sm:max-w-[190px]">
+                {branches.map(branch => <option key={branch.id} value={String(branch.id)}>{branch.name}</option>)}
+              </select>
+            </label>}
             <NotificationBell role="patient" />
             <button onClick={toggleTheme} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
               {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
@@ -229,7 +238,15 @@ const PatientLayout = () => {
         {/* Page content */}
         <main className="flex-1 min-w-0 overflow-y-auto p-4 portal-mobile-content lg:p-6">
           <div className="mx-auto w-full max-w-[1600px]">
-            <Outlet />
+            {branchLoading ? <p role="status" className="rounded-xl bg-white p-6 text-center text-sm text-slate-600">Loading clinic branches…</p>
+              : branchError ? <div role="alert" className="rounded-xl bg-red-50 p-6 text-red-700">{branchError} <button className="underline" onClick={refreshBranches}>Retry</button></div>
+              : !selectedBranch ? <section className="mx-auto max-w-2xl space-y-4 rounded-2xl border border-slate-200 bg-white p-6" aria-label="Choose clinic branch">
+                  <h1 className="text-2xl font-bold text-slate-900">Choose Your Clinic Branch</h1>
+                  <p className="text-sm text-slate-600">Select your preferred clinic location. Doctors, schedules, services, booking availability, and promotions will match this branch. You can change branches anytime.</p>
+                  {branches.length ? branches.map(branch => <button key={branch.id} type="button" onClick={() => selectBranch(branch.id)} className="block w-full rounded-xl border border-slate-200 p-4 text-left hover:border-emerald-500 focus-visible:outline-2 focus-visible:outline-emerald-600"><strong className="block">{branch.name}</strong><span className="text-sm text-slate-500">{branch.address}</span></button>)
+                    : <p className="text-sm text-amber-700">No active clinic branches are available. Please contact the clinic.</p>}
+                </section>
+              : <Outlet key={branchId} />}
           </div>
         </main>
 
@@ -265,4 +282,10 @@ const PatientLayout = () => {
   )
 }
 
+const PatientLayout = () => {
+  const { user } = useAuth()
+  return <PatientBranchProvider key={user?.id || 'unknown-patient'} patientId={user?.id}><PatientPortalShell /></PatientBranchProvider>
+}
+
 export default PatientLayout
+

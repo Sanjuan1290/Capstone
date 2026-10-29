@@ -10,6 +10,10 @@ const staffAccessCtrl = require('../controllers/staffAccess.controller')
 const {readBranchReport, recordBranchExport} = require('./branchReports')
 const {readPage: readBranchAuditPage, archives: readBranchArchives, detail: readBranchArchiveDetail} = require('./branchAudit')
 const {readSystemSetup} = require('./branchOperationalReads')
+const {saveBranchSupplier,saveBranchLocationType,updateBranchClinicSettings} = require('./branchSystemWrites')
+const branchPromotions = require('./branchPromotions')
+const branchCatalog = require('./branchCatalogWrites')
+const {createLocation:updateSystemStockRoom,updateLocation:editSystemStockRoom} = require('./branchQueueInventoryWrites')
 const {saveVisitReason,deactivateVisitReason,saveCancellation,deactivateCancellation,saveCategory,deactivateCategory} = require('./branchSystemWrites')
 const commonCtrl = require('../controllers/common.controller')
 const correctionsCtrl = require('../controllers/billingCorrections.controller')
@@ -151,6 +155,15 @@ router.get('/admin-access/audit-logs', ...auth, can('audit_logs'), (req,res)=>re
 router.get('/admin-access/audit-logs/archive', ...auth, can('audit_logs'), readBranchArchives)
 router.get('/admin-access/audit-logs/archive/:archiveId', ...auth, can('audit_logs'), (req,res)=>{req.params.id=req.params.archiveId;return readBranchArchiveDetail(req,res)})
 
+// ── Staff branch-specific promotions: System Setup permission required. ───────
+// Broadcast notifications remain Admin-only; do not add a staff notify route.
+router.get('/admin-access/promotions', ...auth, can('system_setup'), branchPromotions.list)
+router.post('/admin-access/promotions', ...auth, can('system_setup'), branchPromotions.save)
+router.put('/admin-access/promotions/:id', ...auth, can('system_setup'), branchPromotions.save)
+router.delete('/admin-access/promotions/:id', ...auth, can('system_setup'), branchPromotions.deactivate)
+router.post('/admin-access/promotions/image', ...auth, can('system_setup'), express.raw({type:['image/png','image/jpeg','application/octet-stream'],limit:'5mb'}), branchPromotions.uploadImage)
+router.post('/admin-access/promotions/image/status', ...auth, can('system_setup'), branchPromotions.imageStatus)
+
 // ── System Setup ─────────────────────────────────────────────────────────────
 router.get('/admin-access/system-setup', ...auth, can('system_setup'), readSystemSetup)
 router.get('/admin-access/system-setup/booking-policy', ...auth, can('system_setup'), readBranchPolicy)
@@ -164,10 +177,10 @@ router.delete('/admin-access/system-setup/service-categories/:id', ...auth, can(
 router.post('/admin-access/system-setup/uoms', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.put('/admin-access/system-setup/uoms/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.delete('/admin-access/system-setup/uoms/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
-router.post('/admin-access/system-setup/suppliers', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
-router.put('/admin-access/system-setup/suppliers/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
-router.post('/admin-access/system-setup/location-types', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
-router.put('/admin-access/system-setup/location-types/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
+router.post('/admin-access/system-setup/suppliers', ...auth, can('system_setup'), saveBranchSupplier)
+router.put('/admin-access/system-setup/suppliers/:id', ...auth, can('system_setup'), saveBranchSupplier)
+router.post('/admin-access/system-setup/location-types', ...auth, can('system_setup'), saveBranchLocationType)
+router.put('/admin-access/system-setup/location-types/:id', ...auth, can('system_setup'), saveBranchLocationType)
 router.post('/admin-access/system-setup/movement-reasons', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.put('/admin-access/system-setup/movement-reasons/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 
@@ -177,9 +190,9 @@ router.put('/admin-access/appointment-reasons/:reasonId', ...auth, can('system_s
 router.delete('/admin-access/appointment-reasons/:reasonId', ...auth, can('system_setup'), deactivateVisitReason)
 
 router.get('/admin-access/billing/catalog', ...auth, can('system_setup'), readBranchServices)
-router.post('/admin-access/billing/catalog', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
-router.put('/admin-access/billing/catalog/:serviceId', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
-router.delete('/admin-access/billing/catalog/:serviceId', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
+router.post('/admin-access/billing/catalog', ...auth, can('system_setup'), branchCatalog.saveService)
+router.put('/admin-access/billing/catalog/:serviceId', ...auth, can('system_setup'), branchCatalog.saveService)
+router.delete('/admin-access/billing/catalog/:serviceId', ...auth, can('system_setup'), branchCatalog.deleteService)
 router.get('/admin-access/billing/discount-presets', ...auth, can('system_setup'), readBranchDiscounts)
 router.post('/admin-access/billing/discount-presets', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.put('/admin-access/billing/discount-presets/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
@@ -188,10 +201,11 @@ router.post('/admin-access/billing/payment-settings/upload', ...auth, can('syste
 router.post('/admin-access/billing/payment-settings/upload-status', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.put('/admin-access/billing/payment-settings', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.get('/admin-access/clinic-settings', ...auth, can('system_setup'), readBranchBrand)
-router.put('/admin-access/clinic-settings', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
+router.put('/admin-access/clinic-settings', ...auth, can('system_setup'), updateBranchClinicSettings)
 router.get('/admin-access/inventory', ...auth, can('system_setup'), staffCtrl.getInventory)
 router.get('/admin-access/inventory/locations', ...auth, can('system_setup'), staffCtrl.getInventoryLocations)
-router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
-router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
+router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), updateSystemStockRoom)
+router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
 
 module.exports = router
+

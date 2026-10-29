@@ -15,7 +15,7 @@ const validate=body=>{
  if(!Array.isArray(body?.service_ids)||!body.service_ids.length||body.service_ids.length>100||body.service_ids.some(i=>!validId(i)))return 'Select at least one valid branch service.'
  return null
 }
-const audit=(req,conn,action,id,data)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext.account_role,branchId:req.branchId,action,entityType:'promotion',entityId:id,newValues:data,ipAddress:req.ip},conn)
+const audit=(req,conn,action,id,data)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role || 'staff',branchId:req.branchId,action,entityType:'promotion',entityId:id,newValues:data,ipAddress:req.ip},conn)
 const list=async(req,res)=>{
  const [rows]=await db.query("SELECT id,title,description,badge_text,image_url,featured_order,DATE_FORMAT(starts_on,'%Y-%m-%d') starts_on,DATE_FORMAT(ends_on,'%Y-%m-%d') ends_on,is_active,show_on_dashboard,created_at FROM clinic_promotions WHERE branch_id=? ORDER BY created_at DESC,id DESC",[req.branchId])
  if(!rows.length)return res.json([])
@@ -35,11 +35,11 @@ const save=async(req,res)=>{
   const [[oldImage]]=id?await conn.query('SELECT id,image_url,image_asset_id FROM clinic_promotions WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId]):[[]]
   let imageUrl=oldImage?.image_url||null,imageAssetId=oldImage?.image_asset_id||null
   if(req.body.clear_image===true){imageUrl=null;imageAssetId=null}
-  else if(req.body.image_token){const accepted=cloud.verifyUploadSecurityToken(req.body.image_token,{stage:'accepted',role:'admin',user_id:req.user.id,context_type:'promotion',context_id:req.branchId,scan_status:'approved',url:req.body.image_url});imageUrl=accepted.url;imageAssetId=accepted.asset_id}
+  else if(req.body.image_token){const accepted=cloud.verifyUploadSecurityToken(req.body.image_token,{stage:'accepted',role:(req.adminContext?.account_role || 'staff'),user_id:req.user.id,context_type:'promotion',context_id:req.branchId,scan_status:'approved',url:req.body.image_url});imageUrl=accepted.url;imageAssetId=accepted.asset_id}
   else if(req.body.image_url && req.body.image_url!==imageUrl){await conn.rollback();return res.status(400).json({message:'Upload and approve the promotional image before saving.'})}
   if(id){const [[old]]=await conn.query('SELECT id FROM clinic_promotions WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId]);if(!old){await conn.rollback();return res.status(404).json({message:'Promotion not found in this branch.'})}
     await conn.query('UPDATE clinic_promotions SET title=?,description=?,badge_text=?,starts_on=?,ends_on=?,is_active=?,show_on_dashboard=?,image_url=?,image_asset_id=?,featured_order=? WHERE id=? AND branch_id=?',[data.title,data.description,data.badge_text,data.starts_on,data.ends_on,data.is_active,data.show_on_dashboard,imageUrl,imageAssetId,data.featured_order,id,req.branchId]);await conn.query('DELETE FROM clinic_promotion_services WHERE promotion_id=?',[id])
-  }else{const [created]=await conn.query('INSERT INTO clinic_promotions (title,description,badge_text,starts_on,ends_on,is_active,show_on_dashboard,created_by_admin_id,branch_id,image_url,image_asset_id,featured_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',[data.title,data.description,data.badge_text,data.starts_on,data.ends_on,data.is_active,data.show_on_dashboard,req.user.id,req.branchId,imageUrl,imageAssetId,data.featured_order]);savedId=created.insertId}
+  }else{const [created]=await conn.query('INSERT INTO clinic_promotions (title,description,badge_text,starts_on,ends_on,is_active,show_on_dashboard,created_by_admin_id,branch_id,image_url,image_asset_id,featured_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',[data.title,data.description,data.badge_text,data.starts_on,data.ends_on,data.is_active,data.show_on_dashboard,(req.adminContext ? req.user.id : null),req.branchId,imageUrl,imageAssetId,data.featured_order]);savedId=created.insertId}
   for(const serviceId of data.service_ids)await conn.query('INSERT INTO clinic_promotion_services (promotion_id,service_id) VALUES (?,?)',[savedId,serviceId])
   await audit(req,conn,id?'promotion.updated':'promotion.created',savedId,{...data,branch_id:req.branchId,image_url:imageUrl});await conn.commit();broadcastClinicChange('promotion.updated',{branchId:req.branchId,id:savedId});res.json({id:savedId,message:id?'Promotion updated.':'Promotion created.'})
  }catch(e){await conn.rollback().catch(()=>{});throw e}finally{conn.release()}
@@ -71,14 +71,14 @@ const uploadImage=async(req,res)=>{
  const timestamp=Math.floor(Date.now()/1000),folder=`carait-clinic/promotions/branch_${req.branchId}`
  const signed={cloud_name:cloudName,api_key:apiKey,timestamp,folder,moderation:'perception_point',scan_mode:'scan',signature:cloud.makeCloudinarySignature({folder,moderation:'perception_point',timestamp},apiSecret)}
  const uploaded=await cloud.cloudinaryUploadBuffer({buffer:req.body,mimeType:cloud.detectImageMime(req.body),fileName:'promotion-cover',signed})
- res.json({status:'pending',url:uploaded.secure_url,scan_token:cloud.issueScanPendingToken({role:'admin',userId:req.user.id,contextType:'promotion',contextId:req.branchId,assetId:uploaded.asset_id,url:uploaded.secure_url,publicId:uploaded.public_id,fileHash:cloud.hashUploadBuffer(req.body)})})
+ res.json({status:'pending',url:uploaded.secure_url,scan_token:cloud.issueScanPendingToken({role:(req.adminContext?.account_role || 'staff'),userId:req.user.id,contextType:'promotion',contextId:req.branchId,assetId:uploaded.asset_id,url:uploaded.secure_url,publicId:uploaded.public_id,fileHash:cloud.hashUploadBuffer(req.body)})})
 }
 const imageStatus=async(req,res)=>{
- const pending=cloud.verifyUploadSecurityToken(req.body?.scan_token,{stage:'scan_pending',role:'admin',user_id:req.user.id,context_type:'promotion',context_id:req.branchId})
+ const pending=cloud.verifyUploadSecurityToken(req.body?.scan_token,{stage:'scan_pending',role:(req.adminContext?.account_role || 'staff'),user_id:req.user.id,context_type:'promotion',context_id:req.branchId})
  const scan=await cloud.getPerceptionPointScanStatus(pending.asset_id)
  if(scan.secure_url&&scan.secure_url!==pending.url)return res.status(409).json({message:'Uploaded image identity mismatch.'})
  if(scan.status!=='approved')return res.json({status:scan.status,message:scan.message||null})
- res.json({status:'approved',url:pending.url,security_token:cloud.issueAcceptedUploadToken({role:'admin',userId:req.user.id,contextType:'promotion',contextId:req.branchId,status:'approved',assetId:pending.asset_id,url:pending.url,publicId:pending.public_id})})
+ res.json({status:'approved',url:pending.url,security_token:cloud.issueAcceptedUploadToken({role:(req.adminContext?.account_role || 'staff'),userId:req.user.id,contextType:'promotion',contextId:req.branchId,status:'approved',assetId:pending.asset_id,url:pending.url,publicId:pending.public_id})})
 }
 
 const registerBranchPromotions=(router,{requireSuper,branchContext,requirePermission})=>{
@@ -92,4 +92,5 @@ const registerBranchPromotions=(router,{requireSuper,branchContext,requirePermis
   router.post(`${prefix}/promotions/:id/notify`,...middle,requirePermission('system_setup'),notify)
  }
 }
-module.exports={registerBranchPromotions,validate}
+module.exports={registerBranchPromotions,validate,list,save,deactivate,uploadImage,imageStatus}
+
