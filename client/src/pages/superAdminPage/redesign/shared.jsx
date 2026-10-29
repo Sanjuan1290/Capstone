@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react'
 import {MdClose,MdInfoOutline,MdErrorOutline,MdCheckCircle,MdWarningAmber,MdRefresh,MdInbox,MdSearch} from 'react-icons/md'
-export const PERMISSIONS=['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','stock_transfers','accounts','system_setup','reports','audit_logs']
-export const LABEL={dashboard:'Dashboard',appointments:'Appointments',patient_records:'Patient Records',doctor_schedules:'Doctor Schedules',billing:'Billing',inventory:'Inventory',stock_transfers:'Stock Transfers',accounts:'Accounts',system_setup:'System Setup',reports:'Reports',audit_logs:'Audit Logs'}
+export const PERMISSIONS=['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','accounts','system_setup','reports','audit_logs']
+export const LABEL={dashboard:'Dashboard',appointments:'Appointments',patient_records:'Patient Records',doctor_schedules:'Doctor Schedules',billing:'Billing',inventory:'Inventory',accounts:'Accounts',system_setup:'System Setup',reports:'Reports',audit_logs:'Audit Logs'}
 export const pesos=(n)=>new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP',maximumFractionDigits:2}).format(Number(n)||0)
 export const whole=n=>new Intl.NumberFormat('en-PH').format(Number(n)||0)
 export const localDate=(date)=>date?new Date(date).toLocaleString('en-PH',{dateStyle:'medium',timeStyle:'short'}):'—'
@@ -62,3 +62,4 @@ export const TableWrap=({children})=><div className="overflow-x-auto rounded-xl 
 export const PrimaryButton=({children,...props})=><button type="button" className="button-primary inline-flex items-center justify-center gap-2" {...props}>{children}</button>
 export const SecondaryButton=({children,...props})=><button type="button" className="button-secondary inline-flex items-center justify-center gap-2" {...props}>{children}</button>
 export function useAsync(load,deps=[]){const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);useEffect(()=>{let active=true;setLoading(true);setError('');Promise.resolve().then(load).then(v=>{if(active)setData(v)}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},deps);return {data,error,loading,setData}}
+

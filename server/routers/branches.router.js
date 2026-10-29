@@ -13,7 +13,7 @@ const { sendTempPassword } = require('../utils/emailService')
 const { validateBookingSettings, normalizeBookingSettings, withBookingTestingCapability } = require('../utils/bookingPolicy')
 const { provisionBranch } = require('../utils/branchProvisioning')
 const router = express.Router()
-const PERMISSIONS = ['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','stock_transfers','accounts','system_setup','reports','audit_logs']
+const PERMISSIONS = ['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','accounts','system_setup','reports','audit_logs']
 const forbidden = (res) => res.status(403).json({ code: 'BRANCH_ACCESS_DENIED', message: 'You do not have access to this branch or feature.' })
 const validId = (v) => Number.isSafeInteger(Number(v)) && Number(v) > 0
 const permissionsFromBody = (value) => {
@@ -367,7 +367,7 @@ const saveBookingPolicy = async(req,res)=>{
 const reminderEndpoints=require('./appointmentReminderRoutes')
 const installBranchEndpoints = (prefix, context) => {
  router.get(`${prefix}/dashboard`,context,requirePermission('dashboard'),branchDashboard)
- for(const [resource,permission] of Object.entries({appointments:'appointments',inventory:'inventory',services:'system_setup',doctors:'doctor_schedules',staff:'accounts',patients:'patient_records',billing:'billing',transfers:'stock_transfers',audits:'audit_logs'})) router.get(`${prefix}/${resource}`,context,...listResource(resource,permission))
+ for(const [resource,permission] of Object.entries({appointments:'appointments',inventory:'inventory',services:'system_setup',doctors:'doctor_schedules',staff:'accounts',patients:'patient_records',billing:'billing',audits:'audit_logs'})) router.get(`${prefix}/${resource}`,context,...listResource(resource,permission))
  router.get(`${prefix}/reminder-settings`,context,requirePermission('system_setup'),reminderEndpoints.ensureBranch,reminderEndpoints.get)
  router.put(`${prefix}/reminder-settings`,context,requirePermission('system_setup'),reminderEndpoints.ensureBranch,reminderEndpoints.put)
  router.post(`${prefix}/appointments/:id/remind`,context,requirePermission('appointments'),reminderEndpoints.ensureBranch,reminderEndpoints.manual)
@@ -376,7 +376,7 @@ const installBranchEndpoints = (prefix, context) => {
 }
 installBranchEndpoints('/my',branchContext)
 // Actual Super Admin branch-scoped endpoints with a branch lookup.
-for (const [resource,permission] of Object.entries({dashboard:'dashboard',appointments:'appointments',inventory:'inventory',services:'system_setup',doctors:'doctor_schedules',staff:'accounts',patients:'patient_records',billing:'billing',transfers:'stock_transfers',audits:'audit_logs'})) {
+for (const [resource,permission] of Object.entries({dashboard:'dashboard',appointments:'appointments',inventory:'inventory',services:'system_setup',doctors:'doctor_schedules',staff:'accounts',patients:'patient_records',billing:'billing',audits:'audit_logs'})) {
  const handler=resource==='dashboard'?branchDashboard:listResource(resource,permission).at(-1)
  router.get(`/workspace/:branchId/${resource}`,requireSuper,branchContext,requirePermission(permission),handler)
 }
@@ -743,4 +743,5 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 

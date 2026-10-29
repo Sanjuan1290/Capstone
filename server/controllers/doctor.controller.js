@@ -214,10 +214,6 @@ const getDashboard = async (req, res) => {
     "SELECT COUNT(*) AS pending FROM appointments WHERE doctor_id = ? AND status = 'confirmed'",
     [req.user.id]
   )
-  const [[{ pendingRequests }]] = await db.query(
-    "SELECT COUNT(*) AS pendingRequests FROM supply_request_groups WHERE doctor_id = ? AND status = 'pending'",
-    [req.user.id]
-  )
   const [walkInQueue] = await db.query(
     `SELECT q.id, q.queue_number AS queueNo, q.patient_name AS patient,
             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt, q.type, q.status
@@ -242,7 +238,7 @@ const getDashboard = async (req, res) => {
      LIMIT 8`,
     [req.user.id, today]
   )
-  res.json({ totalToday, completed, remainingToday, upcomingCount, pending, pendingRequests, schedule, walkInQueue, upcomingAppointments })
+  res.json({ totalToday, completed, remainingToday, upcomingCount, pending, schedule, walkInQueue, upcomingAppointments })
 }
 
 // ── Appointments ──────────────────────────────────────────────────────────────
@@ -1673,4 +1669,5 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 

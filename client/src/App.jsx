@@ -40,7 +40,6 @@ import Staff_WalkInQueue     from './pages/staffPage/Staff_WalkInQueue'
 import Staff_PatientRecord   from './pages/staffPage/Staff_PatientRecord'
 import StaffLogin            from './pages/auth/Staff/StaffLogin'
 import Staff_Inventory       from './pages/staffPage/Staff_Inventory'
-import Staff_SupplyRequests  from './pages/staffPage/Staff_SupplyRequests'
 import Staff_DoctorSchedules from './pages/staffPage/Staff_DoctorSchedules'
 
 import DoctorLogin              from './pages/auth/Doctor/DoctorLogin'
@@ -49,8 +48,6 @@ import Doctor_Dashboard         from './pages/doctorPage/Doctor_Dashboard'
 import Doctor_Appointments      from './pages/doctorPage/Doctor_Appointments'
 import Doctor_Consultation      from './pages/doctorPage/Doctor_Consultation'
 import Doctor_ConsultationHistory from './pages/doctorPage/Doctor_ConsultationHistory'
-import Doctor_Request           from './pages/doctorPage/Doctor_Request'
-import Doctor_StockTransferRequest from './pages/doctorPage/Doctor_StockTransferRequest'
 import Doctor_Schedule          from './pages/doctorPage/Doctor_Schedule'
 
 import AdminLayout           from './components/layouts/AdminLayout'
@@ -85,7 +82,6 @@ import Admin_SystemSetupBilling from './pages/adminPage/Admin_SystemSetupBilling
 import Admin_ClinicSettings  from './pages/adminPage/Admin_ClinicSettings'
 import Admin_Inventory       from './pages/adminPage/Admin_Inventory'
 import Admin_LandingPage     from './pages/adminPage/Admin_LandingPage'
-import Admin_SupplyRequests  from './pages/adminPage/Admin_SupplyRequests'
 import QueueDisplay          from './pages/displayPage/QueueDisplay'
 
 import StaffRoute  from './components/StaffRoute'
@@ -164,7 +160,6 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='checkout/:billingId' element={<StaffPermissionRoute permission="checkout"><Staff_CheckoutDetail /></StaffPermissionRoute>} />
         <Route path='billing' element={<StaffPermissionRoute permission="billing"><Staff_BillingRecords /></StaffPermissionRoute>} />
         <Route path='inventory' element={<StaffPermissionRoute permission="inventory"><Staff_Inventory /></StaffPermissionRoute>} />
-        <Route path='supply-requests' element={<StaffPermissionRoute permission="stock_transfers"><Staff_SupplyRequests /></StaffPermissionRoute>} />
         <Route path='accounts' element={<StaffPermissionRoute permission="accounts"><Staff_AccountsView /></StaffPermissionRoute>} />
         <Route path='system-setup' element={<StaffPermissionRoute permission="system_setup"><Admin_SystemSetup /></StaffPermissionRoute>} />
         <Route path='system-setup/billing' element={<StaffPermissionRoute permission="system_setup"><Admin_SystemSetupBilling /></StaffPermissionRoute>}>
@@ -198,8 +193,6 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='daily-appointments' element={<Navigate to='/doctor/appointments' replace />} />
         <Route path='consultation'       element={<Doctor_Consultation />} />
         <Route path='consultation-history' element={<Doctor_ConsultationHistory />} />
-        <Route path='request'            element={<Doctor_Request />} />
-        <Route path='request/stock-transfer' element={<Doctor_StockTransferRequest />} />
         <Route path='schedule'           element={<Doctor_Schedule />} />
         <Route path='settings'           element={<SettingsPage />} />
         <Route path='change-password'    element={<ChangePassword />} />
@@ -240,7 +233,6 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
         <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
         <Route path='inventory' element={<Admin_Inventory />} />
-        <Route path='supply-requests' element={<Admin_SupplyRequests />} />
         <Route path='accounts' element={<Admin_Accounts />} />
         <Route path='staff-accounts' element={<Admin_StaffAccount />} />
         <Route path='doctor-accounts' element={<Admin_DoctorAccount />} />
@@ -275,7 +267,6 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
         <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
         <Route path='inventory' element={<Admin_Inventory />} />
-        <Route path='supply-requests' element={<Admin_SupplyRequests />} />
         <Route path='accounts' element={<Admin_Accounts />} />
         <Route path='staff-accounts' element={<Admin_StaffAccount />} />
         <Route path='doctor-accounts' element={<Admin_DoctorAccount />} />

@@ -140,9 +140,6 @@ router.get('/doctors/:id/availability', ...auth, canAny('appointments', 'doctor_
 router.get('/doctors/:id/unavailable-dates', ...auth, canAny('appointments', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorUnavailableDatesForStaff)
 router.get('/doctors/:id/available-slots', ...auth, canAny('appointments', 'doctor_schedules'), ownDoctor, staffCtrl.getAppointmentAvailableSlotsForStaff)
 
-// ── Stock Transfers ──────────────────────────────────────────────────────────
-router.get('/supply-requests',       ...auth, can('stock_transfers'), staffCtrl.getSupplyRequests)
-router.patch('/supply-requests/:id', ...auth, can('stock_transfers'), staffCtrl.resolveSupplyRequest)
 
 // ── Accounts directory (Staff is read-only; permission changes stay Admin-only) ──
 router.get('/admin-access/accounts', ...auth, can('accounts'), staffAccessCtrl.getAccountDirectory)
@@ -212,5 +209,6 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), u
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
 
 module.exports = router
+
 
 

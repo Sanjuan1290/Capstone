@@ -8,7 +8,6 @@ const STAFF_PERMISSION_KEYS = Object.freeze([
   'checkout',
   'billing',
   'inventory',
-  'stock_transfers',
   'accounts',
   'system_setup',
   'reports',
@@ -27,7 +26,6 @@ const DEFAULT_STAFF_PERMISSIONS = Object.freeze([
   'doctor_schedules',
   'checkout',
   'inventory',
-  'stock_transfers',
 ])
 
 // Backwards-compatible alias used by older migration/tests.
@@ -87,3 +85,4 @@ module.exports = {
   replaceStaffPermissions,
   samePermissionSet,
 }
+

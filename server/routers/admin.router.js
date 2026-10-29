@@ -183,9 +183,7 @@ router.post('/inventory/batches/:batchId/action/confirm', ...auth, otpVerifyLimi
 router.put('/inventory/:id',          ...auth, (req,res)=>res.status(410).json({code:'BRANCH_INVENTORY_API_REQUIRED',message:'Edit inventory through the authorized branch Stock Rooms API.'}))
 router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
 
-// ── Supply Requests ───────────────────────────────────────────────────────────
-router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
-router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
+
 

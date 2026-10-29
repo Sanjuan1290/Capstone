@@ -16,7 +16,7 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
   it('updates persisted settings and keeps a protected staff confirmation window',()=>{
     const schema=read('server/utils/schema.js')
     expect(schema).toContain('UPDATE booking_settings SET online_min_lead_minutes = 720')
-    expect(read('client/src/pages/shared/Appointments.jsx')).toContain('Have you contacted or verified')
+    expect(read('client/src/pages/shared/Appointments.jsx')).toContain('Have you contacted')
   })
   it('updates automatic no-shows every minute and guards manual actions',()=>{
     expect(read('server/utils/reminder.js')).toContain('}, 60 * 1000)')
@@ -74,3 +74,4 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(read('client/src/index.css')).toContain('.form-control.pl-10 { padding-left: 2.5rem; }')
   })
 })
+

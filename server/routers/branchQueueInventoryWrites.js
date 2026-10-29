@@ -119,7 +119,6 @@ function registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,r
   reg('put','/inventory/locations/:id','inventory',updateLocation)
   reg('delete','/inventory/locations/:id','inventory',deleteLocation)
   reg('patch','/inventory/:id/stock','inventory',updateStock,afterSuccessfulMutation('inventory.updated'))
-  reg('patch','/supply-requests/:id','stock_transfers',safeLegacy(admin.resolveSupplyRequest))
  }
 }
 module.exports={registerBranchQueueInventoryWrites,readQueue,createLocation,updateLocation,deleteLocation,supplier,updateStock}
@@ -153,5 +152,6 @@ function registerBranchMoveStock(router,{requireSuper,branchContext,requirePermi
 }
 module.exports.moveStockLocation=moveStockLocation
 module.exports.registerBranchMoveStock=registerBranchMoveStock
+
 
 

@@ -64,13 +64,14 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     expect(appointments).toContain('shrink-0 border-t border-slate-100 bg-white')
   })
 
-  it('keeps doctor stock transfers available as a separate manual workflow', () => {
+  it('retires doctor transfer-request API routes while keeping inventory history', () => {
     const doctor = read('server', 'controllers', 'doctor.controller.js')
     const schema = read('server', 'utils', 'schema.js')
-    expect(doctor).toContain("a.status IN ('confirmed','rescheduled','in-progress')")
-    expect(doctor).toContain('appointment_id, consultation_id, destination_location_id')
-    expect(schema).toContain("ensureColumn('supply_request_groups', 'appointment_id'")
-    expect(schema).toContain("ensureColumn('supply_request_groups', 'consultation_id'")
+    const routes = read('server', 'routers', 'doctor.router.js')
+    expect(routes).not.toContain("router.post('/requests'")
+    expect(routes).not.toContain("router.get('/requests'")
+    expect(doctor).toContain('consumeClinicalInventory')
+    expect(schema).toContain('supply_request_groups') // Historical tables are retained.
   })
 
   it('keeps transfer approval atomic and does not bill transferred quantities', () => {
@@ -81,4 +82,5 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     expect(transfers).not.toContain('billing_records')
   })
 })
+
 

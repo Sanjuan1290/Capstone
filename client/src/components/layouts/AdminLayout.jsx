@@ -23,7 +23,6 @@ const GROUPS = [
   { label: 'Billing & Stock', items: [
     { name: 'Billing', path: '/admin/billing', icon: MdPayments, short: 'Billing' },
     { name: 'Inventory', path: '/admin/inventory', icon: MdInventory2, short: 'Stock' },
-    { name: 'Stock Transfers', path: '/admin/supply-requests', icon: MdInventory2, short: 'Transfer' },
   ] },
   { label: 'People & Setup', items: [
     { name: 'Accounts', path: '/admin/accounts', icon: MdPeople, short: 'Accounts' },
@@ -56,7 +55,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
 
   const handleSSEMessage = useCallback((eventName) => {
     if (eventName === 'notification_created') playNotificationSound()
-    if (['notification_created','appointment_updated','queue_updated','consultation_saved','supply_request_resolved','billing_finalized','billing_paid'].includes(eventName)) {
+    if (['notification_created','appointment_updated','queue_updated','consultation_saved','billing_finalized','billing_paid'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
       // useSSE centralizes branch-aware data invalidation and refresh delivery.
       if (eventName === 'appointment_updated') loadCounts()
@@ -79,7 +78,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
     const key = item.path === '/admin' ? 'dashboard' : ({
       '/admin/appointments':'appointments','/admin/patient-records':'patient_records',
       '/admin/doctor-schedules':'doctor_schedules','/admin/billing':'billing',
-      '/admin/inventory':'inventory','/admin/supply-requests':'stock_transfers',
+      '/admin/inventory':'inventory',
       '/admin/accounts':'accounts','/admin/system-setup':'system_setup','/admin/announcements':'system_setup',
       '/admin/reports':'reports','/admin/audit-logs':'audit_logs'
     })[item.path]
@@ -127,3 +126,4 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
 }
 
 export default AdminLayout
+

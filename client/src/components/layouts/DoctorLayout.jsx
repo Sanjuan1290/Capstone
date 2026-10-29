@@ -23,7 +23,6 @@ const sideNav = [
   { name: 'Appointments',       path: '/doctor/appointments',       icon: MdCalendarToday, short: 'Appts', badge: 'today' },
   { name: 'Past Consultations', path: '/doctor/consultation-history', icon: MdHistory, short: 'History' },
   { name: 'My Schedule',        path: '/doctor/schedule',           icon: MdSchedule,      short: 'Hours'    },
-  { name: 'Stock Transfers',    path: '/doctor/request',            icon: MdInventory2,    short: 'Transfer' },
 ]
 
 const DoctorLayout = () => {
@@ -273,3 +272,4 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
+

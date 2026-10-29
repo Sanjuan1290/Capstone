@@ -85,19 +85,8 @@ export const getInventoryItems = () =>
 export const getInventoryLocations = () =>
   requestJson(`${BASE}/inventory/locations`)
 
-export const getMyRequests = () =>
-  requestJson(`${BASE}/requests`)
-
-export const getTransferAppointments = () => requestJson(`${BASE}/transfer-appointments`)
-
 export const getAppointmentInventoryReadiness = (appointmentId) => requestJson(`${BASE}/appointments/${appointmentId}/inventory-readiness`)
 
-export const submitRequest = (payload) =>
-  requestJson(`${BASE}/requests`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
 
 // Doctors may only read their own schedule through the doctor-authenticated route.
 export const getDoctorSchedule = () =>
@@ -147,3 +136,4 @@ export const callNextPatient = () =>
 // NEW: mark a specific queue entry as done
 export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
+

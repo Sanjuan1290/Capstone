@@ -18,7 +18,7 @@ describe('Batch 1 recovery and consultation autosave regressions', () => {
     expect(portalLogin).toContain("forgotPath: '/admin/forgot-password'")
     expect(portalLogin).toContain('config.forgotPath')
     expect(forgot).toContain("admin:   { accent: '#f59e0b'")
-    expect(auth).toContain("admin: { table: 'admins', where: 'email = ?' }")
+    expect(auth).toMatch(/admin:\s*\{\s*table:\s*'admins',\s*where:\s*"email = \? AND account_role = 'admin' AND is_active = 1"/)
     expect(auth).toContain('If an account matches the information provided, a verification code will be sent.')
     expect(auth).not.toContain('RECOVERY_ACCOUNT_NOT_FOUND')
   })
@@ -50,3 +50,4 @@ describe('Batch 1 recovery and consultation autosave regressions', () => {
     expect(consultation).not.toContain('Draft autosaves every 25 seconds.')
   })
 })
+

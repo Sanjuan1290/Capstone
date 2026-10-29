@@ -6,7 +6,7 @@ const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', '..', '..'
 describe('Staff permission access control', () => {
   it('defines all requested feature permissions and groups Walk-in Queue with Appointments', () => {
     const config = read('client', 'src', 'config', 'staffPermissions.js')
-    ;['dashboard','appointments','patient_records','doctor_schedules','checkout','billing','inventory','stock_transfers','accounts','system_setup','reports','audit_logs']
+    ;['dashboard','appointments','patient_records','doctor_schedules','checkout','billing','inventory','accounts','system_setup','reports','audit_logs']
       .forEach((key) => expect(config).toContain(`key: '${key}'`))
     expect(config).not.toContain("key: 'landing_page'")
     expect(read('server', 'utils', 'staffPermissions.js')).not.toContain("'landing_page'")
@@ -21,7 +21,7 @@ describe('Staff permission access control', () => {
     expect(router).toContain("can('appointments'), staffCtrl.getQueue")
     expect(router).toContain("can('checkout'), ownBill, staffCtrl.payBill")
     expect(router).toContain("can('inventory'), staffCtrl.getInventory")
-    expect(router).toContain("can('stock_transfers'), staffCtrl.getSupplyRequests")
+    expect(router).not.toContain("can('stock_transfers')")
     expect(router).toContain("can('reports'), readBranchReport")
     expect(router).toContain("can('system_setup'), readSystemSetup")
   })
@@ -61,11 +61,12 @@ describe('Staff permission access control', () => {
     const serverPermissions = read('server', 'utils', 'staffPermissions.js')
     const admin = read('server', 'controllers', 'admin.controller.js')
     const migration = read('server', 'db', 'migrations', '2026-09-26-staff-permissions.sql')
-    const defaults = ['dashboard','appointments','patient_records','doctor_schedules','checkout','inventory','stock_transfers']
+    const defaults = ['dashboard','appointments','patient_records','doctor_schedules','checkout','inventory']
     expect(config).toContain('DEFAULT_STAFF_PERMISSIONS')
     expect(account).toContain('permissions: [...DEFAULT_STAFF_PERMISSIONS]')
     expect(serverPermissions).toContain('const DEFAULT_STAFF_PERMISSIONS = Object.freeze([')
     expect(admin).toContain('hasPermissionPayload ? req.body.permissions : DEFAULT_STAFF_PERMISSIONS')
+    expect(config).not.toContain("key: 'stock_transfers'")
     defaults.forEach((key) => {
       expect(config).toContain(`'${key}'`)
       expect(serverPermissions).toContain(`'${key}'`)
@@ -81,3 +82,4 @@ describe('Staff permission access control', () => {
     expect(archive).toContain('Clinic audit archives are retained')
   })
 })
+

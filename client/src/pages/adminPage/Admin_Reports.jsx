@@ -523,7 +523,6 @@ const Admin_Reports = () => {
           <StatCard label="Future Scheduled" value={report.current.future_confirmed || 0} icon={MdCalendarToday} />
           <StatCard label="Awaiting Approval" value={report.current.awaiting_approval || 0} icon={MdChecklist} />
           <StatCard label="Walk-in Queue" value={report.current.walkin_queue || 0} icon={MdGroups} />
-          <StatCard label="Pending Transfers" value={report.current.pending_supply_requests || 0} icon={MdInventory2} />
         </div>
       </div>
 
@@ -550,3 +549,4 @@ const Admin_Reports = () => {
 }
 
 export default Admin_Reports
+

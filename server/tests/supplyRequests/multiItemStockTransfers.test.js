@@ -9,8 +9,6 @@ describe('multi-item stock transfer requests', () => {
   const transfer = read('utils', 'supplyTransfers.js')
   const doctor = read('controllers', 'doctor.controller.js')
   const verify = read('scripts', 'verifyDeployment.js')
-  const doctorForm = readClient('pages', 'doctorPage', 'Doctor_StockTransferRequest.jsx')
-  const review = readClient('components', 'supply', 'SupplyRequestReviewPanel.jsx')
 
   it('groups transfer lines under one request', () => {
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS supply_request_groups')
@@ -36,11 +34,18 @@ describe('multi-item stock transfer requests', () => {
     expect(transfer).toContain('Stock transfer approved.')
   })
 
-  it('provides multi-item doctor and reviewer UX', () => {
-    expect(doctorForm).toContain('items: selected.map')
-    expect(doctorForm).toContain('Add multiple items to one request')
-    expect(doctorForm).toContain('Approval is all-or-nothing')
-    expect(review).toContain('Approve & Transfer All Items')
-    expect(review).toContain('grouped requests are all-or-nothing')
+  it('retires doctor and reviewer request surfaces without deleting the historical engine', () => {
+    const app = readClient('App.jsx')
+    const doctorRouter = read('routers', 'doctor.router.js')
+    const adminRouter = read('routers', 'admin.router.js')
+    const staffRouter = read('routers', 'staff.router.js')
+    expect(app).not.toContain('<Doctor_StockTransferRequest')
+    expect(app).not.toContain('<Admin_SupplyRequests')
+    expect(app).not.toContain('<Staff_SupplyRequests')
+    expect(doctorRouter).not.toContain("router.post('/requests'")
+    expect(adminRouter).not.toContain("router.patch('/supply-requests'")
+    expect(staffRouter).not.toContain("router.patch('/supply-requests'")
+    expect(transfer).toContain('transferInventoryBatchesFEFO') // Legacy records are immutable, not erased.
   })
 })
+

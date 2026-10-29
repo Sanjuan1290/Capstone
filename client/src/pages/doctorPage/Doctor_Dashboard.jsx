@@ -39,7 +39,6 @@ const Doctor_Dashboard = () => {
   const navigate   = useNavigate()
   const [todayAppts,  setTodayAppts]  = useState([])
   const [walkInQueue, setWalkInQueue] = useState([])
-  const [requests,    setRequests]    = useState([])
   const [upcoming,     setUpcoming]    = useState([])
   const [loading,     setLoading]     = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
@@ -51,7 +50,6 @@ const Doctor_Dashboard = () => {
     Promise.all([getDashboard(), getDailyAppointments(todayISO)])
       .then(([dash, appts]) => {
         setTodayAppts(Array.isArray(appts) ? appts : [])
-        setRequests(Array.isArray(dash.requests) ? dash.requests : [])
         setWalkInQueue(Array.isArray(dash.walkInQueue) ? dash.walkInQueue : [])
         setUpcoming(Array.isArray(dash.upcoming) ? dash.upcoming : [])
         setLastUpdated(new Date())
@@ -129,16 +127,6 @@ const Doctor_Dashboard = () => {
           <div className="min-w-0">
             <p className="text-sm font-bold text-slate-800">Appointments</p>
             <p className="text-xs text-slate-400">{waiting} waiting</p>
-          </div>
-        </NavLink>
-        <NavLink to="/doctor/request"
-          className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-amber-200 transition-all">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-            <MdInventory2 className="text-amber-600 text-[20px]" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-slate-800">Supplies</p>
-            <p className="text-xs text-slate-400">{requests.length} requests</p>
           </div>
         </NavLink>
       </div>
@@ -270,42 +258,6 @@ const Doctor_Dashboard = () => {
             </div>
           </div>
 
-          {/* Recent supply requests */}
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-              <h2 className="text-sm font-bold text-slate-800">My Requests</h2>
-              <NavLink to="/doctor/request"
-                className="text-xs font-semibold text-violet-600 hover:text-violet-700 flex items-center gap-0.5">
-                View all <MdChevronRight className="text-[14px]" />
-              </NavLink>
-            </div>
-            <div className="p-4 space-y-2">
-              {requests.length === 0 ? (
-                <div className="flex flex-col items-center py-4">
-                  <MdInventory2 className="text-slate-200 text-[24px] mb-1.5" />
-                  <p className="text-xs text-slate-400">No recent requests.</p>
-                </div>
-              ) : requests.slice(0, 3).map(req => (
-                <div key={req.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50">
-                  <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-                    <MdInventory2 className="text-slate-400 text-[15px]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-slate-800 truncate">{req.item_name || req.item}</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{req.qty_requested || req.quantity} {req.unit}s</p>
-                  </div>
-                  <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0
-                    ${req.status === 'approved'
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : req.status === 'rejected'
-                        ? 'bg-red-50 text-red-500 border-red-200'
-                        : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                    {req.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -313,3 +265,4 @@ const Doctor_Dashboard = () => {
 }
 
 export default Doctor_Dashboard
+

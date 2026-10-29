@@ -2,7 +2,6 @@
 // Do not forward these requests to unfiltered single-clinic controllers.
 const db = require('../db/connect')
 const { getBillingRecordWithItems } = require('../utils/billing')
-const { groupTransferRows } = require('../utils/supplyTransfers')
 const { loadCollectionLedger, summarizeLedgerRows } = require('../utils/reportMetrics')
 const { getTodayDateOnly } = require('../utils/date')
 
@@ -91,32 +90,6 @@ async function readCashDrawer(req,res){
   const [[closing]]=await db.query(`SELECT * FROM cashier_closings WHERE branch_id=? AND cashier_role='admin' AND staff_id=? AND closing_date=? LIMIT 1`,[req.branchId,cashierId,date])
   const cash=Number(payments.cash_received||0),refund=Number(refunds.cash_refunds||0)
   res.json({date,transactions:Number(payments.transactions||0),cash_received:cash,cash_refunds:refund,expected_cash:Math.round((cash-refund)*100)/100,non_cash_collected:Number(payments.non_cash_collected||0),closing:closing||null})
-}
-
-async function readTransferGroups(req,res){
-  const [rows]=await db.query(`SELECT g.id AS request_group_id,g.doctor_id,d.full_name AS doctor_name,g.appointment_id,g.consultation_id,
-      a.status AS appointment_status,DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,a.appointment_time,
-      p.full_name AS patient_name,COALESCE(bsc.service_name,a.requested_service_name_snapshot) AS requested_service_name,
-      g.destination_location_id,COALESCE(loc.name,g.destination_location) AS destination_location,g.reason AS group_reason,
-      g.status AS group_status,g.requested_at AS group_requested_at,g.updated_at AS group_updated_at,g.resolved_at AS group_resolved_at,
-      g.resolved_by_role,g.resolved_by_user_id,g.resolution_note AS group_resolution_note,
-      sr.id AS line_id,sr.inventory_id,sr.qty_requested,i.name AS item_name,i.category,i.item_type,COALESCE(i.uom,i.base_unit,i.unit,'unit') AS unit,
-      i.measurement_value,i.measurement_unit,
-      COALESCE((SELECT SUM(ilb.quantity) FROM inventory_location_batches ilb JOIN inventory_locations stock ON stock.id=ilb.location_id
-        JOIN inventory_batches batch ON batch.id=ilb.batch_id
-        WHERE ilb.inventory_id=i.id AND stock.branch_id=g.branch_id AND stock.is_main_stockroom=1
-        AND batch.branch_id=g.branch_id AND ilb.quantity>0 AND batch.archived_at IS NULL AND (batch.expiration_date IS NULL OR batch.expiration_date>=CURDATE())),0) AS main_stockroom_stock,
-      COALESCE((SELECT SUM(ilb.quantity) FROM inventory_location_batches ilb JOIN inventory_batches batch ON batch.id=ilb.batch_id
-        WHERE ilb.inventory_id=i.id AND ilb.location_id=g.destination_location_id AND batch.branch_id=g.branch_id AND ilb.quantity>0),0) AS destination_stock
-      FROM supply_request_groups g JOIN supply_requests sr ON sr.request_group_id=g.id AND sr.branch_id=g.branch_id
-      JOIN inventory i ON i.id=sr.inventory_id AND i.branch_id=g.branch_id
-      JOIN doctors d ON d.id=g.doctor_id AND d.branch_id=g.branch_id
-      LEFT JOIN appointments a ON a.id=g.appointment_id AND a.branch_id=g.branch_id
-      LEFT JOIN patients p ON p.id=a.patient_id
-      LEFT JOIN billing_service_catalog bsc ON bsc.id=a.requested_service_id AND bsc.branch_id=g.branch_id
-      LEFT JOIN inventory_locations loc ON loc.id=g.destination_location_id AND loc.branch_id=g.branch_id
-      WHERE g.branch_id=? ORDER BY FIELD(g.status,'pending','approved','rejected'),g.requested_at DESC,sr.id`,[req.branchId])
-  res.json(groupTransferRows(rows))
 }
 
 async function readSystemSetup(req,res){
@@ -234,7 +207,6 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
     reg('/billing/adjustment-requests','billing',readAdjustments)
     // Must precede /billing/:id, otherwise 'discount-presets' is parsed as a bill number.
     reg('/billing/discount-presets','billing',async(req,res)=>{const [rows]=await db.query('SELECT * FROM discount_presets WHERE branch_id=? ORDER BY sort_order,created_at,id',[req.branchId]);res.json(rows)})
-    reg('/supply-requests','stock_transfers',readTransferGroups)
     reg('/system-setup','system_setup',readSystemSetup)
     router.get(`${prefix}/billing/payment-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})})
     router.get(`${prefix}/clinic-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM clinic_settings WHERE id=1');res.json({...settings,clinic_name:req.branch.name,address:req.branch.address,phone:req.branch.phone,email:req.branch.email})})
@@ -247,4 +219,5 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
     reg('/billing/:id','billing',readBill)
   }
 }
-module.exports={registerBranchOperationalReads,readBills,readCashDrawer,readTransferGroups,readSystemSetup}
+module.exports={registerBranchOperationalReads,readBills,readCashDrawer,readSystemSetup}
+

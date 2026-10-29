@@ -28,7 +28,6 @@ const NAV_GROUPS = [
     { permission: 'checkout', name: 'Checkout', path: '/staff/checkout', icon: MdPayments, short: 'Checkout' },
     { permission: 'billing', name: 'Billing', path: '/staff/billing', icon: MdPayments, short: 'Billing' },
     { permission: 'inventory', name: 'Inventory', path: '/staff/inventory', icon: MdInventory2, short: 'Stock' },
-    { permission: 'stock_transfers', name: 'Stock Transfers', path: '/staff/supply-requests', icon: MdInventory2, short: 'Transfer' },
   ] },
   { label: 'People & Setup', items: [
     { permission: 'accounts', name: 'Accounts', path: '/staff/accounts', icon: MdPeople, short: 'Accounts' },
@@ -62,7 +61,7 @@ const StaffLayout = () => {
 
   const onEvent = useCallback((eventName) => {
     if (eventName === 'notification_created') playNotificationSound()
-    if (['notification_created','appointment_updated','queue_updated','consultation_saved','supply_request_resolved','billing_finalized','billing_paid'].includes(eventName)) {
+    if (['notification_created','appointment_updated','queue_updated','consultation_saved','billing_finalized','billing_paid'].includes(eventName)) {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
       // useSSE centralizes branch-aware data invalidation and refresh delivery.
       if (eventName === 'appointment_updated') loadCounts()
@@ -135,3 +134,4 @@ const StaffLayout = () => {
   )
 }
 export default StaffLayout
+

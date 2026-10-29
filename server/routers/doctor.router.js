@@ -11,7 +11,7 @@ const {
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
   getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
-  getInventoryItems, getMyRequests, getRequestLocations, getTransferAppointments, getAppointmentInventoryReadinessForDoctor, submitRequest,
+  getInventoryItems,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
@@ -54,11 +54,6 @@ router.post('/uploads/clinical/status', clinicalUploadStatusLimiter, getClinical
 
 router.get('/patients/:id/history',          getPatientHistory)
 router.get('/inventory',                     getInventoryItems)
-router.get('/requests',                      getMyRequests)
-router.get('/transfer-appointments',          getTransferAppointments)
-router.get('/appointments/:id/inventory-readiness', getAppointmentInventoryReadinessForDoctor)
-router.get('/inventory/locations',            getRequestLocations)
-router.post('/requests',                      submitRequest)
 
 // ── Doctor Queue Control ───────────────────────────────────────────────────────
 // NOTE: /queue/call-next MUST be before /queue/:id/done so Express doesn't
@@ -76,3 +71,4 @@ router.put('/schedule/unavailable-dates',      saveMyUnavailableDate)
 router.delete('/schedule/unavailable-dates/:date', deleteMyUnavailableDate)
 
 module.exports = router
+
