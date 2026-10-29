@@ -12,6 +12,24 @@ const DEFAULT_BOOKING_START_INTERVAL_MINUTES = 30
 const MIN_SERVICE_DURATION_MINUTES = 15
 const MAX_SERVICE_DURATION_MINUTES = 8 * 60
 const SERVICE_DURATION_STEP_MINUTES = 15
+// Explicit branch-scoped QA override, including on the production runtime.
+// BOTH the flag and an exact branch ID in the allowlist are mandatory.
+// Never enable zero notice for the global booking policy or for other branches.
+const isZeroNoticeTestingEnabled = (branchId = null) => {
+  const id = Number(branchId)
+  if (process.env.CARAIT_ALLOW_ZERO_BOOKING_NOTICE_FOR_TESTS !== 'true'
+      || !Number.isSafeInteger(id) || id <= 0) return false
+  const configured = String(process.env.CARAIT_ZERO_BOOKING_NOTICE_TEST_BRANCH_IDS || '')
+  return configured.split(',').some((candidate) => {
+    const value = candidate.trim()
+    return /^\d+$/.test(value) && Number(value) === id
+  })
+}
+
+const withBookingTestingCapability = (settings, branchId = null) => ({
+  ...settings,
+  zero_notice_testing_enabled: isZeroNoticeTestingEnabled(branchId),
+})
 
 const normalizePositiveInt = (value, fallback, min, max) => {
   const parsed = Number(value)
@@ -19,53 +37,63 @@ const normalizePositiveInt = (value, fallback, min, max) => {
   return Math.min(max, Math.max(min, parsed))
 }
 
-const normalizeBookingSettings = (row = {}) => ({
-  online_min_lead_minutes: normalizePositiveInt(
-    row.online_min_lead_minutes,
-    DEFAULT_ONLINE_MIN_LEAD_MINUTES,
-    12 * 60,
-    24 * 60
-  ),
-  pending_confirmation_cutoff_minutes: normalizePositiveInt(
-    row.pending_confirmation_cutoff_minutes,
-    DEFAULT_PENDING_CONFIRMATION_CUTOFF_MINUTES,
-    0,
-    24 * 60
-  ),
-  booking_start_interval_minutes: DEFAULT_BOOKING_START_INTERVAL_MINUTES,
-})
-
-const validateBookingSettings = (input = {}) => {
-  const normalized = normalizeBookingSettings(input)
-  const notice = Number(normalized.online_min_lead_minutes)
-  const cutoff = Number(normalized.pending_confirmation_cutoff_minutes)
-
-  if (!Number.isInteger(notice) || notice < 720 || notice > 24 * 60 || notice % 30 !== 0) {
-    const error = new Error('Minimum online booking notice must be 12 to 24 hours in 30-minute increments.')
-    error.statusCode = 400
-    error.code = 'BOOKING_POLICY_INVALID'
-    throw error
+const normalizeBookingSettings = (row = {}, branchId = null) => {
+  const existingZero = Number(row.online_min_lead_minutes) === 0
+  const testingZero = isZeroNoticeTestingEnabled(branchId) && existingZero
+  return {
+    online_min_lead_minutes: testingZero ? 0 : normalizePositiveInt(
+      row.online_min_lead_minutes,
+      DEFAULT_ONLINE_MIN_LEAD_MINUTES,
+      12 * 60,
+      24 * 60
+    ),
+    pending_confirmation_cutoff_minutes: testingZero ? 0 : normalizePositiveInt(
+      existingZero ? DEFAULT_PENDING_CONFIRMATION_CUTOFF_MINUTES : row.pending_confirmation_cutoff_minutes,
+      DEFAULT_PENDING_CONFIRMATION_CUTOFF_MINUTES,
+      30,
+      24 * 60
+    ),
+    booking_start_interval_minutes: DEFAULT_BOOKING_START_INTERVAL_MINUTES,
   }
-  if (!Number.isInteger(cutoff) || cutoff < 30 || cutoff > 24 * 60 || cutoff % 30 !== 0) {
-    const error = new Error('Pending confirmation cutoff must be 30 minutes to 24 hours in 30-minute increments.')
-    error.statusCode = 400
-    error.code = 'BOOKING_POLICY_INVALID'
-    throw error
+}
+
+const policyError = (message, statusCode = 400) => {
+  const error = new Error(message)
+  error.statusCode = statusCode
+  error.code = 'BOOKING_POLICY_INVALID'
+  return error
+}
+
+const validateBookingSettings = (input = {}, branchId = null) => {
+  // Do not silently coerce a requested zero to 720: return an actionable error.
+  if (Number(input.online_min_lead_minutes) === 0) {
+    if (!isZeroNoticeTestingEnabled(branchId)) {
+      throw policyError('No minimum booking notice requires the QA flag and an explicitly allowlisted clinic branch.', 403)
+    }
+    if (Number(input.pending_confirmation_cutoff_minutes) !== 0) {
+      throw policyError('For no-minimum testing, confirmation cutoff must be 0 minutes (at the appointment start).')
+    }
+    return normalizeBookingSettings(input, branchId)
+  }
+  const notice = Number(input.online_min_lead_minutes)
+  const cutoff = Number(input.pending_confirmation_cutoff_minutes)
+  if (!Number.isInteger(notice) || notice < 720 || notice > 1440 || notice % 30 !== 0) {
+    throw policyError('Minimum online booking notice must be 12 to 24 hours in 30-minute increments.')
+  }
+  if (!Number.isInteger(cutoff) || cutoff < 30 || cutoff > 1440 || cutoff % 30 !== 0) {
+    throw policyError('Pending confirmation cutoff must be 30 minutes to 24 hours in 30-minute increments.')
   }
   if (cutoff >= notice) {
-    const error = new Error('Pending confirmation cutoff must be earlier than the minimum online booking notice so Staff has time to review the request.')
-    error.statusCode = 400
-    error.code = 'BOOKING_POLICY_INVALID'
-    throw error
+    throw policyError('Pending confirmation cutoff must be earlier than the minimum online booking notice so Staff has time to review the request.')
   }
-  return normalized
+  return normalizeBookingSettings(input, branchId)
 }
 
 const loadBookingSettings = async (executor = db, branchId = null) => {
   if (Number.isSafeInteger(Number(branchId)) && Number(branchId) > 0) {
     const [branchRows] = await executor.query(
       `SELECT online_min_lead_minutes, pending_confirmation_cutoff_minutes, booking_start_interval_minutes FROM branch_booking_settings WHERE branch_id=?`, [Number(branchId)])
-    return normalizeBookingSettings(branchRows?.[0] || {})
+    return normalizeBookingSettings(branchRows?.[0] || {}, Number(branchId))
   }
   const [rows] = await executor.query(
     `SELECT online_min_lead_minutes, pending_confirmation_cutoff_minutes, booking_start_interval_minutes
@@ -78,7 +106,8 @@ const loadBookingSettings = async (executor = db, branchId = null) => {
 }
 
 const saveBookingSettings = async (input = {}, { role = null, userId = null, executor = db } = {}) => {
-  const settings = validateBookingSettings(input)
+  // Global policy is never eligible for the branch-specific QA override.
+  const settings = validateBookingSettings(input, null)
   await executor.query(
     `INSERT INTO booking_settings
        (id, online_min_lead_minutes, pending_confirmation_cutoff_minutes, booking_start_interval_minutes, updated_by_role, updated_by_user_id)
@@ -156,6 +185,8 @@ module.exports = {
   MAX_SERVICE_DURATION_MINUTES,
   SERVICE_DURATION_STEP_MINUTES,
   normalizeBookingSettings,
+  isZeroNoticeTestingEnabled,
+  withBookingTestingCapability,
   validateBookingSettings,
   loadBookingSettings,
   saveBookingSettings,
@@ -165,3 +196,4 @@ module.exports = {
   isOnlineAppointmentStartAllowed,
   buildConfirmationDeadlineSql,
 }
+

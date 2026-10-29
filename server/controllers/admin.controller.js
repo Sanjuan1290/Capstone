@@ -1627,13 +1627,13 @@ const deleteDoctorUnavailableDateAdmin = async (req, res) => {
 }
 
 const getBookingPolicyAdmin = async (req, res) => {
-  res.json(await loadBookingSettings())
+  res.json(require('../utils/bookingPolicy').withBookingTestingCapability(await loadBookingSettings()))
 }
 
 const updateBookingPolicyAdmin = async (req, res) => {
   const settings = await saveBookingSettings(req.body, { role: req.user?.role || 'admin', userId: req.user?.id || null })
   await writeAuditLog({ userId:req.user?.id||null,userRole:req.user?.role||'admin',action:'booking.policy_updated',entityType:'booking_settings',entityId:1,newValues:settings,ipAddress:req.ip||null }).catch(()=>{})
-  res.json({ ...settings, message: 'Booking policy updated.' })
+  res.json({ ...require('../utils/bookingPolicy').withBookingTestingCapability(settings), message: 'Booking policy updated.' })
 }
 
 const getAppointmentAvailableSlotsAdmin = async (req, res) => {
@@ -4298,3 +4298,4 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+

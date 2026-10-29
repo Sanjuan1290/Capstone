@@ -2,7 +2,7 @@
 const express    = require('express')
 const db = require('../db/connect')
 const {listBillingCatalog} = require('../utils/billing')
-const {validateBookingSettings}=require('../utils/bookingPolicy')
+const {validateBookingSettings,normalizeBookingSettings,withBookingTestingCapability}=require('../utils/bookingPolicy')
 const router     = express.Router()
 const staffCtrl  = require('../controllers/staff.controller')
 const adminCtrl  = require('../controllers/admin.controller')
@@ -46,9 +46,9 @@ const readBranchDiscounts=async(req,res)=>{const [rows]=await db.query('SELECT *
 const readBranchPaymentSettings=async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})}
 const readBranchBrand=async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM clinic_settings WHERE id=1');res.json({...settings,clinic_name:req.branch.name,address:req.branch.address,phone:req.branch.phone,email:req.branch.email})}
 const readBranchReasons=async(req,res)=>{const [rows]=await db.query('SELECT * FROM appointment_reason_options WHERE branch_id=? ORDER BY sort_order,label',[req.branchId]);res.json(rows)}
-const readBranchPolicy=async(req,res)=>{const [[row]]=await db.query('SELECT * FROM branch_booking_settings WHERE branch_id=?',[req.branchId]);res.json(row||{})}
+const readBranchPolicy=async(req,res)=>{const [[row]]=await db.query('SELECT * FROM branch_booking_settings WHERE branch_id=?',[req.branchId]);res.json(withBookingTestingCapability({...row,...normalizeBookingSettings(row||{},req.branchId)},req.branchId))}
 const writeBranchPolicy=async(req,res)=>{
-  const settings=validateBookingSettings(req.body)
+  const settings=validateBookingSettings(req.body,req.branchId)
   const grace=Number(req.body?.no_show_grace_minutes??15)
   if(!Number.isInteger(grace)||grace<0||grace>240||grace%5!==0)return res.status(400).json({message:'No-show grace must be in five-minute increments, 0–240.'})
   await db.query(`INSERT INTO branch_booking_settings (branch_id,online_min_lead_minutes,pending_confirmation_cutoff_minutes,booking_start_interval_minutes,no_show_grace_minutes)
@@ -208,4 +208,5 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), u
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
 
 module.exports = router
+
 

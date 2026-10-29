@@ -57,6 +57,7 @@ const Admin_PatientBooking = () => {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
+  const [zeroNoticeTestingEnabled, setZeroNoticeTestingEnabled] = useState(false)
   const [bookingPolicy, setBookingPolicy] = useState({ online_min_lead_minutes: 720, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
   const [savedBookingPolicy, setSavedBookingPolicy] = useState({ online_min_lead_minutes: 720, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
   const [editingPolicy, setEditingPolicy] = useState(false)
@@ -82,6 +83,7 @@ const Admin_PatientBooking = () => {
         pending_confirmation_cutoff_minutes: Number(data?.pending_confirmation_cutoff_minutes ?? 60),
         booking_start_interval_minutes: 30,
       }
+      setZeroNoticeTestingEnabled(data?.zero_notice_testing_enabled === true)
       setBookingPolicy(loadedPolicy)
       setSavedBookingPolicy(loadedPolicy)
       setEditingPolicy(false)
@@ -98,6 +100,9 @@ const Admin_PatientBooking = () => {
   const policyError = useMemo(() => {
     const notice = Number(bookingPolicy.online_min_lead_minutes)
     const cutoff = Number(bookingPolicy.pending_confirmation_cutoff_minutes)
+    if (notice === 0 && zeroNoticeTestingEnabled) {
+      return cutoff === 0 ? '' : 'No minimum testing requires a zero-minute confirmation cutoff.'
+    }
     if (!Number.isInteger(notice) || notice < 720 || notice > 1440 || notice % 30 !== 0) {
       return 'Minimum online booking notice must be 12 to 24 hours in 30-minute increments.'
     }
@@ -106,7 +111,7 @@ const Admin_PatientBooking = () => {
     }
     if (cutoff >= notice) return 'Pending confirmation cutoff must be less than the minimum online booking notice so Staff has time to review the request.'
     return ''
-  }, [bookingPolicy.online_min_lead_minutes, bookingPolicy.pending_confirmation_cutoff_minutes])
+  }, [bookingPolicy.online_min_lead_minutes, bookingPolicy.pending_confirmation_cutoff_minutes, zeroNoticeTestingEnabled])
 
   const startPolicyEdit = () => {
     setBookingPolicy({ ...savedBookingPolicy })
@@ -129,6 +134,7 @@ const Admin_PatientBooking = () => {
         pending_confirmation_cutoff_minutes: Number(saved?.pending_confirmation_cutoff_minutes ?? bookingPolicy.pending_confirmation_cutoff_minutes),
         booking_start_interval_minutes: 30,
       }
+      setZeroNoticeTestingEnabled(saved?.zero_notice_testing_enabled === true)
       setBookingPolicy(nextPolicy)
       setSavedBookingPolicy(nextPolicy)
       setEditingPolicy(false)
@@ -261,17 +267,19 @@ const Admin_PatientBooking = () => {
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label>
             <span className="form-label">Minimum Online Booking Notice</span>
-            <select disabled={!editingPolicy} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.online_min_lead_minutes} onChange={(e)=>setBookingPolicy((current)=>({...current,online_min_lead_minutes:Number(e.target.value)}))}>
+            <select disabled={!editingPolicy} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.online_min_lead_minutes} onChange={(e)=>setBookingPolicy((current)=>{const selected=Number(e.target.value);return {...current,online_min_lead_minutes:selected,pending_confirmation_cutoff_minutes:selected===0?0:current.pending_confirmation_cutoff_minutes===0?60:current.pending_confirmation_cutoff_minutes}})}>
+              {zeroNoticeTestingEnabled && <option value={0}>No minimum time (Testing Only)</option>}
               {BOOKING_POLICY_MINUTE_OPTIONS.filter((minutes)=>minutes>=720).map((minutes)=><option key={minutes} value={minutes}>{durationLabel(minutes)}</option>)}
             </select>
-            <span className="form-helper">{durationLabel(bookingPolicy.online_min_lead_minutes)} before the appointment. Adjust only in 30-minute increments. Minimum: 12 hours.</span>
+            <span className="form-helper">{bookingPolicy.online_min_lead_minutes === 0 ? "Testing only: future appointment slots can be booked without advance notice. Never enable on production." : `${durationLabel(bookingPolicy.online_min_lead_minutes)} before the appointment. Adjust only in 30-minute increments. Minimum: 12 hours.`}</span>
           </label>
           <label>
             <span className="form-label">Pending Confirmation Cutoff</span>
-            <select disabled={!editingPolicy} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.pending_confirmation_cutoff_minutes} onChange={(e)=>setBookingPolicy((current)=>({...current,pending_confirmation_cutoff_minutes:Number(e.target.value)}))}>
+            <select disabled={!editingPolicy || bookingPolicy.online_min_lead_minutes === 0} className={`form-control mt-1.5 ${!editingPolicy ? 'bg-slate-50 text-slate-600' : ''}`} value={bookingPolicy.pending_confirmation_cutoff_minutes} onChange={(e)=>setBookingPolicy((current)=>({...current,pending_confirmation_cutoff_minutes:Number(e.target.value)}))}>
+              {bookingPolicy.online_min_lead_minutes === 0 && <option value={0}>At appointment start (Testing Only)</option>}
               {BOOKING_POLICY_MINUTE_OPTIONS.map((minutes)=><option key={minutes} value={minutes}>{durationLabel(minutes)}</option>)}
             </select>
-            <span className="form-helper">Auto-reject if still pending {durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)} before the appointment. Adjust only in 30-minute increments. Default: 1 hour.</span>
+            <span className="form-helper">{bookingPolicy.online_min_lead_minutes === 0 ? "Testing only: pending requests expire at appointment start, not before." : `Auto-reject if still pending ${durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)} before the appointment. Adjust only in 30-minute increments. Default: 1 hour.`}</span>
           </label>
           <div>
             <span className="form-label">Booking Start Interval</span>
@@ -279,7 +287,7 @@ const Admin_PatientBooking = () => {
             <span className="form-helper">Fixed at 30 minutes. Available start times move in 30-minute increments; service duration determines how many blocks are reserved.</span>
           </div>
         </div>
-        {editingPolicy && policyError ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{policyError}</div> : <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">Patients must book at least <strong>{durationLabel(bookingPolicy.online_min_lead_minutes)}</strong> ahead. If Staff has not confirmed the request by <strong>{durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)}</strong> before its start time, the system automatically marks it Rejected and releases the slot.</div>}
+        {editingPolicy && policyError ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{policyError}</div> : <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">{bookingPolicy.online_min_lead_minutes === 0 ? "TESTING ONLY: Patients may book future available slots with no advance notice. Pending requests expire at appointment start." : <>Patients must book at least <strong>{durationLabel(bookingPolicy.online_min_lead_minutes)}</strong> ahead. If Staff has not confirmed the request by <strong>{durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)}</strong> before its start time, the system automatically marks it Rejected and releases the slot.</>}</div>}
       </section>
 
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -506,3 +514,4 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
+

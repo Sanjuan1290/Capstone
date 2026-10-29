@@ -10,7 +10,7 @@ const authenticate = require('../middlewares/auth.middleware')
 const { writeAuditLog } = require('../utils/audit')
 const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendTempPassword } = require('../utils/emailService')
-const { validateBookingSettings } = require('../utils/bookingPolicy')
+const { validateBookingSettings, normalizeBookingSettings, withBookingTestingCapability } = require('../utils/bookingPolicy')
 const { provisionBranch } = require('../utils/branchProvisioning')
 const router = express.Router()
 const PERMISSIONS = ['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','stock_transfers','accounts','system_setup','reports','audit_logs']
@@ -355,10 +355,10 @@ const listResource = (resource,permission) => [requirePermission(permission),asy
   const [rows]=await db.query(names[resource],[req.branchId]);res.json(rows)
 }]
 const getBookingPolicy = async(req,res)=>{
- const [[p]]=await db.query('SELECT * FROM branch_booking_settings WHERE branch_id=?',[req.branchId]);res.json(p || {branch_id:req.branchId,online_min_lead_minutes:720,pending_confirmation_cutoff_minutes:60,booking_start_interval_minutes:30,no_show_grace_minutes:15})
+ const [[p]]=await db.query('SELECT * FROM branch_booking_settings WHERE branch_id=?',[req.branchId]);res.json(withBookingTestingCapability({...p,branch_id:req.branchId,...normalizeBookingSettings(p||{},req.branchId),no_show_grace_minutes:p?.no_show_grace_minutes??15},req.branchId))
 }
 const saveBookingPolicy = async(req,res)=>{
- const input=validateBookingSettings(req.body)
+ const input=validateBookingSettings(req.body,req.branchId)
  const grace=Number(req.body.no_show_grace_minutes??15)
  if(!Number.isInteger(grace)||grace<0||grace>240||grace%5!==0)return res.status(400).json({message:'No-show grace must be 0 to 240 minutes in 5-minute increments.'})
  await db.query(`INSERT INTO branch_booking_settings (branch_id,online_min_lead_minutes,pending_confirmation_cutoff_minutes,booking_start_interval_minutes,no_show_grace_minutes,updated_by_admin_id) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE online_min_lead_minutes=VALUES(online_min_lead_minutes),pending_confirmation_cutoff_minutes=VALUES(pending_confirmation_cutoff_minutes),booking_start_interval_minutes=30,no_show_grace_minutes=VALUES(no_show_grace_minutes),updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,input.online_min_lead_minutes,input.pending_confirmation_cutoff_minutes,30,grace,req.user.id]);

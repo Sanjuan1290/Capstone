@@ -949,7 +949,8 @@ const ensureAppSchema = async () => {
     VALUES (1,720,60,30)
     ON DUPLICATE KEY UPDATE id=id
   `).catch(() => {})
-  // Enforce the new 12-hour online booking floor on already deployed databases.
+  // Global booking policy always retains the 12-hour floor. The test override
+  // is scoped to explicit branch IDs and must never affect this global row.
   await db.query('UPDATE booking_settings SET online_min_lead_minutes = 720 WHERE online_min_lead_minutes < 720')
   await ensureColumn('appointments', 'cancellation_reason_id', 'INT NULL')
   await ensureColumn('appointments', 'cancellation_reason_snapshot', 'VARCHAR(120) NULL')
@@ -1684,3 +1685,4 @@ module.exports = {
   backfillUomDecimalPrecision,
   rebuildInventoryLocationStock,
 }
+
