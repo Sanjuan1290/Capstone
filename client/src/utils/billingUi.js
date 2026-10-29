@@ -35,7 +35,5 @@ export const paymentMethodLabel = (method) => ({
 
 export const enabledPaymentMethods = (settings = {}) => [
   { value: 'cash', label: 'Cash', enabled: settings.cash_enabled !== 0 && settings.cash_enabled !== false },
-  { value: 'gcash', label: 'GCash', enabled: settings.gcash_enabled !== 0 && settings.gcash_enabled !== false },
-  { value: 'maya', label: 'Maya', enabled: settings.maya_enabled !== 0 && settings.maya_enabled !== false },
-  { value: 'bank_transfer', label: 'Bank Transfer', enabled: settings.bank_transfer_enabled !== 0 && settings.bank_transfer_enabled !== false },
 ].filter((method) => method.enabled)
+

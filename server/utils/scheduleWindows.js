@@ -63,7 +63,8 @@ const validateSchedulePayload = (body = {}) => {
   let spansNextDay = body.spans_next_day === true || Number(body.spans_next_day) === 1 ? 1 : 0
   let startTime = String(body.start_time || '').trim()
   let endTime = String(body.end_time || '').trim()
-  const slotDuration = Number(body.slot_duration_mins || 60)
+  // DB column retained for compatibility, not a doctor-editable booking rule.
+  const slotDuration = 60
 
   if (is24Hours) {
     startTime = '00:00'
@@ -73,11 +74,6 @@ const validateSchedulePayload = (body = {}) => {
 
   if (!startTime || !endTime || parseTimeToMinutes(startTime) === null || parseTimeToMinutes(endTime) === null) {
     const error = new Error('Start time and end time are required.')
-    error.statusCode = 400
-    throw error
-  }
-  if (![15, 20, 30, 45, 60, 90].includes(slotDuration)) {
-    const error = new Error('Select a valid appointment slot duration.')
     error.statusCode = 400
     throw error
   }
@@ -145,32 +141,36 @@ const getCalendarDateScheduleSegments = (dateString, schedules = []) => {
   return segments
 }
 
-const isTimeCoveredByWeeklySchedule = ({ date, time, schedules = [], slotDurationOverride = null }) => {
+const isTimeCoveredByWeeklySchedule = ({ date, time, schedules = [], slotDurationOverride = null, startIntervalMinutes = 30 }) => {
   const requested = parseTimeToMinutes(time)
   if (requested === null) return false
   const segments = getCalendarDateScheduleSegments(date, schedules)
   for (const segment of segments) {
-    const duration = Math.max(1, Number(slotDurationOverride || segment.schedule.slot_duration_mins) || 60)
+    const duration = Math.max(1, Number(slotDurationOverride) || 30)
+    const interval = Math.max(1, Number(startIntervalMinutes) || 30)
     if (requested < segment.start || requested + duration > segment.end) continue
     if (segment.anchor === 'current') {
       const base = getScheduleWindow(segment.schedule)?.start ?? segment.start
-      if ((requested - base) % duration === 0) return true
+      if ((requested - base) % interval === 0) return true
     } else {
       const base = Number(segment.originalStart || 0)
-      if ((requested + 1440 - base) % duration === 0) return true
+      if ((requested + 1440 - base) % interval === 0) return true
     }
   }
   return false
 }
 
-const buildSlotsForCalendarDate = ({ date, schedules = [], takenSlots = [], unavailable = false, nowMinutes = null }) => {
+const buildSlotsForCalendarDate = ({ date, schedules = [], takenSlots = [], unavailable = false, nowMinutes = null, startIntervalMinutes = 30, durationMinutes = 30 }) => {
   if (unavailable) return []
   const taken = new Set((Array.isArray(takenSlots) ? takenSlots : []).map((value) => String(value || '').trim()))
   const slots = []
   const seen = new Set()
 
   for (const segment of getCalendarDateScheduleSegments(date, schedules)) {
-    const duration = Math.max(1, Number(segment.schedule.slot_duration_mins) || 60)
+    // Service duration is validated when the patient selects a service.
+    // This general doctor-availability preview uses the branch's start grid.
+    const duration = Math.max(1, Number(durationMinutes) || 30)
+    const interval = Math.max(1, Number(startIntervalMinutes) || 30)
     const window = getScheduleWindow(segment.schedule)
     let cursor
     if (segment.anchor === 'current') {
@@ -184,7 +184,7 @@ const buildSlotsForCalendarDate = ({ date, schedules = [], takenSlots = [], unav
             slots.push({ time: label, available: state === 'available', state, minutes: cursor })
           }
         }
-        cursor += duration
+        cursor += interval
       }
     } else {
       cursor = window?.start ?? Number(segment.originalStart || 0)
@@ -201,7 +201,7 @@ const buildSlotsForCalendarDate = ({ date, schedules = [], takenSlots = [], unav
             }
           }
         }
-        cursor += duration
+        cursor += interval
       }
     }
   }
@@ -222,3 +222,4 @@ module.exports = {
   isTimeCoveredByWeeklySchedule,
   buildSlotsForCalendarDate,
 }
+

@@ -1,7 +1,8 @@
 const crypto = require('crypto')
 const { getTodayDateOnly } = require('./date')
 
-const PAYMENT_METHODS = new Set(['cash', 'gcash', 'maya', 'bank_transfer', 'qrph'])
+// Only new Cash payments and gateway-verified QR Ph are accepted. Historical methods remain readable.
+const PAYMENT_METHODS = new Set(['cash', 'qrph'])
 
 const isValidPaymentMethod = (value) => PAYMENT_METHODS.has(String(value || '').trim().toLowerCase())
 
@@ -75,3 +76,4 @@ module.exports = {
   allocateReceiptNumber,
   calculatePaymentAmounts,
 }
+

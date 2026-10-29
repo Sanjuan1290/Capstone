@@ -17,7 +17,6 @@ const asBool = (value) => value === true || Number(value) === 1
 const scheduleToForm = (schedule) => ({
   start_time: schedule?.start_time || '08:00',
   end_time: schedule?.end_time || '17:00',
-  slot_duration_mins: schedule?.slot_duration_mins || 60,
   is_active: schedule?.is_active ?? 0,
   spans_next_day: schedule?.spans_next_day ?? 0,
   is_24_hours: schedule?.is_24_hours ?? 0,
@@ -111,7 +110,7 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
     {isActive && <div className="space-y-3 bg-white px-4 py-4 dark:bg-slate-900">
       {!editing ? <>
         <div className="grid grid-cols-3 gap-2">
-          {[{label:'Start',value:is24Hours?'12:00 AM':formatScheduleTime(form.start_time)},{label:'End',value:is24Hours?'Next day':formatScheduleTime(form.end_time)},{label:'Slot',value:`${form.slot_duration_mins}m`}].map(({label,value})=><div key={label} className={`${cfg.light} ${cfg.border} rounded-xl border px-2 py-2.5 text-center`}><p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><p className={`text-xs font-black ${cfg.text}`}>{value}</p></div>)}
+          {[{label:'Start',value:is24Hours?'12:00 AM':formatScheduleTime(form.start_time)},{label:'End',value:is24Hours?'Next day':formatScheduleTime(form.end_time)},].map(({label,value})=><div key={label} className={`${cfg.light} ${cfg.border} rounded-xl border px-2 py-2.5 text-center`}><p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><p className={`text-xs font-black ${cfg.text}`}>{value}</p></div>)}
         </div>
         {spansNextDay && !is24Hours && <p className="rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200">Overnight schedule: the end time is on the following day.</p>}
         {is24Hours && <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">Available for the full 24-hour calendar day.</p>}
@@ -122,7 +121,7 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
           <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs font-bold uppercase text-slate-500">Start</label><input type="time" step="60" value={form.start_time} onChange={(e)=>setForm(v=>({...v,start_time:e.target.value}))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-base font-bold outline-none ${cfg.ring}`}/></div><div><label className="mb-1 block text-xs font-bold uppercase text-slate-500">End</label><input type="time" step="60" value={form.end_time} onChange={(e)=>setForm(v=>({...v,end_time:e.target.value}))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-base font-bold outline-none ${cfg.ring}`}/></div></div>
           <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700"><span><strong>Ends next day</strong><span className="mt-0.5 block text-xs font-normal text-slate-500">Use for overnight availability, e.g. 8:00 PM–2:00 AM.</span></span><input type="checkbox" checked={spansNextDay} onChange={(e)=>setForm(v=>({...v,spans_next_day:e.target.checked?1:0}))}/></label>
         </>}
-        <div><label className="mb-1 block text-xs font-bold uppercase text-slate-500">Slot Duration</label><select value={form.slot_duration_mins} onChange={(e)=>setForm(v=>({...v,slot_duration_mins:Number(e.target.value)}))} className={`w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none ${cfg.ring}`}>{[15,20,30,45,60,90].map(v=><option key={v} value={v}>{v} minutes</option>)}</select></div>
+        
         {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 dark:bg-red-950/40 dark:text-red-300">{error}</p>}
         <div className="flex gap-2"><button type="button" onClick={cancelEditing} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-semibold text-slate-600"><span className="flex items-center justify-center gap-1"><MdClose/> Cancel</span></button><button type="button" onClick={handleSave} disabled={saving} className={`flex-1 rounded-xl py-2.5 text-xs font-bold text-white disabled:opacity-50 ${saved?'bg-emerald-500':cfg.color}`}><span className="flex items-center justify-center gap-1.5">{saved?<><MdCheck/> Saved!</>:saving?'Saving...':<><MdSave/> Save</>}</span></button></div>
       </>}
@@ -133,3 +132,4 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
 }
 
 export default ScheduleDayCard
+

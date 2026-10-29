@@ -42,19 +42,18 @@ test('branch payment settings update uses only its own row and a scoped audit',a
  assert.equal(queries[1][1][0],2)
  assert.equal(queries[1][1].at(-1),7)
 })
-test('new QR image requires security token bound to physical branch',async()=>{
- let attempted=false,rolled=false
- const connection={beginTransaction:async()=>{},query:async(sql,params)=>[[{branch_id:2,cash_enabled:1}]],commit:async()=>{throw Error('Should not commit')},rollback:async()=>{rolled=true},release:()=>{}}
- const mod=load({db:{getConnection:async()=>connection},verify:(token,expected)=>{
-  attempted=true;assert.equal(token,'tokenForBranch2')
-  assert.equal(expected.context_id,'2:gcash');throw Object.assign(new Error('Foreign or expired QR upload token.'),{statusCode:403,code:'UPLOAD_TOKEN_INVALID'})
- }})
- const r=resp();await mod.save(req(2,{...settings,gcash_enabled:true,gcash_qr_url:'https://example.test/qr.png',gcash_qr_security_token:'tokenForBranch2'}),r)
- assert.equal(attempted,true);assert.equal(rolled,true);assert.equal(r.statusCode,403)
- assert.equal(r.body.code,'UPLOAD_TOKEN_INVALID')
+test('new manual GCash/Maya QR setup is rejected before writing to database',async()=>{
+ let databaseTouched=false
+ const mod=load({db:{getConnection:()=>{databaseTouched=true;throw Error('No connection allowed for retired method')}}})
+ const r=resp()
+ await mod.save(req(2,{...settings,gcash_enabled:true,gcash_qr_url:'https://example.test/qr.png'}),r)
+ assert.equal(databaseTouched,false)
+ assert.equal(r.statusCode,400)
+ assert.equal(r.body.code,'RETIRED_PAYMENT_METHOD')
 })
 test('unsafe payment QR URL rejected before database write',async()=>{
  const mod=load({db:{getConnection:()=>{throw Error('Unexpected DB access')}}})
  const r=resp();await mod.save(req(2,{...settings,gcash_qr_url:'http://nonsecure.test/qr.png'}),r)
  assert.equal(r.statusCode,400);assert.equal(r.body.code,'INVALID_IMAGE_URL')
 })
+

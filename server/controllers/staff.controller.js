@@ -99,6 +99,7 @@ const normalizeInventoryPayload = (body = {}) => {
     batch_code: String(body.batch_code || '').trim() || null,
     batch_lot_code: String(body.batch_lot_code || '').trim().replace(/^-+/, '') || null,
     supplier_lot_number: String(body.supplier_lot_number || '').trim() || null,
+    default_location_id: Number(body.default_location_id) || null,
     location_type_id: Number(body.location_type_id) || null,
     storage_location_id: Number(body.storage_location_id) || null,
     storage_location: String(body.storage_location || '').trim() || null,
@@ -130,7 +131,7 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   const name = String(body.name || '').trim()
   const category = String(body.category || '').trim()
   const itemType = String(body.item_type || '').trim()
-  const locationTypeId = Number(body.location_type_id)
+  const stockRoomId = Number(body.default_location_id)
   const supplierId = Number(body.supplier_id) || null
   const thresholdRaw = body.threshold
   const sellingPrice = Number(body.selling_price)
@@ -138,7 +139,7 @@ const validateInventoryRequiredFields = (body = {}, { requireOpeningQuantity = f
   if (!name) return { message: 'Item Name is required.', code: 'INVENTORY_NAME_REQUIRED' }
   if (!['medical', 'derma'].includes(category)) return { message: 'Select a valid Category.', code: 'INVENTORY_CATEGORY_REQUIRED' }
   if (!['medicine', 'supplies'].includes(itemType)) return { message: 'Select a valid Type.', code: 'INVENTORY_TYPE_REQUIRED' }
-  if (!locationTypeId) return { message: 'Storage Location is required.', code: 'INVENTORY_LOCATION_TYPE_REQUIRED' }
+  if (!stockRoomId) return { message: 'Stock Room is required.', code: 'INVENTORY_STOCK_ROOM_REQUIRED' }
   if (!supplierId) return { message: 'Supplier is required.', code: 'INVENTORY_SUPPLIER_REQUIRED' }
   if (thresholdRaw === '' || thresholdRaw === null || thresholdRaw === undefined || !Number.isFinite(Number(thresholdRaw)) || Number(thresholdRaw) < 0 || !Number.isInteger(Number(thresholdRaw))) {
     return { message: 'Low Stock Alert is required and must be a whole number of 0 or greater.', code: 'INVENTORY_THRESHOLD_REQUIRED' }
@@ -178,29 +179,21 @@ const rejectStaffPricingMutation = (req, res) => {
   return true
 }
 
-const resolveInventorySetupSelection = async ({ location_type_id, branchId }, executor = db) => {
-  const locationTypeId = Number(location_type_id)
-  if (!locationTypeId) {
-    const error = new Error('Select a Storage Location configured in System Setup.')
-    error.statusCode = 400
-    error.code = 'INVENTORY_LOCATION_TYPE_REQUIRED'
-    throw error
+const resolveInventorySetupSelection = async ({ default_location_id, branchId }, executor = db) => {
+  const id=Number(default_location_id)
+  if (!Number.isSafeInteger(id)||id<=0) {
+    const error=new Error('Select an active Stock Room in System Setup.')
+    error.statusCode=400;error.code='INVENTORY_STOCK_ROOM_REQUIRED';throw error
   }
-  const [[locationType]] = await executor.query(
-    'SELECT id,name,code FROM inventory_location_types WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1',
-    [locationTypeId,branchId]
+  const [[stockRoom]]=await executor.query(
+    'SELECT id,name FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1',
+    [id,branchId]
   )
-  if (!locationType) {
-    const error = new Error('That Storage Location is unavailable. Configure an active Storage Location in System Setup.')
-    error.statusCode = 400
-    error.code = 'INVENTORY_LOCATION_TYPE_INVALID'
-    throw error
+  if (!stockRoom) {
+    const error=new Error('The selected Stock Room is unavailable in this branch.')
+    error.statusCode=400;error.code='INVENTORY_STOCK_ROOM_INVALID';throw error
   }
-
-  return {
-    uom: 'unit',
-    locationType,
-  }
+  return {uom:'unit',stockRoom}
 }
 
 
@@ -1818,7 +1811,7 @@ const addInventoryItem = async (req, res) => {
 
   let {
     barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id,
-    expiration_date, batch_code, batch_lot_code, supplier_lot_number, location_type_id,
+    expiration_date, batch_code, batch_lot_code, supplier_lot_number, default_location_id,
   } = normalizeInventoryPayload(req.body)
   // Staff may create inventory records, but pricing is Admin-only.
   price = null
@@ -1835,11 +1828,11 @@ const addInventoryItem = async (req, res) => {
   const conn = await db.getConnection()
   try {
     await conn.beginTransaction()
-    const setupSelection = await resolveInventorySetupSelection({ location_type_id, branchId: req.branchId }, conn)
+    const setupSelection = await resolveInventorySetupSelection({ default_location_id, branchId: req.branchId }, conn)
     uom = setupSelection.uom
     unit = uom
     base_unit = uom
-    location_type_id = setupSelection.locationType.id
+    default_location_id = setupSelection.stockRoom.id
     if (!barcode) barcode = await nextInventoryBarcode(category, req.branchId, conn)
     // Every receipt gets its own internal batch code automatically.
     batch_code = null
@@ -1855,12 +1848,12 @@ const addInventoryItem = async (req, res) => {
     }
     const [result] = await conn.query(
       `INSERT INTO inventory
-       (barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location, location_type_id, branch_id)
+       (barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, unit_size, stock, threshold, price, selling_price, supplier, supplier_id, expiration_date, storage_location, default_location_id, branch_id)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, 1, 0, threshold, price, selling_price, supplier, supplier_id, null, null, location_type_id, req.branchId]
+      [barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, unit, base_unit, 1, 0, threshold, price, selling_price, supplier, supplier_id, null, null, default_location_id, req.branchId]
     )
     let openingBatchId = null
-    let openingLocation = 'Main Stockroom'
+    let openingLocation = setupSelection.stockRoom.name
     if (stock > 0) {
       const received = await receiveInventoryBatch(result.insertId, {
         quantity: stock,
@@ -1870,7 +1863,7 @@ const addInventoryItem = async (req, res) => {
         supplier_id,
         unit_cost: 0,
         note: 'Opening stock',
-        location: 'Main Stockroom',
+        location_id: setupSelection.stockRoom.id,
       }, conn)
       openingBatchId = received.batch_id
       batch_code = received.batch_code
@@ -1899,7 +1892,7 @@ const addInventoryItem = async (req, res) => {
       action: 'inventory.item_created',
       entityType: 'inventory_item',
       entityId: result.insertId,
-      newValues: { name, category, item_type, barcode, uom, strength, measurement_value, measurement_unit, supplier_id, location_type_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: null, expiration_date: expiration_date || null },
+      newValues: { name, category, item_type, barcode, uom, strength, measurement_value, measurement_unit, supplier_id, default_location_id, initial_quantity: Number(stock || 0), opening_batch_id: openingBatchId, opening_batch_code: batch_code || null, supplier_lot_number: null, expiration_date: expiration_date || null },
       ipAddress: req.ip || null,
     }, conn)
     await conn.commit()
@@ -1924,7 +1917,7 @@ const updateInventoryItem = async (req, res) => {
   if (validationError) return res.status(400).json(validationError)
 
   let {
-    barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, threshold, selling_price, supplier, supplier_id, location_type_id,
+    barcode, name, category, item_type, uom, dosage_form, strength, measurement_value, measurement_unit, threshold, selling_price, supplier, supplier_id, default_location_id,
   } = normalizeInventoryPayload(req.body)
   if (!name || !category)
     return res.status(400).json({ message: 'Name and category are required.' })
@@ -1942,9 +1935,9 @@ const updateInventoryItem = async (req, res) => {
       return res.status(409).json({ code: 'INVENTORY_ARCHIVED', message: 'Archived inventory items cannot be edited.' })
     }
 
-    const setupSelection = await resolveInventorySetupSelection({ location_type_id, branchId: req.branchId }, conn)
+    const setupSelection = await resolveInventorySetupSelection({ default_location_id, branchId: req.branchId }, conn)
     const canonicalUom = setupSelection.uom
-    location_type_id = setupSelection.locationType.id
+    default_location_id = setupSelection.stockRoom.id
 
     if (supplier_id) {
       const [[supplierRow]] = await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1',[supplier_id,req.branchId])
@@ -1959,9 +1952,9 @@ const updateInventoryItem = async (req, res) => {
 
     await conn.query(
       `UPDATE inventory
-       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, measurement_value=?, measurement_unit=?, unit=?, base_unit=?, unit_size=1, threshold=?, supplier=?, supplier_id=?, location_type_id=?
+       SET barcode=?, name=?, category=?, item_type=?, uom=?, dosage_form=?, strength=?, measurement_value=?, measurement_unit=?, unit=?, base_unit=?, unit_size=1, threshold=?, supplier=?, supplier_id=?, default_location_id=?
        WHERE id=? AND branch_id=?`,
-      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, measurement_value, measurement_unit, canonicalUom, canonicalUom, threshold, supplier, supplier_id, location_type_id, req.params.id, req.branchId]
+      [barcode, name, category, item_type, canonicalUom, dosage_form, strength, measurement_value, measurement_unit, canonicalUom, canonicalUom, threshold, supplier, supplier_id, default_location_id, req.params.id, req.branchId]
     )
     await syncInventorySnapshot(req.params.id, conn)
     await conn.commit()
@@ -2151,3 +2144,4 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+

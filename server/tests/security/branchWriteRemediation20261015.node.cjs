@@ -29,7 +29,7 @@ const conn=(query)=>{
  let committed=false,rolledBack=false
  return {query,beginTransaction:async()=>{},commit:async()=>{committed=true},rollback:async()=>{rolledBack=true},release:()=>{},get committed(){return committed},get rolledBack(){return rolledBack}}
 }
-const body={name:'Gloves',category:'medical',item_type:'supplies',threshold:10,selling_price:50,location_type_id:10,stock:0,supplier_id:17,barcode:'A-1'}
+const body={name:'Gloves',category:'medical',item_type:'supplies',threshold:10,selling_price:50,default_location_id:10,stock:0,supplier_id:17,barcode:'A-1'}
 test('foreign inventory id is rejected before any update and rolls back',async()=>{
  const queries=[]
  const c=conn(async(sql,params)=>{queries.push([sql,params]);return [[]]})
@@ -54,7 +54,7 @@ test('inventory item creation must verify supplier and location within branch',a
  const h=loadTarget(targetInventory,{getConnection:async()=>c}).createItem
  const res=response();await h({branchId:2,user:{id:1},body:{...body,item_type:'medicine'}},res)
  assert.equal(res.code,400)
- assert.equal(res.body.code,'INVALID_LOCATION_TYPE')
+ assert.equal(res.body.code,'INVALID_STOCK_ROOM')
  assert.equal(c.rolledBack,true)
  assert.match(statements[0][0],/branch_id=\?/)
  assert.deepEqual(statements[0][1],[10,2])
@@ -86,3 +86,4 @@ test('appointment validates the doctor and service inside the requested branch t
  assert.ok(calls.some(([sql,args])=>sql.includes('FROM doctors')&&sql.includes('branch_id=?')&&args[1]===2))
  assert.ok(calls.some(([sql,args])=>sql.includes('FROM billing_service_catalog')&&sql.includes('branch_id=?')&&args[1]===2))
 })
+

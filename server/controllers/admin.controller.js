@@ -2141,6 +2141,7 @@ const updatePaymentSettingsAdmin = async (req, res) => {
   const gcashEnabled = enabledValue(req.body.gcash_enabled)
   const mayaEnabled = enabledValue(req.body.maya_enabled)
   const bankEnabled = enabledValue(req.body.bank_transfer_enabled)
+  if (gcashEnabled || mayaEnabled || bankEnabled) return res.status(400).json({ code: 'RETIRED_PAYMENT_METHOD', message: 'Only Cash and gateway-verified QR Ph are supported for new payments.' })
   const gcashQrMode = String(req.body.gcash_qr_mode || 'uploaded').toLowerCase() === 'external' ? 'external' : 'uploaded'
   const mayaQrMode = String(req.body.maya_qr_mode || 'uploaded').toLowerCase() === 'external' ? 'external' : 'uploaded'
   const bankName = String(req.body.bank_name || '').trim() || null

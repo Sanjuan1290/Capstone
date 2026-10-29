@@ -2,10 +2,15 @@ const { isValidPaymentMethod, requiresPaymentReference, makeReceiptNumber, calcu
 
 describe('billing payments', () => {
   it('validates supported methods and reference rules', () => {
-    expect(isValidPaymentMethod('GCASH')).toBe(true)
-    expect(isValidPaymentMethod('cheque')).toBe(false)
+    // The clinic now accepts new Cash or PayMongo QR Ph payments only.
+    expect(isValidPaymentMethod('cash')).toBe(true)
+    expect(isValidPaymentMethod('QRPH')).toBe(true)
+    for (const retiredMethod of ['GCASH', 'maya', 'bank_transfer', 'cheque']) {
+      expect(isValidPaymentMethod(retiredMethod)).toBe(false)
+      expect(requiresPaymentReference(retiredMethod)).toBe(false)
+    }
     expect(requiresPaymentReference('cash')).toBe(false)
-    expect(requiresPaymentReference('maya')).toBe(true)
+    expect(requiresPaymentReference('qrph')).toBe(true)
   })
 
   it('calculates received amount and change using centavo precision', () => {
@@ -18,3 +23,4 @@ describe('billing payments', () => {
     expect(makeReceiptNumber(42, new Date('2026-07-21T00:00:00.000Z'), 'a1b2c3')).toBe('OR-20260721-42-A1B2C3')
   })
 })
+

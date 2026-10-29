@@ -169,14 +169,14 @@ router.put('/inventory/locations/:id', ...auth, adminCtrl.updateInventoryLocatio
 router.delete('/inventory/locations/:id', ...auth, adminCtrl.deleteInventoryLocation)
 router.post('/inventory/suppliers',    ...auth, adminCtrl.createInventorySupplier)
 router.get('/inventory/logs',         ...auth, adminCtrl.getInventoryLogs)
-router.post('/inventory',             ...auth, adminCtrl.addInventoryItem)
+router.post('/inventory',             ...auth, (req,res)=>res.status(410).json({code:'BRANCH_INVENTORY_API_REQUIRED',message:'Create inventory through the authorized branch Stock Rooms API.'}))
 router.patch('/inventory/:id/stock',  ...auth, adminCtrl.updateStock)
 router.post('/inventory/:id/move-location', ...auth, correctionsCtrl.moveStockBetweenLocations)
 router.get('/inventory/batches/:batchId/history', ...auth, adminCtrl.getInventoryBatchHistory)
 router.post('/inventory/batches/:batchId/action/request-code', ...auth, otpRequestLimiter, adminCtrl.requestInventoryBatchActionCode)
 router.post('/inventory/batches/:batchId/action/confirm', ...auth, otpVerifyLimiter, adminCtrl.confirmInventoryBatchAction)
 // FIX 5: Edit and Delete inventory items
-router.put('/inventory/:id',          ...auth, adminCtrl.updateInventoryItem)
+router.put('/inventory/:id',          ...auth, (req,res)=>res.status(410).json({code:'BRANCH_INVENTORY_API_REQUIRED',message:'Edit inventory through the authorized branch Stock Rooms API.'}))
 router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
 
 // ── Supply Requests ───────────────────────────────────────────────────────────
@@ -184,3 +184,4 @@ router.get('/supply-requests',       ...auth, adminCtrl.getSupplyRequests)
 router.patch('/supply-requests/:id', ...auth, adminCtrl.resolveSupplyRequest)
 
 module.exports = router
+

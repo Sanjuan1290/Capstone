@@ -402,7 +402,7 @@ const CameraScanner = ({ onDetected, onClose }) => {
   )
 }
 
-const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSubmit, canManageSellingPrice = false, masterData = {}, existingItems = [] }) => {
+const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSubmit, canManageSellingPrice = false, masterData = {}, existingItems = [], stockRooms = [] }) => {
   const isEditing = Boolean(initialItem?.id)
   const [supplierChoice, setSupplierChoice] = useState(initialItem?.supplier_id ? String(initialItem.supplier_id) : '')
   const [barcodeScannerOpen, setBarcodeScannerOpen] = useState(false)
@@ -422,11 +422,11 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     price: String(initialItem?.selling_price ?? initialItem?.price ?? ''),
     selling_price: initialItem?.selling_price === null || initialItem?.selling_price === undefined ? '' : String(initialItem.selling_price),
     expiration_date: '',
-    location_type_id: initialItem?.location_type_id ? String(initialItem.location_type_id) : '',
+    default_location_id: initialItem?.default_location_id ? String(initialItem.default_location_id) : '',
   })
 
   const categorySuppliers = (masterData.suppliers || []).filter((entry) => supplierSupportsClinic(entry, form.category))
-  const locationTypes = (masterData.location_types || []).filter((entry) => Number(entry.is_active ?? 1) === 1)
+  const activeStockRooms = stockRooms.filter((entry) => Number(entry.is_active ?? 1) === 1)
   const quantityStep = 1
   const update = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
   const normalizedBarcode = String(form.barcode || '').trim()
@@ -445,7 +445,7 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     form.name.trim()
     && form.category
     && form.item_type
-    && form.location_type_id
+    && form.default_location_id
     && supplierChoice
     && thresholdValid
     && (!canManageSellingPrice || sellingPriceValid)
@@ -547,7 +547,7 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
             {duplicateBarcode ? <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">This barcode is already registered to <strong>{duplicateBarcode.name}</strong>. Use the existing inventory item instead.</div> : <p className="mt-2 text-xs text-slate-400">The product barcode identifies the product. Batch barcodes are generated automatically for each receipt.</p>}
             <div className="mt-3"><BarcodePreview value={barcodePreview} title={normalizedBarcode ? 'Product Barcode Preview' : 'Auto-generated Barcode Preview'} /></div>
           </div>
-          <Field label="Storage Location *"><select value={form.location_type_id} onChange={update('location_type_id')} className={inputClass} disabled={!locationTypes.length}><option value="">{locationTypes.length ? 'Select storage location' : 'No storage locations configured'}</option>{locationTypes.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></Field>
+          <Field label="Stock Room *"><select value={form.default_location_id} onChange={update('default_location_id')} className={inputClass} disabled={!activeStockRooms.length}><option value="">{activeStockRooms.length ? 'Select stock room' : 'No active stock rooms configured'}</option>{activeStockRooms.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></Field>
           <Field label="Supplier *"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={`${inputClass} ${!supplierChoice ? 'border-amber-300 bg-amber-50' : ''}`} disabled={!categorySuppliers.length}><option value="">{categorySuppliers.length ? 'Select supplier' : 'No suppliers configured for this category'}</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>{!supplierChoice && categorySuppliers.length > 0 && <p className="mt-1 text-xs font-semibold text-amber-700">Select a supplier.</p>}</Field>
           {!isEditing && <Field label="Opening Quantity *"><input type="number" inputMode="numeric" min="0" step={quantityStep} value={form.stock} onChange={update('stock')} className={`${inputClass} ${!openingQuantityValid ? 'border-amber-300 bg-amber-50' : ''}`}/>{!openingQuantityValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter a whole-number opening quantity of 0 or greater.</p>}</Field>}
           {!isEditing && openingQuantity > 0 && <div><Field label={`Opening Batch Expiry${form.item_type === 'medicine' ? ' *' : ''}`}><input type="date" value={form.expiration_date} onChange={update('expiration_date')} disabled={noExpiry} className={`${inputClass} ${!openingExpiryValid ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{form.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setForm((v)=>({...v,expiration_date:''}))}}/> No expiry / Not applicable</label>}{!openingExpiryValid && <p className="mt-1 text-xs font-semibold text-amber-700">{form.item_type === 'medicine' ? 'Expiry is required for medicines with opening stock.' : 'Enter an expiry date or choose No expiry / Not applicable.'}</p>}</div>}
@@ -830,21 +830,23 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   const [scannerOpen, setScannerOpen] = useState(false)
   const [feedback, setFeedback] = useState(null)
   const [page, setPage] = useState(1)
-  const hasActiveLocationType = (masterData.location_types || []).some((entry) => Number(entry.is_active ?? 1) === 1)
+  const hasActiveStockRoom = stockLocations.some((entry) => Number(entry.is_active ?? 1) === 1)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [data, masters] = await Promise.all([
+      const [data, masters, rooms] = await Promise.all([
         getInventory(),
         getInventoryMasterData ? getInventoryMasterData().catch(() => null) : Promise.resolve(null),
+        getInventoryLocations ? getInventoryLocations() : Promise.resolve([]),
       ])
       setItems(Array.isArray(data) ? data : data?.items || [])
+      setStockLocations(Array.isArray(rooms) ? rooms : [])
       if (masters) setMasterData({ suppliers: masters?.suppliers || [], location_types: masters?.location_types || [], movement_reasons: masters?.movement_reasons || [] })
     } finally {
       setLoading(false)
     }
-  }, [getInventory, getInventoryMasterData])
+  }, [getInventory, getInventoryMasterData, getInventoryLocations])
 
   useEffect(() => { load() }, [load])
   useClinicRefresh(load,['inventory.updated','service.updated','settings.updated'],{fallbackMs:60000,skip:()=>showAdd||Boolean(editItem)||Boolean(stockItem)||Boolean(moveItem)||Boolean(batchManagerItem)})
@@ -855,7 +857,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       setStockLocations(Array.isArray(rows) ? rows : [])
       setMoveItem(item)
     } catch (err) {
-      toast.error(err.message || 'Could not load storage locations.')
+      toast.error(err.message || 'Could not load Stock Rooms.')
     }
   }
 
@@ -878,7 +880,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 
   const filtered = useMemo(() => items.filter(item => {
     const matchesCategory = category === 'All' || item.category === category
-    const matchesLocationType = locationTypeFilter === 'All' || Number(item.location_type_id) === Number(locationTypeFilter)
+    const matchesLocationType = locationTypeFilter === 'All' || Number(item.default_location_id) === Number(locationTypeFilter)
     const needle = search.toLowerCase()
     const matchesSearch = !needle ||
       item.name?.toLowerCase().includes(needle) ||
@@ -989,12 +991,12 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
-          <p className="text-sm text-slate-500 mt-1">Batch-aware inventory with Storage Locations configured in System Setup, generated barcodes, and whole-unit stock tracking.</p>
+          <p className="text-sm text-slate-500 mt-1">Inventory with Stock Rooms configured in System Setup, generated barcodes, and whole-unit stock tracking.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center"><MdRefresh className="text-[18px]" /></button>
           <button onClick={() => setScannerOpen(true)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 flex items-center gap-2"><MdQrCodeScanner /> Scan Barcode</button>
-          <button title={hasActiveLocationType ? 'Add inventory item' : 'Configure at least one active Storage Location in System Setup first'} disabled={!hasActiveLocationType} onClick={() => { setNewItemBarcode(''); setShowAdd(true) }} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"><MdAdd /> Add Item</button>
+          <button title={hasActiveStockRoom ? 'Add inventory item' : 'Configure at least one active Stock Room in System Setup first'} disabled={!hasActiveStockRoom} onClick={() => { setNewItemBarcode(''); setShowAdd(true) }} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"><MdAdd /> Add Item</button>
         </div>
       </div>
 
@@ -1009,7 +1011,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         </div>
       )}
 
-      {!hasActiveLocationType && <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><strong>Inventory setup required.</strong> Add at least one active Storage Location in Admin → System Setup before creating items.</div>}
+      {!hasActiveStockRoom && <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><strong>Inventory setup required.</strong> Add at least one active Stock Room in Admin → System Setup before creating items.</div>}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
@@ -1037,9 +1039,9 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
             </button>
           ))}
         </div>
-        <select aria-label="Filter by storage location" value={locationTypeFilter} onChange={(e)=>setLocationTypeFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 outline-none focus:border-sky-400">
-          <option value="All">All Storage Locations</option>
-          {(masterData.location_types || []).map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
+        <select aria-label="Filter by stock room" value={locationTypeFilter} onChange={(e)=>setLocationTypeFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 outline-none focus:border-sky-400">
+          <option value="All">All Stock Rooms</option>
+          {stockLocations.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
         </select>
       </div>
 
@@ -1060,7 +1062,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
                 <p className="text-xs text-slate-400">Low stock threshold: {formatUnits(item.threshold)} · Selling Price: {Number(item.selling_price || 0) > 0 ? `PHP ${Number(item.selling_price).toFixed(2)}` : 'Not set'}</p>{Number(item.selling_price || 0) <= 0 && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Selling Price is missing. {canManageSellingPrice ? 'Edit this item and set a price greater than ₱0.00 before it can be used for direct Checkout billing.' : 'Ask an Admin to set the Selling Price before this item can be used for patient billing.'}</div>}
                 <div className="flex flex-wrap gap-3 pt-1 text-xs">
                   <span className="inline-flex items-center gap-1 text-slate-500">
-                    <MdLocationOn className="text-[14px]" /> Storage Location: {item.location_type_name || 'Not assigned'}
+                    <MdLocationOn className="text-[14px]" /> Stock Room: {stockLocations.find((room) => Number(room.id) === Number(item.default_location_id))?.name || 'Not assigned'}
                   </span>
                   <span className={`inline-flex items-center gap-1 ${getExpiryMeta(item).tone}`}>
                     <MdCalendarToday className="text-[14px]" /> {getExpiryMeta(item).label}
@@ -1127,8 +1129,8 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         </div>
       )}
 
-      {showAdd && <ItemFormModal title="Add Item" initialBarcode={newItemBarcode} canManageSellingPrice={canManageSellingPrice} masterData={masterData} existingItems={items} onClose={() => { setShowAdd(false); setNewItemBarcode('') }} onSubmit={handleAdd} />}
-      {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} masterData={masterData} existingItems={items} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
+      {showAdd && <ItemFormModal title="Add Item" initialBarcode={newItemBarcode} canManageSellingPrice={canManageSellingPrice} masterData={masterData} stockRooms={stockLocations} existingItems={items} onClose={() => { setShowAdd(false); setNewItemBarcode('') }} onSubmit={handleAdd} />}
+      {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} masterData={masterData} stockRooms={stockLocations} existingItems={items} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
       {stockItem && <StockModal item={stockItem} initialType={stockMode} movementReasons={masterData.movement_reasons || []} suppliers={masterData.suppliers || []} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
       {moveItem && <MoveStockModal item={moveItem} locations={stockLocations} onClose={() => setMoveItem(null)} onSubmit={submitMoveStock} />}
@@ -1147,3 +1149,4 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+

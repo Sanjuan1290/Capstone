@@ -46,6 +46,10 @@ const makeQr = async (req, res) => {
   if (!String(process.env.PAYMONGO_WEBHOOK_SECRET || '').startsWith('whsk_')) throw http('PAYMONGO_WEBHOOK_NOT_CONFIGURED','Configure the webhook signing secret for the active PayMongo mode.',503)
   const billId = Number(req.params.id), branchId = Number(req.branchId)
   if (!validId(billId) || !validId(branchId)) throw http('BRANCH_REQUIRED','Valid branch and bill are required.',400)
+  if (process.env.CARAIT_ENFORCE_QRPH_BRANCH_TOGGLE === 'true') {
+    const [[setting]] = await db.query('SELECT qrph_enabled FROM branch_payment_settings WHERE branch_id=? LIMIT 1',[branchId])
+    if (Number(setting?.qrph_enabled||0)!==1) throw http('QRPH_DISABLED','QR Ph is disabled for this clinic branch.',409)
+  }
   // Never release a bill lock based only on local expiry or missing provider identifiers.
   const [[stale]] = await db.query('SELECT a.id FROM payment_gateway_attempts a JOIN billing_records b ON b.id=a.billing_id WHERE a.active_bill_id=? AND b.branch_id=? LIMIT 1',[billId,branchId])
   if (stale) await reconcileAttempt(stale.id,{force:true}).catch(error=>console.warn('[paymongo-reconciliation] pre-QR check failed',{attemptId:stale.id,code:error.code}))
@@ -373,3 +377,4 @@ const rawWebhook = async (req,res) => {
   }
 }
 module.exports = { apiRouter, rawWebhook, handleWebhookEvent, publicAttempt, isTestSimulationUrl, reconcileAttempt, startReconciliationSweeper, requestCancel, terminalNonpayable }
+

@@ -38,7 +38,7 @@ async function supplier(req,res){
 async function createLocation(req,res){
  const name=String(req.body?.name||'').trim(),location_type=String(req.body?.location_type||'storage')
  if(!name||name.length>160||!['stockroom','room','dispensing','storage'].includes(location_type))return res.status(400).json({message:'Enter a valid stockroom name and type.'})
- const clinic_type=location_type==='room'&&['medical','derma'].includes(req.body?.clinic_type)?req.body.clinic_type:null
+ const clinic_type=null // All new Stock Rooms are shared across clinic specialties.
  try{
   const [r]=await db.query('INSERT INTO inventory_locations (name,location_type,is_active,clinic_type,branch_id) VALUES (?,?,1,?,?)',[name,location_type,clinic_type,req.branchId])
   await audit(req,'inventory.location_created','inventory_location',r.insertId,null,{name,location_type,clinic_type});res.status(201).json({id:r.insertId,name,location_type,clinic_type,is_active:1,is_main_stockroom:0})
@@ -46,13 +46,38 @@ async function createLocation(req,res){
 }
 async function updateLocation(req,res){
  const name=String(req.body?.name||'').trim(),location_type=String(req.body?.location_type||'storage')
- if(!name||name.length>160||!['stockroom','room','dispensing','storage'].includes(location_type))return res.status(400).json({message:'Enter a valid stockroom name and type.'})
- const [[prior]]=await db.query('SELECT * FROM inventory_locations WHERE id=? AND branch_id=?',[req.params.id,req.branchId])
- if(!prior)return res.status(404).json({message:'Location not found in your branch.'})
- if(Number(prior.is_main_stockroom)&&location_type!=='stockroom')return res.status(409).json({message:'The main stockroom must remain a stockroom.'})
- const clinic_type=location_type==='room'&&['medical','derma'].includes(req.body?.clinic_type)?req.body.clinic_type:null
- await db.query('UPDATE inventory_locations SET name=?,location_type=?,clinic_type=? WHERE id=? AND branch_id=?',[name,location_type,clinic_type,req.params.id,req.branchId]);
- await audit(req,'inventory.location_updated','inventory_location',prior.id,prior,{name,location_type,clinic_type});res.json({...prior,name,location_type,clinic_type})
+ const id=Number(req.params.id),isActive=req.body?.is_active===false||Number(req.body?.is_active)===0?0:1
+ if(!isId(id)||!name||name.length>160||!['stockroom','room','dispensing','storage'].includes(location_type))
+   return res.status(400).json({message:'Enter a valid stock room name and type.'})
+ // Early ownership check avoids unnecessary transactions for foreign branches;
+ // the same ownership is rechecked under FOR UPDATE before mutation.
+ const [[exists]]=await db.query('SELECT id FROM inventory_locations WHERE id=? AND branch_id=?',[req.params.id,req.branchId])
+ if(!exists)return res.status(404).json({message:'Stock Room not found in your branch.'})
+ const conn=await db.getConnection()
+ try{
+  await conn.beginTransaction()
+  const [[prior]]=await conn.query('SELECT * FROM inventory_locations WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId])
+  if(!prior){await conn.rollback();return res.status(404).json({message:'Stock Room not found in your branch.'})}
+  if(Number(prior.is_main_stockroom||0)===1 && (location_type!=='stockroom'||!isActive)){
+    await conn.rollback();return res.status(409).json({code:'MAIN_STOCKROOM_PROTECTED',message:'Main Stockroom cannot be deactivated or changed to a different room type.'})
+  }
+  if(!isActive){
+    const [[batch]]=await conn.query('SELECT COALESCE(SUM(quantity),0) AS qty FROM inventory_location_batches WHERE location_id=? AND quantity>0',[id])
+    const [[location]]=await conn.query('SELECT COALESCE(SUM(quantity),0) AS qty FROM inventory_location_stock WHERE location_id=? AND quantity>0',[id])
+    const [[defaultItems]]=await conn.query('SELECT COUNT(*) AS n FROM inventory WHERE default_location_id=? AND branch_id=? AND archived_at IS NULL',[id,req.branchId])
+    if(Number(batch?.qty||0)>0||Number(location?.qty||0)>0||Number(defaultItems?.n||0)>0){
+      await conn.rollback();return res.status(409).json({code:'LOCATION_IN_USE',message:'Move stock and reassign inventory default rooms before deactivating this Stock Room.'})
+    }
+  }
+  // Existing specialty-linked allocation remains as historical compatibility.
+  // New rooms are shared and have no clinic_type assignment.
+  const clinicType=location_type==='room'?(prior.clinic_type||null):null
+  await conn.query('UPDATE inventory_locations SET name=?,location_type=?,clinic_type=?,is_active=? WHERE id=? AND branch_id=?',[name,location_type,clinicType,isActive,id,req.branchId])
+  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action:'inventory.location_updated',entityType:'inventory_location',entityId:id,branchId:req.branchId,oldValues:prior,newValues:{name,location_type,clinic_type:clinicType,is_active:isActive},ipAddress:req.ip},conn)
+  await conn.commit()
+  return res.json({...prior,name,location_type,clinic_type:clinicType,is_active:isActive})
+ }catch(e){await conn.rollback().catch(()=>{});if(e.code==='ER_DUP_ENTRY')return res.status(409).json({message:'That Stock Room name already exists in this branch.'});throw e}
+ finally{conn.release()}
 }
 async function deleteLocation(req,res){
  const connection=await db.getConnection()
@@ -128,4 +153,5 @@ function registerBranchMoveStock(router,{requireSuper,branchContext,requirePermi
 }
 module.exports.moveStockLocation=moveStockLocation
 module.exports.registerBranchMoveStock=registerBranchMoveStock
+
 

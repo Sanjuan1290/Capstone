@@ -23,12 +23,12 @@ const normalize = body => {
     barcode:clean(body.barcode,50)||null,dosage_form:clean(body.dosage_form,80)||null,
     strength:clean(body.strength,80)||null,measurement_value:body.measurement_value==null||body.measurement_value===''?null:number(body.measurement_value,'Measurement', {min:0}),
     measurement_unit:clean(body.measurement_unit,30)||null,
-    location_type_id:Number(body.location_type_id),supplier_id:body.supplier_id?Number(body.supplier_id):null,
+    default_location_id:Number(body.default_location_id),supplier_id:body.supplier_id?Number(body.supplier_id):null,
     threshold:number(body.threshold,'Low Stock Alert'),
     selling_price:number(body.selling_price??body.price,'Selling Price',{min:0.01,max:99999999}),
   }
   if(!p.name||p.name.length>150||!oneOf(p.category,['medical','derma'])||!oneOf(p.item_type,['medicine','supplies']))throw fail(400,'INVALID_ITEM','Enter a name, clinic category and item type.')
-  if(!positiveId(p.location_type_id))throw fail(400,'INVALID_LOCATION_TYPE','Select an active storage location type.')
+  if(!positiveId(p.default_location_id))throw fail(400,'INVALID_STOCK_ROOM','Select an active Stock Room.')
   if(p.supplier_id!==null && !positiveId(p.supplier_id))throw fail(400,'INVALID_SUPPLIER','Select a valid supplier.')
   return p
 }
@@ -39,8 +39,8 @@ const errorResponse=(error,res)=> {
   throw error
 }
 async function validateReferences(conn, branchId, p){
-  const [[locationType]]=await conn.query('SELECT id FROM inventory_location_types WHERE id=? AND branch_id=? AND is_active=1',[p.location_type_id,branchId])
-  if(!locationType)throw fail(400,'INVALID_LOCATION_TYPE','Storage location type does not exist in this branch.')
+  const [[stockRoom]]=await conn.query('SELECT id FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1',[p.default_location_id,branchId])
+  if(!stockRoom)throw fail(400,'INVALID_STOCK_ROOM','Stock Room is not active or belongs to another branch.')
   let supplier=null
   if(p.supplier_id){
     ;[[supplier]]=await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1',[p.supplier_id,branchId])
@@ -72,17 +72,17 @@ async function createItem(req,res){
     const [[same]]=await conn.query('SELECT id FROM inventory WHERE branch_id=? AND (barcode=? OR LOWER(TRIM(name))=LOWER(?)) LIMIT 1',[req.branchId,barcode,p.name])
     if(same)throw fail(409,'INVENTORY_DUPLICATE','An item with this barcode or name already exists in this branch.')
     const [result]=await conn.query(`INSERT INTO inventory
-      (branch_id,barcode,name,category,item_type,uom,dosage_form,strength,measurement_value,measurement_unit,unit,base_unit,unit_size,stock,stock_base,threshold,price,selling_price,supplier,supplier_id,location_type_id)
+      (branch_id,barcode,name,category,item_type,uom,dosage_form,strength,measurement_value,measurement_unit,unit,base_unit,unit_size,stock,stock_base,threshold,price,selling_price,supplier,supplier_id,default_location_id)
       VALUES (?,?,?,?,?,'unit',?,?,?,?,'unit','unit',1,0,0,?,?,?,?,?,?)`,
-      [req.branchId,barcode,p.name,p.category,p.item_type,p.dosage_form,p.strength,p.measurement_value,p.measurement_unit,p.threshold,p.selling_price,p.selling_price,supplier?.name||null,p.supplier_id,p.location_type_id])
+      [req.branchId,barcode,p.name,p.category,p.item_type,p.dosage_form,p.strength,p.measurement_value,p.measurement_unit,p.threshold,p.selling_price,p.selling_price,supplier?.name||null,p.supplier_id,p.default_location_id])
     let received=null
     if(qty>0){
-      const main=await resolveMainStockroom(conn,{branchId:req.branchId})
-      if(!main)throw fail(409,'NO_STOCKROOM','This branch needs an active Main Stockroom.')
+      const [[room]]=await conn.query('SELECT id,name FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1',[p.default_location_id,req.branchId])
+      if(!room)throw fail(409,'NO_STOCKROOM','Select an active Stock Room.')
       if(!supplier)throw fail(400,'SUPPLIER_REQUIRED','Select an active supplier for opening stock.')
       received=await receiveInventoryBatch(result.insertId,{quantity:qty,expiration_date:expiry||null,supplier_id:p.supplier_id,
         supplier_lot_number:clean(req.body.supplier_lot_number,120)||null,
-        unit_cost:number(req.body.unit_cost??0,'Unit Cost'),location_id:main.id,note:'Opening stock'},conn)
+        unit_cost:number(req.body.unit_cost??0,'Unit Cost'),location_id:room.id,note:'Opening stock'},conn)
       await syncInventorySnapshot(result.insertId,conn)
       await conn.query(`INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id)
         VALUES (?,?,'in',?,'Opening stock','received',?,?,?)`,[result.insertId,req.user.id,qty,received.batch_id,received.location,req.branchId])
@@ -110,8 +110,8 @@ async function updateItem(req,res){
     const barcode=p.barcode||prior.barcode
     const [[same]]=await conn.query('SELECT id FROM inventory WHERE branch_id=? AND id<>? AND (barcode=? OR LOWER(TRIM(name))=LOWER(?)) LIMIT 1',[req.branchId,prior.id,barcode,p.name])
     if(same)throw fail(409,'INVENTORY_DUPLICATE','Another item has this barcode or name in your branch.')
-    await conn.query(`UPDATE inventory SET barcode=?,name=?,category=?,item_type=?,dosage_form=?,strength=?,measurement_value=?,measurement_unit=?,threshold=?,price=?,selling_price=?,supplier=?,supplier_id=?,location_type_id=? WHERE id=? AND branch_id=?`,
-    [barcode,p.name,p.category,p.item_type,p.dosage_form,p.strength,p.measurement_value,p.measurement_unit,p.threshold,p.selling_price,p.selling_price,supplier?.name||null,p.supplier_id,p.location_type_id,prior.id,req.branchId])
+    await conn.query(`UPDATE inventory SET barcode=?,name=?,category=?,item_type=?,dosage_form=?,strength=?,measurement_value=?,measurement_unit=?,threshold=?,price=?,selling_price=?,supplier=?,supplier_id=?,default_location_id=? WHERE id=? AND branch_id=?`,
+    [barcode,p.name,p.category,p.item_type,p.dosage_form,p.strength,p.measurement_value,p.measurement_unit,p.threshold,p.selling_price,p.selling_price,supplier?.name||null,p.supplier_id,p.default_location_id,prior.id,req.branchId])
     await audit(req,conn,'inventory.item_updated',prior.id,prior,{...p,barcode})
     await conn.commit();conn.release();conn=null
     return res.json(await returnItem(prior.id,req.branchId))
@@ -142,3 +142,4 @@ function registerBranchInventoryItems(router,{requireSuper,branchContext,require
  }
 }
 module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem}
+

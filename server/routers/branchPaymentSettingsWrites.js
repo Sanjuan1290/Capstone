@@ -10,6 +10,7 @@ const safe=handler=>(req,res,next)=>Promise.resolve(handler(req,res)).catch(next
 const fail=(status,code,message)=>Object.assign(new Error(message),{statusCode:status,code})
 const enabled=value=>value===true||value===1||value==='1'?1:0
 const text=(value,max)=>String(value||'').trim().slice(0,max)||null
+const { configuredMode, isLiveCollectionEnabled } = require('../utils/paymongoMode')
 const scope=(req,provider)=>`${req.branchId}:${provider}`
 const secureImageUrl=(raw,label)=>{
  const value=String(raw||'').trim()
@@ -19,17 +20,23 @@ const secureImageUrl=(raw,label)=>{
 }
 const read=async(req,res)=>{
  const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId])
- res.json(settings||{branch_id:req.branchId,cash_enabled:1,gcash_enabled:0,maya_enabled:0,bank_transfer_enabled:0})
+ res.json(settings||{branch_id:req.branchId,cash_enabled:1,qrph_enabled:0,gcash_enabled:0,maya_enabled:0,bank_transfer_enabled:0})
 }
 async function save(req,res){
  let conn
  try{
   const b=req.body||{}
-  const p={cash_enabled:enabled(b.cash_enabled),gcash_enabled:enabled(b.gcash_enabled),maya_enabled:enabled(b.maya_enabled),bank_transfer_enabled:enabled(b.bank_transfer_enabled),
+  const p={cash_enabled:enabled(b.cash_enabled),qrph_enabled:enabled(b.qrph_enabled),gcash_enabled:enabled(b.gcash_enabled),maya_enabled:enabled(b.maya_enabled),bank_transfer_enabled:enabled(b.bank_transfer_enabled),
    gcash_qr_url:secureImageUrl(b.gcash_qr_url,'GCash QR'),maya_qr_url:secureImageUrl(b.maya_qr_url,'Maya QR'),
    gcash_qr_mode:b.gcash_qr_mode==='external'?'external':'uploaded',maya_qr_mode:b.maya_qr_mode==='external'?'external':'uploaded',
    bank_name:text(b.bank_name,120),bank_account_name:text(b.bank_account_name,180),bank_account_number:text(b.bank_account_number,120)}
-  if(![p.cash_enabled,p.gcash_enabled,p.maya_enabled,p.bank_transfer_enabled].some(Boolean))throw fail(400,'PAYMENT_METHOD_REQUIRED','At least one payment method must remain enabled.')
+  if(p.gcash_enabled||p.maya_enabled||p.bank_transfer_enabled)throw fail(400,'RETIRED_PAYMENT_METHOD','Only Cash and PayMongo QR Ph are available for new payments.')
+  if(!p.cash_enabled&&!p.qrph_enabled)throw fail(400,'PAYMENT_METHOD_REQUIRED','Enable Cash, QR Ph, or both.')
+  if(p.qrph_enabled) {
+    const mode=configuredMode()
+    if(!(mode==='test'||(mode==='live'&&isLiveCollectionEnabled())) || !String(process.env.PAYMONGO_WEBHOOK_SECRET||'').startsWith('whsk_'))
+      throw fail(409,'QRPH_NOT_READY','Configure the PayMongo gateway and webhook before enabling QR Ph.')
+  }
   if(p.bank_transfer_enabled&&(!p.bank_name||!p.bank_account_name||!p.bank_account_number))throw fail(400,'BANK_DETAILS_REQUIRED','Complete bank details before enabling transfers.')
   for(const provider of ['gcash','maya'])if(p[`${provider}_enabled`]&&p[`${provider}_qr_mode`]==='uploaded'&&!p[`${provider}_qr_url`])throw fail(400,'QR_REQUIRED',`Upload or configure the ${provider.toUpperCase()} QR before enabling it.`)
   conn=await db.getConnection();await conn.beginTransaction()
@@ -37,6 +44,13 @@ async function save(req,res){
   const changes={...p}
   for(const provider of ['gcash','maya']){
    const key=`${provider}_qr_url`,statusKey=`${provider}_qr_scan_status`
+   if(!changes[`${provider}_enabled`]) {
+    // Preserve old settings for history, but cannot enable new manual collection.
+    changes[key]=prior?.[key] || null
+    changes[`${provider}_qr_mode`]=prior?.[`${provider}_qr_mode`]||'uploaded'
+    changes[statusKey]=prior?.[statusKey]||'legacy'
+    continue
+   }
    if(changes[`${provider}_qr_mode`]==='external')changes[statusKey]=changes[key]&&changes[key]===prior?.[key]?prior[statusKey]||'legacy':'legacy'
    else if(!changes[key])changes[statusKey]='legacy'
    else if(changes[key]===prior?.[key]){
@@ -48,7 +62,7 @@ async function save(req,res){
     changes[statusKey]=verified.scan_status
    }
   }
-  const cols=['cash_enabled','gcash_enabled','maya_enabled','bank_transfer_enabled','gcash_qr_url','maya_qr_url','gcash_qr_mode','maya_qr_mode','gcash_qr_scan_status','maya_qr_scan_status','bank_name','bank_account_name','bank_account_number']
+  const cols=['cash_enabled','qrph_enabled','gcash_enabled','maya_enabled','bank_transfer_enabled','gcash_qr_url','maya_qr_url','gcash_qr_mode','maya_qr_mode','gcash_qr_scan_status','maya_qr_scan_status','bank_name','bank_account_name','bank_account_number']
   await conn.query(`INSERT INTO branch_payment_settings (branch_id,${cols.join(',')},updated_by_admin_id) VALUES (${Array(cols.length+2).fill('?').join(',')}) ON DUPLICATE KEY UPDATE ${cols.map(k=>`${k}=VALUES(${k})`).join(',')},updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,...cols.map(k=>changes[k]),req.user.id])
   await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action:'billing.payment_settings_updated',entityType:'branch_payment_settings',entityId:req.branchId,branchId:req.branchId,oldValues:prior||null,newValues:changes,ipAddress:req.ip},conn)
   await conn.commit();conn.release();conn=null
@@ -76,3 +90,4 @@ function registerBranchPaymentSettingsWrites(router,{requireSuper,branchContext,
  }
 }
 module.exports={registerBranchPaymentSettingsWrites,save,branchBillForProof,secureImageUrl}
+

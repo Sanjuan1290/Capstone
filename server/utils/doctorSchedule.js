@@ -21,6 +21,7 @@ const findScheduleConflicts = async ({ doctorId, proposedSchedule, executor = db
   const [appointments] = await executor.query(
     `SELECT a.id, DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,
             a.appointment_time, a.status, a.clinic_type,
+            a.reserved_duration_minutes_snapshot, a.requested_service_duration_minutes_snapshot,
             p.full_name AS patient_name
      FROM appointments a
      JOIN patients p ON p.id = a.patient_id
@@ -36,13 +37,16 @@ const findScheduleConflicts = async ({ doctorId, proposedSchedule, executor = db
   // block an unrelated weekday edit. Overnight schedules can affect the following day,
   // so comparing current coverage with proposed coverage is safer than filtering by day.
   return appointments.filter((appointment) => {
+    const reserved = Number(appointment.reserved_duration_minutes_snapshot || appointment.requested_service_duration_minutes_snapshot || 60)
     const wasCovered = isTimeCoveredByWeeklySchedule({
+      slotDurationOverride: reserved,
       date: appointment.appointment_date,
       time: appointment.appointment_time,
       schedules: currentWeekly,
     })
     if (!wasCovered) return false
     return !isTimeCoveredByWeeklySchedule({
+      slotDurationOverride: reserved,
       date: appointment.appointment_date,
       time: appointment.appointment_time,
       schedules: proposedWeekly,
@@ -111,3 +115,4 @@ const saveDoctorScheduleDay = async ({ doctorId, body = {}, actorRole, actorId, 
 }
 
 module.exports = { ACTIVE_APPOINTMENT_STATUSES, findScheduleConflicts, saveDoctorScheduleDay }
+

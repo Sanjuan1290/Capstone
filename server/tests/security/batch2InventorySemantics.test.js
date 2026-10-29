@@ -16,7 +16,10 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     expect(ui).not.toContain('Units of Measure')
     expect(ui).toContain("uom: 'unit'")
     expect(ui).toContain('Supplier *')
-    expect(ui).toContain('Storage Location *')
+    // Stock Rooms replace the retired Storage Location type selector.
+    expect(ui).toContain('Stock Room *')
+    expect(ui).toContain('default_location_id')
+    expect(ui).not.toContain('Storage Location *')
     expect(ui).toContain('Opening Quantity *')
     expect(ui).toContain('Opening Batch Expiry')
     expect(tabs).not.toContain("key: 'uoms'")
@@ -94,3 +97,4 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     expect(print).toContain('r.quantity??r.dosage')
   })
 })
+

@@ -90,18 +90,22 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
   if (!Number.isSafeInteger(Number(appointment?.branch_id)) || Number(appointment.branch_id) <= 0) throw Object.assign(new Error('Consultation branch is required.'), { statusCode: 403 })
   if (!billing?.id || billing.clinical_inventory_consumed_at || !Array.isArray(billing.items)) return
   const usage = collectInventoryUsageFromBillingItems(billing.items)
-  // Rooms are resolved by their clinic assignment (System Setup), not by a fixed name.
-  // If no treatment room is assigned, consumption comes straight from the Main Stockroom.
-  const treatmentRoom = await resolveClinicTreatmentRoom(appointment?.clinic_type, conn, appointment.branch_id)
+  // The selected physical Stock Room on each item is authoritative.
+  // Old clinic_type rooms are no longer used to select clinical stock.
   const mainStockroom = await resolveMainStockroom(conn, { branchId: appointment.branch_id })
-  const preferredLocation = treatmentRoom?.name || mainStockroom?.name || MAIN_LOCATION
+  if (!mainStockroom) throw Object.assign(new Error('Configure an active Main Stockroom for this branch.'), {statusCode:409,code:'MAIN_STOCKROOM_REQUIRED'})
 
   for (const entry of usage) {
     const [[inventory]] = await conn.query(
-      'SELECT id, name, unit, base_unit, unit_size FROM inventory WHERE id = ? AND branch_id=? LIMIT 1',
+      'SELECT id, name, unit, base_unit, unit_size, default_location_id FROM inventory WHERE id = ? AND branch_id=? LIMIT 1',
       [entry.inventory_id, appointment.branch_id]
     )
     if (!inventory) throw Object.assign(new Error('Inventory item is unavailable in this branch.'), { statusCode: 404, code: 'INVENTORY_NOT_FOUND' })
+    const [[assignedRoom]] = inventory.default_location_id
+      ? await conn.query('SELECT id,name FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [inventory.default_location_id,appointment.branch_id])
+      : [[null]]
+    if (inventory.default_location_id && !assignedRoom) throw Object.assign(new Error(`The Stock Room assigned to ${inventory.name} is unavailable. Reassign it before finalizing.`), { statusCode:409,code:'ITEM_STOCK_ROOM_UNAVAILABLE' })
+    const preferredLocation = assignedRoom?.name || mainStockroom.name
 
     const unitLabel = String(entry.unit_label || inventory.unit || '').toLowerCase()
     const baseUnit = String(inventory.base_unit || inventory.unit || '').toLowerCase()
@@ -122,7 +126,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
       packageQuantity,
       preferredLocation,
       conn,
-      { fallbackLocation: MAIN_LOCATION }
+      { fallbackLocation: assignedRoom && Number(assignedRoom.id)!==Number(mainStockroom.id) ? mainStockroom.name : null }
     )
     if (!consumption.ok) {
       const shortageUsageQty = unitLabel && baseUnit && unitLabel === baseUnit && baseUnit !== packageUnit
@@ -130,7 +134,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
         : Number(consumption.shortage || 0)
       throw Object.assign(
         new Error(`Not enough clinic stock is available to deduct the recorded usage for ${inventory.name}. Update the actual usage or restock the item before completing this consultation.`),
-        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: Math.max(0, requestedUsageQty - shortageUsageQty), unit: entry.unit_label || inventory.unit || 'unit', location: treatmentRoom && mainStockroom ? `${treatmentRoom.name} / ${mainStockroom.name}` : preferredLocation }
+        { statusCode: 409, code: 'INVENTORY_INSUFFICIENT', inventory_id: entry.inventory_id, inventory_name: inventory.name, requested: requestedUsageQty, available: Math.max(0, requestedUsageQty - shortageUsageQty), unit: entry.unit_label || inventory.unit || 'unit', location: assignedRoom && Number(assignedRoom.id)!==Number(mainStockroom.id) ? `${assignedRoom.name} / ${mainStockroom.name}` : preferredLocation }
       )
     }
 
@@ -1224,10 +1228,8 @@ const getBillingCatalog = async (req, res) => {
 }
 
 const getInventoryItems = async (req, res) => {
-  const [[doctor]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? AND branch_id=? LIMIT 1', [req.user.id,req.branchId])
-  const treatmentRoom = await resolveClinicTreatmentRoom(doctor?.clinic_type,db,req.branchId)
+  // Physical stock is item-assigned, not limited to the doctor's specialty.
   const mainStockroom = await resolveMainStockroom(db,{branchId:req.branchId})
-  const treatmentLocation = treatmentRoom?.name || ''
   const [rows] = await db.query(
     `SELECT i.id, i.barcode, i.name, i.category, COALESCE(i.item_type, 'medicine') AS item_type,
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS uom,
@@ -1237,17 +1239,18 @@ const getInventoryItems = async (req, res) => {
             COALESCE((SELECT SUM(ils.quantity)
                       FROM inventory_location_stock ils
                       JOIN inventory_locations il ON il.id=ils.location_id
-                      WHERE ils.inventory_id=i.id AND il.id=?),0) AS main_stockroom_stock,
+                      WHERE ils.inventory_id=i.id AND il.id=? AND il.id<>COALESCE(i.default_location_id,?)),0) AS main_stockroom_stock,
             COALESCE((SELECT SUM(ils.quantity)
                       FROM inventory_location_stock ils
                       JOIN inventory_locations il ON il.id=ils.location_id
-                      WHERE ils.inventory_id=i.id AND il.id=?),0) AS treatment_room_stock,
-            ? AS treatment_room_name
+                      WHERE ils.inventory_id=i.id AND il.id=COALESCE(i.default_location_id,?)),0) AS treatment_room_stock,
+            COALESCE((SELECT il.name FROM inventory_locations il
+                      WHERE il.id=COALESCE(i.default_location_id,?) AND il.branch_id=i.branch_id AND il.is_active=1), 'Stock Room not configured') AS treatment_room_name
      FROM inventory i
      LEFT JOIN inventory_uoms u ON LOWER(u.name)=LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))
      WHERE i.archived_at IS NULL AND i.branch_id=?
      ORDER BY i.category, i.name`,
-    [mainStockroom?.id || 0, treatmentRoom?.id || 0, treatmentLocation,req.branchId]
+    [mainStockroom?.id || 0,mainStockroom?.id || 0,mainStockroom?.id || 0,mainStockroom?.id || 0,req.branchId]
   )
   const withBatches = await attachBatchesToInventory(rows, db)
   const today = getTodayDateOnly()
@@ -1256,7 +1259,7 @@ const getInventoryItems = async (req, res) => {
     treatment_room_batches: (Array.isArray(item.batches) ? item.batches : [])
       .filter((batch) => !batch.archived_at && Number(batch.quantity || 0) > 0 && (!batch.expiration_date || String(batch.expiration_date).slice(0, 10) >= today))
       .flatMap((batch) => (Array.isArray(batch.locations) ? batch.locations : [])
-        .filter((location) => location.name === treatmentLocation && Number(location.quantity || 0) > 0)
+        .filter((location) => location.name === item.treatment_room_name && Number(location.quantity || 0) > 0)
         .map((location) => ({
           batch_id: Number(batch.id),
           batch_code: batch.batch_code || `Batch #${batch.id}`,
@@ -1362,11 +1365,10 @@ const submitRequest = async (req, res) => {
   if (!['medical', 'derma'].includes(doctorClinic)) {
     return res.status(409).json({ code: 'DOCTOR_CLINIC_ASSIGNMENT_REQUIRED', message: 'Your doctor account does not have a valid clinic assignment. Ask an administrator to update the account before requesting stock.' })
   }
-  if (!destination) {
-    destination = await resolveClinicTreatmentRoom(doctorClinic, db, req.branchId)
-  }
-  if (!destination || !['room','dispensing'].includes(String(destination.location_type))) {
-    return res.status(400).json({ message: 'Select a valid treatment or dispensing destination.' })
+  // Stock Rooms are shared. Never implicitly pick an old specialty-specific room.
+  // An explicit active room in this branch is required for an auditable transfer.
+  if (!destination || !['room','dispensing','storage'].includes(String(destination.location_type))) {
+    return res.status(400).json({ code:'TRANSFER_DESTINATION_REQUIRED',message: 'Select an active receiving Stock Room for this branch.' })
   }
 
   const ids = requestedItems.map((entry) => entry.inventory_id)
@@ -1671,3 +1673,4 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+

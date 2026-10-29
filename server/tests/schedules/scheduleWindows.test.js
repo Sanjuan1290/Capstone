@@ -40,7 +40,8 @@ describe('doctor schedule windows', () => {
 
   it('builds Monday evening and Tuesday after-midnight slots from one overnight schedule', () => {
     const schedules = [{ day_of_week: 'Monday', start_time: '20:00', end_time: '02:00', spans_next_day: 1, is_24_hours: 0, slot_duration_mins: 60, is_active: 1 }]
-    expect(buildSlotsForCalendarDate({ date: '2026-09-21', schedules }).map((slot) => slot.time)).toEqual(['8:00 PM', '9:00 PM', '10:00 PM', '11:00 PM'])
-    expect(buildSlotsForCalendarDate({ date: '2026-09-22', schedules }).map((slot) => slot.time)).toEqual(['12:00 AM', '1:00 AM'])
+    expect(buildSlotsForCalendarDate({ date: '2026-09-21', schedules }).map((slot) => slot.time)).toEqual(['8:00 PM', '8:30 PM', '9:00 PM', '9:30 PM', '10:00 PM', '10:30 PM', '11:00 PM', '11:30 PM'])
+    expect(buildSlotsForCalendarDate({ date: '2026-09-22', schedules }).map((slot) => slot.time)).toEqual(['12:00 AM', '12:30 AM', '1:00 AM', '1:30 AM'])
   })
 })
+

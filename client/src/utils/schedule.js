@@ -113,18 +113,20 @@ export const buildSlotsForScheduleDate = (
   const seen = new Set()
 
   for (const segment of getScheduleSegmentsForDate(dateString, schedules)) {
-    const duration = Number(segment.schedule.slot_duration_mins) || 60
+    // General preview uses the 30-minute booking start grid. Actual duration
+    // is enforced by the selected service and the booking backend.
+    const duration = 30
     const window = getScheduleWindow(segment.schedule)
     if (!window) continue
 
     if (segment.anchor === 'current') {
-      for (let cursor = window.start; cursor + duration <= Math.min(window.end, 1440); cursor += duration) {
+      for (let cursor = window.start; cursor + duration <= Math.min(window.end, 1440); cursor += 30) {
         if (cursor < segment.start || cursor >= segment.end) continue
         const label = makeSlotLabel(cursor)
         if (!taken.has(label) && !seen.has(label)) { seen.add(label); slots.push({ label, minutes: cursor }) }
       }
     } else {
-      for (let cursor = window.start; cursor + duration <= window.end; cursor += duration) {
+      for (let cursor = window.start; cursor + duration <= window.end; cursor += 30) {
         if (cursor < 1440) continue
         const local = cursor - 1440
         if (local < segment.start || local >= segment.end) continue
@@ -143,3 +145,4 @@ export const buildSlotsForScheduleDate = (
   labels = slots.filter((slot) => slot.minutes > cutoffMinutes).map((slot) => slot.label)
   return labels
 }
+

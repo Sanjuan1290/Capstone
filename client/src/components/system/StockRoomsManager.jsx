@@ -12,12 +12,9 @@ const TYPE_OPTIONS = [
   ['storage', 'Storage'],
 ]
 const typeLabel = (value) => (TYPE_OPTIONS.find(([key]) => key === value) || [null, value])[1]
-const clinicLabel = (value) => (value === 'derma' ? 'Dermatology' : value === 'medical' ? 'General Medicine' : 'Not assigned')
 
-// Physical places that hold stock. A treatment room assigned to a clinic is where that
-// clinic's consultations deduct consumables from first; the Main Stockroom is the fallback
-// and the source for stock transfers. Names can change freely: the system follows the
-// assignment, not the name.
+// Physical rooms are branch-wide. Preserve legacy clinic assignment in the database
+// until consultation stock-source migration is verified; do not reassign stock implicitly.
 const StockRoomsManager = () => {
   const toast = useToast()
   const [rows, setRows] = useState([])
@@ -50,9 +47,6 @@ const StockRoomsManager = () => {
   }
 
   const isMain = Number(editing?.is_main_stockroom || 0) === 1
-  const clinicConflict = form.location_type === 'room' && form.clinic_type
-    ? rows.find((row) => row.id !== editing?.id && Number(row.is_active ?? 1) === 1 && row.clinic_type === form.clinic_type)
-    : null
 
   const save = async () => {
     if (!form.name.trim()) return
@@ -61,7 +55,8 @@ const StockRoomsManager = () => {
       const payload = {
         name: form.name.trim(),
         location_type: form.location_type,
-        clinic_type: form.location_type === 'room' ? (form.clinic_type || null) : null,
+        // Legacy specialty assignment is preserved for existing rooms during migration.
+        clinic_type: editing?.id ? (editing.clinic_type || null) : null,
         is_active: form.is_active,
       }
       if (editing?.id) await updateInventoryLocation(editing.id, payload)
@@ -84,14 +79,14 @@ const StockRoomsManager = () => {
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 p-5">
         <div>
           <h2 className="flex items-center gap-2 font-black text-slate-900"><MdMeetingRoom className="text-sky-500" /> Stock Rooms</h2>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">Where stock physically sits. Consultations take consumables from the treatment room assigned to their clinic first, then from the Main Stockroom. Renaming a room is safe.</p>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">Physical stock locations shared by General Medicine and Dermatology within this branch. Existing specialty-linked deduction rules remain protected until the inventory cutover.</p>
         </div>
         <button type="button" className="button-primary" onClick={() => openForm()}><MdAdd /> Add Stock Room</button>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs text-slate-500">
-            <tr><th className="px-5 py-3">Name</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Used by clinic</th><th className="px-4 py-3 text-right">Items</th><th className="px-4 py-3">Status</th><th className="px-5 py-3 text-right"><span className="sr-only">Actions</span></th></tr>
+            <tr><th className="px-5 py-3">Name</th><th className="px-4 py-3">Type</th><th className="px-4 py-3 text-right">Items</th><th className="px-4 py-3">Status</th><th className="px-5 py-3 text-right"><span className="sr-only">Actions</span></th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((row) => (
@@ -101,7 +96,7 @@ const StockRoomsManager = () => {
                   {Number(row.is_main_stockroom || 0) === 1 && <p className="text-xs font-semibold text-emerald-700">Main Stockroom</p>}
                 </td>
                 <td className="px-4 py-3">{typeLabel(row.location_type)}</td>
-                <td className="px-4 py-3">{row.location_type === 'room' ? clinicLabel(row.clinic_type) : '—'}</td>
+                
                 <td className="px-4 py-3 text-right">{Number(row.item_count || 0)}</td>
                 <td className="px-4 py-3">{Number(row.is_active ?? 1) === 1 ? 'Active' : 'Inactive'}</td>
                 <td className="px-5 py-3 text-right"><button type="button" className="button-secondary" onClick={() => openForm(row)}><MdEdit /> Edit</button></td>
@@ -121,22 +116,15 @@ const StockRoomsManager = () => {
             </select>
             {isMain && <span className="mt-1 block text-xs text-slate-500">The Main Stockroom keeps the Stockroom type and stays active.</span>}
           </label>
-          {form.location_type === 'room' && (
-            <label className="block">
-              <span className="form-label">Used by clinic</span>
-              <select className="form-control mt-1.5" value={form.clinic_type} onChange={(e) => setForm((current) => ({ ...current, clinic_type: e.target.value }))}>
-                <option value="">Not assigned</option>
-                <option value="medical">General Medicine</option>
-                <option value="derma">Dermatology</option>
-              </select>
-              {clinicConflict && <span className="mt-1 block text-xs font-semibold text-amber-700">{clinicConflict.name} is already assigned to {clinicLabel(form.clinic_type)}. Consultations use the first assigned room, so unassign the other one if this room should take over.</span>}
-            </label>
-          )}
           {editing?.id && !isMain && (
-            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <input type="checkbox" checked={Number(form.is_active) === 1} onChange={(e) => setForm((current) => ({ ...current, is_active: e.target.checked ? 1 : 0 }))} />
-              Active (a room with stock must be emptied before it can be deactivated)
-            </label>
+            <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
+              <span>Stock Room Status <span className="text-xs font-normal text-slate-500">(room must be empty before deactivation)</span></span>
+              <button type="button" role="switch" aria-label="Stock room active" aria-checked={Number(form.is_active) === 1}
+                onClick={() => { if (Number(form.is_active) === 1 && !window.confirm('Deactivate this stock room? Stock must be moved out first.')) return; setForm((current) => ({ ...current, is_active: Number(current.is_active) === 1 ? 0 : 1 })) }}
+                className={`relative inline-flex h-7 w-12 rounded-full transition-colors ${Number(form.is_active) === 1 ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                <span className={`mt-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${Number(form.is_active) === 1 ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
           )}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" className="button-secondary" disabled={saving} onClick={() => setEditing(null)}>Cancel</button>
@@ -149,3 +137,4 @@ const StockRoomsManager = () => {
 }
 
 export default StockRoomsManager
+

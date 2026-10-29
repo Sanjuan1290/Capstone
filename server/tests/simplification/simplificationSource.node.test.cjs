@@ -1,0 +1,31 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const root = path.resolve(__dirname, '../../..')
+const read = rel => fs.readFileSync(path.join(root, rel), 'utf8')
+test('doctor weekly UI no longer exposes slot duration controls', ()=> {
+ const ui=read('client/src/components/schedule/ScheduleDayCard.jsx')
+ assert.doesNotMatch(ui, /Slot Duration|form\.slot_duration_mins/)
+})
+test('deprecated setup tabs are not offered', ()=> {
+ const tabs=read('client/src/components/system/SystemSetupTabs.jsx')
+ assert.doesNotMatch(tabs,/key: 'promotions'|key: 'location_types'/)
+})
+test('physical stock room input is now validated by branch and activity', ()=> {
+ const code=read('server/routers/branchInventoryItems.js')
+ assert.match(code,/inventory_locations WHERE id=\? AND branch_id=\? AND is_active=1/)
+ assert.match(code,/default_location_id/)
+ assert.doesNotMatch(code,/Select an active storage location type/)
+})
+test('cash and QR Ph are the only accepted new payment methods', ()=> {
+ const payment = require('../../utils/payments')
+ assert.equal(payment.isValidPaymentMethod('cash'),true)
+ assert.equal(payment.isValidPaymentMethod('qrph'),true)
+ for(const old of ['gcash','maya','bank_transfer']) assert.equal(payment.isValidPaymentMethod(old),false)
+})
+test('stock room activation uses accessible switch and no clinic selection', ()=> {
+ const ui=read('client/src/components/system/StockRoomsManager.jsx')
+ assert.match(ui,/role="switch"/)
+ assert.doesNotMatch(ui,/>Used by clinic</)
+})

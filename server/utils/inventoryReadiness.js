@@ -35,9 +35,9 @@ const mergeRequirements = (requirements = []) => {
 const assessInventoryRequirements = async (requirements = [], { clinicType, branchId, executor = db } = {}) => {
   if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) <= 0) throw Object.assign(new Error('A clinic branch is required for inventory readiness.'), { statusCode: 403, code: 'BRANCH_CONTEXT_REQUIRED' })
   const normalized = mergeRequirements(requirements)
-  const roomRow = await resolveClinicTreatmentRoom(clinicType, executor, branchId)
   const mainRow = await resolveMainStockroom(executor, { branchId })
-  const treatmentRoom = roomRow?.name || treatmentRoomForClinic(clinicType)
+  if (!mainRow) throw Object.assign(new Error('The branch must configure an active Main Stockroom.'), {statusCode:409,code:'MAIN_STOCKROOM_REQUIRED'})
+  const treatmentRoom = 'Item-assigned Stock Room' 
   if (!normalized.length) {
     return {
       status: 'no_consumables',
@@ -53,8 +53,8 @@ const assessInventoryRequirements = async (requirements = [], { clinicType, bran
   const placeholders = ids.map(() => '?').join(',')
   const [stockRows] = await executor.query(
     `SELECT i.id, i.name, COALESCE(i.uom,i.base_unit,i.unit,'unit') AS unit,
-            COALESCE(SUM(CASE WHEN ib.id IS NOT NULL AND il.id=? THEN ilb.quantity ELSE 0 END),0) AS treatment_room_stock,
-            COALESCE(SUM(CASE WHEN ib.id IS NOT NULL AND il.id=? THEN ilb.quantity ELSE 0 END),0) AS main_stockroom_stock
+            COALESCE(SUM(CASE WHEN ib.id IS NOT NULL AND il.id=COALESCE(i.default_location_id,?) THEN ilb.quantity ELSE 0 END),0) AS treatment_room_stock,
+            COALESCE(SUM(CASE WHEN ib.id IS NOT NULL AND il.id=? AND il.id<>COALESCE(i.default_location_id,?) THEN ilb.quantity ELSE 0 END),0) AS main_stockroom_stock
      FROM inventory i
      LEFT JOIN inventory_location_batches ilb ON ilb.inventory_id=i.id AND ilb.quantity>0
      LEFT JOIN inventory_locations il ON il.id=ilb.location_id
@@ -65,7 +65,7 @@ const assessInventoryRequirements = async (requirements = [], { clinicType, bran
        AND (ib.expiration_date IS NULL OR ib.expiration_date>=CURDATE())
      WHERE i.id IN (${placeholders}) AND i.branch_id=? AND i.archived_at IS NULL
      GROUP BY i.id, i.name, i.uom, i.base_unit, i.unit`,
-    [roomRow?.id || 0, mainRow?.id || 0, ...ids, Number(branchId)]
+    [mainRow.id,mainRow.id,mainRow.id, ...ids, Number(branchId)]
   )
   const stockMap = new Map(stockRows.map((row) => [Number(row.id), row]))
 
@@ -178,3 +178,4 @@ module.exports = {
   getAppointmentInventoryReadiness,
   getBillingInventoryReadiness,
 }
+
