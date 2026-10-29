@@ -20,7 +20,8 @@ describe('September 30 consultation workflow UX', () => {
     const controller = read('server', 'controllers', 'doctor.controller.js')
     const billing = read('server', 'utils', 'billing.js')
     expect(consultation).toContain('Booked Service · Fixed')
-    expect(consultation).toContain('Service Consumables · Fixed')
+    expect(consultation).toContain('Supplies Included · Fixed')
+    expect(consultation).toContain('These consumables and quantities come directly from the service setup and cannot be changed during consultation.')
     expect(consultation).toContain('Configured Quantity')
     expect(consultation).toContain('Extra Consumables')
     expect(consultation).toContain('Add Extra Consumable')
@@ -67,3 +68,4 @@ describe('September 30 consultation workflow UX', () => {
     expect(block).not.toContain('WHERE i.stock > 0')
   })
 })
+

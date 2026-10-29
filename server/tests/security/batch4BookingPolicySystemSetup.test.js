@@ -21,10 +21,13 @@ describe('Batch 4 booking policy System Setup exposure', () => {
   it('shows the booking controls in Patient Visits', () => {
     const page = read('client/src/pages/adminPage/Admin_PatientBooking.jsx')
     expect(page).toContain('Online Booking Policy')
-    expect(page).toContain('Minimum Online Booking Notice')
-    expect(page).toContain('Pending Confirmation Cutoff')
-    expect(page).toContain('Booking Start Interval')
+    expect(page).toContain('How Early Patients Must Book')
+    expect(page).toContain('Latest Time to Confirm')
+    expect(page).toContain('Available Start Times')
     expect(page).toContain('30 minutes')
+    expect(page).toContain('online_min_lead_minutes')
+    expect(page).toContain('pending_confirmation_cutoff_minutes')
+    expect(page).toContain('booking_start_interval_minutes')
   })
 
   it('uses the booking policy service endpoints', () => {
@@ -34,3 +37,4 @@ describe('Batch 4 booking policy System Setup exposure', () => {
     expect(service).toContain('/system-setup/booking-policy')
   })
 })
+

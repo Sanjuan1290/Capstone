@@ -23,7 +23,8 @@ describe('Batch 5 appointment scheduling UI integration', () => {
   it('shows appointment time ranges and reserved duration in shared appointment views', () => {
     const page = read('client/src/pages/shared/Appointments.jsx')
     expect(page).toContain('formatAppointmentRange')
-    expect(page).toContain('Reserved Duration')
+    expect(page).toContain('Appointment Length')
+    expect(page).toContain('getReservedDurationMinutes(appointment)')
     expect(page).toContain('Confirmation Deadline')
   })
 
@@ -38,3 +39,4 @@ describe('Batch 5 appointment scheduling UI integration', () => {
     expect(reschedule).toContain('formatAppointmentTimeRange')
   })
 })
+

@@ -29,7 +29,7 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     expect(appointments).not.toContain('getAppointmentInventoryReadiness(appointment.id)')
   })
 
-  it('deducts actual clinical usage only on consultation finalization with Main Stockroom fallback', () => {
+  it('deducts clinical usage on finalization from the assigned Stock Room, with a safe Main Stockroom fallback', () => {
     const doctor = read('server', 'controllers', 'doctor.controller.js')
     const draftStart = doctor.indexOf('const saveConsultationDraft')
     const finalizeStart = doctor.indexOf('const finalizeConsultation')
@@ -38,8 +38,13 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     const finalizeBlock = doctor.slice(finalizeStart, getStart)
     expect(draftBlock).not.toContain('consumeClinicalInventory')
     expect(finalizeBlock).toContain('consumeClinicalInventory')
-    // Fallback is the Main Stockroom *role* (resolved by flag), not a hard-coded name.
-    expect(doctor).toContain('{ fallbackLocation: MAIN_LOCATION }')
+    // Prefer the item's active physical room in its own branch; use the branch's
+    // Main Stockroom only when there is no assigned room or a fallback is needed.
+    expect(doctor).toContain('default_location_id FROM inventory WHERE id = ? AND branch_id=?')
+    expect(doctor).toContain('inventory_locations WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1')
+    expect(doctor).toContain("code:'ITEM_STOCK_ROOM_UNAVAILABLE'")
+    expect(doctor).toContain('const preferredLocation = assignedRoom?.name || mainStockroom.name')
+    expect(doctor).toContain('fallbackLocation: assignedRoom && Number(assignedRoom.id)!==Number(mainStockroom.id) ? mainStockroom.name : null')
     expect(doctor).toContain("UPDATE appointments SET status = 'completed'")
   })
 
@@ -76,3 +81,4 @@ describe('Batch 5 deferred inventory deduction workflow', () => {
     expect(transfers).not.toContain('billing_records')
   })
 })
+
