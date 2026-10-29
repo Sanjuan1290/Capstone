@@ -655,6 +655,7 @@ const createAppointment = async (req, res) => {
 
   const patient = await loadPatientById(req.user.id)
   if (!patient) return res.status(404).json({ message: 'Patient account not found.' })
+  if (!patient.email_verified_at) return res.status(403).json({ code: 'EMAIL_VERIFICATION_REQUIRED', message: 'Verify your email in Patient Settings before booking an appointment.' })
   const profileStatus = await syncPatientProfileStatus(patient)
   if (!profileStatus.is_profile_complete) {
     return res.status(428).json({ code: 'PROFILE_REQUIRED', message: 'Complete your patient profile before booking an appointment.' })
@@ -853,15 +854,18 @@ const cancelAppointment = async (req, res) => {
 }
 
 const rescheduleAppointment = async (req, res) => {
-  const { appointment_date, appointment_time, notes } = req.body
+  const { appointment_date, appointment_time, notes, reason } = req.body
   if (!appointment_date || !appointment_time) return res.status(400).json({ message: 'Date and time required.' })
+  const allowedReasons = ['Schedule conflict', 'Personal emergency', 'Doctor unavailable', 'Health improvement', 'Transportation issue', 'Other']
+  if (!allowedReasons.includes(reason)) return res.status(400).json({ code:'RESCHEDULE_REASON_REQUIRED', message:'Choose a reason for requesting a new appointment time.' })
+  if (String(notes || '').length > 500) return res.status(400).json({ message: 'Additional details must be 500 characters or fewer.' })
 
   const normalizedDate = toDateOnly(appointment_date)
   if (!isValidDateOnly(normalizedDate)) return res.status(400).json({ message: 'Invalid appointment date.' })
   if (normalizedDate < getTodayDateOnly()) return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
 
   const [rows] = await db.query(
-    `SELECT id, doctor_id, status, clinic_type, branch_id,
+    `SELECT id, doctor_id, status, clinic_type, branch_id, appointment_date, appointment_time,
             requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot
      FROM appointments WHERE id = ? AND patient_id = ?`,
     [req.params.id, req.user.id]
@@ -896,9 +900,11 @@ const rescheduleAppointment = async (req, res) => {
       `UPDATE appointments
        SET appointment_date = ?, appointment_time = ?, status = 'pending',
            confirmation_deadline_at = ?, rejected_at = NULL, rejected_by_role = NULL, rejection_reason = NULL,
-           notes = COALESCE(?, notes)
+           reschedule_requested_at = NOW(), reschedule_reason = ?, reschedule_details = ?,
+           reschedule_previous_date = ?, reschedule_previous_time = ?
        WHERE id = ? AND patient_id = ? AND status = ?`,
-      [normalizedDate, appointment_time, confirmationDeadline, notes?.trim() || null, req.params.id, req.user.id, rows[0].status]
+      [normalizedDate, appointment_time, confirmationDeadline, reason, String(notes || '').trim() || null,
+       rows[0].appointment_date, rows[0].appointment_time, req.params.id, req.user.id, rows[0].status]
     )
     await assertAppointmentMutationApplied(updated, req.params.id)
   })
@@ -928,7 +934,7 @@ const rescheduleAppointment = async (req, res) => {
   await notifyRoles(['admin', 'staff'], {
     type: 'appointment_reschedule_request',
     title: 'Appointment needs reconfirmation',
-    message: `${details[0].patient_name} moved an appointment with ${details[0].doctor_name} to ${normalizedDate} at ${appointment_time}.`,
+    message: `${details[0].patient_name} requested to move an appointment with ${details[0].doctor_name} to ${normalizedDate} at ${appointment_time}. Reason: ${reason}.`,
     reference_type: 'appointment',
     reference_id: req.params.id,
   })
@@ -938,7 +944,7 @@ const rescheduleAppointment = async (req, res) => {
     reference_type: 'appointment', reference_id: req.params.id,
   })
   broadcast(['admin', 'staff', `patient_${req.user.id}`], 'appointment_updated', { appointmentId: Number(req.params.id), status: 'pending' }, { branchId: rows[0].branch_id })
-  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.rescheduled', entityType: 'appointment', entityId: req.params.id, newValues: { appointment_date: normalizedDate, appointment_time, status: 'pending', confirmation_deadline_at: confirmationDeadline }, ipAddress: req.ip || null }).catch(() => {})
+  await writeAuditLog({ userId: req.user.id, userRole: 'patient', action: 'appointment.rescheduled', entityType: 'appointment', entityId: req.params.id, newValues: { appointment_date: normalizedDate, appointment_time, status: 'pending', reschedule_reason: reason, reschedule_details: String(notes || '').trim() || null, confirmation_deadline_at: confirmationDeadline }, ipAddress: req.ip || null }).catch(() => {})
   res.json({ message: 'Appointment rescheduled and returned to pending confirmation.' })
 }
 
@@ -1159,4 +1165,5 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 

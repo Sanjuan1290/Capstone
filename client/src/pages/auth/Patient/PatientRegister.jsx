@@ -154,7 +154,7 @@ const RegistrationForm = ({ onSuccess }) => {
             {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2"><label className={LABEL_CLASS}>Full Name *</label><div className="relative"><MdPerson className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input name="full_name" value={form.full_name} onChange={updateField} required maxLength={150} autoComplete="name" placeholder="e.g. Juan dela Cruz" className={`${INPUT_CLASS} pl-10`}/></div></div>
-              <div><label className={LABEL_CLASS}>Email Address *</label><div className="relative"><MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input type="email" name="email" value={form.email} onChange={updateField} required maxLength={150} autoComplete="email" placeholder="juan@email.com" className={`${INPUT_CLASS} pl-10`}/></div></div>
+              <div><label className={LABEL_CLASS}>Email Address *</label><div className="relative"><MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/><input type="email" name="email" value={form.email} onChange={updateField} required maxLength={150} autoComplete="email" placeholder="juan@email.com" className={`${INPUT_CLASS} pl-10`}/></div><p className="mt-1 text-xs text-amber-700">After confirming your mobile number, please verify this email in Patient Settings before booking.</p></div>
               <div><label className={LABEL_CLASS}>Mobile Number *</label><div className="relative"><MdPhone className="pointer-events-none absolute left-3.5 top-1/2 z-10 -translate-y-1/2 text-slate-400"/><PhilippinePhoneInput value={form.phone} onChange={(e) => updateField({ target: { name: 'phone', type: 'text', value: e.target.value } })} className="pl-7"/></div><p className="mt-1 text-[11px] text-slate-400">Enter a Philippine number in 09xx format.</p></div>
               <div><label className={LABEL_CLASS}>Birthdate *</label><input type="date" name="birthdate" value={form.birthdate} min={minBirthdate()} max={maxBirthdate()} onChange={updateField} required className={INPUT_CLASS}/>{birthdateError && <p className="mt-1 text-xs font-semibold text-red-500">{birthdateError}</p>}</div>
               <div><label className={LABEL_CLASS}>Gender *</label><select name="gender" value={form.gender} onChange={updateField} required className={INPUT_CLASS}><option value="">Select gender</option>{GENDER_OPTIONS.map((option)=><option key={option}>{option}</option>)}</select></div>
@@ -265,3 +265,4 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
+

@@ -59,6 +59,22 @@ const buttonBase = 'rounded-xl px-3 py-2 text-xs font-semibold transition'
 const formatDate = (value) => formatDateOnly(value)
 
 const formatStatus = (value) => value?.replace('_', ' ').replace(/\b\w/g, (m) => m.toUpperCase()) || 'Unknown'
+const isPendingReschedule = (appt) => appt?.status === 'pending' && Boolean(appt?.reschedule_requested_at)
+const reminderReasonText = {
+  patient_email_not_verified: 'The patient needs to verify their email address in Settings.',
+  patient_email_missing: 'No patient email address is saved.',
+  email_disabled_in_reminder_settings: 'Email reminders are disabled in System Setup.',
+  sms_disabled_in_reminder_settings: 'SMS reminders are disabled in System Setup.',
+  patient_phone_not_verified: 'The patient phone number has not been verified.',
+  patient_phone_missing: 'No patient phone number is saved.',
+  sms_provider_not_configured: 'The SMS provider is not configured on the server.',
+  cooldown: 'A reminder was sent or started within the last ten minutes.',
+  already_queued: 'This reminder has already been queued.',
+  not_confirmed_or_not_future_or_no_consent: 'Only future confirmed appointments with contact consent can receive reminders.',
+  appointment_changed: 'The appointment was changed before delivery.',
+  provider_error: 'The delivery provider reported an error. Review the delivery log.',
+}
+const formatReminderResult = (entry) => `${entry.channel === 'email' ? 'Email' : 'SMS'}: ${entry.status}${entry.reason ? ` — ${reminderReasonText[entry.reason] || entry.reason.replace(/_/g, ' ')}` : ''}`
 const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : value === 'medical' ? 'General Medicine' : 'Other'
 const timeToMinutes = (value) => parseAppointmentTimeMinutes(value) ?? 0
 const compareVisitTime = (a, b, direction = 1) => {
@@ -74,10 +90,24 @@ const getActionsForStatus = (status) => {
   return ['view']
 }
 
-const StatusBadge = ({ status }) => (
+const StatusBadge = ({ status, appointment }) => (
+  isPendingReschedule(appointment) ? <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-800">Reschedule Request</span> : (
   <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${STATUS_STYLES[status] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
     {formatStatus(status)}
   </span>
+  )
+)
+
+const ActionDialog = ({ title, message, details, confirmText = 'Continue', confirmTone = 'bg-[#0b1a2c]', onCancel, onConfirm, busy = false }) => (
+ <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!busy)onCancel()}}>
+  <section role="alertdialog" aria-modal="true" aria-labelledby="appointment-action-title" className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+   <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50"><MdCalendarToday className="text-2xl text-sky-700"/></div>
+   <h2 id="appointment-action-title" className="text-lg font-black text-slate-900">{title}</h2>
+   <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">{message}</p>
+   {details && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 whitespace-pre-line">{details}</p>}
+   <div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" disabled={busy} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700" onClick={onCancel}>{onConfirm?'Cancel':'Close'}</button>{onConfirm && <button type="button" disabled={busy} autoFocus className={`rounded-xl px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50 ${confirmTone}`} onClick={onConfirm}>{busy?'Working…':confirmText}</button>}</div>
+  </section>
+ </div>
 )
 
 const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onReschedule, onView, onReminder }) => {
@@ -205,6 +235,7 @@ const AppointmentViewModal = ({ appointment, onClose }) => {
           <div><span className="block text-xs text-slate-400">Appointment Length</span>{formatDurationMinutes(getReservedDurationMinutes(appointment))}</div>
           <div><span className="block text-xs text-slate-400">Service</span>{appointment.requested_service_name_snapshot || '—'}</div>
           <div><span className="block text-xs text-slate-400">Reason</span>{appointment.reason || '—'}</div>
+          {isPendingReschedule(appointment) && <div className="sm:col-span-2 rounded-2xl border border-violet-200 bg-violet-50 p-3"><p className="font-bold text-violet-900">Patient requested a new appointment time</p><p className="mt-1 text-sm text-violet-800">Reason: {appointment.reschedule_reason || 'Not provided'}</p>{appointment.reschedule_details && <p className="mt-1 text-xs text-violet-700">Details: {appointment.reschedule_details}</p>}<p className="mt-2 text-xs text-violet-600">Previous schedule: {appointment.reschedule_previous_date ? formatDate(appointment.reschedule_previous_date) : '—'} {appointment.reschedule_previous_time || ''}</p></div>}
           <div><span className="block text-xs text-slate-400">Notes</span>{appointment.notes || '—'}</div>
           <div><span className="block text-xs text-slate-400">Status</span>{formatStatus(appointment.status)}</div>
           {appointment.status === 'pending' && appointment.confirmation_deadline_at && <div><span className="block text-xs text-slate-400">Confirmation Deadline</span>{new Date(String(appointment.confirmation_deadline_at).replace(' ', 'T')).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}</div>}
@@ -592,6 +623,7 @@ const AddAppointmentModal = ({ services, onClose, onCreated }) => {
 const Appointments = ({ services }) => {
   const [appointments, setAppointments] = useState([])
   const [reminding, setReminding] = useState(null)
+  const [dialog, setDialog] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('all')
   const [query, setQuery] = useState('')
@@ -686,50 +718,33 @@ const Appointments = ({ services }) => {
     }
   }
 
-  const confirmWithPolicyWarnings = async (appointment, payload = {}) => {
-    try {
-      return await services.confirmAppointment(appointment.id, payload)
-    } catch (err) {
-      if (err.code === 'NO_SHOW_WARNING') {
-        const lastNoShow = err.last_no_show
-        const detail = lastNoShow
-          ? `Last no-show: ${lastNoShow.appointment_date} at ${lastNoShow.appointment_time} with ${lastNoShow.doctor_name}.`
-          : 'This patient has a previous no-show appointment.'
-        const proceed = window.confirm(`${err.message}
-
-${detail}
-
-Policy reminder: ${err.policy}
-
-Confirm this appointment anyway?`)
-        if (proceed) return services.confirmAppointment(appointment.id, { ...payload, override_no_show_warning: true })
-      }
-      throw err
-    }
-  }
-
-  const handleConfirm = async (appointment) => {
-    // Explicit staff confirmation step prevents accidental confirmation.
-    if (!window.confirm(`Have you contacted or verified ${appointment.patient_name || appointment.full_name || 'this patient'} and confirmed they can attend?\n\nSelect OK to finalize this appointment confirmation.`)) return
+  const performConfirmation = async (appointment, override = false) => {
+    setDialog(null)
     setBusyId(appointment.id)
     try {
-      await confirmWithPolicyWarnings(appointment)
+      await services.confirmAppointment(appointment.id, override ? {override_no_show_warning:true} : {})
       await loadAppointments()
     } catch (err) {
-      alert(err.message || 'Could not confirm appointment.')
-    } finally {
-      setBusyId(null)
-    }
+      if (err.code === 'NO_SHOW_WARNING' && !override) {
+        const previous = err.last_no_show
+        setDialog({type:'no_show_warning',appointment,message:err.message || 'This patient has a prior missed appointment.',details: previous ? `Last missed appointment: ${previous.appointment_date} at ${previous.appointment_time} with ${previous.doctor_name}.\n${err.policy||''}` : err.policy})
+      } else setDialog({type:'message',title:'Confirmation could not be completed',message:err.message || 'Please try again.'})
+    } finally { setBusyId(null) }
   }
-  const handleReminder = async (appointment) => {
+  const handleConfirm = (appointment) => setDialog({type:'confirm',appointment})
+  const handleReminder = (appointment) => {
     if (!services.sendAppointmentReminderNow) return
-    if (!window.confirm(`Send an appointment reminder to ${appointment.patient_name || 'this patient'}? Only verified, permitted contact channels will be used.`)) return
+    setDialog({type:'reminder',appointment})
+  }
+  const performReminder = async (appointment) => {
+    setDialog(null)
     setReminding(appointment.id)
     try {
       const result = await services.sendAppointmentReminderNow(appointment.id,['email','sms'])
-      const text=(result.results || []).map(item=>`${item.channel}: ${item.status}`).join(', ') || 'No eligible contact channels.'
-      window.alert(`Reminder result — ${text}. The appointment status is unchanged.`)
-    } catch (error) { window.alert(error.message || 'Could not send reminder.') }
+      const entries = result.results || []
+      const sent = entries.filter((entry) => entry.status==='sent').length
+      setDialog({type:'message',title:sent ? 'Reminder results' : 'No reminders sent',message:entries.map(formatReminderResult).join('\n\n') || 'No eligible contact channels were found.',details:'The appointment status has not changed.'})
+    } catch (err) { setDialog({type:'message',title:'Reminder could not be sent',message:err.message || 'Please check reminder settings and contact verification.'}) }
     finally { setReminding(null) }
   }
 
@@ -839,7 +854,7 @@ Confirm this appointment anyway?`)
                     <p className="text-base font-bold text-slate-800">{appointment.patient_name || appointment.patient}</p>
                     <p className="text-sm text-slate-500">{appointment.doctor}</p>
                   </div>
-                  <StatusBadge status={appointment.status} />
+                  <StatusBadge status={appointment.status} appointment={appointment} />
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm text-slate-600">
                   <div><span className="block text-xs text-slate-400">Date</span>{formatDate(appointment.appointment_date || appointment.date)}</div>
@@ -847,7 +862,9 @@ Confirm this appointment anyway?`)
                   <div><span className="block text-xs text-slate-400">Appointment Length</span>{formatDurationMinutes(getReservedDurationMinutes(appointment))}</div>
                   <div><span className="block text-xs text-slate-400">Service</span>{appointment.requested_service_name_snapshot || '—'}</div>
                   <div><span className="block text-xs text-slate-400">Reason</span>{appointment.reason || '—'}</div>
+          {isPendingReschedule(appointment) && <div className="sm:col-span-2 rounded-2xl border border-violet-200 bg-violet-50 p-3"><p className="font-bold text-violet-900">Patient requested a new appointment time</p><p className="mt-1 text-sm text-violet-800">Reason: {appointment.reschedule_reason || 'Not provided'}</p>{appointment.reschedule_details && <p className="mt-1 text-xs text-violet-700">Details: {appointment.reschedule_details}</p>}<p className="mt-2 text-xs text-violet-600">Previous schedule: {appointment.reschedule_previous_date ? formatDate(appointment.reschedule_previous_date) : '—'} {appointment.reschedule_previous_time || ''}</p></div>}
                 </div>
+                {isPendingReschedule(appointment) && <div className="mt-3 rounded-2xl border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900"><strong>Reschedule requested</strong><p className="mt-1">Reason: {appointment.reschedule_reason || 'Not provided'}</p>{appointment.reschedule_details && <p className="mt-1">{appointment.reschedule_details}</p>}</div>}
                 <div className="mt-4">
                   <ActionButtons
                     appointment={appointment}
@@ -864,8 +881,8 @@ Confirm this appointment anyway?`)
             ))}
           </div>
 
-          <div className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white md:block">
-            <table className="min-w-full text-left">
+          <div className="hidden overflow-x-auto rounded-3xl border border-slate-200 bg-white md:block">
+            <table className="min-w-[1050px] w-full text-left">
               <thead className="bg-slate-50 text-xs uppercase tracking-widest text-slate-400">
                 <tr>
                   <th className="px-5 py-4">Patient</th>
@@ -892,8 +909,8 @@ Confirm this appointment anyway?`)
                     <td className="px-5 py-4 text-sm text-slate-600">{formatDate(appointment.appointment_date || appointment.date)}</td>
                     <td className="px-5 py-4 text-sm text-slate-600"><p className="font-semibold text-slate-700">{formatAppointmentRange(appointment)}</p><p className="mt-0.5 text-[11px] text-slate-400">{formatDurationMinutes(getReservedDurationMinutes(appointment))}</p></td>
                     <td className="px-5 py-4 text-sm text-slate-600">{appointment.requested_service_name_snapshot || '—'}</td>
-                    <td className="px-5 py-4 text-sm text-slate-600">{appointment.reason || '—'}</td>
-                    <td className="px-5 py-4"><StatusBadge status={appointment.status} /></td>
+                    <td className="px-5 py-4 text-sm text-slate-600">{appointment.reason || '—'}{isPendingReschedule(appointment) && <div className="mt-2 max-w-[240px] rounded-xl border border-violet-200 bg-violet-50 p-2 text-xs text-violet-900"><strong>Reschedule request</strong><p className="mt-1">{appointment.reschedule_reason || 'Reason not provided'}</p>{appointment.reschedule_details && <p className="mt-1 text-violet-700">{appointment.reschedule_details}</p>}</div>}</td>
+                    <td className="px-5 py-4"><StatusBadge status={appointment.status} appointment={appointment} /></td>
                     <td className="px-5 py-4">
                       <ActionButtons
                         appointment={appointment}
@@ -938,6 +955,15 @@ Confirm this appointment anyway?`)
         />
       )}
       {viewAppointment && <AppointmentViewModal appointment={viewAppointment} onClose={() => setViewAppointment(null)} />}
+      {dialog && <ActionDialog
+        title={dialog.title || (dialog.type==='confirm'?'Confirm appointment?':dialog.type==='reminder'?'Send appointment reminder?':'Previous missed appointment')}
+        message={dialog.message || (dialog.type==='confirm'?`Have you contacted ${dialog.appointment?.patient_name || 'this patient'} and confirmed they can attend?`: `Send reminders to ${dialog.appointment?.patient_name || 'this patient'} using only verified and permitted contact channels?`)}
+        details={dialog.details}
+        confirmText={dialog.type==='confirm'?'Confirm Appointment':dialog.type==='reminder'?'Send Reminder':'Confirm Anyway'}
+        onCancel={()=>setDialog(null)}
+        onConfirm={dialog.type==='message'?null:()=>dialog.type==='confirm'?performConfirmation(dialog.appointment):dialog.type==='reminder'?performReminder(dialog.appointment):performConfirmation(dialog.appointment,true)}
+        busy={Boolean(busyId||reminding)}
+      />}
       <CancellationReasonModal
         open={Boolean(cancelAppointmentTarget)}
         appointment={cancelAppointmentTarget}
@@ -951,4 +977,5 @@ Confirm this appointment anyway?`)
 }
 
 export default Appointments
+
 

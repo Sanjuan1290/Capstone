@@ -380,7 +380,8 @@ const RescheduleAppointment = () => {
       await rescheduleAppointment(currentAppt.id, {
         appointment_date: dateStr,
         appointment_time: newTime,
-        notes: notes || reason,
+        reason,
+        notes: notes.trim(),
       })
       setDone(true)
     } catch (err) {
@@ -459,3 +460,4 @@ const RescheduleAppointment = () => {
 }
 
 export default RescheduleAppointment
+

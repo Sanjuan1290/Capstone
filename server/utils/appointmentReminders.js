@@ -50,12 +50,26 @@ const deliveryChannels=(appt,settings)=>{
  if(settings.sms_enabled&&appt.phone&&appt.phone_verified_at&&isSmsConfigured())channels.push('sms')
  return channels
 }
+const unavailableReason=(appt,settings,channel)=>{
+ if(channel==='email'){
+  if(!settings.email_enabled)return 'email_disabled_in_reminder_settings'
+  if(!appt.email)return 'patient_email_missing'
+  if(!appt.email_verified_at)return 'patient_email_not_verified'
+ }
+ if(channel==='sms'){
+  if(!settings.sms_enabled)return 'sms_disabled_in_reminder_settings'
+  if(!appt.phone)return 'patient_phone_missing'
+  if(!appt.phone_verified_at)return 'patient_phone_not_verified'
+  if(!isSmsConfigured())return 'sms_provider_not_configured'
+ }
+ return 'channel_unavailable'
+}
 const sendOne=async({appointmentId,branchId,channel,kind='automatic',actor=null,now=new Date(),executor=db})=>{
  const appt=await loadAppointment(appointmentId,branchId,executor)
  if(!isEligible(appt,now))return {channel,status:'skipped',reason:'not_confirmed_or_not_future_or_no_consent'}
  const settings=await getSettings(branchId,executor)
  if(kind==='automatic'&&!truthy(settings.enabled))return {channel,status:'skipped',reason:'disabled'}
- if(!deliveryChannels(appt,settings).includes(channel))return {channel,status:'skipped',reason:'channel_unavailable'}
+ if(!deliveryChannels(appt,settings).includes(channel))return {channel,status:'skipped',reason:unavailableReason(appt,settings,channel)}
  if(kind==='manual'){
   const [[recent]]=await executor.query(`SELECT id FROM appointment_reminder_deliveries WHERE appointment_id=? AND branch_id=? AND reminder_kind='manual' AND channel=? AND status IN ('sent','processing') AND created_at > DATE_SUB(NOW(),INTERVAL 10 MINUTE) LIMIT 1`,[appointmentId,branchId,channel])
   if(recent)return {channel,status:'skipped',reason:'cooldown'}
@@ -92,7 +106,7 @@ const sendManual=async({appointmentId,branchId,actor,channels,executor=db})=>{
  const available=deliveryChannels(data,settings)
  const result=[]
  for(const channel of [...new Set(channels)]){
-  if(!available.includes(channel))result.push({channel,status:'skipped',reason:'channel_unavailable'})
+  if(!available.includes(channel))result.push({channel,status:'skipped',reason:unavailableReason(data,settings,channel)})
   else result.push(await sendOne({appointmentId,branchId,channel,kind:'manual',actor,executor}))
  }
  return result
@@ -117,3 +131,4 @@ const runAutomatic=async({executor=db,now=new Date()}={})=>{
  return results
 }
 module.exports={HOURS,checkSettings,getSettings,putSettings,loadAppointment,isEligible,sendManual,runAutomatic,sendOne}
+

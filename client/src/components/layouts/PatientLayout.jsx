@@ -2,7 +2,7 @@
 // REDESIGNED: Mobile-first with bottom navigation bar, improved header, smooth transitions
 
 import { useCallback, useState } from "react"
-import { NavLink, Outlet, useNavigate } from "react-router-dom"
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "../../context/AuthContext"
 import { useTheme } from "../../context/ThemeContext"
 import NotificationBell from "../NotificationBell"
@@ -30,6 +30,7 @@ const PatientPortalShell = () => {
   const [loggingOut,  setLoggingOut]  = useState(false)
   const [logoutError, setLogoutError] = useState("")
   const navigate  = useNavigate()
+  const { pathname } = useLocation()
   const { user, logout: clearAuth } = useAuth()
   const { branches, branchId, selectedBranch, selectBranch, clearBranch, loading: branchLoading, error: branchError, refreshBranches } = usePatientBranch()
   const { theme, toggleTheme } = useTheme()
@@ -238,7 +239,7 @@ const PatientPortalShell = () => {
         {/* Page content */}
         <main className="flex-1 min-w-0 overflow-y-auto p-4 portal-mobile-content lg:p-6">
           <div className="mx-auto w-full max-w-[1600px]">
-            {branchLoading ? <p role="status" className="rounded-xl bg-white p-6 text-center text-sm text-slate-600">Loading clinic branches…</p>
+            {pathname === '/patient/settings' ? <Outlet /> : branchLoading ? <p role="status" className="rounded-xl bg-white p-6 text-center text-sm text-slate-600">Loading clinic branches…</p>
               : branchError ? <div role="alert" className="rounded-xl bg-red-50 p-6 text-red-700">{branchError} <button className="underline" onClick={refreshBranches}>Retry</button></div>
               : !selectedBranch ? <section className="mx-auto max-w-2xl space-y-4 rounded-2xl border border-slate-200 bg-white p-6" aria-label="Choose clinic branch">
                   <h1 className="text-2xl font-bold text-slate-900">Choose Your Clinic Branch</h1>
@@ -288,4 +289,5 @@ const PatientLayout = () => {
 }
 
 export default PatientLayout
+
 

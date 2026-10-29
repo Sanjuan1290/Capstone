@@ -6,9 +6,10 @@ import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
-  getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
+  getMyAppointments, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import { doctorClinicLabel } from '../../utils/doctor'
+import { useAuth } from '../../context/AuthContext'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
   MdCalendarToday, MdAccessTime, MdPerson, MdAdd,
@@ -476,6 +477,10 @@ const SuccessScreen = ({ onReset }) => (
 // ── Main ──────────────────────────────────────────────────────────────────────
 const BookAppointment = () => {
   const [step, setStep] = useState(0)
+  const { user } = useAuth()
+  const [activeVisits, setActiveVisits] = useState([])
+  const [bookingNotice, setBookingNotice] = useState('')
+  const [checkingVisits, setCheckingVisits] = useState(true)
   const { branches, branchId, selectBranch } = usePatientBranch()
   const branchError = ''
   const [done, setDone] = useState(false)
@@ -507,6 +512,26 @@ const BookAppointment = () => {
   const [readinessError, setReadinessError] = useState('')
   const readinessRequestId = useRef(0)
   const doctorsRequestId = useRef(0)
+
+  useEffect(() => {
+    let current = true
+    setCheckingVisits(true)
+    getMyAppointments().then((rows) => {
+      if (!current) return
+      setActiveVisits((Array.isArray(rows) ? rows : []).filter((appt) =>
+        ['pending', 'confirmed', 'rescheduled', 'in-progress'].includes(String(appt.status || '').toLowerCase())))
+    }).catch(() => { if (current) setActiveVisits([]) }).finally(() => { if (current) setCheckingVisits(false) })
+    return () => { current = false }
+  }, [])
+  const matchingActiveDoctor = (doctor) => activeVisits.find((visit) => Number(visit.doctor_id) === Number(doctor?.id))
+  const selectDoctorSafely = (doctor) => {
+    const existing = matchingActiveDoctor(doctor)
+    if (existing) {
+      setBookingNotice(`You already have an active appointment with ${doctor?.full_name || doctor?.name || 'this doctor'}. Please review your booking in My Appointments before making another one.`)
+      return
+    }
+    setForm((current) => ({...current, doctor, date: current.doctor?.id===doctor?.id?current.date:null, time: current.doctor?.id===doctor?.id?current.time:''}))
+  }
 
   const loadBookingReadiness = async () => {
     const requestId = ++readinessRequestId.current
@@ -673,10 +698,11 @@ const BookAppointment = () => {
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
   const canNext = () => {
-    if (loadingReadiness || readinessError) return false
+    if (loadingReadiness || readinessError || !user?.email_verified_at) return false
+    if (checkingVisits && step===2) return false
     if (step===0) return !!form.clinicType && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
     if (step===1) return !!form.service && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
-    if (step===2) return !!form.doctor
+    if (step===2) return !!form.doctor && !matchingActiveDoctor(form.doctor)
     if (step===3) return !!form.date && !!form.time
     if (step===4) return !!form.reason && (form.reason !== 'Other' || form.reasonDetails.trim().length >= 2)
     if (step===5) return policyAccepted && !submitting && !loadingReadiness && !readinessError && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
@@ -706,8 +732,10 @@ const BookAppointment = () => {
         notes:            form.notes || '',
       })
       setDone(true)
+      setActiveVisits((current) => [...current, { doctor_id: form.doctor.id, status: 'pending' }])
     } catch (err) {
-      alert(err.message)
+      setBookingNotice(err.message || 'This appointment could not be booked. Please review your selection.')
+      if (/already have an active appointment/i.test(err.message || '')) setStep(2)
     } finally {
       bookingSubmissionLock.current = false
       setSubmitting(false)
@@ -740,13 +768,23 @@ const BookAppointment = () => {
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
         <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Online Booking Policy</p>
         <div className="mt-2 grid gap-2 text-xs leading-relaxed text-amber-800 sm:grid-cols-2">
-          <p>Use real patient details and keep only one active booking per doctor.</p>
+          <p>Use your correct contact details. You can have only one active booking with each doctor.</p>
           <p>Arrive at least 10 minutes before your schedule.</p>
           <p>Cancel or reschedule early if you cannot attend.</p>
           <p>No-shows and fake bookings may require staff review before approval.</p>
         </div>
       </div>
 
+      {!user?.email_verified_at && <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+        <p className="font-bold">Verify your email before booking</p>
+        <p className="mt-1">We need to confirm your email address before you can request an appointment. You can verify it in Settings, even without choosing a clinic branch.</p>
+        <NavLink to="/patient/settings" className="mt-3 inline-flex rounded-xl bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800">Go to Settings · Verify Email</NavLink>
+      </div>}
+      {activeVisits.length > 0 && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900" role="status">
+        <p className="font-bold">You already have {activeVisits.length} active appointment{activeVisits.length===1?'':'s'}</p>
+        <p className="mt-1">You cannot book again with the same doctor until that appointment is completed or cancelled. You'll be notified as soon as you choose a doctor who already has an active booking.</p>
+        <NavLink className="mt-2 inline-block font-bold underline" to="/patient/appointments">View My Appointments</NavLink>
+      </div>}
       {/* Main card */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
@@ -765,7 +803,7 @@ const BookAppointment = () => {
             <>
               {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: current.doctor?.clinic_type === clinicType ? current.doctor : null, date: current.doctor?.clinic_type === clinicType ? current.date : null, time: current.doctor?.clinic_type === clinicType ? current.time : '', reason: '', reasonDetails: '' }))} readiness={bookingReadiness} loading={loadingReadiness} error={readinessError} onRetry={loadBookingReadiness} />}
               {step===1 && <StepService clinicType={form.clinicType} value={form.service} onChange={set('service')} services={services} promotions={promotions} selectedPromotionId={selectedPromotionId} onPromotionChange={setSelectedPromotionId} loading={loadingServices} error={serviceError} onRetry={loadServices} onBackToClinic={() => { setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' })); setStep(0); loadBookingReadiness() }} />}
-              {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={(doctor) => setForm((current) => ({...current, doctor, date: current.doctor?.id===doctor?.id?current.date:null, time: current.doctor?.id===doctor?.id?current.time:''}))} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
+              {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={selectDoctorSafely} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
               {step===3 && (
                 <StepSchedule
                   date={form.date} time={form.time}
@@ -809,10 +847,19 @@ const BookAppointment = () => {
           )}
         </div>
       </div>
+      {bookingNotice && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4" role="presentation" onClick={()=>setBookingNotice('')}>
+        <section role="alertdialog" aria-modal="true" aria-labelledby="booking-warning-title" className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl" onClick={(event)=>event.stopPropagation()}>
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100"><MdWarning className="text-2xl text-amber-700" /></div>
+          <h2 id="booking-warning-title" className="text-lg font-black text-slate-900">Please review your appointment</h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-700">{bookingNotice}</p>
+          <div className="mt-6 flex flex-wrap justify-end gap-2"><NavLink to="/patient/appointments" className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700">My Appointments</NavLink><button type="button" autoFocus className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white" onClick={()=>setBookingNotice('')}>Choose another option</button></div>
+        </section>
+      </div>}
     </div>
   )
 }
 
 export default BookAppointment
+
 
 
