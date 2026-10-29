@@ -1,4 +1,4 @@
-// Read-only SQL verification for the same 20 statements executed by branch Reports.
+// Read-only SQL verification for the same 19 statements executed by branch Reports.
 // EXPLAIN catches missing/ambiguous columns even when all clinic tables are empty.
 const fs = require('node:fs')
 const path = require('node:path')
@@ -15,8 +15,8 @@ const collectBranchReportQueries = async () => {
   }
   const mocks = {
     '../db/connect': fakeDb,
-    '../utils/reportRange': { resolveReportRange: () => ({ startDate: '2026-04-15', endDate: '2026-10-15' }) },
-    '../utils/date': { getTodayDateOnly: () => '2026-10-15', addDaysDateOnly: () => '2026-11-14' },
+    '../utils/reportRange': { resolveReportRange: () => ({ startDate: '1926-04-15', endDate: '1926-10-15' }) },
+    '../utils/date': { getTodayDateOnly: () => '1926-10-15', addDaysDateOnly: () => '1926-11-14' },
     '../utils/audit': { writeAuditLog: async () => {} },
   }
   const source = fs.readFileSync(path.join(__dirname, '../routers/branchReports.js'), 'utf8')
@@ -30,8 +30,8 @@ const collectBranchReportQueries = async () => {
     { branchId: 1, branch: { name: 'Test Branch' }, query: {} },
     { json: () => {} },
   )
-  if (calls.length !== 20) {
-    throw new Error(`Expected 20 branch Reports queries, captured ${calls.length}. Review the verifier when changing report queries.`)
+  if (calls.length !== 19) {
+    throw new Error(`Expected 19 branch Reports queries, captured ${calls.length}. Review the verifier when changing report queries.`)
   }
   for (const [index, call] of calls.entries()) {
     if (!/^\s*SELECT\b/i.test(call.sql)) throw new Error(`Unexpected non-read query in Reports: ${index + 1}`)
@@ -65,3 +65,4 @@ if (require.main === module) {
 }
 
 module.exports = { collectBranchReportQueries, verifyBranchReportsSql }
+
