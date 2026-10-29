@@ -20,7 +20,8 @@
     "verify:reports-sql": "node scripts/verifyBranchReportsSql.js",
     "verify:runtime": "node scripts/verifyRuntimeReadOnly.js",
     "export:deployment": "node scripts/exportDeployment.js",
-    "test:batchfree": "node --test tests/inventory/locationLedger.node.test.cjs tests/inventory/inventoryModeSafety.node.test.cjs"
+    "test:batchfree": "node --test tests/inventory/locationLedger.node.test.cjs tests/inventory/inventoryModeSafety.node.test.cjs",
+    "test:all": "npm test && npm run test:node"
   },
   "keywords": [],
   "author": "",
