@@ -9,6 +9,7 @@ import {
 } from 'react-icons/md'
 import { useToast } from '../../components/ui/ToastProvider'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
+import InventoryExcelTools from '../../components/system/InventoryExcelTools'
 
 const CATEGORIES = [{ value: 'medical', label: 'General Medicine' }, { value: 'derma', label: 'Dermatology' }]
 const ITEM_TYPES = [{ value: 'medicine', label: 'Medicine' }, { value: 'supplies', label: 'Supplies' }]
@@ -1000,6 +1001,8 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         </div>
       </div>
 
+      {canManageSellingPrice && <InventoryExcelTools items={items} stockRooms={stockLocations} masterData={masterData} services={services} onUpdated={load}/>}
+
       {feedback && (
         <div className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${
           feedback.type === 'error'
@@ -1149,4 +1152,5 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+
 

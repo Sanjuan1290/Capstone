@@ -48,6 +48,18 @@ const durationLabel = (minutes) => {
   return `${hours} hour${hours === 1 ? '' : 's'} ${mins} minutes`
 }
 
+// Accessible switch control with an actual toggle appearance (not a checkbox).
+const ReminderToggle = ({label,checked,onChange}) => (
+  <button type="button" role="switch" aria-checked={Boolean(checked)} aria-label={label}
+    onClick={()=>onChange(!checked)}
+    className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-sm font-semibold text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500">
+    <span>{label}</span>
+    <span aria-hidden="true" className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked?'bg-emerald-500':'bg-slate-300'}`}>
+      <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${checked?'translate-x-6':'translate-x-1'}`}/>
+    </span>
+  </button>
+)
+
 const BOOKING_POLICY_MINUTE_OPTIONS = Array.from({ length: 48 }, (_, index) => (index + 1) * 30)
 
 const Admin_PatientBooking = () => {
@@ -298,17 +310,15 @@ const Admin_PatientBooking = () => {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
         <div><h2 className="font-bold text-slate-800">Appointment Reminders</h2>
           <p className="text-xs text-slate-500 mt-1">Only confirmed appointments receive reminders. No reply is needed to keep a booking.</p></div>
-        <label className="flex items-center justify-between text-sm font-semibold">Send reminders automatically
-          <input type="checkbox" role="switch" checked={reminderSettings.enabled} onChange={e=>setReminderSettings(v=>({...v,enabled:e.target.checked}))}/>
-        </label>
+        <ReminderToggle label="Send reminders automatically" checked={reminderSettings.enabled} onChange={checked=>setReminderSettings(v=>({...v,enabled:checked}))}/>
         <label className="block text-sm font-semibold">Remind patients before their appointment
           <select className="form-control mt-1" value={reminderSettings.lead_hours} onChange={e=>setReminderSettings(v=>({...v,lead_hours:Number(e.target.value)}))}>
             {[1,2,3,6,12,24].map(h=><option key={h} value={h}>{h} hour{h===1?'':'s'} before</option>)}
           </select>
         </label>
-        <div className="flex flex-wrap gap-5">
-          <label className="flex gap-2 text-sm"><input type="checkbox" checked={reminderSettings.email_enabled} onChange={e=>setReminderSettings(v=>({...v,email_enabled:e.target.checked}))}/>Email</label>
-          <label className="flex gap-2 text-sm"><input type="checkbox" checked={reminderSettings.sms_enabled} onChange={e=>setReminderSettings(v=>({...v,sms_enabled:e.target.checked}))}/>Text message (SMS)</label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ReminderToggle label="Email" checked={reminderSettings.email_enabled} onChange={checked=>setReminderSettings(v=>({...v,email_enabled:checked}))}/>
+          <ReminderToggle label="Text message (SMS)" checked={reminderSettings.sms_enabled} onChange={checked=>setReminderSettings(v=>({...v,sms_enabled:checked}))}/>
         </div>
         {reminderError && <p className="text-xs text-rose-600" role="alert">{reminderError}</p>}
         <button type="button" className="button-primary" disabled={savingReminders} onClick={async()=>{
@@ -544,4 +554,5 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
+
 
