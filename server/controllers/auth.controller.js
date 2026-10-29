@@ -14,7 +14,8 @@ const ROLE_CONFIG = {
   patient: { table: 'patients' },
   doctor: { table: 'doctors', where: 'email = ? AND is_active = 1' },
   staff: { table: 'staff', where: "email = ? AND status = 'active'" },
-  admin: { table: 'admins', where: 'email = ?' },
+  admin: { table: 'admins', where: "email = ? AND account_role = 'admin' AND is_active = 1" },
+  superadmin: { table: 'admins', where: "email = ? AND account_role = 'superadmin' AND is_active = 1" },
 }
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase()
@@ -72,6 +73,7 @@ const genericRecoveryResponse = (deliveryMethod, { email = '', phone = '' } = {}
   message: 'If an account matches the information provided, a verification code will be sent.',
   delivery_method: deliveryMethod,
   masked_destination: deliveryMethod === 'sms' ? maskPhone(phone) : maskEmail(email),
+  request_started: false,
 })
 
 const forgotPassword = async (req, res) => {
@@ -158,9 +160,10 @@ const forgotPassword = async (req, res) => {
       message: err.message,
     })
     await db.query('DELETE FROM password_resets WHERE role = ? AND account_id = ?', [role, account.id])
+    return res.json(generic)
   }
 
-  return res.json(generic)
+  return res.json({ ...generic, request_started: true, message: 'A verification code has been sent to your registered contact.' })
 }
 
 const verifyOtp = async (req, res) => {
@@ -230,9 +233,9 @@ const resetPassword = async (req, res) => {
       await conn.rollback()
       return res.status(400).json({ message: 'Reset session is invalid. Please start over.' })
     }
-    const extra = ['staff', 'doctor', 'admin'].includes(reset.role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
+    const extra = ['staff', 'doctor', 'admin', 'superadmin'].includes(reset.role) ? ', must_change_password = 0, password_changed_at = NOW()' : ''
     await conn.query(`UPDATE ${config.table} SET password = ?${extra} WHERE id = ?`, [hashed, reset.account_id])
-    await revokeSessions(reset.role, reset.account_id, conn)
+    await revokeSessions(reset.role === 'superadmin' ? 'admin' : reset.role, reset.account_id, conn)
     await conn.query('DELETE FROM password_resets WHERE id = ?', [reset.id])
     await conn.commit()
   } catch (error) {
@@ -244,3 +247,4 @@ const resetPassword = async (req, res) => {
 }
 
 module.exports = { forgotPassword, verifyOtp, resetPassword }
+

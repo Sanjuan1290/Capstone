@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {makeInventoryXlsx, INVENTORY_HEADERS, asInventoryRow} from '../src/utils/inventoryExcel.mjs'
+import {makeInventoryXlsx, INVENTORY_HEADERS, INVENTORY_BULK_EDIT_HEADERS, asInventoryRow} from '../src/utils/inventoryExcel.mjs'
 import {preflightInventoryExcel} from '../src/utils/inventoryExcelValidation.mjs'
 
 const rooms=[{id:1,name:'Main Stockroom',is_active:1},{id:2,name:'Dermatology Room',is_active:1}]
@@ -10,7 +10,8 @@ const row=(overrides={})=>({'Item Name':'Acne Lotion','Selling Price':'300','Ini
 const options={items:[record],stockRooms:rooms,suppliers}
 test('XLSX writer outputs a valid ZIP header and stable columns',async()=>{
   assert.deepEqual(INVENTORY_HEADERS.slice(0,8),['Item Name','Selling Price','Initial Stock','Quantity','Expiration Date','Category','Stock Room','Low Stock Alert'])
-  const bytes=new Uint8Array(await makeInventoryXlsx([['Acne Lotion',300,5,5,'2027-11-30','Dermatology','Dermatology Room',5,'JAS','','']]).arrayBuffer())
+  assert.equal(INVENTORY_HEADERS.length,9);assert.equal(INVENTORY_BULK_EDIT_HEADERS.length,11)
+  const bytes=new Uint8Array(await makeInventoryXlsx([['Acne Lotion',300,5,5,'2027-11-30','Dermatology','Dermatology Room',5,'JAS']]).arrayBuffer())
   assert.equal(bytes[0],0x50);assert.equal(bytes[1],0x4B)
   assert.ok(bytes.length>1800)
 })
@@ -39,4 +40,10 @@ test('existing item Quantity changes are rejected rather than silently ignored',
 test('bulk export excludes batch expiry and initial stock',()=>{
   const exported=asInventoryRow(record,rooms,'edit')
   assert.equal(exported[2],'');assert.equal(exported[4],'');assert.equal(exported[9],55)
+})
+
+
+test('October MADE and REMAINING may differ; current balance is imported from Quantity',()=>{
+  const out=preflightInventoryExcel([row({'Initial Stock':'17',Quantity:'32'})],options)[0]
+  assert.deepEqual(out.errors,[]);assert.equal(out.payload.stock,32)
 })

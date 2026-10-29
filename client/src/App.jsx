@@ -212,7 +212,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/admin/reset-password' element={<ForgotPassword role="admin" />} />
 
       <Route path='/superadmin/login' element={<GuestOnlyRoute><SuperAdminLogin /></GuestOnlyRoute>} />
-      <Route path='/superadmin/forgot-password' element={<ForgotPassword role="admin" />} />
+      <Route path='/superadmin/forgot-password' element={<ForgotPassword role="superadmin" />} />
       <Route path='/superadmin' element={<SuperAdminRoute><SuperAdminLayout /></SuperAdminRoute>}>
         <Route index element={<SuperAdminDashboard />} />
         <Route path='branches' element={<SuperAdminBranches />} />
@@ -316,3 +316,4 @@ const App = () => (
 )
 
 export default App
+

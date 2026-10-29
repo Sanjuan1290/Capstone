@@ -1,7 +1,9 @@
 // Minimal dependency-free XLSX reader/writer for small, flat CARAIT inventory sheets.
 // Supports OOXML shared/inline strings, numeric/date cells, and CSV from Excel.
 // Does not execute formulas, macros or hyperlinks. Limits size and rows before parsing.
-export const INVENTORY_HEADERS = ['Item Name', 'Selling Price', 'Initial Stock', 'Quantity', 'Expiration Date', 'Category', 'Stock Room', 'Low Stock Alert', 'Supplier', 'Item ID', 'Barcode']
+export const INVENTORY_HEADERS = ['Item Name', 'Selling Price', 'Initial Stock', 'Quantity', 'Expiration Date', 'Category', 'Stock Room', 'Low Stock Alert', 'Supplier']
+// Internal record identifiers are retained ONLY in bulk-edit exports for safe matching.
+export const INVENTORY_BULK_EDIT_HEADERS = [...INVENTORY_HEADERS, 'Item ID', 'Barcode']
 const MAX_BYTES = 6 * 1024 * 1024
 const MAX_ROWS = 2000
 const encoder = new TextEncoder()
@@ -36,16 +38,16 @@ const worksheetXml=(headers,rows)=>{
     const ref=`${columnCode(ci)}${ri+1}`
     return typeof v==='number'&&Number.isFinite(v)?`<c r="${ref}"><v>${v}</v></c>`:`<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(v)}</t></is></c>`
   }).join('')}</row>`).join('')
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:K${all.length}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="38" customWidth="1"/><col min="2" max="11" width="19" customWidth="1"/></cols><sheetData>${body}</sheetData><autoFilter ref="A1:K${all.length}"/></worksheet>`
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${columnCode(headers.length-1)}${all.length}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="38" customWidth="1"/><col min="2" max="${headers.length}" width="19" customWidth="1"/></cols><sheetData>${body}</sheetData><autoFilter ref="A1:${columnCode(headers.length-1)}${all.length}"/></worksheet>`
 }
-export const makeInventoryXlsx = (rows=[]) => {
+export const makeInventoryXlsx = (rows=[], headers=INVENTORY_HEADERS) => {
   if(rows.length>MAX_ROWS)throw new Error('Too many inventory rows for one workbook.')
   const entries=[
     ['[Content_Types].xml',`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`],
     ['_rels/.rels',`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
     ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Inventory" sheetId="1" r:id="rId1"/></sheets></workbook>`],
     ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`],
-    ['xl/worksheets/sheet1.xml',worksheetXml(INVENTORY_HEADERS,rows)],
+    ['xl/worksheets/sheet1.xml',worksheetXml(headers,rows)],
   ]
   return new Blob([zipStored(entries)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
 }
@@ -123,7 +125,7 @@ export const readInventoryFile=async file=>{
   const required=['item name','selling price','initial stock','quantity','expiration date','category','stock room','low stock alert']
   if(required.some(key=>!headers.includes(key)))throw new Error(`Missing columns: ${required.filter(key=>!headers.includes(key)).join(', ')}. Download the CARAIT template.`)
   if(body.length>MAX_ROWS)throw new Error('Maximum 2,000 items per spreadsheet.')
-  return body.map((cells,i)=>Object.fromEntries(INVENTORY_HEADERS.map(header=>{
+  return body.map((cells,i)=>Object.fromEntries(INVENTORY_BULK_EDIT_HEADERS.map(header=>{
     const idx=headers.indexOf(header.toLowerCase());let value=idx<0?'':String(cells[idx]??'').trim()
     if(header==='Expiration Date'&&/^\d{5}(?:\.\d+)?$/.test(value))value=excelDate(value)
     return [header,value]
@@ -132,5 +134,7 @@ export const readInventoryFile=async file=>{
 export const asInventoryRow = (item,rooms,kind='view')=>{
   const room=rooms.find(x=>Number(x.id)===Number(item.default_location_id))
   const expiry=(item.batches||[]).filter(x=>Number(x.quantity)>0&&x.expiration_date).map(x=>String(x.expiration_date).slice(0,10)).sort()[0]||''
-  return [item.name||'',Number(item.selling_price??item.price??0)||'',kind==='edit'?'': '',Number(item.stock??0),kind==='edit'?'':expiry,item.category==='derma'?'Dermatology':'General Medicine',room?.name||'',Number(item.threshold??5),item.supplier||'JAS',kind==='edit'?item.id:'',kind==='edit'?(item.barcode||''):'']
+  const values=[item.name||'',Number(item.selling_price??item.price??0)||'', '',Number(item.stock??0),kind==='edit'?'':expiry,item.category==='derma'?'Dermatology':'General Medicine',room?.name||'',Number(item.threshold??5),item.supplier||'JAS']
+  return kind==='edit'?[...values,item.id,item.barcode||'']:values
 }
+

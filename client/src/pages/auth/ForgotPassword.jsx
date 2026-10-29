@@ -22,6 +22,7 @@ const ROLE_CFG = {
   patient: { accent: '#10b981', light: '#ecfdf5', border: 'focus:border-emerald-400', ring: 'focus:ring-emerald-400/10', badge: 'Patient', btnClass: 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25' },
   doctor:  { accent: '#7c3aed', light: '#f5f3ff', border: 'focus:border-violet-400', ring: 'focus:ring-violet-400/10', badge: 'Doctor', btnClass: 'bg-violet-600 hover:bg-violet-700 shadow-violet-500/25' },
   staff:   { accent: '#0ea5e9', light: '#f0f9ff', border: 'focus:border-sky-400', ring: 'focus:ring-sky-400/10', badge: 'Staff', btnClass: 'bg-sky-500 hover:bg-sky-600 shadow-sky-500/25' },
+  superadmin: { accent: '#f59e0b', light: '#fffbeb', border: 'focus:border-amber-400', ring: 'focus:ring-amber-400/10', badge: 'Super Admin', btnClass: 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/25' },
   admin:   { accent: '#f59e0b', light: '#fffbeb', border: 'focus:border-amber-400', ring: 'focus:ring-amber-400/10', badge: 'Admin', btnClass: 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/25' },
 }
 
@@ -171,6 +172,11 @@ const ForgotPassword = ({ role }) => {
       const data = await res.json()
       if (!res.ok) {
         setError(data.message || 'Password recovery could not be started.')
+        return
+      }
+
+      if (data.request_started !== true) {
+        setError('We could not start password recovery for this account. Check the registered contact details and portal, then try again.')
         return
       }
 
@@ -529,3 +535,4 @@ const ForgotPassword = ({ role }) => {
 }
 
 export default ForgotPassword
+

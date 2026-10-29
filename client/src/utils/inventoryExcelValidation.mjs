@@ -38,8 +38,8 @@ export function preflightInventoryExcel(rows,{items=[],stockRooms=[],suppliers=[
     }else{
       if(items.some(item=>matchName(item.name,name)))errors.push('Item already exists: use Export Bulk Edit to update it')
       if(!whole(initial))errors.push('Initial Stock must be a whole number ≥ 0')
-      if(!whole(qty)||Number(qty)!==Number(initial))errors.push('For new items Quantity must equal Initial Stock')
-      if(Number(initial)>0&&!iso(expiry))errors.push('Opening stock requires a real YYYY-MM-DD expiry date')
+      if(!whole(qty))errors.push('Quantity must be a whole number ≥ 0')
+      if(Number(qty)>0&&!iso(expiry))errors.push('Opening stock requires a real YYYY-MM-DD expiry date')
       if(expiry&&!iso(expiry))errors.push('Invalid expiry date')
       if(expiry && iso(expiry) && expiry < new Date().toISOString().slice(0,10))errors.push('Opening stock expiry must not be in the past')
       const k=normalizedName(name);if(seenNames.has(k))errors.push('Duplicate Item Name in this spreadsheet');seenNames.add(k)
@@ -52,7 +52,7 @@ export function preflightInventoryExcel(rows,{items=[],stockRooms=[],suppliers=[
       ...(existing?{
         dosage_form:existing.dosage_form||null,strength:existing.strength||null,
         measurement_value:existing.measurement_value??null,measurement_unit:existing.measurement_unit||null,
-      }:{stock:Number(initial),expiration_date:expiry,supplier_lot_missing:true,unit_cost:0,no_expiry:false}),
+      }:{stock:Number(qty),expiration_date:expiry,supplier_lot_missing:true,unit_cost:0,no_expiry:false}),
     }
     const changed=existing?(
       existing.name!==name||existing.category!==category||Number(existing.selling_price??existing.price)!==Number(sellingPrice)||
@@ -62,3 +62,4 @@ export function preflightInventoryExcel(rows,{items=[],stockRooms=[],suppliers=[
     return {row:row._excelRow||0,name,action,existing,payload,errors,changed}
   })
 }
+
