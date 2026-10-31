@@ -11,6 +11,7 @@ const DoctorLogin = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [error,        setError]        = useState('')
   const [loading,      setLoading]      = useState(false)
+  const [pendingDoctor, setPendingDoctor] = useState(null)
   const navigate  = useNavigate()
   const { login } = useAuth()
 
@@ -33,6 +34,10 @@ const DoctorLogin = () => {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.message || 'Login failed'); return }
+      if (data.user?.branches?.length > 1) {
+        setPendingDoctor(data.user)
+        return
+      }
       login(data.user, 'doctor')
       navigate(data.user?.must_change_password ? '/doctor/change-password-required' : '/doctor')
     } catch {
@@ -40,6 +45,18 @@ const DoctorLogin = () => {
     } finally {
       setLoading(false)
     }
+  }
+
+  const selectBranch = async (branchId) => {
+    setLoading(true);setError('')
+    try {
+      const response=await fetch('/api/doctor/branches/select',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({branch_id:branchId})})
+      const result=await response.json()
+      if(!response.ok)throw new Error(result.message||'Unable to select this branch.')
+      const doctor={...pendingDoctor,branch_id:result.branch.id,branch_name:result.branch.name,requires_branch_selection:false}
+      login(doctor,'doctor')
+      navigate(doctor.must_change_password?'/doctor/change-password-required':'/doctor')
+    }catch(e){setError(e.message)}finally{setLoading(false)}
   }
 
   return (
@@ -74,8 +91,15 @@ const DoctorLogin = () => {
             <p className="text-violet-200 text-sm mt-0.5">Access your clinical dashboard</p>
           </div>
 
+          {pendingDoctor ? <div className="space-y-3 px-6 py-6">
+            <h3 className="font-bold text-slate-800">Select your clinic branch</h3>
+            <p className="text-sm text-slate-500">Each branch has separate appointments, consultations, and schedules.</p>
+            {error&&<p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+            {pendingDoctor.branches.map(branch=><button type="button" key={branch.id} disabled={loading} onClick={()=>selectBranch(branch.id)} className="w-full rounded-xl border border-violet-200 p-3 text-left text-sm font-bold text-violet-900 hover:bg-violet-50 disabled:opacity-50">{branch.name}</button>)}
+            <button type="button" onClick={()=>setPendingDoctor(null)} className="text-xs font-bold text-slate-500 underline">Back to sign-in</button>
+          </div> : null}
           {/* Form */}
-          <form onSubmit={handleLogin} className="px-6 py-6 space-y-4">
+          {!pendingDoctor&&<form onSubmit={handleLogin} className="px-6 py-6 space-y-4">
 
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3">
@@ -129,7 +153,7 @@ const DoctorLogin = () => {
                 ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 : <>Sign In <MdArrowForward className="text-[16px]" /></>}
             </button>
-          </form>
+          </form>}
         </div>
 
         <p className="text-center mt-5">
@@ -143,3 +167,4 @@ const DoctorLogin = () => {
 }
 
 export default DoctorLogin
+

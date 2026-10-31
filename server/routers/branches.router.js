@@ -57,7 +57,7 @@ const branchContext = async (req,res,next) => {
   }catch(e){next(e)}
 }
 router.get('/', requireSuper, async(req,res)=>{
-  const [rows]=await db.query(`SELECT b.*, (SELECT COUNT(*) FROM admins a WHERE a.branch_id=b.id AND a.account_role='admin' AND a.is_active=1) AS admins, (SELECT COUNT(*) FROM doctors d WHERE d.branch_id=b.id AND d.is_active=1) AS doctors, (SELECT COUNT(*) FROM staff s WHERE s.branch_id=b.id AND s.status='active') AS staff FROM clinic_branches b ORDER BY b.created_at ASC,b.id ASC`)
+  const [rows]=await db.query(`SELECT b.*, (SELECT COUNT(*) FROM admins a WHERE a.branch_id=b.id AND a.account_role='admin' AND a.is_active=1) AS admins, (SELECT COUNT(*) FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=b.id AND a.is_active=1 WHERE d.is_active=1) AS doctors, (SELECT COUNT(*) FROM staff s WHERE s.branch_id=b.id AND s.status='active') AS staff FROM clinic_branches b ORDER BY b.created_at ASC,b.id ASC`)
   res.json(rows)
 })
 router.post('/',requireSuper,async(req,res)=>{
@@ -309,6 +309,10 @@ router.put('/accounts/team/:role/:accountId/branch', requireSuper, async (req, r
       if (Number(cashier.n)) { await conn.rollback(); return res.status(409).json({ code: 'OPEN_CASHIER', message: 'Close the staff member’s open cashier shift before moving the account.' }) }
     }
     await conn.query(`UPDATE ${table} SET branch_id=?,session_version=COALESCE(session_version,1)+1 WHERE id=? AND branch_id=?`, [toBranchId, accountId, fromBranchId])
+    if(role==='doctor'){
+      await conn.query('DELETE FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=?',[accountId,fromBranchId])
+      await conn.query('INSERT INTO doctor_branch_assignments (doctor_id,branch_id) VALUES (?,?) ON DUPLICATE KEY UPDATE is_active=1',[accountId,toBranchId])
+    }
     const change = { account_role:role, account_id:accountId, from_branch_id:fromBranchId, to_branch_id:toBranchId }
     // Both branches retain independent audit evidence of the move.
     for (const branchId of [fromBranchId,toBranchId]) {
@@ -344,14 +348,14 @@ router.get('/me',async(req,res)=>{
 const branchDashboard = async(req,res)=>{
  const id=req.branchId
  const [[a]]=await db.query('SELECT COUNT(*) AS total, SUM(status=\'pending\') AS pending, SUM(appointment_date=CURRENT_DATE()) AS today FROM appointments WHERE branch_id=?',[id])
- const [[d]]=await db.query('SELECT COUNT(*) AS total FROM doctors WHERE branch_id=? AND is_active=1',[id])
+ const [[d]]=await db.query('SELECT COUNT(*) AS total FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1 WHERE d.is_active=1',[id])
  const [[s]]=await db.query('SELECT COUNT(*) AS total FROM staff WHERE branch_id=? AND status=\'active\'',[id])
  const [[b]]=await db.query("SELECT COALESCE(SUM(total_amount),0) AS billed FROM billing_records WHERE branch_id=? AND status<>'voided'",[id])
  const [[i]]=await db.query('SELECT COUNT(*) AS total FROM inventory WHERE branch_id=?',[id])
  res.json({branch:req.branch,appointments:Number(a.total||0),pending:Number(a.pending||0),today:Number(a.today||0),doctors:Number(d.total||0),staff:Number(s.total||0),billed:Number(b.billed||0),inventory_items:Number(i.total||0)})
 }
 const listResource = (resource,permission) => [requirePermission(permission),async(req,res)=>{
-  const names={appointments:`SELECT a.id,a.patient_id,a.doctor_id,a.appointment_date,a.appointment_time,a.status,a.clinic_type,p.full_name AS patient_name,d.full_name AS doctor_name FROM appointments a LEFT JOIN patients p ON p.id=a.patient_id LEFT JOIN doctors d ON d.id=a.doctor_id WHERE a.branch_id=? ORDER BY a.appointment_date DESC,a.appointment_time DESC LIMIT 250`,inventory:`SELECT id,barcode,name,category,item_type,stock,threshold,selling_price FROM inventory WHERE branch_id=? ORDER BY name LIMIT 250`,services:`SELECT id,service_name,clinic_type,category_id,default_price,average_duration_minutes,is_active FROM billing_service_catalog WHERE branch_id=? ORDER BY created_at ASC,id ASC LIMIT 250`,doctors:`SELECT id,full_name,specialty,clinic_type,is_active FROM doctors WHERE branch_id=? ORDER BY full_name LIMIT 250`,staff:`SELECT id,full_name,email,role,status FROM staff WHERE branch_id=? ORDER BY full_name LIMIT 250`,patients:`SELECT DISTINCT p.id,p.full_name,p.email,p.phone FROM patients p JOIN appointments a ON a.patient_id=p.id WHERE a.branch_id=? ORDER BY p.full_name LIMIT 250`,billing:`SELECT b.id,b.appointment_id,b.status,b.total_amount,b.created_at,p.full_name AS patient_name FROM billing_records b JOIN patients p ON p.id=b.patient_id WHERE b.branch_id=? ORDER BY b.created_at DESC LIMIT 250`,transfers:`SELECT id,inventory_id,from_location,to_location,quantity,transferred_at FROM inventory_transfers WHERE from_branch_id=? ORDER BY transferred_at DESC LIMIT 250`,audits:`SELECT id,user_role,action,entity_type,entity_id,old_values,new_values,created_at FROM audit_logs WHERE branch_id=? ORDER BY created_at DESC,id DESC LIMIT 250`}
+  const names={appointments:`SELECT a.id,a.patient_id,a.doctor_id,a.appointment_date,a.appointment_time,a.status,a.clinic_type,p.full_name AS patient_name,d.full_name AS doctor_name FROM appointments a LEFT JOIN patients p ON p.id=a.patient_id LEFT JOIN doctors d ON d.id=a.doctor_id WHERE a.branch_id=? ORDER BY a.appointment_date DESC,a.appointment_time DESC LIMIT 250`,inventory:`SELECT id,barcode,name,category,item_type,stock,threshold,selling_price FROM inventory WHERE branch_id=? ORDER BY name LIMIT 250`,services:`SELECT id,service_name,clinic_type,category_id,default_price,average_duration_minutes,is_active FROM billing_service_catalog WHERE branch_id=? ORDER BY created_at ASC,id ASC LIMIT 250`,doctors:`SELECT d.id,d.full_name,d.specialty,d.clinic_type,a.is_active FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? ORDER BY d.full_name LIMIT 250`,staff:`SELECT id,full_name,email,role,status FROM staff WHERE branch_id=? ORDER BY full_name LIMIT 250`,patients:`SELECT DISTINCT p.id,p.full_name,p.email,p.phone FROM patients p JOIN appointments a ON a.patient_id=p.id WHERE a.branch_id=? ORDER BY p.full_name LIMIT 250`,billing:`SELECT b.id,b.appointment_id,b.status,b.total_amount,b.created_at,p.full_name AS patient_name FROM billing_records b JOIN patients p ON p.id=b.patient_id WHERE b.branch_id=? ORDER BY b.created_at DESC LIMIT 250`,transfers:`SELECT id,inventory_id,from_location,to_location,quantity,transferred_at FROM inventory_transfers WHERE from_branch_id=? ORDER BY transferred_at DESC LIMIT 250`,audits:`SELECT id,user_role,action,entity_type,entity_id,old_values,new_values,created_at FROM audit_logs WHERE branch_id=? ORDER BY created_at DESC,id DESC LIMIT 250`}
   const [rows]=await db.query(names[resource],[req.branchId]);res.json(rows)
 }]
 const getBookingPolicy = async(req,res)=>{
@@ -485,7 +489,7 @@ router.get('/analytics/all',requireSuper,async(req,res)=>{
   (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='pending') AS pending,
   (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='completed') AS completed,
   (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='no_show') AS no_shows,
-  (SELECT COUNT(*) FROM doctors d WHERE d.branch_id=b.id AND d.is_active=1) AS doctors,
+  (SELECT COUNT(*) FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=b.id AND a.is_active=1 WHERE d.is_active=1) AS doctors,
   (SELECT COALESCE(SUM(r.total_amount),0) FROM billing_records r WHERE r.branch_id=b.id AND r.status<>'voided' AND DATE(r.created_at) BETWEEN ? AND ?) AS billed,
   (SELECT COALESCE(SUM(GREATEST(p.amount-COALESCE(p.refund_amount,0),0)),0)
    FROM billing_payments p JOIN billing_records br ON br.id=p.billing_id
@@ -505,8 +509,8 @@ router.get('/analytics/trends',requireSuper,async(req,res)=>{
 router.get('/analytics/readiness',requireSuper,async(req,res)=>{
  const [rows]=await db.query(`SELECT b.id,b.name,b.is_active,b.offers_medical,b.offers_derma,
   (SELECT COUNT(*) FROM admins a WHERE a.branch_id=b.id AND a.account_role='admin' AND a.is_active=1) AS admins,
-  (SELECT COUNT(*) FROM doctors d WHERE d.branch_id=b.id AND d.is_active=1) AS doctors,
-  (SELECT COUNT(*) FROM doctors d JOIN doctor_schedules ds ON ds.doctor_id=d.id WHERE d.branch_id=b.id AND d.is_active=1 AND ds.is_active=1) AS schedules,
+  (SELECT COUNT(*) FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=b.id AND a.is_active=1 WHERE d.is_active=1) AS doctors,
+  (SELECT COUNT(DISTINCT d.id) FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=b.id AND a.is_active=1 JOIN doctor_schedules ds ON ds.doctor_id=d.id AND ds.branch_id=b.id WHERE d.is_active=1 AND ds.is_active=1) AS schedules,
   (SELECT COUNT(*) FROM billing_service_catalog sc WHERE sc.branch_id=b.id AND sc.is_active=1) AS services,
   EXISTS(SELECT 1 FROM branch_booking_settings bs WHERE bs.branch_id=b.id) AS policy
   FROM clinic_branches b ORDER BY b.id`)
@@ -596,7 +600,7 @@ const originalPatientDetails=async(req,res)=>{
   res.json({patient,history})
 }
 const originalDoctors=async(req,res)=>{
-  const [rows]=await db.query('SELECT id,full_name,full_name AS name,email,phone,specialty,clinic_type,clinic_type AS type,prc_license,is_active,created_at FROM doctors WHERE branch_id=? ORDER BY full_name',[req.branchId]);res.json(rows)
+  const [rows]=await db.query('SELECT d.id,d.full_name,d.full_name AS name,d.email,d.phone,d.specialty,d.clinic_type,d.clinic_type AS type,d.prc_license,a.is_active,d.created_at FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id WHERE a.branch_id=? ORDER BY d.full_name',[req.branchId]);res.json(rows)
 }
 const originalStaff=async(req,res)=>{
   const [rows]=await db.query('SELECT id,full_name,email,phone,role,status,created_at FROM staff WHERE branch_id=? ORDER BY full_name',[req.branchId]);
@@ -606,9 +610,9 @@ const originalStaff=async(req,res)=>{
 const originalDoctorSchedules=async(req,res)=>{
   const doctorId=Number(req.params.id)
   if(!validId(doctorId))return res.status(400).json({message:'Invalid doctor.'})
-  const [[doctor]]=await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=?',[doctorId,req.branchId])
+  const [[doctor]]=await db.query('SELECT doctor_id AS id FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=?',[doctorId,req.branchId])
   if(!doctor)return res.status(404).json({message:'Doctor not found in this branch.'})
-  const [rows]=await db.query(`SELECT * FROM doctor_schedules WHERE doctor_id=? ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')`,[doctorId]);res.json(rows)
+  const [rows]=await db.query(`SELECT * FROM doctor_schedules WHERE doctor_id=? AND branch_id=? ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')`,[doctorId,req.branchId]);res.json(rows)
 }
 const originalServices=async(req,res)=>{
   const clinicType=String(req.query.clinic_type||'').trim()
@@ -657,7 +661,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   const ownedPerson=(table,permission,controller)=>[...middle,requirePermission(permission),async(req,res,next)=>{
     const id=Number(req.params.id)
     if(!validId(id))return res.status(400).json({message:'Invalid account.'})
-    const [[person]]=await db.query(`SELECT id FROM ${table} WHERE id=? AND branch_id=?`,[id,req.branchId])
+    const [[person]]=table==='doctors' ? await db.query('SELECT doctor_id AS id FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=?',[id,req.branchId]) : await db.query(`SELECT id FROM ${table} WHERE id=? AND branch_id=?`,[id,req.branchId])
     if(!person)return res.status(404).json({message:'Account not found in your branch.'})
     return Promise.resolve(controller(req,res)).catch(next)
   }]
@@ -665,6 +669,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.put(`${prefix}/staff/:id`,validateDelegation,afterSuccessfulMutation('accounts.updated'),...ownedPerson('staff','accounts',oldAdmin.updateStaff))
   router.patch(`${prefix}/staff/:id/toggle`,...ownedPerson('staff','accounts',oldAdmin.toggleStaff))
   router.post(`${prefix}/doctors`,...middle,requirePermission('accounts'),afterSuccessfulMutation('accounts.updated'),(req,res,next)=>Promise.resolve(oldAdmin.createDoctor(req,res)).catch(next))
+  router.post(`${prefix}/doctors/attach`,...middle,requirePermission('accounts'),afterSuccessfulMutation('accounts.updated'),(req,res,next)=>Promise.resolve(oldAdmin.attachExistingDoctor(req,res)).catch(next))
   router.put(`${prefix}/doctors/:id`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.updateDoctor))
   router.patch(`${prefix}/doctors/:id/toggle`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.toggleDoctor))
   router.put(`${prefix}/doctors/:id/schedules`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDaySchedule))
@@ -673,7 +678,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
     const id=Number(req.params.id)
     if(!validId(id))return res.status(400).json({message:'Invalid doctor.'})
     try{
-      const [[doctor]]=await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=?',[id,req.branchId])
+      const [[doctor]]=await db.query('SELECT doctor_id AS id FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=?',[id,req.branchId])
       if(!doctor)return res.status(404).json({message:'Doctor not found in this branch.'})
       return await oldAdmin.getAppointmentAvailableSlotsAdmin(req,res)
     }catch(error){next(error)}
@@ -743,5 +748,6 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 
 

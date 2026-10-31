@@ -107,7 +107,7 @@ const isStartAligned = ({ startMinutes, intervalMinutes, coverageStart }) => {
   return diff >= 0 && diff % interval === 0
 }
 
-const loadActiveAppointmentWindows = async ({ doctorId, date, excludeAppointmentId = null, executor = db }) => {
+const loadActiveAppointmentWindows = async ({ doctorId, branchId = null, date, excludeAppointmentId = null, executor = db }) => {
   const startDate = addDaysDateOnly(date, -1)
   const endDate = addDaysDateOnly(date, 1)
   const params = [Number(doctorId), startDate, endDate]
@@ -117,6 +117,7 @@ const loadActiveAppointmentWindows = async ({ doctorId, date, excludeAppointment
              WHERE doctor_id = ?
                AND appointment_date BETWEEN ? AND ?
                AND status IN ('pending','confirmed','rescheduled','in-progress')`
+  if (Number(branchId)>0) {sql += ' AND branch_id = ?';params.push(Number(branchId))}
   if (Number(excludeAppointmentId) > 0) {
     sql += ' AND id <> ?'
     params.push(Number(excludeAppointmentId))
@@ -165,12 +166,14 @@ const assertPatientAppointmentAvailable = async ({patientId,date,time,durationMi
 }
 
 
-const loadDoctorAndSchedules = async ({ doctorId, clinicType, executor = db }) => {
+const loadDoctorAndSchedules = async ({ doctorId, branchId = null, clinicType, executor = db }) => {
   const id = Number(doctorId)
   if (!id) throw Object.assign(new Error('Select a valid doctor.'), { statusCode: 400 })
   if (!['medical', 'derma'].includes(clinicType)) throw Object.assign(new Error('Select a valid clinic type.'), { statusCode: 400 })
 
-  const [doctorRows] = await executor.query('SELECT id, full_name, specialty, clinic_type FROM doctors WHERE id = ? AND is_active = 1 LIMIT 1', [id])
+  const [doctorRows] = await executor.query(
+    Number(branchId)>0 ? `SELECT d.id,d.full_name,d.specialty,d.clinic_type FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1 WHERE d.id=? AND d.is_active=1 LIMIT 1` :
+      'SELECT id, full_name, specialty, clinic_type FROM doctors WHERE id = ? AND is_active = 1 LIMIT 1', Number(branchId)>0?[branchId,id]:[id])
   const doctor = doctorRows[0]
   if (!doctor) throw Object.assign(new Error('The selected doctor is unavailable.'), { statusCode: 409 })
   if (!clinicMatchesDoctor(clinicType, doctor)) throw Object.assign(new Error('The selected doctor does not accept this clinic type.'), { statusCode: 409 })
@@ -180,14 +183,15 @@ const loadDoctorAndSchedules = async ({ doctorId, clinicType, executor = db }) =
             COALESCE(spans_next_day,0) AS spans_next_day,
             COALESCE(is_24_hours,0) AS is_24_hours
      FROM doctor_schedules
-     WHERE doctor_id = ? AND is_active = 1`,
-    [id]
+     WHERE doctor_id = ? AND is_active = 1 AND (? IS NULL OR branch_id=?)`,
+    [id,branchId,branchId]
   )
   return { doctor, schedules: scheduleRows }
 }
 
 const validateAppointmentSlot = async ({
   doctorId,
+  branchId = null,
   patientId = null,
   clinicType,
   date,
@@ -205,8 +209,8 @@ const validateAppointmentSlot = async ({
   if (requestedMinutes === null) throw Object.assign(new Error('Select a valid appointment time.'), { statusCode: 400 })
   assertFutureAppointmentStart({ date, time, now })
 
-  const { doctor, schedules } = await loadDoctorAndSchedules({ doctorId, clinicType, executor })
-  const blocked = await getDoctorUnavailableDate(Number(doctorId), date, executor)
+  const { doctor, schedules } = await loadDoctorAndSchedules({ doctorId, branchId, clinicType, executor })
+  const blocked = await getDoctorUnavailableDate(Number(doctorId), date, executor,branchId)
   if (blocked) throw Object.assign(new Error(blocked.reason || 'The doctor is unavailable on the selected date.'), { statusCode: 409 })
 
   const duration = normalizeDuration(durationMinutes)
@@ -223,7 +227,7 @@ const validateAppointmentSlot = async ({
     throw Object.assign(new Error(`Online appointments must be booked at least ${Math.ceil(Number(minLeadMinutes || 0) / 60)} hours in advance.`), { statusCode: 409, code: 'ONLINE_BOOKING_NOTICE_REQUIRED' })
   }
 
-  const activeWindows = await loadActiveAppointmentWindows({ doctorId, date, excludeAppointmentId, executor })
+  const activeWindows = await loadActiveAppointmentWindows({ doctorId, branchId, date, excludeAppointmentId, executor })
   if (overlapsAny(requestedMinutes, requestedMinutes + duration, activeWindows)) {
     throw Object.assign(new Error('That start time overlaps another active appointment.'), { statusCode: 409, code: 'APPOINTMENT_TIME_CONFLICT' })
   }
@@ -240,6 +244,7 @@ const validateAppointmentSlot = async ({
 
 const getAvailableAppointmentSlots = async ({
   doctorId,
+  branchId = null,
   patientId = null,
   clinicType,
   date,
@@ -252,14 +257,14 @@ const getAvailableAppointmentSlots = async ({
   executor = db,
 }) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return []
-  const { schedules } = await loadDoctorAndSchedules({ doctorId, clinicType, executor })
-  const blocked = await getDoctorUnavailableDate(Number(doctorId), date, executor)
+  const { schedules } = await loadDoctorAndSchedules({ doctorId, branchId, clinicType, executor })
+  const blocked = await getDoctorUnavailableDate(Number(doctorId), date, executor,branchId)
   if (blocked) return []
 
   const duration = normalizeDuration(durationMinutes)
   const interval = Math.max(1, Number(startIntervalMinutes) || DEFAULT_BOOKING_START_INTERVAL_MINUTES)
   const coverageIntervals = buildScheduleCoverageIntervals(date, schedules)
-  const activeWindows = await loadActiveAppointmentWindows({ doctorId, date, excludeAppointmentId, executor })
+  const activeWindows = await loadActiveAppointmentWindows({ doctorId, branchId, date, excludeAppointmentId, executor })
   const patientWindows = Number(patientId)>0 ? await loadActivePatientWindows({patientId,date,excludeAppointmentId,executor}) : []
   const slots = []
   const seen = new Set()
@@ -355,4 +360,5 @@ module.exports = {
   assertAppointmentTransition,
   assertAppointmentMutationApplied,
 }
+
 

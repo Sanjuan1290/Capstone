@@ -385,10 +385,10 @@ const createAppointment = async (req, res) => {
   )
   if (activeWithDoctor.length) return res.status(409).json({ message: 'This patient already has an active appointment with this doctor.' })
 
-  const [[doctorBranch]] = await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [doctor_id, req.branchId])
+  const [[doctorBranch]] = await db.query('SELECT d.id FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1 WHERE d.id=? AND d.is_active=1 LIMIT 1', [req.branchId,doctor_id])
   if (!doctorBranch) return res.status(404).json({ message: 'Doctor not found in your branch.' })
   const result = await withAppointmentSlotLock({ doctorId: doctor_id  , patientId: patient_id }, async () => {
-    await validateAppointmentSlot({patientId: patient_id,  doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
+    await validateAppointmentSlot({branchId:req.branchId,patientId: patient_id,  doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
     const [inserted] = await db.query(
       `INSERT INTO appointments
        (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
@@ -597,7 +597,7 @@ const rescheduleAppointment = async (req, res) => {
   const durationMinutes=getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status,'rescheduled')
   await withAppointmentSlotLock({doctorId:rows[0].doctor_id , patientId: rows[0].patient_id },async()=>{
-    await validateAppointmentSlot({patientId: rows[0].patient_id, doctorId:rows[0].doctor_id,clinicType:rows[0].clinic_type,date:normalizedDate,time:appointment_time,durationMinutes,startIntervalMinutes:settings.booking_start_interval_minutes,excludeAppointmentId:req.params.id})
+    await validateAppointmentSlot({branchId:req.branchId,patientId: rows[0].patient_id, doctorId:rows[0].doctor_id,clinicType:rows[0].clinic_type,date:normalizedDate,time:appointment_time,durationMinutes,startIntervalMinutes:settings.booking_start_interval_minutes,excludeAppointmentId:req.params.id})
     const [updated]=await db.query("UPDATE appointments SET appointment_date=?,appointment_time=?,status='confirmed',confirmation_deadline_at=NULL WHERE id=? AND status=?",[normalizedDate,appointment_time,req.params.id,rows[0].status])
     await assertAppointmentMutationApplied(updated,req.params.id)
   })
@@ -631,7 +631,7 @@ const getAppointmentAvailableSlotsForStaff = async (req, res) => {
     if (!service || Number(service.is_active)!==1 || ![clinicType,'all'].includes(String(service.clinic_type||''))) return res.status(409).json({ message:'The selected service is unavailable for this clinic.' })
     durationMinutes=roundReservedDurationMinutes(Number(service.average_duration_minutes||60),settings.booking_start_interval_minutes)
   }
-  const slots=await getAvailableAppointmentSlots({doctorId,clinicType,date,durationMinutes,startIntervalMinutes:settings.booking_start_interval_minutes,excludeAppointmentId})
+  const slots=await getAvailableAppointmentSlots({branchId:req.branchId,doctorId,clinicType,date,durationMinutes,startIntervalMinutes:settings.booking_start_interval_minutes,excludeAppointmentId})
   res.json({slots,reserved_duration_minutes:durationMinutes,booking_start_interval_minutes:settings.booking_start_interval_minutes})
 }
 
@@ -2065,7 +2065,7 @@ const getDoctors = async (req, res) => {
        is_active,
        clinic_type AS type
      FROM doctors
-     WHERE is_active = 1 AND branch_id=?
+     WHERE is_active = 1 AND id IN (SELECT doctor_id FROM doctor_branch_assignments WHERE branch_id=? AND is_active=1)
      ORDER BY full_name`, [req.branchId]
   )
   res.json(rows)
@@ -2074,7 +2074,7 @@ const getDoctors = async (req, res) => {
 const getDoctorSchedules = async (req, res) => {
   const [rows] = await db.query(
     `SELECT ds.* FROM doctor_schedules ds JOIN doctors d ON d.id=ds.doctor_id
-     WHERE ds.doctor_id=? AND d.branch_id=?
+     WHERE ds.doctor_id=? AND ds.branch_id=?
      ORDER BY FIELD(ds.day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")`,
     [req.params.id, req.branchId]
   )
@@ -2144,4 +2144,5 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 

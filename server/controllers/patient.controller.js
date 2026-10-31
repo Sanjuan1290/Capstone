@@ -638,7 +638,7 @@ const createAppointment = async (req, res) => {
   catch (err) { return res.status(err.status || 400).json({code:err.code,message:err.message}) }
   const branch=await validatePatientBranch(req,res);if(!branch)return
   if ((clinic_type === 'medical' && !branch.offers_medical) || (clinic_type === 'derma' && !branch.offers_derma)) return res.status(409).json({message:'This branch does not offer the selected clinic type.'})
-  const [[assignedDoctor]]=await db.query('SELECT id FROM doctors WHERE id=? AND is_active=1 AND branch_id=? AND clinic_type=?',[doctor_id,branch.id,clinic_type])
+  const [[assignedDoctor]]=await db.query('SELECT d.id FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1 WHERE d.id=? AND d.is_active=1 AND d.clinic_type=?',[branch.id,doctor_id,clinic_type])
   if(!assignedDoctor)return res.status(409).json({message:'The selected doctor does not work at this branch.'})
   if (!doctor_id || !clinic_type || !requested_service_id || !appointment_date || !appointment_time) {
     return res.status(400).json({ message: 'Missing required fields.' })
@@ -715,6 +715,7 @@ const createAppointment = async (req, res) => {
   const result = await withAppointmentSlotLock({ doctorId: doctor_id  , patientId: req.user.id }, async () => {
     await validateAppointmentSlot({patientId: req.user.id, 
       doctorId: doctor_id,
+      branchId: branch.id,
       clinicType: clinic_type,
       date: normalizedDate,
       time: appointment_time,
@@ -887,6 +888,7 @@ const rescheduleAppointment = async (req, res) => {
   await withAppointmentSlotLock({ doctorId: rows[0].doctor_id  , patientId: req.user.id }, async () => {
     await validateAppointmentSlot({patientId: req.user.id, 
       doctorId: rows[0].doctor_id,
+      branchId: rows[0].branch_id,
       clinicType: rows[0].clinic_type,
       date: normalizedDate,
       time: appointment_time,
@@ -957,7 +959,7 @@ const getAppointmentCancellationReasons = async (req, res) => {
 const getDoctors = async (req, res) => {
   const branch=await validatePatientBranch(req,res);if(!branch)return
   const [rows] = await db.query(
-    'SELECT id, full_name AS name, full_name, specialty, clinic_type FROM doctors WHERE is_active = 1 AND branch_id=? ORDER BY full_name',[branch.id]
+    `SELECT d.id,d.full_name AS name,d.full_name,d.specialty,d.clinic_type FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1 WHERE d.is_active=1 ORDER BY d.full_name`,[branch.id]
   )
   res.json(rows)
 }
@@ -1009,9 +1011,10 @@ const requirePatientBranchDoctor = async (req, res) => {
   }
   const [[doctor]] = await db.query(
     `SELECT d.id FROM doctors d
-     JOIN clinic_branches b ON b.id = d.branch_id AND b.is_active = 1
-     WHERE d.id = ? AND d.branch_id = ? AND d.is_active = 1 LIMIT 1`,
-    [req.params.id, branchId]
+     JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1
+     JOIN clinic_branches b ON b.id = a.branch_id AND b.is_active = 1
+     WHERE d.id = ? AND d.is_active = 1 LIMIT 1`,
+    [branchId,req.params.id]
   )
   if (!doctor) {
     res.status(404).json({ message: 'Doctor not available at the selected branch.' })
@@ -1021,19 +1024,19 @@ const requirePatientBranchDoctor = async (req, res) => {
 }
 
 const getDoctorSchedule = async (req, res) => {
-  if (!await requirePatientBranchDoctor(req, res)) return
+  const branchId=await requirePatientBranchDoctor(req, res);if(!branchId)return
   const [rows] = await db.query(
-    'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND is_active = 1',
-    [req.params.id]
+    'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND branch_id=? AND is_active = 1',
+    [req.params.id,branchId]
   )
   res.json(rows)
 }
 
 const getDoctorUnavailableDatesController = async (req, res) => {
-  if (!await requirePatientBranchDoctor(req, res)) return
+  const branchId=await requirePatientBranchDoctor(req, res);if(!branchId)return
   const rows = await getDoctorUnavailableDates(req.params.id, {
     startDate: String(req.query.start_date || '').trim() || undefined,
-    endDate: String(req.query.end_date || '').trim() || undefined,
+    endDate: String(req.query.end_date || '').trim() || undefined,branchId,
   })
   res.json(rows)
 }
@@ -1046,7 +1049,7 @@ const getDoctorAvailableSlots = async (req, res) => {
   const appointmentId = Number(req.query.appointment_id)
   let branchId=readBranchId(req)
   if(appointmentId>0){const [[previous]]=await db.query('SELECT branch_id FROM appointments WHERE id=? AND patient_id=?',[appointmentId,req.user.id]);if(previous)branchId=Number(previous.branch_id)}
-  const [[assigned]]=await db.query('SELECT id FROM doctors WHERE id=? AND branch_id=? AND is_active=1',[req.params.id,branchId])
+  const [[assigned]]=await db.query('SELECT d.id FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1 WHERE d.id=? AND d.is_active=1',[branchId,req.params.id])
   if(!assigned)return res.status(404).json({message:'This doctor is not available at the selected branch.'})
   const settings = await loadBookingSettings(db,branchId)
   let clinicType = clinicTypeInput
@@ -1084,7 +1087,7 @@ const getDoctorAvailableSlots = async (req, res) => {
   }
 
   const slots = await getAvailableAppointmentSlots({
-    patientId: req.user.id,
+    branchId,patientId: req.user.id,
     doctorId: req.params.id,
     clinicType,
     date: normalizedDate,
@@ -1104,23 +1107,23 @@ const getDoctorAvailableSlots = async (req, res) => {
 }
 
 const getDoctorTakenSlots = async (req, res) => {
-  if (!await requirePatientBranchDoctor(req, res)) return
+  const branchId=await requirePatientBranchDoctor(req, res);if(!branchId)return
   const normalizedDate = toDateOnly(req.query.date)
   if (!isValidDateOnly(normalizedDate)) {
     return res.status(400).json({ message: 'A valid date is required.' })
   }
 
-  const blockedDate = await getDoctorUnavailableDate(req.params.id, normalizedDate)
+  const blockedDate = await getDoctorUnavailableDate(req.params.id, normalizedDate,db,branchId)
   if (blockedDate) {
     return res.json([])
   }
 
   const excludeAppointmentId = Number(req.query.exclude_appointment_id)
-  const params = [req.params.id, normalizedDate]
+  const params = [req.params.id, branchId,normalizedDate]
   let sql = `
     SELECT appointment_time
     FROM appointments
-    WHERE doctor_id = ? AND appointment_date = ?
+    WHERE doctor_id = ? AND branch_id=? AND appointment_date = ?
       AND status IN ('pending', 'confirmed', 'rescheduled', 'in-progress')
   `
 
@@ -1165,5 +1168,6 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 
 

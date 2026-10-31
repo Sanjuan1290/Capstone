@@ -24,7 +24,7 @@ async function createAppointment(req,res){
   await conn.beginTransaction()
   // All foreign keys are checked in the transaction before the appointment is inserted.
   const [[patient]]=await conn.query('SELECT id,full_name FROM patients WHERE id=? LIMIT 1',[patientId])
-  const [[doctor]]=await conn.query('SELECT id,full_name,clinic_type FROM doctors WHERE id=? AND branch_id=? AND is_active=1 FOR UPDATE',[doctorId,req.branchId])
+  const [[doctor]]=await conn.query(`SELECT d.id,d.full_name,d.clinic_type FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1 WHERE d.id=? AND d.is_active=1 FOR UPDATE`,[req.branchId,doctorId])
   const [[service]]=await conn.query('SELECT id,service_name,clinic_type,default_price,average_duration_minutes FROM billing_service_catalog WHERE id=? AND branch_id=? AND is_active=1',[serviceId,req.branchId])
   if(!patient||!doctor||!service)throw fail(404,'BOOKING_REFERENCE_NOT_FOUND','Patient, doctor or service not available in this branch.')
   if(doctor.clinic_type!==type||![type,'all'].includes(service.clinic_type))throw fail(409,'CLINIC_MISMATCH','Doctor and service must match the selected clinic.')
@@ -34,7 +34,7 @@ async function createAppointment(req,res){
   resultId=await withAppointmentSlotLock({doctorId,patientId},async()=>{
    const [[duplicate]]=await conn.query(`SELECT id FROM appointments WHERE patient_id=? AND doctor_id=? AND branch_id=? AND status IN ('pending','confirmed','rescheduled','in-progress') LIMIT 1`,[patientId,doctorId,req.branchId])
    if(duplicate)throw fail(409,'DUPLICATE_APPOINTMENT','This patient already has an active appointment with this doctor.')
-   await validateAppointmentSlot({patientId,doctorId,clinicType:type,date,time,durationMinutes:reserved,startIntervalMinutes:settings.booking_start_interval_minutes,executor:conn})
+   await validateAppointmentSlot({patientId,doctorId,branchId:req.branchId,clinicType:type,date,time,durationMinutes:reserved,startIntervalMinutes:settings.booking_start_interval_minutes,executor:conn})
    const [r]=await conn.query(`INSERT INTO appointments (patient_id,doctor_id,clinic_type,requested_service_id,requested_service_name_snapshot,requested_service_price_snapshot,requested_service_duration_minutes_snapshot,reserved_duration_minutes_snapshot,reason,appointment_date,appointment_time,notes,appointment_source,branch_id)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[patientId,doctorId,type,serviceId,service.service_name,service.default_price,duration,reserved,String(b.reason||'').slice(0,255)||null,date,time,String(b.notes||'').slice(0,2000)||null,'admin_booking',req.branchId])
    const insertedId=r.insertId
@@ -57,4 +57,3 @@ function registerBranchAppointmentWrites(router,{requireSuper,branchContext,requ
   router.post(`${prefix}/appointments`,...middle,requirePermission('appointments'),createAppointment)
 }
 module.exports={registerBranchAppointmentWrites,createAppointment}
-

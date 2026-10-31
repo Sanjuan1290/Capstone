@@ -1,3 +1,4 @@
+const {getAssignments,readSelectedBranch,setSelectedBranch,clearSelectedBranch} = require('../utils/doctorBranches')
 // server/controllers/doctor.controller.js
 
 const db = require('../db/connect')
@@ -56,11 +57,15 @@ const login = async (req, res) => {
     await writeAuditLog({ userId: doctor.id, userRole: 'doctor', action: 'auth.login_failed', entityType: 'doctor', entityId: doctor.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email or password.' })
   }
+  const branches=await getAssignments(doctor.id)
+  if (!branches.length) return res.status(403).json({message:'Doctor account has no active branch assignment.'})
+  clearSelectedBranch(res)
+  if (branches.length===1) setSelectedBranch(res,doctor.id,branches[0].id)
   await issueSession(res, 'doctor', doctor.id)
   await writeAuditLog({ userId: doctor.id, userRole: 'doctor', action: 'auth.login_success', entityType: 'doctor', entityId: doctor.id, ipAddress: req.ip || null }).catch(() => {})
   res.status(200).json({
     message: 'Login successful.',
-    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, clinic_type: doctor.clinic_type, prc_license: doctor.prc_license, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url, must_change_password: Boolean(doctor.must_change_password) },
+    user: { id: doctor.id, full_name: doctor.full_name, email: doctor.email, specialty: doctor.specialty, clinic_type: doctor.clinic_type, prc_license: doctor.prc_license, role: 'doctor', theme_preference: doctor.theme_preference, profile_image_url: doctor.profile_image_url, must_change_password: Boolean(doctor.must_change_password), branches, branch_id:branches.length===1?branches[0].id:null, branch_name:branches.length===1?branches[0].name:null, requires_branch_selection:branches.length>1 },
   })
 }
 
@@ -70,18 +75,38 @@ const checkAuth = async (req, res) => {
   try {
     const decoded = await verifySessionToken(token, 'doctor')
     const [rows] = await db.query(
-      'SELECT a.id,a.full_name,a.email,a.specialty,a.clinic_type,a.prc_license,a.theme_preference,a.profile_image_url,a.must_change_password,a.password_changed_at,a.branch_id,b.name AS branch_name FROM doctors a JOIN clinic_branches b ON b.id=a.branch_id AND b.is_active=1 WHERE a.id = ? AND a.is_active = 1', [decoded.id]
+      'SELECT a.id,a.full_name,a.email,a.specialty,a.clinic_type,a.prc_license,a.theme_preference,a.profile_image_url,a.must_change_password,a.password_changed_at FROM doctors a WHERE a.id = ? AND a.is_active = 1', [decoded.id]
     )
     if (rows.length === 0) return res.status(200).json({ authenticated: false })
-    res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'doctor' } })
+    const branches=await getAssignments(decoded.id)
+    if (!branches.length) return res.status(200).json({authenticated:false})
+    const selected=readSelectedBranch(req,decoded.id,branches)
+    res.status(200).json({ authenticated: true, user: { ...rows[0], role: 'doctor',branches,branch_id:selected?.id||null,branch_name:selected?.name||null,requires_branch_selection:!selected } })
   } catch {
     res.status(200).json({ authenticated: false })
   }
 }
 
+const listMyBranches = async (req,res) => {
+  const branches=await getAssignments(req.user.id)
+  const selected=readSelectedBranch(req,req.user.id,branches)
+  res.json({branches,selected_branch_id:selected?.id||null,requires_branch_selection:!selected})
+}
+const selectMyBranch = async (req,res) => {
+  const branchId=Number(req.body?.branch_id)
+  if(!Number.isSafeInteger(branchId)||branchId<=0)return res.status(400).json({message:'Choose a valid clinic branch.'})
+  const branches=await getAssignments(req.user.id)
+  const selected=branches.find(b=>b.id===branchId)
+  if(!selected)return res.status(403).json({code:'DOCTOR_BRANCH_ACCESS_DENIED',message:'This branch is not assigned to your doctor account.'})
+  setSelectedBranch(res,req.user.id,selected.id)
+  await writeAuditLog({userId:req.user.id,userRole:'doctor',action:'session.branch_selected',entityType:'clinic_branch',entityId:selected.id,branchId:selected.id,ipAddress:req.ip||null}).catch(()=>{})
+  res.json({message:'Branch selected.',branch:selected})
+}
+
 const logout = async (req, res) => {
   req.user = await invalidateRequestSession(req, 'doctor_token', 'doctor')
   await writeAuditLog({ userId: req.user?.id || null, userRole: 'doctor', action: 'auth.logout', entityType: 'doctor', entityId: req.user?.id || null, ipAddress: req.ip || null }).catch(() => {})
+  clearSelectedBranch(res)
   res.clearCookie('doctor_token', { path: '/' })
   res.status(200).json({ message: 'Logged out.' })
 }
@@ -199,20 +224,20 @@ const getDashboard = async (req, res) => {
     [req.user.id, req.branchId, today]
   )
   const [[{ completed }]]       = await db.query(
-    "SELECT COUNT(*) AS completed FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status = 'completed'",
-    [req.user.id, today]
+    "SELECT COUNT(*) AS completed FROM appointments WHERE doctor_id = ? AND branch_id=? AND appointment_date = ? AND status = 'completed'",
+    [req.user.id,req.branchId,today]
   )
   const [[{ remainingToday }]]  = await db.query(
-    "SELECT COUNT(*) AS remainingToday FROM appointments WHERE doctor_id = ? AND appointment_date = ? AND status IN ('confirmed','rescheduled','in-progress')",
-    [req.user.id, today]
+    "SELECT COUNT(*) AS remainingToday FROM appointments WHERE doctor_id = ? AND branch_id=? AND appointment_date = ? AND status IN ('confirmed','rescheduled','in-progress')",
+    [req.user.id,req.branchId,today]
   )
   const [[{ upcomingCount }]]   = await db.query(
-    "SELECT COUNT(*) AS upcomingCount FROM appointments WHERE doctor_id = ? AND appointment_date > ? AND status IN ('confirmed','rescheduled')",
-    [req.user.id, today]
+    "SELECT COUNT(*) AS upcomingCount FROM appointments WHERE doctor_id = ? AND branch_id=? AND appointment_date > ? AND status IN ('confirmed','rescheduled')",
+    [req.user.id,req.branchId,today]
   )
   const [[{ pending }]]         = await db.query(
-    "SELECT COUNT(*) AS pending FROM appointments WHERE doctor_id = ? AND status = 'confirmed'",
-    [req.user.id]
+    "SELECT COUNT(*) AS pending FROM appointments WHERE doctor_id = ? AND branch_id=? AND status = 'confirmed'",
+    [req.user.id,req.branchId]
   )
   const [walkInQueue] = await db.query(
     `SELECT q.id, q.queue_number AS queueNo, q.patient_name AS patient,
@@ -223,8 +248,8 @@ const getDashboard = async (req, res) => {
     [req.user.id, req.branchId, today]
   )
   const [schedule] = await db.query(
-    'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND is_active = 1 ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
-    [req.user.id]
+    'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND branch_id=? AND is_active = 1 ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
+    [req.user.id,req.branchId]
   )
   const [upcomingAppointments] = await db.query(
     `SELECT a.id, DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date, a.appointment_time,
@@ -232,11 +257,11 @@ const getDashboard = async (req, res) => {
             p.full_name AS patient_name
      FROM appointments a
      JOIN patients p ON p.id = a.patient_id
-     WHERE a.doctor_id = ? AND a.appointment_date > ?
+     WHERE a.doctor_id = ? AND a.branch_id=? AND a.appointment_date > ?
        AND a.status IN ('confirmed','rescheduled')
      ORDER BY a.appointment_date ASC, a.appointment_time ASC
      LIMIT 8`,
-    [req.user.id, today]
+    [req.user.id,req.branchId,today]
   )
   res.json({ totalToday, completed, remainingToday, upcomingCount, pending, schedule, walkInQueue, upcomingAppointments })
 }
@@ -1356,7 +1381,7 @@ const submitRequest = async (req, res) => {
   }
 
   let destination = await getInventoryLocationById(req.body.destination_location_id, db, req.branchId)
-  const [[doctorProfile]] = await db.query('SELECT clinic_type FROM doctors WHERE id=? AND branch_id=? LIMIT 1', [req.user.id, req.branchId])
+  const [[doctorProfile]] = await db.query('SELECT d.clinic_type FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id WHERE d.id=? AND a.branch_id=? AND a.is_active=1 LIMIT 1', [req.user.id, req.branchId])
   const doctorClinic = String(doctorProfile?.clinic_type || '')
   if (!['medical', 'derma'].includes(doctorClinic)) {
     return res.status(409).json({ code: 'DOCTOR_CLINIC_ASSIGNMENT_REQUIRED', message: 'Your doctor account does not have a valid clinic assignment. Ask an administrator to update the account before requesting stock.' })
@@ -1418,7 +1443,7 @@ const submitRequest = async (req, res) => {
   let groupId
   try {
     await conn.beginTransaction()
-    await conn.query('SELECT id FROM doctors WHERE id=? AND branch_id=? FOR UPDATE', [req.user.id, req.branchId])
+    await conn.query('SELECT d.id FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=? AND a.is_active=1 WHERE d.id=? FOR UPDATE', [req.branchId,req.user.id])
 
     const [duplicates] = await conn.query(
       `SELECT g.id AS request_id, sr.inventory_id, i.name AS item_name
@@ -1566,16 +1591,16 @@ const markQueueDone = async (req, res) => {
 
 const getMySchedule = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND is_active = 1 ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
-    [req.user.id]
+    'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND branch_id=? AND is_active = 1 ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
+    [req.user.id,req.branchId]
   )
   res.json(rows)
 }
 
 const getMyScheduleAll = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT * FROM doctor_schedules WHERE doctor_id = ? ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
-    [req.user.id]
+    'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND branch_id=? ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
+    [req.user.id,req.branchId]
   )
   res.json(rows)
 }
@@ -1584,6 +1609,7 @@ const saveMyScheduleDay = async (req, res) => {
   try {
     const result = await saveDoctorScheduleDay({
       doctorId: req.user.id,
+      branchId:req.branchId,
       body: req.body,
       actorRole: 'doctor',
       actorId: req.user.id,
@@ -1606,6 +1632,7 @@ const saveMyScheduleDay = async (req, res) => {
 
 const getMyUnavailableDates = async (req, res) => {
   const rows = await getDoctorUnavailableDates(req.user.id, {
+    branchId:req.branchId,
     startDate: String(req.query.start_date || '').trim() || undefined,
     endDate: String(req.query.end_date || '').trim() || undefined,
   })
@@ -1623,7 +1650,7 @@ const saveMyUnavailableDate = async (req, res) => {
     return res.status(400).json({ message: 'Cannot block a past date.' })
   }
 
-  const activeCount = await countActiveAppointmentsOnDate(req.user.id, unavailableDate)
+  const activeCount = await countActiveAppointmentsOnDate(req.user.id, unavailableDate, db, req.branchId)
   if (activeCount > 0) {
     return res.status(409).json({
       message: 'This date already has active appointments. Reschedule or cancel them first.',
@@ -1631,13 +1658,13 @@ const saveMyUnavailableDate = async (req, res) => {
   }
 
   await db.query(
-    `INSERT INTO doctor_unavailable_dates (doctor_id, unavailable_date, reason, created_by_role, created_by_user_id)
-     VALUES (?, ?, ?, 'doctor', ?)
+    `INSERT INTO doctor_unavailable_dates (doctor_id, branch_id, unavailable_date, reason, created_by_role, created_by_user_id)
+     VALUES (?, ?, ?, ?, 'doctor', ?)
      ON DUPLICATE KEY UPDATE
        reason = VALUES(reason),
        created_by_role = 'doctor',
        created_by_user_id = VALUES(created_by_user_id)`,
-    [req.user.id, unavailableDate, reason, req.user.id]
+    [req.user.id,req.branchId,unavailableDate,reason,req.user.id]
   )
 
   await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'schedule.unavailable_date_saved', entityType: 'doctor_unavailable_date', entityId: `${req.user.id}:${unavailableDate}`, newValues: { unavailable_date: unavailableDate, reason }, ipAddress: req.ip || null }).catch(() => {})
@@ -1651,8 +1678,8 @@ const deleteMyUnavailableDate = async (req, res) => {
   }
 
   await db.query(
-    'DELETE FROM doctor_unavailable_dates WHERE doctor_id = ? AND unavailable_date = ?',
-    [req.user.id, unavailableDate]
+    'DELETE FROM doctor_unavailable_dates WHERE doctor_id = ? AND branch_id=? AND unavailable_date = ?',
+    [req.user.id,req.branchId,unavailableDate]
   )
 
   await writeAuditLog({ userId: req.user.id, userRole: 'doctor', action: 'schedule.unavailable_date_removed', entityType: 'doctor_unavailable_date', entityId: `${req.user.id}:${unavailableDate}`, ipAddress: req.ip || null }).catch(() => {})
@@ -1660,7 +1687,7 @@ const deleteMyUnavailableDate = async (req, res) => {
 }
 
 module.exports = {
-  login, checkAuth, logout,
+  login, checkAuth, logout, listMyBranches, selectMyBranch,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
   getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
@@ -1669,5 +1696,6 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 
 

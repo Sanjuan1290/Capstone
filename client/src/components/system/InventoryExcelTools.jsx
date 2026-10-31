@@ -118,7 +118,8 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
       if (created || updated) {
         try { await onUpdated() } catch (e) { setError(`Some rows were saved, but inventory refresh failed: ${e?.message || 'Please refresh the page.'}`) }
       }
-      if (!failed.length) setPreview(null)
+      // A partial import must never allow duplicate re-submission of the same preview.
+      if (!failed.length || created || updated) setPreview(null)
     } catch (e) {
       setError(e?.message || 'Import could not finish. Check the inventory before importing again.')
     } finally {
@@ -140,10 +141,10 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     <input ref={uploadRef} type="file" accept=".xlsx,.csv" className="sr-only" aria-label="Import inventory Excel file" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; void handleFile(file) }} />
 
     {/* Persistent result banner: not a temporary toast. */}
-    {results && !preview && <div role="status" className={`rounded-xl border p-4 text-sm ${results.failed.length ? 'border-red-300 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
-      <p className="font-bold">Inventory import completed</p>
+    {results && <div role="status" className={`rounded-xl border p-4 text-sm ${results.failed.length ? 'border-red-300 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
+      <p className="font-bold">{results.failed.length ? 'Inventory import stopped — review errors' : 'Inventory import completed'}</p>
       <p>Created: {results.created} · Updated: {results.updated} · Unchanged: {results.unchanged}</p>
-      {results.failed.map(f => <p key={f.row} className="mt-2 text-red-800">Row {f.row} · {f.name}: {f.message}</p>)}
+      {results.failed.map(f => <p key={f.row} className="mt-2 text-red-800">Excel row {f.row} · {f.name}: {f.message}{f.code ? ` (${f.code})` : ''}</p>)}
       <button type="button" className="mt-2 text-xs font-semibold underline" onClick={() => setResults(null)}>Dismiss</button>
     </div>}
 
@@ -203,3 +204,4 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     </div>}
   </>
 }
+

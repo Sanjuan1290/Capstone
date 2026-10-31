@@ -1,13 +1,12 @@
 import { Link, useLocation } from 'react-router-dom'
 import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'
 import {
-  MdCategory, MdCampaign, MdEventBusy, MdLocalShipping, MdMeetingRoom, MdPayments, MdPlace, MdSettings, MdSwapVert,
+  MdCategory, MdEventBusy, MdLocalShipping, MdMeetingRoom, MdPayments, MdPlace, MdSettings, MdSwapVert,
 } from 'react-icons/md'
 
 export const SYSTEM_SETUP_TABS = [
   { key: 'visits', label: 'Patient Visits', Icon: MdSettings, suffix: '/system-setup' },
   { key: 'cancellation_reasons', label: 'Reason for Cancellation', Icon: MdEventBusy, suffix: '/system-setup?tab=cancellation_reasons' },
-  { key: 'promotions', label: 'Promotions', Icon: MdCampaign, suffix: '/system-setup?tab=promotions' },
   { key: 'billing_setup', label: 'Services & Pricing Setup', Icon: MdPayments, suffix: '/system-setup/billing/services' },
   { key: 'service_categories', label: 'Service Categories', Icon: MdCategory, suffix: '/system-setup?tab=service_categories' },
   { key: 'suppliers', label: 'Suppliers', Icon: MdLocalShipping, suffix: '/system-setup?tab=suppliers' },
@@ -33,3 +32,4 @@ const SystemSetupTabs = () => {
 }
 
 export default SystemSetupTabs
+

@@ -46,20 +46,21 @@ const getOnlineBookingReadiness = async (executor = db, branchId = null) => {
   const id = Number(branchId)
   if (scoped && (!Number.isSafeInteger(id) || id <= 0)) throw new Error('Invalid branch for booking readiness.')
   const branchWhere = (alias) => scoped ? ` AND ${alias}.branch_id = ?` : ''
+  const doctorFilter = scoped ? ' AND d.id IN (SELECT doctor_id FROM doctor_branch_assignments WHERE branch_id=? AND is_active=1)' : ''
   const params = scoped ? [id] : []
   const queries = [
     `SELECT d.clinic_type, COUNT(*) AS total FROM doctors d
-     WHERE d.is_active = 1 AND d.clinic_type IN ('medical','derma')${branchWhere('d')} GROUP BY d.clinic_type`,
+     WHERE d.is_active = 1 AND d.clinic_type IN ('medical','derma')${doctorFilter} GROUP BY d.clinic_type`,
     `SELECT d.clinic_type, COUNT(DISTINCT d.id) AS total FROM doctors d
-     JOIN doctor_schedules ds ON ds.doctor_id=d.id AND ds.is_active=1
-     WHERE d.is_active=1 AND d.clinic_type IN ('medical','derma')${branchWhere('d')} GROUP BY d.clinic_type`,
+     JOIN doctor_schedules ds ON ds.doctor_id=d.id AND ds.is_active=1 AND (? IS NULL OR ds.branch_id=?)
+     WHERE d.is_active=1 AND d.clinic_type IN ('medical','derma')${doctorFilter} GROUP BY d.clinic_type`,
     `SELECT bsc.clinic_type, COUNT(*) AS total FROM billing_service_catalog bsc
      WHERE bsc.is_active=1 AND bsc.clinic_type IN ('medical','derma','all')${branchWhere('bsc')} GROUP BY bsc.clinic_type`,
     `SELECT aro.clinic_type, COUNT(*) AS total FROM appointment_reason_options aro
      WHERE aro.is_active=1 AND LOWER(TRIM(aro.label)) <> 'other'
        AND aro.clinic_type IN ('medical','derma','all')${branchWhere('aro')} GROUP BY aro.clinic_type`,
   ]
-  const results = await Promise.all(queries.map((sql) => executor.query(sql, params)))
+  const results = await Promise.all(queries.map((sql,index) => executor.query(sql,index===1 ? [branchId||null,branchId||null,...params] : params)))
   const counts = results.map(([rows]) => Object.fromEntries(rows.map((row) => [row.clinic_type, Number(row.total || 0)])))
   const byClinic = {}
   for (const clinicType of CLINIC_TYPES) {
@@ -88,3 +89,4 @@ const applyBranchBookingOfferings = (readiness, branch) => {
 }
 
 module.exports = { CLINIC_TYPES, ISSUE_LABELS, buildClinicReadiness, getOnlineBookingReadiness, applyBranchBookingOfferings }
+

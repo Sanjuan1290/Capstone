@@ -26,7 +26,9 @@ const sideNav = [
 ]
 
 const DoctorLayout = () => {
-  const { user, logout: clearAuth } = useAuth()
+  const { user, logout: clearAuth, checkAuth } = useAuth()
+  const [switchBusy,setSwitchBusy]=useState(false)
+  const [switchError,setSwitchError]=useState('')
   const { theme, toggleTheme } = useTheme()
   const [collapsed,   setCollapsed]   = useState(false)
   const [mobileOpen,  setMobileOpen]  = useState(false)
@@ -35,8 +37,9 @@ const DoctorLayout = () => {
   const [todayRemaining, setTodayRemaining] = useState(0)
   const navigate = useNavigate()
   const loadAppointmentCount = useCallback(() => {
+    if(!user?.branch_id)return
     getDashboard().then((data) => setTodayRemaining(Number(data?.remainingToday || 0))).catch(() => {})
-  }, [])
+  }, [user?.branch_id])
   useEffect(() => { loadAppointmentCount() }, [loadAppointmentCount])
   const handleSSEMessage = useCallback((eventName) => {
     if (eventName === 'notification_created') {
@@ -52,6 +55,18 @@ const DoctorLayout = () => {
   }, [loadAppointmentCount])
 
   useSSE('doctor', user?.id, handleSSEMessage)
+
+  const switchBranch = async branchId => {
+    setSwitchBusy(true);setSwitchError('')
+    try {
+      const response=await fetch('/api/doctor/branches/select',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({branch_id:branchId})})
+      const data=await response.json()
+      if(!response.ok)throw new Error(data.message||'Branch change failed.')
+      await checkAuth()
+      // Clear all cached consultation/appointment state from the previous branch.
+      window.location.assign('/doctor')
+    }catch(e){setSwitchError(e.message)}finally{setSwitchBusy(false)}
+  }
 
   const handleLogout = async () => {
     if (!window.confirm('Are you sure you want to log out of Carait Clinic?')) return
@@ -132,7 +147,7 @@ const DoctorLayout = () => {
             ${collapsed ? 'opacity-0 max-w-0' : 'opacity-100 max-w-xs'}`}>
             <p className="text-white font-bold text-[15px] tracking-tight">Carait Clinic</p>
             <span className="block text-violet-400 text-[10px] font-semibold uppercase tracking-widest font-mono">Doctor Portal</span>
-            <span className="block truncate text-slate-300 text-[11px] font-medium" title={user?.branch_name || ''}>{user?.branch_name || 'Branch unavailable'}</span>
+            <span className="block truncate text-slate-300 text-[11px] font-medium" title={user?.branch_name || ''}>{user?.branch_name || 'Select branch'}</span>
           </div>
           <button onClick={() => setMobileOpen(false)}
             className="ml-auto lg:hidden text-slate-400 hover:text-white">
@@ -162,6 +177,14 @@ const DoctorLayout = () => {
           </p>
         </div>
 
+        {user?.branches?.length > 1 && <div className="mx-3 my-3 rounded-xl border border-white/10 bg-white/5 p-2">
+          <label htmlFor="doctor-branch-switch" className="mb-1 block text-[10px] font-semibold uppercase text-violet-200">Working branch</label>
+          <select id="doctor-branch-switch" value={user.branch_id||''} onChange={e=>switchBranch(Number(e.target.value))} disabled={switchBusy} className="w-full rounded-lg bg-slate-800 p-2 text-xs text-white">
+            <option value="" disabled>Select a branch</option>
+            {user.branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          {switchError&&<p className="mt-2 text-xs text-red-300">{switchError}</p>}
+        </div>}
         {/* Nav */}
         <nav className="portal-sidebar-scroll flex-1 px-3 space-y-0.5 overflow-y-auto">
           {sideNav.map(item => <NavItem key={item.path} {...item} />)}
@@ -235,7 +258,12 @@ const DoctorLayout = () => {
         {/* Content */}
         <main className="flex-1 min-w-0 overflow-y-auto p-4 portal-mobile-content lg:p-6">
           <div className="mx-auto w-full max-w-[1600px]">
-            <Outlet />
+            {user?.requires_branch_selection||!user?.branch_id ? <section className="mx-auto max-w-lg space-y-4 rounded-2xl border border-violet-200 bg-white p-6">
+              <h2 className="text-xl font-bold text-slate-900">Select your clinic branch</h2>
+              <p className="text-sm text-slate-600">Choose a branch to view only its appointments, patient history, and schedules.</p>
+              {switchError&&<p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{switchError}</p>}
+              {user?.branches?.map(b=><button type="button" key={b.id} disabled={switchBusy} onClick={()=>switchBranch(b.id)} className="block w-full rounded-xl border border-violet-200 px-4 py-3 text-left font-semibold text-violet-800 hover:bg-violet-50">{b.name}</button>)}
+            </section> : <Outlet />}
           </div>
         </main>
 
@@ -272,4 +300,5 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
+
 

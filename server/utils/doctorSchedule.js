@@ -5,14 +5,14 @@ const { validateSchedulePayload, isTimeCoveredByWeeklySchedule } = require('./sc
 
 const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'rescheduled', 'in-progress']
 
-const findScheduleConflicts = async ({ doctorId, proposedSchedule, executor = db }) => {
+const findScheduleConflicts = async ({ doctorId, branchId, proposedSchedule, executor = db }) => {
   const [scheduleRows] = await executor.query(
     `SELECT day_of_week, start_time, end_time, slot_duration_mins, is_active,
             COALESCE(spans_next_day,0) AS spans_next_day,
             COALESCE(is_24_hours,0) AS is_24_hours
      FROM doctor_schedules
-     WHERE doctor_id = ?`,
-    [doctorId]
+     WHERE doctor_id = ? AND branch_id=?`,
+    [doctorId,branchId]
   )
   const currentWeekly = scheduleRows.map((row) => ({ ...row }))
   const proposedWeekly = scheduleRows.filter((row) => row.day_of_week !== proposedSchedule.day_of_week)
@@ -25,11 +25,11 @@ const findScheduleConflicts = async ({ doctorId, proposedSchedule, executor = db
             p.full_name AS patient_name
      FROM appointments a
      JOIN patients p ON p.id = a.patient_id
-     WHERE a.doctor_id = ?
+     WHERE a.doctor_id = ? AND a.branch_id=?
        AND a.appointment_date >= ?
        AND a.status IN (${ACTIVE_APPOINTMENT_STATUSES.map(() => '?').join(',')})
      ORDER BY a.appointment_date ASC, a.appointment_time ASC, a.id ASC`,
-    [doctorId, getTodayDateOnly(), ...ACTIVE_APPOINTMENT_STATUSES]
+    [doctorId,branchId, getTodayDateOnly(), ...ACTIVE_APPOINTMENT_STATUSES]
   )
 
   // Only warn about appointments that the schedule change itself would invalidate.
@@ -54,7 +54,7 @@ const findScheduleConflicts = async ({ doctorId, proposedSchedule, executor = db
   })
 }
 
-const saveDoctorScheduleDay = async ({ doctorId, body = {}, actorRole, actorId, ipAddress, executor = db }) => {
+const saveDoctorScheduleDay = async ({ doctorId, branchId=null, body = {}, actorRole, actorId, ipAddress, executor = db }) => {
   const payload = validateSchedulePayload(body)
   const allowConflicts = body.allow_conflicts === true || Number(body.allow_conflicts) === 1
   const [doctorRows] = await executor.query('SELECT id, full_name FROM doctors WHERE id = ? LIMIT 1', [doctorId])
@@ -64,7 +64,10 @@ const saveDoctorScheduleDay = async ({ doctorId, body = {}, actorRole, actorId, 
     throw error
   }
 
-  const conflicts = await findScheduleConflicts({ doctorId, proposedSchedule: payload, executor })
+  const activeBranch=Number(branchId || (await executor.query('SELECT branch_id FROM doctors WHERE id=?',[doctorId]))[0][0]?.branch_id)
+  const [[membership]]=await executor.query('SELECT doctor_id FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=? AND is_active=1',[doctorId,activeBranch])
+  if(!membership)throw Object.assign(new Error('Doctor is not assigned to this branch.'),{statusCode:403})
+  const conflicts = await findScheduleConflicts({ doctorId, branchId:activeBranch, proposedSchedule: payload, executor })
   if (conflicts.length && !allowConflicts) {
     const error = new Error(`${conflicts.length} active appointment${conflicts.length === 1 ? '' : 's'} fall outside this schedule.`)
     error.statusCode = 409
@@ -80,23 +83,23 @@ const saveDoctorScheduleDay = async ({ doctorId, body = {}, actorRole, actorId, 
             COALESCE(spans_next_day,0) AS spans_next_day,
             COALESCE(is_24_hours,0) AS is_24_hours
      FROM doctor_schedules
-     WHERE doctor_id = ? AND day_of_week = ?`,
-    [doctorId, payload.day_of_week]
+     WHERE doctor_id = ? AND branch_id=? AND day_of_week = ?`,
+    [doctorId,activeBranch,payload.day_of_week]
   )
 
   if (existingRows.length) {
     await executor.query(
       `UPDATE doctor_schedules
        SET start_time=?, end_time=?, slot_duration_mins=?, is_active=?, spans_next_day=?, is_24_hours=?
-       WHERE doctor_id=? AND day_of_week=?`,
-      [payload.start_time, payload.end_time, payload.slot_duration_mins, payload.is_active, payload.spans_next_day, payload.is_24_hours, doctorId, payload.day_of_week]
+       WHERE doctor_id=? AND branch_id=? AND day_of_week=?`,
+      [payload.start_time, payload.end_time, payload.slot_duration_mins, payload.is_active, payload.spans_next_day, payload.is_24_hours, doctorId, activeBranch,payload.day_of_week]
     )
   } else {
     await executor.query(
       `INSERT INTO doctor_schedules
-       (doctor_id, day_of_week, start_time, end_time, slot_duration_mins, is_active, spans_next_day, is_24_hours)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [doctorId, payload.day_of_week, payload.start_time, payload.end_time, payload.slot_duration_mins, payload.is_active, payload.spans_next_day, payload.is_24_hours]
+       (doctor_id, branch_id, day_of_week, start_time, end_time, slot_duration_mins, is_active, spans_next_day, is_24_hours)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [doctorId, activeBranch,payload.day_of_week, payload.start_time, payload.end_time, payload.slot_duration_mins, payload.is_active, payload.spans_next_day, payload.is_24_hours]
     )
   }
 
@@ -107,7 +110,7 @@ const saveDoctorScheduleDay = async ({ doctorId, body = {}, actorRole, actorId, 
     entityType: 'doctor_schedule',
     entityId: `${doctorId}:${payload.day_of_week}`,
     oldValues: existingRows[0] || null,
-    newValues: { doctor_id: Number(doctorId), doctor_name: doctorRows[0].full_name, ...payload, conflicts_preserved: conflicts.length },
+    newValues: { doctor_id: Number(doctorId), branch_id:activeBranch, doctor_name: doctorRows[0].full_name, ...payload, conflicts_preserved: conflicts.length },
     ipAddress: ipAddress || null,
   }, executor).catch(() => {})
 
@@ -115,4 +118,3 @@ const saveDoctorScheduleDay = async ({ doctorId, body = {}, actorRole, actorId, 
 }
 
 module.exports = { ACTIVE_APPOINTMENT_STATUSES, findScheduleConflicts, saveDoctorScheduleDay }
-

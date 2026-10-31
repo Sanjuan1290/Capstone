@@ -23,7 +23,7 @@ const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days
   let doctorSql = `SELECT id, full_name, specialty, clinic_type
                    FROM doctors
                    WHERE is_active = 1`
-  if (branchId) { doctorSql += ' AND branch_id = ?'; doctorParams.push(Number(branchId)) }
+  if (branchId) { doctorSql += ' AND id IN (SELECT doctor_id FROM doctor_branch_assignments WHERE branch_id=? AND is_active=1)';doctorParams.push(Number(branchId)) }
   if (numericDoctorId) {
     doctorSql += ' AND id = ?'
     doctorParams.push(numericDoctorId)
@@ -42,23 +42,24 @@ const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days
             COALESCE(spans_next_day,0) AS spans_next_day,
             COALESCE(is_24_hours,0) AS is_24_hours
      FROM doctor_schedules
-     WHERE doctor_id IN (${placeholders}) AND is_active = 1
+     WHERE doctor_id IN (${placeholders}) AND is_active = 1 AND (? IS NULL OR branch_id=?)
      ORDER BY doctor_id, FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')`,
-    doctorIds
+    [...doctorIds,branchId,branchId]
   )
   const [blocks] = await executor.query(
     `SELECT doctor_id, DATE_FORMAT(unavailable_date, '%Y-%m-%d') AS unavailable_date, reason
      FROM doctor_unavailable_dates
-     WHERE doctor_id IN (${placeholders}) AND unavailable_date BETWEEN ? AND ?`,
-    [...doctorIds, start, end]
+     WHERE doctor_id IN (${placeholders}) AND unavailable_date BETWEEN ? AND ? AND (? IS NULL OR branch_id=?)`,
+    [...doctorIds, start, end,branchId,branchId]
   )
   const [appointments] = await executor.query(
     `SELECT doctor_id, DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointment_date, appointment_time
      FROM appointments
      WHERE doctor_id IN (${placeholders})
+       AND (? IS NULL OR branch_id=?)
        AND appointment_date BETWEEN ? AND ?
        AND status IN ('pending','confirmed','rescheduled','in-progress')`,
-    [...doctorIds, start, end]
+    [...doctorIds,branchId,branchId,start, end]
   )
 
   const scheduleMap = new Map()
@@ -198,3 +199,4 @@ module.exports = {
   buildWalkInDoctorAvailability,
   formatSlotLabel,
 }
+

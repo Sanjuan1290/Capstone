@@ -1,3 +1,4 @@
+const {getAssignments,readSelectedBranch} = require('../utils/doctorBranches')
 // Resolve physical-branch ownership from the authenticated account, never from
 // query/body/header input. Put this after verifyToken for staff and doctor.
 const db = require('../db/connect')
@@ -11,6 +12,15 @@ const branchScope = role => {
   return async (req, res, next) => {
     try {
       if (!isValidId(req.user?.id)) return res.status(401).json({ code: 'SESSION_INVALID', message: 'Session invalid.' })
+      if (role === 'doctor') {
+        const branches=await getAssignments(req.user.id)
+        if (!branches.length) return res.status(403).json({code:'ACCOUNT_BRANCH_UNASSIGNED',message:'No active clinic branch is assigned to your account.'})
+        const selected=readSelectedBranch(req,req.user.id,branches)
+        if (!selected) return res.status(409).json({code:'DOCTOR_BRANCH_SELECTION_REQUIRED',message:'Select the clinic branch you are working in.'})
+        req.branchId=selected.id
+        req.branch={...selected,is_active:1}
+        return next()
+      }
       const active = role === 'staff' ? "a.status='active'" : role === 'doctor' ? 'a.is_active=1' : 'a.is_active=1'
       const [[account]] = await db.query(
         `SELECT a.branch_id, b.id AS branch_exists, b.name AS branch_name, b.address AS branch_address, b.phone AS branch_phone, b.email AS branch_email, b.is_active AS branch_active
@@ -31,4 +41,5 @@ const branchScope = role => {
 }
 
 module.exports = branchScope
+
 

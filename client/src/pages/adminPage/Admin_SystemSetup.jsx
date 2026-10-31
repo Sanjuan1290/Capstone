@@ -11,7 +11,6 @@ import {
   MdSettings,
 } from 'react-icons/md'
 import Admin_PatientBooking from './Admin_PatientBooking'
-import Admin_Promotions from './Admin_Promotions'
 import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
 import SystemSetupTabs, { SYSTEM_SETUP_TABS } from '../../components/system/SystemSetupTabs'
@@ -421,14 +420,14 @@ const Admin_SystemSetup = () => {
     }
   }
 
-  useClinicRefresh(load,['service.updated','settings.updated'],{fallbackMs:90000,skip:()=>['visits','stock_rooms','promotions'].includes(tab)})
+  useClinicRefresh(load,['service.updated','settings.updated'],{fallbackMs:90000,skip:()=>['visits','stock_rooms'].includes(tab)})
 
   useEffect(() => {
     if (validTab !== tab) setTab(validTab)
   }, [validTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!['visits', 'stock_rooms', 'promotions'].includes(tab)) load()
+    if (!['visits', 'stock_rooms'].includes(tab)) load()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -438,15 +437,13 @@ const Admin_SystemSetup = () => {
           <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdSettings className="text-amber-500" /> System Setup</h1>
           <p className="mt-1 text-sm text-slate-500">Manage patient visit options, cancellation reasons, services and pricing setup, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
         </div>
-        {!['visits', 'stock_rooms', 'promotions'].includes(tab) && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
+        {!['visits', 'stock_rooms'].includes(tab) && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
       </div>
 
       <SystemSetupTabs />
 
       {tab === 'visits' ? (
         <Admin_PatientBooking embedded />
-      ) : tab === 'promotions' ? (
-        <Admin_Promotions />
       ) : tab === 'stock_rooms' ? (
         <StockRoomsManager />
       ) : loading ? (
@@ -461,3 +458,4 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+

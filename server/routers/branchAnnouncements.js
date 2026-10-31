@@ -4,6 +4,8 @@ const db = require('../db/connect')
 const { writeAuditLog } = require('../utils/audit')
 const { configured, eligibleSql, patientFromToken } = require('../utils/marketingCampaigns')
 const cloud = require('../utils/cloudinarySecurity')
+// Clinic publication dates are stored as Philippine wall-clock DATETIME values.
+const CLINIC_NOW_SQL = "CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')"
 const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const idOk = n => Number.isSafeInteger(Number(n)) && Number(n) > 0
 const bad = (message,status=400) => Object.assign(new Error(message), {statusCode:status})
@@ -16,14 +18,21 @@ const validatePost = body => {
   if(!title || title.length>160 || !caption || caption.length>350 || !content || content.length>12000)throw bad('Provide a title (160), caption (350), and article text (12,000 characters max).')
   const kind=String(body.type||'news'),status=String(body.status||'draft')
   if(!['promotion','news','article'].includes(kind)||!['draft','scheduled','published','archived'].includes(status))throw bad('Invalid announcement category or publishing status.')
-  const path=slug(body.slug || title)
-  if(path.length<3)throw bad('Enter a clear URL slug (3 or more characters).')
+  const path=slug(title)
+  if(path.length<3)throw bad('Title must contain at least three URL-safe characters.')
   const publishAt=dateTime(body.publish_at),expiresAt=dateTime(body.expires_at)
   if(publishAt===undefined||expiresAt===undefined|| (publishAt&&expiresAt&&expiresAt<=publishAt))throw bad('Invalid publication or expiration date.')
   if(status==='scheduled'&&!publishAt)throw bad('Schedule requires a publication date.')
-  const rawCta=clean(body.cta_url,251)
-  if(rawCta && !/^\/(?!\/)[\w/?#=&%.-]*$/.test(rawCta))throw bad('Only internal CARAIT booking links are allowed.')
-  return {title,caption,body:content,type:kind,status,slug:path,publish_at:publishAt,expires_at:expiresAt,cta_label:clean(body.cta_label,60)||null,cta_url:rawCta||null,promotion_id:body.promotion_id ? Number(body.promotion_id) : null}
+  return {title,caption,body:content,type:kind,status,slug:path,publish_at:publishAt,expires_at:expiresAt,cta_label:null,cta_url:null,promotion_id:null}
+}
+const uniqueSlug = async (base,branchId,id=null) => {
+  for(let index=1;index<100;index++){
+    const suffix=index===1?'':`-${index}`
+    const candidate=base.slice(0,190-suffix.length)+suffix
+    const [[conflict]]=await db.query('SELECT id FROM clinic_announcements WHERE branch_id=? AND slug=? AND (? IS NULL OR id<>?) LIMIT 1',[branchId,candidate,id,id])
+    if(!conflict)return candidate
+  }
+  throw bad('Too many posts share this title. Add another word to the title.',409)
 }
 const audit=(req,action,id,details)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext.account_role,branchId:req.branchId,action,entityType:'announcement',entityId:id,newValues:details,ipAddress:req.ip}).catch(()=>{})
 const list = async(req,res)=>{
@@ -45,17 +54,37 @@ const save = async(req,res)=>{
     const claims=cloud.verifyUploadSecurityToken(token,{stage:'accepted',role:'admin',user_id:req.user.id,context_type:'announcement',context_id:req.branchId,scan_status:'approved',url:nextImg})
     assetId=claims.asset_id;img=nextImg
   } else if(req.body.clear_cover_image===true){assetId=null;img=null}
-  const args=[values.title,values.slug,values.caption,values.body,values.type,values.status,values.publish_at,values.expires_at,values.cta_label,values.cta_url,values.promotion_id,img,assetId]
+  const autoSlug=await uniqueSlug(values.slug,req.branchId,id)
+  const args=[values.title,autoSlug,values.caption,values.body,values.type,values.status,values.publish_at,values.expires_at,values.cta_label,values.cta_url,values.promotion_id,img,assetId]
   try{
     if(id) {
       await db.query(`UPDATE clinic_announcements SET title=?,slug=?,caption=?,body=?,type=?,status=?,publish_at=?,expires_at=?,cta_label=?,cta_url=?,promotion_id=?,cover_image_url=?,cover_image_asset_id=? WHERE id=? AND branch_id=?`,[...args,id,req.branchId])
     } else {
       const [result]=await db.query(`INSERT INTO clinic_announcements (title,slug,caption,body,type,status,publish_at,expires_at,cta_label,cta_url,promotion_id,cover_image_url,cover_image_asset_id,branch_id,created_by_admin_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[...args,req.branchId,req.user.id]);req.savedAnnouncementId=result.insertId
     }
-  }catch(error){if(error.code==='ER_DUP_ENTRY')throw bad('This URL slug already exists in this branch. Choose another.');throw error}
+  }catch(error){if(error.code==='ER_DUP_ENTRY')throw bad('Another post was created with this title. Refresh and try again.',409);throw error}
   const savedId=id||req.savedAnnouncementId
   await audit(req,id?'announcement.updated':'announcement.created',savedId,{title:values.title,status:values.status})
   res.json({id:savedId,message:'Announcement saved.'})
+}
+const deletePost=async(req,res)=>{
+  const id=Number(req.params.id)
+  if(!idOk(id))throw bad('Invalid announcement ID.')
+  const [[campaign]]=await db.query('SELECT id FROM marketing_campaigns WHERE announcement_id=? AND branch_id=? LIMIT 1',[id,req.branchId])
+  if(campaign)throw bad('This post has campaign history. Deactivate instead of deleting it.',409)
+  const [result]=await db.query('DELETE FROM clinic_announcements WHERE id=? AND branch_id=?',[id,req.branchId])
+  if(!result.affectedRows)throw bad('Post not found in your branch.',404)
+  await audit(req,'announcement.deleted',id,{})
+  res.json({message:'Post deleted.'})
+}
+const changeStatus=async(req,res)=>{
+  const id=Number(req.params.id),status=String(req.body?.status||'')
+  if(!idOk(id)||!['published','archived'].includes(status))throw bad('Invalid status change.')
+  if(status==='published'){const [[current]]=await db.query(`SELECT expires_at IS NOT NULL AND expires_at<=${CLINIC_NOW_SQL} AS expired FROM clinic_announcements WHERE id=? AND branch_id=?`,[id,req.branchId]);if(current?.expired)throw bad('This post has expired. Edit the expiry date before activating it.',409)}
+  const [result]=await db.query("UPDATE clinic_announcements SET status=?,publish_at=CASE WHEN ?='published' THEN CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00') ELSE publish_at END WHERE id=? AND branch_id=? AND status IN ('draft','published','scheduled','archived')",[status,status,id,req.branchId])
+  if(!result.affectedRows)throw bad('Post not found in your branch.',404)
+  await audit(req,'announcement.status_changed',id,{status})
+  res.json({message:'Post status updated.',status})
 }
 const uploadImage=async(req,res)=>{
   if(!Buffer.isBuffer(req.body)||req.body.length>5*1024*1024||!req.body.length)throw bad('Choose a JPG or PNG cover image up to 5 MB.')
@@ -146,6 +175,8 @@ const registerBranchAnnouncements=(router,{requireSuper,branchContext,requirePer
     router.get(`${prefix}/announcements`,...auth,list)
     router.post(`${prefix}/announcements`,...auth,afterSuccessfulMutation('promotion.updated'),save)
     router.put(`${prefix}/announcements/:id`,...auth,afterSuccessfulMutation('promotion.updated'),save)
+    router.delete(`${prefix}/announcements/:id`,...auth,afterSuccessfulMutation('promotion.updated'),deletePost)
+    router.patch(`${prefix}/announcements/:id/status`,...auth,afterSuccessfulMutation('promotion.updated'),changeStatus)
     router.post(`${prefix}/announcements/image`,...auth,express.raw({type:['image/png','image/jpeg','application/octet-stream'],limit:'5mb'}),uploadImage)
     router.post(`${prefix}/announcements/image/status`,...auth,imageStatus)
     router.get(`${prefix}/announcements/audience`,...auth,countEligible)
@@ -162,13 +193,13 @@ publicRouter.get('/',async(req,res)=>{
   const type=String(req.query.type||'all')
   if(!['all','promotion','news','article'].includes(type))throw bad('Invalid news category.')
   const [rows]=await db.query(`SELECT a.id,a.branch_id,a.title,a.slug,a.caption,a.type,a.cover_image_url,a.publish_at,a.expires_at,cb.name AS branch_name FROM clinic_announcements a INNER JOIN clinic_branches cb ON cb.id=a.branch_id AND cb.is_active=1
-    WHERE a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=NOW()) AND (a.expires_at IS NULL OR a.expires_at>NOW()) AND (? IS NULL OR a.branch_id=?) AND (?='all' OR a.type=?) ORDER BY a.publish_at DESC,a.id DESC LIMIT 100`,[branch,branch,type,type])
+    WHERE a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (a.expires_at IS NULL OR a.expires_at>CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (? IS NULL OR a.branch_id=?) AND (?='all' OR a.type=?) ORDER BY a.publish_at DESC,a.id DESC LIMIT 100`,[branch,branch,type,type])
   res.json(rows)
 })
 publicRouter.get('/:branchId/:slug',async(req,res)=>{
   const branchId=Number(req.params.branchId),path=slug(req.params.slug)
   if(!idOk(branchId)||path!==req.params.slug)throw bad('Invalid news URL.')
-  const [[article]]=await db.query(`SELECT a.id,a.branch_id,a.promotion_id,a.title,a.slug,a.caption,a.body,a.type,a.cover_image_url,a.cta_label,a.cta_url,a.publish_at,a.expires_at,cb.name AS branch_name FROM clinic_announcements a INNER JOIN clinic_branches cb ON cb.id=a.branch_id AND cb.is_active=1 WHERE a.branch_id=? AND a.slug=? AND a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=NOW()) AND (a.expires_at IS NULL OR a.expires_at>NOW())`,[branchId,path])
+  const [[article]]=await db.query(`SELECT a.id,a.branch_id,a.promotion_id,a.title,a.slug,a.caption,a.body,a.type,a.cover_image_url,a.cta_label,a.cta_url,a.publish_at,a.expires_at,cb.name AS branch_name FROM clinic_announcements a INNER JOIN clinic_branches cb ON cb.id=a.branch_id AND cb.is_active=1 WHERE a.branch_id=? AND a.slug=? AND a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (a.expires_at IS NULL OR a.expires_at>CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00'))`,[branchId,path])
   if(!article)return res.status(404).json({message:'This article is not available.'})
   res.json(article)
 })
@@ -182,3 +213,4 @@ publicRouter.post('/unsubscribe',unsubscribe)
 // RFC 8058 one-click unsubscribe: POST only; GET never modifies consent.
 publicRouter.post('/unsubscribe-one-click',unsubscribe)
 module.exports={registerBranchAnnouncements,publicRouter,validatePost,slug,dateTime}
+

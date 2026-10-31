@@ -1,3 +1,4 @@
+import { AnnouncementBody } from '../../components/system/AnnouncementRichText'
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
@@ -29,7 +30,7 @@ export const NewsList = () => {
 export const NewsDetail = () => {
   const { branchId, slug } = useParams(), [post,setPost] = useState(null), [error,setError] = useState('')
   useEffect(() => {let active = true;setPost(null);setError('');readNews(`/${branchId}/${encodeURIComponent(slug)}`).then(value=>{if(active)setPost(value)}).catch(err=>{if(active)setError(err.message)});return()=>{active=false}},[branchId,slug])
-  return <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6"><Link to="/news" className="text-sm font-bold text-blue-700">← News & Offers</Link>{error?<p role="alert" className="mt-8">{error}</p>:!post?<p role="status" className="mt-8">Loading article…</p>:<article className="mt-8 space-y-5"><p className="text-sm font-bold uppercase text-amber-700">{post.type} · {post.branch_name}</p><h1 className="text-3xl font-black text-slate-900">{post.title}</h1><p className="text-lg text-slate-600">{post.caption}</p>{post.cover_image_url&&<img src={post.cover_image_url} alt="" className="max-h-[440px] w-full rounded-2xl object-cover"/>}<div className="whitespace-pre-wrap break-words text-base leading-relaxed text-slate-700">{post.body}</div>{post.cta_url&&<Link className="button-primary inline-flex" to={post.cta_url}>{post.cta_label||'Book an Appointment'}</Link>}</article>}</main>
+  return <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6"><Link to="/news" className="text-sm font-bold text-blue-700">← News & Offers</Link>{error?<p role="alert" className="mt-8">{error}</p>:!post?<p role="status" className="mt-8">Loading article…</p>:<article className="mt-8 space-y-5"><p className="text-sm font-bold uppercase text-amber-700">{post.type} · {post.branch_name}</p><h1 className="text-3xl font-black text-slate-900">{post.title}</h1><p className="text-lg text-slate-600">{post.caption}</p>{post.cover_image_url&&<img src={post.cover_image_url} alt="" className="max-h-[440px] w-full rounded-2xl object-cover"/>}<div className="whitespace-pre-wrap break-words text-base leading-relaxed text-slate-700"><AnnouncementBody body={post.body}/></div>{post.cta_url&&<Link className="button-primary inline-flex" to={post.cta_url}>{post.cta_label||'Book an Appointment'}</Link>}</article>}</main>
 }
 export const MarketingUnsubscribe = () => {
   const [params] = useSearchParams(), token = params.get('token') || ''
@@ -37,3 +38,4 @@ export const MarketingUnsubscribe = () => {
   const submit = async () => {setBusy(true);try{const response=await fetch('/api/news/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});const result=await response.json();if(!response.ok)throw new Error(result.message || 'Please try again.');setMessage(result.message)}catch(err){setMessage(err.message)}finally{setBusy(false)}}
   return <main className="mx-auto max-w-xl px-4 py-16 text-center"><h1 className="text-2xl font-bold">Promotional email preferences</h1><p className="my-4 text-slate-600">Unsubscribe from CARAIT marketing campaigns. Appointment and account security messages are not affected.</p>{message?<p role="status">{message}</p>:<button className="button-primary" disabled={!token||busy} onClick={submit}>{busy?'Updating…':'Unsubscribe from promotions'}</button>}</main>
 }
+

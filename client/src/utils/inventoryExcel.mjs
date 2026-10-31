@@ -1,3 +1,4 @@
+import { inflateRaw } from '../vendor/pakoInflate.mjs'
 // Minimal dependency-free XLSX reader/writer for small, flat CARAIT inventory sheets.
 // Supports OOXML shared/inline strings, numeric/date cells, and CSV from Excel.
 // Does not execute formulas, macros or hyperlinks. Limits size and rows before parsing.
@@ -60,12 +61,14 @@ const toCSV = text => {
   if(cell||row.length){row.push(cell);rows.push(row)}
   return rows
 }
+// Office/Excel ZIP entries use raw DEFLATE. The browser CompressionStream API
+// is not portable for `deflate-raw`, so use a bundled MIT-licensed decoder.
 const decompress=async(bytes,method)=>{
   if(method===0)return bytes
-  if(method!==8)throw new Error('Unsupported workbook ZIP compression.')
-  if(typeof DecompressionStream==='undefined')throw new Error('This browser cannot open compressed Excel files. Use an updated Chrome, Edge or Firefox browser.')
-  const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
-  return new Uint8Array(await new Response(stream).arrayBuffer())
+  if(method!==8)throw new Error('Unsupported Excel workbook compression (ZIP method '+method+').')
+  try { return inflateRaw(bytes) } catch {
+    throw new Error('Cannot read the compressed Excel worksheet. The file may be damaged. Try saving it again as .xlsx or .csv.')
+  }
 }
 const readZip=async(bytes)=>{
   const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength)
@@ -142,5 +145,6 @@ export const asInventoryRow = (item,rooms,kind='view')=>{
   const values=[item.name||'',Number(item.selling_price??item.price??0)||'', '',Number(item.stock??0),kind==='edit'?'':expiry,item.category==='derma'?'Dermatology':'General Medicine',room?.name||'',Number(item.threshold??5),item.supplier||'JAS']
   return kind==='edit'?[...values,item.id,item.barcode||'']:values
 }
+
 
 

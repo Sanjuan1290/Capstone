@@ -46,6 +46,8 @@ export const checkPromotionImage = token => requestJson(`${getAdminApiBase()}/pr
 
 // Branch-scoped announcements and opt-in campaign administration.
 export const listAnnouncements = () => requestJson(`${getAdminApiBase()}/announcements`)
+export const deleteAnnouncement = id => requestJson(`${getAdminApiBase()}/announcements/${id}`, {method:'DELETE'})
+export const setAnnouncementStatus = (id,status) => requestJson(`${getAdminApiBase()}/announcements/${id}/status`, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})})
 export const saveAnnouncement = (payload,id=null) => requestJson(`${getAdminApiBase()}/announcements${id?`/${id}`:''}`, { method:id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const uploadAnnouncementCover = async file => {
   const res=await fetch(`${getAdminApiBase()}/announcements/image`,{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file})
@@ -293,6 +295,8 @@ export const toggleStaff = (id) =>
 export const getDoctors = () =>
   requestJson(`${getAdminApiBase()}/doctors`)
 
+export const attachExistingDoctor = (payload) => requestJson(`${getAdminApiBase()}/doctors/attach`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+
 export const createDoctor = (payload) =>
   requestJson(`${getAdminApiBase()}/doctors`, {
     method: 'POST', credentials: 'include',
@@ -534,3 +538,4 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
+

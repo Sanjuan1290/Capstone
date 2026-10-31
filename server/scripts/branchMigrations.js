@@ -49,6 +49,7 @@ const migrationFiles = [
   '2026-10-16-paymongo-test-qr.sql',
   '2026-10-17-announcements-campaigns.sql',
   promotionMigrationFile,
+  '2026-10-31-doctor-multi-branch.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -149,3 +150,4 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
+

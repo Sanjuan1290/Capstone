@@ -114,9 +114,7 @@ const ForgotPassword = ({ role }) => {
   const cfg = ROLE_CFG[role] || ROLE_CFG.patient
 
   const [step, setStep] = useState('request')
-  const [deliveryMethod, setDeliveryMethod] = useState('email')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [maskedDestination, setMaskedDestination] = useState('')
   const [otp, setOtp] = useState('')
   const [devOtp, setDevOtp] = useState('')
@@ -135,7 +133,9 @@ const ForgotPassword = ({ role }) => {
     return () => clearTimeout(timer)
   }, [countdown])
 
-  const effectiveMethod = deliveryMethod
+  const effectiveMethod = identifier.includes('@') ? 'email' : 'sms'
+  const email = effectiveMethod === 'email' ? identifier.trim() : ''
+  const phone = effectiveMethod === 'sms' ? identifier.trim() : ''
   const stepNum = { request: 0, otp: 1, reset: 2, done: 3 }[step]
   const loginPath = `/${role}/login`
   const recoveryLabel = effectiveMethod === 'sms' ? 'mobile number' : 'email address'
@@ -155,6 +155,10 @@ const ForgotPassword = ({ role }) => {
   const handleRequest = async (event) => {
     event?.preventDefault()
     setError('')
+    if (!identifier.trim() || (!identifier.includes('@') && !/^(?:\+63|63|0)?9\d{9}$/.test(identifier.replace(/[\s-]/g, '')))) {
+      setError('Enter a valid email address or Philippine mobile number.')
+      return
+    }
     setLoading(true)
 
     try {
@@ -304,37 +308,22 @@ const ForgotPassword = ({ role }) => {
             {step === 'request' && (
               <form onSubmit={handleRequest} className="space-y-4">
                 <p className="text-center text-sm text-slate-500">
-                  Choose a verified email address or mobile number registered to your account. We will send a verification code.
+                  Enter your verified email address or mobile number. We will send a verification code to that contact.
                 </p>
-
-                <fieldset className="grid grid-cols-2 gap-2" aria-label="Send verification code by">
-                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'email' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'email'} onChange={() => {setDeliveryMethod('email');resetToRequest()}} /> Email
-                  </label>
-                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'sms' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'sms'} onChange={() => {setDeliveryMethod('sms');resetToRequest()}} /> Mobile Number
-                  </label>
-                </fieldset>
                 <div>
-                  <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">
-                    {effectiveMethod === 'sms' ? 'Mobile Number' : 'Email Address'}
+                  <label htmlFor="recovery-contact" className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                    Email Address or Mobile Number
                   </label>
                   <div className="relative">
-                    {effectiveMethod === 'sms' ? (
-                      <MdPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
-                    ) : (
-                      <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
-                    )}
+                    <MdEmail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-slate-400" />
                     <input
-                      type={effectiveMethod === 'sms' ? 'tel' : 'email'}
+                      id="recovery-contact"
+                      type="text"
+                      autoComplete="username"
                       required
-                      value={recoveryValue}
-                      onChange={(event) => {
-                        if (effectiveMethod === 'sms') setPhone(event.target.value)
-                        else setEmail(event.target.value)
-                        setError('')
-                      }}
-                      placeholder={effectiveMethod === 'sms' ? '09XXXXXXXXX' : 'your@email.com'}
+                      value={identifier}
+                      onChange={(event) => { setIdentifier(event.target.value.trim()); setError('') }}
+                      placeholder="you@example.com or 09XXXXXXXXX"
                       className={`${inpClass} pl-10`}
                     />
                   </div>
@@ -370,7 +359,7 @@ const ForgotPassword = ({ role }) => {
                   </p>
                   <p className="mt-1 text-xs text-slate-400">Expires in 10 minutes</p>
                   <p className="mt-2 text-xs text-slate-400">
-                    If no code arrives, check that this contact is verified on your account. You can also try the other option.
+                    If no code arrives, check that this contact is verified on your account. Go back to change the contact if needed.
                   </p>
                 </div>
 
@@ -419,7 +408,7 @@ const ForgotPassword = ({ role }) => {
                     onClick={() => resetToRequest()}
                     className="flex items-center gap-1 text-xs text-slate-400 transition-colors hover:text-slate-600"
                   >
-                    <MdArrowBack className="text-[13px]" /> Change {recoveryLabel}
+                    <MdArrowBack className="text-[13px]" /> Change email or mobile number
                   </button>
 
                 </div>
@@ -432,15 +421,6 @@ const ForgotPassword = ({ role }) => {
                   <MdCheck className="shrink-0 text-[16px] text-emerald-500" />
                   <p className="text-xs text-emerald-700">Code verified! Choose your new password.</p>
                 </div>
-
-                <fieldset className="grid grid-cols-2 gap-2" aria-label="Send verification code by">
-                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'email' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'email'} onChange={() => {setDeliveryMethod('email');resetToRequest()}} /> Email
-                  </label>
-                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'sms' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'sms'} onChange={() => {setDeliveryMethod('sms');resetToRequest()}} /> Mobile Number
-                  </label>
-                </fieldset>
                 <div>
                   <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">New Password</label>
                   <div className="relative">
@@ -468,15 +448,6 @@ const ForgotPassword = ({ role }) => {
                 </div>
 
                 <PasswordRequirements password={password} />
-
-                <fieldset className="grid grid-cols-2 gap-2" aria-label="Send verification code by">
-                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'email' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'email'} onChange={() => {setDeliveryMethod('email');resetToRequest()}} /> Email
-                  </label>
-                  <label className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-bold ${effectiveMethod === 'sms' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                    <input type="radio" className="sr-only" name="recovery-method" checked={effectiveMethod === 'sms'} onChange={() => {setDeliveryMethod('sms');resetToRequest()}} /> Mobile Number
-                  </label>
-                </fieldset>
                 <div>
                   <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500">Confirm Password</label>
                   <div className="relative">
@@ -554,3 +525,4 @@ const ForgotPassword = ({ role }) => {
 }
 
 export default ForgotPassword
+

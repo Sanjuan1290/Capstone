@@ -875,7 +875,7 @@ const rescheduleAppointment = async (req, res) => {
   const durationMinutes = getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status, 'rescheduled')
   await withAppointmentSlotLock({ doctorId: rows[0].doctor_id  , patientId: rows[0].patient_id }, async () => {
-    await validateAppointmentSlot({patientId: rows[0].patient_id, 
+    await validateAppointmentSlot({branchId:rows[0].branch_id,patientId: rows[0].patient_id, 
       doctorId: rows[0].doctor_id,
       clinicType: rows[0].clinic_type,
       date: normalizedDate,
@@ -931,7 +931,7 @@ const createAppointment = async (req, res) => {
   if (activeWithDoctor.length) return res.status(409).json({ message: 'This patient already has an active appointment with this doctor.' })
 
   const result = await withAppointmentSlotLock({ doctorId: doctor_id  , patientId: patient_id }, async () => {
-    await validateAppointmentSlot({patientId: patient_id,  doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
+    await validateAppointmentSlot({branchId:req.branchId,patientId: patient_id,  doctorId: doctor_id, clinicType: clinic_type, date: normalizedDate, time: appointment_time, durationMinutes: reservedDurationMinutes, startIntervalMinutes: settings.booking_start_interval_minutes })
     const [inserted] = await db.query(
       `INSERT INTO appointments
        (patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot,
@@ -1234,11 +1234,12 @@ const updateStaff = async (req, res) => {
 // ── Doctors ───────────────────────────────────────────────────────────────────
 
 const getDoctors = async (req, res) => {
-  const [rows] = await db.query(
-    // FIX 3: return prc_license (requires migration_add_prc_license.sql)
-    `SELECT id, full_name AS name, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at
-     FROM doctors ORDER BY full_name`
-  )
+  const [rows] = await db.query(req.branchId ?
+    `SELECT d.id,d.full_name AS name,d.full_name,d.email,d.phone,d.specialty,d.clinic_type,d.clinic_type AS type,d.prc_license,a.is_active,d.created_at,b.name AS branch_name
+     FROM doctor_branch_assignments a JOIN doctors d ON d.id=a.doctor_id
+     JOIN clinic_branches b ON b.id=a.branch_id WHERE a.branch_id=? ORDER BY d.full_name` :
+    `SELECT d.id,d.full_name AS name,d.full_name,d.email,d.phone,d.specialty,d.clinic_type,d.clinic_type AS type,d.prc_license,d.is_active,d.created_at FROM doctors d ORDER BY d.full_name`,
+    req.branchId?[req.branchId]:[])
   res.json(rows)
 }
 
@@ -1265,6 +1266,8 @@ const createDoctor = async (req, res) => {
       ? [full_name, email, normalizedPhone, clinic_type, prc_license || null, hashed, req.branchId]
       : [full_name, email, normalizedPhone, clinic_type, prc_license || null, hashed]
   )
+  const doctorBranch=req.branchId||Number((await db.query('SELECT branch_id FROM doctors WHERE id=?',[result.insertId]))[0][0]?.branch_id)
+  if(doctorBranch)await db.query('INSERT IGNORE INTO doctor_branch_assignments (doctor_id,branch_id) VALUES (?,?)',[result.insertId,doctorBranch])
   const [rows] = await db.query(
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
   )
@@ -1278,7 +1281,30 @@ const createDoctor = async (req, res) => {
   res.status(201).json(rows[0])
 }
 
+const attachExistingDoctor = async (req,res) => {
+  if(!req.branchId)return res.status(400).json({message:'Choose a branch first.'})
+  const email=String(req.body?.email||'').trim().toLowerCase()
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({message:'Enter a valid doctor email address.'})
+  const [[doctor]]=await db.query('SELECT id,full_name,clinic_type,is_active FROM doctors WHERE LOWER(email)=? LIMIT 1',[email])
+  if(!doctor||!Number(doctor.is_active))return res.status(404).json({message:'No active doctor account was found with that email.'})
+  const [[existing]]=await db.query('SELECT doctor_id FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=?',[doctor.id,req.branchId])
+  if(existing)return res.status(409).json({message:'This doctor is already assigned to your branch.'})
+  await db.query('INSERT INTO doctor_branch_assignments (doctor_id,branch_id) VALUES (?,?)',[doctor.id,req.branchId])
+  await db.query('UPDATE doctors SET session_version=session_version+1 WHERE id=?',[doctor.id])
+  await writeAuditLog({userId:req.user.id,userRole:'admin',action:'doctor.branch_assigned',entityType:'doctor',entityId:doctor.id,newValues:{branch_id:req.branchId},branchId:req.branchId,ipAddress:req.ip||null}).catch(()=>{})
+  res.status(201).json({message:'Existing doctor assigned to this branch. Ask the doctor to sign in again to choose the branch.',id:doctor.id,full_name:doctor.full_name})
+}
+
 const toggleDoctor = async (req, res) => {
+  if(req.branchId){
+    const [[assigned]]=await db.query('SELECT is_active FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=?',[req.params.id,req.branchId])
+    if(!assigned)return res.status(404).json({message:'Doctor is not assigned to this branch.'})
+    const newVal=assigned.is_active?0:1
+    await db.query('UPDATE doctor_branch_assignments SET is_active=? WHERE doctor_id=? AND branch_id=?',[newVal,req.params.id,req.branchId])
+    await db.query('UPDATE doctors SET session_version=session_version+1 WHERE id=?',[req.params.id])
+    res.json({is_active:newVal})
+    return
+  }
   const [rows] = await db.query('SELECT is_active FROM doctors WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Not found.' })
   const newVal = rows[0].is_active ? 0 : 1
@@ -1480,8 +1506,8 @@ const deleteAppointmentCancellationReason = async (req, res) => {
 
 const getDoctorSchedules = async (req, res) => {
   const [rows] = await db.query(
-    'SELECT * FROM doctor_schedules WHERE doctor_id = ? ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
-    [req.params.id]
+    'SELECT * FROM doctor_schedules WHERE doctor_id = ? AND branch_id=? ORDER BY FIELD(day_of_week,"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")',
+    [req.params.id,req.branchId]
   )
   res.json(rows)
 }
@@ -1490,6 +1516,7 @@ const saveDaySchedule = async (req, res) => {
   try {
     const result = await saveDoctorScheduleDay({
       doctorId: req.params.id,
+      branchId:req.branchId,
       body: req.body,
       actorRole: 'admin',
       actorId: req.user.id,
@@ -1514,6 +1541,7 @@ const saveDaySchedule = async (req, res) => {
 
 const getDoctorUnavailableDatesAdmin = async (req, res) => {
   const rows = await getDoctorUnavailableDates(req.params.id, {
+    branchId:req.branchId,
     startDate: String(req.query.start_date || '').trim() || undefined,
     endDate: String(req.query.end_date || '').trim() || undefined,
   })
@@ -1536,9 +1564,9 @@ const saveDoctorUnavailableDateAdmin = async (req, res) => {
   const [conflicts] = await db.query(
     `SELECT a.id, a.patient_id, a.status, a.appointment_time, a.clinic_type, p.full_name AS patient_name, p.email AS patient_email, p.phone AS patient_phone
      FROM appointments a JOIN patients p ON p.id = a.patient_id
-     WHERE a.doctor_id = ? AND a.appointment_date = ? AND a.status IN ('pending','confirmed')
+     WHERE a.doctor_id = ? AND a.branch_id=? AND a.appointment_date = ? AND a.status IN ('pending','confirmed')
      ORDER BY STR_TO_DATE(a.appointment_time, '%h:%i %p') ASC`,
-    [doctorId, unavailableDate]
+    [doctorId,req.branchId,unavailableDate]
   )
   if (conflicts.length > 0 && !req.body?.cancel_conflicts) {
     return res.status(409).json({
@@ -1590,13 +1618,13 @@ const saveDoctorUnavailableDateAdmin = async (req, res) => {
   }
 
   await db.query(
-    `INSERT INTO doctor_unavailable_dates (doctor_id, unavailable_date, reason, created_by_role, created_by_user_id)
-     VALUES (?, ?, ?, 'admin', ?)
+    `INSERT INTO doctor_unavailable_dates (doctor_id, branch_id, unavailable_date, reason, created_by_role, created_by_user_id)
+     VALUES (?, ?, ?, ?, 'admin', ?)
      ON DUPLICATE KEY UPDATE
        reason = VALUES(reason),
        created_by_role = 'admin',
        created_by_user_id = VALUES(created_by_user_id)`,
-    [doctorId, unavailableDate, reason, req.user.id]
+    [doctorId,req.branchId,unavailableDate,reason,req.user.id]
   )
   const [doctorRows] = await db.query('SELECT full_name FROM doctors WHERE id = ? LIMIT 1', [doctorId])
   await writeAuditLog({
@@ -1615,8 +1643,8 @@ const deleteDoctorUnavailableDateAdmin = async (req, res) => {
 
   const [doctorRows] = await db.query('SELECT full_name FROM doctors WHERE id = ? LIMIT 1', [req.params.id])
   await db.query(
-    'DELETE FROM doctor_unavailable_dates WHERE doctor_id = ? AND unavailable_date = ?',
-    [req.params.id, unavailableDate]
+    'DELETE FROM doctor_unavailable_dates WHERE doctor_id = ? AND branch_id=? AND unavailable_date = ?',
+    [req.params.id,req.branchId,unavailableDate]
   )
   await writeAuditLog({
     userId: req.user.id, userRole: req.user?.role || 'admin', action: 'schedule.unavailable_date_removed', entityType: 'doctor_unavailable_date', entityId: `${req.params.id}:${unavailableDate}`,
@@ -1662,7 +1690,7 @@ const getAppointmentAvailableSlotsAdmin = async (req, res) => {
     durationMinutes = roundReservedDurationMinutes(Number(service.average_duration_minutes||60),settings.booking_start_interval_minutes)
   }
 
-  const slots = await getAvailableAppointmentSlots({ doctorId, clinicType, date, durationMinutes, startIntervalMinutes:settings.booking_start_interval_minutes, excludeAppointmentId })
+  const slots = await getAvailableAppointmentSlots({ branchId:req.branchId,doctorId, clinicType, date, durationMinutes, startIntervalMinutes:settings.booking_start_interval_minutes, excludeAppointmentId })
   res.json({ slots, reserved_duration_minutes:durationMinutes, booking_start_interval_minutes:settings.booking_start_interval_minutes })
 }
 
@@ -4287,7 +4315,7 @@ module.exports = {
   createWalkInPatient,
   getStaff, createStaff, toggleStaff, updateStaff,
   getAppointmentReasonOptions, createAppointmentReasonOption, updateAppointmentReasonOption, deleteAppointmentReasonOption, getAppointmentCancellationReasons,
-  getDoctors, createDoctor, toggleDoctor, updateDoctor,
+  getDoctors, createDoctor, attachExistingDoctor, toggleDoctor, updateDoctor,
   getDoctorSchedules, saveDaySchedule,
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin, getAppointmentAvailableSlotsAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,

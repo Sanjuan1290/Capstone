@@ -5,7 +5,7 @@ import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import useClientPagination from '../../hooks/useClientPagination'
-import { getDoctors, createDoctor, toggleDoctor, updateDoctor } from '../../services/admin.service'
+import { getDoctors, createDoctor, attachExistingDoctor, toggleDoctor, updateDoctor } from '../../services/admin.service'
 import {
   MdSearch, MdClose, MdAdd, MdEmail, MdPhone,
   MdChevronRight, MdBlock, MdCheck, MdArrowBack,
@@ -94,6 +94,29 @@ const AddModal = ({ onClose, onAdd }) => {
       </div>
     </>
   )
+}
+
+const AttachModal = ({onClose,onAttach}) => {
+  const [email,setEmail]=useState('')
+  const [loading,setLoading]=useState(false)
+  const [error,setError]=useState('')
+  const handleSubmit=async e=>{
+    e.preventDefault();setError('');setLoading(true)
+    try{await onAttach({email:email.trim()});onClose()}
+    catch(err){setError(err.message||'Unable to add this doctor.')}
+    finally{setLoading(false)}
+  }
+  return <>
+    <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose}/>
+    <form onSubmit={handleSubmit} className="fixed inset-x-4 top-1/2 z-50 mx-auto max-w-md -translate-y-1/2 rounded-3xl bg-white p-6 shadow-2xl space-y-4">
+      <div className="flex items-center justify-between"><h2 className="font-bold text-slate-800">Add Existing Doctor</h2><button type="button" onClick={onClose} aria-label="Close"><MdClose/></button></div>
+      <p className="text-sm text-slate-600">Enter the email address of an existing doctor. Their account stays the same, while appointments and schedules remain separate for each branch.</p>
+      <label className="block text-xs font-semibold text-slate-600">Doctor Email</label>
+      <input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="doctor@example.com" className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"/>
+      {error&&<p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <div className="flex gap-3"><button type="button" onClick={onClose} className="flex-1 rounded-xl border px-4 py-3 text-sm">Cancel</button><button disabled={loading} className="flex-1 rounded-xl bg-amber-500 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{loading?'Adding…':'Add to Branch'}</button></div>
+    </form>
+  </>
 }
 
 const EditModal = ({ doctor, onClose, onSave }) => {
@@ -243,6 +266,7 @@ const Admin_DoctorAccount = () => {
   const [search,   setSearch]   = useState('')
   const [selected, setSelected] = useState(null)
   const [showAdd,  setShowAdd]  = useState(false)
+  const [showAttach,setShowAttach]=useState(false)
   const [editing,  setEditing]  = useState(null)
 
   useEffect(() => {
@@ -266,6 +290,13 @@ const Admin_DoctorAccount = () => {
     const newDoc = await createDoctor(formData)
     setDoctors(prev => [...prev, newDoc])
     if (!selected) setSelected(newDoc)
+  }
+
+  const handleAttach=async payload=>{
+    const result=await attachExistingDoctor(payload)
+    const refreshed=await getDoctors()
+    setDoctors(refreshed)
+    setSelected(refreshed.find(row=>Number(row.id)===Number(result.id))||refreshed[0]||null)
   }
 
   const handleEdit = async formData => {
@@ -292,11 +323,12 @@ const Admin_DoctorAccount = () => {
           </h1>
           <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Manage doctor profiles and clinic access.</p>
         </div>
+        <div className="flex flex-wrap gap-2"><button onClick={() => setShowAttach(true)} className="rounded-xl border border-amber-400 px-4 py-2.5 text-xs font-bold text-amber-800">Add Existing Doctor</button>
         <button onClick={() => setShowAdd(true)}
           className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold
             px-4 py-2.5 rounded-xl transition-colors shadow-lg shadow-amber-500/20 w-full justify-center sm:w-auto shrink-0">
-          <MdAdd className="text-[15px]" /> Add Doctor
-        </button>
+          <MdAdd className="text-[15px]" /> New Doctor
+        </button></div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex shadow-sm" style={{ minHeight: '500px' }}>
@@ -377,6 +409,7 @@ const Admin_DoctorAccount = () => {
         </div>
       </div>
 
+      {showAttach && <AttachModal onClose={() => setShowAttach(false)} onAttach={handleAttach} />}
       {showAdd && <AddModal onClose={() => setShowAdd(false)} onAdd={handleAdd} />}
       {editing && <EditModal doctor={editing} onClose={() => setEditing(null)} onSave={handleEdit} />}
     </div>
@@ -384,3 +417,4 @@ const Admin_DoctorAccount = () => {
 }
 
 export default Admin_DoctorAccount
+
