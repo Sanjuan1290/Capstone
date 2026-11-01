@@ -1,312 +1,127 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { NavLink } from 'react-router-dom'
+import {
+  MdAdd, MdArrowForward, MdCalendarToday, MdEventAvailable, MdHistory,
+  MdMedicalServices, MdPersonSearch, MdAccessTime, MdLocationOn, MdRefresh,
+} from 'react-icons/md'
+import { useAuth } from '../../context/AuthContext'
+import { usePatientBranch } from '../../context/PatientBranchContext'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
-import { FeaturedOffers } from '../../components/promotions/PromotionCards'
+import { getMyAppointments, getCurrentPromotions } from '../../services/patient.service'
+import { formatAppointmentRange } from '../../utils/appointmentTime'
+import { getPatientDashboardSummary } from '../../utils/patientDashboardData.mjs'
 import PatientServices from '../../components/services/PatientServices'
 import PatientAnnouncementPromos from '../../components/promotions/PatientAnnouncementPromos'
-// client/src/pages/patientPage/PatientDashboard.jsx
-// REDESIGNED: Mobile-first, modern card layout, gradient hero, improved UX
+import { FeaturedOffers } from '../../components/promotions/PromotionCards'
 
-import { useEffect, useState, useRef } from "react"
-import { useAuth } from "../../context/AuthContext"
-import { getMyAppointments, getCurrentPromotions } from "../../services/patient.service"
-import { usePatientBranch } from "../../context/PatientBranchContext"
-import {
-  MdCalendarToday, MdEventAvailable, MdHistory,
-  MdAdd, MdPerson, MdArrowForward, MdAccessTime,
-  MdFace, MdMedicalServices, MdCheckCircle, MdFactCheck,
-} from "react-icons/md"
-import { NavLink } from "react-router-dom"
-import { parseDateOnly } from "../../utils/date"
-import { formatAppointmentRange, formatDurationMinutes, getReservedDurationMinutes } from "../../utils/appointmentTime"
+const motion = 'transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none'
+const focus = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600'
+const statusMeta = {
+  pending: { label: 'Awaiting confirmation', classes: 'bg-amber-50 text-amber-800 border-amber-200' },
+  confirmed: { label: 'Confirmed', classes: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  rescheduled: { label: 'Rescheduled', classes: 'bg-sky-50 text-sky-800 border-sky-200' },
+}
 
 function formatDate(raw) {
-  if (!raw) return "—"
-  const [y, m, d] = String(raw).slice(0, 10).split("-").map(Number)
-  if (!y || !m || !d) return String(raw)
-  return new Date(y, m - 1, d).toLocaleDateString("en-PH", {
-    weekday: "short", month: "short", day: "numeric",
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(raw || ''))
+  if (!match) return 'Date not available'
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString('en-PH', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
   })
 }
 
-const STATUS_STYLE = {
-  pending:     { label: "Pending",     bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200"   },
-  confirmed:   { label: "Confirmed",   bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
-  completed:   { label: "Completed",   bg: "bg-slate-100",  text: "text-slate-500",   border: "border-slate-200"   },
-  cancelled:   { label: "Cancelled",   bg: "bg-red-50",     text: "text-red-500",     border: "border-red-200"     },
-  rescheduled: { label: "Rescheduled", bg: "bg-sky-50",     text: "text-sky-700",     border: "border-sky-200"     },
-}
+const QuickLink = ({ to, icon: Icon, label, sublabel }) => <NavLink to={to} className={`group flex min-h-20 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 text-slate-800 shadow-sm hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${motion} ${focus}`}>
+  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><Icon className="text-[22px]" aria-hidden="true" /></span>
+  <span className="min-w-0 flex-1"><span className="block text-sm font-bold">{label}</span><span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-300">{sublabel}</span></span>
+  <MdArrowForward className="shrink-0 text-slate-400 group-hover:text-emerald-700" aria-hidden="true" />
+</NavLink>
 
-const PatientDashboard = () => {
+export default function PatientDashboard() {
   const { user } = useAuth()
-  const { branchId } = usePatientBranch()
-  const [upcoming,    setUpcoming]    = useState(null)
-  const [recentVisits,setRecentVisits]= useState([])
-  const [totalVisits, setTotalVisits] = useState(0)
-  const [loading,     setLoading]     = useState(true)
+  const { branchId, selectedBranch } = usePatientBranch()
+  const requestedBranch = useRef(String(branchId))
+  requestedBranch.current = String(branchId)
+  const [summary, setSummary] = useState({ upcoming: null, upcomingCount: 0, completedCount: 0, recentVisits: [] })
+  const [appointmentsLoading, setAppointmentsLoading] = useState(true)
+  const [appointmentsError, setAppointmentsError] = useState('')
   const [promotions, setPromotions] = useState([])
-  const [offersError,setOffersError]=useState('')
-  const [offersLoading,setOffersLoading]=useState(true)
-  const currentBranch=useRef(branchId)
-  currentBranch.current=branchId
+  const [offersError, setOffersError] = useState('')
+  const [offersLoading, setOffersLoading] = useState(true)
 
-  const loadAppointments=()=>getMyAppointments()
-      .then(data => {
-        const all = Array.isArray(data) ? data : []
-        const active = all
-          .filter(a => a.status === "confirmed" || a.status === "pending" || a.status === "rescheduled")
-          .sort((a, b) => {
-            const da = parseDateOnly(a.appointment_date || a.date || '')
-            const db = parseDateOnly(b.appointment_date || b.date || '')
-            if (!da && !db) return 0
-            if (!da) return 1
-            if (!db) return -1
-            return da - db
-          })
-        const completed = all.filter(a => a.status === "completed")
-        setUpcoming(active[0] || null)
-        setRecentVisits(completed.slice(0, 3))
-        setTotalVisits(completed.length)
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  useEffect(() => {void loadAppointments()},[])
-  useClinicRefresh(loadAppointments,['appointment.updated','queue.updated'],{fallbackMs:60000})
+  const loadAppointments = useCallback(async () => {
+    const requested = String(branchId)
+    if (!branchId) { setSummary({ upcoming: null, upcomingCount: 0, completedCount: 0, recentVisits: [] }); setAppointmentsLoading(false); return }
+    setAppointmentsLoading(true)
+    setAppointmentsError('')
+    try {
+      const data = await getMyAppointments()
+      if (requestedBranch.current === requested) setSummary(getPatientDashboardSummary(data, branchId))
+    } catch {
+      if (requestedBranch.current === requested) setAppointmentsError('We could not load your appointments.')
+    } finally {
+      if (requestedBranch.current === requested) setAppointmentsLoading(false)
+    }
+  }, [branchId])
+  useEffect(() => { void loadAppointments() }, [loadAppointments])
+  useClinicRefresh(loadAppointments, ['appointment.updated', 'queue.updated'], { fallbackMs: 60000 })
 
-  const loadOffers=()=>{if(!branchId){setPromotions([]);setOffersLoading(false);return Promise.resolve()}setOffersLoading(true);setOffersError('');return getCurrentPromotions(branchId).then(rows=>{if(currentBranch.current===branchId)setPromotions((Array.isArray(rows)?rows:[]).filter(promo=>promo.show_on_dashboard))}).catch(()=>{if(currentBranch.current===branchId){setOffersError('Could not load special offers.');setPromotions([])}}).finally(()=>{if(currentBranch.current===branchId)setOffersLoading(false)})}
-  useEffect(() => { setPromotions([]); void loadOffers() }, [branchId])
-  useClinicRefresh(loadOffers,['promotion.updated','service.updated'],{fallbackMs:60000})
+  const loadOffers = useCallback(async () => {
+    const requested = String(branchId)
+    if (!branchId) { setPromotions([]); setOffersLoading(false); return }
+    setOffersLoading(true)
+    setOffersError('')
+    try {
+      const data = await getCurrentPromotions(branchId)
+      if (requestedBranch.current === requested) setPromotions((Array.isArray(data) ? data : []).filter(offer => offer.show_on_dashboard))
+    } catch {
+      if (requestedBranch.current === requested) { setPromotions([]); setOffersError('We could not load the latest offers.') }
+    } finally {
+      if (requestedBranch.current === requested) setOffersLoading(false)
+    }
+  }, [branchId])
+  useEffect(() => { setPromotions([]); void loadOffers() }, [loadOffers])
+  useClinicRefresh(loadOffers, ['promotion.updated', 'service.updated'], { fallbackMs: 60000 })
 
-  const firstName = user?.full_name?.split(" ")[0] || "Patient"
-  const todayStr  = new Date().toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric" })
+  const firstName = String(user?.full_name || 'Patient').trim().split(/\s+/)[0]
+  const upcoming = summary.upcoming
+  const status = statusMeta[upcoming?.status] || statusMeta.pending
+  const branchName = selectedBranch?.name || 'your selected clinic'
 
-  const quickActions = [
-    { label: "Book Appointment",    icon: MdCalendarToday,  to: "/patient/book",           color: "bg-emerald-50 text-emerald-700 border-emerald-200"  },
-    { label: "My Appointments",     icon: MdEventAvailable, to: "/patient/appointments",   color: "bg-sky-50 text-sky-700 border-sky-200"              },
-    { label: "Appointment History", icon: MdHistory,        to: "/patient/history",        color: "bg-violet-50 text-violet-700 border-violet-200"     },
-  ]
+  return <main className="mx-auto w-full max-w-[1200px] space-y-6 pb-6 text-slate-900 dark:text-slate-100">
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div><h1 className="text-2xl font-black tracking-tight sm:text-3xl">Your Dashboard</h1><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Your visits, services, and clinic updates in one place.</p></div>
+      <p className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><MdLocationOn aria-hidden="true" className="text-emerald-600"/> {branchName}</p>
+    </header>
 
-  return (
-    <div className="max-w-3xl mx-auto space-y-5">
-
-
-      {/* ── Hero greeting ──────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c] p-6">
-        {/* decorative circles */}
-        <div className="absolute -top-6 -right-6 w-36 h-36 rounded-full bg-emerald-500/10 pointer-events-none" />
-        <div className="absolute -bottom-8 left-20 w-24 h-24 rounded-full bg-sky-500/10 pointer-events-none" />
-
-        <div className="relative flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-slate-400 text-xs font-medium mb-1">{todayStr}</p>
-            <h1 className="text-white text-xl lg:text-2xl font-black tracking-tight leading-tight">
-              Hello, <span className="text-emerald-400">{firstName}! 👋</span>
-            </h1>
-            <p className="text-slate-400 text-sm mt-1.5 leading-relaxed">
-              {upcoming
-                ? <>Your next appointment is on <span className="text-white font-semibold">{formatDate(upcoming.appointment_date || upcoming.date)}</span>.</>
-                : "No upcoming appointments. Book one today!"}
-            </p>
-          </div>
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center shrink-0">
-            <MdPerson className="text-emerald-400 text-[24px]" />
-          </div>
-        </div>
-
-        {/* Stat row */}
-        <div className="relative flex items-center gap-4 mt-5 pt-4 border-t border-white/5">
-          <div className="text-center">
-            <p className="text-2xl font-black text-white">{upcoming ? 1 : 0}</p>
-            <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Upcoming</p>
-          </div>
-          <div className="w-px h-8 bg-white/10" />
-          <div className="text-center">
-            <p className="text-2xl font-black text-white">{totalVisits}</p>
-            <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Completed</p>
-          </div>
-          <div className="ml-auto">
-            <NavLink to="/patient/book"
-              className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
-              <MdAdd className="text-[15px]" /> Book Now
-            </NavLink>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Quick Actions (mobile-optimised 3-col) ─────────────────────────── */}
-      <div className="grid grid-cols-3 gap-3">
-        {quickActions.map(({ label, icon: Icon, to, color }) => (
-          <NavLink key={label} to={to}
-            className={`flex flex-col items-center gap-2 p-3 lg:p-4 rounded-2xl border-2 transition-all
-              hover:-translate-y-0.5 hover:shadow-md active:scale-95 ${color}`}>
-            <div className="w-10 h-10 rounded-xl bg-white/60 flex items-center justify-center">
-              <Icon className="text-[20px]" />
-            </div>
-            <span className="text-[10px] lg:text-xs font-bold text-center leading-tight">
-              {label === "Book Appointment" ? "Book" : label === "My Appointments" ? "Appointments" : "History"}
-            </span>
-          </NavLink>
-        ))}
-      </div>
-
-      {/* Live bookable services and active branch promotions, not fixed prices. */}
-      <PatientServices branchId={branchId} />
-      <section className="space-y-3" aria-label="Current special offers">
-        {offersLoading?<div className="h-40 animate-pulse rounded-2xl bg-slate-200 motion-reduce:animate-none" role="status" aria-label="Loading offers"/>:offersError?<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{offersError} <button type="button" className="font-bold underline" onClick={loadOffers}>Try Again</button></div>:promotions.length?<FeaturedOffers promotions={promotions}/>:<div className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="text-lg font-bold text-slate-900">Special Offers</h2><p className="mt-1 text-sm text-slate-500">No featured offers at this clinic right now.</p><NavLink to="/patient/offers" className="mt-3 inline-flex min-h-11 items-center font-bold text-emerald-700">View All Clinic Offers <MdArrowForward/></NavLink></div>}
+    <div className="grid gap-4 lg:grid-cols-2">
+      <section className="relative flex min-h-[225px] flex-col justify-between overflow-hidden rounded-3xl bg-[#0c2036] p-5 text-white shadow-sm sm:p-6" aria-label="Welcome and booking">
+        <div className="pointer-events-none absolute -right-12 -top-14 h-52 w-52 rounded-full bg-emerald-500/10" />
+        <div className="relative"><p className="text-xs font-bold uppercase tracking-wide text-emerald-300">Welcome back</p><h2 className="mt-2 text-2xl font-black sm:text-[28px]">Hello, {firstName}!</h2><p className="mt-2 max-w-md text-sm leading-6 text-slate-200">Need to visit the clinic? Choose a service and request an appointment.</p></div>
+        <div className="relative mt-5 flex flex-wrap items-center justify-between gap-3"><NavLink to="/patient/book" className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-600 ${motion} ${focus}`}><MdAdd aria-hidden="true"/> Book Appointment <MdArrowForward aria-hidden="true"/></NavLink><span className="text-xs text-slate-300">{summary.completedCount} completed {summary.completedCount === 1 ? 'visit' : 'visits'} at this branch</span></div>
       </section>
 
-      <PatientAnnouncementPromos branchId={branchId} />
-
-      {/* ── Next Appointment Card ──────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <MdEventAvailable className="text-emerald-500 text-[16px]" />
-            Next Appointment
-          </h2>
-          <NavLink to="/patient/appointments"
-            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5">
-            View all <MdArrowForward className="text-[13px]" />
-          </NavLink>
-        </div>
-
-        {loading ? (
-          <div className="p-8 text-center">
-            <div className="w-6 h-6 border-2 border-slate-200 border-t-emerald-500 rounded-full animate-spin mx-auto" />
-          </div>
-        ) : upcoming ? (
-          <div className="p-5">
-            {/* Type badge + status */}
-            <div className="flex items-center gap-2 mb-3 flex-wrap">
-              <div className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border
-                ${upcoming.type === "derma"
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                  : "bg-sky-50 text-sky-700 border-sky-200"}`}>
-                {upcoming.type === "derma"
-                  ? <MdFace className="text-[12px]" />
-                  : <MdMedicalServices className="text-[12px]" />}
-                {upcoming.type === "derma" ? "Dermatology" : "General Medicine"}
-              </div>
-              {(() => {
-                const s = STATUS_STYLE[upcoming.status] || STATUS_STYLE.pending
-                return (
-                  <span className={`text-[11px] font-bold border px-2 py-0.5 rounded-full ${s.bg} ${s.text} ${s.border}`}>
-                    {s.label}
-                  </span>
-                )
-              })()}
-            </div>
-
-            {/* Doctor */}
-            <p className="text-lg font-bold text-slate-800 mb-3">
-              {upcoming.doctor || upcoming.doctor_name}
-            </p>
-
-            {/* Details grid */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="bg-slate-50 rounded-xl p-3">
-                <p className="text-[10px] text-slate-400 flex items-center gap-1 mb-1">
-                  <MdCalendarToday className="text-[11px]" /> Date
-                </p>
-                <p className="text-sm font-bold text-slate-800">
-                  {formatDate(upcoming.appointment_date || upcoming.date)}
-                </p>
-              </div>
-              <div className="bg-slate-50 rounded-xl p-3">
-                <p className="text-[10px] text-slate-400 flex items-center gap-1 mb-1">
-                  <MdAccessTime className="text-[11px]" /> Time
-                </p>
-                <p className="text-sm font-bold text-slate-800">
-                  {formatAppointmentRange(upcoming)}
-                </p>
-              </div>
-              {upcoming.requested_service_name_snapshot && (
-                <div className="col-span-2 bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-1">Service</p>
-                  <p className="text-sm font-semibold text-slate-700">{upcoming.requested_service_name_snapshot} · {formatDurationMinutes(getReservedDurationMinutes(upcoming))}</p>
-                </div>
-              )}
-              {upcoming.reason && (
-                <div className="col-span-2 bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] text-slate-400 mb-1">Reason</p>
-                  <p className="text-sm font-semibold text-slate-700">{upcoming.reason}</p>
-                </div>
-              )}
-            </div>
-
-            <NavLink to="/patient/appointments"
-              className="flex items-center justify-center gap-1.5 w-full py-2.5 text-xs font-bold
-                text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors">
-              Manage Appointment <MdArrowForward className="text-[13px]" />
-            </NavLink>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center py-10 text-center px-6">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-3">
-              <MdCalendarToday className="text-[24px] text-emerald-400" />
-            </div>
-            <p className="text-sm font-semibold text-slate-600 mb-1">No upcoming appointments</p>
-            <p className="text-xs text-slate-400 mb-4">Schedule your next visit with our doctors.</p>
-            <NavLink to="/patient/book"
-              className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-colors">
-              <MdAdd className="text-[14px]" /> Book Now
-            </NavLink>
-          </div>
-        )}
-      </div>
-
-      {/* ── Recent Visits ─────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <MdHistory className="text-slate-400 text-[16px]" />
-            Recent Visits
-          </h2>
-          <NavLink to="/patient/history"
-            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5">
-            View All <MdArrowForward className="text-[13px]" />
-          </NavLink>
-        </div>
-
-        {loading ? (
-          <div className="p-6 text-center">
-            <div className="w-6 h-6 border-2 border-slate-200 border-t-emerald-500 rounded-full animate-spin mx-auto" />
-          </div>
-        ) : recentVisits.length === 0 ? (
-          <div className="flex flex-col items-center py-8 text-center px-6">
-            <MdCheckCircle className="text-slate-200 text-[32px] mb-2" />
-            <p className="text-xs text-slate-400">No completed visits yet.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {recentVisits.map(visit => {
-              const Icon = visit.type === "derma" ? MdFace : MdMedicalServices
-              return (
-                <div key={visit.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0
-                    ${visit.type === "derma" ? "bg-emerald-50" : "bg-slate-100"}`}>
-                    <Icon className={`text-[17px] ${visit.type === "derma" ? "text-emerald-600" : "text-slate-500"}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">
-                      {visit.doctor || visit.doctor_name}
-                    </p>
-                    <p className="text-xs text-slate-400 truncate mt-0.5">
-                      {formatDate(visit.appointment_date || visit.date)} · {visit.reason || "—"}
-                    </p>
-                  </div>
-                  <span className="text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0
-                    bg-slate-100 text-slate-500 border-slate-200">
-                    Done
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      <section className="flex min-h-[225px] flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-6" aria-label="Your next appointment">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-center gap-2"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"><MdCalendarToday className="text-xl" aria-hidden="true"/></span><h2 className="text-base font-bold sm:text-lg">Next Appointment</h2></div><NavLink to="/patient/appointments" className={`inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-emerald-700 hover:underline dark:text-emerald-300 ${focus}`}>View All <MdArrowForward aria-hidden="true"/></NavLink></div>
+        {appointmentsLoading ? <div role="status" className="mt-5 h-24 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none dark:bg-slate-800" aria-label="Loading appointments"/> : appointmentsError ? <div role="alert" className="mt-5 text-sm text-rose-700"><p>{appointmentsError}</p><button type="button" onClick={loadAppointments} className="mt-2 inline-flex min-h-10 items-center gap-1 font-semibold underline"><MdRefresh aria-hidden="true"/> Try Again</button></div> : upcoming ? <div className="mt-4 flex flex-1 flex-col gap-2"><div className="flex flex-wrap items-center gap-2"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${status.classes}`}>{status.label}</span><span className="text-xs text-slate-500 dark:text-slate-300">{summary.upcomingCount} upcoming {summary.upcomingCount === 1 ? 'appointment' : 'appointments'}</span></div><p className="text-base font-bold">{upcoming.requested_service_name_snapshot || upcoming.clinic || (upcoming.clinic_type === 'derma' ? 'Dermatology' : 'General Medicine')}</p><p className="text-sm text-slate-600 dark:text-slate-300">{upcoming.doctor_name || upcoming.doctor || 'Doctor to be confirmed'}</p><div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 text-sm text-slate-700 dark:text-slate-200"><span className="inline-flex items-center gap-1.5"><MdCalendarToday aria-hidden="true"/>{formatDate(upcoming.appointment_date || upcoming.date)}</span><span className="inline-flex items-center gap-1.5"><MdAccessTime aria-hidden="true"/>{formatAppointmentRange(upcoming)}</span></div><p className="text-xs text-slate-500 dark:text-slate-300">{upcoming.branch_name || branchName}</p></div> : <div className="mt-5 flex flex-1 flex-col justify-center"><p className="text-base font-semibold">No upcoming appointments</p><p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">You don't have a scheduled visit at {branchName}. Use Book Appointment when you're ready.</p></div>}
+      </section>
     </div>
-  )
+
+    <nav aria-label="Quick actions" className="grid gap-3 md:grid-cols-3">
+      <QuickLink to="/patient/appointments" icon={MdEventAvailable} label="My Appointments" sublabel="See scheduled visits"/>
+      <QuickLink to="/patient/history" icon={MdHistory} label="Visit History" sublabel="Review past visits"/>
+      <QuickLink to="/patient/doctors" icon={MdPersonSearch} label="Find a Doctor" sublabel="See available doctors"/>
+    </nav>
+
+    <section className="space-y-3" aria-label="Current special offers">
+      {offersLoading ? <div role="status" className="h-36 animate-pulse rounded-2xl bg-slate-200 motion-reduce:animate-none" aria-label="Loading offers" /> : offersError ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><p>{offersError}</p><button type="button" onClick={loadOffers} className="mt-2 inline-flex min-h-10 items-center gap-1 font-bold underline"><MdRefresh aria-hidden="true"/> Try Again</button></div> : promotions.length ? <FeaturedOffers promotions={promotions} /> : <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"><div><h2 className="text-lg font-bold">Special Offers</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">No featured offers at this clinic right now.</p></div><NavLink to="/patient/offers" className={`inline-flex min-h-11 items-center gap-1 text-sm font-bold text-emerald-700 dark:text-emerald-300 ${focus}`}>View All Offers <MdArrowForward aria-hidden="true"/></NavLink></div>}
+    </section>
+
+    <PatientServices branchId={branchId} />
+    <PatientAnnouncementPromos branchId={branchId} />
+
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-label="Recent completed visits">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-700"><div><h2 className="text-lg font-bold">Recent Visits</h2><p className="mt-1 text-sm text-slate-500 dark:text-slate-300">Completed visits at this branch</p></div><NavLink to="/patient/history" className={`inline-flex min-h-11 items-center gap-1 text-sm font-bold text-emerald-700 dark:text-emerald-300 ${focus}`}>View History <MdArrowForward aria-hidden="true"/></NavLink></div>
+      {appointmentsLoading ? <div role="status" className="m-5 h-16 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none dark:bg-slate-800" aria-label="Loading recent visits"/> : appointmentsError ? <p className="px-5 py-4 text-sm text-slate-600 dark:text-slate-300">Recent visits are unavailable right now.</p> : !summary.recentVisits.length ? <p className="px-5 py-5 text-sm text-slate-600 dark:text-slate-300">No completed visits at this branch yet.</p> : <div className="divide-y divide-slate-100 dark:divide-slate-700">{summary.recentVisits.map(visit => <div key={visit.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"><div><p className="text-sm font-bold">{visit.requested_service_name_snapshot || (visit.clinic_type === 'derma' ? 'Dermatology Visit' : 'Medical Visit')}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{formatDate(visit.appointment_date || visit.date)} · {visit.doctor_name || visit.doctor || 'Doctor not recorded'}</p></div><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">Completed</span></div>)}</div>}
+    </section>
+  </main>
 }
-
-export default PatientDashboard
-
-
