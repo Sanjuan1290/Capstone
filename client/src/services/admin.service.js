@@ -415,6 +415,9 @@ export const resolveSupplyRequest = (id, status, note = '') =>
 export const getPatients = (search = '') =>
   requestJson(`${getAdminApiBase()}/patients?search=${encodeURIComponent(search)}`)
 
+export const getPatientDirectory = ({ search = '', page = 1, limit = 10 } = {}) =>
+  requestJson(`${getAdminApiBase()}/patients/directory?${new URLSearchParams({ search, page, limit })}`)
+
 export const getPatientRecord = (id) =>
   requestJson(`${getAdminApiBase()}/patients/${id}`)
 
@@ -538,4 +541,5 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
+
 

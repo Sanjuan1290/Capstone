@@ -1,3 +1,4 @@
+const { listBranchPatients, getBranchPatientRecord } = require('../utils/patientRecordView')
 const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const {attachBatchesToInventory}=require('../utils/inventoryBatches')
 // Physical-branch management. Unlike the legacy admin controller, every data
@@ -586,18 +587,13 @@ const originalPatients = async(req,res)=>{
     (SELECT 1 FROM appointments a WHERE a.patient_id=p.id AND a.branch_id=?)
     ORDER BY p.full_name LIMIT 500`,[req.branchId]);res.json(rows)
 }
-const originalPatientDetails=async(req,res)=>{
-  const patientId=Number(req.params.id)
-  if(!validId(patientId))return res.status(400).json({message:'Invalid patient.'})
-  const [[patient]]=await db.query(`SELECT p.id,p.full_name,p.birthdate,p.gender,p.sex,p.civil_status,p.phone,p.address,p.email,p.created_at,p.profile_image_url,p.is_walk_in FROM patients p WHERE p.id=? AND EXISTS
-    (SELECT 1 FROM appointments a WHERE a.patient_id=p.id AND a.branch_id=?)`,[patientId,req.branchId])
-  if(!patient)return res.status(404).json({message:'Patient not found in this branch.'})
-  const [history]=await db.query(`SELECT a.*,DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,
-      d.full_name AS doctor_name,c.diagnosis,c.prescription,c.notes AS consultation_notes
-      FROM appointments a JOIN doctors d ON d.id=a.doctor_id
-      LEFT JOIN consultations c ON c.appointment_id=a.id AND c.branch_id=a.branch_id
-      WHERE a.patient_id=? AND a.branch_id=? ORDER BY a.appointment_date DESC LIMIT 500`,[patientId,req.branchId])
-  res.json({patient,history})
+const branchPatientDirectory = async (req,res) => {
+  res.json(await listBranchPatients({branchId:req.branchId,search:req.query.search,page:req.query.page,limit:req.query.limit}))
+}
+const originalPatientDetails = async (req,res) => {
+  const patient = await getBranchPatientRecord({branchId:req.branchId,patientId:req.params.id,canViewBilling:req.adminPermissions.includes('billing')})
+  if (!patient) return res.status(404).json({message:'Patient not found in this branch.'})
+  res.json(patient)
 }
 const originalDoctors=async(req,res)=>{
   const [rows]=await db.query('SELECT d.id,d.full_name,d.full_name AS name,d.email,d.phone,d.specialty,d.clinic_type,d.clinic_type AS type,d.prc_license,a.is_active,d.created_at FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id WHERE a.branch_id=? ORDER BY d.full_name',[req.branchId]);res.json(rows)
@@ -638,6 +634,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.get(`${prefix}/dashboard`,...middle,requirePermission('dashboard'),originalDashboard)
   router.get(`${prefix}/appointments`,...middle,requirePermission('appointments'),originalAppointments)
   router.get(`${prefix}/patients`,...middle,allowAnyPermission('patient_records','appointments'),originalPatients)
+  router.get(`${prefix}/patients/directory`,...middle,requirePermission('patient_records'),branchPatientDirectory)
   router.get(`${prefix}/patients/:id`,...middle,requirePermission('patient_records'),originalPatientDetails)
   router.get(`${prefix}/walk-in/doctors`,...middle,requirePermission('appointments'),async(req,res,next)=>{
     try{
@@ -748,6 +745,7 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 
 
 

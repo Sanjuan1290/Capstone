@@ -112,6 +112,9 @@ export const createWalkInPatient = (payload) =>
     body: JSON.stringify(payload),
   })
 
+export const getPatientDirectory = ({ search = '', page = 1, limit = 10 } = {}) =>
+  requestJson(`${BASE}/patients/directory?${new URLSearchParams({ search, page, limit })}`)
+
 export const getPatientRecord = (id) =>
   requestJson(`${BASE}/patients/${id}`)
 
@@ -279,3 +282,4 @@ export const cancelStaffQrPayment = (id, attemptId) => requestJson(`${BASE}/bill
 
 
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${BASE}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
+

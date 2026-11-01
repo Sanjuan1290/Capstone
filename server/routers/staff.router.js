@@ -1,3 +1,4 @@
+const { listBranchPatients } = require('../utils/patientRecordView')
 const reminderRoutes=require('./appointmentReminderRoutes')
 // server/routers/staff.router.js
 const express    = require('express')
@@ -99,6 +100,7 @@ router.patch('/queue/:id/status',            ...auth, can('appointments'), staff
 router.get('/patients', ...auth, canAny('appointments', 'patient_records'), staffCtrl.getPatients)
 router.get('/patients/walk-in-lookup', ...auth, can('appointments'), staffCtrl.lookupWalkInPatients)
 router.post('/patients/walk-in', ...auth, can('appointments'), staffCtrl.createWalkInPatient)
+router.get('/patients/directory', ...auth, can('patient_records'), async(req,res)=>res.json(await listBranchPatients({branchId:req.branchId,search:req.query.search,page:req.query.page,limit:req.query.limit})))
 router.get('/patients/:id', ...auth, can('patient_records'), staffCtrl.getPatientRecord)
 
 // ── Checkout / Billing ───────────────────────────────────────────────────────
@@ -211,3 +213,4 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), u
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
 
 module.exports = router
+

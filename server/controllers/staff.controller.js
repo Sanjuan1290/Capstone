@@ -59,6 +59,7 @@ const { expirePendingAppointments } = require('../utils/pendingAppointmentExpiry
 const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
 const { resolveDiscountForDraft, loadDiscountPreset } = require('../utils/billingSecurity')
 const { loadStaffPermissions } = require('../utils/staffPermissions')
+const { getBranchPatientRecord } = require('../utils/patientRecordView')
 const { withSystemOtherVisitReason } = require('../utils/appointmentReasons')
 const { verifyUploadSecurityToken } = require('../utils/cloudinarySecurity')
 
@@ -804,55 +805,13 @@ const createWalkInPatient = async (req, res) => {
 }
 
 const getPatientRecord = async (req, res) => {
-  const [pRows] = await db.query(
-    `SELECT id, full_name, email, phone, sex,
-            DATE_FORMAT(birthdate, '%Y-%m-%d') AS birthdate,
-            address, civil_status, created_at
-     FROM patients WHERE id = ? AND EXISTS (
-       SELECT 1 FROM appointments a WHERE a.patient_id=patients.id AND a.branch_id=?
-     )`,
-    [req.params.id, req.branchId]
-  )
-  if (pRows.length === 0) return res.status(404).json({ message: 'Patient not found.' })
-  const patient = pRows[0]
-
-  const [history] = await db.query(
-    `SELECT a.*,
-            DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS date,
-            a.appointment_time                          AS time,
-            a.clinic_type                               AS type,
-            d.full_name AS doctor_name, d.specialty,
-            c.id AS consultation_id, c.diagnosis, c.prescription, c.notes AS consultation_notes
-     FROM appointments a
-     JOIN doctors d ON a.doctor_id = d.id
-     LEFT JOIN consultations c ON c.appointment_id = a.id
-     WHERE a.patient_id = ? AND a.branch_id = ?
-     ORDER BY a.appointment_date DESC`,
-    [req.params.id, req.branchId]
-  )
-  const imagesByConsultationId = await loadImagesForConsultationIds(history.map((row) => row.consultation_id))
-  const [billingHistory] = await db.query(
-    `SELECT b.id, b.status, b.subtotal, b.discount_amount, b.total_amount, b.payment_method, b.paid_at, b.created_at,
-            DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
-            a.reason, d.full_name AS doctor_name,
-            COALESCE((SELECT SUM(CASE WHEN bp.status = 'completed' THEN bp.amount - COALESCE(bp.refund_amount, 0) ELSE 0 END)
-                      FROM billing_payments bp WHERE bp.billing_id = b.id), 0) AS paid_amount
-     FROM billing_records b
-     JOIN appointments a ON a.id = b.appointment_id
-     JOIN doctors d ON d.id = b.doctor_id
-     WHERE b.patient_id = ? AND b.branch_id = ?
-     ORDER BY COALESCE(b.paid_at, b.created_at) DESC`,
-    [req.params.id, req.branchId]
-  )
-
-  res.json({
-    patient,
-    history: history.map((row) => ({
-      ...row,
-      progress_images: imagesByConsultationId[row.consultation_id] || [],
-    })),
-    billing: billingHistory.map((bill) => ({ ...bill, balance_amount: Math.max(0, Number(bill.total_amount || 0) - Number(bill.paid_amount || 0)) })),
-  })
+  // patient_records permission is checked by the router. Financial details
+  // additionally require checkout or billing permission.
+  const permissions = Array.isArray(req.staffPermissions) ? req.staffPermissions : await loadStaffPermissions(req.user.id)
+  const canViewBilling = permissions.includes('billing') || permissions.includes('checkout')
+  const record = await getBranchPatientRecord({branchId:req.branchId,patientId:req.params.id,canViewBilling})
+  if (!record) return res.status(404).json({message:'Patient not found in this branch.'})
+  res.json(record)
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
@@ -2144,5 +2103,6 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
