@@ -3,13 +3,11 @@ import {
   MdAdd,
   MdCalendarToday,
   MdCheck,
-  MdChevronLeft,
-  MdChevronRight,
+  MdPriorityHigh,
+  MdTune,
+  MdCheckCircle,
   MdClose,
-  MdEventAvailable,
-  MdOutlineRemoveRedEye,
   MdRefresh,
-  MdSchedule,
   MdSearch,
   MdPersonAdd,
   MdBadge,
@@ -18,6 +16,8 @@ import {
   MdHome,
 } from 'react-icons/md'
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
+import Pagination from '../../components/ui/Pagination'
+import { APPOINTMENT_PAGE_SIZES, appointmentStats, filterAppointmentList, isAwaitingAction, hasRescheduleRequest, paginateAppointments, sortAppointmentList, visiblePageNumbers } from '../../utils/appointmentList.mjs'
 import { getClinicToday, getMinPatientBirthdate } from '../../utils/patientBirthdate.mjs'
 import CancellationReasonModal from '../../components/appointments/CancellationReasonModal'
 import {
@@ -25,16 +25,15 @@ import {
   formatAppointmentTimeRange,
   formatDurationMinutes,
   getReservedDurationMinutes,
-  parseAppointmentTimeMinutes,
   roundToBookingBlock,
 } from '../../utils/appointmentTime'
 
 const maxPatientBirthdate = getClinicToday
 const minPatientBirthdate = getMinPatientBirthdate
 
-const PAGE_SIZE = 10
 const STATUS_TABS = [
-  { key: 'all', label: 'All' },
+  { key: 'all', label: 'All Appointments' },
+  { key: 'needs_action', label: 'Needs Attention' },
   { key: 'pending', label: 'Pending' },
   { key: 'confirmed', label: 'Confirmed' },
   { key: 'completed', label: 'Completed' },
@@ -76,13 +75,6 @@ const reminderReasonText = {
 }
 const formatReminderResult = (entry) => `${entry.channel === 'email' ? 'Email' : 'SMS'}: ${entry.status}${entry.reason ? ` — ${reminderReasonText[entry.reason] || entry.reason.replace(/_/g, ' ')}` : ''}`
 const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : value === 'medical' ? 'General Medicine' : 'Other'
-const timeToMinutes = (value) => parseAppointmentTimeMinutes(value) ?? 0
-const compareVisitTime = (a, b, direction = 1) => {
-  const aDate = String(a.appointment_date || a.date || '').slice(0, 10)
-  const bDate = String(b.appointment_date || b.date || '').slice(0, 10)
-  if (aDate !== bDate) return aDate.localeCompare(bDate) * direction
-  return (timeToMinutes(a.appointment_time || a.time) - timeToMinutes(b.appointment_time || b.time)) * direction
-}
 const getActionsForStatus = (status) => {
   if (status === 'pending') return ['confirm', 'cancel', 'reschedule']
   if (status === 'confirmed') return ['cancel', 'reschedule', 'no_show']
@@ -110,9 +102,20 @@ const ActionDialog = ({ title, message, details, confirmText = 'Continue', confi
  </div>
 )
 
-const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onReschedule, onView, onReminder }) => {
+const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onReschedule, onView, onReminder, compact = false }) => {
   const actions = getActionsForStatus(appointment.status)
   const busy = busyId === appointment.id
+
+  if (compact) return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" disabled={busy} onClick={() => onView(appointment)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-sky-300 hover:bg-sky-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600">
+        {isPendingReschedule(appointment) ? 'Review Request' : 'View Details'}
+      </button>
+      {appointment.status === 'pending' && !isPendingReschedule(appointment) && (
+        <button type="button" disabled={busy} onClick={() => onConfirm(appointment)} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-50">Confirm</button>
+      )}
+    </div>
+  )
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -141,11 +144,7 @@ const ActionButtons = ({ appointment, busyId, onConfirm, onCancel, onNoShow, onR
           Mark as Did Not Arrive
         </button>
       )}
-      {actions.includes('view') && (
-        <button onClick={() => onView(appointment)} className={`${buttonBase} bg-slate-100 text-slate-700 hover:bg-slate-200`}>
-          View
-        </button>
-      )}
+
     </div>
   )
 }
@@ -213,12 +212,12 @@ const RescheduleDrawer = ({ appointment, services, onClose, onSave }) => {
   </>
 }
 
-const AppointmentViewModal = ({ appointment, onClose }) => {
+const AppointmentViewModal = ({ appointment, onClose, busyId, onConfirm, onCancel, onNoShow, onReschedule, onReminder }) => {
   if (!appointment) return null
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
+      <div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl max-h-[92vh] overflow-y-auto">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-bold text-slate-800">{appointment.patient_name || appointment.patient}</p>
@@ -244,6 +243,12 @@ const AppointmentViewModal = ({ appointment, onClose }) => {
           {appointment.status === 'rejected' && <div className="sm:col-span-2 rounded-2xl border border-violet-100 bg-violet-50 p-3"><span className="block text-xs font-bold text-violet-500">Rejection Reason</span><p className="mt-1 font-semibold text-violet-800">{appointment.rejection_reason === 'confirmation_timeout' ? 'Clinic confirmation deadline passed' : (appointment.rejection_reason || 'Not recorded')}</p></div>}
           {appointment.status === 'cancelled' && <div className="sm:col-span-2 rounded-2xl border border-red-100 bg-red-50 p-3"><span className="block text-xs font-bold text-red-500">Reason for Cancellation</span><p className="mt-1 font-semibold text-red-800">{appointment.cancellation_reason_snapshot || 'Not recorded'}</p>{appointment.cancellation_details && <p className="mt-1 text-xs text-red-700">{appointment.cancellation_details}</p>}</div>}
         </div>
+        {!['completed', 'cancelled', 'rejected', 'no_show'].includes(appointment.status) && (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <p className="mb-2 text-sm font-semibold text-slate-800">Appointment actions</p>
+            <ActionButtons appointment={appointment} busyId={busyId} onConfirm={onConfirm} onCancel={onCancel} onNoShow={onNoShow} onReschedule={onReschedule} onReminder={onReminder} onView={() => {}} />
+          </div>
+        )}
       </div>
     </>
   )
@@ -626,6 +631,10 @@ const Appointments = ({ services }) => {
   const [dialog, setDialog] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('all')
+  const [sortOrder, setSortOrder] = useState('priority')
+  const [pageSize, setPageSize] = useState(10)
+  const [moreFilters, setMoreFilters] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [query, setQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -640,9 +649,12 @@ const Appointments = ({ services }) => {
 
   const loadAppointments = useCallback(async () => {
     setLoading(true)
+    setLoadError('')
     try {
       const rows = await services.getAppointments()
       setAppointments(Array.isArray(rows) ? rows : [])
+    } catch (error) {
+      setLoadError(error?.message || 'Appointments could not be loaded. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -658,61 +670,52 @@ const Appointments = ({ services }) => {
     return () => window.removeEventListener('clinic:refresh', refresh)
   }, [loadAppointments])
 
-  const pendingCount = useMemo(() => appointments.filter((appointment) => appointment.status === 'pending').length, [appointments])
+  const today = getClinicToday()
+  const stats = useMemo(() => appointmentStats(appointments, today), [appointments, today])
   const doctorOptions = useMemo(() => Array.from(new Set(appointments.map((appointment) => appointment.doctor).filter(Boolean))).sort((a,b) => a.localeCompare(b)), [appointments])
   const clinicOptions = useMemo(() => Array.from(new Set(appointments.map((appointment) => appointment.clinic_type || appointment.type).filter(Boolean))), [appointments])
-
+  const needsAttention = useMemo(() => sortAppointmentList(appointments.filter(isAwaitingAction), { tab: 'needs_action', today }), [appointments, today])
   const filteredAppointments = useMemo(() => {
-    const filtered = appointments.filter((appointment) => {
-      const matchesTab = tab === 'all' || appointment.status === tab
-      const searchNeedle = query.trim().toLowerCase()
-      const matchesSearch = !searchNeedle || [appointment.patient_name, appointment.patient, appointment.doctor, appointment.requested_service_name_snapshot, appointment.reason, appointment.cancellation_reason_snapshot, appointment.cancellation_details]
-        .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(searchNeedle))
+    const filtered = filterAppointmentList(appointments, { tab, query, dateFrom, dateTo, clinicFilter, doctorFilter })
+    return sortAppointmentList(filtered, { tab, order: sortOrder, today })
+  }, [appointments, tab, query, dateFrom, dateTo, clinicFilter, doctorFilter, sortOrder, today])
+  const pagination = useMemo(() => paginateAppointments(filteredAppointments, page, pageSize), [filteredAppointments, page, pageSize])
+  const { totalPages, currentPage, items: paginatedAppointments } = pagination
+  const hasFilters = Boolean(query || dateFrom || dateTo || clinicFilter !== 'all' || doctorFilter !== 'all' || tab !== 'all')
 
-      const appointmentDate = (appointment.appointment_date || appointment.date || '').slice(0, 10)
-      const matchesFrom = !dateFrom || appointmentDate >= dateFrom
-      const matchesTo = !dateTo || appointmentDate <= dateTo
-      const appointmentClinic = appointment.clinic_type || appointment.type || ''
-      const matchesClinic = clinicFilter === 'all' || appointmentClinic === clinicFilter
-      const matchesDoctor = doctorFilter === 'all' || appointment.doctor === doctorFilter
-      return matchesTab && matchesSearch && matchesFrom && matchesTo && matchesClinic && matchesDoctor
-    })
+  useEffect(() => { setPage(1) }, [tab, query, dateFrom, dateTo, clinicFilter, doctorFilter, sortOrder, pageSize])
 
-    const today = getLocalDateOnly()
-    return [...filtered].sort((a, b) => {
-      if (tab === 'pending') return new Date(b.created_at || 0) - new Date(a.created_at || 0) || Number(b.id || 0) - Number(a.id || 0)
-      if (tab === 'confirmed' || tab === 'rescheduled') return compareVisitTime(a, b, 1)
-      if (['completed','cancelled','no_show','rejected'].includes(tab)) return new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0) || Number(b.id || 0) - Number(a.id || 0)
-
-      const aDate = String(a.appointment_date || a.date || '').slice(0,10)
-      const bDate = String(b.appointment_date || b.date || '').slice(0,10)
-      const aActive = aDate >= today && !['completed','cancelled','no_show','rejected'].includes(a.status)
-      const bActive = bDate >= today && !['completed','cancelled','no_show','rejected'].includes(b.status)
-      if (aActive !== bActive) return aActive ? -1 : 1
-      return aActive ? compareVisitTime(a,b,1) : compareVisitTime(a,b,-1)
-    })
-  }, [appointments, tab, query, dateFrom, dateTo, clinicFilter, doctorFilter])
-
-  const totalPages = Math.max(1, Math.ceil(filteredAppointments.length / PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
-  const paginatedAppointments = filteredAppointments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-
-  useEffect(() => {
+  const clearFilters = () => {
+    setTab('all')
+    setQuery('')
+    setDateFrom('')
+    setDateTo('')
+    setClinicFilter('all')
+    setDoctorFilter('all')
+    setSortOrder('priority')
     setPage(1)
-  }, [tab, query, dateFrom, dateTo, clinicFilter, doctorFilter])
+  }
+  const showToday = () => {
+    setTab('all')
+    setDateFrom(today)
+    setDateTo(today)
+    setQuery('')
+    setClinicFilter('all')
+    setDoctorFilter('all')
+    setPage(1)
+  }
 
   const runAction = async (appointment, action) => {
     setBusyId(appointment.id)
     try {
       const result = await action()
       if (result?.message && /failed|not found|invalid/i.test(result.message)) {
-        alert(result.message)
+        setDialog({ type: 'message', title: 'Appointment action could not be completed', message: result.message })
       } else {
         await loadAppointments()
       }
     } catch (err) {
-      alert(err.message || 'Action failed.')
+      setDialog({ type: 'message', title: 'Appointment action could not be completed', message: err.message || 'Please try again.' })
     } finally {
       setBusyId(null)
     }
@@ -763,8 +766,7 @@ const Appointments = ({ services }) => {
   }
   const handleNoShow = (appointment) => {
     if (!services.markAppointmentNoShow) return
-    if (!window.confirm('Mark this appointment as no-show?')) return
-    runAction(appointment, () => services.markAppointmentNoShow(appointment.id))
+    setDialog({ type: 'no_show_confirm', appointment, title: 'Mark as Did Not Arrive?', message: `Mark ${appointment.patient_name || appointment.patient || 'this patient'} as not arrived for this appointment? This will update the appointment status.` })
   }
 
   return (
@@ -772,10 +774,10 @@ const Appointments = ({ services }) => {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Appointments</h1>
-          <p className="mt-1 text-sm text-slate-500">Track patient schedules, confirmations, and missed visits.</p>
+          <p className="mt-1 text-sm text-slate-500">Review requests needing confirmation, manage schedules, and find previous appointments.</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={loadAppointments} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={loading} onClick={loadAppointments} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
             <MdRefresh /> Refresh
           </button>
           {services.createAppointment && (
@@ -786,29 +788,87 @@ const Appointments = ({ services }) => {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* Immediate priorities, visible without selecting the Pending tab. */}
+      <div className="grid gap-3 sm:grid-cols-3" aria-label="Appointment summary">
+        <button type="button" onClick={() => {setTab('needs_action');setDateFrom('');setDateTo('');setQuery('');setClinicFilter('all');setDoctorFilter('all')}} className="flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left transition hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700">
+          <div><p className="text-sm font-semibold text-amber-900">Needs Attention</p><p className="mt-1 text-xs text-amber-800">Awaiting confirmation or reschedule review</p></div>
+          <span className="ml-3 text-3xl font-black tabular-nums text-amber-900">{loading ? '…' : stats.needsAction}</span>
+        </button>
+        <button type="button" onClick={showToday} className="flex items-center justify-between rounded-2xl border border-sky-200 bg-sky-50 p-4 text-left transition hover:bg-sky-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700">
+          <div><p className="text-sm font-semibold text-sky-900">Today's Visits</p><p className="mt-1 text-xs text-sky-700">Appointments dated today</p></div>
+          <span className="ml-3 text-3xl font-black tabular-nums text-sky-900">{loading ? '…' : stats.today}</span>
+        </button>
+        <button type="button" onClick={clearFilters} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-600">
+          <div><p className="text-sm font-semibold text-slate-900">All Appointments</p><p className="mt-1 text-xs text-slate-600">View every status and date</p></div>
+          <span className="ml-3 text-3xl font-black tabular-nums text-slate-900">{loading ? '…' : stats.all}</span>
+        </button>
+      </div>
+
+      {!loading && !loadError && (needsAttention.length > 0 ? (
+        <section aria-labelledby="needs-attention-title" className="rounded-3xl border border-amber-200 bg-amber-50/70 p-4 sm:p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 id="needs-attention-title" className="flex items-center gap-2 text-base font-bold text-slate-900"><MdPriorityHigh className="text-xl text-amber-700" /> Requests needing attention ({needsAttention.length})</h2>
+              <p className="mt-1 text-sm text-slate-700">Review these requests first. They are also listed at the top of All Appointments.</p>
+            </div>
+            <button type="button" onClick={() => {setTab('needs_action');setDateFrom('');setDateTo('');setQuery('');setClinicFilter('all');setDoctorFilter('all')}} className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 transition hover:bg-amber-100">View all {needsAttention.length} requests</button>
+          </div>
+          <div className="grid gap-2 lg:grid-cols-3">
+            {needsAttention.slice(0, 3).map((appointment) => (
+              <div key={appointment.id} className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm motion-safe:transition-shadow motion-safe:duration-200 hover:shadow-md">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-slate-900">{appointment.patient_name || appointment.patient || 'Patient'}</p>
+                  <StatusBadge status={appointment.status} appointment={appointment} />
+                </div>
+                <p className="text-xs text-slate-700">{formatDate(appointment.appointment_date || appointment.date)} · {formatAppointmentRange(appointment)}</p>
+                <p className="mt-1 truncate text-xs text-slate-500">{appointment.requested_service_name_snapshot || appointment.reason || 'Clinic visit'} · {appointment.doctor || 'Doctor not recorded'}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => setViewAppointment(appointment)} className="rounded-xl bg-[#0b1a2c] px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800">{hasRescheduleRequest(appointment) ? 'Review Reschedule' : 'Review Request'}</button>
+                  {!hasRescheduleRequest(appointment) && <button type="button" onClick={() => handleConfirm(appointment)} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100">Confirm</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><MdCheckCircle className="shrink-0 text-lg" /> No appointments are waiting for confirmation.</div>
+      ))}
+
+      <div className="overflow-x-auto" aria-label="Filter appointments by status">
         <div className="flex min-w-max gap-2">
           {STATUS_TABS.map((status) => (
             <button
               key={status.key}
+              type="button"
+              aria-pressed={tab === status.key}
               onClick={() => setTab(status.key)}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${tab === status.key ? 'bg-[#0b1a2c] text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
+              className={`rounded-full border px-4 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 ${tab === status.key ? 'border-[#0b1a2c] bg-[#0b1a2c] text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
             >
-              {status.label}{status.key === 'pending' && pendingCount > 0 ? ` ${pendingCount}` : ''}
+              {status.label} <span className={`ml-1 rounded-full px-1.5 py-0.5 text-xs tabular-nums ${tab === status.key ? 'bg-white/20' : status.key === 'needs_action' && stats.needsAction ? 'bg-amber-100 text-amber-900' : 'bg-slate-100'}`}>{status.key === 'all' ? stats.all : status.key === 'needs_action' ? stats.needsAction : (stats.byStatus[status.key] || 0)}</span>
             </button>
           ))}
         </div>
       </div>
 
       <div className="rounded-3xl border border-slate-200 bg-white p-4">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-          <label className="block md:col-span-2 xl:col-span-2">
-            <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Search</span>
-            <div className="relative">
-              <MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" placeholder="Search patient, doctor, service or reason..." />
-            </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block min-w-[220px] flex-1">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-600">Find an appointment</span>
+            <div className="relative"><MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(e)=>setQuery(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400" placeholder="Patient, phone, email, doctor or service" /></div>
           </label>
+          <button type="button" onClick={showToday} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Today</button>
+          <button type="button" onClick={() => setMoreFilters(current => !current)} aria-expanded={moreFilters} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"><MdTune /> {moreFilters ? 'Hide Filters' : 'More Filters'}</button>
+          {hasFilters && <button type="button" onClick={clearFilters} className="rounded-xl px-3 py-3 text-sm font-semibold text-sky-800 hover:bg-sky-50">Clear All</button>}
+        </div>
+        {(dateFrom || dateTo || clinicFilter !== 'all' || doctorFilter !== 'all') && (
+          <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Active appointment filters">
+            <span className="text-xs font-semibold text-slate-600">Active filters:</span>
+            {(dateFrom || dateTo) && <button type="button" onClick={() => {setDateFrom('');setDateTo('')}} className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100">Date: {dateFrom === dateTo ? formatDate(dateFrom) : `${dateFrom ? formatDate(dateFrom) : 'Any'} – ${dateTo ? formatDate(dateTo) : 'Any'}`} <MdClose aria-hidden="true" /></button>}
+            {clinicFilter !== 'all' && <button type="button" onClick={() => setClinicFilter('all')} className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100">{clinicLabel(clinicFilter)} <MdClose aria-hidden="true" /></button>}
+            {doctorFilter !== 'all' && <button type="button" onClick={() => setDoctorFilter('all')} className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100">Doctor: {doctorFilter} <MdClose aria-hidden="true" /></button>}
+          </div>
+        )}
+        {moreFilters && <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 md:grid-cols-2 xl:grid-cols-6">
           <label className="block">
             <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">From Date</span>
             <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="form-control" />
@@ -818,9 +878,9 @@ const Appointments = ({ services }) => {
             <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="form-control" />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic</span>
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Visit Type</span>
             <select value={clinicFilter} onChange={(e) => setClinicFilter(e.target.value)} className="form-control">
-              <option value="all">All Clinics</option>
+              <option value="all">All Visit Types</option>
               {clinicOptions.map((clinic) => <option key={clinic} value={clinic}>{clinicLabel(clinic)}</option>)}
             </select>
           </label>
@@ -831,13 +891,33 @@ const Appointments = ({ services }) => {
               {doctorOptions.map((doctor) => <option key={doctor} value={doctor}>{doctor}</option>)}
             </select>
           </label>
-        </div>
+        </div>}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-          <p className="text-sm text-slate-500"><strong className="text-slate-800">{filteredAppointments.length}</strong> appointment{filteredAppointments.length === 1 ? '' : 's'} found</p>
-          <button type="button" className="button-secondary" onClick={() => { setQuery(''); setDateFrom(''); setDateTo(''); setClinicFilter('all'); setDoctorFilter('all') }}>Clear Filters</button>
+          <div>
+            <p className="text-sm font-semibold text-slate-800">{filteredAppointments.length} appointment{filteredAppointments.length === 1 ? '' : 's'} found</p>
+            <p className="mt-0.5 text-xs text-slate-500">{tab === 'all' && sortOrder === 'priority' ? 'Requests requiring attention appear first.' : 'Showing appointments matching your selected filters.'}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">Sort by
+              <select value={sortOrder} onChange={(event)=>setSortOrder(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800">
+                <option value="priority">Needs attention first</option>
+                <option value="soonest">Upcoming first</option>
+                <option value="newest">Newest requests</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">Rows per page
+              <select value={pageSize} onChange={(event)=>setPageSize(Number(event.target.value))} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm text-slate-800">{APPOINTMENT_PAGE_SIZES.map((size)=><option key={size} value={size}>{size}</option>)}</select>
+            </label>
+            {totalPages > 1 && <div className="flex items-center gap-1" aria-label="Quick page controls">
+              <button type="button" disabled={currentPage === 1} onClick={()=>setPage(currentPage-1)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-40">Previous</button>
+              <span className="px-2 text-xs font-semibold text-slate-700">{currentPage} / {totalPages}</span>
+              <button type="button" disabled={currentPage === totalPages} onClick={()=>setPage(currentPage+1)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-40">Next</button>
+            </div>}
+          </div>
         </div>
       </div>
 
+      {loadError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3"><p className="text-sm font-medium text-rose-800">We couldn't refresh the appointments: {loadError}</p><button type="button" onClick={loadAppointments} className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100">Try Again</button></div>}
       {loading ? (
         <div className="flex h-64 items-center justify-center rounded-3xl border border-slate-200 bg-white">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
@@ -846,9 +926,9 @@ const Appointments = ({ services }) => {
         <>
           <div className="space-y-4 md:hidden">
             {paginatedAppointments.length === 0 ? (
-              <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">No appointments found.</div>
+              <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">{hasFilters ? 'No appointments match these filters. Try another status or clear the filters.' : 'No appointments recorded yet.'}</div>
             ) : paginatedAppointments.map((appointment) => (
-              <div key={appointment.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div key={appointment.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm motion-safe:transition-shadow motion-safe:duration-200">
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div>
                     <p className="text-base font-bold text-slate-800">{appointment.patient_name || appointment.patient}</p>
@@ -875,6 +955,7 @@ const Appointments = ({ services }) => {
                     onReschedule={setRescheduleAppointment}
                     onReminder={handleReminder}
                     onView={setViewAppointment}
+                    compact
                   />
                 </div>
               </div>
@@ -898,10 +979,10 @@ const Appointments = ({ services }) => {
               <tbody>
                 {paginatedAppointments.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-5 py-12 text-center text-sm text-slate-400">No appointments found.</td>
+                    <td colSpan="8" className="px-5 py-12 text-center text-sm text-slate-400">{hasFilters ? 'No appointments match these filters. Try another status or clear the filters.' : 'No appointments recorded yet.'}</td>
                   </tr>
                 ) : paginatedAppointments.map((appointment) => (
-                  <tr key={appointment.id} className="border-t border-slate-100 align-top">
+                  <tr key={appointment.id} className="border-t border-slate-100 align-top motion-safe:transition-colors motion-safe:duration-150 hover:bg-sky-50/30">
                     <td className="px-5 py-4">
                       <p className="text-base font-bold text-slate-900">{appointment.patient_name || appointment.patient}</p>
                     </td>
@@ -919,8 +1000,9 @@ const Appointments = ({ services }) => {
                         onCancel={handleCancel}
                         onNoShow={handleNoShow}
                         onReschedule={setRescheduleAppointment}
-                        onReminder={handleReminder}
-                    onView={setViewAppointment}
+                            onReminder={handleReminder}
+                        onView={setViewAppointment}
+                        compact
                       />
                     </td>
                   </tr>
@@ -929,18 +1011,13 @@ const Appointments = ({ services }) => {
             </table>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-            <p>Page {currentPage} of {totalPages}</p>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={() => setPage(1)} disabled={currentPage === 1} className="rounded-xl border border-slate-200 px-3 py-2 disabled:opacity-50">First</button>
-              <button onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={currentPage === 1} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 disabled:opacity-50">
-                <MdChevronLeft /> Previous
-              </button>
-              <button onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 disabled:opacity-50">
-                Next <MdChevronRight />
-              </button>
-              <button onClick={() => setPage(totalPages)} disabled={currentPage === totalPages} className="rounded-xl border border-slate-200 px-3 py-2 disabled:opacity-50">Last</button>
-            </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <Pagination page={currentPage} totalPages={totalPages} total={pagination.total} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} pageSizeOptions={APPOINTMENT_PAGE_SIZES} disabled={loading} />
+            {totalPages > 1 && <nav aria-label="Appointment page numbers" className="flex flex-wrap items-center justify-center gap-2 border-t border-slate-100 px-3 py-3">
+              {visiblePageNumbers(currentPage, totalPages).map(number => (
+                <button key={number} type="button" aria-label={`Go to page ${number}`} aria-current={number === currentPage ? 'page' : undefined} onClick={() => setPage(number)} className={`min-h-10 min-w-10 rounded-xl px-3 py-2 text-sm font-semibold transition ${number === currentPage ? 'bg-[#0b1a2c] text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{number}</button>
+              ))}
+            </nav>}
           </div>
         </>
       )}
@@ -954,14 +1031,20 @@ const Appointments = ({ services }) => {
           onSave={(date, time) => runAction(rescheduleAppointment, () => services.rescheduleAppointment(rescheduleAppointment.id, { appointment_date: date, appointment_time: time }))}
         />
       )}
-      {viewAppointment && <AppointmentViewModal appointment={viewAppointment} onClose={() => setViewAppointment(null)} />}
+      {viewAppointment && <AppointmentViewModal appointment={viewAppointment} onClose={() => setViewAppointment(null)} busyId={busyId || reminding}
+        onConfirm={(appt) => {setViewAppointment(null);handleConfirm(appt)}}
+        onCancel={(appt) => {setViewAppointment(null);handleCancel(appt)}}
+        onNoShow={(appt) => {setViewAppointment(null);handleNoShow(appt)}}
+        onReschedule={(appt) => {setViewAppointment(null);setRescheduleAppointment(appt)}}
+        onReminder={(appt) => {setViewAppointment(null);handleReminder(appt)}}
+      />}
       {dialog && <ActionDialog
         title={dialog.title || (dialog.type==='confirm'?'Confirm appointment?':dialog.type==='reminder'?'Send appointment reminder?':'Previous missed appointment')}
         message={dialog.message || (dialog.type==='confirm'?`Have you contacted ${dialog.appointment?.patient_name || 'this patient'} and confirmed they can attend?`: `Send reminders to ${dialog.appointment?.patient_name || 'this patient'} using only verified and permitted contact channels?`)}
         details={dialog.details}
-        confirmText={dialog.type==='confirm'?'Confirm Appointment':dialog.type==='reminder'?'Send Reminder':'Confirm Anyway'}
+        confirmText={dialog.type==='confirm'?'Confirm Appointment':dialog.type==='reminder'?'Send Reminder':dialog.type==='no_show_confirm'?'Mark as Did Not Arrive':'Confirm Anyway'}
         onCancel={()=>setDialog(null)}
-        onConfirm={dialog.type==='message'?null:()=>dialog.type==='confirm'?performConfirmation(dialog.appointment):dialog.type==='reminder'?performReminder(dialog.appointment):performConfirmation(dialog.appointment,true)}
+        onConfirm={dialog.type==='message'?null:()=>dialog.type==='confirm'?performConfirmation(dialog.appointment):dialog.type==='reminder'?performReminder(dialog.appointment):dialog.type==='no_show_confirm'?(setDialog(null),runAction(dialog.appointment,() => services.markAppointmentNoShow(dialog.appointment.id))):performConfirmation(dialog.appointment,true)}
         busy={Boolean(busyId||reminding)}
       />}
       <CancellationReasonModal
@@ -977,5 +1060,6 @@ const Appointments = ({ services }) => {
 }
 
 export default Appointments
+
 
 
