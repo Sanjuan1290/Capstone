@@ -23,7 +23,23 @@ const validatePost = body => {
   const publishAt=dateTime(body.publish_at),expiresAt=dateTime(body.expires_at)
   if(publishAt===undefined||expiresAt===undefined|| (publishAt&&expiresAt&&expiresAt<=publishAt))throw bad('Invalid publication or expiration date.')
   if(status==='scheduled'&&!publishAt)throw bad('Schedule requires a publication date.')
-  return {title,caption,body:content,type:kind,status,slug:path,publish_at:publishAt,expires_at:expiresAt,cta_label:null,cta_url:null,promotion_id:null}
+  const promotionId = body.promotion_id == null || body.promotion_id === '' ? null : Number(body.promotion_id)
+  if (promotionId !== null && (!idOk(promotionId) || kind !== 'promotion')) throw bad('Choose a valid clinic promotion for a promotional post.')
+  const rawUrl = clean(body.cta_url,600)
+  let bookingUrl = null
+  if (rawUrl) {
+    // Only clinic-owned booking targets may be saved by the editor.
+    if (!rawUrl.startsWith('/patient/book') || !/^\/patient\/book(?:\?.*)?$/.test(rawUrl)) throw bad('Choose a clinic booking destination from the list.')
+    const url = new URL(rawUrl,'https://caraitclinic.invalid')
+    if ([...url.searchParams.keys()].some(key=>!['branch_id','clinic','service_id'].includes(key)) || (url.searchParams.get('clinic') && !['medical','derma'].includes(url.searchParams.get('clinic')))) throw bad('Invalid booking destination.')
+    const branchId=url.searchParams.get('branch_id'), serviceId=url.searchParams.get('service_id')
+    if(branchId && !idOk(branchId))throw bad('Invalid booking branch.')
+    if(serviceId && (!idOk(serviceId) || !url.searchParams.get('clinic') || !branchId))throw bad('Select a valid service and clinic type.')
+    if(!serviceId && url.searchParams.has('clinic'))throw bad('Select a specific service for this booking type.')
+    bookingUrl = `${url.pathname}${url.search}`
+  }
+  if(promotionId && bookingUrl && /[?&](?:service_id|clinic)=/.test(bookingUrl))throw bad('Select either a specific service or a clinic promotion.')
+  return {title,caption,body:content,type:kind,status,slug:path,publish_at:publishAt,expires_at:expiresAt,cta_label:clean(body.cta_label,80) || 'Book an Appointment',cta_url:bookingUrl,promotion_id:promotionId}
 }
 const uniqueSlug = async (base,branchId,id=null) => {
   for(let index=1;index<100;index++){
@@ -39,11 +55,33 @@ const list = async(req,res)=>{
   const [rows]=await db.query(`SELECT a.id,a.branch_id,a.promotion_id,a.type,a.title,a.slug,a.caption,a.body,a.cover_image_url,a.cover_image_asset_id,a.cta_label,a.cta_url,a.status, DATE_FORMAT(a.publish_at,'%Y-%m-%d %H:%i:%s') AS publish_at, DATE_FORMAT(a.expires_at,'%Y-%m-%d %H:%i:%s') AS expires_at,a.created_at,a.updated_at,p.title AS promotion_title FROM clinic_announcements a LEFT JOIN clinic_promotions p ON p.id=a.promotion_id AND p.branch_id=a.branch_id WHERE a.branch_id=? ORDER BY a.updated_at DESC,a.id DESC LIMIT 300`,[req.branchId])
   res.json(rows)
 }
+const bookingOptions=async(req,res)=>{
+  const [[services],[promotions],[links]]=await Promise.all([
+    db.query("SELECT id,service_name,clinic_type FROM billing_service_catalog WHERE branch_id=? AND is_active=1 AND clinic_type IN ('medical','derma') ORDER BY clinic_type,service_name LIMIT 300",[req.branchId]),
+    db.query("SELECT id,title,is_active,DATE_FORMAT(starts_on,'%Y-%m-%d') starts_on,DATE_FORMAT(ends_on,'%Y-%m-%d') ends_on FROM clinic_promotions WHERE branch_id=? ORDER BY is_active DESC,created_at DESC LIMIT 200",[req.branchId]),
+    db.query('SELECT ps.promotion_id,ps.service_id FROM clinic_promotion_services ps JOIN clinic_promotions p ON p.id=ps.promotion_id WHERE p.branch_id=?',[req.branchId]),
+  ])
+  res.json({branch_id:req.branchId,services,promotions:promotions.map(p=>({...p,service_ids:links.filter(link=>Number(link.promotion_id)===Number(p.id)).map(link=>Number(link.service_id))}))})
+}
 const save = async(req,res)=>{
   const values=validatePost(req.body)
   const id=req.params.id?Number(req.params.id):null
   if(id!==null&&!idOk(id))throw bad('Invalid announcement ID.')
-  if(values.promotion_id){if(!idOk(values.promotion_id))throw bad('Invalid promotion.');const [[promotion]]=await db.query('SELECT id FROM clinic_promotions WHERE id=? AND branch_id=?',[values.promotion_id,req.branchId]);if(!promotion)throw bad('Linked promotion must belong to the selected branch.')}
+  if(values.promotion_id){const [[promotion]]=await db.query('SELECT id FROM clinic_promotions WHERE id=? AND branch_id=?',[values.promotion_id,req.branchId]);if(!promotion)throw bad('Linked promotion must belong to the selected branch.')}
+  if(values.cta_url){
+    const u=new URL(values.cta_url,'https://caraitclinic.invalid')
+    const targetBranch=u.searchParams.get('branch_id')
+    if(targetBranch && Number(targetBranch)!==Number(req.branchId))throw bad('Booking destination must use this clinic branch.')
+    const targetService=u.searchParams.get('service_id')
+    if(targetService){
+      const [[service]]=await db.query('SELECT id FROM billing_service_catalog WHERE id=? AND branch_id=? AND clinic_type=? AND is_active=1',[targetService,req.branchId,u.searchParams.get('clinic')])
+      if(!service)throw bad('The selected service is not available for online booking at this branch.')
+    }
+    const params=new URLSearchParams(u.searchParams)
+    params.set('branch_id',String(req.branchId))
+    values.cta_url=`/patient/book?${params.toString()}`
+  }
+  if(values.promotion_id && !values.cta_url)values.cta_url=`/patient/book?branch_id=${req.branchId}`
   const old=id?(await db.query('SELECT * FROM clinic_announcements WHERE id=? AND branch_id=?',[id,req.branchId]))[0][0]:null
   if(id){const [[campaign]]=await db.query("SELECT id FROM marketing_campaigns WHERE announcement_id=? AND branch_id=? AND status IN ('queued','sending','paused') LIMIT 1",[id,req.branchId]);if(campaign)throw bad('Pause/cancel the active email campaign before changing the announcement.',409)}
   if(id&&!old)return res.status(404).json({message:'Announcement not found in this branch.'})
@@ -173,6 +211,7 @@ const registerBranchAnnouncements=(router,{requireSuper,branchContext,requirePer
   for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
     const auth=[...middle,requirePermission('system_setup')]
     router.get(`${prefix}/announcements`,...auth,list)
+    router.get(`${prefix}/announcements/booking-options`,...auth,bookingOptions)
     router.post(`${prefix}/announcements`,...auth,afterSuccessfulMutation('promotion.updated'),save)
     router.put(`${prefix}/announcements/:id`,...auth,afterSuccessfulMutation('promotion.updated'),save)
     router.delete(`${prefix}/announcements/:id`,...auth,afterSuccessfulMutation('promotion.updated'),deletePost)
@@ -185,6 +224,20 @@ const registerBranchAnnouncements=(router,{requireSuper,branchContext,requirePer
     router.post(`${prefix}/announcements/:id/campaigns`,...auth,launch)
     router.post(`${prefix}/announcements/campaigns/:id/control`,...auth,control)
   }
+}
+const resolvePublicBooking=async(article)=>{
+  const branchId=Number(article.branch_id)
+  if(article.promotion_id){
+    const [[promotion]]=await db.query("SELECT id FROM clinic_promotions WHERE id=? AND branch_id=? AND is_active=1 AND starts_on<=CURDATE() AND ends_on>=CURDATE()",[article.promotion_id,branchId])
+    if(!promotion)return {booking_url:null,booking_unavailable:true}
+    const [services]=await db.query("SELECT svc.id,svc.clinic_type FROM clinic_promotion_services ps JOIN billing_service_catalog svc ON svc.id=ps.service_id AND svc.branch_id=? AND svc.is_active=1 AND svc.clinic_type IN ('medical','derma') WHERE ps.promotion_id=? ORDER BY svc.id",[branchId,promotion.id])
+    const params=new URLSearchParams({branch_id:String(branchId),promotion_id:String(promotion.id)})
+    if(services.length===1){params.set('clinic',services[0].clinic_type);params.set('service_id',String(services[0].id))}
+    return {booking_url:`/patient/book?${params.toString()}`,booking_multiple_services:services.length>1}
+  }
+  if(!article.cta_url)return {booking_url:null}
+  if(article.cta_url==='/patient/book')return {booking_url:`/patient/book?branch_id=${branchId}`}
+  return {booking_url:article.cta_url}
 }
 const publicRouter=express.Router()
 publicRouter.get('/',async(req,res)=>{
@@ -201,7 +254,7 @@ publicRouter.get('/:branchId/:slug',async(req,res)=>{
   if(!idOk(branchId)||path!==req.params.slug)throw bad('Invalid news URL.')
   const [[article]]=await db.query(`SELECT a.id,a.branch_id,a.promotion_id,a.title,a.slug,a.caption,a.body,a.type,a.cover_image_url,a.cta_label,a.cta_url,a.publish_at,a.expires_at,cb.name AS branch_name FROM clinic_announcements a INNER JOIN clinic_branches cb ON cb.id=a.branch_id AND cb.is_active=1 WHERE a.branch_id=? AND a.slug=? AND a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (a.expires_at IS NULL OR a.expires_at>CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00'))`,[branchId,path])
   if(!article)return res.status(404).json({message:'This article is not available.'})
-  res.json(article)
+  res.json({...article,...await resolvePublicBooking(article)})
 })
 const unsubscribe=async(req,res)=>{
   const patientId=patientFromToken(req.body?.token || req.query?.token)
@@ -213,4 +266,5 @@ publicRouter.post('/unsubscribe',unsubscribe)
 // RFC 8058 one-click unsubscribe: POST only; GET never modifies consent.
 publicRouter.post('/unsubscribe-one-click',unsubscribe)
 module.exports={registerBranchAnnouncements,publicRouter,validatePost,slug,dateTime}
+
 

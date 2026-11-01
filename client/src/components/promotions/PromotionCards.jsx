@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { MdChevronLeft, MdChevronRight, MdArrowForward } from 'react-icons/md'
 import { visiblePromotions } from '../../utils/promotionPresentation.mjs'
+import { promotionBookingPath } from '../../utils/promotionBookingPath.mjs'
 export { visiblePromotions }
 
 const formatOfferEndDate = (value) => {
@@ -13,10 +14,10 @@ const formatOfferEndDate = (value) => {
   return date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-export function PromotionCard({ promotion: p }) {
+export function PromotionCard({ promotion: p, directory = null }) {
   const endDate = formatOfferEndDate(p.ends_on)
   const serviceOffer = Array.isArray(p.service_ids) && p.service_ids.length > 0
-  const bookingPath = `/patient/book?branch_id=${encodeURIComponent(p.branch_id)}${serviceOffer ? `&promotion_id=${encodeURIComponent(p.id)}` : ''}`
+  const bookingPath = promotionBookingPath(p, directory)
   return <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
     {p.image_url
       ? <img src={p.image_url} alt="" loading="lazy" className="aspect-video w-full bg-emerald-50 object-cover" />
@@ -72,3 +73,4 @@ export function FeaturedOffers({ promotions = [] }) {
     </div>
   </section>
 }
+

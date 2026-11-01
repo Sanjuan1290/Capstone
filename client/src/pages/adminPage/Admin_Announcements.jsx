@@ -3,17 +3,25 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MdCampaign, MdAdd, MdRefresh, MdCloudUpload, MdSend, MdPause, MdPlayArrow, MdCancel } from 'react-icons/md'
 import {
-  listAnnouncements, saveAnnouncement, deleteAnnouncement, setAnnouncementStatus, uploadAnnouncementCover, checkAnnouncementCover,
+  listAnnouncements, getAnnouncementBookingOptions, saveAnnouncement, deleteAnnouncement, setAnnouncementStatus, uploadAnnouncementCover, checkAnnouncementCover,
   getCampaignAudience, listMarketingCampaigns, listCampaignRecipients, startMarketingCampaign, controlMarketingCampaign,
 } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import AnnouncementRichText, { AnnouncementBody } from '../../components/system/AnnouncementRichText' 
 
-const blank = () => ({type:'news',title:'',caption:'',body:'',status:'draft',publish_at:'',expires_at:'',cover_image_url:'',cover_image_token:''})
+const blank = () => ({type:'news',title:'',caption:'',body:'',status:'draft',publish_at:'',expires_at:'',cover_image_url:'',cover_image_token:'',cta_label:'Book an Appointment',cta_url:'',promotion_id:null})
+const getBookingChoice = form => {
+  if(form.promotion_id)return `promotion:${form.promotion_id}`
+  const match=String(form.cta_url||'').match(/[?&]service_id=(\d+)/)
+  if(match)return `service:${match[1]}`
+  return form.cta_url ? 'general':'none'
+}
+
 const fmt = s => s ? String(s).replace(' ','T').slice(0,16) : ''
 const Admin_Announcements = () => {
   const toast=useToast()
   const [posts,setPosts]=useState([])
+  const [bookingOptions,setBookingOptions]=useState(null)
     const [campaigns,setCampaigns]=useState([])
   const [audience,setAudience]=useState(null)
   const [editing,setEditing]=useState(null)
@@ -32,8 +40,8 @@ const Admin_Announcements = () => {
     setLoading(true)
     setError('')
     // Posts, campaigns, audience/readiness, and promotions must not block each other.
-    const results=await Promise.allSettled([listAnnouncements(),listMarketingCampaigns(),getCampaignAudience()])
-    const [postResult,campaignResult,audienceResult]=results
+    const results=await Promise.allSettled([listAnnouncements(),listMarketingCampaigns(),getCampaignAudience(),getAnnouncementBookingOptions()])
+    const [postResult,campaignResult,audienceResult,bookingResult]=results
     const failed={}
     if(postResult.status==='fulfilled' && Array.isArray(postResult.value))setPosts(postResult.value)
     else {setPosts([]);failed.posts='Unable to load announcements. Please try Refresh.'}
@@ -41,13 +49,26 @@ const Admin_Announcements = () => {
     else {setCampaigns([]);failed.campaigns='Unable to load email campaign history.'}
     if(audienceResult.status==='fulfilled' && audienceResult.value && typeof audienceResult.value==='object')setAudience(audienceResult.value)
     else {setAudience(null);failed.audience='Unable to check email service or eligible patient count.'}
+    if(bookingResult.status==='fulfilled')setBookingOptions(bookingResult.value)
+    else {setBookingOptions(null);failed.booking='Unable to load available booking destinations. Please try Refresh.'}
     setSectionErrors(failed)
     setLoading(false)
   },[])
   useEffect(()=>{void refresh()},[refresh])
   useClinicRefresh(refresh,['promotion.updated'],{fallbackMs:120000,skip:()=>editing!==null||busy})
   const edit = post => {setEditing(post?.id||'new');setScan(null);setForm(post?{...post,publish_at:fmt(post.publish_at),expires_at:fmt(post.expires_at),cover_image_token:''}:blank())}
-  const update=(key,value)=>setForm(s=>({...s,[key]:value}))
+  const update=(key,value)=>setForm(s=>({...s,[key]:value,...(key==='type'&&value!=='promotion'?{promotion_id:null}:{})}))
+  const selectBooking=(choice)=>setForm(current=>{
+    if(choice==='none')return {...current,cta_url:'',promotion_id:null}
+    const branch=Number(bookingOptions?.branch_id)
+    if(!Number.isSafeInteger(branch)||branch<1)return current
+    if(choice==='general')return {...current,cta_url:`/patient/book?branch_id=${branch}`,promotion_id:null}
+    const [type,id]=choice.split(':')
+    if(type==='promotion'&&current.type==='promotion'&&bookingOptions?.promotions?.some(p=>Number(p.id)===Number(id)))return {...current,cta_url:`/patient/book?branch_id=${branch}`,promotion_id:Number(id)}
+    const service=bookingOptions?.services?.find(s=>Number(s.id)===Number(id))
+    if(type==='service'&&service)return {...current,cta_url:`/patient/book?branch_id=${branch}&clinic=${service.clinic_type}&service_id=${service.id}`,promotion_id:null}
+    return current
+  })
   const onImage=async file=>{
     if(!file)return
     if(!['image/jpeg','image/png'].includes(file.type)||file.size>5*1024*1024){setError('Select a JPG or PNG cover up to 5 MB.');return}
@@ -114,6 +135,21 @@ const Admin_Announcements = () => {
 
       </div>
 
+      <div className="rounded-xl border border-sky-100 bg-sky-50/60 p-4 space-y-3">
+        <h3 className="font-bold text-slate-900">Booking button</h3>
+        <p className="text-sm text-slate-600">Choose where patients go after clicking Book an Appointment. A linked service opens the correct booking step. A promotion applies only to eligible services and dates.</p>
+        <label className="form-label block">Where should the button go?
+          <select className="form-control mt-1" value={getBookingChoice(form)} disabled={!bookingOptions} onChange={e=>selectBooking(e.target.value)}>
+            <option value="none">No booking button</option>
+            <option value="general">General booking — choose service later</option>
+            <optgroup label="Book a specific service">{(bookingOptions?.services||[]).map(s=><option key={s.id} value={`service:${s.id}`}>{s.service_name} ({s.clinic_type==='derma'?'Dermatology':'General Medicine'})</option>)}</optgroup>
+            {form.type==='promotion'&&<optgroup label="Link a clinic promotion">{(bookingOptions?.promotions||[]).map(p=><option key={p.id} value={`promotion:${p.id}`}>{p.title}{!p.is_active?' (inactive)':''}</option>)}</optgroup>}
+          </select>
+        </label>
+        {form.promotion_id&&<p className="text-xs text-slate-700">The booking page will show this offer only when it is active and the patient selects an eligible service and date.</p>}
+        {getBookingChoice(form)==='general'&&form.type==='promotion'&&<p className="text-sm text-amber-800">This button is not linked to a specific service or promotion. Patients will choose a service themselves.</p>}
+        {getBookingChoice(form)!=='none'&&<label className="form-label block">Button text<input className="form-control mt-1" value={form.cta_label||''} maxLength={80} onChange={e=>update('cta_label',e.target.value)} placeholder="Book an Appointment"/></label>}
+      </div>
       <div><label className="block form-label mb-2">Full details *</label><AnnouncementRichText value={form.body} onChange={value=>update('body',value)} /></div>
       <div className="rounded-xl border border-dashed border-slate-300 p-3">
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold"><MdCloudUpload/> Upload cover (JPG/PNG, max 5 MB)<input className="sr-only" type="file" accept="image/jpeg,image/png" onChange={e=>onImage(e.target.files?.[0])}/></label>
@@ -151,3 +187,4 @@ const Admin_Announcements = () => {
   </section>
 }
 export default Admin_Announcements
+

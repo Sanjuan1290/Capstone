@@ -46,6 +46,7 @@ export const checkPromotionImage = token => requestJson(`${getAdminApiBase()}/pr
 
 // Branch-scoped announcements and opt-in campaign administration.
 export const listAnnouncements = () => requestJson(`${getAdminApiBase()}/announcements`)
+export const getAnnouncementBookingOptions = () => requestJson(`${getAdminApiBase()}/announcements/booking-options`)
 export const deleteAnnouncement = id => requestJson(`${getAdminApiBase()}/announcements/${id}`, {method:'DELETE'})
 export const setAnnouncementStatus = (id,status) => requestJson(`${getAdminApiBase()}/announcements/${id}/status`, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})})
 export const saveAnnouncement = (payload,id=null) => requestJson(`${getAdminApiBase()}/announcements${id?`/${id}`:''}`, { method:id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
