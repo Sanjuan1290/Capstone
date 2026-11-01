@@ -43,18 +43,19 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(admin).toContain("router.post('/promotions'")
     expect(admin).toContain("router.put('/promotions/:id'")
     expect(patient).toContain("router.get('/promotions'")
-    expect(read('client/src/pages/adminPage/Admin_Promotions.jsx')).toContain('Promotions are informational')
+    expect(read('client/src/pages/adminPage/Admin_Promotions.jsx')).toContain("Offers do not automatically reduce a patient's bill.")
     expect(read('client/src/pages/patientPage/BookAppointment.jsx')).toContain('promo.service_ids.includes(Number(service.id))')
     // Verify the current patient-facing promo contract, not the old section copy.
     const dashboard=read('client/src/pages/patientPage/PatientDashboard.jsx')
     const cards=read('client/src/components/promotions/PromotionCards.jsx')
-    expect(dashboard).toContain('<FeaturedOffers promotions={promotions} />')
+    expect(dashboard).toMatch(/<FeaturedOffers\s+promotions=\{promotions\}\s*\/>/)
     expect(cards).toContain('Special Offers')
     // Match the featured-promotion filter independent of harmless spacing or line breaks.
     // Behavior (ordering, visibility, and non-mutation) is verified below.
     expect(cards).toMatch(/\bvisiblePromotions\s*\(\s*promotions\s*,\s*true\s*\)/)
     expect(cards).toContain('to="/patient/offers"')
-    expect(cards).toContain('Explore eligible services')
+    expect(cards).toContain('Book eligible service')
+    expect(cards).toContain('promotionBookingPath(p, directory)')
     expect(cards).not.toMatch(/discount_amount|billing_payments/)
     const {visiblePromotions}=await import('../../../client/src/utils/promotionPresentation.mjs')
     const promotions=[
@@ -74,4 +75,5 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(read('client/src/index.css')).toContain('.form-control.pl-10 { padding-left: 2.5rem; }')
   })
 })
+
 

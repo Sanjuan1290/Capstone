@@ -29,7 +29,8 @@ describe('September 29 Batch 6D — doctor display normalization', () => {
     const server = read('server', 'utils', 'accountSettings.js')
     expect(client).toContain('Clinic Assignment is managed by an Administrator.')
     expect(client).not.toContain("onChange('specialty')")
-    expect(server).toContain("doctor: 'id, full_name, email, phone, clinic_type, theme_preference, profile_image_url'")
+    expect(server).toContain("doctor: 'id, full_name, email, phone, phone_verified_at, clinic_type, theme_preference, profile_image_url'")
+    expect(server).toContain("doctor: ['full_name', 'phone', 'theme_preference', 'profile_image_url']")
     expect(server).not.toContain("doctor: ['full_name', 'phone', 'specialty'")
   })
 
@@ -40,3 +41,4 @@ describe('September 29 Batch 6D — doctor display normalization', () => {
     expect(reports).not.toContain('<th>Specialty</th>')
   })
 })
+

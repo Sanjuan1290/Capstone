@@ -31,7 +31,10 @@ describe('Batch 6E online booking readiness', () => {
     const readiness=await getOnlineBookingReadiness(executor,12)
     expect(queries).toHaveLength(4)
     for(const {sql,params} of queries){
-      expect(params).toEqual([12])
+      // All placeholders must be bound to the selected branch. The multi-branch
+      // schedule query requires three bindings; other queries require one.
+      expect(params).toHaveLength((sql.match(/\?/g) || []).length)
+      expect(params.every(value => value === 12)).toBe(true)
       expect(sql).toMatch(/branch_id\s*=\s*\?/)
       expect(sql).toMatch(/GROUP BY/)
     }
@@ -84,3 +87,4 @@ describe('Batch 6E online booking readiness', () => {
     expect(source).toContain('Manage Schedules')
   })
 })
+
