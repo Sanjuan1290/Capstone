@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, useSearchParams } from 'react-router-dom'
 import { MdArrowBack, MdArrowForward, MdCalendarMonth, MdCheckCircle, MdInfoOutline } from 'react-icons/md'
 import { getActiveBranches, getPublicBookingPolicy } from '../../services/patient.service'
+import { buildPatientBookingUrl, changePolicyBranch } from '../../utils/bookingPolicyNavigation.mjs'
 
 const formatUpdatedDate = (value) => {
   if (!value) return ''
@@ -34,7 +35,9 @@ const BookingPolicy = () => {
     return () => { active = false }
   }, [branchId, reloadToken])
 
-  const bookingUrl = branchId ? `/patient/book?branch_id=${encodeURIComponent(branchId)}` : '/patient/book'
+  // Keep only the approved in-app booking parameters. This also preserves the
+  // original branch, clinic, service and doctor when the policy opens in a new tab.
+  const bookingUrl = buildPatientBookingUrl(searchParams)
   const updatedDate = formatUpdatedDate(policy?.published_at)
 
   return (
@@ -66,12 +69,7 @@ const BookingPolicy = () => {
           <select
             id="policy-branch"
             value={branchId}
-            onChange={(event) => {
-              const next = new URLSearchParams(searchParams)
-              if (event.target.value) next.set('branch_id', event.target.value)
-              else next.delete('branch_id')
-              setSearchParams(next)
-            }}
+            onChange={(event) => setSearchParams(changePolicyBranch(searchParams, event.target.value))}
             className="mt-3 min-h-11 w-full max-w-xl rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
           >
             <option value="">General policy — all branches</option>

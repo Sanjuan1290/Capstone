@@ -21,6 +21,7 @@ import { getLocalDateOnly } from '../../utils/date'
 import { readSlotPrefill } from '../../utils/bookingHandoff.mjs'
 import { formatAppointmentTimeRange } from '../../utils/appointmentTime'
 import { BOOKING_STEPS, normalizeBookingServiceResults, eligibleBookingPromotions } from '../../utils/patientBookingFlow.mjs'
+import { buildBookingPolicyUrl } from '../../utils/bookingPolicyNavigation.mjs'
 import {
   buildUnavailableDateSet,
   isDoctorAvailableOnDate,
@@ -42,6 +43,7 @@ function getFirstDay(y, m)    { return new Date(y, m, 1).getDay() }
 function pad(n) { return String(n).padStart(2, '0') }
 function toISO(y, m, d) { return `${y}-${pad(m+1)}-${pad(d)}` }
 function formatDuration(minutes) { const total=Number(minutes||60); const h=Math.floor(total/60), m=total%60; return [h?`${h} hr${h===1?'':'s'}`:'',m?`${m} min`:''].filter(Boolean).join(' ') }
+
 
 // ── Four-step progress ──────────────────────────────────────────────────────
 const StepBar = ({ current }) => (
@@ -339,7 +341,12 @@ const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadingReaso
 // ── Step 4: Visit details, eligible offers, and final review ─────────────────
 const StepReview = ({ form, branchName, promotions, selectedPromotionId, onPromotionChange, reasonOptions, loadingReasons, onReasonChange, onReasonDetailsChange, onNotesChange, policyAccepted, onPolicyAcceptedChange }) => {
   const applicable = eligibleBookingPromotions(promotions, {branchId:form.branchId,serviceId:form.service?.id,date:form.date})
-  const policyUrl = `/booking-policy${form.branchId ? `?branch_id=${encodeURIComponent(form.branchId)}` : ''}`
+  const policyUrl = buildBookingPolicyUrl({
+    branchId: form.branchId,
+    clinicType: form.clinicType,
+    serviceId: form.service?.id,
+    doctorId: form.doctor?.id,
+  })
   return <div className="space-y-6">
     <div>
       <h2 className="text-xl font-bold text-slate-900">Review your appointment request</h2>
@@ -838,7 +845,7 @@ const BookAppointment = () => {
       </header>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
         <p><span className="font-semibold">Before you book:</span> Arrive 10 minutes early and cancel or reschedule if you cannot attend. The clinic confirms each request.</p>
-        <a href={`/booking-policy?branch_id=${encodeURIComponent(branchId)}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 shrink-0 items-center gap-1 font-bold text-amber-900 underline underline-offset-2 hover:text-amber-700">
+        <a href={buildBookingPolicyUrl({ branchId, clinicType: form.clinicType, serviceId: form.service?.id, doctorId: form.doctor?.id })} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 shrink-0 items-center gap-1 font-bold text-amber-900 underline underline-offset-2 hover:text-amber-700">
           Read full policy <MdArrowForward />
         </a>
       </div>

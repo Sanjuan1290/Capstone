@@ -14,13 +14,19 @@ const ENDPOINT_MAP = {
 
 const roleFromPath = (pathname = '') => {
   const first = String(pathname || '').split('/').filter(Boolean)[0]
+  // The public policy page is part of the patient booking flow. A new tab has
+  // its own sessionStorage, so identify it by route and check the patient cookie first.
+  if (first === 'booking-policy' || first === 'login') return 'patient'
   return ENDPOINT_MAP[first] ? first : null
 }
 
-const getTabRoleHint = () => {
-  const pathRole = typeof window !== 'undefined' ? roleFromPath(window.location.pathname) : null
+const getPathRoleHint = () => (
+  typeof window !== 'undefined' ? roleFromPath(window.location.pathname) : null
+)
+
+const getStoredRoleHint = () => {
   const tabRole = typeof window !== 'undefined' ? sessionStorage.getItem('auth_role') : null
-  return pathRole || (ENDPOINT_MAP[tabRole] ? tabRole : null)
+  return ENDPOINT_MAP[tabRole] ? tabRole : null
 }
 
 export const AuthProvider = ({ children }) => {
@@ -33,10 +39,20 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuth = useCallback(async ({ silent = false } = {}) => {
     const requestId = ++authCheckRequestId.current
-    if (!silent) setReady(false)
+    if (!silent) {
+      setReady(false)
+      setAuthCheckError('')
+    }
 
-    const hint = getTabRoleHint()
-    const orderedRoles = hint ? [hint] : Object.keys(ENDPOINT_MAP)
+    const pathHint = getPathRoleHint()
+    const storedHint = getStoredRoleHint()
+    // A role-specific route must only trust that portal's cookie. This prevents
+    // another portal's active cookie from masking a patient-session check failure.
+    const orderedRoles = pathHint
+      ? [pathHint]
+      : storedHint
+        ? [storedHint, ...Object.keys(ENDPOINT_MAP).filter((candidate) => candidate !== storedHint)]
+        : Object.keys(ENDPOINT_MAP)
     let hadUnavailableCheck = false
 
     for (const candidateRole of orderedRoles) {
@@ -77,16 +93,16 @@ export const AuthProvider = ({ children }) => {
 
     if (requestId !== authCheckRequestId.current) return
 
-    // A timeout, 5xx response, proxy failure, or malformed response is not proof
-    // that the patient signed out. Preserve any known session and let the user retry.
+    // A network/proxy/server failure is not proof that the patient signed out.
+    // Keep any known identity and show a retry state instead of redirecting to login.
     if (hadUnavailableCheck) {
       setAuthCheckError('We could not verify your sign-in because the clinic server is temporarily unavailable. Your session has not been cleared. Please try again.')
       setReady(true)
       return
     }
 
-    // Only clear the session after every role endpoint explicitly confirms that
-    // no authenticated session exists.
+    // Clear the local identity only after the relevant portal endpoints explicitly
+    // confirm that no authenticated session exists.
     setUser(null)
     setRole(null)
     sessionStorage.removeItem('auth_role')
@@ -96,8 +112,8 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => { checkAuth() }, [checkAuth])
 
-  // Re-check cookie sessions when a user returns to a tab. This covers a patient
-  // who signed in in another tab while this tab still held an old unauthenticated state.
+  // Cookies are shared across tabs; sessionStorage is not. Revalidate when this
+  // tab becomes active so a session created in another tab is recognised here.
   useEffect(() => {
     const revalidate = () => {
       if (document.visibilityState === 'hidden') return

@@ -51,7 +51,7 @@ test('booking keeps correct information visible, supports mobile and reduced mot
   assert.match(source,/aria-current=\{index === current \? 'step'/)
   assert.match(source,/motion-reduce:transition-none/)
   assert.match(source,/Read Booking Policy/)
-  assert.match(source,/booking-policy\?branch_id=/)
+  assert.match(source,/buildBookingPolicyUrl/)
   assert.doesNotMatch(source,/Read full online booking policy/)
   assert.match(source,/Pending Clinic Confirmation/)
 })
