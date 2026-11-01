@@ -1,3 +1,4 @@
+import { documentOps, safeLink } from '../../utils/announcementDocument.mjs'
 import { useRef } from 'react'
 
 // The announcement editor stores a small, safe Markdown subset rather than HTML.
@@ -22,7 +23,39 @@ const inlineText = (text, prefix='part') => {
   if(cursor<text.length)result.push(<span key={`${prefix}-last`}>{text.slice(cursor)}</span>)
   return result
 }
+function RichDocumentBody({ops}) {
+  const lines=[]; let spans=[],index=0
+  const pushLine=attrs=>{lines.push({parts:spans,block:attrs||{},key:index++});spans=[]}
+  const renderInline=(text,attrs,key)=>{
+    let node=<span key={key}>{text}</span>
+    if(attrs.bold)node=<strong key={key}>{node}</strong>
+    if(attrs.italic)node=<em key={key}>{node}</em>
+    if(attrs.underline)node=<u key={key}>{node}</u>
+    if(attrs.strike)node=<s key={key}>{node}</s>
+    if(attrs.link&&safeLink(attrs.link))node=<a key={key} href={attrs.link} target="_blank" rel="noopener noreferrer" className="font-medium text-sky-700 underline break-all">{node}</a>
+    return node
+  }
+  for(const op of ops){
+    const attrs=op.attributes||{}
+    for(const piece of op.insert.split(/(\n)/)){
+      if(!piece)continue
+      if(piece==='\n')pushLine(attrs)
+      else spans.push(renderInline(piece,attrs,`part-${index}-${spans.length}`))
+    }
+  }
+  if(spans.length)pushLine({})
+  return <div className="space-y-2 text-slate-700">{lines.map(line=>{
+    const content=line.parts.length?line.parts:<span>&nbsp;</span>
+    const alignment=line.block.align==='center'?'text-center':line.block.align==='right'?'text-right':'text-left'
+    const cls=`break-words leading-7 ${alignment}`
+    if(line.block.header)return line.block.header===1?<h2 key={line.key} className="mt-4 text-2xl font-bold">{content}</h2>:<h3 key={line.key} className={`mt-3 font-bold ${line.block.header===2?'text-xl':'text-lg'}`}>{content}</h3>
+    if(line.block.list)return line.block.list==='bullet'?<ul key={line.key} className="list-disc pl-6"><li className={cls}>{content}</li></ul>:<ol key={line.key} className="list-decimal pl-6"><li className={cls}>{content}</li></ol>
+    return <p key={line.key} className={cls}>{content}</p>
+  })}</div>
+}
 export function AnnouncementBody({ body }) {
+  const ops = documentOps(body)
+  if (ops) return <RichDocumentBody ops={ops}/>
   const lines=String(body||'').split(/\r?\n/)
   const blocks=[]
   for(let i=0;i<lines.length;){
@@ -67,3 +100,4 @@ export default function AnnouncementRichText({value,onChange}) {
     <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="mb-2 text-xs font-bold uppercase text-slate-500">Live preview</p><AnnouncementBody body={value}/></div>
   </div>
 }
+

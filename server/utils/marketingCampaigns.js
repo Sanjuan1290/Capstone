@@ -1,3 +1,4 @@
+const { readablePost } = require('./announcementDocument')
 // Marketing channel is independent of clinical/billing transaction emails.
 const crypto = require('node:crypto')
 const db = require('../db/connect')
@@ -37,7 +38,7 @@ const sendMarketingEmail = async ({ patient, campaign, announcement }) => {
   const oneClick = `${base}/api/news/unsubscribe-one-click?token=${token}`
   const article = `${base}/news/${announcement.branch_id}/${encodeURIComponent(announcement.slug)}`
   const safeUrl = escapeHtml(article), safeUnsub = escapeHtml(unsub)
-  const html = `<div style="max-width:600px;margin:auto;font-family:Arial,sans-serif;color:#172b42;padding:24px"><h2>${escapeHtml(announcement.title)}</h2><p>${escapeHtml(announcement.caption)}</p>${announcement.cover_image_url ? `<img src="${escapeHtml(announcement.cover_image_url)}" alt="" style="max-width:100%;height:auto"/>` : ''}<p style="white-space:pre-line">${escapeHtml(announcement.body)}</p><p><a href="${safeUrl}">Read the announcement</a></p><hr/><small>Promotional communication from CARAIT Clinic. <a href="${safeUnsub}">Unsubscribe</a></small></div>`
+  const html = `<div style="max-width:600px;margin:auto;font-family:Arial,sans-serif;color:#172b42;padding:24px"><h2>${escapeHtml(announcement.title)}</h2><p>${escapeHtml(announcement.caption)}</p>${announcement.cover_image_url ? `<img src="${escapeHtml(announcement.cover_image_url)}" alt="" style="max-width:100%;height:auto"/>` : ''}<p style="white-space:pre-line">${escapeHtml(readablePost(announcement.body))}</p><p><a href="${safeUrl}">Read the announcement</a></p><hr/><small>Promotional communication from CARAIT Clinic. <a href="${safeUnsub}">Unsubscribe</a></small></div>`
   return sendResendEmail({
     from: `${process.env.MARKETING_FROM_NAME || 'CARAIT Clinic'} <${process.env.MARKETING_FROM_EMAIL}>`,
     to: patient.email,
@@ -119,3 +120,4 @@ const startMarketingWorker = () => {
   void runMarketingWorker()
 }
 module.exports={configured,tokenFor,patientFromToken,eligibleSql,escapeHtml,reserveAndClaim,runMarketingWorker,startMarketingWorker}
+

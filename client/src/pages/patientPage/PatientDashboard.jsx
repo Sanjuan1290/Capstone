@@ -1,9 +1,11 @@
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { FeaturedOffers } from '../../components/promotions/PromotionCards'
+import PatientServices from '../../components/services/PatientServices'
+import PatientAnnouncementPromos from '../../components/promotions/PatientAnnouncementPromos'
 // client/src/pages/patientPage/PatientDashboard.jsx
 // REDESIGNED: Mobile-first, modern card layout, gradient hero, improved UX
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useAuth } from "../../context/AuthContext"
 import { getMyAppointments, getCurrentPromotions } from "../../services/patient.service"
 import { usePatientBranch } from "../../context/PatientBranchContext"
@@ -33,23 +35,6 @@ const STATUS_STYLE = {
   rescheduled: { label: "Rescheduled", bg: "bg-sky-50",     text: "text-sky-700",     border: "border-sky-200"     },
 }
 
-const CONSULTATION_PRICING = [
-  {
-    label: "General Medicine",
-    price: "From PHP 500",
-    note: "For routine check-ups and general health concerns.",
-    tone: "border-sky-200 bg-sky-50 text-sky-700",
-    icon: MdMedicalServices,
-  },
-  {
-    label: "Dermatology",
-    price: "From PHP 800",
-    note: "For skin, hair, nail, and follow-up skin consultations.",
-    tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    icon: MdFace,
-  },
-]
-
 const PatientDashboard = () => {
   const { user } = useAuth()
   const { branchId } = usePatientBranch()
@@ -58,6 +43,10 @@ const PatientDashboard = () => {
   const [totalVisits, setTotalVisits] = useState(0)
   const [loading,     setLoading]     = useState(true)
   const [promotions, setPromotions] = useState([])
+  const [offersError,setOffersError]=useState('')
+  const [offersLoading,setOffersLoading]=useState(true)
+  const currentBranch=useRef(branchId)
+  currentBranch.current=branchId
 
   const loadAppointments=()=>getMyAppointments()
       .then(data => {
@@ -82,7 +71,7 @@ const PatientDashboard = () => {
   useEffect(() => {void loadAppointments()},[])
   useClinicRefresh(loadAppointments,['appointment.updated','queue.updated'],{fallbackMs:60000})
 
-  const loadOffers=()=>getCurrentPromotions(branchId).then(rows=>setPromotions((Array.isArray(rows)?rows:[]).filter(promo=>promo.show_on_dashboard))).catch(()=>{})
+  const loadOffers=()=>{if(!branchId){setPromotions([]);setOffersLoading(false);return Promise.resolve()}setOffersLoading(true);setOffersError('');return getCurrentPromotions(branchId).then(rows=>{if(currentBranch.current===branchId)setPromotions((Array.isArray(rows)?rows:[]).filter(promo=>promo.show_on_dashboard))}).catch(()=>{if(currentBranch.current===branchId){setOffersError('Could not load special offers.');setPromotions([])}}).finally(()=>{if(currentBranch.current===branchId)setOffersLoading(false)})}
   useEffect(() => { setPromotions([]); void loadOffers() }, [branchId])
   useClinicRefresh(loadOffers,['promotion.updated','service.updated'],{fallbackMs:60000})
 
@@ -98,7 +87,6 @@ const PatientDashboard = () => {
   return (
     <div className="max-w-3xl mx-auto space-y-5">
 
-      <FeaturedOffers promotions={promotions} />
 
       {/* ── Hero greeting ──────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1a2c] via-[#0f2540] to-[#0b1a2c] p-6">
@@ -159,28 +147,13 @@ const PatientDashboard = () => {
         ))}
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="text-sm font-bold text-slate-800">Consultation Pricing</h2>
-          <p className="mt-1 text-xs text-slate-400">Starting rates shown before booking.</p>
-        </div>
-        <div className="grid gap-3 p-5 md:grid-cols-2">
-          {CONSULTATION_PRICING.map(({ label, price, note, tone, icon: Icon }) => (
-            <div key={label} className={`rounded-2xl border p-4 ${tone}`}>
-              <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-white/70 flex items-center justify-center shrink-0">
-                  <Icon className="text-[20px]" />
-                </div>
-                <div>
-                  <p className="text-sm font-black">{label}</p>
-                  <p className="mt-1 text-2xl font-black">{price}</p>
-                  <p className="mt-2 text-xs leading-relaxed opacity-85">{note}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Live bookable services and active branch promotions, not fixed prices. */}
+      <PatientServices branchId={branchId} />
+      <section className="space-y-3" aria-label="Current special offers">
+        {offersLoading?<div className="h-40 animate-pulse rounded-2xl bg-slate-200 motion-reduce:animate-none" role="status" aria-label="Loading offers"/>:offersError?<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{offersError} <button type="button" className="font-bold underline" onClick={loadOffers}>Try Again</button></div>:promotions.length?<FeaturedOffers promotions={promotions}/>:<div className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="text-lg font-bold text-slate-900">Special Offers</h2><p className="mt-1 text-sm text-slate-500">No featured offers at this clinic right now.</p><NavLink to="/patient/offers" className="mt-3 inline-flex min-h-11 items-center font-bold text-emerald-700">View All Clinic Offers <MdArrowForward/></NavLink></div>}
+      </section>
+
+      <PatientAnnouncementPromos branchId={branchId} />
 
       {/* ── Next Appointment Card ──────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
@@ -335,4 +308,5 @@ const PatientDashboard = () => {
 }
 
 export default PatientDashboard
+
 

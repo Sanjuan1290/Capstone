@@ -1,3 +1,4 @@
+const { PREFIX:QUILL_PREFIX, parsePost, readablePost } = require('../utils/announcementDocument')
 const express = require('express')
 const crypto = require('node:crypto')
 const db = require('../db/connect')
@@ -16,6 +17,7 @@ const validatePost = body => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw bad('Invalid announcement payload.')
   const title=clean(body.title,161), caption=clean(body.caption,351), content=String(body.body??'').trim()
   if(!title || title.length>160 || !caption || caption.length>350 || !content || content.length>12000)throw bad('Provide a title (160), caption (350), and article text (12,000 characters max).')
+  if(content.startsWith(QUILL_PREFIX) && (!parsePost(content) || !readablePost(content)))throw bad('Post formatting is invalid. Please edit the text and try again.')
   const kind=String(body.type||'news'),status=String(body.status||'draft')
   if(!['promotion','news','article'].includes(kind)||!['draft','scheduled','published','archived'].includes(status))throw bad('Invalid announcement category or publishing status.')
   const path=slug(title)

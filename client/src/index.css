@@ -334,3 +334,11 @@ html { scroll-behavior: smooth; scroll-padding-top: 112px; }
   .carait-landing .carait-reveal, .carait-landing .carait-reveal[data-reveal='pending'], .carait-landing .carait-reveal[data-reveal='shown'] { opacity: 1 !important; transform: none !important; transition: none !important; }
   .carait-landing .carait-lift, .carait-landing .carait-lift:hover, .carait-landing .carait-action, .carait-mobile-nav, .carait-editor-panel, .carait-landing .carait-hero-content { animation: none !important; transform: none !important; transition: none !important; }
 }
+/* Simple post editor typography, keyboard focus, and reduced-motion handling. */
+.carait-quill .ql-toolbar.ql-snow { border:0; border-bottom:1px solid #e2e8f0; padding:12px; background:#f8fafc; }
+.carait-quill .ql-container.ql-snow { border:0; font-size:15px; font-family:inherit; }
+.carait-quill .ql-editor { min-height:230px; max-height:520px; overflow-y:auto; line-height:1.7; padding:18px; }
+.carait-quill .ql-editor:focus-visible { outline:2px solid #0e7490; outline-offset:-2px; }
+.carait-editor-card { transition:transform 180ms ease,box-shadow 180ms ease,border-color 180ms ease; }
+.carait-editor-card:hover { transform:translateY(-2px);box-shadow:0 10px 30px -20px #0f172a88; }
+@media(prefers-reduced-motion:reduce){.carait-editor-card { transition:none!important; } .carait-editor-card:hover { transform:none!important; }}
