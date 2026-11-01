@@ -17,6 +17,7 @@ import { getClinicSettings, updateClinicSettings } from '../../services/admin.se
 import { useAuth } from '../../context/AuthContext'
 import ProfileAvatar from '../../components/ProfileAvatar'
 import RecoveryPhoneCard from '../../components/RecoveryPhoneCard'
+import { patientEmailIsVerified, isSamePatientAccount, isEditingDifferentEmail } from '../../utils/patientEmailVerification.mjs'
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other']
 const CLINIC_EMPTY = { clinic_name: 'CARAIT MEDICAL AND DERMATOLOGY CLINIC', address: '', phone: '', email: '', report_footer: '', receipt_footer: '' }
@@ -55,6 +56,7 @@ const SettingsPage = () => {
   const [emailVerifyCode, setEmailVerifyCode] = useState('')
   const [emailVerifyBusy, setEmailVerifyBusy] = useState(false)
   const [emailVerifyMessage, setEmailVerifyMessage] = useState('')
+  const [emailVerifyFeedback, setEmailVerifyFeedback] = useState('')
 
   const loadSettings = async () => {
     if (!role) return
@@ -62,6 +64,9 @@ const SettingsPage = () => {
     try {
       const data = await getSettings(role)
       setForm(data); setOriginal(data); setEditing(false)
+      if (role === 'patient') {
+        setUser((current) => isSamePatientAccount(data, current?.id) ? { ...current, ...data, role: 'patient' } : current)
+      }
       if (role === 'superadmin') {
         const clinicData = { ...CLINIC_EMPTY, ...(await getClinicSettings()) }
         setClinic(clinicData); setClinicOriginal(clinicData); setClinicEditing(false)
@@ -88,6 +93,7 @@ const SettingsPage = () => {
   const onChange = (key) => (e) => {
     const value = e.target.value
     setForm((prev) => ({ ...prev, [key]: value }))
+    if (key === 'email') setEmailVerifyFeedback('')
     if (key === 'birthdate') {
       if (!value) setBirthdateError('Birthdate is required.')
       else if (value > today()) setBirthdateError('Birthdate cannot be in the future.')
@@ -182,16 +188,30 @@ const SettingsPage = () => {
     finally { setPhoneBusy(false) }
   }
 
+  // Always re-read the verified timestamp from the account settings endpoint.
+  // The OTP endpoint confirms verification; it does not replace the database read.
+  const refreshPatientEmailStatus = async () => {
+    const saved = await getSettings('patient')
+    if (!isSamePatientAccount(saved, form?.id)) throw new Error('Could not refresh email verification. Please sign in again.')
+    setForm(saved)
+    setOriginal(saved)
+    setUser((current) => isSamePatientAccount(saved, current?.id) ? { ...current, ...saved, role: 'patient' } : current)
+    return saved
+  }
+
   const sendEmailVerificationCode = async () => {
     if (role !== 'patient' || !form?.email) return
-    setEmailVerifyBusy(true); setEmailVerifyMessage('')
+    if (editing && isEditingDifferentEmail(form.email, original?.email)) {
+      setEmailVerifyFeedback('Save the new email address before requesting a verification code.')
+      return
+    }
+    setEmailVerifyBusy(true); setEmailVerifyMessage(''); setEmailVerifyFeedback('')
     try {
       const result = await requestPatientEmailVerificationCode()
       if (result?.already_verified) {
-        const verifiedAt = result?.email_verified_at || new Date().toISOString()
-        setForm((prev) => ({ ...prev, email_verified_at: prev?.email_verified_at || verifiedAt }))
-        setOriginal((prev) => ({ ...prev, email_verified_at: prev?.email_verified_at || verifiedAt }))
-        setUser((prev) => prev ? { ...prev, email_verified_at: prev.email_verified_at || verifiedAt } : prev)
+        const saved = await refreshPatientEmailStatus()
+        if (!patientEmailIsVerified(saved)) throw new Error('Your verification status could not be confirmed. Please try again.')
+        setEmailVerifyFeedback('Your email is verified. You can book an appointment.')
         setEmailVerifyOpen(false)
         return
       }
@@ -210,14 +230,13 @@ const SettingsPage = () => {
     if (emailVerifyCode.length !== 6) return setEmailVerifyMessage('Enter the 6-digit verification code.')
     setEmailVerifyBusy(true); setEmailVerifyMessage('')
     try {
-      const result = await confirmPatientEmailVerification(emailVerifyCode)
-      const verifiedAt = result?.email_verified_at || new Date().toISOString()
-      setForm((prev) => ({ ...prev, email_verified_at: verifiedAt }))
-      setOriginal((prev) => ({ ...prev, email_verified_at: verifiedAt }))
-      setUser((prev) => prev ? { ...prev, email_verified_at: verifiedAt } : prev)
+      await confirmPatientEmailVerification(emailVerifyCode)
+      const saved = await refreshPatientEmailStatus()
+      if (!patientEmailIsVerified(saved)) throw new Error('The clinic could not confirm your email verification yet. Please try again.')
       setEmailVerifyOpen(false)
       setEmailVerifyCode('')
       setEmailVerifyMessage('')
+      setEmailVerifyFeedback('Your email is verified. You can book an appointment.')
     } catch (err) {
       setEmailVerifyMessage(err.message || 'The verification code could not be confirmed.')
     } finally {
@@ -225,11 +244,15 @@ const SettingsPage = () => {
     }
   }
 
+  const emailChangedInEditor = role === 'patient' && editing && isEditingDifferentEmail(form.email, original?.email)
+  const emailVerified = role === 'patient' && patientEmailIsVerified(form) && !emailChangedInEditor
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6">
       <div><h1 className="text-2xl font-bold text-slate-800">Settings</h1><p className="mt-1 text-sm text-slate-500">Manage account information and security. Appearance is controlled from the header.</p></div>
       {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
-      {role === 'patient' && form.email && !form.email_verified_at && (
+      {emailVerifyFeedback && <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{emailVerifyFeedback}</p>}
+      {role === 'patient' && form.email && !emailVerified && !emailChangedInEditor && (
         <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             <MdWarningAmber className="mt-0.5 shrink-0 text-xl text-amber-600" />
@@ -253,11 +276,11 @@ const SettingsPage = () => {
         <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6">
           <div className="flex items-start justify-between gap-3"><div><h2 className="text-base font-bold text-slate-900">Personal Information</h2><p className="mt-1 text-xs text-slate-500">Review your information. Click Edit before making changes.</p></div>{!editing && <button className="button-secondary" onClick={() => setEditing(true)}><MdEdit/> Edit</button>}</div>
           {!editing ? (
-            <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200">{displayRows.map(([label, value]) => <div key={label} className="grid gap-1 px-4 py-3 sm:grid-cols-[180px_1fr]"><span className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</span><span className="text-sm font-semibold text-slate-700">{value}</span></div>)}</div>
+            <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200">{displayRows.map(([label, value]) => <div key={label} className="grid gap-1 px-4 py-3 sm:grid-cols-[180px_1fr]"><span className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</span><span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-700">{value}{role === 'patient' && label === 'Email' && form.email && <span aria-label={emailVerified ? 'Email verified' : 'Email not verified'} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${emailVerified ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}><MdVerifiedUser aria-hidden="true" />{emailVerified ? 'Verified' : 'Not Verified'}</span>}</span></div>)}</div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1.5"><span className="form-label">Full Name *</span><input value={form.full_name || ''} onChange={onChange('full_name')} className="form-control"/></label>
-              {'email' in form && <label className="space-y-1.5"><span className="form-label">Email {['patient','admin','superadmin'].includes(role) ? '*' : ''}</span><input type="email" required={['patient','admin','superadmin'].includes(role)} value={form.email || ''} onChange={onChange('email')} className="form-control"/>{['admin','superadmin'].includes(role) && <span className="form-helper">Saving personal information requires verification. Email changes are verified at both your current and new email addresses.</span>}</label>}
+              {'email' in form && <label className="space-y-1.5"><span className="form-label">Email {['patient','admin','superadmin'].includes(role) ? '*' : ''}</span><input type="email" required={['patient','admin','superadmin'].includes(role)} value={form.email || ''} onChange={onChange('email')} className="form-control"/>{role === 'patient' && <span className={`inline-flex items-center gap-1 text-xs font-semibold ${emailVerified ? 'text-emerald-700' : 'text-amber-700'}`}><MdVerifiedUser aria-hidden="true" /> {emailVerified ? 'Verified' : 'Not Verified'}{emailChangedInEditor ? ' — save the new address, then verify it' : ''}</span>}{['admin','superadmin'].includes(role) && <span className="form-helper">Saving personal information requires verification. Email changes are verified at both your current and new email addresses.</span>}</label>}
               {'phone' in form && role !== 'patient' && <label className="space-y-1.5"><span className="form-label">Phone</span><PhilippinePhoneInput value={form.phone || ''} onChange={onChange('phone')}/></label>}
               {role === 'patient' && <div className="space-y-1.5"><span className="form-label">Mobile Number *</span><PhilippinePhoneInput value={form.phone || ''} disabled/><button type="button" onClick={openPhoneChange} className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700"><MdPhoneAndroid/> Change mobile number securely</button></div>}
               {role === 'doctor' && <div className="space-y-1.5 md:col-span-2"><span className="form-label">Clinic Assignment</span><div className="form-control bg-slate-100 text-slate-600">{doctorClinicLabel(form)}</div><span className="form-helper">Clinic Assignment is managed by an Administrator.</span></div>}
@@ -311,3 +334,4 @@ const SettingsPage = () => {
 }
 
 export default SettingsPage
+

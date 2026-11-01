@@ -3,13 +3,15 @@ import useClinicRefresh from '../../hooks/useClinicRefresh'
 // client/src/pages/patientPage/BookAppointment.jsx
 // REDESIGNED: 5-step wizard, mobile-first, touch-friendly calendar, clean cards
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import {
   getMyAppointments, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,
 } from '../../services/patient.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import { useAuth } from '../../context/AuthContext'
+import { getSettings } from '../../services/portal.service'
+import { getVerifiedPatientAccount, isSamePatientAccount } from '../../utils/patientEmailVerification.mjs'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
   MdCalendarToday, MdAccessTime, MdPerson, MdAdd,
@@ -477,7 +479,10 @@ const SuccessScreen = ({ onReset }) => (
 // ── Main ──────────────────────────────────────────────────────────────────────
 const BookAppointment = () => {
   const [step, setStep] = useState(0)
-  const { user } = useAuth()
+  const { user, setUser } = useAuth()
+  const [emailStatus, setEmailStatus] = useState('checking')
+  const [emailStatusError, setEmailStatusError] = useState('')
+  const emailStatusRequestId = useRef(0)
   const [activeVisits, setActiveVisits] = useState([])
   const [bookingNotice, setBookingNotice] = useState('')
   const [checkingVisits, setCheckingVisits] = useState(true)
@@ -512,6 +517,42 @@ const BookAppointment = () => {
   const [readinessError, setReadinessError] = useState('')
   const readinessRequestId = useRef(0)
   const doctorsRequestId = useRef(0)
+
+  // Booking requires the current persisted verification status, not a cached
+  // login response. Recheck when returning from Settings or another browser tab.
+  const patientId = user?.id
+  const refreshEmailVerification = useCallback(async () => {
+    const requestId = ++emailStatusRequestId.current
+    setEmailStatus('checking')
+    setEmailStatusError('')
+    if (!patientId) return
+    try {
+      const current = await getSettings('patient')
+      const status = getVerifiedPatientAccount(current, patientId)
+      if (requestId !== emailStatusRequestId.current) return
+      setUser((prev) => isSamePatientAccount(current, prev?.id)
+        ? { ...prev, email: current.email, email_verified_at: current.email_verified_at || null }
+        : prev)
+      setEmailStatus(status)
+    } catch (error) {
+      if (requestId !== emailStatusRequestId.current) return
+      setEmailStatusError(error.message || 'Unable to confirm email status.')
+      setEmailStatus('error')
+    }
+  }, [patientId, setUser])
+
+  useEffect(() => {
+    refreshEmailVerification()
+    const onFocus = () => { if (!document.hidden) refreshEmailVerification() }
+    const onVisibility = () => { if (document.visibilityState === 'visible') refreshEmailVerification() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      emailStatusRequestId.current += 1
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [refreshEmailVerification])
 
   useEffect(() => {
     let current = true
@@ -716,7 +757,7 @@ const BookAppointment = () => {
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
   const canNext = () => {
-    if (loadingReadiness || readinessError || !user?.email_verified_at) return false
+    if (loadingReadiness || readinessError || emailStatus !== 'verified') return false
     if (checkingVisits && step===2) return false
     if (step===0) return !!form.clinicType && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
     if (step===1) return !!form.service && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
@@ -733,7 +774,7 @@ const BookAppointment = () => {
   }
 
   const handleConfirm = async () => {
-    if (bookingSubmissionLock.current || submitting || !policyAccepted || !bookingReadiness?.[form.clinicType]?.bookable || readinessError) return
+    if (bookingSubmissionLock.current || submitting || !policyAccepted || !bookingReadiness?.[form.clinicType]?.bookable || readinessError || emailStatus !== 'verified') return
     bookingSubmissionLock.current = true
     setSubmitting(true)
     try {
@@ -753,6 +794,7 @@ const BookAppointment = () => {
       setActiveVisits((current) => [...current, { doctor_id: form.doctor.id, status: 'pending' }])
     } catch (err) {
       setBookingNotice(err.message || 'This appointment could not be booked. Please review your selection.')
+      if (err.code === 'EMAIL_VERIFICATION_REQUIRED') refreshEmailVerification()
       if (/already have an active appointment/i.test(err.message || '')) setStep(2)
     } finally {
       bookingSubmissionLock.current = false
@@ -770,7 +812,23 @@ const BookAppointment = () => {
     setForm({ clinicType:'', service:null, doctor:null, date:null, time:'', reason:'', reasonDetails:'', notes:'' })
   }
 
-  if(!branchId)return <div className="max-w-2xl mx-auto space-y-4"><h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{selectBranch(String(b.id));setSelectedPromotionId(null);setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
+  const emailVerificationNotice = emailStatus === 'verified' ? null : emailStatus === 'checking' ? (
+    <div role="status" className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">Checking your email verification status…</div>
+  ) : emailStatus === 'error' ? (
+    <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+      <p className="font-bold">Could not check your email verification</p>
+      <p className="mt-1">{emailStatusError} Your booking details are still here.</p>
+      <button type="button" onClick={refreshEmailVerification} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800"><MdRefresh /> Try Again</button>
+    </div>
+  ) : (
+    <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+      <p className="font-bold">Verify your email before booking</p>
+      <p className="mt-1">We need to confirm your email address before you can request an appointment. You can verify it in Settings, even without choosing a clinic branch.</p>
+      <NavLink to="/patient/settings" className="mt-3 inline-flex rounded-xl bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800">Go to Settings · Verify Email</NavLink>
+    </div>
+  )
+
+  if(!branchId)return <div className="max-w-2xl mx-auto space-y-4">{emailVerificationNotice}<h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{selectBranch(String(b.id));setSelectedPromotionId(null);setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -793,11 +851,7 @@ const BookAppointment = () => {
         </div>
       </div>
 
-      {!user?.email_verified_at && <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-        <p className="font-bold">Verify your email before booking</p>
-        <p className="mt-1">We need to confirm your email address before you can request an appointment. You can verify it in Settings, even without choosing a clinic branch.</p>
-        <NavLink to="/patient/settings" className="mt-3 inline-flex rounded-xl bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800">Go to Settings · Verify Email</NavLink>
-      </div>}
+      {emailVerificationNotice}
       {activeVisits.length > 0 && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900" role="status">
         <p className="font-bold">You already have {activeVisits.length} active appointment{activeVisits.length===1?'':'s'}</p>
         <p className="mt-1">You cannot book again with the same doctor until that appointment is completed or cancelled. You'll be notified as soon as you choose a doctor who already has an active booking.</p>
