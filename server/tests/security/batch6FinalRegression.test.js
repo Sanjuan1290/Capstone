@@ -31,7 +31,8 @@ describe('Batch 6 final regression guard', () => {
     const booking = read('client', 'src', 'pages', 'patientPage', 'BookAppointment.jsx')
     expect(readiness).toContain("if (activeServices === 0) issues.push('NO_ACTIVE_SERVICE')")
     expect(readiness).toContain("warnings.push('NO_VISIT_REASON')")
-    expect(booking).toContain('Choose Another Clinic')
-    expect(booking).toContain('Other always available')
+    expect(booking).toContain('Try another category or contact the clinic for help.')
+    expect(booking).toContain('No custom visit reasons are configured yet.')
   })
 })
+

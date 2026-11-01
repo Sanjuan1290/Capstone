@@ -6,9 +6,11 @@ const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', '..', '..'
 describe('Batch 6F empty service workflow', () => {
   it('gives patients a clinic-specific recovery path when services disappear', () => {
     const source = read('client', 'src', 'pages', 'patientPage', 'BookAppointment.jsx')
-    expect(source).toContain('No active {doctorClinicLabel(clinicType)} services are available for online booking.')
-    expect(source).toContain('Choose Another Clinic')
-    expect(source).toContain('if (normalizedRows.length === 0) await loadBookingReadiness()')
+    expect(source).toContain('No active ${doctorClinicLabel(category)} services are available for online booking.')
+    expect(source).toContain('Try another category or contact the clinic for help.')
+    expect(source).toContain('getBookingServices(clinicType,requestedBranch)')
+    expect(source).toContain('onRetryReadiness={loadBookingReadiness}')
+    expect(source).toContain('disabled={!bookable}')
   })
 
   it('shows administrators which clinic is missing an active service', () => {
@@ -30,3 +32,4 @@ describe('Batch 6F empty service workflow', () => {
     expect(dashboard).toContain('`${baseAction.path}?clinic=${id}`')
   })
 })
+

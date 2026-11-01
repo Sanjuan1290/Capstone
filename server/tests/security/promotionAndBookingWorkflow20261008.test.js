@@ -44,7 +44,7 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(admin).toContain("router.put('/promotions/:id'")
     expect(patient).toContain("router.get('/promotions'")
     expect(read('client/src/pages/adminPage/Admin_Promotions.jsx')).toContain("Offers do not automatically reduce a patient's bill.")
-    expect(read('client/src/pages/patientPage/BookAppointment.jsx')).toContain('promo.service_ids.includes(Number(service.id))')
+    expect(read('client/src/pages/patientPage/BookAppointment.jsx')).toContain('eligibleBookingPromotions(promotions,')
     // Verify the current patient-facing promo contract, not the old section copy.
     const dashboard=read('client/src/pages/patientPage/PatientDashboard.jsx')
     const cards=read('client/src/components/promotions/PromotionCards.jsx')

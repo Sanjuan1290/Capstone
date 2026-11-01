@@ -72,10 +72,11 @@ describe('Batch 6E online booking readiness', () => {
 
   it('prevents patients from entering a clinic booking flow when its configuration is incomplete', () => {
     const source = read('client', 'src', 'pages', 'patientPage', 'BookAppointment.jsx')
-    expect(source).toContain("status.issue_messages?.[0]")
-    expect(source).toContain("'Setup incomplete'")
+    expect(source).toContain('Boolean(readiness?.[service.booking_clinic_type]?.bookable)')
+    expect(source).toContain('onRetryReadiness={loadBookingReadiness}')
     expect(source).toContain('Boolean(bookingReadiness?.[form.clinicType]?.bookable)')
-    expect(source).toContain('disabled={disabled}')
+    expect(source).toContain('disabled={!bookable}')
+    expect(source).toContain('disabled={!canNext()}')
   })
 
   it('shows administrators the booking readiness status and direct setup actions', () => {

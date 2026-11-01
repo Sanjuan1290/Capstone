@@ -1,7 +1,7 @@
 import { usePatientBranch } from '../../context/PatientBranchContext'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 // client/src/pages/patientPage/BookAppointment.jsx
-// REDESIGNED: 5-step wizard, mobile-first, touch-friendly calendar, clean cards
+// Four-step patient-facing flow. Existing backend validation is authoritative.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
@@ -14,12 +14,13 @@ import { getSettings } from '../../services/portal.service'
 import { getVerifiedPatientAccount, isSamePatientAccount } from '../../utils/patientEmailVerification.mjs'
 import {
   MdCheck, MdChevronLeft, MdChevronRight, MdFace, MdMedicalServices,
-  MdCalendarToday, MdAccessTime, MdPerson, MdAdd,
-  MdArrowForward, MdWarning, MdRefresh,
+  MdCalendarToday, MdAccessTime,
+  MdArrowForward, MdWarning, MdRefresh, MdInfoOutline, MdLocalOffer,
 } from 'react-icons/md'
 import { getLocalDateOnly } from '../../utils/date'
 import { readSlotPrefill } from '../../utils/bookingHandoff.mjs'
 import { formatAppointmentTimeRange } from '../../utils/appointmentTime'
+import { BOOKING_STEPS, normalizeBookingServiceResults, eligibleBookingPromotions } from '../../utils/patientBookingFlow.mjs'
 import {
   buildUnavailableDateSet,
   isDoctorAvailableOnDate,
@@ -33,7 +34,7 @@ const CLINIC_TYPES = [
 ]
 const MONTHS  = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAYS    = ['Su','Mo','Tu','We','Th','Fr','Sa']
-const STEPS   = ['Clinic','Service','Doctor','Schedule','Details','Confirm']
+const STEPS = BOOKING_STEPS
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getDaysInMonth(y, m) { return new Date(y, m+1, 0).getDate() }
@@ -42,134 +43,85 @@ function pad(n) { return String(n).padStart(2, '0') }
 function toISO(y, m, d) { return `${y}-${pad(m+1)}-${pad(d)}` }
 function formatDuration(minutes) { const total=Number(minutes||60); const h=Math.floor(total/60), m=total%60; return [h?`${h} hr${h===1?'':'s'}`:'',m?`${m} min`:''].filter(Boolean).join(' ') }
 
-// ── Step bar ──────────────────────────────────────────────────────────────────
+// ── Four-step progress ──────────────────────────────────────────────────────
 const StepBar = ({ current }) => (
-  <div className="flex items-center mb-6">
-    {STEPS.map((label, i) => {
-      const done = i < current, active = i === current
-      return (
-        <div key={label} className="flex items-center flex-1 last:flex-none">
-          <div className="flex flex-col items-center gap-1">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all
-              ${done ? 'bg-emerald-500 text-white' : active ? 'bg-[#0b1a2c] text-emerald-400 ring-2 ring-emerald-400/30' : 'bg-slate-100 text-slate-400'}`}>
-              {done ? <MdCheck className="text-[13px]" /> : i+1}
-            </div>
-            <span className={`text-[9px] font-bold hidden sm:block ${active?'text-slate-700':done?'text-emerald-500':'text-slate-400'}`}>
-              {label}
-            </span>
-          </div>
-          {i < STEPS.length-1 && (
-            <div className={`flex-1 h-0.5 mx-1 mb-3 rounded-full transition-all ${done?'bg-emerald-400':'bg-slate-200'}`} />
-          )}
+  <div className="mb-6" aria-label={`Step ${current + 1} of ${STEPS.length}: ${STEPS[current]}`}>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm font-bold text-slate-800">Step {current + 1} of 4</p>
+      <p className="text-sm text-emerald-700 font-semibold">{STEPS[current]}</p>
+    </div>
+    <div className="grid grid-cols-4 gap-2" role="list" aria-label="Booking progress">
+      {STEPS.map((label, index) => (
+        <div key={label} role="listitem" aria-current={index === current ? 'step' : undefined}>
+          <div className={`h-1.5 rounded-full transition-colors duration-200 motion-reduce:transition-none ${index <= current ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+          <p className={`mt-2 text-center text-[11px] sm:text-xs font-semibold ${index === current ? 'text-emerald-800' : 'text-slate-500'}`}>
+            {index < current ? <MdCheck className="mr-1 inline" aria-label="Done" /> : null}{label}
+          </p>
         </div>
-      )
-    })}
+      ))}
+    </div>
   </div>
 )
 
-// ── Step 1: Clinic type ───────────────────────────────────────────────────────
-const StepClinicType = ({ value, onChange, readiness, loading, error, onRetry }) => (
-  <div className="space-y-3">
+// ── Step 1: Category and service selection in one screen ────────────────────
+const StepService = ({ category, onCategoryChange, value, onChange, services, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness }) => {
+  const [query, setQuery] = useState('')
+  const filtered = services.filter(service =>
+    (category === 'all' || service.booking_clinic_type === category) &&
+    `${service.service_name} ${service.category || ''}`.toLowerCase().includes(query.trim().toLowerCase())
+  )
+  return <div className="space-y-5">
     <div>
-      <h2 className="text-lg font-bold text-slate-800">Choose Clinic Type</h2>
-      <p className="text-sm text-slate-500 mt-0.5">Which type of consultation do you need?</p>
+      <h2 className="text-xl font-bold text-slate-900">What service do you need?</h2>
+      <p className="mt-1 text-sm leading-relaxed text-slate-600">Choose the treatment or consultation you want. You can change your selection before submitting.</p>
     </div>
-    {error && (
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        <div className="flex items-start gap-2"><MdWarning className="mt-0.5 shrink-0" /><div className="flex-1"><p className="font-bold">We couldn't check online booking availability.</p><p className="mt-1 text-xs text-red-600">{error}</p></div><button type="button" onClick={onRetry} className="inline-flex items-center gap-1 font-bold"><MdRefresh /> Retry</button></div>
-      </div>
-    )}
-    {CLINIC_TYPES.map(({ id, label, desc, Icon, from, to, light, border, check }) => {
-      const status = readiness?.[id]
-      const bookable = Boolean(status?.bookable)
-      const disabled = loading || Boolean(error) || !bookable
-      return (
-        <button key={id} type="button" disabled={disabled} onClick={() => bookable && onChange(id)}
-          className={`w-full flex items-center gap-4 p-5 rounded-2xl border-2 text-left transition-all
-            ${disabled ? 'cursor-not-allowed opacity-70' : 'active:scale-[0.99]'}
-            ${value===id ? `${border} ${light}` : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 bg-gradient-to-br ${from} ${to}`}>
-            <Icon className="text-white text-[22px]" />
+    {readinessError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+      <p className="font-bold">Booking availability could not be checked.</p>
+      <p className="my-1">{readinessError}</p>
+      <button type="button" onClick={onRetryReadiness} className="font-bold underline">Try again</button>
+    </div>}
+    <div className="flex flex-wrap gap-2" aria-label="Filter services by clinic type">
+      {[{id:'all',label:'All Services'}, ...CLINIC_TYPES.map(item=>({id:item.id,label:item.label}))].map(item => (
+        <button key={item.id} type="button" aria-pressed={category === item.id} onClick={() => onCategoryChange(item.id)}
+          className={`min-h-11 rounded-full border px-4 py-2 text-sm font-semibold transition-colors motion-reduce:transition-none ${category===item.id ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`}>
+          {item.label}
+        </button>
+      ))}
+    </div>
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-slate-700">Find a service</span>
+      <input type="search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search by service name"
+        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-800 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+    </label>
+    {(loading || readinessLoading) && <p role="status" className="rounded-xl bg-slate-50 p-5 text-sm text-slate-600">Loading available services…</p>}
+    {!loading && error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">We couldn't load the services. <button type="button" onClick={onRetry} className="font-bold underline">Try again</button></div>}
+    {!loading && !error && !readinessLoading && !filtered.length && <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+      <p className="font-semibold text-slate-900">{query ? 'No services match your search.' : category === 'all' ? 'No online services are available at this branch.' : `No active ${doctorClinicLabel(category)} services are available for online booking.`}</p>
+      <p className="mt-1 text-sm text-slate-600">Try another category or contact the clinic for help.</p>
+    </div>}
+    <div className="grid gap-3 md:grid-cols-2">
+      {!loading && !error && filtered.map(service => {
+        const selected = Number(value?.id)===Number(service.id) && value?.booking_clinic_type===service.booking_clinic_type
+        const clinic = CLINIC_TYPES.find(c=>c.id===service.booking_clinic_type)
+        const bookable = !readinessError && Boolean(readiness?.[service.booking_clinic_type]?.bookable)
+        return <button key={`${service.booking_clinic_type}:${service.id}`} type="button" disabled={!bookable} aria-pressed={selected}
+          onClick={() => onChange(service)} className={`flex min-h-40 flex-col rounded-2xl border-2 p-4 text-left transition-all duration-200 motion-reduce:transition-none ${!bookable ? 'cursor-not-allowed opacity-60' : 'hover:shadow-md'} ${selected ? 'border-emerald-600 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:border-emerald-300'}`}>
+          <div className="flex w-full items-start justify-between gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-emerald-700">{clinic?.label || 'Clinic service'}</span>
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${selected ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300'}`}>{selected && <MdCheck aria-hidden="true" />}</span>
           </div>
-          <div className="flex-1 text-left">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-bold text-sm text-slate-800">{label}</p>
-              {loading ? <span className="text-[10px] font-bold text-slate-400">Checking…</span> : status && (
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${bookable ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                  {bookable ? 'Online booking available' : status.issues?.includes('CLINIC_TYPE_DISABLED') ? 'Online booking disabled' : 'Setup incomplete'}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{desc}</p>
-            {!loading && status && !bookable && (
-              <p className="mt-2 text-xs font-semibold text-amber-700">{status.issue_messages?.[0] || 'Online booking is not available for this clinic yet.'}</p>
-            )}
-            {!loading && status && bookable && status.warning_messages?.[0] && (
-              <p className="mt-2 text-xs font-semibold text-amber-700">{status.warning_messages[0]}</p>
-            )}
-            {!loading && status && (
-              <p className="mt-1 text-[10px] text-slate-400">
-                {status.schedulable_doctors} scheduled doctor{status.schedulable_doctors === 1 ? '' : 's'} · {status.active_services} service{status.active_services === 1 ? '' : 's'} · {status.visit_reasons} custom visit reason{status.visit_reasons === 1 ? '' : 's'} · Other always available
-              </p>
-            )}
-          </div>
-          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
-            ${value===id ? `${check} border-transparent` : 'border-slate-300 bg-white'}`}>
-            {value===id && <MdCheck className="text-white text-[13px]" />}
+          <p className="mt-2 break-words text-base font-bold text-slate-900">{service.service_name}</p>
+          <p className="mt-1 text-sm text-slate-600">{service.category || 'Consultation or treatment'}</p>
+          <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-4 text-sm">
+            <span className="text-slate-600">{formatDuration(service.average_duration_minutes)} estimated</span>
+            <span className="font-semibold text-emerald-800">{selected ? 'Selected' : bookable ? 'Select service' : 'Not available'}</span>
           </div>
         </button>
-      )
-    })}
-    {!loading && readiness && !readiness.medical?.bookable && !readiness.derma?.bookable && (
-      <p className="rounded-xl bg-slate-50 px-4 py-3 text-center text-xs text-slate-500">Online booking is temporarily unavailable while the clinic completes its booking setup. Please contact the clinic for assistance.</p>
-    )}
-  </div>
-)
-
-// ── Step 2: Service ───────────────────────────────────────────────────────────
-const StepService = ({ clinicType, value, onChange, services, promotions = [], selectedPromotionId, onPromotionChange, loading, error, onRetry, onBackToClinic }) => (
-  <div className="space-y-3">
-    <div>
-      <h2 className="text-lg font-bold text-slate-800">Choose a Service</h2>
-      <p className="text-sm text-slate-500 mt-0.5">Select the service you would like to book. Final charges may change if additional services, medicines, or supplies are used during your visit.</p>
+      })}
     </div>
-    {loading && <div className="py-10 text-center text-sm text-slate-400">Loading clinic services…</div>}
-    {!loading && error && <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-center text-sm text-red-600">We couldn't load services.<button onClick={onRetry} className="ml-2 font-bold">Try again</button></div>}
-    {!loading && !error && services.length === 0 && (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
-        <MdWarning className="mx-auto text-2xl text-amber-500" />
-        <p className="mt-2 font-bold text-slate-800">No active {doctorClinicLabel(clinicType)} services are available for online booking.</p>
-        <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-slate-500">The clinic may still provide this type of care, but an Administrator must configure at least one active service before it can be booked online.</p>
-        <button type="button" onClick={onBackToClinic} className="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><MdChevronLeft /> Choose Another Clinic</button>
-      </div>
-    )}
-    {!loading && !error && services.map((service) => (
-      <button key={service.id} onClick={() => onChange(service)} className={`w-full rounded-2xl border-2 p-4 text-left transition-all ${Number(value?.id)===Number(service.id) ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-slate-800">{service.service_name}</p>
-            <p className="mt-0.5 text-xs text-slate-500">{service.category || 'Clinic service'}</p>
-            {promotions.filter(promo=>promo.service_ids.includes(Number(service.id))).map(promo=><div key={promo.id} className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-left"><p className="text-xs font-bold text-amber-800">{promo.badge_text || 'Special offer'} · {promo.title}</p><p className="mt-1 text-xs text-amber-900">{promo.description}</p><p className="mt-1 text-[10px] text-amber-700">Available until {promo.ends_on}. Confirm offer eligibility with the clinic.</p></div>)}
-          </div>
-          <div className="shrink-0 text-right">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Standard Price</p>
-            <div className="text-right"><p className="text-sm font-black text-emerald-700">₱{Number(service.default_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p><p className="mt-1 text-[10px] font-semibold text-slate-400">{formatDuration(service.average_duration_minutes)} average · {formatDuration(service.reserved_duration_minutes)} reserved</p></div>
-          </div>
-        </div>
-      </button>
-    ))}
-    {!!value && <fieldset className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-      <legend className="px-1 text-sm font-bold text-amber-900">Promotion for this appointment (optional)</legend>
-      <p className="mb-3 text-xs text-amber-900">Selecting an offer records your request. The clinic will review eligibility and any discount at checkout; no discount is automatically applied.</p>
-      {[null,...promotions.filter(promo=>Array.isArray(promo.service_ids) && promo.service_ids.includes(Number(value.id)))].map(promo=>(
-        <label key={promo?.id ?? 'none'} className="mb-2 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm">
-          <input type="radio" name="promotion" className="mt-1" checked={String(selectedPromotionId||'')===String(promo?.id||'')} onChange={()=>onPromotionChange(promo?.id||null)} />
-          <span><strong className="block">{promo?.title||'No promotion'}</strong>{promo && <span className="text-xs text-slate-600">{promo.description} · Valid through {promo.ends_on}</span>}</span>
-        </label>
-      ))}
-    </fieldset>}
+    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Service selected. The clinic will confirm applicable charges. Any additional treatment or supplies may affect the final bill.</p>}
   </div>
-)
+}
 
 // ── Step 3: Doctor ────────────────────────────────────────────────────────────
 const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, doctorError, onRetry }) => {
@@ -211,10 +163,16 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, d
 }
 
 // ── Step 4: Schedule ──────────────────────────────────────────────────────────
-const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules, unavailableDates }) => {
+const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules, unavailableDates, loadingSlots, slotsError }) => {
   const today = new Date()
   const [viewYear,  setViewYear]  = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
+  useEffect(() => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(date||''))) {
+      const [year, month] = date.split('-').map(Number)
+      setViewYear(year); setViewMonth(month-1)
+    }
+  }, [date])
   const blockedDates = buildUnavailableDateSet(unavailableDates)
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth)
@@ -231,7 +189,7 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
   const isSelected = d => date === toISO(viewYear,viewMonth,d)
   const isToday    = d => d===today.getDate()&&viewMonth===today.getMonth()&&viewYear===today.getFullYear()
 
-  const prevM = () => { if(viewMonth===0){setViewMonth(11);setViewYear(y=>y-1)}else setViewMonth(m=>m-1) }
+  const prevM = () => { if (viewYear===today.getFullYear() && viewMonth===today.getMonth()) return; if(viewMonth===0){setViewMonth(11);setViewYear(y=>y-1)}else setViewMonth(m=>m-1) }
   const nextM = () => { if(viewMonth===11){setViewMonth(0);setViewYear(y=>y+1)}else setViewMonth(m=>m+1) }
 
   const todayStr = getLocalDateOnly(today)
@@ -246,13 +204,13 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
       {/* Calendar */}
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <button onClick={prevM}
-            className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-white hover:shadow-sm transition-all">
+          <button type="button" aria-label="Previous month" disabled={viewYear===today.getFullYear() && viewMonth===today.getMonth()} onClick={prevM}
+            className="w-11 h-11 disabled:opacity-30 flex items-center justify-center rounded-xl hover:bg-white hover:shadow-sm transition-all">
             <MdChevronLeft className="text-slate-500 text-[20px]" />
           </button>
           <p className="text-sm font-bold text-slate-800">{MONTHS[viewMonth]} {viewYear}</p>
-          <button onClick={nextM}
-            className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-white hover:shadow-sm transition-all">
+          <button type="button" aria-label="Next month" onClick={nextM}
+            className="w-11 h-11 flex items-center justify-center rounded-xl hover:bg-white hover:shadow-sm transition-all">
             <MdChevronRight className="text-slate-500 text-[20px]" />
           </button>
         </div>
@@ -268,9 +226,9 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
             const sel  = isSelected(d), td = isToday(d)
             const disabled = past || unavail
             return (
-              <button key={d} disabled={disabled}
+              <button key={d} type="button" aria-label={`${MONTHS[viewMonth]} ${d}, ${viewYear}${disabled ? ", unavailable" : ""}`} aria-pressed={sel} disabled={disabled}
                 onClick={() => { onDateChange(toISO(viewYear,viewMonth,d)); onTimeChange('') }}
-                className={`h-9 sm:h-10 w-full rounded-xl text-xs font-semibold transition-all
+                className={`min-h-11 w-full rounded-xl text-sm font-semibold transition-all
                   ${sel ? 'bg-[#0b1a2c] text-emerald-400 font-black shadow-md ring-2 ring-emerald-400/20' : ''}
                   ${!sel && td && !disabled ? 'ring-2 ring-emerald-400 text-emerald-700 bg-emerald-50' : ''}
                   ${!sel && !td && !disabled ? 'hover:bg-emerald-50 hover:text-emerald-700 text-slate-700' : ''}
@@ -301,7 +259,9 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1">
             <MdAccessTime className="text-[13px]" /> Available Time Slots
           </p>
-          {timeSlots.length === 0 ? (
+          {loadingSlots ? <p role="status" className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Checking available times…</p> : slotsError ? (
+            <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{slotsError} Please choose another date or try again.</p>
+          ) : timeSlots.length === 0 ? (
             <div className="text-center py-5 bg-slate-50 rounded-2xl border border-slate-200">
               <p className="text-sm text-slate-400">
                 {date===todayStr ? 'No more slots for today. Pick another date.' : 'No slots available.'}
@@ -310,8 +270,8 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {timeSlots.map(slot => (
-                <button key={slot} onClick={() => onTimeChange(slot)}
-                  className={`py-3 rounded-xl text-xs font-semibold transition-all border-2
+                <button key={slot} type="button" aria-pressed={time===slot} onClick={() => onTimeChange(slot)}
+                  className={`min-h-11 py-3 rounded-xl text-sm font-semibold transition-all border-2
                     ${time===slot ? 'bg-[#0b1a2c] text-emerald-400 border-transparent shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50'}`}>
                   {slot}
                 </button>
@@ -376,85 +336,68 @@ const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadingReaso
   </div>
 )
 
-// ── Step 6: Confirm ───────────────────────────────────────────────────────────
-const StepConfirm = ({ form, selectedPromotion, policyAccepted, onPolicyAcceptedChange }) => {
-  const ct   = CLINIC_TYPES.find(c => c.id === form.clinicType)
-  const Icon = ct?.Icon || MdMedicalServices
-  const [y,m,d] = (form.date||'').split('-').map(Number)
-  const dateLabel = y&&m&&d ? new Date(y,m-1,d).toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) : '—'
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-bold text-slate-800">Confirm Appointment</h2>
-        <p className="text-sm text-slate-500 mt-0.5">Review your details before booking.</p>
-      </div>
-
-      <div className="bg-gradient-to-br from-slate-800 to-[#0b1a2c] rounded-2xl p-5 text-white">
-        <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
-          <div className={`w-11 h-11 rounded-xl flex items-center justify-center bg-gradient-to-br ${ct?.from} ${ct?.to}`}>
-            <Icon className="text-white text-[20px]" />
-          </div>
-          <div>
-            <p className="font-bold text-sm">{ct?.label}</p>
-            <p className="text-xs text-white/60">{form.doctor?.full_name || form.doctor?.name}</p>
-          </div>
+// ── Step 4: Visit details, eligible offers, and final review ─────────────────
+const StepReview = ({ form, branchName, promotions, selectedPromotionId, onPromotionChange, reasonOptions, loadingReasons, onReasonChange, onReasonDetailsChange, onNotesChange, policyAccepted, onPolicyAcceptedChange }) => {
+  const applicable = eligibleBookingPromotions(promotions, {branchId:form.branchId,serviceId:form.service?.id,date:form.date})
+  return <div className="space-y-6">
+    <div>
+      <h2 className="text-xl font-bold text-slate-900">Review your appointment request</h2>
+      <p className="mt-1 text-sm text-slate-600">Tell the doctor why you're visiting, then check your booking details.</p>
+    </div>
+    <StepDetails reason={form.reason} reasonDetails={form.reasonDetails} notes={form.notes}
+      reasonOptions={reasonOptions} loadingReasons={loadingReasons}
+      onReasonChange={onReasonChange} onReasonDetailsChange={onReasonDetailsChange} onNotesChange={onNotesChange} />
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:hidden">
+      <BookingSummary form={form} branchName={branchName} selectedPromotion={applicable.find(p=>Number(p.id)===Number(selectedPromotionId))} />
+    </div>
+    {applicable.length > 0 && <fieldset className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <legend className="px-1 text-base font-bold text-amber-900">Available offers (optional)</legend>
+      <p className="mb-3 text-sm text-amber-900">The clinic checks offer eligibility at checkout. Selecting an offer does not automatically reduce your bill.</p>
+      {[null,...applicable].map(promo=><label key={promo?.id || 'none'} className="mb-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-white p-3 text-sm">
+        <input type="radio" className="mt-1 h-4 w-4 accent-emerald-700" name="booking_promotion" checked={String(selectedPromotionId||'')===String(promo?.id||'')} onChange={()=>onPromotionChange(promo?.id || null)} />
+        <span><strong className="block text-slate-900">{promo?.title || 'No offer'}</strong>{promo && <span className="mt-1 block text-slate-600">{promo.description} · Valid through {promo.ends_on}</span>}</span>
+      </label>)}
+    </fieldset>}
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <details className="group">
+        <summary className="cursor-pointer text-sm font-semibold text-emerald-800">Read full online booking policy</summary>
+        <div className="mt-3 space-y-2 text-sm leading-relaxed text-slate-700">
+          <p>Use correct contact information. You can have only one active appointment with each doctor.</p>
+          <p>Arrive at least 10 minutes before your scheduled time.</p>
+          <p>Cancel or reschedule early if you cannot attend.</p>
+          <p>Missed or false bookings may need clinic staff review before another appointment is approved.</p>
         </div>
-        {[
-          { label: 'Service', value: form.service?.service_name, icon: MdMedicalServices },
-          { label: 'Date',   value: dateLabel,   icon: MdCalendarToday },
-          { label: 'Time',   value: form.time ? formatAppointmentTimeRange(form.time, form.service?.reserved_duration_minutes || 60) : '', icon: MdAccessTime },
-          { label: 'Reason', value: form.reason === 'Other' && form.reasonDetails ? `Other — ${form.reasonDetails}` : form.reason, icon: MdPerson },
-        ].filter(r=>r.value).map(({ label, value, icon: I }) => (
-          <div key={label} className="flex items-center gap-3 mb-3 last:mb-0">
-            <I className="text-white/40 text-[14px] shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-white/40 font-medium">{label}</p>
-              <p className="text-sm font-semibold truncate">{value}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {form.service && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Service</p><p className="mt-1 text-sm font-bold text-emerald-900">{form.service.service_name}</p></div>
-            <p className="text-sm font-black text-emerald-800">₱{Number(form.service.default_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          </div>
-          <p className="mt-2 text-xs leading-relaxed text-emerald-700">This is the standard clinic price. Final charges may change if additional services, medicines, or supplies are used during your visit.</p>
-        </div>
-      )}
-
-      {selectedPromotion && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
-        <p className="font-bold text-amber-900">Selected offer: {selectedPromotion.title}</p>
-        <p className="mt-1 text-amber-800">{selectedPromotion.description}</p>
-        <p className="mt-2 text-xs text-amber-800">Selection does not automatically reduce your bill. The clinic will review eligibility at checkout.</p>
-      </div>}
-      {form.notes && (
-        <div className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-200">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Notes</p>
-          <p className="text-sm text-slate-600 leading-relaxed">{form.notes}</p>
-        </div>
-      )}
-
-      <label className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-start gap-3">
-        <input
-          type="checkbox"
-          checked={policyAccepted}
-          onChange={(e) => onPolicyAcceptedChange(e.target.checked)}
-          className="mt-0.5 h-4 w-4 rounded border-emerald-300 text-emerald-600"
-        />
-        <span className="text-xs text-emerald-700 leading-relaxed">
-          I agree to the online booking policy: I will attend on time, cancel or reschedule if I cannot come, and understand that no-shows or fake bookings may be reviewed or cancelled by the clinic.
-        </span>
+      </details>
+      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950">
+        <input type="checkbox" checked={policyAccepted} onChange={e=>onPolicyAcceptedChange(e.target.checked)} className="mt-0.5 h-5 w-5 accent-emerald-700" />
+        <span>I have reviewed my appointment details and agree to the clinic booking policy. I understand this is a request and the clinic must confirm it.</span>
       </label>
     </div>
-  )
+  </div>
+}
+
+// A quick reference stays visible throughout booking; it does not create a reservation.
+const BookingSummary = ({ form, branchName, selectedPromotion }) => {
+  const dateText = form.date && /^\d{4}-\d{2}-\d{2}$/.test(form.date)
+    ? new Date(`${form.date}T12:00:00`).toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) : 'Not selected yet'
+  return <div className="space-y-4">
+    <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><MdCalendarToday className="text-emerald-700" /> Your Appointment</h2>
+    {[
+      ['Clinic Branch',branchName],
+      ['Service',form.service?.service_name || 'Not selected yet'],
+      ['Doctor',form.doctor?.full_name || form.doctor?.name || 'Not selected yet'],
+      ['Date',dateText],
+      ['Time',form.time ? formatAppointmentTimeRange(form.time,form.service?.reserved_duration_minutes || 60) : 'Not selected yet'],
+    ].map(([label,value])=><div key={label} className="border-b border-slate-200 pb-3 last:border-0 last:pb-0">
+      <p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
+    </div>)}
+    {selectedPromotion && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><MdLocalOffer className="mr-1 inline" /> Requested offer: {selectedPromotion.title}</p>}
+    <p className="rounded-xl bg-sky-50 p-3 text-sm leading-relaxed text-sky-900"><MdInfoOutline className="mr-1 inline" /> The clinic confirms availability and final charges. Your request is not yet a confirmed appointment.</p>
+  </div>
 }
 
 // ── Success ───────────────────────────────────────────────────────────────────
-const SuccessScreen = ({ onReset }) => (
+const SuccessScreen = ({ onReset, form, branchName }) => (
   <div className="flex flex-col items-center text-center py-10">
     <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-5">
       <MdCheck className="text-emerald-500 text-[40px]" />
@@ -463,6 +406,11 @@ const SuccessScreen = ({ onReset }) => (
     <p className="text-sm text-slate-500 max-w-xs mb-8 leading-relaxed">
       Your requested time is pending clinic confirmation. You can track the status in <strong>My Appointments</strong>.
     </p>
+    <div className="mb-5 w-full max-w-sm rounded-xl border border-amber-200 bg-amber-50 p-4 text-left text-sm">
+      <p className="font-bold text-amber-900">Status: Pending Clinic Confirmation</p>
+      <p className="mt-2 text-slate-800">{form.service?.service_name} · {form.doctor?.full_name || form.doctor?.name}</p>
+      <p className="mt-1 text-slate-700">{branchName} · {form.date} · {form.time}</p>
+    </div>
     <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
       <button onClick={onReset}
         className="flex-1 py-3 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
@@ -479,6 +427,12 @@ const SuccessScreen = ({ onReset }) => (
 // ── Main ──────────────────────────────────────────────────────────────────────
 const BookAppointment = () => {
   const [step, setStep] = useState(0)
+  const [serviceCategory, setServiceCategory] = useState('all')
+  const bookingContentRef = useRef(null)
+  const lastFocusedStep = useRef(0)
+  const servicesRequestId = useRef(0)
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [slotsError, setSlotsError] = useState('')
   const { user, setUser } = useAuth()
   const [emailStatus, setEmailStatus] = useState('checking')
   const [emailStatusError, setEmailStatusError] = useState('')
@@ -663,34 +617,63 @@ const BookAppointment = () => {
     }
   }, [branchId,searchParams])
 
+  // Services in both categories are shown on the same first step. The selected
+  // service carries the concrete clinic type needed by booking APIs.
   const loadServices = async () => {
-    if (!form.clinicType) { setServices([]); return }
+    const requestId = ++servicesRequestId.current
+    const requestedBranch = branchId
+    if (!requestedBranch) { setServices([]); return }
     setLoadingServices(true); setServiceError('')
+    const categories = ['medical','derma']
     try {
-      const rows = await getBookingServices(form.clinicType,branchId)
-      const normalizedRows = Array.isArray(rows) ? rows : []
-      setServices(normalizedRows)
+      const results = await Promise.allSettled(categories.map(clinicType=>getBookingServices(clinicType,requestedBranch)))
+      if (requestId !== servicesRequestId.current || requestedBranch !== branchId) return
+      const rows = normalizeBookingServiceResults(results)
+      setServices(rows)
+      if (results.every(result=>result.status === 'rejected')) setServiceError('Services are temporarily unavailable. Please try again.')
       const wanted = Number(searchParams.get('service_id'))
-      if (wanted > 0 && searchParams.get('branch_id') === String(branchId)) {
-        const matched = normalizedRows.find(row => Number(row.id) === wanted)
+      const preferred = searchParams.get('clinic')
+      if (wanted > 0 && searchParams.get('branch_id')===String(requestedBranch)) {
+        const matched = rows.find(row => Number(row.id)===wanted && (!preferred || row.booking_clinic_type===preferred))
         if (matched) {
-          setForm(current => ({...current, service: matched}))
-          setStep(current => current < 2 ? 2 : current)
+          const clinicType = matched.booking_clinic_type
+          setForm(current => ({...current, clinicType, service:matched, doctor: current.doctor?.clinic_type === clinicType ? current.doctor : null, date: current.doctor?.clinic_type === clinicType ? current.date : null, time: current.doctor?.clinic_type === clinicType ? current.time : ''}))
+          setServiceCategory(clinicType)
+          setStep(1)
         }
       }
-      if (normalizedRows.length === 0) await loadBookingReadiness()
-    } catch (err) {
-      setServices([])
-      setServiceError(err.message || 'Failed to load clinic services.')
+    } catch (error) {
+      if (requestId===servicesRequestId.current) setServiceError(error.message || 'Unable to load services.')
     } finally {
-      setLoadingServices(false)
+      if (requestId===servicesRequestId.current) setLoadingServices(false)
     }
   }
-
   useEffect(() => {
-    setForm((current) => ({ ...current, service: null }))
-    loadServices()
-  }, [form.clinicType,branchId])
+    setServices([])
+    setServiceCategory('all')
+    setForm(current=>({ ...current, service:null, doctor:null, date:null, time:'', clinicType:'' }))
+    if (branchId) void loadServices()
+    return ()=>{ servicesRequestId.current += 1 }
+  }, [branchId])
+
+  const selectService = (service) => {
+    const clinicType = service.booking_clinic_type
+    setForm(current => ({ ...current,
+      clinicType, service,
+      doctor: current.doctor?.clinic_type === clinicType ? current.doctor : null,
+      date: Number(current.service?.id)===Number(service.id) && current.clinicType===clinicType ? current.date : null,
+      time: Number(current.service?.id)===Number(service.id) && current.clinicType===clinicType ? current.time : '',
+      reason: '', reasonDetails: ''
+    }))
+    setSelectedPromotionId(null)
+  }
+  const selectCategory = nextCategory => {
+    setServiceCategory(nextCategory)
+    if (nextCategory !== 'all' && form.clinicType && form.clinicType !== nextCategory) {
+      setForm(current=>({...current,clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:''}))
+      setSelectedPromotionId(null)
+    }
+  }
 
   useEffect(() => {
     if (!form.clinicType) {
@@ -700,8 +683,8 @@ const BookAppointment = () => {
 
     setLoadingReasons(true)
     getAppointmentReasons(form.clinicType,branchId)
-      .then((rows) => setReasonOptions(Array.isArray(rows) ? rows : []))
-      .catch(() => setReasonOptions([]))
+      .then((rows) => setReasonOptions(Array.isArray(rows) && rows.length ? rows : [{ id:'system-other', label:'Other' }]))
+      .catch(() => setReasonOptions([{ id:'system-other', label:'Other' }]))
       .finally(() => setLoadingReasons(false))
   }, [form.clinicType,branchId])
 
@@ -713,28 +696,33 @@ const BookAppointment = () => {
       return
     }
 
+    let cancelled = false
+    setDoctorSchedules([]); setDoctorUnavailableDates([]); setTimeSlots([])
     Promise.all([
       getDoctorSchedule(form.doctor.id, branchId),
       getDoctorUnavailableDates(form.doctor.id, { branchId }),
     ])
       .then(([schedules, blockedDates]) => {
+        if (cancelled) return
         setDoctorSchedules(Array.isArray(schedules) ? schedules : [])
         setDoctorUnavailableDates(Array.isArray(blockedDates) ? blockedDates : [])
       })
       .catch(() => {
-        setDoctorSchedules([])
-        setDoctorUnavailableDates([])
+        if (cancelled) return
+        setDoctorSchedules([]); setDoctorUnavailableDates([])
       })
+    return () => { cancelled = true }
   }, [form.doctor, branchId])
 
   useEffect(() => {
-    if (!form.doctor || !form.service || !form.date || !doctorSchedules.length) { setTimeSlots([]); return }
+    if (!form.doctor || !form.service || !form.date || !doctorSchedules.length) { setTimeSlots([]); setLoadingSlots(false); return }
     if (!isDoctorAvailableOnDate(form.date, doctorSchedules, doctorUnavailableDates)) {
       setTimeSlots([])
       return
     }
 
     let cancelled = false
+    setLoadingSlots(true); setSlotsError(''); setTimeSlots([])
     getDoctorAvailableSlots(form.doctor.id, {
       date: form.date,
       serviceId: form.service.id,
@@ -748,8 +736,9 @@ const BookAppointment = () => {
         setForm((prev) => (prev.time && !available.includes(prev.time) ? { ...prev, time: '' } : prev))
       })
       .catch(() => {
-        if (!cancelled) setTimeSlots([])
+        if (!cancelled) { setTimeSlots([]); setSlotsError('Unable to check available times right now.') }
       })
+      .finally(() => { if (!cancelled) setLoadingSlots(false) })
 
     return () => { cancelled = true }
   }, [form.date, form.doctor, form.service, form.clinicType, doctorSchedules, doctorUnavailableDates, branchId])
@@ -758,23 +747,28 @@ const BookAppointment = () => {
 
   const canNext = () => {
     if (loadingReadiness || readinessError || emailStatus !== 'verified') return false
-    if (checkingVisits && step===2) return false
-    if (step===0) return !!form.clinicType && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
-    if (step===1) return !!form.service && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
-    if (step===2) return !!form.doctor && !matchingActiveDoctor(form.doctor)
-    if (step===3) return !!form.date && !!form.time
-    if (step===4) return !!form.reason && (form.reason !== 'Other' || form.reasonDetails.trim().length >= 2)
-    if (step===5) return policyAccepted && !submitting && !loadingReadiness && !readinessError && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
-    return true
+    if (step===0) return !!form.service && !!form.clinicType && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
+    if (step===1) return !checkingVisits && !!form.doctor && !matchingActiveDoctor(form.doctor)
+    if (step===2) return !loadingSlots && !slotsError && !!form.date && !!form.time && timeSlots.includes(form.time)
+    if (step===3) return !!form.reason && (form.reason !== 'Other' || form.reasonDetails.trim().length >= 2) && policyAccepted && !submitting && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
+    return false
   }
 
   const handleNext = () => {
-    if (step < 5) setStep(s => s+1)
-    else handleConfirm()
+    if (!canNext()) return
+    if (step < 3) setStep(s => s+1)
+    else void handleConfirm()
   }
 
+  useEffect(() => {
+    if (lastFocusedStep.current !== step) {
+      lastFocusedStep.current = step
+      bookingContentRef.current?.focus()
+    }
+  }, [step])
+
   const handleConfirm = async () => {
-    if (bookingSubmissionLock.current || submitting || !policyAccepted || !bookingReadiness?.[form.clinicType]?.bookable || readinessError || emailStatus !== 'verified') return
+    if (bookingSubmissionLock.current || submitting || !policyAccepted || !form.reason || !form.date || !form.time || !timeSlots.includes(form.time) || !form.doctor || !form.service || !bookingReadiness?.[form.clinicType]?.bookable || readinessError || emailStatus !== 'verified') return
     bookingSubmissionLock.current = true
     setSubmitting(true)
     try {
@@ -795,7 +789,7 @@ const BookAppointment = () => {
     } catch (err) {
       setBookingNotice(err.message || 'This appointment could not be booked. Please review your selection.')
       if (err.code === 'EMAIL_VERIFICATION_REQUIRED') refreshEmailVerification()
-      if (/already have an active appointment/i.test(err.message || '')) setStep(2)
+      if (/already have an active appointment/i.test(err.message || '')) setStep(1)
     } finally {
       bookingSubmissionLock.current = false
       setSubmitting(false)
@@ -803,7 +797,7 @@ const BookAppointment = () => {
   }
 
   const handleReset = () => {
-    setStep(0); setDone(false)
+    setStep(0); setServiceCategory('all'); setDone(false)
     setTimeSlots([]); setDoctorSchedules([])
     setPolicyAccepted(false)
     setSelectedPromotionId(null)
@@ -830,94 +824,62 @@ const BookAppointment = () => {
 
   if(!branchId)return <div className="max-w-2xl mx-auto space-y-4">{emailVerificationNotice}<h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{selectBranch(String(b.id));setSelectedPromotionId(null);setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
 
+  const branchName = branches.find(b=>String(b.id)===String(branchId))?.name || 'Selected Clinic Branch'
+  const selectedPromotion = promotions.find(p=>Number(p.id)===Number(selectedPromotionId))
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
-
-      {/* Header */}
-      <div>
-        <h1 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <MdAdd className="text-emerald-500 text-[22px]" /> Book an Appointment
-        </h1>
-        <p className="text-xs lg:text-sm text-slate-500 mt-0.5">Branch: {branches.find(b=>String(b.id)===branchId)?.name||'Selected Branch'}</p><button className="mt-2 text-sm font-semibold text-emerald-700 underline" onClick={()=>{selectBranch('');setStep(0)}} type="button">Change Branch</button>
-      </div>
-
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-        <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Online Booking Policy</p>
-        <div className="mt-2 grid gap-2 text-xs leading-relaxed text-amber-800 sm:grid-cols-2">
-          <p>Use your correct contact details. You can have only one active booking with each doctor.</p>
-          <p>Arrive at least 10 minutes before your schedule.</p>
-          <p>Cancel or reschedule early if you cannot attend.</p>
-          <p>No-shows and fake bookings may require staff review before approval.</p>
+    <div className="mx-auto max-w-6xl space-y-5 px-1 pb-8 sm:px-3">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdCalendarToday className="text-emerald-700" /> Book an Appointment</h1>
+          <p className="mt-1 text-sm text-slate-600">Clinic branch: <strong>{branchName}</strong></p>
         </div>
+        <button type="button" className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-emerald-800 hover:bg-emerald-50" onClick={()=>{selectBranch('');setStep(0)}}>Change Branch</button>
+      </header>
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <span className="font-semibold">Before you book:</span> Arrive 10 minutes early and cancel or reschedule if you cannot attend. <span className="text-amber-900">The clinic confirms each request.</span> <span className="text-slate-600">Full policy is available on the review step.</span>
       </div>
-
       {emailVerificationNotice}
-      {activeVisits.length > 0 && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900" role="status">
-        <p className="font-bold">You already have {activeVisits.length} active appointment{activeVisits.length===1?'':'s'}</p>
-        <p className="mt-1">You cannot book again with the same doctor until that appointment is completed or cancelled. You'll be notified as soon as you choose a doctor who already has an active booking.</p>
+      {activeVisits.length > 0 && <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900" role="status">
+        <p className="font-bold">You have {activeVisits.length} active appointment{activeVisits.length===1?'':'s'}.</p>
+        <p className="mt-1">You cannot request another appointment with the same doctor until your earlier booking is completed or cancelled.</p>
         <NavLink className="mt-2 inline-block font-bold underline" to="/patient/appointments">View My Appointments</NavLink>
       </div>}
-      {/* Main card */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-
-        {/* Progress strip */}
-        <div className="h-1 bg-slate-100">
-          <div className="h-1 bg-emerald-500 transition-all duration-500 rounded-full"
-            style={{ width: `${(step/5)*100}%` }} />
-        </div>
-
-        <div className="p-5 sm:p-8">
-          {!done && <StepBar current={step} />}
-
-          {done ? (
-            <SuccessScreen onReset={handleReset} />
-          ) : (
-            <>
-              {step===0 && <StepClinicType value={form.clinicType} onChange={(clinicType) => setForm((current) => ({ ...current, clinicType, service: null, doctor: current.doctor?.clinic_type === clinicType ? current.doctor : null, date: current.doctor?.clinic_type === clinicType ? current.date : null, time: current.doctor?.clinic_type === clinicType ? current.time : '', reason: '', reasonDetails: '' }))} readiness={bookingReadiness} loading={loadingReadiness} error={readinessError} onRetry={loadBookingReadiness} />}
-              {step===1 && <StepService clinicType={form.clinicType} value={form.service} onChange={set('service')} services={services} promotions={promotions} selectedPromotionId={selectedPromotionId} onPromotionChange={setSelectedPromotionId} loading={loadingServices} error={serviceError} onRetry={loadServices} onBackToClinic={() => { setForm((current) => ({ ...current, clinicType: '', service: null, doctor: null, date: null, time: '', reason: '', reasonDetails: '' })); setStep(0); loadBookingReadiness() }} />}
-              {step===2 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={selectDoctorSafely} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
-              {step===3 && (
-                <StepSchedule
-                  date={form.date} time={form.time}
-                  onDateChange={set('date')} onTimeChange={set('time')}
-                  timeSlots={timeSlots}
-                  doctorSchedules={doctorSchedules}
-                  unavailableDates={doctorUnavailableDates}
-                />
-              )}
-              {step===4 && (
-                <StepDetails
-                  reason={form.reason}
-                  reasonDetails={form.reasonDetails}
-                  notes={form.notes}
-                  reasonOptions={reasonOptions}
-                  loadingReasons={loadingReasons}
-                  onReasonChange={(nextReason) => setForm((current) => ({ ...current, reason: nextReason, reasonDetails: nextReason === 'Other' ? current.reasonDetails : '' }))}
-                  onReasonDetailsChange={set('reasonDetails')}
-                  onNotesChange={set('notes')}
-                />
-              )}
-              {step===5 && <StepConfirm form={form} selectedPromotion={promotions.find(p=>Number(p.id)===Number(selectedPromotionId))} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}
-
-              {/* Nav */}
-              <div className="flex items-center justify-between mt-8 pt-5 border-t border-slate-100">
-                <button onClick={() => setStep(s=>s-1)} disabled={step===0}
-                  className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-500
-                    border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-30 transition-all">
-                  <MdChevronLeft className="text-[16px]" /> Back
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(270px,0.85fr)]">
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="p-4 sm:p-6 lg:p-7">
+            {!done && <StepBar current={step} />}
+            {done ? <SuccessScreen onReset={handleReset} form={form} branchName={branchName} /> : <>
+              <div ref={bookingContentRef} tabIndex={-1} className="outline-none" aria-label={STEPS[step]}>
+                {step===0 && <StepService category={serviceCategory} onCategoryChange={selectCategory} value={form.service} onChange={selectService}
+                  services={services} readiness={bookingReadiness} readinessLoading={loadingReadiness} readinessError={readinessError}
+                  loading={loadingServices} error={serviceError} onRetry={loadServices} onRetryReadiness={loadBookingReadiness} />}
+                {step===1 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={selectDoctorSafely} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
+                {step===2 && <StepSchedule date={form.date} time={form.time} onDateChange={set('date')} onTimeChange={set('time')} timeSlots={timeSlots} doctorSchedules={doctorSchedules} unavailableDates={doctorUnavailableDates} loadingSlots={loadingSlots} slotsError={slotsError} />}
+                {step===3 && <StepReview form={{...form,branchId}} branchName={branchName} promotions={promotions} selectedPromotionId={selectedPromotionId} onPromotionChange={setSelectedPromotionId}
+                  reasonOptions={reasonOptions} loadingReasons={loadingReasons} onReasonChange={(nextReason)=>setForm(current=>({...current,reason:nextReason,reasonDetails:nextReason==='Other'?current.reasonDetails:''}))}
+                  onReasonDetailsChange={set('reasonDetails')} onNotesChange={set('notes')} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}
+              </div>
+              {step > 0 && step < 3 && <details className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3 lg:hidden">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-800">View your selections</summary>
+                <div className="mt-3"><BookingSummary form={form} branchName={branchName} selectedPromotion={selectedPromotion} /></div>
+              </details>}
+              <div className="mt-7 flex items-center justify-between gap-3 border-t border-slate-100 pt-5">
+                <button type="button" onClick={()=>setStep(s=>Math.max(0,s-1))} disabled={step===0}
+                  className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-30">
+                  <MdChevronLeft /> Back
                 </button>
-                <p className="text-xs text-slate-400 font-medium">{step+1} / {STEPS.length}</p>
-                <button onClick={handleNext} disabled={!canNext()}
-                  className="flex items-center gap-1.5 px-5 py-2.5 text-sm font-bold text-white
-                    bg-emerald-500 hover:bg-emerald-600 rounded-xl disabled:opacity-30 transition-all
-                    shadow-lg shadow-emerald-500/20">
-                  {step===5 ? (submitting ? 'Submitting…' : 'Confirm Booking') : 'Next'}
-                  {step<5 && <MdArrowForward className="text-[15px]" />}
+                <button type="button" onClick={handleNext} disabled={!canNext()}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none">
+                  {step===3 ? submitting ? 'Submitting…' : 'Request Appointment' : 'Continue'}
+                  {step<3 && <MdArrowForward aria-hidden="true" />}
                 </button>
               </div>
-            </>
-          )}
-        </div>
+            </>}
+          </div>
+        </section>
+        <aside className="hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-20 lg:block" aria-label="Appointment summary">
+          <BookingSummary form={form} branchName={branchName} selectedPromotion={selectedPromotion} />
+        </aside>
       </div>
       {bookingNotice && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4" role="presentation" onClick={()=>setBookingNotice('')}>
         <section role="alertdialog" aria-modal="true" aria-labelledby="booking-warning-title" className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl" onClick={(event)=>event.stopPropagation()}>
@@ -932,6 +894,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 
