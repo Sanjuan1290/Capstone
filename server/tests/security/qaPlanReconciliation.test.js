@@ -23,10 +23,20 @@ describe('QA plan reconciliation guards', () => {
 
   it('serializes duplicate pending doctor stock requests', () => {
     const source = read('controllers', 'doctor.controller.js')
-    expect(source).toContain("SELECT id FROM doctors WHERE id=? AND branch_id=? FOR UPDATE")
-    expect(source).toContain("[req.user.id, req.branchId]")
-    expect(source).toContain("status='pending'")
-    expect(source).toContain("code: 'DUPLICATE_SUPPLY_REQUEST'")
+    const start = source.indexOf('const submitRequest = async')
+    const end = source.indexOf('const getMyQueue', start)
+    const handler = source.slice(start, end)
+
+    // Doctors may work at multiple branches. Lock their active assignment for
+    // the current branch, then check duplicate requests in the same transaction.
+    expect(handler).toContain('await conn.beginTransaction()')
+    expect(handler).toMatch(/SELECT d\.id FROM doctors d JOIN doctor_branch_assignments a ON a\.doctor_id=d\.id AND a\.branch_id=\? AND a\.is_active=1 WHERE d\.id=\? FOR UPDATE/)
+    expect(handler).toMatch(/\[req\.branchId,\s*req\.user\.id\]/)
+    expect(handler).toContain("g.status='pending'")
+    expect(handler).toContain('g.appointment_id=?')
+    expect(handler).toContain('g.destination_location_id=?')
+    expect(handler).toContain("code: 'DUPLICATE_SUPPLY_REQUEST'")
+    expect(handler).toContain('await conn.rollback()')
   })
 
   it('keeps runtime schema reconciliation aligned with the September 25 hardening fields', () => {
@@ -45,3 +55,4 @@ describe('QA plan reconciliation guards', () => {
     }
   })
 })
+

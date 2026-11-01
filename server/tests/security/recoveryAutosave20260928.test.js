@@ -23,12 +23,19 @@ describe('Batch 1 recovery and consultation autosave regressions', () => {
     expect(auth).not.toContain('RECOVERY_ACCOUNT_NOT_FOUND')
   })
 
-  it('uses verified SMS recovery for Patient UI and does not offer an unverified email fallback', () => {
+  it('accepts verified email or mobile recovery for every portal without revealing unverified accounts', () => {
     const forgot = read('client', 'src', 'pages', 'auth', 'ForgotPassword.jsx')
-    expect(forgot).toContain("useState(isPatient ? 'sms' : 'email')")
-    expect(forgot).toContain("const effectiveMethod = isPatient ? 'sms' : deliveryMethod")
-    expect(forgot).toContain('mobile number verified during Patient registration')
-    expect(forgot).not.toContain('Try another way')
+    const auth = read('server', 'controllers', 'auth.controller.js')
+
+    expect(forgot).toContain("const effectiveMethod = identifier.includes('@') ? 'email' : 'sms'")
+    expect(forgot).toContain('Enter your verified email address or mobile number.')
+    expect(forgot).toContain('delivery_method: effectiveMethod')
+    expect(auth).toContain("const deliveryMethod = requestedMethod === 'sms' ? 'sms' : 'email'")
+    expect(auth).toContain('Boolean(account.phone_verified_at)')
+    expect(auth).toContain('Boolean(account.email_verified_at)')
+    expect(auth).toContain('if (!channelVerified) return res.json({ ...generic, request_started: true })')
+    expect(auth).toContain("if (deliveryMethod === 'sms' && !account.phone_verified_at)")
+    expect(auth).not.toContain('RECOVERY_ACCOUNT_NOT_FOUND')
   })
 
   it('keeps draft saving independent from treatment-room stock and autosaves without a manual Save Draft button', () => {
@@ -50,4 +57,5 @@ describe('Batch 1 recovery and consultation autosave regressions', () => {
     expect(consultation).not.toContain('Draft autosaves every 25 seconds.')
   })
 })
+
 
