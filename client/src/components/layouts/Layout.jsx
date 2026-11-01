@@ -68,6 +68,8 @@ const Layout = () => {
   const { user, role } = useAuth()
   const [landing,   setLanding]   = useState({ header: defaultHeader, footer: defaultFooter })
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [currentSection, setCurrentSection] = useState('home')
 
   useEffect(() => {
     getPublicLandingPage()
@@ -75,9 +77,36 @@ const Layout = () => {
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    if (location.pathname !== '/') return
+    let raf = 0
+    const update = () => {
+      if (raf) return
+      raf = window.requestAnimationFrame(() => {
+        setScrolled(window.scrollY > 16)
+        const sections = ['home','services','doctors','about','contact']
+        const visible = sections.filter(id => {
+          const node = document.getElementById(id)
+          return node && node.getBoundingClientRect().top <= 170
+        })
+        setCurrentSection(visible[visible.length - 1] || 'home')
+        raf = 0
+      })
+    }
+    update()
+    window.addEventListener('scroll', update, { passive: true })
+    return () => { window.removeEventListener('scroll', update); window.cancelAnimationFrame(raf) }
+  }, [location.pathname])
+  useEffect(() => { setMobileOpen(false) }, [location.pathname])
+  useEffect(() => {
+    if (location.pathname !== '/' || !location.hash) return
+    const id = location.hash.slice(1)
+    window.requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }))
+  }, [location.pathname, location.hash])
+
   const header    = landing?.header || defaultHeader
   const footer    = { ...defaultFooter, ...landing?.footer }
-  const navLinks  = Array.isArray(header.nav_links) && header.nav_links.length > 0 ? header.nav_links : defaultHeader.nav_links
+  const navLinks  = (Array.isArray(header.nav_links) && header.nav_links.length > 0 ? header.nav_links : defaultHeader.nav_links).filter(link => normalizeAppPath(link.path, "#home") !== "/news")
   const showMarketingShell = ['/', '/login', '/patient/register', '/patient/login', '/news', '/unsubscribe'].includes(location.pathname) || location.pathname.startsWith('/news/')
   const logoSrc   = header.logo_url || '/logo.png'
   const clinicSubtitle = String(header.clinic_name || defaultHeader.clinic_name).trim().replace(/^carait\s*/i, '') || 'Medical & Dermatology Clinic'
@@ -87,14 +116,16 @@ const Layout = () => {
     : normalizeAppPath(header.login_path, '/login')
   const loginLabel = isPatientLoggedIn ? 'Clinic Portal' : (header.login_label || 'Log in')
   const ctaPath   = normalizeAppPath(header.cta_path,   '/patient/register')
+  const year = new Date().getFullYear()
+  const copyright = String(footer.copyright || '').replace(/©\s*\d{4}/, `© ${year}`) || `© ${year} CARAIT Medical and Dermatology Clinic`
 
   if (showMarketingShell) {
     return (
-      <div className="flex flex-col min-h-screen scroll-smooth">
+      <div className="flex flex-col min-h-screen">
         <SeoManager />
 
         {/* ── Responsive public header: separate brand/action and navigation rows ── */}
-        <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-[0_4px_20px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+        <header className={`sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur-xl transition-shadow duration-300 ${scrolled ? "shadow-lg" : "shadow-sm"}`}>
           <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
             <NavLink to="/" onClick={() => setMobileOpen(false)} className="group flex min-w-0 items-center gap-3" aria-label="CARAIT Clinic home">
               <img src={logoSrc} alt="CARAIT Clinic logo" className="h-11 w-11 shrink-0 rounded-full object-contain sm:h-12 sm:w-12" />
@@ -125,13 +156,13 @@ const Layout = () => {
               {navLinks.map((nl,index) => {
                 const dest = normalizeAppPath(nl.path, '#home')
                 const target = dest.startsWith('#') && location.pathname !== '/' ? `/${dest}` : dest
-                const active = dest.startsWith('#') ? location.pathname === '/' && (dest === '#home' || location.hash === dest) : location.pathname === target
-                return <a key={`${nl.path}-${index}`} href={target} className={`rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors ${active ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-white hover:text-blue-700'}`}>{nl.label}</a>
+                const active = dest.startsWith('#') ? location.pathname === '/' && currentSection === dest.slice(1) : location.pathname === target
+                return <a key={`${nl.path}-${index}`} href={target} className={`relative rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600 ${active ? 'bg-white text-blue-700 shadow-sm after:absolute after:bottom-0 after:left-3 after:right-3 after:h-0.5 after:rounded-full after:bg-blue-600' : 'text-slate-600 hover:bg-white hover:text-blue-700'}`}>{nl.label}</a>
               })}
               <NavLink to="/news" className={({isActive}) => `rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors ${isActive || location.pathname.startsWith('/news/') ? 'bg-amber-50 text-amber-800' : 'text-amber-700 hover:bg-amber-50'}`}>News & Offers</NavLink>
             </div>
           </nav>
-          {mobileOpen && <nav id="public-mobile-navigation" className="max-h-[calc(100dvh-72px)] overflow-y-auto border-t border-slate-100 bg-white p-4 sm:hidden" aria-label="Mobile navigation">
+          {mobileOpen && <nav id="public-mobile-navigation" className="carait-mobile-nav max-h-[calc(100dvh-72px)] overflow-y-auto border-t border-slate-100 bg-white p-4 shadow-lg sm:hidden" aria-label="Mobile navigation">
             <div className="grid gap-1">
               {navLinks.map((nl,index) => {
                 const dest=normalizeAppPath(nl.path,'#home')
@@ -153,34 +184,18 @@ const Layout = () => {
           <Outlet />
         </main>
 
-        {/* ── Footer ─────────────────────────────────────────────────────── */}
-        <footer className="bg-[rgb(43,125,111)] text-gray-50">
-          {/* Top row */}
-          <div className="mx-auto max-w-7xl px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-
-            {/* Copyright */}
-            <p className="text-sm text-gray-100/90 text-center sm:text-left">
-              {footer.copyright}
-            </p>
-
-            {/* Legal links + Social */}
-            <div className="flex items-center gap-5 flex-wrap justify-center">
-              <FooterLink href={footer.terms_url || ''}>Terms of Service</FooterLink>
-              <FooterLink href={footer.privacy_url || ''}>Privacy Policy</FooterLink>
-
-              {footer.facebook_url && (
-                <a
-                  href={footer.facebook_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Facebook"
-                  className="text-xl hover:scale-110 transition text-gray-100/90 hover:text-white"
-                >
-                  <FaFacebook />
-                </a>
-              )}
+        {/* Footer with direct navigation, clinic information and legal pages. */}
+        <footer className="bg-teal-900 text-white">
+          <div className="mx-auto grid max-w-7xl gap-9 px-6 py-12 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="lg:col-span-2">
+              <div className="flex items-center gap-3"><img src={logoSrc} alt="" className="h-12 w-12 rounded-full bg-white object-contain" /><div><b className="block text-lg">CARAIT Clinic</b><p className="text-xs text-teal-100">Medical and Dermatology Clinic</p></div></div>
+              <p className="mt-4 max-w-md text-sm leading-6 text-teal-100">Medical and dermatology care, clinic updates, and online appointment requests.</p>
+              {isExternalPath(ctaPath) ? <a href={ctaPath} className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-white px-5 text-sm font-bold text-teal-900 transition-colors hover:bg-teal-50">{header.cta_label || 'Book Appointment'}</a> : <NavLink to={ctaPath} className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-white px-5 text-sm font-bold text-teal-900 transition-colors hover:bg-teal-50">{header.cta_label || 'Book Appointment'}</NavLink>}
             </div>
+            <div><h2 className="text-sm font-extrabold uppercase tracking-wider">Quick Links</h2><nav className="mt-4 grid gap-3" aria-label="Footer navigation">{[['Home','/#home'],['Services','/#services'],['Doctors','/#doctors'],['About','/#about'],['Contact','/#contact'],['News & Offers','/news']].map(([name,path])=><FooterLink href={path} key={name}>{name}</FooterLink>)}</nav></div>
+            <div><h2 className="text-sm font-extrabold uppercase tracking-wider">Information</h2><div className="mt-4 grid gap-3"><FooterLink href={footer.terms_url || ''}>Terms of Service</FooterLink><FooterLink href={footer.privacy_url || ''}>Privacy Policy</FooterLink>{footer.facebook_url && <a href={footer.facebook_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm text-teal-100 transition-colors hover:text-white"><FaFacebook /> Facebook</a>}</div></div>
           </div>
+          <div className="border-t border-white/10 px-6 py-5 text-center text-xs text-teal-100">{copyright}</div>
         </footer>
       </div>
     )
@@ -190,3 +205,4 @@ const Layout = () => {
 }
 
 export default Layout
+

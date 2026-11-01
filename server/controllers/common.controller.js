@@ -1,6 +1,6 @@
 const { getNotifications, markNotificationRead } = require('../utils/notifications')
 const { getSettings, updateSettings } = require('../utils/accountSettings')
-const { getLandingPageContent, updateLandingPageContent } = require('../utils/landingPageContent')
+const { getLandingPageContent, getEditorLandingPageContent, updateLandingPageContent, saveLandingPageDraft, publishLandingPageDraft, restoreLandingPageVersion } = require('../utils/landingPageContent')
 const db = require('../db/connect')
 const { requestPasswordChangeCode, changeWithCode, completeRequiredChange, requestPatientPhoneChange, confirmPatientPhoneChange, createSecurityCode, verifySecurityCode, requestClinicPhoneVerification, confirmClinicPhoneVerification } = require('../utils/accountSecurity')
 const { sendAccountSecurityOtp } = require('../utils/emailService')
@@ -115,7 +115,7 @@ const getPublicClinicSettings = async (req, res) => {
 }
 
 const getAdminLandingPage = async (req, res) => {
-  const landingPage = await getLandingPageContent()
+  const landingPage = await getEditorLandingPageContent()
   res.json(landingPage)
 }
 
@@ -124,6 +124,20 @@ const saveAdminLandingPage = async (req, res) => {
   res.json(saved)
 }
 
+
+const cmsError = (res, err) => res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'Website update failed. Please try again.' })
+const saveAdminLandingDraft = async (req,res) => {
+  try { res.json(await saveLandingPageDraft(req.body?.content, req.body?.revision)) }
+  catch (err) { cmsError(res,err) }
+}
+const publishAdminLandingPage = async (req,res) => {
+  try { res.json(await publishLandingPageDraft(req.body?.content, req.body?.revision)) }
+  catch (err) { cmsError(res,err) }
+}
+const restoreAdminLandingVersion = async (req,res) => {
+  try { res.json(await restoreLandingPageVersion(req.body?.id, req.body?.revision)) }
+  catch (err) { cmsError(res,err) }
+}
 
 const requestMyPasswordCode = async (req, res) => {
   try {
@@ -298,4 +312,8 @@ module.exports = {
   getPublicClinicSettings,
   getAdminLandingPage,
   saveAdminLandingPage,
+  saveAdminLandingDraft,
+  publishAdminLandingPage,
+  restoreAdminLandingVersion,
 }
+

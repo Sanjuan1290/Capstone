@@ -32,3 +32,26 @@ export const getPublicPromotions = async () => {
   if (!res.ok) throw new Error(data.message || 'Unable to load promotions.')
   return Array.isArray(data) ? data : []
 }
+
+
+// Draft and publishing actions are separate. Drafts never change the public endpoint.
+const landingAdminRequest = async (action, payload) => {
+  const base = getLandingAdminBase()
+  const res = await fetch(`${base}/landing-page/${action}`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(base === '/api/admin' ? { 'X-Admin-Portal': 'superadmin' } : {}) },
+    body: JSON.stringify(payload),
+  })
+  const result = await res.json()
+  if (!res.ok) throw new Error(result.message || 'Unable to update the website.')
+  return result
+}
+export const saveLandingDraft = (content, revision) => landingAdminRequest('draft', { content, revision })
+export const publishLandingDraft = (content, revision) => landingAdminRequest('publish', { content, revision })
+export const restoreLandingVersion = (id, revision) => landingAdminRequest('restore', { id, revision })
+
+export const getPublicLandingDirectory = async () => {
+  const response = await fetch('/api/auth/public-directory')
+  if(!response.ok)throw new Error('Clinic directory is unavailable.')
+  return response.json()
+}

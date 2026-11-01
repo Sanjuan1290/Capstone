@@ -612,6 +612,16 @@ const BookAppointment = () => {
     setStep(0)
   }, [bookingReadiness, form.clinicType])
 
+  // Marketing deep links only preselect a service type. Availability and eligibility
+  // are still checked by the existing booking APIs before submission.
+  useEffect(() => {
+    const requestedBranch = searchParams.get('branch_id')
+    const requestedClinic = searchParams.get('clinic')
+    if (branchId && requestedBranch === String(branchId) && ['medical','derma'].includes(requestedClinic) && (searchParams.get('service_id') || searchParams.get('doctor'))) {
+      setForm(current => ({...current, clinicType: requestedClinic}))
+    }
+  }, [branchId,searchParams])
+
   const loadServices = async () => {
     if (!form.clinicType) { setServices([]); return }
     setLoadingServices(true); setServiceError('')
@@ -619,6 +629,14 @@ const BookAppointment = () => {
       const rows = await getBookingServices(form.clinicType,branchId)
       const normalizedRows = Array.isArray(rows) ? rows : []
       setServices(normalizedRows)
+      const wanted = Number(searchParams.get('service_id'))
+      if (wanted > 0 && searchParams.get('branch_id') === String(branchId)) {
+        const matched = normalizedRows.find(row => Number(row.id) === wanted)
+        if (matched) {
+          setForm(current => ({...current, service: matched}))
+          setStep(current => current < 2 ? 2 : current)
+        }
+      }
       if (normalizedRows.length === 0) await loadBookingReadiness()
     } catch (err) {
       setServices([])
@@ -860,6 +878,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 

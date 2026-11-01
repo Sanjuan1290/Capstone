@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
+import { patientReturnPath } from '../../../utils/patientReturnPath.mjs'
 import {
   MdArrowBack,
   MdArrowForward,
@@ -97,7 +98,7 @@ const OtpBoxes = ({ value, onChange }) => {
   ))}</div>
 }
 
-const RegistrationForm = ({ onSuccess }) => {
+const RegistrationForm = ({ onSuccess, nextPath }) => {
   const [form, setForm] = useState({
     full_name: '', email: '', phone: '', birthdate: '', gender: '', address: '',
     password: '', confirmPassword: '', receive_promotions: false,
@@ -166,7 +167,7 @@ const RegistrationForm = ({ onSuccess }) => {
             <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600"><input type="checkbox" checked={consentGiven} onChange={(e)=>setConsentGiven(e.target.checked)} className="mt-1 h-4 w-4"/><span>I have read and agree to the <NavLink to="/privacy-policy" className="font-bold text-emerald-600">Privacy Policy</NavLink> and consent to processing of my personal data.</span></label>
             <label className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3 text-sm text-slate-600"><input type="checkbox" name="receive_promotions" checked={form.receive_promotions} onChange={updateField} className="mt-1 h-4 w-4"/><span>I would like to receive optional clinic promotions and special offers by email or SMS. I can opt out anytime in Settings.</span></label>
             <button type="submit" aria-busy={loading} disabled={loading || !consentGiven || !isPasswordValid(form.password) || form.password !== form.confirmPassword || Boolean(birthdateError)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-sm font-bold text-white hover:bg-emerald-600 disabled:opacity-50">{loading ? 'Sending code…' : <>Verify Mobile Number <MdArrowForward/></>}</button>
-            <p className="text-center text-sm text-slate-400">Already have an account? <NavLink to="/patient/login" className="font-bold text-emerald-600">Sign in</NavLink></p>
+            <p className="text-center text-sm text-slate-400">Already have an account? <NavLink to={`/patient/login?next=${encodeURIComponent(nextPath)}`} className="font-bold text-emerald-600">Sign in</NavLink></p>
           </form>
         </div>
       </div>
@@ -180,7 +181,7 @@ const maskPhone = (phone = '') => {
   return `${digits.slice(0, 2)}${'•'.repeat(Math.max(5, digits.length - 6))}${digits.slice(-4)}`
 }
 
-const VerificationForm = ({ pendingPhone, onBack }) => {
+const VerificationForm = ({ pendingPhone, onBack, nextPath }) => {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -219,7 +220,7 @@ const VerificationForm = ({ pendingPhone, onBack }) => {
       })
       const data = await res.json()
       if (!res.ok) return setError(data.message || 'Verification failed.')
-      login(data.user, 'patient'); navigate('/patient')
+      login(data.user, 'patient'); navigate(nextPath, { replace: true })
     } catch { setError('Cannot connect to server.') }
     finally { verifyLock.current = false; setLoading(false) }
   }
@@ -250,6 +251,8 @@ const VerificationForm = ({ pendingPhone, onBack }) => {
   )
 }
 const PatientRegister = () => {
+  const [query] = useSearchParams()
+  const nextPath = patientReturnPath(query.get('next'))
   const [pendingRegistration, setPendingRegistration] = useState(null)
 
   if (pendingRegistration) {
@@ -257,12 +260,14 @@ const PatientRegister = () => {
       <VerificationForm
         pendingPhone={pendingRegistration.phone}
         onBack={() => setPendingRegistration(null)}
+        nextPath={nextPath}
       />
     )
   }
 
-  return <RegistrationForm onSuccess={setPendingRegistration} />
+  return <RegistrationForm onSuccess={setPendingRegistration} nextPath={nextPath} />
 }
 
 export default PatientRegister
+
 

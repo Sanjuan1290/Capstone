@@ -14,6 +14,11 @@ router.post('/verify-otp',      otpVerifyLimiter, verifyOtp)        // Step 2: v
 router.post('/reset-password',  otpVerifyLimiter, resetPassword)    // Step 3: sets new password
 router.get('/promotions', require('../controllers/promotions.controller').getPublicPromotions)
 router.get('/landing-page',     commonCtrl.getPublicLandingPage)
+router.get('/public-directory', async (req,res) => {
+  try { res.json(await require('../utils/publicLandingDirectory').getPublicLandingDirectory()) }
+  catch { res.status(503).json({message:'Clinic directory is temporarily unavailable.'}) }
+})
 router.get('/clinic-settings',   commonCtrl.getPublicClinicSettings)
 
 module.exports = router
+

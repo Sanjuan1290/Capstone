@@ -15,7 +15,8 @@ export const PatientBranchProvider = ({ patientId, children }) => {
       const rows = await getActiveBranches()
       const valid = Array.isArray(rows) ? rows.filter(b => Number.isSafeInteger(Number(b.id)) && Number(b.id) > 0) : []
       setBranches(valid)
-      const saved = sessionStorage.getItem(keyFor(patientId)) || ''
+      const requested = window.location.pathname === '/patient/book' ? new URLSearchParams(window.location.search).get('branch_id') : ''
+      const saved = (requested && /^\d+$/.test(requested) ? requested : '') || sessionStorage.getItem(keyFor(patientId)) || ''
       setBranchId(valid.some(b => String(b.id) === saved) ? saved : '')
       if (saved && !valid.some(b => String(b.id) === saved)) sessionStorage.removeItem(keyFor(patientId))
     } catch (e) { setError(e.message || 'Unable to load clinic branches.'); setBranchId('') }
@@ -39,3 +40,4 @@ export const usePatientBranch = () => {
   if (!value) throw new Error('Patient branch selection must be inside PatientBranchProvider.')
   return value
 }
+

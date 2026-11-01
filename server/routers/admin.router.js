@@ -44,6 +44,9 @@ router.post('/settings/verification/request', ...accountAuth, otpRequestLimiter,
 router.post('/settings/verification/confirm', ...accountAuth, otpVerifyLimiter, commonCtrl.confirmMySettingsVerification)
 router.get('/landing-page', ...auth, commonCtrl.getAdminLandingPage)
 router.put('/landing-page', ...auth, commonCtrl.saveAdminLandingPage)
+router.post('/landing-page/draft', ...auth, commonCtrl.saveAdminLandingDraft)
+router.post('/landing-page/publish', ...auth, commonCtrl.publishAdminLandingPage)
+router.post('/landing-page/restore', ...auth, commonCtrl.restoreAdminLandingVersion)
 
 // ── Promotions (Super Admin; patient-facing announcements only) ────────
 router.get('/promotions', ...auth, promotionsCtrl.listAllPromotions)
@@ -187,3 +190,4 @@ router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
 
 
 module.exports = router
+

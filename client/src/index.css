@@ -314,3 +314,23 @@ input[type='number'] {
   background-clip: padding-box;
 }
 .portal-sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(203, 213, 225, 0.62); }
+
+
+/* CARAIT public website motion. Only opacity and transform animate on scroll. */
+html { scroll-behavior: smooth; scroll-padding-top: 112px; }
+.carait-landing .carait-reveal[data-reveal='pending'] { opacity: 0; transform: translateY(16px); }
+.carait-landing .carait-reveal[data-reveal='shown'] { opacity: 1; transform: translateY(0); transition: opacity 480ms ease var(--carait-delay, 0ms), transform 480ms cubic-bezier(.2,.8,.2,1) var(--carait-delay, 0ms); }
+.carait-landing .carait-lift { transition: transform 240ms ease, box-shadow 240ms ease, border-color 240ms ease; }
+.carait-landing .carait-lift:hover { transform: translateY(-4px); border-color: #bae6fd; box-shadow: 0 18px 36px rgba(15, 23, 42, .09); }
+.carait-landing .carait-hero-content { animation: carait-hero-arrival 560ms ease-out both; }
+.carait-preview .carait-hero-content { animation: none; }
+@keyframes carait-hero-arrival { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+.carait-mobile-nav { transform-origin: top; animation: carait-nav-in 210ms ease-out both; }
+@keyframes carait-nav-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+.carait-editor-panel { animation: carait-panel-in 220ms ease-out both; }
+@keyframes carait-panel-in { from {opacity:0;transform:translateY(7px)} to {opacity:1;transform:translateY(0)} }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .carait-landing .carait-reveal, .carait-landing .carait-reveal[data-reveal='pending'], .carait-landing .carait-reveal[data-reveal='shown'] { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .carait-landing .carait-lift, .carait-landing .carait-lift:hover, .carait-landing .carait-action, .carait-mobile-nav, .carait-editor-panel, .carait-landing .carait-hero-content { animation: none !important; transform: none !important; transition: none !important; }
+}

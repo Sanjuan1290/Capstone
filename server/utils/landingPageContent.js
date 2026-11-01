@@ -141,7 +141,13 @@ const mergeSection = (defaults, incoming = {}) => {
   return next
 }
 
+const DEFAULT_SECTION_ORDER = ['hero','services','doctors','about','testimonial','contact']
+const normalizeSectionOrder = value => {
+  const allowed = Array.isArray(value) ? value.filter(id => DEFAULT_SECTION_ORDER.includes(id)) : []
+  return [...new Set([...allowed, ...DEFAULT_SECTION_ORDER])]
+}
 const normalizeLandingPageContent = (content = {}) => ({
+  section_order: normalizeSectionOrder(content.section_order),
   header: mergeSection(DEFAULT_LANDING_PAGE_CONTENT.header, content.header),
   hero: mergeSection(DEFAULT_LANDING_PAGE_CONTENT.hero, content.hero),
   about: mergeSection(DEFAULT_LANDING_PAGE_CONTENT.about, content.about),
@@ -193,19 +199,88 @@ const getLandingPageContent = async () => {
   }
 }
 
-const updateLandingPageContent = async (content) => {
-  const normalized = normalizeLandingPageContent(content)
-  await ensureLandingPageRow()
-  await db.query(
-    'UPDATE landing_page_content SET content = ? WHERE id = 1',
-    [JSON.stringify(normalized)]
-  )
-  return getLandingPageContent()
+// Private CMS metadata is stored in the existing JSON column. The public response
+// is normalized through known section keys and never returns draft or history.
+const getCms = (raw) => {
+  const cms = raw?._cms && typeof raw._cms === 'object' ? raw._cms : {}
+  return {
+    revision: Number.isSafeInteger(Number(cms.revision)) && Number(cms.revision) >= 0 ? Number(cms.revision) : 0,
+    draft: cms.draft && typeof cms.draft === 'object' ? cms.draft : null,
+    history: Array.isArray(cms.history) ? cms.history.slice(0, 5) : [],
+    published_at: cms.published_at || null,
+  }
 }
+const getEditorLandingPageContent = async () => {
+  await ensureLandingPageRow()
+  const [[row]] = await db.query('SELECT content, updated_at FROM landing_page_content WHERE id=1 LIMIT 1')
+  const raw = parseLandingContent(row?.content)
+  const cms = getCms(raw)
+  const published_content = normalizeLandingPageContent(raw)
+  return {
+    content: normalizeLandingPageContent(cms.draft || published_content),
+    published_content,
+    has_draft: Boolean(cms.draft),
+    revision: cms.revision,
+    history: cms.history.map(({ id, at }) => ({ id, at })),
+    published_at: cms.published_at || row?.updated_at || null,
+    updated_at: row?.updated_at || null,
+  }
+}
+
+const mutateLandingContent = async ({ mode, content, expectedRevision, restoreId }) => {
+  await ensureLandingPageRow()
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [[row]] = await conn.query('SELECT content FROM landing_page_content WHERE id=1 FOR UPDATE')
+    const current = parseLandingContent(row?.content)
+    const cms = getCms(current)
+    if (expectedRevision !== undefined && Number(expectedRevision) !== cms.revision) {
+      const error = new Error('The website was changed in another session. Reload the editor before saving.')
+      error.statusCode = 409
+      throw error
+    }
+    const published = normalizeLandingPageContent(current)
+    const nextCms = { ...cms, revision: cms.revision + 1 }
+    let nextPublished = published
+    if (mode === 'restore') {
+      const version = cms.history.find(v => v.id === String(restoreId))
+      if (!version) { const e = new Error('That version is no longer available.'); e.statusCode=404; throw e }
+      nextCms.draft = normalizeLandingPageContent(version.content)
+    } else if (mode === 'draft') {
+      nextCms.draft = normalizeLandingPageContent(content)
+    } else if (mode === 'publish') {
+      const selected = normalizeLandingPageContent(content || cms.draft || published)
+      const historyId = `r${cms.revision}-${Date.now()}`
+      nextCms.history = [{ id: historyId, at: new Date().toISOString(), content: published }, ...cms.history].slice(0, 5)
+      nextCms.draft = null
+      nextCms.published_at = new Date().toISOString()
+      nextPublished = selected
+    } else {
+      throw new Error('Invalid landing-page operation')
+    }
+    await conn.query('UPDATE landing_page_content SET content=? WHERE id=1', [JSON.stringify({ ...nextPublished, _cms: nextCms })])
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback().catch(() => {})
+    throw err
+  } finally { conn.release() }
+  return getEditorLandingPageContent()
+}
+
+// Legacy PUT remains a publish operation for integrations that still use it.
+const updateLandingPageContent = async (content) => mutateLandingContent({ mode: 'publish', content })
+const saveLandingPageDraft = async (content, revision) => mutateLandingContent({ mode: 'draft', content, expectedRevision: revision })
+const publishLandingPageDraft = async (content, revision) => mutateLandingContent({ mode: 'publish', content, expectedRevision: revision })
+const restoreLandingPageVersion = async (id, revision) => mutateLandingContent({ mode: 'restore', restoreId: id, expectedRevision: revision })
 
 module.exports = {
   DEFAULT_LANDING_PAGE_CONTENT,
   getLandingPageContent,
+  getEditorLandingPageContent,
   updateLandingPageContent,
+  saveLandingPageDraft,
+  publishLandingPageDraft,
+  restoreLandingPageVersion,
   normalizeLandingPageContent,
 }

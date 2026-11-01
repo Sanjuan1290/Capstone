@@ -26,9 +26,18 @@ import {
   MdPhone,
   MdPrivacyTip,
   MdSave,
+  MdVisibility,
+  MdUndo,
+  MdPublish,
+  MdSmartphone,
+  MdDesktopWindows,
+  MdClose,
+  MdArrowUpward,
+  MdArrowDownward,
   MdTitle,
 } from 'react-icons/md'
-import { getAdminLandingPage, saveAdminLandingPage } from '../../services/landing.service'
+import { getAdminLandingPage, getPublicLandingDirectory, saveLandingDraft, publishLandingDraft, restoreLandingVersion } from '../../services/landing.service'
+import { LandingPageSections } from '../LandingPages/LandingPage'
 import { uploadToCloudinary } from '../../services/portal.service'
 
 const Toast = ({ toasts }) => (
@@ -72,6 +81,7 @@ const normalizeContent = (content = {}) => ({
     ...(content.contact || {}),
     address_lines: Array.isArray(content.contact?.address_lines) ? content.contact.address_lines : ['', ''],
   },
+  section_order: Array.isArray(content.section_order) ? content.section_order : ['hero','services','doctors','about','testimonial','contact'],
   footer: {
     ...(content.footer || {}),
     terms_url: content.footer?.terms_url || '',
@@ -101,6 +111,13 @@ const Admin_LandingPage = () => {
   const [flashPath, setFlashPath] = useState('')
   const [expandedServices, setExpandedServices] = useState({})
   const [expandedDoctors, setExpandedDoctors] = useState({})
+  const [revision, setRevision] = useState(0)
+  const [hasDraft, setHasDraft] = useState(false)
+  const [versions, setVersions] = useState([])
+  const [selectedVersion, setSelectedVersion] = useState('')
+  const [directory, setDirectory] = useState({ services: [], doctors: [] })
+  const [previewDevice, setPreviewDevice] = useState('mobile')
+  const [previewFull, setPreviewFull] = useState(false)
 
   const showToast = (message, type = 'success') => {
     const id = Date.now()
@@ -114,6 +131,9 @@ const Admin_LandingPage = () => {
     getAdminLandingPage()
       .then(data => {
         setForm(normalizeContent(data?.content))
+        setRevision(Number(data?.revision || 0))
+        setHasDraft(Boolean(data?.has_draft))
+        setVersions(Array.isArray(data?.history) ? data.history : [])
         setIsDirty(false)
       })
       .catch(err => setLoadError(err.message || 'Failed to load landing page editor.'))
@@ -122,6 +142,7 @@ const Admin_LandingPage = () => {
 
   useEffect(() => {
     loadEditor()
+    getPublicLandingDirectory().then(data => setDirectory({services: data?.services || [], doctors: data?.doctors || []})).catch(()=>{})
   }, [])
 
   const setValue = (section, key, value) => {
@@ -183,18 +204,42 @@ const Admin_LandingPage = () => {
     }
   }
 
+  const applyServer = (data) => {
+    setForm(normalizeContent(data?.content))
+    setRevision(Number(data?.revision || 0))
+    setHasDraft(Boolean(data?.has_draft))
+    setVersions(Array.isArray(data?.history) ? data.history : [])
+    setIsDirty(false)
+  }
   const handleSave = async () => {
     setSaving(true)
     try {
-      const saved = await saveAdminLandingPage(form)
-      setForm(normalizeContent(saved.content))
-      setIsDirty(false)
-      showToast('Landing page saved.')
-    } catch (err) {
-      showToast(err.message || 'Failed to save landing page.', 'error')
-    } finally {
-      setSaving(false)
-    }
+      const saved = await saveLandingDraft(form, revision)
+      applyServer(saved)
+      showToast('Draft saved. The public website has not changed.')
+    } catch (err) { showToast(err.message || 'Could not save your draft.', 'error') }
+    finally { setSaving(false) }
+  }
+  const handlePublish = async () => {
+    if (!window.confirm('Publish these changes to the public CARAIT Clinic website?')) return
+    setSaving(true)
+    try {
+      const published = await publishLandingDraft(form, revision)
+      applyServer(published)
+      showToast('Changes are now published on the website.')
+    } catch (err) { showToast(err.message || 'Could not publish changes.', 'error') }
+    finally { setSaving(false) }
+  }
+  const handleRestore = async () => {
+    if (!selectedVersion || !window.confirm('Restore this older version as a draft? The public website will stay the same until you publish.')) return
+    setSaving(true)
+    try {
+      const restored = await restoreLandingVersion(selectedVersion, revision)
+      applyServer(restored)
+      setSelectedVersion('')
+      showToast('Previous version loaded as a draft. Review it before publishing.')
+    } catch (err) { showToast(err.message || 'Could not restore this version.', 'error') }
+    finally { setSaving(false) }
   }
 
   const toggleService = (index) => {
@@ -232,13 +277,24 @@ const Admin_LandingPage = () => {
 
   if (!form) return null
 
-  const previewSite = () => window.open('/', '_blank')
+  const previewSite = () => window.open('/', '_blank', 'noopener,noreferrer')
+  const toggleVisibility = (section) => setValue(section, 'visible', form[section]?.visible === false)
+  const moveSection = (id, direction) => {
+    const entries = form.section_order || ['hero','services','doctors','about','testimonial','contact']
+    const index = entries.indexOf(id), target = index + direction
+    if (index < 0 || target < 0 || target >= entries.length) return
+    const next = [...entries]
+    ;[next[index],next[target]] = [next[target],next[index]]
+    setForm(current => ({...current,section_order:next}))
+    setIsDirty(true)
+  }
 
   return (
     <div className="max-w-7xl pb-6">
       <Toast toasts={toasts} />
 
-      <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+        <div className="min-w-0 space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.24em] text-sky-700">
@@ -247,7 +303,7 @@ const Admin_LandingPage = () => {
             </div>
             <h1 className="mt-3 text-2xl font-bold text-slate-900">Landing Page Editor</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Update your public website section by section. Only one section is shown at a time to keep editing simple.
+              Edit one section at a time. Changes appear in the live draft preview immediately. Use Save Draft to keep your work private, or Publish Changes to update the public website.
             </p>
           </div>
 
@@ -256,7 +312,7 @@ const Admin_LandingPage = () => {
             className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             <MdOpenInNew className="text-[18px]" />
-            Preview Site
+            Open Published Website
           </button>
         </div>
 
@@ -269,7 +325,7 @@ const Admin_LandingPage = () => {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex min-h-[44px] items-center gap-2 border-b-2 px-1 pb-3 pt-1 text-sm font-semibold whitespace-nowrap transition ${
+                  className={`inline-flex min-h-[44px] items-center gap-2 border-b-2 px-1 pb-3 pt-1 text-sm font-semibold whitespace-nowrap transition-colors duration-200 ${
                     isActive
                       ? 'border-sky-600 text-sky-600'
                       : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -282,6 +338,12 @@ const Admin_LandingPage = () => {
             })}
           </div>
         </div>
+
+        {activeTab === 'header' && <section className="rounded-2xl border border-slate-200 bg-white p-5">
+          <h2 className="text-base font-bold text-slate-900">Homepage Section Order</h2>
+          <p className="mt-1 text-sm text-slate-600">Move a section up or down. The live preview will follow the new order.</p>
+          <div className="mt-4 grid gap-2">{(form.section_order || []).map((id,index,list) => <div key={id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2"><span className="text-sm font-semibold capitalize text-slate-800">{id==='hero'?'Home Banner':id==='testimonial'?'Patient Feedback':id}</span><div className="flex gap-1"><button type="button" disabled={index===0} aria-label={`Move ${id} up`} onClick={()=>moveSection(id,-1)} className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-slate-700 disabled:opacity-30"><MdArrowUpward/></button><button type="button" disabled={index===list.length-1} aria-label={`Move ${id} down`} onClick={()=>moveSection(id,1)} className="flex h-11 w-11 items-center justify-center rounded-lg bg-white text-slate-700 disabled:opacity-30"><MdArrowDownward/></button></div></div>)}</div>
+        </section>}
 
         {activeTab === 'header' && (
           <section className={cardClass}>
@@ -338,7 +400,10 @@ const Admin_LandingPage = () => {
                         className={inputClass}
                       />
                     </Field>
-                    <Field label="Link Target (e.g. #about)">
+                    <Field label="Menu Destination">
+                      <select className={`${inputClass} mb-2`} aria-label={`Destination for ${link.label || 'menu item'}`} value={['#home','#about','#services','#doctors','#contact','/news'].includes(link.path)?link.path:'custom'} onChange={e => e.target.value !== 'custom' && setArrayItem('header','nav_links',index,'path',e.target.value)}>
+                        <option value="custom">Custom link</option><option value="#home">Home</option><option value="#services">Services</option><option value="#doctors">Doctors</option><option value="#about">About</option><option value="#contact">Contact</option><option value="/news">News & Offers</option>
+                      </select>
                       <input
                         value={link.path || ''}
                         onChange={e => setArrayItem('header', 'nav_links', index, 'path', e.target.value)}
@@ -373,6 +438,7 @@ const Admin_LandingPage = () => {
               title="Hero"
               description="Edit the first section visitors see, including the title, subtitle, buttons, and background image."
             />
+            <VisibilitySwitch shown={form.hero.visible !== false} onClick={() => toggleVisibility('hero')} />
 
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Title">
@@ -384,16 +450,9 @@ const Admin_LandingPage = () => {
               <Field label="Subtitle">
                 <input value={form.hero.subheading || ''} onChange={e => setValue('hero', 'subheading', e.target.value)} className={inputClass} />
               </Field>
-              <Field label="Background Dimming (0 = clear, 1 = full white)">
-                <input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={form.hero.overlay_opacity ?? 0.7}
-                  onChange={e => setValue('hero', 'overlay_opacity', e.target.value)}
-                  className={inputClass}
-                />
+              <Field label={`Image Brightness / White Overlay: ${Math.round(Number(form.hero.overlay_opacity ?? 0.68) * 100)}%`}>
+                <input type="range" min="0" max="1" step="0.05" value={form.hero.overlay_opacity ?? 0.68} onChange={e => setValue('hero','overlay_opacity', Number(e.target.value))} className="mt-3 w-full accent-sky-700" />
+                <p className="text-xs text-slate-500">Move right to make text easier to read on a lighter background.</p>
               </Field>
               <Field label="Primary Button Text">
                 <input value={form.hero.primary_button_label || ''} onChange={e => setValue('hero', 'primary_button_label', e.target.value)} className={inputClass} />
@@ -430,6 +489,7 @@ const Admin_LandingPage = () => {
                 title="About"
                 description="Edit the clinic story, badge, mission, vision, and supporting image."
               />
+              <VisibilitySwitch shown={form.about.visible !== false} onClick={() => toggleVisibility('about')} />
 
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="About Title">
@@ -476,6 +536,8 @@ const Admin_LandingPage = () => {
                 title="Testimonial"
                 description="Update the patient quote and testimonial image shown near the About section."
               />
+              <VisibilitySwitch shown={form.testimonial.visible !== false} onClick={() => toggleVisibility('testimonial')} />
+              <p className="mb-4 text-xs text-slate-500">Only publish patient feedback with documented consent.</p>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Testimonial Title">
@@ -507,6 +569,7 @@ const Admin_LandingPage = () => {
               title="Services"
               description="Edit the services section title, description, and each service card."
             />
+            <VisibilitySwitch shown={form.services.visible !== false} onClick={() => toggleVisibility('services')} />
 
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Section Title">
@@ -552,11 +615,22 @@ const Admin_LandingPage = () => {
                           <Field label="Service Name">
                             <input value={item.name || ''} onChange={e => setArrayItem('services', 'items', index, 'name', e.target.value)} className={inputClass} />
                           </Field>
-                          <Field label="Background Color Class">
-                            <input value={item.bg || ''} onChange={e => setArrayItem('services', 'items', index, 'bg', e.target.value)} className={inputClass} />
+                          <Field label="Card Color">
+                            <select value={item.bg || 'bg-slate-50'} onChange={e => setArrayItem('services','items',index,'bg',e.target.value)} className={inputClass}>
+                              {[['bg-slate-50','White'],['bg-blue-50','Light Blue'],['bg-green-50','Light Green'],['bg-purple-50','Lavender'],['bg-yellow-50','Warm Cream']].map(([value,label])=><option key={value} value={value}>{label}</option>)}
+                            </select>
                           </Field>
                           <Field label="Description" className="md:col-span-2">
                             <textarea value={item.description || ''} onChange={e => setArrayItem('services', 'items', index, 'description', e.target.value)} className={textareaClass} />
+                          </Field>
+                          <Field label="Link to a Bookable Service" className="md:col-span-2">
+                            <select className={inputClass} value={item.catalog_service_id && item.branch_id ? `${item.catalog_service_id}:${item.branch_id}` : ''} onChange={e=>{const [id,branch]=e.target.value.split(':').map(Number); const linked=directory.services.find(row=>Number(row.id)===id && Number(row.branch_id)===branch);setArrayItem('services','items',index,'catalog_service_id',linked?.id||null);setArrayItem('services','items',index,'branch_id',linked?.branch_id||null);if(linked)setArrayItem('services','items',index,'name',linked.service_name)}}>
+                              <option value="">General booking (no linked service)</option>{directory.services.map(row=><option key={`${row.id}:${row.branch_id}`} value={`${row.id}:${row.branch_id}`}>{row.branch_name} — {row.service_name}</option>)}
+                            </select>
+                            <p className="text-xs text-slate-500">Linked services must stay active in the clinic catalog to open the matching booking flow.</p>
+                          </Field>
+                          <Field label="Booking Button Link" className="md:col-span-2">
+                            <input value={item.booking_path || ''} placeholder="Leave blank to use the main Book Appointment link" onChange={e => setArrayItem('services','items',index,'booking_path',e.target.value)} className={inputClass}/>
                           </Field>
                         </div>
 
@@ -593,6 +667,7 @@ const Admin_LandingPage = () => {
               title="Doctors"
               description="Edit the doctor section title, description, and each doctor card."
             />
+            <VisibilitySwitch shown={form.doctors.visible !== false} onClick={() => toggleVisibility('doctors')} />
 
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Section Title">
@@ -642,7 +717,16 @@ const Admin_LandingPage = () => {
                             <input value={item.specialize || ''} onChange={e => setArrayItem('doctors', 'items', index, 'specialize', e.target.value)} className={inputClass} />
                           </Field>
                           <Field label="Main Description" className="md:col-span-2">
-                            <textarea value={item.description || ''} onChange={e => setArrayItem('doctors', 'items', index, 'description', e.target.value)} className={textareaClass} />
+                            <textarea value={item.description || ''} onChange={e => setArrayItem('doctors','items',index,'description',e.target.value)} className={textareaClass}/>
+                          </Field>
+                          <Field label="Link to a Doctor Account" className="md:col-span-2">
+                            <select className={inputClass} value={item.doctor_id && item.branch_id ? `${item.doctor_id}:${item.branch_id}` : ''} onChange={e=>{const [id,branch]=e.target.value.split(':').map(Number);const linked=directory.doctors.find(row=>Number(row.id)===id && Number(row.branch_id)===branch);setArrayItem('doctors','items',index,'doctor_id',linked?.id||null);setArrayItem('doctors','items',index,'branch_id',linked?.branch_id||null);if(linked)setArrayItem('doctors','items',index,'name',linked.full_name)}}>
+                              <option value="">General booking (no linked doctor)</option>{directory.doctors.map(row=><option key={`${row.id}:${row.branch_id}`} value={`${row.id}:${row.branch_id}`}>{row.full_name} — {row.branch_name}</option>)}
+                            </select>
+                            <p className="text-xs text-slate-500">The clinic checks live doctor schedules during booking.</p>
+                          </Field>
+                          <Field label="Booking Button Link" className="md:col-span-2">
+                            <input value={item.booking_path || ''} placeholder="Leave blank to use the main Book Appointment link" onChange={e => setArrayItem('doctors','items',index,'booking_path',e.target.value)} className={inputClass}/>
                           </Field>
                         </div>
 
@@ -679,6 +763,7 @@ const Admin_LandingPage = () => {
               title="Contact"
               description="Update the clinic contact section, map, and call-to-action."
             />
+            <VisibilitySwitch shown={form.contact.visible !== false} onClick={() => toggleVisibility('contact')} />
 
             <div className="grid gap-6 lg:grid-cols-3">
               <SubCard title="Contact Info" className="lg:col-span-1">
@@ -784,26 +869,51 @@ const Admin_LandingPage = () => {
             </div>
           </section>
         )}
+        </div>
+        <aside className="min-w-0" aria-label="Live draft preview">
+          <div className="sticky top-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 p-4">
+              <div><p className="text-sm font-bold text-slate-800">Live Draft Preview</p><p className="text-xs text-slate-500">Updates as you edit. Not published.</p></div>
+              <button type="button" onClick={() => setPreviewFull(true)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-sky-50">Expand Preview</button>
+            </div>
+            <div className="max-h-[650px] overflow-y-auto"><LandingPageSections content={form} directory={directory} preview previewSection={activeTab} /></div>
+          </div>
+        </aside>
       </div>
 
-      <div className="sticky bottom-0 z-20 mt-6 border-t border-slate-100 bg-white/95 px-4 py-3 shadow-[0_-6px_24px_rgba(15,23,42,0.08)] backdrop-blur pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-          <div className="text-sm font-semibold text-amber-600">
-            {isDirty ? 'Unsaved changes' : ''}
+      {previewFull && <div role="dialog" aria-modal="true" aria-label="Full website preview" className="fixed inset-0 z-[100] flex flex-col bg-slate-950/80 p-2 sm:p-5">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 rounded-t-2xl bg-white p-3">
+          <div><p className="font-bold text-slate-800">Unpublished Website Preview</p><p className="text-xs text-slate-500">This is a preview only. Changes are not yet public.</p></div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setPreviewDevice('mobile')} aria-pressed={previewDevice==='mobile'} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${previewDevice==='mobile'?'bg-sky-700 text-white':'bg-slate-100 text-slate-700'}`}><MdSmartphone /></button>
+            <button type="button" onClick={() => setPreviewDevice('desktop')} aria-pressed={previewDevice==='desktop'} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${previewDevice==='desktop'?'bg-sky-700 text-white':'bg-slate-100 text-slate-700'}`}><MdDesktopWindows /></button>
+            <button type="button" onClick={() => setPreviewFull(false)} aria-label="Close preview" className="flex min-h-11 items-center gap-1 rounded-lg bg-slate-100 px-3 font-semibold"><MdClose /> Close</button>
           </div>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-          >
-            <MdSave className="text-[18px]" />
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
+        </div>
+        <div className="mx-auto w-full max-w-7xl flex-1 overflow-y-auto rounded-b-2xl bg-slate-100 p-2 sm:p-4">
+          <div className={`mx-auto overflow-hidden bg-white shadow-xl transition-[max-width] duration-300 ${previewDevice==='mobile'?'max-w-[390px]':'max-w-6xl'}`}><LandingPageSections content={form} directory={directory} preview /></div>
+        </div>
+      </div>}
+
+      <div className="sticky bottom-0 z-20 mt-6 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-6px_24px_rgba(15,23,42,0.08)] backdrop-blur pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-slate-600" role="status">{isDirty ? 'Unsaved changes' : hasDraft ? 'Private draft saved' : 'All published changes saved'}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            {versions.length > 0 && <><select aria-label="Previous published versions" value={selectedVersion} onChange={e=>setSelectedVersion(e.target.value)} className="min-h-11 max-w-44 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="">Previous versions</option>{versions.map(v=><option value={v.id} key={v.id}>{new Date(v.at).toLocaleString('en-PH')}</option>)}</select><button onClick={handleRestore} disabled={!selectedVersion || saving} className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-700 disabled:opacity-50"><MdUndo /> Restore Draft</button></>}
+            <button type="button" onClick={handleSave} disabled={saving || !isDirty} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-sky-600 px-4 py-2 text-sm font-bold text-sky-700 hover:bg-sky-50 disabled:opacity-50"><MdSave />{saving?'Saving…':'Save Draft'}</button>
+            <button type="button" onClick={handlePublish} disabled={saving || (!isDirty && !hasDraft)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800 disabled:opacity-50"><MdPublish /> Publish Changes</button>
+          </div>
         </div>
       </div>
     </div>
   )
 }
+
+const VisibilitySwitch = ({ shown, onClick }) => (
+  <button type="button" role="switch" aria-checked={shown} onClick={onClick} className={`mb-5 inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-bold ${shown?'border-teal-200 bg-teal-50 text-teal-800':'border-slate-200 bg-slate-100 text-slate-600'}`}>
+    <MdVisibility /> {shown ? 'Visible on website' : 'Hidden from website'}
+  </button>
+)
 
 const SectionHeader = ({ icon, title, description }) => {
   const Icon = icon
@@ -878,3 +988,4 @@ const ImageUploadField = ({ value, label, busy, flash, onChange }) => (
 )
 
 export default Admin_LandingPage
+

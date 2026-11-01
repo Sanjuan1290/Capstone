@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
+import { patientReturnPath } from '../../../utils/patientReturnPath.mjs'
 import { MdArrowForward, MdEmail, MdLock, MdPhone, MdVisibility, MdVisibilityOff } from 'react-icons/md'
 import { useAuth } from '../../../context/AuthContext'
 
@@ -9,6 +10,8 @@ const PatientLogin = () => {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const [query] = useSearchParams()
+  const nextPath = patientReturnPath(query.get('next'))
   const { login } = useAuth()
 
   const handleChange = (event) => {
@@ -39,7 +42,7 @@ const PatientLogin = () => {
         return
       }
       login(data.user, 'patient')
-      navigate('/patient')
+      navigate(nextPath, { replace: true })
     } catch {
       setError('Cannot connect to server.')
     } finally {
@@ -138,7 +141,7 @@ const PatientLogin = () => {
 
             <p className="text-center text-sm text-slate-500">
               No account?{' '}
-              <NavLink to="/patient/register" className="font-bold text-emerald-600 hover:text-emerald-700">
+              <NavLink to={`/patient/register?next=${encodeURIComponent(nextPath)}`} className="font-bold text-emerald-600 hover:text-emerald-700">
                 Register here
               </NavLink>
             </p>
@@ -156,3 +159,4 @@ const PatientLogin = () => {
 }
 
 export default PatientLogin
+
