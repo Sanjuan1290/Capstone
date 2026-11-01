@@ -50,6 +50,7 @@ const migrationFiles = [
   '2026-10-17-announcements-campaigns.sql',
   promotionMigrationFile,
   '2026-10-31-doctor-multi-branch.sql',
+  '2026-11-01-booking-policy-content.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -150,4 +151,3 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
-

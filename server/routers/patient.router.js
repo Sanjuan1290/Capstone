@@ -16,11 +16,28 @@ const {
 const commonCtrl = require('../controllers/common.controller')
 const promotionsCtrl = require('../controllers/promotions.controller')
 const db = require('../db/connect')
+const { cloneDefaultBookingPolicyDocument, parseStoredBookingPolicyDocument } = require('../utils/bookingPolicyDocument')
 
 // Physical clinic locations available for online patient booking.
 router.get('/branches', async(req,res)=>{
  const [rows]=await db.query('SELECT id,name,address,phone,offers_medical,offers_derma FROM clinic_branches WHERE is_active=1 ORDER BY created_at,id')
  res.json(rows)
+})
+// Public policy page. A branch is optional; without one, patients see the clinic-wide default policy.
+router.get('/booking-policy', async(req,res)=>{
+ const rawBranchId=String(req.query.branch_id||'').trim()
+ if(!rawBranchId){
+  return res.json({...cloneDefaultBookingPolicyDocument(),branch_id:null,branch_name:null,uses_default:true,is_branch_specific:false,published_at:null})
+ }
+ const branchId=Number(rawBranchId)
+ if(!/^\d+$/.test(rawBranchId)||!Number.isSafeInteger(branchId)||branchId<1)return res.status(400).json({message:'Select a valid clinic branch.'})
+ const [[row]]=await db.query(`SELECT cb.id,cb.name,d.published_document,d.is_published,d.published_at
+  FROM clinic_branches cb LEFT JOIN branch_booking_policy_documents d ON d.branch_id=cb.id
+  WHERE cb.id=? AND cb.is_active=1 LIMIT 1`,[branchId])
+ if(!row)return res.status(404).json({message:'This clinic branch is not available.'})
+ const published=Number(row.is_published)===1?parseStoredBookingPolicyDocument(row.published_document):null
+ const document=published||cloneDefaultBookingPolicyDocument()
+ res.json({...document,branch_id:Number(row.id),branch_name:row.name,uses_default:!published,is_branch_specific:Boolean(published),published_at:published?row.published_at:null})
 })
 // Public
 router.post('/register',        otpRequestLimiter, register)

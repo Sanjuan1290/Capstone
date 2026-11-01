@@ -5,6 +5,8 @@ const express    = require('express')
 const db = require('../db/connect')
 const {listBillingCatalog} = require('../utils/billing')
 const {validateBookingSettings,normalizeBookingSettings,withBookingTestingCapability}=require('../utils/bookingPolicy')
+const {cloneDefaultBookingPolicyDocument,normalizeBookingPolicyDocument,parseStoredBookingPolicyDocument}=require('../utils/bookingPolicyDocument')
+const {writeAuditLog}=require('../utils/audit')
 const router     = express.Router()
 const staffCtrl  = require('../controllers/staff.controller')
 const adminCtrl  = require('../controllers/admin.controller')
@@ -57,6 +59,31 @@ const writeBranchPolicy=async(req,res)=>{
     VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE online_min_lead_minutes=VALUES(online_min_lead_minutes),pending_confirmation_cutoff_minutes=VALUES(pending_confirmation_cutoff_minutes),booking_start_interval_minutes=VALUES(booking_start_interval_minutes),no_show_grace_minutes=VALUES(no_show_grace_minutes)`,
     [req.branchId,settings.online_min_lead_minutes,settings.pending_confirmation_cutoff_minutes,settings.booking_start_interval_minutes,grace])
   return readBranchPolicy(req,res)
+}
+const readBookingPolicyContent=async(req,res)=>{
+  const [[row]]=await db.query('SELECT draft_document,published_document,is_published,published_at,updated_at FROM branch_booking_policy_documents WHERE branch_id=?',[req.branchId])
+  const draft=parseStoredBookingPolicyDocument(row?.draft_document)
+  const published=parseStoredBookingPolicyDocument(row?.published_document)
+  const document=draft||published||cloneDefaultBookingPolicyDocument()
+  res.json({...document,branch_id:req.branchId,is_published:Boolean(Number(row?.is_published)),has_draft:Boolean(draft),status:draft?'draft':Number(row?.is_published)===1?'published':'unpublished',published_at:row?.published_at||null,updated_at:row?.updated_at||null})
+}
+const writeBookingPolicyContent=async(req,res)=>{
+  const action=String(req.body?.action||'publish').trim()
+  if(!['save_draft','publish','unpublish'].includes(action))return res.status(400).json({message:'Choose Save Draft, Publish Policy, or Unpublish Policy.'})
+  if(action==='unpublish'){
+    await db.query(`INSERT INTO branch_booking_policy_documents (branch_id,is_published,updated_by_admin_id) VALUES (?,0,?) ON DUPLICATE KEY UPDATE is_published=0,draft_document=NULL,updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,req.user.id])
+  }else{
+    let document
+    try{document=normalizeBookingPolicyDocument(req.body)}catch(error){return res.status(error.statusCode||400).json({code:error.code||'BOOKING_POLICY_DOCUMENT_INVALID',message:error.message})}
+    const serialized=JSON.stringify(document)
+    if(action==='save_draft'){
+      await db.query(`INSERT INTO branch_booking_policy_documents (branch_id,draft_document,updated_by_admin_id) VALUES (?,?,?) ON DUPLICATE KEY UPDATE draft_document=VALUES(draft_document),updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,serialized,req.user.id])
+    }else{
+      await db.query(`INSERT INTO branch_booking_policy_documents (branch_id,published_document,is_published,published_at,updated_by_admin_id) VALUES (?,?,1,CURRENT_TIMESTAMP,?) ON DUPLICATE KEY UPDATE published_document=VALUES(published_document),draft_document=NULL,is_published=1,published_at=CURRENT_TIMESTAMP,updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,serialized,req.user.id])
+    }
+  }
+  await writeAuditLog({userId:req.user.id,userRole:'staff',action:`booking_policy_document.${action}`,entityType:'branch_booking_policy_document',entityId:req.branchId,branchId:req.branchId,newValues:{action,title:String(req.body?.title||'').slice(0,120)},ipAddress:req.ip||null}).catch(()=>{})
+  return readBookingPolicyContent(req,res)
 }
 const safeSettingsWriteUnavailable=(req,res)=>res.status(403).json({code:'BRANCH_SAFE_ACTION_REQUIRED',message:'This setup change is not yet supported safely from the Staff portal. Use an authorized Branch Administrator.'})
 
@@ -173,6 +200,8 @@ router.put('/admin-access/reminder-settings', ...auth, can('system_setup'), remi
 router.post('/appointments/:id/remind', ...auth, can('appointments'), reminderRoutes.ensureBranch, reminderRoutes.manual)
 router.get('/admin-access/system-setup/booking-policy', ...auth, can('system_setup'), readBranchPolicy)
 router.put('/admin-access/system-setup/booking-policy', ...auth, can('system_setup'), writeBranchPolicy)
+router.get('/admin-access/system-setup/booking-policy/content', ...auth, can('system_setup'), readBookingPolicyContent)
+router.put('/admin-access/system-setup/booking-policy/content', ...auth, can('system_setup'), writeBookingPolicyContent)
 router.post('/admin-access/system-setup/cancellation-reasons', ...auth, can('system_setup'), saveCancellation)
 router.put('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), saveCancellation)
 router.delete('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), deactivateCancellation)
@@ -213,4 +242,3 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), u
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
 
 module.exports = router
-

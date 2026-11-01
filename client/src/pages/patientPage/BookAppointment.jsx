@@ -339,6 +339,7 @@ const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadingReaso
 // ── Step 4: Visit details, eligible offers, and final review ─────────────────
 const StepReview = ({ form, branchName, promotions, selectedPromotionId, onPromotionChange, reasonOptions, loadingReasons, onReasonChange, onReasonDetailsChange, onNotesChange, policyAccepted, onPolicyAcceptedChange }) => {
   const applicable = eligibleBookingPromotions(promotions, {branchId:form.branchId,serviceId:form.service?.id,date:form.date})
+  const policyUrl = `/booking-policy${form.branchId ? `?branch_id=${encodeURIComponent(form.branchId)}` : ''}`
   return <div className="space-y-6">
     <div>
       <h2 className="text-xl font-bold text-slate-900">Review your appointment request</h2>
@@ -358,19 +359,19 @@ const StepReview = ({ form, branchName, promotions, selectedPromotionId, onPromo
         <span><strong className="block text-slate-900">{promo?.title || 'No offer'}</strong>{promo && <span className="mt-1 block text-slate-600">{promo.description} · Valid through {promo.ends_on}</span>}</span>
       </label>)}
     </fieldset>}
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <details className="group">
-        <summary className="cursor-pointer text-sm font-semibold text-emerald-800">Read full online booking policy</summary>
-        <div className="mt-3 space-y-2 text-sm leading-relaxed text-slate-700">
-          <p>Use correct contact information. You can have only one active appointment with each doctor.</p>
-          <p>Arrive at least 10 minutes before your scheduled time.</p>
-          <p>Cancel or reschedule early if you cannot attend.</p>
-          <p>Missed or false bookings may need clinic staff review before another appointment is approved.</p>
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-bold text-emerald-950">Before you submit</h3>
+          <p className="mt-1 text-sm leading-6 text-emerald-900">Please read the clinic rules for arriving, changing an appointment, and missed visits.</p>
         </div>
-      </details>
-      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950">
+        <a href={policyUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl border border-emerald-300 bg-white px-3 text-sm font-bold text-emerald-800 transition-colors hover:bg-emerald-100">
+          Read Booking Policy <MdArrowForward />
+        </a>
+      </div>
+      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-white p-3 text-sm text-emerald-950">
         <input type="checkbox" checked={policyAccepted} onChange={e=>onPolicyAcceptedChange(e.target.checked)} className="mt-0.5 h-5 w-5 accent-emerald-700" />
-        <span>I have reviewed my appointment details and agree to the clinic booking policy. I understand this is a request and the clinic must confirm it.</span>
+        <span>I have read and agree to the clinic's Appointment Booking Policy. I understand this is a request and the clinic must confirm it.</span>
       </label>
     </div>
   </div>
@@ -835,8 +836,11 @@ const BookAppointment = () => {
         </div>
         <button type="button" className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-emerald-800 hover:bg-emerald-50" onClick={()=>{selectBranch('');setStep(0)}}>Change Branch</button>
       </header>
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-        <span className="font-semibold">Before you book:</span> Arrive 10 minutes early and cancel or reschedule if you cannot attend. <span className="text-amber-900">The clinic confirms each request.</span> <span className="text-slate-600">Full policy is available on the review step.</span>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <p><span className="font-semibold">Before you book:</span> Arrive 10 minutes early and cancel or reschedule if you cannot attend. The clinic confirms each request.</p>
+        <a href={`/booking-policy?branch_id=${encodeURIComponent(branchId)}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 shrink-0 items-center gap-1 font-bold text-amber-900 underline underline-offset-2 hover:text-amber-700">
+          Read full policy <MdArrowForward />
+        </a>
       </div>
       {emailVerificationNotice}
       {activeVisits.length > 0 && <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900" role="status">

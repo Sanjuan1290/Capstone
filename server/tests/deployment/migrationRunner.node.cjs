@@ -6,6 +6,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const { runBranchMigrations, migrationFiles } = require('../../scripts/branchMigrations')
+const batch4MigrationFile = '2026-10-26-batch4-selected-promotion.sql'
 const { createFoundationSchemaFixture } = require('../helpers/foundationSchemaFixture.cjs')
 
 const migrationDir = path.resolve(__dirname, '../../db/migrations')
@@ -124,7 +125,9 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
 
 test('registered historical migration SQL still matches its pinned normalized SHA-256 checksums', () => {
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
-  assert.equal(migrationFiles.at(-1), '2026-10-26-batch4-selected-promotion.sql')
+  assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
+  assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-01-booking-policy-content.sql'))
+  assert.equal(migrationFiles.at(-1), '2026-11-01-booking-policy-content.sql')
   for (const [file, expected] of Object.entries(expectedChecksums)) {
     const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const actual = crypto.createHash('sha256').update(sql).digest('hex')
@@ -213,10 +216,10 @@ test('Batch 4 resumes after the first ALTER committed but the second failed', as
   await assert.rejects(runBranchMigrations(db), /synthetic migration DDL failure/)
   assert.equal(db.promotionState.appointments, true)
   assert.equal(db.promotionState.billing_records, false)
-  assert.equal(db.applied.has(migrationFiles.at(-1)), false)
+  assert.equal(db.applied.has(batch4MigrationFile), false)
   await runBranchMigrations(db)
   assert.equal(db.promotionState.billing_records, true)
-  assert.equal(db.applied.has(migrationFiles.at(-1)), true)
+  assert.equal(db.applied.has(batch4MigrationFile), true)
   assert.equal(db.commands.filter(sql => /^ALTER TABLE appointments\s/i.test(sql) && /ADD COLUMN/i.test(sql)).length, 1)
 })
 
@@ -237,7 +240,7 @@ test('Batch 4 detects schema drift after ledger registration and never silently 
 test('Batch 4 verifies SQL checksum and rejects substantive changes to its ledger entry', async () => {
   const db = createMockDb()
   await runBranchMigrations(db)
-  db.applied.set(migrationFiles.at(-1), '0'.repeat(64))
+  db.applied.set(batch4MigrationFile, '0'.repeat(64))
   await assert.rejects(runBranchMigrations(db), /Previously applied migration changed/)
 })
 
@@ -245,7 +248,7 @@ test('Batch 4 verifies SQL checksum and rejects substantive changes to its ledge
 test('Batch 4 rejects unexpected partly-added columns without applying new DDL or recording the ledger', async () => {
   const db = createMockDb({ initialPromotionState: { appointments: 'partial' } })
   await assert.rejects(runBranchMigrations(db), /Unsafe partial Batch 4 migration for appointments/)
-  assert.equal(db.applied.has(migrationFiles.at(-1)), false)
+  assert.equal(db.applied.has(batch4MigrationFile), false)
   assert.equal(db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql)).length, 0)
 })
 
@@ -253,10 +256,10 @@ for (const operation of ['ADD INDEX', 'ADD CONSTRAINT']) {
   test(`Batch 4 resumes after a TiDB ${operation} interruption without repeating committed operations`, async () => {
     const db = createMockDb({ failOnceOn: operation })
     await assert.rejects(runBranchMigrations(db), /synthetic migration DDL failure/)
-    assert.equal(db.applied.has(migrationFiles.at(-1)), false)
+    assert.equal(db.applied.has(batch4MigrationFile), false)
     assert.equal(db.promotionState.appointments, true)
     await runBranchMigrations(db)
-    assert.equal(db.applied.has(migrationFiles.at(-1)), true)
+    assert.equal(db.applied.has(batch4MigrationFile), true)
     assert.equal(db.commands.filter(sql => /^ALTER TABLE appointments\s/i.test(sql) && /ADD COLUMN/i.test(sql)).length, 1)
     if (operation === 'ADD CONSTRAINT') assert.equal(db.commands.filter(sql => /^ALTER TABLE appointments\s/i.test(sql) && /ADD INDEX/i.test(sql)).length, 1)
   })
@@ -268,5 +271,5 @@ test('Batch 4 recovers manually applied complete columns while adding only the m
   const ddl = db.commands.filter(sql => /^ALTER TABLE (appointments|billing_records)\s/i.test(sql))
   assert.equal(ddl.length, 2)
   assert.ok(ddl.every(sql => !/ADD COLUMN/i.test(sql)))
-  assert.equal(db.applied.has(migrationFiles.at(-1)), true)
+  assert.equal(db.applied.has(batch4MigrationFile), true)
 })

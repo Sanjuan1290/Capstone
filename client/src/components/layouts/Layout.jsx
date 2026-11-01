@@ -107,7 +107,7 @@ const Layout = () => {
   const header    = landing?.header || defaultHeader
   const footer    = { ...defaultFooter, ...landing?.footer }
   const navLinks  = (Array.isArray(header.nav_links) && header.nav_links.length > 0 ? header.nav_links : defaultHeader.nav_links).filter(link => normalizeAppPath(link.path, "#home") !== "/news")
-  const showMarketingShell = ['/', '/login', '/patient/register', '/patient/login', '/news', '/unsubscribe'].includes(location.pathname) || location.pathname.startsWith('/news/')
+  const showMarketingShell = ['/', '/login', '/patient/register', '/patient/login', '/news', '/unsubscribe', '/booking-policy'].includes(location.pathname) || location.pathname.startsWith('/news/')
   const logoSrc   = header.logo_url || '/logo.png'
   const clinicSubtitle = String(header.clinic_name || defaultHeader.clinic_name).trim().replace(/^carait\s*/i, '') || 'Medical & Dermatology Clinic'
   const isPatientLoggedIn = Boolean(user && role === 'patient')
@@ -193,7 +193,7 @@ const Layout = () => {
               {isExternalPath(ctaPath) ? <a href={ctaPath} className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-white px-5 text-sm font-bold text-teal-900 transition-colors hover:bg-teal-50">{header.cta_label || 'Book Appointment'}</a> : <NavLink to={ctaPath} className="mt-5 inline-flex min-h-11 items-center rounded-xl bg-white px-5 text-sm font-bold text-teal-900 transition-colors hover:bg-teal-50">{header.cta_label || 'Book Appointment'}</NavLink>}
             </div>
             <div><h2 className="text-sm font-extrabold uppercase tracking-wider">Quick Links</h2><nav className="mt-4 grid gap-3" aria-label="Footer navigation">{[['Home','/#home'],['Services','/#services'],['Doctors','/#doctors'],['About','/#about'],['Contact','/#contact'],['News & Offers','/news']].map(([name,path])=><FooterLink href={path} key={name}>{name}</FooterLink>)}</nav></div>
-            <div><h2 className="text-sm font-extrabold uppercase tracking-wider">Information</h2><div className="mt-4 grid gap-3"><FooterLink href={footer.terms_url || ''}>Terms of Service</FooterLink><FooterLink href={footer.privacy_url || ''}>Privacy Policy</FooterLink>{footer.facebook_url && <a href={footer.facebook_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm text-teal-100 transition-colors hover:text-white"><FaFacebook /> Facebook</a>}</div></div>
+            <div><h2 className="text-sm font-extrabold uppercase tracking-wider">Information</h2><div className="mt-4 grid gap-3"><FooterLink href="/booking-policy">Appointment Booking Policy</FooterLink><FooterLink href={footer.terms_url || ''}>Terms of Service</FooterLink><FooterLink href={footer.privacy_url || ''}>Privacy Policy</FooterLink>{footer.facebook_url && <a href={footer.facebook_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm text-teal-100 transition-colors hover:text-white"><FaFacebook /> Facebook</a>}</div></div>
           </div>
           <div className="border-t border-white/10 px-6 py-5 text-center text-xs text-teal-100">{copyright}</div>
         </footer>
@@ -205,4 +205,3 @@ const Layout = () => {
 }
 
 export default Layout
-

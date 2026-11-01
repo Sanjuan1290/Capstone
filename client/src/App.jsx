@@ -100,6 +100,7 @@ import ChangePassword from './pages/shared/ChangePassword'
 import DoctorAvailability from './pages/patientPage/DoctorAvailability'
 import PrivacyPolicys from './pages/shared/PrivacyPolicys'
 import TermsOfService from './pages/shared/TermsOfService'   // NEW
+import BookingPolicy from './pages/shared/BookingPolicy'
 
 
 const LegacyCheckoutDetailRedirect = () => {
@@ -123,6 +124,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       {/* ── Legal pages ──────────────────────────────────── */}
       <Route path='/privacy-policy' element={<PrivacyPolicys />} />
       <Route path='/terms'          element={<TermsOfService />} />   {/* NEW */}
+      <Route path='/booking-policy' element={<BookingPolicy />} />
 
       {/* ── Patient auth ────────────────────────────────── */}
       <Route path='/login'                  element={<GuestOnlyRoute><PatientLogin /></GuestOnlyRoute>} />

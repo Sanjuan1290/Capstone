@@ -8,6 +8,8 @@ import {
   deleteAppointmentReason,
   getBookingPolicy,
   updateBookingPolicy,
+  getBookingPolicyContent,
+  updateBookingPolicyContent,
   getReminderSettings,
   saveReminderSettings,
 } from '../../services/admin.service'
@@ -76,6 +78,15 @@ const Admin_PatientBooking = () => {
   const [savedBookingPolicy, setSavedBookingPolicy] = useState({ online_min_lead_minutes: 720, pending_confirmation_cutoff_minutes: 60, booking_start_interval_minutes: 30 })
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
+  const [policyDocument, setPolicyDocument] = useState({ title: '', introduction: '', sections: [] })
+  const [policyBranchId, setPolicyBranchId] = useState(null)
+  const [policyDocumentPublished, setPolicyDocumentPublished] = useState(false)
+  const [policyDocumentHasDraft, setPolicyDocumentHasDraft] = useState(false)
+  const [policyDocumentUpdatedAt, setPolicyDocumentUpdatedAt] = useState(null)
+  const [loadingPolicyDocument, setLoadingPolicyDocument] = useState(true)
+  const [savingPolicyDocument, setSavingPolicyDocument] = useState(false)
+  const [policyDocumentError, setPolicyDocumentError] = useState('')
+  const [policyDocumentNotice, setPolicyDocumentNotice] = useState('')
   const [reminderSettings,setReminderSettings]=useState({enabled:false,lead_hours:3,email_enabled:true,sms_enabled:false})
   const [reminderError,setReminderError]=useState('')
   const [savingReminders,setSavingReminders]=useState(false)
@@ -109,9 +120,88 @@ const Admin_PatientBooking = () => {
     }
   }
 
+  const loadPolicyDocument = async () => {
+    setLoadingPolicyDocument(true)
+    setPolicyDocumentError('')
+    try {
+      const data = await getBookingPolicyContent()
+      const document = {
+        title: String(data?.title || 'Appointment Booking Policy'),
+        introduction: String(data?.introduction || ''),
+        sections: Array.isArray(data?.sections) ? data.sections.map(section => ({ heading: String(section.heading || ''), body: String(section.body || '') })) : [],
+      }
+      setPolicyDocument(document)
+      setPolicyBranchId(Number(data?.branch_id) || null)
+      setPolicyDocumentPublished(Boolean(data?.is_published))
+      setPolicyDocumentHasDraft(Boolean(data?.has_draft))
+      setPolicyDocumentUpdatedAt(data?.updated_at || data?.published_at || null)
+    } catch (err) {
+      setPolicyDocumentError(err.message || 'Could not load the public policy editor.')
+    } finally {
+      setLoadingPolicyDocument(false)
+    }
+  }
+
+  const savePolicyDocument = async (action) => {
+    setPolicyDocumentError('')
+    setPolicyDocumentNotice('')
+    if (action !== 'unpublish') {
+      if (!policyDocument.title.trim()) return setPolicyDocumentError('Enter a title for the policy.')
+      if (!policyDocument.introduction.trim()) return setPolicyDocumentError('Enter a short introduction.')
+      if (policyDocument.sections.length < 1 || policyDocument.sections.length > 10) return setPolicyDocumentError('Keep between 1 and 10 policy sections.')
+      const invalidSection = policyDocument.sections.findIndex(section => !section.heading.trim() || !section.body.trim())
+      if (invalidSection >= 0) return setPolicyDocumentError(`Complete the heading and details in section ${invalidSection + 1}.`)
+      const totalCharacters = policyDocument.title.length + policyDocument.introduction.length + policyDocument.sections.reduce((total, section) => total + section.heading.length + section.body.length, 0)
+      if (totalCharacters > 8000) return setPolicyDocumentError('The complete policy must be 8,000 characters or fewer.')
+    }
+    setSavingPolicyDocument(true)
+    try {
+      const saved = await updateBookingPolicyContent({ ...policyDocument, action })
+      setPolicyDocument({
+        title: String(saved?.title || policyDocument.title),
+        introduction: String(saved?.introduction || policyDocument.introduction),
+        sections: Array.isArray(saved?.sections) ? saved.sections : policyDocument.sections,
+      })
+      setPolicyDocumentPublished(Boolean(saved?.is_published))
+      setPolicyDocumentHasDraft(Boolean(saved?.has_draft))
+      setPolicyDocumentUpdatedAt(saved?.updated_at || saved?.published_at || null)
+      setPolicyDocumentNotice(action === 'publish' ? 'The policy is now published on the public website.' : action === 'save_draft' ? 'Your draft has been saved. Patients will continue to see the current published policy.' : 'The custom policy has been unpublished. Patients will see the general clinic policy.')
+    } catch (err) {
+      setPolicyDocumentError(err.message || 'The policy could not be saved.')
+    } finally {
+      setSavingPolicyDocument(false)
+    }
+  }
+
+  const addPolicySection = () => {
+    if (policyDocument.sections.length >= 10) {
+      setPolicyDocumentError('You can add up to 10 policy sections.')
+      return
+    }
+    setPolicyDocumentError('')
+    setPolicyDocument((current) => ({ ...current, sections: [...current.sections, { heading: '', body: '' }] }))
+  }
+
+  const updatePolicySection = (index, key, value) => {
+    setPolicyDocument((current) => ({
+      ...current,
+      sections: current.sections.map((section, sectionIndex) => sectionIndex === index ? { ...section, [key]: value } : section),
+    }))
+  }
+
+  const removePolicySection = (index) => {
+    if (policyDocument.sections.length <= 1) {
+      setPolicyDocumentError('Keep at least one policy section.')
+      return
+    }
+    setPolicyDocumentError('')
+    setPolicyDocument((current) => ({ ...current, sections: current.sections.filter((_, sectionIndex) => sectionIndex !== index) }))
+  }
+
   useEffect(() => {
     loadReasons()
     loadPolicy()
+    loadPolicyDocument()
     getReminderSettings().then((data)=>setReminderSettings({enabled:Boolean(data.enabled),lead_hours:Number(data.lead_hours||3),email_enabled:Boolean(data.email_enabled),sms_enabled:Boolean(data.sms_enabled)})).catch(()=>setReminderError('Reminder settings need a staging database update. Automatic reminders remain off.'))
   }, [])
 
@@ -259,7 +349,7 @@ const Admin_PatientBooking = () => {
           </p>
         </div>
         <button
-          onClick={() => { loadReasons(); loadPolicy() }}
+          onClick={() => { loadReasons(); loadPolicy(); loadPolicyDocument() }}
           className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
         >
           <MdRefresh className="text-[16px]" /> Refresh
@@ -306,6 +396,76 @@ const Admin_PatientBooking = () => {
           </div>
         </div>
         {editingPolicy && policyError ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{policyError}</div> : <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800">{bookingPolicy.online_min_lead_minutes === 0 ? "TESTING ONLY: Patients may book future available slots with no advance notice. Pending requests expire at appointment start." : <>Patients must book at least <strong>{durationLabel(bookingPolicy.online_min_lead_minutes)}</strong> ahead. If Staff has not confirmed the request by <strong>{durationLabel(bookingPolicy.pending_confirmation_cutoff_minutes)}</strong> before its start time, the system automatically marks it Rejected and releases the slot.</>}</div>}
+      </section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-black text-slate-900">Policy Patients Can Read</h2>
+              <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${policyDocumentPublished ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                {policyDocumentPublished ? 'Published' : 'General policy is shown'}
+              </span>
+              {policyDocumentHasDraft && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">Unpublished changes</span>}
+            </div>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">Write the rules patients see on the public Appointment Booking Policy page. This text does not change appointment time limits or booking checks.</p>
+          </div>
+          {policyBranchId && <a href={`/booking-policy?branch_id=${encodeURIComponent(policyBranchId)}`} target="_blank" rel="noopener noreferrer" className="button-secondary shrink-0">View public page</a>}
+        </div>
+
+        {loadingPolicyDocument ? (
+          <div className="py-10 text-center text-sm text-slate-500">Loading policy editor…</div>
+        ) : (
+          <div className="mt-5 space-y-4">
+            <label className="block">
+              <span className="form-label">Page title</span>
+              <input maxLength={120} className="form-control mt-1.5" value={policyDocument.title} onChange={event=>setPolicyDocument(current=>({...current,title:event.target.value}))} placeholder="Appointment Booking Policy" />
+            </label>
+            <label className="block">
+              <span className="form-label">Short introduction</span>
+              <textarea maxLength={600} rows={2} className="form-control mt-1.5 resize-y" value={policyDocument.introduction} onChange={event=>setPolicyDocument(current=>({...current,introduction:event.target.value}))} placeholder="Explain what patients should know before booking." />
+              <span className="form-helper">This appears directly below the page title.</span>
+            </label>
+
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Policy sections</h3>
+                  <p className="mt-1 text-xs text-slate-500">Use short headings and simple instructions. Patients will see these as separate sections.</p>
+                </div>
+                <button type="button" onClick={addPolicySection} disabled={policyDocument.sections.length>=10} className="button-secondary"><MdAdd /> Add section</button>
+              </div>
+              {policyDocument.sections.map((section,index)=>(
+                <div key={index} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Section {index+1}</span>
+                    <button type="button" onClick={()=>removePolicySection(index)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50"><MdDelete /> Remove</button>
+                  </div>
+                  <label className="block">
+                    <span className="form-label">Section heading</span>
+                    <input maxLength={100} className="form-control mt-1.5 bg-white" value={section.heading} onChange={event=>updatePolicySection(index,'heading',event.target.value)} placeholder="e.g. Before you arrive" />
+                  </label>
+                  <label className="mt-3 block">
+                    <span className="form-label">What patients need to know</span>
+                    <textarea maxLength={1500} rows={3} className="form-control mt-1.5 resize-y bg-white" value={section.body} onChange={event=>updatePolicySection(index,'body',event.target.value)} placeholder="Write the instruction in clear, simple language." />
+                  </label>
+                </div>
+              ))}
+              <p className="text-right text-xs text-slate-400">{(policyDocument.title.length + policyDocument.introduction.length + policyDocument.sections.reduce((total, section) => total + section.heading.length + section.body.length, 0)).toLocaleString('en-PH')} / 8,000 characters</p>
+            </div>
+
+            {policyDocumentError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{policyDocumentError}</p>}
+            {policyDocumentNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{policyDocumentNotice}</p>}
+            {policyDocumentHasDraft && <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">You have saved changes that are not public yet. Patients still see the last published version until you publish these changes.</p>}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="button-secondary" disabled={savingPolicyDocument} onClick={()=>savePolicyDocument('save_draft')}>{savingPolicyDocument?'Saving…':'Save Draft'}</button>
+                {policyDocumentPublished && <button type="button" className="button-secondary" disabled={savingPolicyDocument} onClick={()=>{if(window.confirm('Unpublish this branch policy? Patients will see the general clinic policy instead.'))savePolicyDocument('unpublish')}}>Unpublish</button>}
+              </div>
+              <button type="button" className="button-primary" disabled={savingPolicyDocument} onClick={()=>savePolicyDocument('publish')}>{savingPolicyDocument?'Publishing…':policyDocumentPublished?'Publish Updates':'Publish Policy'}</button>
+            </div>
+            {policyDocumentUpdatedAt && <p className="text-xs text-slate-400">Last saved: {new Date(policyDocumentUpdatedAt).toLocaleString('en-PH')}</p>}
+          </div>
+        )}
       </section>
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
         <div><h2 className="font-bold text-slate-800">Appointment Reminders</h2>
@@ -554,5 +714,3 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
-
-

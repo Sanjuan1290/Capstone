@@ -12,6 +12,7 @@ const { writeAuditLog } = require('../utils/audit')
 const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendTempPassword } = require('../utils/emailService')
 const { validateBookingSettings, normalizeBookingSettings, withBookingTestingCapability } = require('../utils/bookingPolicy')
+const { cloneDefaultBookingPolicyDocument, normalizeBookingPolicyDocument, parseStoredBookingPolicyDocument } = require('../utils/bookingPolicyDocument')
 const { provisionBranch } = require('../utils/branchProvisioning')
 const router = express.Router()
 const PERMISSIONS = ['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','accounts','system_setup','reports','audit_logs']
@@ -369,6 +370,32 @@ const saveBookingPolicy = async(req,res)=>{
  await db.query(`INSERT INTO branch_booking_settings (branch_id,online_min_lead_minutes,pending_confirmation_cutoff_minutes,booking_start_interval_minutes,no_show_grace_minutes,updated_by_admin_id) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE online_min_lead_minutes=VALUES(online_min_lead_minutes),pending_confirmation_cutoff_minutes=VALUES(pending_confirmation_cutoff_minutes),booking_start_interval_minutes=30,no_show_grace_minutes=VALUES(no_show_grace_minutes),updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,input.online_min_lead_minutes,input.pending_confirmation_cutoff_minutes,30,grace,req.user.id]);
  await audit(req,'booking_policy.updated','branch_booking_policy',req.branchId,null,{...input,no_show_grace_minutes:grace},req.branchId);await getBookingPolicy(req,res)
 }
+const getBookingPolicyContent = async(req,res)=>{
+ const [[row]]=await db.query('SELECT draft_document,published_document,is_published,published_at,updated_at FROM branch_booking_policy_documents WHERE branch_id=?',[req.branchId])
+ const draft=parseStoredBookingPolicyDocument(row?.draft_document)
+ const published=parseStoredBookingPolicyDocument(row?.published_document)
+ const document=draft||published||cloneDefaultBookingPolicyDocument()
+ res.json({...document,branch_id:req.branchId,is_published:Boolean(Number(row?.is_published)),has_draft:Boolean(draft),status:draft?'draft':Number(row?.is_published)===1?'published':'unpublished',published_at:row?.published_at||null,updated_at:row?.updated_at||null})
+}
+const saveBookingPolicyContent = async(req,res)=>{
+ const action=String(req.body?.action||'publish').trim()
+ if(!['save_draft','publish','unpublish'].includes(action))return res.status(400).json({message:'Choose Save Draft, Publish Policy, or Unpublish Policy.'})
+ if(action==='unpublish'){
+  await db.query(`INSERT INTO branch_booking_policy_documents (branch_id,is_published,updated_by_admin_id) VALUES (?,0,?) ON DUPLICATE KEY UPDATE is_published=0,draft_document=NULL,updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,req.user.id])
+  await audit(req,'booking_policy_document.unpublished','branch_booking_policy_document',req.branchId,null,{action},req.branchId)
+  return getBookingPolicyContent(req,res)
+ }
+ let document
+ try{document=normalizeBookingPolicyDocument(req.body)}catch(error){return res.status(error.statusCode||400).json({code:error.code||'BOOKING_POLICY_DOCUMENT_INVALID',message:error.message})}
+ const serialized=JSON.stringify(document)
+ if(action==='save_draft'){
+  await db.query(`INSERT INTO branch_booking_policy_documents (branch_id,draft_document,updated_by_admin_id) VALUES (?,?,?) ON DUPLICATE KEY UPDATE draft_document=VALUES(draft_document),updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,serialized,req.user.id])
+ }else{
+  await db.query(`INSERT INTO branch_booking_policy_documents (branch_id,published_document,is_published,published_at,updated_by_admin_id) VALUES (?,?,1,CURRENT_TIMESTAMP,?) ON DUPLICATE KEY UPDATE published_document=VALUES(published_document),draft_document=NULL,is_published=1,published_at=CURRENT_TIMESTAMP,updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,serialized,req.user.id])
+ }
+ await audit(req,action==='publish'?'booking_policy_document.published':'booking_policy_document.draft_saved','branch_booking_policy_document',req.branchId,null,{action,title:document.title,section_count:document.sections.length},req.branchId)
+ return getBookingPolicyContent(req,res)
+}
 const reminderEndpoints=require('./appointmentReminderRoutes')
 const installBranchEndpoints = (prefix, context) => {
  router.get(`${prefix}/dashboard`,context,requirePermission('dashboard'),branchDashboard)
@@ -696,6 +723,8 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.post(`${prefix}/appointments/:id/remind`,...middle,requirePermission('appointments'),reminderEndpoints.ensureBranch,reminderEndpoints.manual)
   router.get(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),getBookingPolicy)
   router.put(`${prefix}/system-setup/booking-policy`,...middle,requirePermission('system_setup'),afterSuccessfulMutation('settings.updated'),saveBookingPolicy)
+  router.get(`${prefix}/system-setup/booking-policy/content`,...middle,requirePermission('system_setup'),getBookingPolicyContent)
+  router.put(`${prefix}/system-setup/booking-policy/content`,...middle,requirePermission('system_setup'),afterSuccessfulMutation('settings.updated'),saveBookingPolicyContent)
   // Existing appointment transitions retain their original payload and status codes.
   for(const [action,controller] of Object.entries({confirm:oldAdmin.confirmAppointment,cancel:oldAdmin.cancelAppointment,'no-show':oldAdmin.markAppointmentNoShow,reschedule:oldAdmin.rescheduleAppointment})){
    router.patch(`${prefix}/appointments/:appointmentId/${action}`,...middle,...ownedAppointmentAction(controller))
@@ -745,7 +774,3 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
-
-
-
-

@@ -24,6 +24,10 @@ export const getMyHistory = async () => {
 
 
 export const getActiveBranches = async () => parseJson(await fetch(`${BASE}/branches`, {credentials:'include'}))
+export const getPublicBookingPolicy = async (branchId = '') => {
+  const query = branchId ? `?branch_id=${encodeURIComponent(branchId)}` : ''
+  return parseJson(await fetch(`${BASE}/booking-policy${query}`))
+}
 
 export const getBookingReadiness = async (branchId) => {
   const res = await fetch(`${BASE}/booking-readiness?branch_id=${encodeURIComponent(branchId)}`, { credentials: 'include' })
@@ -157,4 +161,3 @@ export const updatePatientProfile = async (payload) => {
   })
   return parseJson(res)
 }
-

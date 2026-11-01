@@ -114,6 +114,8 @@ export const getBookingServices = (clinicType = '') => {
 
 export const getBookingPolicy = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`)
 export const updateBookingPolicy = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const getBookingPolicyContent = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy/content`)
+export const updateBookingPolicyContent = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy/content`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
 export const getAppointmentReasons = () =>
   requestJson(`${getAdminApiBase()}/appointment-reasons`)
@@ -542,5 +544,3 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
-
-
