@@ -20,6 +20,50 @@ const getBookingChoice = form => {
 }
 
 const fmt = s => s ? String(s).replace(' ','T').slice(0,16) : ''
+
+// The same preview is used for unsaved edits and for posts in the list.
+// Image approval remains a separate requirement when the post is saved.
+const AnnouncementPreview = ({ post, onClose, awaitingImageApproval = false }) => {
+  const [imageFailed, setImageFailed] = useState(false)
+  const coverUrl = String(post.cover_image_url || '').trim()
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  return <div role="dialog" aria-modal="true" aria-labelledby="announcement-preview-title" className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-3 sm:p-6">
+    <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-7">
+        <div>
+          <h2 id="announcement-preview-title" className="text-lg font-bold text-slate-900">Post Preview</h2>
+          <p className="mt-1 text-xs text-slate-500">Check the photo and details before publishing.</p>
+        </div>
+        <button type="button" autoFocus className="button-secondary" onClick={onClose}>Close</button>
+      </div>
+      <div className="overflow-y-auto">
+        {coverUrl && (imageFailed
+          ? <div role="alert" className="border-b border-amber-200 bg-amber-50 px-5 py-5 text-sm text-amber-900">The cover photo could not be displayed. Check the image or upload it again before publishing.</div>
+          : <img
+              src={coverUrl}
+              alt={`Cover photo for ${post.title || 'this announcement'}`}
+              className="block aspect-video w-full bg-slate-100 object-cover"
+              onError={() => setImageFailed(true)}
+            />)}
+        {awaitingImageApproval && coverUrl && <p className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">This cover photo is still awaiting its safety check. You can preview it, but it must be approved before saving.</p>}
+        <div className="space-y-4 px-5 py-6 sm:px-7">
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-700">{post.type === 'promotion' ? 'Promotion' : post.type === 'article' ? 'Health Article' : 'Clinic News'}</p>
+          <h3 className="text-2xl font-black leading-tight text-slate-900">{post.title || 'Untitled post'}</h3>
+          {post.caption && <p className="text-base leading-7 text-slate-600">{post.caption}</p>}
+          <div className="border-t border-slate-100 pt-4"><AnnouncementBody body={post.body}/></div>
+        </div>
+      </div>
+    </div>
+  </div>
+}
 const Admin_Announcements = () => {
   const toast=useToast()
   const [posts,setPosts]=useState([])
@@ -194,7 +238,12 @@ const Admin_Announcements = () => {
       {loading?<p role="status" className="p-6 text-slate-500">Loading posts…</p>:!filteredPosts.length?<div className="rounded-xl bg-slate-50 p-8 text-center"><h3 className="font-bold text-slate-800">No matching posts</h3><p className="mt-1 text-sm text-slate-500">Try another filter or create a new post.</p><button type="button" className="button-secondary mt-4" onClick={()=>{setPostSearch('');chooseFilter('all')}}>Clear Filters</button></div>:<div className="grid gap-3">{pagePosts.map(post=><article key={post.id} className="carait-editor-card rounded-2xl border border-slate-200 p-4 sm:p-5"><div className="flex flex-wrap items-start gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-bold text-slate-900">{post.title}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${post.status==='published'?'bg-emerald-50 text-emerald-700':post.status==='draft'?'bg-slate-100 text-slate-600':post.status==='scheduled'?'bg-sky-50 text-sky-700':'bg-amber-50 text-amber-700'}`}>{post.status==='archived'?'Unpublished':post.status}</span></div><p className="mt-1 text-sm text-slate-600">{post.caption}</p><p className="mt-2 text-xs text-slate-500">{post.type==='promotion'?'Promotion':post.type==='article'?'Health Article':'Clinic News'} · {post.publish_at?`Publish: ${fmt(post.publish_at)}`:'Not scheduled'}{post.expires_at?` · Ends: ${fmt(post.expires_at)}`:''}</p></div><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>setPreviewPost(post)}>Preview</button><button type="button" className="button-secondary" onClick={()=>edit(post)}>Edit</button><button type="button" className="button-secondary" onClick={()=>setMenuPost(menuPost===post.id?null:post.id)} aria-expanded={menuPost===post.id} aria-label={`More actions for ${post.title}`}>More Actions</button></div></div>{menuPost===post.id&&<div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4"><button type="button" disabled={busy} className="button-secondary" onClick={()=>{togglePost(post);setMenuPost(null)}}>{post.status==='published'?'Unpublish':'Publish'}</button><button type="button" className="button-secondary" disabled={!audience?.provider_ready||!['published','scheduled'].includes(post.status)} onClick={()=>{setCampaignPost(post);setWorkspaceTab('emails');setMenuPost(null)}}><MdSend/> Send by Email</button><button type="button" disabled={busy} className="button-secondary text-rose-700" onClick={()=>{removePost(post);setMenuPost(null)}}>Delete</button></div>}</article>)}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="text-sm text-slate-600">{filteredPosts.length?`Showing ${(currentPage-1)*rowsPerPage+1}–${Math.min(currentPage*rowsPerPage,filteredPosts.length)} of ${filteredPosts.length}`:'0 posts'} </p><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" disabled={currentPage===1} onClick={()=>setPostPage(currentPage-1)}>Previous</button>{Array.from({length:totalPages},(_,i)=>i+1).filter(i=>totalPages<=7||i===1||i===totalPages||Math.abs(i-currentPage)<=1).map(i=><button key={i} type="button" onClick={()=>setPostPage(i)} aria-current={i===currentPage?'page':undefined} className={`min-w-10 rounded-lg border px-3 text-sm font-bold ${i===currentPage?'border-slate-900 bg-slate-900 text-white':'border-slate-200 bg-white text-slate-700'}`}>{i}</button>)}<button type="button" className="button-secondary" disabled={currentPage===totalPages} onClick={()=>setPostPage(currentPage+1)}>Next</button></div></div>
     </div>
-    {previewPost&&<div role="dialog" aria-modal="true" className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-3"><div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex justify-between gap-3"><h2 className="text-xl font-bold">{previewPost.title}</h2><button className="button-secondary" type="button" onClick={()=>setPreviewPost(null)}>Close</button></div><p className="mb-4 text-slate-600">{previewPost.caption}</p><AnnouncementBody body={previewPost.body}/></div></div>}
+    {previewPost && <AnnouncementPreview
+      key={`${previewPost.id}:${previewPost.cover_image_url || ''}`}
+      post={previewPost}
+      awaitingImageApproval={previewPost.id === 'draft' && Boolean(scan && scan.state !== 'approved')}
+      onClose={() => setPreviewPost(null)}
+    />}
     </>}
     {workspaceTab==='emails'&&<>
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-bold text-slate-900">Email Campaigns</h2><p className="mt-1 text-sm text-slate-500">Only verified patients who agreed to receive marketing emails and visited this branch can be selected. Publishing a post does not send an email.</p><div className="mt-4 flex flex-wrap gap-2"><span className="rounded-xl bg-sky-50 px-3 py-2 text-sm text-sky-800">Patients eligible for email: {audience?.eligible??'Unavailable'}</span><span className={`rounded-xl px-3 py-2 text-sm ${audience?.provider_ready?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800'}`}>Email Service: {audience?.provider_ready?'Ready':'Unavailable'}</span></div></div>
@@ -214,4 +263,5 @@ const Admin_Announcements = () => {
   </section>
 }
 export default Admin_Announcements
+
 
