@@ -114,8 +114,6 @@ export const getBookingServices = (clinicType = '') => {
 
 export const getBookingPolicy = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`)
 export const updateBookingPolicy = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-export const getBookingPolicyContent = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy/content`)
-export const updateBookingPolicyContent = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy/content`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
 export const getAppointmentReasons = () =>
   requestJson(`${getAdminApiBase()}/appointment-reasons`)
@@ -391,6 +389,12 @@ export const addInventoryItem = (payload) =>
     body: JSON.stringify(payload),
   })
 
+export const importNewInventoryItems = (items) =>
+  requestJson(`${getAdminApiBase()}/inventory/import-new`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({items}) })
+
+export const bulkUpdateInventoryItems = (items) =>
+  requestJson(`${getAdminApiBase()}/inventory/bulk-update`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({items}) })
+
 // FIX 5: Edit inventory item (name, category, unit, threshold, price, supplier)
 export const updateInventoryItem = (id, payload) =>
   requestJson(`${getAdminApiBase()}/inventory/${id}`, {
@@ -544,3 +548,6 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
+
+
+

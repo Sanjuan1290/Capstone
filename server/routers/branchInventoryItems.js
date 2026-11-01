@@ -133,13 +133,108 @@ async function archiveItem(req,res){
     return res.json({archived:true,message:'Item archived. Historical inventory activity remains available.'})
   }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
 }
+
+// Inventory Excel endpoints deliberately accept only catalog metadata. Neither
+// endpoint accepts quantity, batches, expiry, location movements or barcode edits.
+const bulkFields = (value, allowed) => value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).every(k=>allowed.includes(k))
+const priceMatch=(a,b)=>Number(a).toFixed(2)===Number(b).toFixed(2)
+const validMoney=value=>Number.isFinite(Number(value))&&Number(value)>=0.01&&Number(value)<=99999999&&Math.abs(Number(value)*100-Math.round(Number(value)*100))<0.000001
+const bulkRows = body => {
+  if(!Array.isArray(body?.items)||!body.items.length||body.items.length>200)throw fail(400,'INVALID_BULK_SIZE','Choose 1 to 200 items per Excel upload.')
+  return body.items
+}
+async function bulkCreateItems(req,res) {
+  let conn
+  try {
+    const rows=bulkRows(req.body)
+    const seen=new Set()
+    for(const row of rows) {
+      if(!bulkFields(row,['name','category','item_type','stock','selling_price','threshold','supplier_id','default_location_id'])) throw fail(400,'FORBIDDEN_BULK_FIELD','New-item Excel can only register item details. Use Stock In to record quantities.')
+      if(row.stock!==0||row.item_type!=='medicine')throw fail(400,'OPENING_STOCK_NOT_ALLOWED','New-item Excel creates zero-stock medicine items only. Record stock using Stock In and Manage Batches.')
+      const rawName=String(row.name||'').trim()
+      if(!rawName || rawName.length>150)throw fail(400,'INVALID_ITEM_NAME','Item Name is required (maximum 150 characters).')
+      const key=rawName.toLowerCase()
+      if(seen.has(key))throw fail(400,'DUPLICATE_BULK_ITEM','The Excel file contains duplicate item names.')
+      seen.add(key)
+      if(!Number.isSafeInteger(Number(row.threshold))||Number(row.threshold)<0||!validMoney(row.selling_price))throw fail(400,'INVALID_ITEM','Check the selling price and low-stock alert values.')
+    }
+    conn=await db.getConnection();await conn.beginTransaction()
+    const created=[]
+    for(const row of rows) {
+      const p=normalize(row)
+      const supplier=await validateReferences(conn,req.branchId,p)
+      const [[existing]]=await conn.query('SELECT id FROM inventory WHERE branch_id=? AND LOWER(TRIM(name))=LOWER(?) LIMIT 1',[req.branchId,p.name])
+      if(existing)throw fail(409,'INVENTORY_DUPLICATE',`Item already exists: ${p.name}. No items have been saved.`)
+      const barcode=await nextInventoryBarcode(p.category,req.branchId,conn)
+      const [result]=await conn.query(`INSERT INTO inventory
+        (branch_id,barcode,name,category,item_type,uom,dosage_form,strength,measurement_value,measurement_unit,unit,base_unit,unit_size,stock,stock_base,threshold,price,selling_price,supplier,supplier_id,default_location_id)
+        VALUES (?,?,?,?,?,'unit',?,?,?,?,'unit','unit',1,0,0,?,?,?,?,?,?)`,
+        [req.branchId,barcode,p.name,p.category,p.item_type,p.dosage_form,p.strength,p.measurement_value,p.measurement_unit,p.threshold,p.selling_price,p.selling_price,supplier?.name||null,p.supplier_id,p.default_location_id])
+      await audit(req,conn,'inventory.item_created',result.insertId,null,{...p,barcode,opening_quantity:0,source:'excel_import'})
+      created.push({id:result.insertId,name:p.name,barcode})
+    }
+    await conn.commit();conn.release();conn=null
+    return res.status(201).json({created:created.length,updated:0,items:created,message:'New items saved with zero stock. Use Stock In when quantities arrive.'})
+  }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
+}
+async function bulkUpdateItems(req,res) {
+  let conn
+  try {
+    const rows=bulkRows(req.body), seen=new Set()
+    for(const row of rows) {
+      if(!bulkFields(row,['id','barcode','name','selling_price','threshold','supplier_id','expected']) ||
+        !bulkFields(row.expected,['name','selling_price','threshold','supplier_id'])) throw fail(400,'FORBIDDEN_BULK_FIELD','Bulk Edit can change only item name, selling price, supplier and low-stock alert. Stock, location and category cannot be edited in Excel.')
+      if(!positiveId(row.id)||seen.has(Number(row.id)))throw fail(400,'INVALID_BULK_ID','Item IDs must be valid and appear only once.')
+      seen.add(Number(row.id))
+      if(!clean(row.name)||String(row.name).trim().length>150||!validMoney(row.selling_price)||!Number.isSafeInteger(Number(row.threshold))||Number(row.threshold)<0)throw fail(400,'INVALID_BULK_VALUE','Check item name, selling price (two decimals) and low-stock alert.')
+      if(row.supplier_id!==null && row.supplier_id!==undefined && !positiveId(row.supplier_id))throw fail(400,'INVALID_SUPPLIER','Choose an active supplier or leave Supplier blank.')
+    }
+    conn=await db.getConnection();await conn.beginTransaction()
+    const updated=[]
+    for(const row of rows) {
+      const [[prior]]=await conn.query('SELECT * FROM inventory WHERE id=? AND branch_id=? FOR UPDATE',[row.id,req.branchId])
+      if(!prior||prior.archived_at)throw fail(409,'ITEM_UNAVAILABLE',`Item ${row.id} is missing or archived in this branch. No items have been saved.`)
+      if(String(prior.barcode||'')!==String(row.barcode||''))throw fail(409,'BARCODE_MISMATCH',`Barcode changed for ${prior.name}. Download a fresh Bulk Edit file.`)
+      const before=row.expected
+      if(String(prior.name)!==String(before.name) || !priceMatch(prior.selling_price,before.selling_price) || Number(prior.threshold)!==Number(before.threshold) || Number(prior.supplier_id||0)!==Number(before.supplier_id||0)) throw fail(409,'STALE_BULK_EXPORT',`${prior.name} was edited after the Excel export. Download a fresh file. No items have been saved.`)
+      const nextName=String(row.name).trim(),nextPrice=Number(row.selling_price),nextThreshold=Number(row.threshold),nextSupplierId=row.supplier_id==null?null:Number(row.supplier_id)
+      const changed=nextName!==prior.name||!priceMatch(nextPrice,prior.selling_price)||nextThreshold!==Number(prior.threshold)||Number(nextSupplierId||0)!==Number(prior.supplier_id||0)
+      if(!changed)continue
+      if(!priceMatch(prior.selling_price,nextPrice)) {
+        const [[linked]]=await conn.query('SELECT COUNT(*) AS n FROM billing_service_materials WHERE inventory_id=?',[prior.id])
+        if(Number(linked.n)>0)throw fail(409,'LINKED_SERVICE_REPRICING',`${prior.name} is linked to billable services. Update its pricing through Services & Pricing.`)
+      }
+      let supplierName=prior.supplier||null
+      if(Number(nextSupplierId||0)!==Number(prior.supplier_id||0)) {
+        if(nextSupplierId) {
+          const [[supplier]]=await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1',[nextSupplierId,req.branchId])
+          if(!supplier||!String(supplier.category||'').split(',').map(x=>x.trim()).includes(prior.category))throw fail(409,'INVALID_SUPPLIER',`Supplier not available for ${prior.name}.`)
+          supplierName=supplier.name
+        }else supplierName=null
+      }
+      const [[duplicate]]=await conn.query('SELECT id FROM inventory WHERE branch_id=? AND id<>? AND LOWER(TRIM(name))=LOWER(?) LIMIT 1',[req.branchId,prior.id,nextName])
+      if(duplicate)throw fail(409,'INVENTORY_DUPLICATE',`Another item already uses ${nextName}.`)
+      // Crucially: no inventory stock, batch, category, barcode or location columns.
+      await conn.query('UPDATE inventory SET name=?,selling_price=?,price=?,threshold=?,supplier_id=?,supplier=? WHERE id=? AND branch_id=?',
+        [nextName,nextPrice,nextPrice,nextThreshold,nextSupplierId,supplierName,prior.id,req.branchId])
+      await audit(req,conn,'inventory.item_updated',prior.id,prior,{name:nextName,selling_price:nextPrice,threshold:nextThreshold,supplier_id:nextSupplierId,supplier:supplierName,source:'excel_bulk_edit'})
+      updated.push({id:prior.id,name:nextName})
+    }
+    await conn.commit();conn.release();conn=null
+    return res.json({created:0,updated:updated.length,items:updated,message:'Item details updated. Stock quantities and batch records were not changed.'})
+  }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
+}
+
 function registerBranchInventoryItems(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const guard=[...middle,requirePermission('inventory')]
   router.post(`${prefix}/inventory`,...guard,afterSuccessfulMutation('inventory.updated'),createItem)
+  router.post(`${prefix}/inventory/import-new`,...guard,afterSuccessfulMutation('inventory.updated'),bulkCreateItems)
+  router.post(`${prefix}/inventory/bulk-update`,...guard,afterSuccessfulMutation('inventory.updated'),bulkUpdateItems)
   router.put(`${prefix}/inventory/:id`,...guard,afterSuccessfulMutation('inventory.updated'),updateItem)
   router.delete(`${prefix}/inventory/:id`,...guard,afterSuccessfulMutation('inventory.updated'),archiveItem)
  }
 }
-module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem}
+module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem,bulkCreateItems,bulkUpdateItems}
+
 

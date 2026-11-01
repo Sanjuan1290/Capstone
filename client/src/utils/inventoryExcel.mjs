@@ -4,7 +4,12 @@ import { inflateRaw } from '../vendor/pakoInflate.mjs'
 // Does not execute formulas, macros or hyperlinks. Limits size and rows before parsing.
 export const INVENTORY_HEADERS = ['Item Name', 'Selling Price', 'Initial Stock', 'Quantity', 'Expiration Date', 'Category', 'Stock Room', 'Low Stock Alert', 'Supplier']
 // Internal record identifiers are retained ONLY in bulk-edit exports for safe matching.
-export const INVENTORY_BULK_EDIT_HEADERS = [...INVENTORY_HEADERS, 'Item ID', 'Barcode']
+// Separate workbooks make stock fields impossible to confuse with metadata edits.
+export const INVENTORY_CREATE_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Low Stock Alert', 'Supplier', 'Stock Room']
+export const INVENTORY_BULK_EDIT_HEADERS = [
+  'Item ID', 'Barcode', 'Item Name', 'Selling Price', 'Low Stock Alert', 'Supplier',
+  'Original Name', 'Original Selling Price', 'Original Low Stock Alert', 'Original Supplier ID',
+]
 const MAX_BYTES = 6 * 1024 * 1024
 const MAX_ROWS = 2000
 const encoder = new TextEncoder()
@@ -101,7 +106,7 @@ const xmlDoc=xml=>{
 }
 const byTag=(node,name)=>[...node.getElementsByTagNameNS('*',name)]
 const excelDate=serial=>{const stamp=Date.UTC(1899,11,30)+Number(serial)*86400000;return Number.isFinite(stamp)?new Date(stamp).toISOString().slice(0,10):''}
-export const readInventoryFile=async file=>{
+export const readInventoryFile=async (file,{ mode = 'legacy' }={})=>{
   if(file.size>MAX_BYTES)throw new Error('Maximum spreadsheet size is 6 MB.')
   let grid
   if(/\.csv$/i.test(file.name))grid=toCSV(await file.text())
@@ -129,11 +134,17 @@ export const readInventoryFile=async file=>{
     .filter(({cells})=>cells.some(value=>String(value??'').trim()))
   const [head,...body]=records
   const headers=(head?.cells||[]).map(value=>String(value??'').trim().toLowerCase().replace(/\s+/g,' '))
-  const required=['item name','selling price','initial stock','quantity','expiration date','category','stock room','low stock alert']
-  if(required.some(key=>!headers.includes(key)))throw new Error(`Missing columns: ${required.filter(key=>!headers.includes(key)).join(', ')}. Download the CARAIT template.`)
+  const expectedHeaders = mode==='create' ? INVENTORY_CREATE_HEADERS : mode==='edit' ? INVENTORY_BULK_EDIT_HEADERS : INVENTORY_HEADERS
+  const required = expectedHeaders.map(label=>label.toLowerCase())
+  if(required.some(key=>!headers.includes(key)))throw new Error(`Missing columns: ${required.filter(key=>!headers.includes(key)).join(', ')}. Download the matching CARAIT template.`)
   if(headers.some((h,i)=>h && headers.indexOf(h)!==i))throw new Error('Duplicate Excel column headers found. Use exactly one column for each field.')
+  if(mode !== 'legacy') {
+    const unexpected = headers.filter(h=>h && !required.includes(h))
+    if(unexpected.length) throw new Error(`Unexpected columns: ${unexpected.join(', ')}. Use the ${mode==='edit'?'Update Existing Items':'Add New Items'} template. Stock, expiry and batch details are managed separately.`)
+  }
   if(body.length>MAX_ROWS)throw new Error('Maximum 2,000 items per spreadsheet.')
-  return body.map(({cells,excelRow})=>Object.fromEntries(INVENTORY_BULK_EDIT_HEADERS.map(header=>{
+  const outputHeaders=mode==='legacy'?INVENTORY_BULK_EDIT_HEADERS:expectedHeaders
+  return body.map(({cells,excelRow})=>Object.fromEntries(outputHeaders.map(header=>{
     const idx=headers.indexOf(header.toLowerCase());let value=idx<0?'':String(cells[idx]??'').trim()
     if(header==='Expiration Date'&&/^\d{5}(?:\.\d+)?$/.test(value))value=excelDate(value)
     return [header,value]
@@ -148,3 +159,13 @@ export const asInventoryRow = (item,rooms,kind='view')=>{
 
 
 
+
+
+// Existing-item metadata template deliberately excludes quantity, category, location,
+// batch data and opening balances. Original values support stale-export detection.
+export const asInventoryBulkEditRow = (item) => [
+  item.id, item.barcode || '', item.name || '', Number(item.selling_price ?? item.price ?? 0),
+  Number(item.threshold ?? 5), item.supplier || '', item.name || '',
+  Number(item.selling_price ?? item.price ?? 0), Number(item.threshold ?? 5),
+  item.supplier_id == null ? '' : item.supplier_id,
+]

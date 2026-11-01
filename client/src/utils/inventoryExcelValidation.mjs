@@ -63,3 +63,64 @@ export function preflightInventoryExcel(rows,{items=[],stockRooms=[],suppliers=[
   })
 }
 
+
+
+// The new metadata-only workflow never accepts any stock-affecting fields.
+const supportsCategory = (supplier,category) => String(supplier?.category||'').split(',').map(c=>c.trim()).includes(category)
+const samePrice = (a,b) => Number(a).toFixed(2) === Number(b).toFixed(2)
+const validPrice = value => value!=='' && Number.isFinite(Number(value)) && Number(value)>=0.01 && Number(value)<=99999999 && Math.abs(Number(value)*100-Math.round(Number(value)*100))<0.000001
+const requireWhole = value => String(value??'').trim()!=='' && Number.isSafeInteger(Number(value)) && Number(value)>=0
+const supplierByName = (value, suppliers, category) => {
+  const label=String(value??'').trim()
+  if(!label) return null
+  return suppliers.find(s=>matchName(s.name,label) && Number(s.is_active??1)===1 && supportsCategory(s,category)) || null
+}
+export const MAX_INVENTORY_IMPORT_BATCH = 200
+
+export function preflightInventoryCreate(rows,{items=[],stockRooms=[],suppliers=[]}={}) {
+  const seen=new Set()
+  return rows.map(row=>{
+    const errors=[], name=String(row['Item Name']??'').trim(),category=categoryOf(row.Category)
+    const price=String(row['Selling Price']??'').trim(), threshold=String(row['Low Stock Alert']??'').trim()
+    const room=stockRooms.find(r=>matchName(r.name,row['Stock Room']) && Number(r.is_active??1)===1)
+    const supplierLabel=String(row.Supplier??'').trim()
+    const supplier=supplierByName(supplierLabel,suppliers,category)
+    if(!name||name.length>150) errors.push('Item Name is required (maximum 150 characters).')
+    if(!category) errors.push('Category must be General Medicine or Dermatology.')
+    if(!validPrice(price)) errors.push('Selling Price must be above zero, with at most two decimal places.')
+    if(!requireWhole(threshold)) errors.push('Low Stock Alert must be a whole number (0 or more).')
+    if(!room) errors.push('Select an active Stock Room in this branch.')
+    if(supplierLabel&&!supplier) errors.push('Supplier must be active and available for this category and branch.')
+    if(items.some(i=>matchName(i.name,name)))errors.push('Item already exists. Use Update Existing Items.')
+    const key=normalizedName(name);if(seen.has(key))errors.push('Duplicate item name in the Excel file.');seen.add(key)
+    const payload={name,category,item_type:'medicine',stock:0,selling_price:Number(price),threshold:Number(threshold),supplier_id:supplier?.id||null,default_location_id:room?.id||null}
+    return {row:row._excelRow||0,name,action:'create',payload,errors,changed:true,before:null}
+  })
+}
+
+export function preflightInventoryBulkEdit(rows,{items=[],suppliers=[]}={}) {
+  const seen=new Set()
+  return rows.map(row=>{
+    const errors=[], id=String(row['Item ID']??'').trim(), name=String(row['Item Name']??'').trim()
+    const item=items.find(i=>String(i.id)===id)
+    const price=String(row['Selling Price']??'').trim(),threshold=String(row['Low Stock Alert']??'').trim()
+    const supplierLabel=String(row.Supplier??'').trim()
+    const keepExistingSupplier=Boolean(item && matchName(supplierLabel,item.supplier||''))
+    const supplier=keepExistingSupplier ? {id:item.supplier_id||null} : supplierByName(supplierLabel,suppliers,item?.category)
+    if(!/^\d{1,12}$/.test(id)||Number(id)<=0||!item)errors.push('Item ID does not belong to an inventory item in this branch.')
+    if(!row.Barcode || !item || String(row.Barcode)!==String(item.barcode||''))errors.push('Barcode must match the downloaded inventory file.')
+    if(!name||name.length>150)errors.push('Item Name is required (maximum 150 characters).')
+    if(!validPrice(price))errors.push('Selling Price must be above zero, with at most two decimal places.')
+    if(!requireWhole(threshold))errors.push('Low Stock Alert must be a whole number (0 or more).')
+    if(supplierLabel&&!supplier)errors.push('Supplier must be active and available for this item category.')
+    if(items.some(i=>String(i.id)!==id && matchName(i.name,name)))errors.push('Another item already uses this name.')
+    if(seen.has(id))errors.push('Duplicate Item ID in the Excel file.');seen.add(id)
+    // Reject stale exports only for item metadata. Stock movements don't affect these comparisons.
+    const expected={name:String(row['Original Name']??''),selling_price:Number(row['Original Selling Price']),threshold:Number(row['Original Low Stock Alert']),supplier_id:row['Original Supplier ID']===''?null:Number(row['Original Supplier ID'])}
+    if(item && (item.name!==expected.name || !samePrice(item.selling_price??item.price,expected.selling_price) || Number(item.threshold)!==expected.threshold || Number(item.supplier_id||0)!==Number(expected.supplier_id||0))) errors.push('Item details changed after export. Download a fresh Bulk Edit file.')
+    if(item && Number(item.linked_service_count)>0 && !samePrice(item.selling_price??item.price,price))errors.push('This price is linked to billable services. Use Services & Pricing.')
+    const payload={id:Number(id),barcode:String(row.Barcode??''),name,selling_price:Number(price),threshold:Number(threshold),supplier_id:supplier?.id||null,expected}
+    const changed=Boolean(item)&& (name!==item.name || !samePrice(item.selling_price??item.price,price) || Number(item.threshold)!==Number(threshold) || Number(item.supplier_id||0)!==Number(supplier?.id||0))
+    return {row:row._excelRow||0,name,action:'update',existing:item,payload,errors,changed,before:item&&{name:item.name,selling_price:item.selling_price??item.price,threshold:item.threshold,supplier:item.supplier||''}}
+  })
+}
