@@ -207,7 +207,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
         if (Number(result?.is_active) !== 0) throw new Error('The server did not confirm deactivation.')
       } else {
         result = await handlers[type](deleteTarget.id)
-        if (result?.deleted !== true && result?.deactivated !== true) throw new Error('The server did not confirm the action. Refresh the list before trying again.')
+        if (result?.deleted !== true && result?.deactivated !== true) throw new Error('The server returned an outdated removal response. Check that the updated backend has deployed successfully, then refresh this list.')
       }
       toast.success(result?.message || (result?.deleted ? `${config.title} permanently deleted.` : `${config.title} deactivated.`))
       setDeleteTarget(null)
