@@ -1,3 +1,4 @@
+import { estimateConsultationServicePrice } from '../../utils/consultationPricing.mjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
@@ -12,6 +13,7 @@ import {
   getInventoryItems,
   getBillingCatalog,
   addConsultationAmendment,
+  requestConsultationChargeAdjustment,
 } from '../../services/doctor.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import { getClinicSettings } from '../../services/clinic.service'
@@ -256,6 +258,10 @@ const Doctor_Consultation = () => {
   const [scanBypassPrompt, setScanBypassPrompt] = useState(null)
   const [pendingScanPrompt, setPendingScanPrompt] = useState(null)
   const [consultationStatus, setConsultationStatus] = useState('draft')
+  const [discountRequestAmount,setDiscountRequestAmount]=useState('')
+  const [discountRequestReason,setDiscountRequestReason]=useState('')
+  const [discountRequestStatus,setDiscountRequestStatus]=useState('')
+  const [discountRequestSaving,setDiscountRequestSaving]=useState(false)
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState('')
   const [autoSaveState, setAutoSaveState] = useState('idle')
@@ -313,6 +319,7 @@ const Doctor_Consultation = () => {
   const [amendmentText, setAmendmentText] = useState('')
   const [addingAmendment, setAddingAmendment] = useState(false)
   const [extraConsumableOpen, setExtraConsumableOpen] = useState(false)
+  const [replacementTarget, setReplacementTarget] = useState(null)
   const [extraConsumableSearch, setExtraConsumableSearch] = useState('')
   const [extraConsumableId, setExtraConsumableId] = useState('')
   const [extraConsumableQuantity, setExtraConsumableQuantity] = useState(1)
@@ -380,7 +387,7 @@ const Doctor_Consultation = () => {
     setBillableServices(serviceItems.map((item) => {
       let details = {}
       try { details = typeof item.details_json === 'string' ? JSON.parse(item.details_json) : (item.details_json || {}) } catch { details = {} }
-      return { catalog_service_id: item.catalog_service_id, service_name: item.service_name, quantity: Number(item.quantity || 1), materials: Array.isArray(details?.materials) ? details.materials : [] }
+      return { catalog_service_id: item.catalog_service_id, service_name: item.service_name, quantity: Number(item.quantity || 1), materials: Array.isArray(details?.materials) ? details.materials : [], usage_change_reason:details?.usage_change_reason || '', usage_overridden:Boolean(details?.usage_overridden) }
     }))
   }
 
@@ -526,24 +533,10 @@ const Doctor_Consultation = () => {
           }]
         }
 
-        return current.map((serviceLine) => {
-          const catalogService = catalog.find((service) => Number(service.id) === Number(serviceLine.catalog_service_id))
-          if (!catalogService) return serviceLine
-          const existingIds = new Set((serviceLine.materials || []).map((material) => Number(material.inventory_id || 0)).filter(Boolean))
-          const missingDefaults = (catalogService.materials || [])
-            .filter((material) => Number(material.inventory_id || 0) > 0 && !existingIds.has(Number(material.inventory_id)))
-            .map((material) => ({
-              inventory_id: material.inventory_id,
-              material_name: material.material_name || material.inventory_name,
-              quantity: 0,
-              unit_label: material.inventory_base_unit || material.unit_label || material.inventory_unit || '',
-            }))
-          return {
-            ...serviceLine,
-            service_name: serviceLine.service_name || catalogService.service_name,
-            materials: [...(serviceLine.materials || []), ...missingDefaults],
-          }
-        })
+        // Existing draft usage is a patient-specific snapshot. Never re-add
+        // catalog defaults that the doctor intentionally removed.
+        return current
+
       })
     }).catch(() => {
       if (billingCatalogLoadRef.current === requestId) setBillingCatalog([])
@@ -774,6 +767,24 @@ const Doctor_Consultation = () => {
     }
   }
 
+  const updateServiceReason = (serviceId, reason) => {
+    if (isEditMode) return
+    setBillableServices(prev=>prev.map(s=>Number(s.catalog_service_id)===Number(serviceId)
+      ? {...s,usage_change_reason:reason} : s))
+  }
+  const replaceIncludedMaterial = (serviceId, materialIndex) => {
+    if (isEditMode) return
+    setReplacementTarget({serviceId,materialIndex})
+    setExtraConsumableId('')
+    setExtraConsumableSearch('')
+    setExtraConsumableQuantity(1)
+    setExtraConsumableOpen(true)
+  }
+  const removeIncludedMaterial = (serviceId, materialIndex) => {
+    if (isEditMode) return
+    setBillableServices(prev=>prev.map(service=>Number(service.catalog_service_id)===Number(serviceId)
+      ? {...service,materials:(service.materials||[]).filter((_,i)=>i!==materialIndex)} : service))
+  }
   const updateServiceMaterial = (serviceId, materialIndex, quantity) => {
     if (isEditMode) return
     setBillableServices((prev) => prev.map((service) => Number(service.catalog_service_id) === Number(serviceId)
@@ -806,8 +817,10 @@ const Doctor_Consultation = () => {
       .map((material) => Number(material.inventory_id || 0))
       .filter(Boolean)
   )
+  const replaceService = replacementTarget ? billableServices.find(s=>Number(s.catalog_service_id)===Number(replacementTarget.serviceId)) : null
+  const replacementIds = new Set((replaceService?.materials || []).filter((_,i)=>i!==replacementTarget?.materialIndex).map(m=>Number(m.inventory_id)))
   const availableExtraConsumables = inventoryItems
-    .filter((item) => !existingExtraConsumableIds.has(Number(item.id)))
+    .filter((item) => replacementTarget ? !replacementIds.has(Number(item.id)) : !existingExtraConsumableIds.has(Number(item.id)))
     .filter((item) => !currentPatient?.type || item.category === currentPatient.type)
     .filter((item) => {
       const needle = extraConsumableSearch.trim().toLowerCase()
@@ -819,24 +832,20 @@ const Doctor_Consultation = () => {
     .slice(0, 80)
 
   const addExtraConsumable = () => {
-    if (isEditMode || !extraConsumableTarget || !extraConsumableSelected) return
+    if (isEditMode || !extraConsumableSelected || (!extraConsumableTarget && !replacementTarget)) return
     const quantity = Math.max(0, Number(extraConsumableQuantity) || 0)
     if (quantity <= 0) {
       window.alert('Enter the additional quantity used for this extra consumable.')
       return
     }
-    setBillableServices((current) => current.map((service) => Number(service.catalog_service_id) === Number(extraConsumableTarget.catalog_service_id)
-      ? {
-        ...service,
-        materials: [...(service.materials || []), {
-          inventory_id: extraConsumableSelected.id,
-          material_name: extraConsumableSelected.name,
-          quantity,
-          unit_label: extraConsumableSelected.uom || extraConsumableSelected.unit || 'unit',
-          consultation_extra: true,
-        }],
-      }
+    const targetId=replacementTarget?.serviceId || extraConsumableTarget?.catalog_service_id
+    setBillableServices(current=>current.map(service=>Number(service.catalog_service_id)===Number(targetId)
+      ? {...service,materials:replacementTarget
+        ? (service.materials||[]).map((m,index)=>index===replacementTarget.materialIndex
+          ? {inventory_id:extraConsumableSelected.id,material_name:extraConsumableSelected.name,quantity,unit_label:extraConsumableSelected.uom||extraConsumableSelected.unit||'unit'} : m)
+        : [...(service.materials||[]),{inventory_id:extraConsumableSelected.id,material_name:extraConsumableSelected.name,quantity,unit_label:extraConsumableSelected.uom||extraConsumableSelected.unit||'unit',consultation_extra:true}]}
       : service))
+    setReplacementTarget(null)
     setExtraConsumableOpen(false)
     setExtraConsumableSearch('')
     setExtraConsumableId('')
@@ -1289,7 +1298,7 @@ const Doctor_Consultation = () => {
               <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                 <div>
                   <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Supplies Used</h2>
-                  <p className="mt-1 text-xs text-slate-500">The booked service and its configured consumables are fixed. Record any additional items separately under Extra Consumables. Inventory is checked and stocked out only when the consultation is completed.</p>
+                  <p className="mt-1 text-xs text-slate-500">The service setup is your starting list. Replace, remove, or change actual supplies for this patient. Enter a reason for changes. Inventory is deducted only when consultation is completed.</p>
                 </div>
                 {isEditMode && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">Clinical usage locked after completion</span>}
               </div>
@@ -1300,7 +1309,7 @@ const Doctor_Consultation = () => {
                 <div className="space-y-4">
                   {billableServices.map((service) => {
                     const catalogService = billingCatalog.find((row) => Number(row.id) === Number(service.catalog_service_id))
-                    const defaultMaterials = Array.isArray(catalogService?.materials) ? catalogService.materials : (service.materials || []).filter((material) => isDefaultServiceMaterial(service.catalog_service_id, material.inventory_id))
+                    const defaultMaterials = (service.materials || []).filter(material => !isExtraConsumable(material))
                     const booked = Number(service.catalog_service_id) === Number(appt?.requested_service_id)
                     return (
                       <div key={service.catalog_service_id || service.service_name} className="rounded-2xl border border-violet-200 bg-violet-50/30 p-4">
@@ -1310,17 +1319,18 @@ const Doctor_Consultation = () => {
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
                                 <p className="font-bold text-slate-800">{service.service_name}</p>
-                                {booked && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">Booked Service · Fixed</span>}
+                                {booked && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">Booked Service</span>}
                               </div>
                               <p className="mt-0.5 text-xs text-slate-500">{catalogService?.category || 'Clinic service'} · Service quantity {Number(service.quantity || 1)}</p>
+                                <p className="mt-1 text-xs font-semibold text-emerald-800">Estimated patient charge: {(() => { const price=estimateConsultationServicePrice(service,catalogService,inventoryItems);return price===null?'Pricing unavailable':`₱${price.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}` })()}</p>
                             </div>
                           </div>
                         </div>
 
                         <div className="mt-4 border-t border-violet-100 pt-4">
                           <div>
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Supplies Included · Fixed</p>
-                            <p className="mt-1 text-xs text-slate-500">These consumables and quantities come directly from the service setup and cannot be changed during consultation.</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Supplies Actually Used</p>
+                            <p className="mt-1 text-xs text-slate-500">Changes here affect only this patient, not the standard service. Select a substitute when the default product was not used.</p>
                           </div>
                           {defaultMaterials.length ? (
                             <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -1332,14 +1342,17 @@ const Doctor_Consultation = () => {
                                     <div className="flex items-start justify-between gap-2">
                                       <div>
                                         <p className="text-xs font-semibold text-slate-700">{material.material_name}</p>
-                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Configured consumable</p>
+                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Actual consultation supply</p>
                                       </div>
-                                      <MdLock className="shrink-0 text-slate-300" />
+                                      {!isEditMode && <div className="flex flex-wrap gap-1">
+                                         <button type="button" className="rounded-lg border px-2 py-1 text-xs text-violet-700 hover:bg-violet-50" onClick={()=>replaceIncludedMaterial(service.catalog_service_id,materialIndex)}>Replace</button>
+                                         <button type="button" className="rounded-lg border px-2 py-1 text-xs text-rose-700 hover:bg-rose-50" onClick={()=>removeIncludedMaterial(service.catalog_service_id,materialIndex)}>Remove</button>
+                                       </div>}
                                     </div>
                                     <div className="mt-3">
-                                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Configured Quantity</span>
-                                      <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                                        <strong className="text-sm text-slate-800">{Number(material.quantity || 0)}</strong>
+                                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Quantity Used</span>
+                                      <div className="mt-1.5 flex items-center gap-2">
+                                        <input type="number" className="form-control h-9 w-24" min="0.01" step="0.01" disabled={isEditMode} value={material.quantity} onChange={event=>updateServiceMaterial(service.catalog_service_id,materialIndex,event.target.value)}/>
                                         <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
                                       </div>
                                     </div>
@@ -1350,6 +1363,9 @@ const Doctor_Consultation = () => {
                           ) : (
                             <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-4 text-xs text-slate-400">This service has no configured consumables.</div>
                           )}
+                          {!isEditMode && <label className="mt-4 block text-xs font-semibold text-slate-700">Reason for changed or additional supplies
+                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Required when you substitute, remove, add, or change quantities" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
+                          </label>}
                         </div>
                       </div>
                     )
@@ -1576,6 +1592,23 @@ const Doctor_Consultation = () => {
               </div>
             </fieldset>
 
+            {consultationStatus === 'finalized' && appt?.requested_service_id && (
+              <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+                <h3 className="text-sm font-bold text-slate-900">Request a Service Fee Reduction</h3>
+                <p className="text-xs text-slate-600">Ask Admin to lower this patient's service fee. This does not change clinical usage, stock deductions, or the default service price.</p>
+                <div className="grid gap-2 sm:grid-cols-[150px_1fr_auto]">
+                  <label className="text-xs font-semibold">Reduction (₱)<input className="form-control mt-1" type="number" min="0.01" step="0.01" value={discountRequestAmount} onChange={e=>setDiscountRequestAmount(e.target.value)}/></label>
+                  <label className="text-xs font-semibold">Reason<input className="form-control mt-1" maxLength={255} placeholder="Why is the fee being reduced?" value={discountRequestReason} onChange={e=>setDiscountRequestReason(e.target.value)}/></label>
+                  <button type="button" className="button-secondary self-end" disabled={discountRequestSaving||Number(discountRequestAmount)<=0||discountRequestReason.trim().length<5} onClick={async()=>{
+                    setDiscountRequestSaving(true);setDiscountRequestStatus('')
+                    try{const result=await requestConsultationChargeAdjustment(appt.id,{target_type:'service_fee',catalog_service_id:appt.requested_service_id,amount:Number(discountRequestAmount),reason:discountRequestReason});setDiscountRequestStatus(result.message||'Approval requested.');setDiscountRequestAmount('');setDiscountRequestReason('')}
+                    catch(e){setDiscountRequestStatus(e.message||'Could not request an adjustment.')}
+                    finally{setDiscountRequestSaving(false)}
+                  }}>{discountRequestSaving?'Sending…':'Request Approval'}</button>
+                </div>
+                {discountRequestStatus && <p role="status" className="text-xs text-slate-700">{discountRequestStatus}</p>}
+              </section>
+            )}
             {consultationStatus !== 'finalized' && (
               <div className="space-y-3">
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs">
@@ -1754,7 +1787,7 @@ const Doctor_Consultation = () => {
           )}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" className="button-secondary" onClick={() => { setExtraConsumableOpen(false); setExtraConsumableSearch(''); setExtraConsumableId(''); setExtraConsumableQuantity(1) }}>Cancel</button>
-            <button type="button" className="button-primary" disabled={!extraConsumableSelected || !(Number(extraConsumableQuantity) > 0)} onClick={addExtraConsumable}><MdInventory2 /> Add Consumable</button>
+            <button type="button" className="button-primary" disabled={!extraConsumableSelected || !(Number(extraConsumableQuantity) > 0)} onClick={addExtraConsumable}><MdInventory2 /> {replacementTarget ? 'Replace Consumable' : 'Add Consumable'}</button>
           </div>
         </div>
       </Modal>

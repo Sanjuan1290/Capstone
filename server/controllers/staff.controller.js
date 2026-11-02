@@ -1198,6 +1198,11 @@ const updateBill = async (req, res) => {
       if (!preset) { await conn.rollback(); return res.status(404).json({ message: 'Discount not found in this branch.' }) }
     }
     const subtotalOnly = computeBillingTotals({ items: allItems, discount_amount: 0 })
+    // Courtesy reductions are already reflected in the saved bill's discount_amount.
+    // Resolve the preset independently, then combine exactly once.
+    const {approvedTotal, money: toMoney, requestedPresetDiscount}=require('../utils/chargeAdjustments')
+    const courtesyTotal=await approvedTotal(conn,billingId)
+    const requestedPresetAmount = requestedPresetDiscount(req.body,courtesyTotal)
     const discount = await resolveDiscountForDraft({
       billingId,
       billVersion: expectedVersion,
@@ -1205,7 +1210,7 @@ const updateBill = async (req, res) => {
       presetId: req.body.discount_preset_id,
       reference: req.body.discount_reference,
       referenceImageUrl: req.body.discount_reference_image_url,
-      requestedAmount: req.body.discount_amount,
+      requestedAmount: requestedPresetAmount,
     }, conn, { allowDirectAdmin: isAdminActor })
     let discountReferenceImageUrl = null
     if (discount.preset && Number(discount.preset.requires_reference) === 1) {
@@ -1239,7 +1244,12 @@ const updateBill = async (req, res) => {
       }
     }
 
-    const totals = computeBillingTotals({ items: allItems, discount_amount: discount.amount })
+    const combinedDiscount=toMoney(discount.amount+courtesyTotal)
+    if(combinedDiscount>subtotalOnly.subtotal){
+      await conn.rollback()
+      return res.status(409).json({code:'DISCOUNT_EXCEEDS_SUBTOTAL',message:'Approved courtesy reductions and other discounts exceed the current bill.'})
+    }
+    const totals = computeBillingTotals({ items: allItems, discount_amount: combinedDiscount })
     // A promotion review is an explicit cashier decision. Never equate selection
     // with a discount, or record an applied promotion before a real authorized save.
     const reviewProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'promotion_review_outcome')
@@ -1272,7 +1282,7 @@ const updateBill = async (req, res) => {
       `UPDATE billing_records
        SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_reference = ?, discount_reference_image_url = ?, discount_amount = ?, total_amount = ?, payment_notes = ?, version = ?
        WHERE id = ? AND version = ?`,
-      [totals.subtotal, discount.type, discount.label, discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, discount.preset ? discountReferenceImageUrl : null, totals.discount_amount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
+      [totals.subtotal, courtesyTotal>0 && !discount.preset ? 'courtesy' : discount.type, courtesyTotal>0 ? [discount.label,'Approved charge reductions'].filter(Boolean).join(' + ') : discount.label, discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, discount.preset ? discountReferenceImageUrl : null, totals.discount_amount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
     )
     if (Number(billUpdate.affectedRows || 0) !== 1) {
       const err = new Error('This bill changed while it was being saved. Reload the latest version and try again.')
@@ -2103,6 +2113,7 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

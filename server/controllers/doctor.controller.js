@@ -538,63 +538,67 @@ const assertBookedServicePresent = (appointment, billableServices) => {
 }
 
 
+// Service Setup defines the default, not the materials physically used for every patient.
+// Validate the doctor's per-consultation choices inside the same transaction that
+// saves the bill, before any physical inventory movement is written.
 const enforceFixedCatalogConsumables = async (billableServices, executor = db, branchId) => {
-  if (!Array.isArray(billableServices)) return billableServices
-
+  if (!Array.isArray(billableServices) || billableServices.length > 30) {
+    throw makeConsultationValidationError('Select valid consultation services.', 'INVALID_SERVICE_USAGE')
+  }
+  const serviceIds = new Set()
   const normalized = []
-  for (const rawService of billableServices) {
-    const serviceId = Number(rawService?.catalog_service_id || rawService?.id || 0)
-    if (!serviceId) {
-      normalized.push(rawService)
-      continue
+  for (const raw of billableServices) {
+    const serviceId = Number(raw?.catalog_service_id || raw?.id || 0)
+    if (!Number.isSafeInteger(serviceId) || serviceId <= 0 || serviceIds.has(serviceId)) {
+      throw makeConsultationValidationError('A consultation service must be selected only once.', 'INVALID_SERVICE_USAGE')
     }
-
+    serviceIds.add(serviceId)
     const catalogService = await getBillingCatalogServiceById(serviceId, executor, branchId)
-    if (!catalogService) {
-      throw Object.assign(new Error('Selected consultation service was not found in this branch.'), { statusCode: 404, code: 'SERVICE_NOT_FOUND' })
-    }
-
-    const configuredMaterials = (Array.isArray(catalogService.materials) ? catalogService.materials : []).map((material) => ({
-      inventory_id: Number(material.inventory_id) || null,
-      material_name: material.material_name || material.inventory_name || '',
-      quantity: Math.max(0, Number(material.quantity) || 0),
-      unit_label: material.inventory_base_unit || material.unit_label || material.inventory_unit || '',
-    }))
-
-    // Catalog materials are always rebuilt from Service Setup. Consultation extras are
-    // preserved only when explicitly marked as extras. An extra may intentionally use
-    // the same inventory item as a configured material.
-    const extrasByInventory = new Map()
-    for (const material of Array.isArray(rawService?.materials) ? rawService.materials : []) {
-      const inventoryId = Number(material?.inventory_id || 0)
-      const isExtra = material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
-      const quantity = Math.max(0, Number(material?.quantity) || 0)
-      if (!inventoryId || !isExtra || quantity <= 0) continue
-
-      const existing = extrasByInventory.get(inventoryId)
-      if (existing) {
-        existing.quantity += quantity
-        continue
+    if (!catalogService) throw Object.assign(new Error('Service not found in this branch.'), { statusCode:404, code:'SERVICE_NOT_FOUND' })
+    const defaults = (catalogService.materials || []).filter(m => Number(m.inventory_id)>0 && Number(m.quantity)>0)
+    const submitted = raw.materials === undefined ? defaults : raw.materials
+    if (!Array.isArray(submitted) || submitted.length > 80) throw makeConsultationValidationError('Invalid supply list.', 'INVALID_SERVICE_USAGE')
+    const normalizedMaterials = []
+    const seen = new Set()
+    for (const material of submitted) {
+      const id=Number(material?.inventory_id)
+      const qty=Number(material?.quantity)
+      if (!Number.isSafeInteger(id)||id<=0 || !Number.isFinite(qty)||qty<=0 || qty>100000 || Math.round(qty*100)/100 !== qty) {
+        throw makeConsultationValidationError('Each supply must have a valid product and quantity (up to 2 decimal places).', 'INVALID_SUPPLY_QUANTITY')
       }
-
-      extrasByInventory.set(inventoryId, {
-        ...material,
-        inventory_id: inventoryId,
-        quantity,
-        consultation_extra: true,
+      const extra = material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
+      const key=`${id}:${extra?'extra':'included'}`
+      if(seen.has(key))throw makeConsultationValidationError('Combine duplicate supplies into one quantity.', 'DUPLICATE_SUPPLY')
+      seen.add(key)
+      const [[inventory]] = await executor.query(
+        `SELECT id,name,category,unit,base_unit,uom,archived_at
+         FROM inventory WHERE id=? AND branch_id=? LIMIT 1`, [id,branchId]
+      )
+      if (!inventory || inventory.archived_at) throw Object.assign(new Error('Selected supply is archived or belongs to another branch.'), {statusCode:404,code:'INVENTORY_NOT_FOUND'})
+      const availableUnits=[inventory.unit,inventory.base_unit,inventory.uom].filter(Boolean).map(v=>String(v).toLowerCase())
+      const requestedUnit=String(material?.unit_label||'').trim().toLowerCase()
+      if(requestedUnit && !availableUnits.includes(requestedUnit))throw makeConsultationValidationError('Supply unit does not match the inventory product. Refresh and select the supply again.', 'INVALID_SUPPLY_UNIT')
+      const actualUnit= requestedUnit ? [inventory.unit,inventory.base_unit,inventory.uom].find(v=>String(v||'').toLowerCase()===requestedUnit) : (inventory.base_unit||inventory.uom||inventory.unit||'unit')
+      normalizedMaterials.push({
+        inventory_id:id, material_name:inventory.name, quantity:qty,
+        unit_label:actualUnit, ...(extra?{consultation_extra:true}:{})
       })
     }
-    const extras = Array.from(extrasByInventory.values())
-
+    const configured = new Map(defaults.map(m=>[Number(m.inventory_id),Number(m.quantity)]))
+    const actual = new Map(normalizedMaterials.filter(m=>!m.consultation_extra).map(m=>[m.inventory_id,m.quantity]))
+    const changed = configured.size !== actual.size || [...configured].some(([id,qty])=>actual.get(id)!==qty)
+    const reason=String(raw?.usage_change_reason || '').trim()
+    if ((changed || normalizedMaterials.some(m=>m.consultation_extra)) && (reason.length < 5 || reason.length > 255)) {
+      throw makeConsultationValidationError('Enter a reason (5–255 characters) when changing or adding supplies.', 'SUPPLY_CHANGE_REASON_REQUIRED')
+    }
+    if (Number(raw?.quantity ?? 1)!==1)throw makeConsultationValidationError('Service quantity must remain 1.', 'SERVICE_QUANTITY_FIXED')
     normalized.push({
-      ...rawService,
-      item_type: 'service',
-      catalog_service_id: serviceId,
-      quantity: Number(rawService?.quantity ?? 1),
-      materials: [...configuredMaterials, ...extras],
+      catalog_service_id:serviceId, item_type:'service',
+      service_name:catalogService.service_name, quantity:1,
+      materials:normalizedMaterials, usage_overridden:changed,
+      usage_change_reason:reason || null,
     })
   }
-
   return normalized
 }
 
@@ -775,6 +779,11 @@ const finalizeConsultation = async (req, res) => {
     }
     const fixedBillableServices = await enforceFixedCatalogConsumables(billableServices, conn, req.branchId)
     assertBookedServicePresent(appt, fixedBillableServices)
+    // Never consume inventory against a bill that has already entered checkout.
+    const [[existingBill]] = await conn.query('SELECT status FROM billing_records WHERE appointment_id=? AND branch_id=? FOR UPDATE', [appointmentId,req.branchId])
+    if (existingBill && !['draft','pending'].includes(String(existingBill.status))) {
+      throw Object.assign(new Error('Billing has already been finalized or sent for payment. Contact Admin for a controlled correction.'), {statusCode:409,code:'BILL_NOT_EDITABLE'})
+    }
     billing = await upsertDraftBillingForAppointment({
       appointment: appt,
       consultationId,
@@ -791,7 +800,7 @@ const finalizeConsultation = async (req, res) => {
     await conn.query("UPDATE appointments SET status = 'completed' WHERE id = ?", [appointmentId])
     await writeAuditLog({
       userId: req.user.id, userRole: 'doctor', action: 'clinical.consultation_finalized', entityType: 'consultation', entityId: consultationId,
-      newValues: { appointment_id: Number(appointmentId), services_count: Array.isArray(billableServices) ? billableServices.length : 0, prescription_status: prescriptionStatus, status: 'finalized' },
+      newValues: { appointment_id: Number(appointmentId), services_count: Array.isArray(billableServices) ? billableServices.length : 0, usage_reasons:fixedBillableServices.filter(item=>item.usage_change_reason).map(item=>({service_id:item.catalog_service_id,reason:item.usage_change_reason})), prescription_status: prescriptionStatus, status: 'finalized' },
       ipAddress: req.ip || null,
     }, conn)
 
@@ -864,6 +873,25 @@ const finalizeConsultation = async (req, res) => {
 }
 
 // ── NEW: Get a single consultation (for viewing/editing after completion) ─────
+const requestClinicalChargeAdjustment=async(req,res)=>{
+  const conn=await db.getConnection()
+  try{
+    await conn.beginTransaction()
+    const [[bill]]=await conn.query(`SELECT b.id,b.branch_id FROM billing_records b
+      JOIN appointments a ON a.id=b.appointment_id
+      WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=? FOR UPDATE`,
+      [req.params.appointmentId,req.user.id,req.branchId,req.branchId])
+    if(!bill){await conn.rollback();return res.status(404).json({message:'No draft bill found for this consultation.'})}
+    const adjustmentId=await require('../utils/chargeAdjustments').request({
+      billingId:bill.id,branchId:req.branchId,actorRole:'doctor',actorId:req.user.id,
+      targetType:req.body?.target_type,serviceId:Number(req.body?.catalog_service_id),
+      inventoryId:Number(req.body?.inventory_id||0),amount:req.body?.amount,reason:req.body?.reason
+    },conn)
+    await conn.commit()
+    return res.status(201).json({id:adjustmentId,message:'Discount request sent to Admin. Supplies used will not change.'})
+  }catch(e){await conn.rollback().catch(()=>{});if(e.statusCode)return res.status(e.statusCode).json({code:e.code,message:e.message});throw e}finally{conn.release()}
+}
+
 const getConsultation = async (req, res) => {
   const { appointmentId } = req.params
   const [rows] = await db.query(
@@ -1687,6 +1715,7 @@ const deleteMyUnavailableDate = async (req, res) => {
 }
 
 module.exports = {
+  requestClinicalChargeAdjustment,
   login, checkAuth, logout, listMyBranches, selectMyBranch,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
@@ -1696,6 +1725,7 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 
 
 

@@ -345,6 +345,8 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
             unit_label: unitLabel,
             unit_cost: roundMoney(unitCost),
             line_total: roundMoney(quantityUsed * unitCost),
+            charge_unit_price: roundMoney(Number(inventoryItem?.selling_price) || 0),
+            charge_total: roundMoney(quantityUsed * (Number(inventoryItem?.selling_price) || 0)),
             notes: String(material?.notes || '').trim() || null,
             ...(material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
               ? { consultation_extra: true }
@@ -352,25 +354,40 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
           }
         }).filter((material) => material.material_name && material.quantity > 0)
 
-        const defaultMaterialsCost = 0
-        const consultationFee = 0
+        const catalogPatientPrice = roundMoney(Math.max(0, Number(service?.default_price) || 0))
+        const consultationFee = roundMoney(Math.max(0, Number(service?.consultation_fee) || 0))
         const markupPercentage = 0
-        const catalogPatientPrice = Math.max(0, Number(service?.default_price) || 0)
-        if (catalogPatientPrice <= 0) { const err = new Error(`${service?.service_name || fallbackName || 'Service'} does not have a valid Service Price.`); err.statusCode = 400; err.code = 'SERVICE_PRICE_REQUIRED'; throw err }
-        const unitPrice = catalogPatientPrice
+        if (catalogPatientPrice <= 0) { const err = new Error(`${service?.service_name || fallbackName || 'Service'} does not have a valid patient price.`); err.statusCode = 400; err.code = 'SERVICE_PRICE_REQUIRED'; throw err }
+        // The saved catalog price already includes the default supplies. A substituted
+        // product changes only this patient's price; never rewrite the catalog or
+        // add the same consumables twice. Extra supplies remain separate charge lines.
+        const usageOverridden = item?.usage_overridden === true
+        const actualIncluded = normalizedMaterials.filter(m=>!m.consultation_extra)
+        const actualSuppliesPrice = roundMoney((usageOverridden ? actualIncluded : []).reduce((sum,material)=>{
+          const inv=inventoryMap.get(Number(material.inventory_id))
+          const sellingPrice=Number(inv?.selling_price)
+          if (!Number.isFinite(sellingPrice) || sellingPrice<=0) {
+            throw Object.assign(new Error(`${material.material_name} needs a valid Inventory Selling Price before finalizing.`),{statusCode:400,code:'SELLING_PRICE_REQUIRED'})
+          }
+          return sum+sellingPrice*Number(material.quantity)
+        },0))
+        if (usageOverridden && consultationFee<=0) throw Object.assign(new Error('This service needs a valid base service fee before changing included supplies.'),{statusCode:409,code:'SERVICE_BASE_FEE_REQUIRED'})
+        const unitPrice = usageOverridden ? roundMoney(consultationFee+actualSuppliesPrice) : catalogPatientPrice
         const baseAmount = unitPrice
         const serviceDetails = {
           pricing: {
-            materials_cost: defaultMaterialsCost,
+            materials_cost: actualSuppliesPrice,
             consultation_fee: consultationFee,
             markup_percentage: markupPercentage,
             suggested_price: catalogPatientPrice,
-            patient_price: catalogPatientPrice,
-            price_overridden: false,
+            patient_price: unitPrice,
+            price_overridden: usageOverridden,
             original_price: catalogPatientPrice,
-            override_reason: null,
+            override_reason: usageOverridden ? String(item.usage_change_reason || '').slice(0,255) : null,
           },
           materials: normalizedMaterials,
+          usage_change_reason: String(item?.usage_change_reason || '').slice(0,255) || null,
+          usage_overridden: usageOverridden,
         }
 
         return {
@@ -490,6 +507,9 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
   const [records] = await executor.query(
     `SELECT
        b.*,
+       (SELECT COALESCE(SUM(ca.requested_amount), 0)
+        FROM billing_charge_adjustments ca
+        WHERE ca.billing_id=b.id AND ca.status='approved') AS approved_courtesy_discount,
        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
        a.appointment_time,
        a.reason AS appointment_reason,

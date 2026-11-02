@@ -14,7 +14,7 @@ const staffAccessCtrl = require('../controllers/staffAccess.controller')
 const {readBranchReport, recordBranchExport} = require('./branchReports')
 const {readPage: readBranchAuditPage, archives: readBranchArchives, detail: readBranchArchiveDetail} = require('./branchAudit')
 const {readSystemSetup} = require('./branchOperationalReads')
-const {saveBranchSupplier,saveBranchLocationType,updateBranchClinicSettings,saveBranchMovementReason} = require('./branchSystemWrites')
+const {saveBranchSupplier,saveBranchLocationType,updateBranchClinicSettings} = require('./branchSystemWrites')
 const branchPromotions = require('./branchPromotions')
 const branchCatalog = require('./branchCatalogWrites')
 const {createLocation:updateSystemStockRoom,updateLocation:editSystemStockRoom} = require('./branchQueueInventoryWrites')
@@ -49,10 +49,7 @@ const readBranchServices=async(req,res)=>res.json(await listBillingCatalog({bran
 const readBranchDiscounts=async(req,res)=>{const [rows]=await db.query('SELECT * FROM discount_presets WHERE branch_id=? ORDER BY created_at,id',[req.branchId]);res.json(rows)}
 const readBranchPaymentSettings=async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})}
 const readBranchBrand=async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM clinic_settings WHERE id=1');res.json({...settings,clinic_name:req.branch.name,address:req.branch.address,phone:req.branch.phone,email:req.branch.email})}
-const readBranchReasons=async(req,res)=>{const [rows]=await db.query(`SELECT r.*,
-  (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=r.branch_id AND a.created_at>=r.created_at AND
-   (r.clinic_type='all' OR a.clinic_type=r.clinic_type)) AS usage_count
-  FROM appointment_reason_options r WHERE r.branch_id=? ORDER BY r.sort_order,r.label`,[req.branchId]);res.json(rows)}
+const readBranchReasons=async(req,res)=>{const [rows]=await db.query('SELECT * FROM appointment_reason_options WHERE branch_id=? ORDER BY sort_order,label',[req.branchId]);res.json(rows)}
 const readBranchPolicy=async(req,res)=>{const [[row]]=await db.query('SELECT * FROM branch_booking_settings WHERE branch_id=?',[req.branchId]);res.json(withBookingTestingCapability({...row,...normalizeBookingSettings(row||{},req.branchId)},req.branchId))}
 const writeBranchPolicy=async(req,res)=>{
   const settings=validateBookingSettings(req.body,req.branchId)
@@ -139,6 +136,10 @@ router.get('/billing/catalog', ...auth, can('checkout'), staffCtrl.getBillingCat
 router.get('/billing/discount-presets', ...auth, can('checkout'), staffCtrl.getDiscountPresets)
 router.get('/billing/cashier-closing', ...auth, can('checkout'), correctionsCtrl.getMyCashierClosing)
 router.post('/billing/cashier-closing', ...auth, can('checkout'), correctionsCtrl.closeMyCashier)
+const chargeFinance=require('../utils/chargeAdjustments')
+const doFinance=fn=>async(req,res,next)=>{let conn;try{conn=await db.getConnection();await conn.beginTransaction();const out=await fn(req,conn);await conn.commit();res.json(out)}catch(e){if(conn)await conn.rollback().catch(()=>{});if(e.statusCode)return res.status(e.statusCode).json({code:e.code,message:e.message});next(e)}finally{conn?.release()}}
+router.get('/billing/:id/charge-adjustments',...auth,can('checkout'),ownBill,doFinance((req,conn)=>chargeFinance.list(conn,Number(req.params.id),req.branchId)))
+router.post('/billing/:id/charge-adjustments',...auth,can('checkout'),ownBill,doFinance(async(req,conn)=>({id:await chargeFinance.request({billingId:Number(req.params.id),branchId:req.branchId,actorRole:'staff',actorId:req.user.id,targetType:req.body?.target_type,serviceId:Number(req.body?.catalog_service_id),inventoryId:Number(req.body?.inventory_id||0),amount:req.body?.amount,reason:req.body?.reason},conn),message:'Discount requested. Administrator approval is required.'})))
 router.get('/billing/:id/adjustment-requests', ...auth, canAny('checkout', 'billing'), ownBill, staffCtrl.getBillingAdjustmentRequests)
 router.post('/billing/:id/adjustment-requests', ...auth, can('checkout'), ownBill, staffCtrl.requestBillingAdjustment)
 router.patch('/billing/:id/adjustment-requests/:requestId/cancel', ...auth, can('checkout'), ownBill, staffCtrl.cancelBillingAdjustmentRequest)
@@ -207,27 +208,24 @@ router.get('/admin-access/system-setup/booking-policy/content', ...auth, can('sy
 router.put('/admin-access/system-setup/booking-policy/content', ...auth, can('system_setup'), writeBookingPolicyContent)
 router.post('/admin-access/system-setup/cancellation-reasons', ...auth, can('system_setup'), saveCancellation)
 router.put('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), saveCancellation)
-router.delete('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), (req,res)=>require('../utils/systemSetupRemoval').removeBranchReference(req,res,'cancellation_reasons'))
+router.delete('/admin-access/system-setup/cancellation-reasons/:id', ...auth, can('system_setup'), deactivateCancellation)
 router.post('/admin-access/system-setup/service-categories', ...auth, can('system_setup'), saveCategory)
 router.put('/admin-access/system-setup/service-categories/:id', ...auth, can('system_setup'), saveCategory)
-router.delete('/admin-access/system-setup/service-categories/:id', ...auth, can('system_setup'), (req,res)=>require('../utils/systemSetupRemoval').removeBranchReference(req,res,'service_categories'))
+router.delete('/admin-access/system-setup/service-categories/:id', ...auth, can('system_setup'), deactivateCategory)
 router.post('/admin-access/system-setup/uoms', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.put('/admin-access/system-setup/uoms/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.delete('/admin-access/system-setup/uoms/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.post('/admin-access/system-setup/suppliers', ...auth, can('system_setup'), saveBranchSupplier)
 router.put('/admin-access/system-setup/suppliers/:id', ...auth, can('system_setup'), saveBranchSupplier)
-router.delete('/admin-access/system-setup/suppliers/:id', ...auth, can('system_setup'), (req,res)=>require('../utils/systemSetupRemoval').removeBranchReference(req,res,'suppliers'))
 router.post('/admin-access/system-setup/location-types', ...auth, can('system_setup'), saveBranchLocationType)
 router.put('/admin-access/system-setup/location-types/:id', ...auth, can('system_setup'), saveBranchLocationType)
-router.delete('/admin-access/system-setup/location-types/:id', ...auth, can('system_setup'), (req,res)=>require('../utils/systemSetupRemoval').removeBranchReference(req,res,'location_types'))
-router.post('/admin-access/system-setup/movement-reasons', ...auth, can('system_setup'), (req,res,next)=>Promise.resolve(saveBranchMovementReason(req,res)).catch(next))
-router.put('/admin-access/system-setup/movement-reasons/:id', ...auth, can('system_setup'), (req,res,next)=>Promise.resolve(saveBranchMovementReason(req,res)).catch(next))
-router.delete('/admin-access/system-setup/movement-reasons/:id', ...auth, can('system_setup'), (req,res,next)=>Promise.resolve(require('../utils/systemSetupRemoval').removeBranchReference(req,res,'movement_reasons')).catch(next))
+router.post('/admin-access/system-setup/movement-reasons', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
+router.put('/admin-access/system-setup/movement-reasons/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 
 router.get('/admin-access/appointment-reasons', ...auth, can('system_setup'), readBranchReasons)
 router.post('/admin-access/appointment-reasons', ...auth, can('system_setup'), saveVisitReason)
 router.put('/admin-access/appointment-reasons/:reasonId', ...auth, can('system_setup'), saveVisitReason)
-router.delete('/admin-access/appointment-reasons/:reasonId', ...auth, can('system_setup'), (req,res)=>require('../utils/systemSetupRemoval').removeBranchReference(req,res,'visit_reasons'))
+router.delete('/admin-access/appointment-reasons/:reasonId', ...auth, can('system_setup'), deactivateVisitReason)
 
 router.get('/admin-access/billing/catalog', ...auth, can('system_setup'), readBranchServices)
 router.post('/admin-access/billing/catalog', ...auth, can('system_setup'), branchCatalog.saveService)
@@ -243,13 +241,9 @@ router.put('/admin-access/billing/payment-settings', ...auth, can('system_setup'
 router.get('/admin-access/clinic-settings', ...auth, can('system_setup'), readBranchBrand)
 router.put('/admin-access/clinic-settings', ...auth, can('system_setup'), updateBranchClinicSettings)
 router.get('/admin-access/inventory', ...auth, can('system_setup'), staffCtrl.getInventory)
-router.get('/admin-access/inventory/locations', ...auth, can('system_setup'), async(req,res,next)=>{
-  try { res.json(await require('../utils/branchStockRoomSummary').getBranchStockRooms(db, req.branchId)) }
-  catch(error) { next(error) }
-})
+router.get('/admin-access/inventory/locations', ...auth, can('system_setup'), staffCtrl.getInventoryLocations)
 router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), updateSystemStockRoom)
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
-router.delete('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), require('./branchQueueInventoryWrites').deleteLocation)
 
 module.exports = router
 

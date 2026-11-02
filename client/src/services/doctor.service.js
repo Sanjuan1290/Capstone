@@ -137,3 +137,6 @@ export const callNextPatient = () =>
 export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
 
+
+
+export const requestConsultationChargeAdjustment=(appointmentId,payload)=>requestJson(`${BASE}/consultations/${appointmentId}/charge-adjustments`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})

@@ -9,7 +9,7 @@ const { loginLimiter, otpRequestLimiter, otpVerifyLimiter, clinicalUploadLimiter
 const {
   login, checkAuth, logout, listMyBranches, selectMyBranch,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
-  saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
+  saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment, requestClinicalChargeAdjustment,
   getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
   getInventoryItems,
   getMyQueue, callNext, markQueueDone,
@@ -53,6 +53,7 @@ router.post('/consultations/:appointmentId', finalizeConsultation)
 router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
+router.post('/consultations/:appointmentId/charge-adjustments', requestClinicalChargeAdjustment)
 router.get('/billing/catalog',                 getBillingCatalog)
 router.post('/uploads/clinical', clinicalUploadLimiter, express.raw({ type: ['image/png', 'image/jpeg'], limit: '10mb' }), uploadClinicalImage)
 router.post('/uploads/clinical/status', clinicalUploadStatusLimiter, getClinicalUploadScanStatus)
@@ -76,4 +77,5 @@ router.put('/schedule/unavailable-dates',      saveMyUnavailableDate)
 router.delete('/schedule/unavailable-dates/:date', deleteMyUnavailableDate)
 
 module.exports = router
+
 

@@ -1,3 +1,4 @@
+import ChargeAdjustmentsPanel from '../../components/billing/ChargeAdjustmentsPanel'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
@@ -181,12 +182,13 @@ const Admin_CheckoutDetail = () => {
       setDiscountProof({ url: discountRequest.reference_image_url || current.discount_reference_image_url || '', security_token: '' })
       setDiscountReason(discountRequest.reason || '')
       if (discountRequest.requested_amount) {
-        setDraft((value) => value ? { ...value, discount_amount: Number(discountRequest.requested_amount) } : value)
+        const courtesy = Number(current?.approved_courtesy_discount || 0)
+        setDraft((value) => value ? { ...value, discount_amount: Math.min(Number(current?.subtotal || 0), Number(discountRequest.requested_amount) + courtesy) } : value)
       }
       return
     }
     const preset = (Array.isArray(presets) ? presets : []).find((p) => (
-      String(p.label || '').toLowerCase() === String(current.discount_label || '').toLowerCase()
+      String(p.label || '').toLowerCase() === String(current.discount_label || '').toLowerCase().split(' + approved charge reduction')[0]
       && p.discount_type === current.discount_type
     ))
     setSelectedDiscountId(preset ? String(preset.id) : '')
@@ -327,11 +329,12 @@ const Admin_CheckoutDetail = () => {
     setDiscountProof({ url: '', security_token: '' })
     setDiscountReason('')
     markDraft((current) => {
-      if (!preset) return { ...current, discount_amount: 0 }
+      const courtesy = Number(bill?.approved_courtesy_discount || 0)
+      if (!preset) return { ...current, discount_amount: courtesy }
       const amount = preset.discount_type === 'percentage'
         ? roundMoney(totals.subtotal * Math.max(0, Number(preset.value || 0)) / 100)
         : Math.max(0, Number(preset.value || 0))
-      return { ...current, discount_amount: Math.min(totals.subtotal, amount) }
+      return { ...current, discount_amount: Math.min(totals.subtotal, roundMoney(amount + courtesy)) }
     })
   }
 
@@ -378,6 +381,7 @@ const Admin_CheckoutDetail = () => {
         discount_reference_image_url: discountProof.url || null,
         discount_reference_security_token: discountProof.security_token || null,
         discount_amount: workingDraft.discount_amount,
+        preset_discount_amount: roundMoney(Math.max(0, Number(workingDraft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0))),
         payment_notes: workingDraft.payment_notes || null,
         ...(bill.selected_promotion ? {
           promotion_review_outcome: workingDraft.promotion_review_outcome || null,
@@ -633,6 +637,7 @@ const Admin_CheckoutDetail = () => {
                 )
               })}
             </div>
+            <ChargeAdjustmentsPanel billingId={billingId} staffOnly={false} onUpdated={()=>{ if(!dirty) load({preserveStep:true}) }} />
           </section>
 
           <aside className="lg:sticky lg:top-24 lg:self-start">
@@ -671,7 +676,7 @@ const Admin_CheckoutDetail = () => {
             </div>}
             <label className="mt-5 block"><span className="form-label">Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
             {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
-              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={draft.discount_amount} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, Math.max(0, Number(e.target.value || 0))) }))} /></label>}
+              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0))) }))} /></label>}
               {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
               {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
                 <label><span className="form-label">Reason for Adjustment *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
@@ -752,3 +757,4 @@ const Admin_CheckoutDetail = () => {
 }
 
 export default Admin_CheckoutDetail
+
