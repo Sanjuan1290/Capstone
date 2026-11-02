@@ -33,13 +33,28 @@ function loadCommonJs(filename, customRequire) {
   return mod.exports
 }
 
+// Isolate the controller's *own* exported route functions from database, audit and
+// other side-effecting dependencies. New relative imports should not invalidate
+// this route test merely because the test's mock allowlist is out of date.
+// Still reject missing dependency files; a source-graph problem is a real error.
+function mockControllerDependency(moduleName, filename) {
+    if (!moduleName.startsWith('.')) {
+      throw new Error(`Unexpected non-relative controller dependency: ${moduleName}`)
+    }
+    const resolved = path.resolve(path.dirname(filename), moduleName)
+    const valid = [resolved, `${resolved}.js`, `${resolved}.cjs`, path.join(resolved, 'index.js')]
+      .some(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile())
+    if (!valid) {
+      throw new Error(`Missing controller dependency: ${moduleName}`)
+    }
+    // Dependency methods are not called by route registration, and must not
+    // connect to TiDB, send notifications or write audit logs in this test.
+    return callableModule
+}
+
 function loadSetupHandlers() {
-  return loadCommonJs(path.join(routers, 'branchSystemWrites.js'), moduleName => {
-    if (moduleName.endsWith('clinicEvents')) return {afterSuccessfulMutation: () => callback}
-    if (moduleName.endsWith('audit')) return {writeAuditLog: callback}
-    if (moduleName.endsWith('connect')) return callableModule
-    throw new Error('Unexpected import while loading branchSystemWrites.js: ' + moduleName)
-  })
+  const filename = path.join(routers, 'branchSystemWrites.js')
+  return loadCommonJs(filename, moduleName => mockControllerDependency(moduleName, filename))
 }
 
 function registerRoutes(handlers) {
@@ -91,4 +106,25 @@ test('Staff Service Category DELETE uses actual category-deletion handler', () =
 test('regression: undeclared category-deletion handler would crash route registration', () => {
   const handlers = {...loadSetupHandlers(), deleteCategory: undefined}
   assert.throws(() => registerRoutes(handlers), /DELETE \/admin-access\/system-setup\/service-categories\/:id callback .* undefined/)
+})
+
+// Adding a valid dependency to branchSystemWrites must not break the route
+// registration guard. The exported route functions (not the dependency allowlist)
+// are what this test is meant to validate.
+test('regression: new controller dependency does not hide missing Express callbacks', () => {
+  const handlers = loadSetupHandlers()
+  const routes = registerRoutes(handlers)
+  assert.ok(routes.some(route => route.method === 'delete' && route.url === '/admin-access/system-setup/service-categories/:id'))
+  assert.throws(
+    () => registerRoutes({...handlers, deleteCategory: undefined}),
+    /DELETE \/admin-access\/system-setup\/service-categories\/:id callback .* undefined/
+  )
+})
+
+test('regression: missing controller dependencies still fail verification', () => {
+  const filename = path.join(routers, 'branchSystemWrites.js')
+  assert.throws(
+    () => mockControllerDependency('../utils/does-not-exist-in-clinic', filename),
+    /Missing controller dependency/
+  )
 })
