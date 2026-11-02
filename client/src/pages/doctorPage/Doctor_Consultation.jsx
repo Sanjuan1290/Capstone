@@ -15,7 +15,7 @@ import {
 } from '../../services/doctor.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import { getClinicSettings } from '../../services/clinic.service'
-import { printConsultationRecord } from '../../utils/consultationPrint'
+import { printConsultationRecord, printPrescriptionPad } from '../../utils/consultationPrint'
 import { createConsultationDraftQueue } from '../../utils/consultationDraftQueue'
 import { loadConsultationForEditing } from '../../utils/consultationLoad.mjs'
 import {
@@ -1039,7 +1039,15 @@ const Doctor_Consultation = () => {
             onClick={() => printConsultationRecord({ patient: currentPatient, diagnosis, notes, prescriptions, doctorName: user?.full_name || user?.name || 'Doctor', clinicAssignment: doctorClinicLabel(user), prcLicense: user?.prc_license || '', date: formatDate(appt?.appointment_date || new Date().toISOString()), clinic: clinicSettings, services: billableServices })}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
           >
-            <MdPrint className="text-[14px]" /> Print
+            <MdPrint className="text-[14px]" /> Print Consultation Record
+          </button>
+          <button
+            type="button"
+            disabled={!prescriptions.some(item => String(item?.medicine || '').trim())}
+            onClick={() => printPrescriptionPad({ patient: currentPatient, diagnosis, prescriptions, doctorName: user?.full_name || user?.name || 'Doctor', doctorSpecialty: user?.specialty || doctorClinicLabel(user), prcLicense: user?.prc_license || '', date: formatDate(appt?.appointment_date || new Date().toISOString()), clinic: clinicSettings })}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <MdPrint className="text-[14px]" /> Print Prescription
           </button>
         </div>
 
@@ -1796,4 +1804,5 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+
 

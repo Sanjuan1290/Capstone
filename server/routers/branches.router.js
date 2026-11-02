@@ -1,6 +1,7 @@
 const { listBranchPatients, getBranchPatientRecord } = require('../utils/patientRecordView')
 const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const {attachBatchesToInventory}=require('../utils/inventoryBatches')
+const {hydrateBillingCatalogRows}=require('../utils/billing')
 // Physical-branch management. Unlike the legacy admin controller, every data
 // query here contains an explicit authorized physical-branch predicate.
 const express = require('express')
@@ -650,7 +651,9 @@ const originalServices=async(req,res)=>{
     (SELECT COUNT(*) FROM clinic_promotion_services ps WHERE ps.service_id=bsc.id) +
     (SELECT COUNT(*) FROM billing_adjustment_requests ar WHERE ar.catalog_service_id=bsc.id) AS usage_count
     FROM billing_service_catalog bsc WHERE bsc.branch_id=?${filter} ORDER BY bsc.created_at,bsc.id LIMIT 500`,params)
-  res.json(rows)
+  // Return saved consumable lines along with total patient price and base fee.
+  // The raw catalog query loses materials and makes the Edit screen appear empty.
+  res.json(await hydrateBillingCatalogRows(rows,db))
 }
 const originalInventory=async(req,res)=>{
   // The shared Inventory UI requires item.batches[].locations for Stock Out,

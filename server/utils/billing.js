@@ -106,16 +106,17 @@ const normalizeServiceMaterials = (materials = []) => (
 )
 
 const computeCatalogServicePricing = (service = {}) => {
-  const servicePrice = roundMoney(Math.max(0, Number(service.default_price ?? service.patient_price) || 0))
+  // The saved default_price is the total billed to the patient; consultation_fee
+  // is the base service amount. Never overwrite the stored base fee while
+  // hydrating a catalog row, or reopening the service can double-add supplies.
+  const patientPrice = roundMoney(Math.max(0, Number(service.default_price ?? service.patient_price) || 0))
+  const basePrice = roundMoney(Math.max(0, Number(service.consultation_fee ?? 0) || 0))
   return {
     ...service,
-    materials_cost: 0,
-    consultation_fee: 0,
-    profit_percentage: 0,
-    profit_amount: 0,
-    suggested_price: servicePrice,
-    patient_price: servicePrice,
-    default_price: servicePrice,
+    consultation_fee: basePrice,
+    suggested_price: patientPrice,
+    patient_price: patientPrice,
+    default_price: patientPrice,
   }
 }
 
@@ -833,6 +834,7 @@ module.exports = {
   computeBillingTotals,
   collectInventoryUsageFromBillingItems,
   listBillingCatalog,
+  hydrateBillingCatalogRows,
   getBillingCatalogServiceById,
   getBillingRecordWithItems,
   getBillingByAppointmentId,
