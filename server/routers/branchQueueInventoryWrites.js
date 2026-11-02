@@ -80,18 +80,48 @@ async function updateLocation(req,res){
  finally{conn.release()}
 }
 async function deleteLocation(req,res){
- const connection=await db.getConnection()
+ if(!isId(req.params.id))return res.status(400).json({message:'Choose a valid Stock Room.'})
+ const conn=await db.getConnection()
  try{
-  await connection.beginTransaction()
-  const [[prior]]=await connection.query('SELECT * FROM inventory_locations WHERE id=? AND branch_id=? FOR UPDATE',[req.params.id,req.branchId])
-  if(!prior){await connection.rollback();return res.status(404).json({message:'Location not found in your branch.'})}
-  if(Number(prior.is_main_stockroom)){await connection.rollback();return res.status(409).json({message:'The main stockroom cannot be removed.'})}
-  const [[occupied]]=await connection.query('SELECT COUNT(*) AS count FROM inventory_location_batches WHERE location_id=? AND quantity>0',[prior.id])
-  if(Number(occupied.count)>0){await connection.rollback();return res.status(409).json({message:'Move or use up all stock in this location before deactivating it.'})}
-  await connection.query('UPDATE inventory_locations SET is_active=0 WHERE id=? AND branch_id=?',[prior.id,req.branchId])
-  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action:'inventory.location_deactivated',entityType:'inventory_location',entityId:prior.id,branchId:req.branchId,oldValues:prior,newValues:{is_active:0},ipAddress:req.ip},connection)
-  await connection.commit();res.json({message:'Location deactivated.'})
- }catch(e){await connection.rollback();throw e}finally{connection.release()}
+  await conn.beginTransaction()
+  const [[prior]]=await conn.query('SELECT * FROM inventory_locations WHERE id=? AND branch_id=? FOR UPDATE',[req.params.id,req.branchId])
+  if(!prior){await conn.rollback();return res.status(404).json({message:'Stock Room not found in your branch.'})}
+  if(Number(prior.is_main_stockroom)){await conn.rollback();return res.status(409).json({code:'MAIN_STOCKROOM_PROTECTED',message:'The Main Stockroom cannot be deleted or deactivated.'})}
+  const checks=[
+   ['inventory_location_batches','location_id'],['inventory_location_stock','location_id'],
+   ['inventory','default_location_id'],['billing_item_batch_usage','source_location_id'],
+   ['consultation_inventory_usage_batches','source_location_id'],['supply_requests','destination_location_id'],
+   ['supply_request_groups','destination_location_id'],
+  ]
+  let count=0
+  for(const [table,column] of checks){
+   const [[result]]=await conn.query(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column}=?`,[prior.id]);count+=Number(result?.n||0)
+  }
+  const [[transfers]]=await conn.query(`SELECT COUNT(*) AS n FROM inventory_transfers WHERE
+    (from_branch_id=? AND from_location=?) OR (to_branch_id=? AND to_location=?)`,[req.branchId,prior.name,req.branchId,prior.name])
+  count+=Number(transfers?.n||0)
+  const [[logs]]=await conn.query(`SELECT COUNT(*) AS n FROM inventory_logs WHERE branch_id=? AND (from_location=? OR to_location=?)`,[req.branchId,prior.name,prior.name])
+  count+=Number(logs?.n||0)
+  if(count){
+   if(Number(prior.is_active)===1){
+    const [[stock]]=await conn.query('SELECT COALESCE(SUM(quantity),0) AS qty FROM inventory_location_batches WHERE location_id=?',[prior.id])
+    const [[stockSummary]]=await conn.query('SELECT COALESCE(SUM(quantity),0) AS qty FROM inventory_location_stock WHERE location_id=?',[prior.id])
+    const [[defaultItems]]=await conn.query('SELECT COUNT(*) AS n FROM inventory WHERE branch_id=? AND default_location_id=? AND archived_at IS NULL',[req.branchId,prior.id])
+    if(Number(stock?.qty||0)>0||Number(stockSummary?.qty||0)>0||Number(defaultItems?.n||0)>0){
+     await conn.rollback();return res.status(409).json({code:'LOCATION_HAS_STOCK',message:'Move remaining stock and reassign default inventory rooms before deactivating this Stock Room.'})
+    }
+    await conn.query('UPDATE inventory_locations SET is_active=0 WHERE id=? AND branch_id=?',[prior.id,req.branchId])
+   }
+   await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action:'inventory.location_deactivated',entityType:'inventory_location',entityId:prior.id,branchId:req.branchId,oldValues:prior,newValues:{is_active:0},ipAddress:req.ip},conn)
+   await conn.commit()
+   return res.json({deleted:false,deactivated:true,usage_count:count,message:'Stock Room deactivated. Stock and transaction history remain available.'})
+  }
+  await conn.query('DELETE FROM inventory_locations WHERE id=? AND branch_id=?',[prior.id,req.branchId])
+  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action:'inventory.location_deleted',entityType:'inventory_location',entityId:prior.id,branchId:req.branchId,oldValues:prior,ipAddress:req.ip},conn)
+  await conn.commit()
+  return res.json({deleted:true,deactivated:false,message:'Unused Stock Room permanently deleted.'})
+ }catch(error){await conn.rollback().catch(()=>{});if(['ER_ROW_IS_REFERENCED_2','ER_ROW_IS_REFERENCED'].includes(error.code))return res.status(409).json({code:'LOCATION_REFERENCED',message:'This room has existing records. Deactivate it after moving stock.'});throw error}
+ finally{conn.release()}
 }
 async function updateStock(req,res){
  const conn=await db.getConnection()
@@ -105,7 +135,7 @@ async function updateStock(req,res){
  }catch(e){await conn.rollback();if(e.statusCode)return res.status(e.statusCode).json({message:e.message,code:e.code});throw e}finally{conn.release()}
 }
 const safeLegacy=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next)
-function registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,requirePermission}){
+function registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,requirePermission,allowAnyPermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const reg=(method,route,permission,handler,...guards)=>router[method](`${prefix}${route}`,...middle,requirePermission(permission),...guards,handler)
   reg('get','/queue','appointments',readQueue)
@@ -115,9 +145,9 @@ function registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,r
   reg('post','/patients/walk-in','appointments',safeLegacy(admin.createWalkInPatient))
   reg('get','/appointments/:id/inventory-readiness','appointments',safeLegacy(admin.getAppointmentInventoryReadinessForPortal))
   reg('post','/inventory/suppliers','inventory',supplier)
-  reg('post','/inventory/locations','inventory',createLocation)
-  reg('put','/inventory/locations/:id','inventory',updateLocation)
-  reg('delete','/inventory/locations/:id','inventory',deleteLocation)
+  router.post(`${prefix}/inventory/locations`,...middle,allowAnyPermission('inventory','system_setup'),afterSuccessfulMutation('settings.updated'),createLocation)
+  router.put(`${prefix}/inventory/locations/:id`,...middle,allowAnyPermission('inventory','system_setup'),afterSuccessfulMutation('settings.updated'),updateLocation)
+  router.delete(`${prefix}/inventory/locations/:id`,...middle,allowAnyPermission('inventory','system_setup'),afterSuccessfulMutation('settings.updated'),deleteLocation)
   reg('patch','/inventory/:id/stock','inventory',updateStock,afterSuccessfulMutation('inventory.updated'))
  }
 }
@@ -152,6 +182,7 @@ function registerBranchMoveStock(router,{requireSuper,branchContext,requirePermi
 }
 module.exports.moveStockLocation=moveStockLocation
 module.exports.registerBranchMoveStock=registerBranchMoveStock
+
 
 
 

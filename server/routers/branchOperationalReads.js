@@ -95,7 +95,10 @@ async function readCashDrawer(req,res){
 async function readSystemSetup(req,res){
   const b=req.branchId
   const [visit,cancel,categories,uoms,suppliers,types,movements]=await Promise.all([
-    db.query('SELECT id,label,clinic_type,is_active,sort_order,created_at FROM appointment_reason_options WHERE branch_id=? ORDER BY created_at,id',[b]),
+    db.query(`SELECT r.id,r.label,r.clinic_type,r.is_active,r.sort_order,r.created_at,
+      (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=r.branch_id AND a.created_at>=r.created_at AND
+       (r.clinic_type='all' OR a.clinic_type=r.clinic_type)) AS usage_count
+      FROM appointment_reason_options r WHERE r.branch_id=? ORDER BY r.created_at,r.id`,[b]),
     db.query(`SELECT r.id,r.label,r.is_active,r.created_at,r.updated_at,COUNT(a.id) AS appointment_count
       FROM appointment_cancellation_reasons r LEFT JOIN appointments a ON a.cancellation_reason_id=r.id AND a.branch_id=r.branch_id
       WHERE r.branch_id=? GROUP BY r.id ORDER BY r.created_at,r.id`,[b]),
@@ -103,9 +106,17 @@ async function readSystemSetup(req,res){
       LEFT JOIN billing_service_catalog s ON s.category_id=c.id AND s.branch_id=c.branch_id
       WHERE c.branch_id=? GROUP BY c.id ORDER BY c.name`,[b]),
     db.query('SELECT id,name,allow_decimal_quantity,decimal_precision,is_active,sort_order FROM inventory_uoms ORDER BY sort_order,name'),
-    db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers WHERE branch_id=? ORDER BY name',[b]),
-    db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE branch_id=? ORDER BY sort_order,name',[b]),
-    db.query('SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at,branch_id FROM inventory_movement_reasons WHERE branch_id IS NULL OR branch_id=? ORDER BY is_system DESC,name', [b]),
+    db.query(`SELECT s.id,s.name,s.contact_person,s.contact_number,s.address,s.category,s.is_active,
+      ((SELECT COUNT(*) FROM inventory i WHERE i.branch_id=s.branch_id AND i.supplier_id=s.id) +
+       (SELECT COUNT(*) FROM inventory_batches ib WHERE ib.branch_id=s.branch_id AND ib.supplier_id=s.id)) AS usage_count
+      FROM inventory_suppliers s WHERE s.branch_id=? ORDER BY s.name`,[b]),
+    db.query(`SELECT t.id,t.name,t.code,t.is_active,t.sort_order,
+      ((SELECT COUNT(*) FROM inventory i WHERE i.branch_id=t.branch_id AND i.location_type_id=t.id) +
+       (SELECT COUNT(*) FROM inventory_locations l WHERE l.branch_id=t.branch_id AND l.location_type=t.code)) AS usage_count
+      FROM inventory_location_types t WHERE t.branch_id=? ORDER BY t.sort_order,t.name`,[b]),
+    db.query(`SELECT r.id,r.name,r.code,r.movement_type,r.requires_batch,r.is_system,r.is_active,r.created_at,r.branch_id,
+      (SELECT COUNT(*) FROM inventory_logs il WHERE il.movement_type=r.code AND (r.branch_id IS NULL OR il.branch_id=r.branch_id)) AS usage_count
+      FROM inventory_movement_reasons r WHERE r.branch_id IS NULL OR r.branch_id=? ORDER BY r.is_system DESC,r.name`,[b]),
   ])
   res.json({visit_reasons:visit[0],cancellation_reasons:cancel[0],service_categories:categories[0],uoms:uoms[0],suppliers:suppliers[0],location_types:types[0],movement_reasons:movements[0]})
 }
@@ -210,7 +221,17 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
     reg('/system-setup','system_setup',readSystemSetup)
     router.get(`${prefix}/billing/payment-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})})
     router.get(`${prefix}/clinic-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM clinic_settings WHERE id=1');res.json({...settings,clinic_name:req.branch.name,address:req.branch.address,phone:req.branch.phone,email:req.branch.email})})
-    reg('/inventory/locations','inventory',async(req,res)=>{const [rows]=await db.query('SELECT * FROM inventory_locations WHERE branch_id=? ORDER BY name',[req.branchId]);res.json(rows)})
+    router.get(`${prefix}/inventory/locations`,...middle,allowAnyPermission('inventory','system_setup'),async(req,res)=>{const [rows]=await db.query(`SELECT l.*,
+  ((SELECT COUNT(*) FROM inventory_location_batches x WHERE x.location_id=l.id) +
+   (SELECT COUNT(*) FROM inventory_location_stock x WHERE x.location_id=l.id) +
+   (SELECT COUNT(*) FROM inventory x WHERE x.default_location_id=l.id) +
+   (SELECT COUNT(*) FROM billing_item_batch_usage x WHERE x.source_location_id=l.id) +
+   (SELECT COUNT(*) FROM consultation_inventory_usage_batches x WHERE x.source_location_id=l.id) +
+   (SELECT COUNT(*) FROM supply_requests x WHERE x.destination_location_id=l.id) +
+   (SELECT COUNT(*) FROM supply_request_groups x WHERE x.destination_location_id=l.id) +
+   (SELECT COUNT(*) FROM inventory_transfers x WHERE (x.from_branch_id=l.branch_id AND x.from_location=l.name) OR (x.to_branch_id=l.branch_id AND x.to_location=l.name)) +
+   (SELECT COUNT(*) FROM inventory_logs x WHERE x.branch_id=l.branch_id AND (x.from_location=l.name OR x.to_location=l.name))) AS usage_count
+  FROM inventory_locations l WHERE l.branch_id=? ORDER BY l.name`,[req.branchId]);res.json(rows)})
     reg('/inventory/master-data','inventory',readInventoryMasterData)
     reg('/inventory/logs','inventory',readInventoryLogs)
     reg('/inventory/batches/:batchId/history','inventory',readBatchHistory)
@@ -220,5 +241,6 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
   }
 }
 module.exports={registerBranchOperationalReads,readBills,readCashDrawer,readSystemSetup}
+
 
 

@@ -79,8 +79,8 @@ const Admin_BillingCatalog = () => {
     if (!canEditPricing || !deleteCandidate?.id) return
     setDeleting(true)
     try {
-      await deleteBillingCatalogService(deleteCandidate.id)
-      toast.success('Service removed or archived.')
+      const result = await deleteBillingCatalogService(deleteCandidate.id)
+      toast.success(result?.message || 'Service updated.')
       setDeleteCandidate(null)
       await load()
     } catch (err) {
@@ -144,16 +144,17 @@ const Admin_BillingCatalog = () => {
                   <td className="px-5 py-4 font-black text-slate-900">{formatMoney(servicePrice(service))}</td>
                   <td className="px-5 py-4 font-semibold text-slate-700">{formatDuration(service.average_duration_minutes)}</td><td className="px-5 py-4">{service.materials?.length || 0}</td>
                   <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${Number(service.is_active) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{Number(service.is_active) === 1 ? 'Active' : 'Inactive'}</span></td>
-                  <td className="px-5 py-4"><div className="flex justify-end gap-2">{canEditPricing ? <><Link className="button-secondary" to={`${portalBase}/system-setup/billing/services/${service.id}/edit`}><MdEdit /> Edit</Link><button className="button-secondary text-rose-700" onClick={() => setDeleteCandidate(service)}><MdDelete /> Remove</button></> : <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-400"><MdLock /> Admin only</span>}</div></td>
+                  <td className="px-5 py-4"><div className="flex justify-end gap-2">{canEditPricing ? <><Link className="button-secondary" to={`${portalBase}/system-setup/billing/services/${service.id}/edit`}><MdEdit /> Edit</Link>{(Number(service.is_active) === 1 || Number(service.usage_count||0) === 0) && <button className="button-secondary text-rose-700" onClick={() => setDeleteCandidate(service)}><MdDelete /> {Number(service.usage_count||0)>0?'Deactivate':'Delete'}</button>}</> : <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-400"><MdLock /> Admin only</span>}</div></td>
                 </tr>)}</tbody>
               </table></div>
               <div className="border-t border-slate-100 p-4"><Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1) }} /></div>
             </>}
     </section>
 
-    <ConfirmDialog open={canEditPricing && Boolean(deleteCandidate)} title="Remove billing service?" message={`Remove ${deleteCandidate?.service_name || 'this service'}? If it already belongs to billing history, the server will deactivate it instead of destroying historical records.`} confirmLabel="Remove Service" loading={deleting} onCancel={() => !deleting && setDeleteCandidate(null)} onConfirm={remove} />
+    <ConfirmDialog open={canEditPricing && Boolean(deleteCandidate)} title={Number(deleteCandidate?.usage_count||0)>0?'Deactivate service?':'Delete unused service?'} message={Number(deleteCandidate?.usage_count||0)>0?`Deactivate ${deleteCandidate?.service_name||'this service'}? Appointment, billing, and promotion history will remain.`:`Permanently delete ${deleteCandidate?.service_name||'this service'}? Deletion cannot be undone.`} confirmLabel={Number(deleteCandidate?.usage_count||0)>0?'Deactivate Service':'Delete Service'} loading={deleting} onCancel={() => !deleting && setDeleteCandidate(null)} onConfirm={remove} />
   </div>
 }
 
 export default Admin_BillingCatalog
+
 

@@ -319,17 +319,22 @@ const Admin_PatientBooking = () => {
     }
   }
 
-  const handleDelete = async (id) => {
-    const confirmed = window.confirm('Remove this reason option? Patients will no longer see it in booking.')
+  const handleDelete = async (reason) => {
+    const potentiallyUsed = Number(reason.usage_count || 0) > 0
+    const action = potentiallyUsed ? 'Deactivate' : 'Delete'
+    const confirmed = window.confirm(potentiallyUsed
+      ? `Deactivate "${reason.label}"? Previous appointments will keep their original reason.`
+      : `Permanently delete "${reason.label}"? If it has historical use, the server will deactivate it instead.`)
     if (!confirmed) return
-
-    setDeletingId(id)
+    setDeletingId(reason.id)
     try {
-      await deleteAppointmentReason(id)
-      setReasons((current) => current.filter((reason) => reason.id !== id))
-      if (editingId === id) resetForm()
+      const result = await deleteAppointmentReason(reason.id)
+      if (result?.deleted) setReasons((current) => current.filter((item) => item.id !== reason.id))
+      else if (result?.deactivated) setReasons((current) => current.map((item) => item.id === reason.id ? {...item,is_active:0} : item))
+      else throw new Error('The server did not confirm the action.')
+      if (editingId === reason.id) resetForm()
     } catch (err) {
-      alert(err.message || 'Failed to delete appointment reason.')
+      alert(err.message || `Failed to ${action.toLowerCase()} appointment reason.`)
     } finally {
       setDeletingId(null)
     }
@@ -671,16 +676,16 @@ const Admin_PatientBooking = () => {
                     >
                       <span className="flex items-center gap-1"><MdEdit className="text-[13px]" /> Edit</span>
                     </button>
-                    <button
-                      onClick={() => handleDelete(reason.id)}
+                    {(Number(reason.is_active) === 1 || Number(reason.usage_count || 0) === 0) && <button
+                      onClick={() => handleDelete(reason)}
                       disabled={deletingId === reason.id}
                       className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100 disabled:opacity-50 transition-colors"
                     >
                       <span className="flex items-center gap-1">
                         <MdDelete className="text-[13px]" />
-                        {deletingId === reason.id ? 'Removing...' : 'Remove'}
+                        {deletingId === reason.id ? 'Saving...' : (Number(reason.usage_count || 0) > 0 ? 'Deactivate' : 'Delete')}
                       </span>
-                    </button>
+                    </button>}
                   </div>
                 </div>
               ))}
@@ -714,3 +719,4 @@ const Admin_PatientBooking = () => {
 }
 
 export default Admin_PatientBooking
+

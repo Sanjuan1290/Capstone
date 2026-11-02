@@ -644,7 +644,12 @@ const originalServices=async(req,res)=>{
   // Setup screens without clinic_type retain their full authorized catalog.
   const filter=clinicType ? " AND is_active=1 AND clinic_type IN (?,'all')" : ''
   const params=clinicType ? [req.branchId,clinicType] : [req.branchId]
-  const [rows]=await db.query(`SELECT * FROM billing_service_catalog WHERE branch_id=?${filter} ORDER BY created_at,id LIMIT 500`,params)
+  const [rows]=await db.query(`SELECT bsc.*,
+    (SELECT COUNT(*) FROM billing_items bi WHERE bi.catalog_service_id=bsc.id) +
+    (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=bsc.branch_id AND (a.requested_service_id=bsc.id OR a.promotion_selected_for_service_id=bsc.id)) +
+    (SELECT COUNT(*) FROM clinic_promotion_services ps WHERE ps.service_id=bsc.id) +
+    (SELECT COUNT(*) FROM billing_adjustment_requests ar WHERE ar.catalog_service_id=bsc.id) AS usage_count
+    FROM billing_service_catalog bsc WHERE bsc.branch_id=?${filter} ORDER BY bsc.created_at,bsc.id LIMIT 500`,params)
   res.json(rows)
 }
 const originalInventory=async(req,res)=>{
@@ -709,8 +714,11 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   })
   router.put(`${prefix}/doctors/:id/unavailable-dates`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDoctorUnavailableDateAdmin))
   router.delete(`${prefix}/doctors/:id/unavailable-dates/:date`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.deleteDoctorUnavailableDateAdmin))
-  router.get(`${prefix}/appointment-reasons`,...middle,requirePermission('appointments'),async(req,res)=>{
-    const [rows]=await db.query(`SELECT id,label,clinic_type,is_active,created_at FROM appointment_reason_options WHERE branch_id=? ORDER BY label`,[req.branchId]);res.json(rows)
+  router.get(`${prefix}/appointment-reasons`,...middle,allowAnyPermission('appointments','system_setup'),async(req,res)=>{
+    const [rows]=await db.query(`SELECT r.id,r.label,r.clinic_type,r.is_active,r.created_at,
+      (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=r.branch_id AND a.created_at>=r.created_at AND
+       (r.clinic_type='all' OR a.clinic_type=r.clinic_type)) AS usage_count
+      FROM appointment_reason_options r WHERE r.branch_id=? ORDER BY r.label`,[req.branchId]);res.json(rows)
   })
   router.get(`${prefix}/appointment-cancellation-reasons`,...middle,requirePermission('appointments'),async(req,res)=>{
     const [rows]=await db.query(`SELECT id,label,is_active,created_at FROM appointment_cancellation_reasons WHERE branch_id=? ORDER BY created_at,id`,[req.branchId]);res.json(rows)
@@ -742,7 +750,7 @@ require('./branchAnnouncements').registerBranchAnnouncements(router,{requireSupe
 
 require('./branchSystemWrites').registerBranchSystemWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchSystemWrites').registerBranchExtraSetup(router,{requireSuper,branchContext,requirePermission})
-require('./branchQueueInventoryWrites').registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,requirePermission})
+require('./branchQueueInventoryWrites').registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,requirePermission,allowAnyPermission})
 require('./branchQueueInventoryWrites').registerBranchMoveStock(router,{requireSuper,branchContext,requirePermission})
 require('./branchInventoryItems').registerBranchInventoryItems(router,{requireSuper,branchContext,requirePermission})
 // New additive location-ledger API remains fail-closed until full cutover approval.
@@ -774,3 +782,4 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+

@@ -23,6 +23,9 @@ import {
   deleteAppointmentCancellationReason,
   saveAppointmentCancellationReason,
   deleteBillingServiceCategory,
+  deleteInventorySupplier,
+  deleteInventoryLocationType,
+  deleteInventoryMovementReason,
   saveBillingServiceCategory,
   saveInventoryLocationType,
   saveInventoryMovementReason,
@@ -41,7 +44,14 @@ const supplierClinicLabel = (value) => {
 const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
   const referenceLocation = useLocation()
   const superAdminMode = referenceLocation.pathname.startsWith('/superadmin/')
-  const canEditReference = (row) => type !== 'movement_reasons' || (superAdminMode ? row.branch_id == null : Number(row.branch_id) > 0)
+  const workspaceBranch = referenceLocation.pathname.match(/^\/superadmin\/branches\/(\d+)(?:\/|$)/)
+  const globalSetup = superAdminMode && !workspaceBranch
+  const canEditReference = (row) => type !== 'movement_reasons' || (globalSetup
+    ? row.branch_id == null
+    : row.branch_id != null && (!workspaceBranch || Number(row.branch_id) === Number(workspaceBranch[1])))
+  const canRemoveReference = (row) => canEditReference(row) && !(type === 'movement_reasons' && Number(row.is_system) === 1)
+  const getUsage = (row) => Number(type === 'service_categories' ? row.service_count : type === 'cancellation_reasons' ? row.appointment_count : row.usage_count || 0)
+  const deleteAction = (row) => getUsage(row) > 0 ? 'Deactivate' : 'Delete'
   const toast = useToast()
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({})
@@ -169,32 +179,54 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 
 
   const requestDelete = (row) => {
-    if (!['service_categories', 'cancellation_reasons'].includes(type)) return
+    if (!canEditReference(row)) return
     setDeleteError('')
     setDeleteTarget(row)
   }
 
+  const referencePayload = (row,isActive) => type === 'cancellation_reasons'
+    ? {label:row.label,is_active:isActive}
+    : type === 'suppliers'
+      ? {name:row.name,contact_person:row.contact_person,contact_number:row.contact_number,address:row.address,clinics:parseSupplierClinics(row.category),is_active:isActive}
+      : {...row,is_active:isActive}
+
   const confirmDelete = async () => {
     if (!deleteTarget) return
-    const inUseCount = type === 'service_categories'
-      ? Number(deleteTarget.service_count || 0)
-      : Number(deleteTarget.appointment_count || 0)
-    if (inUseCount > 0) return
     setDeleting(true)
     try {
-      if (type === 'service_categories') {
-        const result = await deleteBillingServiceCategory(deleteTarget.id)
-        if (result?.deleted !== true) throw new Error('The server did not confirm permanent deletion. Refresh and check this category before trying again.')
-      } else await deleteAppointmentCancellationReason(deleteTarget.id)
-      toast.success(`${config.title} deleted.`)
+      const handlers = {
+        service_categories: deleteBillingServiceCategory,
+        cancellation_reasons: deleteAppointmentCancellationReason,
+        suppliers: deleteInventorySupplier,
+        location_types: deleteInventoryLocationType,
+        movement_reasons: deleteInventoryMovementReason,
+      }
+      let result
+      if (getUsage(deleteTarget) > 0) {
+        result = await config.save(referencePayload(deleteTarget,0),deleteTarget.id)
+        if (Number(result?.is_active) !== 0) throw new Error('The server did not confirm deactivation.')
+      } else {
+        result = await handlers[type](deleteTarget.id)
+        if (result?.deleted !== true && result?.deactivated !== true) throw new Error('The server did not confirm the action. Refresh the list before trying again.')
+      }
+      toast.success(result?.message || (result?.deleted ? `${config.title} permanently deleted.` : `${config.title} deactivated.`))
       setDeleteTarget(null)
       await onReload()
     } catch (err) {
-      setDeleteError(err.message || `Could not delete ${config.singular}.`)
-      toast.error(err.message || `Could not delete ${config.singular}.`)
+      setDeleteError(err.message || `Could not update ${config.singular}.`)
+      toast.error(err.message || `Could not update ${config.singular}.`)
     } finally {
       setDeleting(false)
     }
+  }
+
+  const reactivate = async (row) => {
+    try {
+      const result = await config.save(referencePayload(row,1),row.id)
+      if(Number(result?.is_active)!==1) throw new Error('The server did not confirm reactivation.')
+      toast.success(`${config.title} reactivated.`)
+      await onReload()
+    } catch(err) { toast.error(err.message || `Could not reactivate ${config.singular}.`) }
   }
 
   return (
@@ -206,7 +238,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
         </div>
         <div className="flex flex-wrap gap-2">
           {type === 'service_categories' && <Link className="button-secondary" to={`${portalBase}/system-setup/billing/services`}>Manage Services & Pricing</Link>}
-          {<button type="button" className="button-primary" onClick={() => open()}><MdAdd /> {type === 'movement_reasons' && !superAdminMode ? 'Add Clinic Reason' : `Add ${config.title}`}</button>}
+          {<button type="button" className="button-primary" onClick={() => open()}><MdAdd /> {type === 'movement_reasons' && !globalSetup ? 'Add Clinic Reason' : `Add ${config.title}`}</button>}
         </div>
       </div>
 
@@ -250,8 +282,9 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                   </td>
                   <td className="px-5 py-4 text-right">
                     <div className="inline-flex flex-wrap justify-end gap-2">
-                      {canEditReference(row) ? <button type="button" className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button> : <span className="text-xs text-slate-500">{superAdminMode ? 'Managed by branch' : 'Shared · read only'}</span>}
-                      {['service_categories','cancellation_reasons'].includes(type) && <button className="button-secondary !border-rose-200 !text-rose-600 hover:!bg-rose-50" onClick={() => requestDelete(row)}><MdDelete /> Delete</button>}
+                      {canEditReference(row) ? <button type="button" className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button> : <span className="text-xs text-slate-500">{globalSetup ? 'Managed by branch' : 'Shared · read only'}</span>}
+                      {canRemoveReference(row) && Number(row.is_active) === 0 && getUsage(row) > 0 && <button type="button" className="button-secondary" onClick={() => reactivate(row)}>Reactivate</button>}
+                      {canRemoveReference(row) && (Number(row.is_active) === 1 || getUsage(row) === 0) && <button type="button" className={`button-secondary ${getUsage(row) === 0 ? '!border-rose-200 !text-rose-600 hover:!bg-rose-50' : ''}`} onClick={() => requestDelete(row)}><MdDelete /> {deleteAction(row)}</button>}
                     </div>
                   </td>
                 </tr>
@@ -368,37 +401,23 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
         </div>
       </Modal>
 
-      <Modal open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)} title={`Delete ${config.title}`} size="sm">
-        {deleteTarget && (() => {
-          const inUseCount = type === 'service_categories'
-            ? Number(deleteTarget.service_count || 0)
-            : Number(deleteTarget.appointment_count || 0)
-          const inUseLabel = type === 'service_categories'
-            ? `${inUseCount} service${inUseCount === 1 ? '' : 's'}`
-            : `${inUseCount} appointment${inUseCount === 1 ? '' : 's'}`
-          return <div className="space-y-4">
-            <div className={`flex items-start gap-3 rounded-2xl border p-4 ${inUseCount > 0 ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}>
-              <MdWarningAmber className={`mt-0.5 shrink-0 text-xl ${inUseCount > 0 ? 'text-amber-600' : 'text-rose-600'}`} />
-              <div>
-                <p className="font-bold text-slate-900">{deleteTarget.label || deleteTarget.name}</p>
-                {inUseCount > 0 ? (
-                  <p className="mt-1 text-sm text-slate-600">This {config.singular} is currently used by {inUseLabel} and cannot be permanently deleted. Edit it and set its status to <strong>Inactive</strong> instead so existing records remain valid.</p>
-                ) : (
-                  <p className="mt-1 text-sm text-slate-600">This {config.singular} is not in use. Permanent deletion cannot be undone.</p>
-                )}
-              </div>
-            </div>
-            {deleteError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{deleteError}</p>}
-            <div className="flex justify-end gap-2">
-              <button type="button" className="button-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>{inUseCount > 0 ? 'Close' : 'Cancel'}</button>
-              {inUseCount > 0 ? (
-                <button type="button" className="button-primary" onClick={() => { setDeleteTarget(null); open(deleteTarget) }}>Edit & Deactivate</button>
-              ) : (
-                <button type="button" className="button-primary !bg-rose-600 hover:!bg-rose-700" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : `Delete ${config.title}`}</button>
-              )}
+      <Modal open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)} title={`${deleteTarget ? deleteAction(deleteTarget) : 'Remove'} ${config.title}`} size="sm">
+        {deleteTarget && <div className="space-y-4">
+          <div className={`flex items-start gap-3 rounded-2xl border p-4 ${getUsage(deleteTarget) > 0 ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}>
+            <MdWarningAmber className="mt-0.5 shrink-0 text-xl" />
+            <div>
+              <p className="font-bold text-slate-900">{deleteTarget.label || deleteTarget.name}</p>
+              <p className="mt-1 text-sm text-slate-600">{getUsage(deleteTarget) > 0
+                ? `This record has ${getUsage(deleteTarget)} linked or potentially linked record(s). Deactivating hides it from new selections but keeps historical records.`
+                : 'The record has no known references. Permanent deletion cannot be undone. The server checks again before deleting.'}</p>
             </div>
           </div>
-        })()}
+          {deleteError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{deleteError}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" className="button-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>Cancel</button>
+            <button type="button" className={getUsage(deleteTarget) > 0 ? 'button-primary' : 'button-primary !bg-rose-600 hover:!bg-rose-700'} disabled={deleting} onClick={confirmDelete}>{deleting ? 'Saving…' : `${deleteAction(deleteTarget)} ${config.title}`}</button>
+          </div>
+        </div>}
       </Modal>
     </section>
   )
@@ -473,5 +492,6 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
 
 

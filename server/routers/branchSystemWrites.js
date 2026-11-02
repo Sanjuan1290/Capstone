@@ -1,3 +1,4 @@
+const {removeBranchReference}=require('../utils/systemSetupRemoval')
 const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 // Branch-local reference-data mutations used by the ORIGINAL Admin System Setup.
 // Record ownership is checked server-side for every update.
@@ -75,13 +76,15 @@ const registerBranchSystemWrites=(router,{requireSuper,branchContext,requirePerm
   // System Setup uses /system-setup/cancellation-reasons and service-categories.
   withSetup('/appointment-reasons','post',saveVisitReason)
   withSetup('/appointment-reasons/:reasonId','put',saveVisitReason)
-  withSetup('/appointment-reasons/:reasonId','delete',deactivateVisitReason)
+  withSetup('/appointment-reasons/:reasonId','delete',(req,res)=>removeBranchReference(req,res,'visit_reasons'))
   withSetup('/system-setup/cancellation-reasons','post',saveCancellation)
   withSetup('/system-setup/cancellation-reasons/:id','put',saveCancellation)
-  withSetup('/system-setup/cancellation-reasons/:id','delete',deactivateCancellation)
+  withSetup('/system-setup/cancellation-reasons/:id','delete',(req,res)=>removeBranchReference(req,res,'cancellation_reasons'))
   withSetup('/system-setup/service-categories','post',saveCategory)
   withSetup('/system-setup/service-categories/:id','put',saveCategory)
-  withSetup('/system-setup/service-categories/:id','delete',deleteCategory)
+  withSetup('/system-setup/service-categories/:id','delete',(req,res)=>removeBranchReference(req,res,'service_categories'))
+  withSetup('/system-setup/suppliers/:id','delete',(req,res)=>removeBranchReference(req,res,'suppliers'))
+  withSetup('/system-setup/location-types/:id','delete',(req,res)=>removeBranchReference(req,res,'location_types'))
  }
 }
 module.exports={registerBranchSystemWrites,saveVisitReason,deactivateVisitReason,saveCancellation,deactivateCancellation,saveCategory,deleteCategory}
@@ -129,7 +132,6 @@ async function saveBranchLocationType(req,res){
  let prior=null
  if(id){[[prior]]=await db.query('SELECT * FROM inventory_location_types WHERE id=? AND branch_id=?',[id,req.branchId]);if(!prior)return res.status(404).json({message:'Location type not found in this branch.'})}
  const is_active=active(req.body?.is_active,prior?.is_active??1)
- if(id&&!is_active){const [[used]]=await db.query('SELECT COUNT(*) AS n FROM inventory WHERE location_type_id=? AND branch_id=?',[id,req.branchId]);if(Number(used.n)>0)return res.status(409).json({message:'Reassign inventory items before deactivating this type.'})}
  let targetId=id
  try{
   if(id)await db.query('UPDATE inventory_location_types SET name=?,is_active=?,sort_order=? WHERE id=? AND branch_id=?',[name,is_active,sort_order,id,req.branchId])
@@ -211,7 +213,7 @@ async function saveBranchMovementReason(req, res) {
       targetId = Number(created.insertId)
     }
     const [[saved]] = await conn.query('SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at,branch_id FROM inventory_movement_reasons WHERE id=? AND branch_id=?', [targetId, branchId])
-    await writeAuditLog({userId:req.user.id, userRole:req.adminContext?.account_role||'admin', branchId, action:id?'system.movement_reason_updated':'system.movement_reason_created', entityType:'inventory_movement_reason',entityId:targetId,oldValues:prior,newValues:saved,ipAddress:req.ip||null}, conn)
+    await writeAuditLog({userId:req.user.id, userRole:req.user?.role==='staff'?'staff':req.adminContext?.account_role||'admin', branchId, action:id?'system.movement_reason_updated':'system.movement_reason_created', entityType:'inventory_movement_reason',entityId:targetId,oldValues:prior,newValues:saved,ipAddress:req.ip||null}, conn)
     await conn.commit()
     res.status(id ? 200 : 201).json(saved)
   } catch(error) {
@@ -229,17 +231,14 @@ function registerBranchExtraSetup(router,{requireSuper,branchContext,requirePerm
   router.post(`${prefix}/system-setup/location-types`,...guard,afterSuccessfulMutation('settings.updated'),saveBranchLocationType)
   router.put(`${prefix}/system-setup/location-types/:id`,...guard,afterSuccessfulMutation('settings.updated'),saveBranchLocationType)
   router.put(`${prefix}/clinic-settings`,...guard,afterSuccessfulMutation('settings.updated'),updateBranchClinicSettings)
-  if (prefix === '/my/legacy') {
-    router.post(`${prefix}/system-setup/movement-reasons`,...guard,afterSuccessfulMutation('settings.updated'),safeBranchMovementReason)
-    router.put(`${prefix}/system-setup/movement-reasons/:id`,...guard,afterSuccessfulMutation('settings.updated'),safeBranchMovementReason)
-  }
+  router.post(`${prefix}/system-setup/movement-reasons`,...guard,afterSuccessfulMutation('settings.updated'),safeBranchMovementReason)
+  router.put(`${prefix}/system-setup/movement-reasons/:id`,...guard,afterSuccessfulMutation('settings.updated'),safeBranchMovementReason)
+  router.delete(`${prefix}/system-setup/movement-reasons/:id`,...guard,afterSuccessfulMutation('settings.updated'),(req,res)=>removeBranchReference(req,res,'movement_reasons'))
  }
 }
 module.exports.registerBranchExtraSetup=registerBranchExtraSetup
 module.exports.saveBranchSupplier=saveBranchSupplier
 module.exports.saveBranchLocationType=saveBranchLocationType
 module.exports.updateBranchClinicSettings=updateBranchClinicSettings
-
-
 
 module.exports.saveBranchMovementReason=saveBranchMovementReason

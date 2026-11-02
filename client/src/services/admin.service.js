@@ -485,6 +485,9 @@ export const deleteInventoryUom = (id) => requestJson(`${getAdminApiBase()}/syst
 export const saveInventorySupplier = (payload, id = null) => requestJson(`${getAdminApiBase()}/system-setup/suppliers${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const saveInventoryLocationType = (payload, id = null) => requestJson(`${getAdminApiBase()}/system-setup/location-types${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const saveInventoryMovementReason = (payload, id = null) => requestJson(`${getAdminApiBase()}/system-setup/movement-reasons${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const deleteInventorySupplier = (id) => requestJson(`${getAdminApiBase()}/system-setup/suppliers/${id}`, { method:'DELETE' })
+export const deleteInventoryLocationType = (id) => requestJson(`${getAdminApiBase()}/system-setup/location-types/${id}`, { method:'DELETE' })
+export const deleteInventoryMovementReason = (id) => requestJson(`${getAdminApiBase()}/system-setup/movement-reasons/${id}`, { method:'DELETE' })
 export const getInventoryLocations = () => requestJson(`${getAdminApiBase()}/inventory/locations`)
 export const updateInventoryLocation = (id,payload) => requestJson(`${getAdminApiBase()}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const deleteInventoryLocation = (id) => requestJson(`${getAdminApiBase()}/inventory/locations/${id}`, { method:'DELETE' })
@@ -585,6 +588,7 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
+
 
 
 

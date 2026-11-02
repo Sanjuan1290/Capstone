@@ -17,7 +17,7 @@ describe('September 26 Batch 1 — System Setup and booking cleanup', () => {
     const controller = read('server', 'controllers', 'admin.controller.js')
 
     expect(ui).toContain('deleteBillingServiceCategory')
-    expect(ui).toContain('Edit & Deactivate')
+    expect(ui).toContain('Deactivate')
     expect(router).toContain("router.delete('/system-setup/service-categories/:id'")
     expect(controller).toContain("code:'SERVICE_CATEGORY_IN_USE'")
 
@@ -37,3 +37,4 @@ describe('September 26 Batch 1 — System Setup and booking cleanup', () => {
     expect(ui).not.toContain('always use up to 2 decimal places (0.01)')
   })
 })
+

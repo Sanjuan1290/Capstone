@@ -48,6 +48,7 @@ const Admin_BillingServiceForm = () => {
   const [errors, setErrors] = useState({})
   const [dirty, setDirty] = useState(false)
   const [legacyDuration, setLegacyDuration] = useState(null)
+  const [serviceUsageCount, setServiceUsageCount] = useState(0)
 
   const inventoryMap = useMemo(() => new Map(inventory.map((item) => [Number(item.id), item])), [inventory])
   const availableCategories = useMemo(() => serviceCategories
@@ -80,6 +81,7 @@ const Admin_BillingServiceForm = () => {
         const legacyCategory = !found.category_id ? categories.find((category) => category.clinic_type === found.clinic_type && category.name === found.category) : null
         setForm(toForm({ ...found, category_id: found.category_id || legacyCategory?.id || '' }))
         setLegacyDuration(Number(found.average_duration_minutes))
+        setServiceUsageCount(Number(found.usage_count||0))
       }
       setDirty(false)
     } catch (err) { setError(err.message || 'Could not load service editor.') }
@@ -158,7 +160,7 @@ const Admin_BillingServiceForm = () => {
   return <div className="mx-auto max-w-5xl space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><button className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-900" onClick={leaveEditor}><MdArrowBack /> Services & Pricing Setup</button><h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdPayments className="text-amber-500" /> {editing ? 'Edit Service' : 'Add Service'}</h1><p className="mt-1 text-sm text-slate-500">Set the Service Price and the inventory consumables normally used. Consumable Selling Prices are added automatically to the patient price.</p></div>
-      {editing && <button className="button-danger" onClick={() => setRemoveOpen(true)}><MdDelete /> Remove Service</button>}
+      {editing && (Number(form.is_active)===1 || serviceUsageCount===0) && <button className="button-danger" onClick={() => setRemoveOpen(true)}><MdDelete /> {serviceUsageCount>0?'Deactivate Service':'Delete Service'}</button>}
     </div>
 
     <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1 text-sm font-bold">
@@ -188,9 +190,10 @@ const Admin_BillingServiceForm = () => {
     </section>
 
     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between"><div>{step===1?<button className="button-secondary" onClick={leaveEditor}><MdArrowBack /> Cancel</button>:<button className="button-secondary" disabled={saving} onClick={()=>move(step-1)}>Back</button>}</div><div>{step<3?<button className="button-primary min-w-32" onClick={()=>move(step+1)}>Continue</button>:<button className="button-primary min-w-40" disabled={saving} onClick={save}>{saving?'Saving…':editing?'Save Changes':'Add Service'}</button>}</div></div>
-    <ConfirmDialog open={removeOpen} title="Remove or archive service?" message="Unused services are deleted. Services already referenced by a historical bill are archived instead so billing history remains intact." confirmLabel="Continue" loading={deleting} onCancel={()=>!deleting&&setRemoveOpen(false)} onConfirm={remove} />
+    <ConfirmDialog open={removeOpen} title={serviceUsageCount>0?'Deactivate service?':'Delete unused service?'} message={serviceUsageCount>0?'Deactivation removes this service from new appointments but keeps billing, appointment, and promotion history.':'This unused service will be permanently deleted. This cannot be undone.'} confirmLabel={serviceUsageCount>0?'Deactivate Service':'Delete Service'} loading={deleting} onCancel={()=>!deleting&&setRemoveOpen(false)} onConfirm={remove} />
   </div>
 }
 
 export default Admin_BillingServiceForm
+
 

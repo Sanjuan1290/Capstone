@@ -1347,10 +1347,11 @@ const updateDoctor = async (req, res) => {
 
 const getAppointmentReasonOptions = async (req, res) => {
   const [rows] = await db.query(
-    `SELECT id, label, clinic_type, is_active, sort_order, created_at, updated_at
-     FROM appointment_reason_options
-     WHERE LOWER(TRIM(label)) <> 'other'
-     ORDER BY label ASC`
+    `SELECT r.id,r.label,r.clinic_type,r.is_active,r.sort_order,r.created_at,r.updated_at,
+     (SELECT COUNT(*) FROM appointments a WHERE a.created_at>=r.created_at AND (r.clinic_type='all' OR a.clinic_type=r.clinic_type)) AS usage_count
+     FROM appointment_reason_options r
+     WHERE LOWER(TRIM(r.label)) <> 'other'
+     ORDER BY r.label ASC`
   )
   res.json(rows)
 }
@@ -1453,7 +1454,7 @@ const saveAppointmentCancellationReason = async (req, res) => {
 
     const [[row]] = await db.query(
       `SELECT r.id, r.label, r.is_active, r.sort_order, r.created_at, r.updated_at,
-              (SELECT COUNT(*) FROM appointments a WHERE a.cancellation_reason_id = r.id) AS appointment_count
+              (SELECT COUNT(*) FROM appointments a WHERE a.cancellation_reason_id = r.id OR LOWER(COALESCE(a.cancellation_reason_snapshot,''))=LOWER(r.label)) AS appointment_count
        FROM appointment_cancellation_reasons r
        WHERE r.id = ?`,
       [targetId]
@@ -1479,7 +1480,7 @@ const deleteAppointmentCancellationReason = async (req, res) => {
   if (!id) return res.status(400).json({ message: 'A valid cancellation reason is required.' })
   const [[row]] = await db.query(
     `SELECT r.id, r.label,
-            (SELECT COUNT(*) FROM appointments a WHERE a.cancellation_reason_id = r.id) AS appointment_count
+            (SELECT COUNT(*) FROM appointments a WHERE a.cancellation_reason_id = r.id OR LOWER(COALESCE(a.cancellation_reason_snapshot,''))=LOWER(r.label)) AS appointment_count
      FROM appointment_cancellation_reasons r
      WHERE r.id = ?`,
     [id]
@@ -1818,27 +1819,42 @@ const updateBillingCatalogService = async (req, res) => {
 
 const deleteBillingCatalogService = async (req, res) => {
   if (!requireAdminPricingAccess(req, res)) return
-  const [rows] = await db.query('SELECT id, service_name FROM billing_service_catalog WHERE id = ? LIMIT 1', [req.params.serviceId])
-  if (rows.length === 0) {
-    return res.status(404).json({ message: 'Billing service not found.' })
-  }
-
-  // Keep historical bill links valid. Used services are archived rather than physically deleted.
-  const [[usage]] = await db.query(
-    'SELECT COUNT(*) AS count FROM billing_items WHERE catalog_service_id = ?',
-    [req.params.serviceId]
-  )
-  if (Number(usage?.count || 0) > 0) {
-    await db.query('UPDATE billing_service_catalog SET is_active = 0 WHERE id = ?', [req.params.serviceId])
-    await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.service_archived',entityType:'billing_service',entityId:req.params.serviceId,oldValues:{service_name:rows[0].service_name,is_active:1},newValues:{is_active:0,historical_usage:Number(usage.count)},ipAddress:req.ip||null }).catch(() => {})
-    return res.json({ message: 'Service archived. Historical bills were preserved.', archived: true })
-  }
-
-  await db.query('DELETE FROM billing_service_catalog WHERE id = ?', [req.params.serviceId])
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'billing.service_deleted',entityType:'billing_service',entityId:req.params.serviceId,oldValues:rows[0],newValues:null,ipAddress:req.ip||null }).catch(() => {})
-  res.json({ message: 'Service deleted.', archived: false })
+  const serviceId = Number(req.params.serviceId)
+  if (!Number.isSafeInteger(serviceId) || serviceId < 1) return res.status(400).json({message:'Invalid service ID.'})
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [[service]] = await conn.query('SELECT id,service_name,is_active FROM billing_service_catalog WHERE id=? FOR UPDATE',[serviceId])
+    if (!service) {
+      await conn.rollback()
+      return res.status(404).json({message:'Billing service not found.'})
+    }
+    // Never detach historical appointments/billing/adjustments/promotions just
+    // to delete a service. Keep the reference and only change its visibility.
+    const [[usage]] = await conn.query(`SELECT
+      (SELECT COUNT(*) FROM billing_items WHERE catalog_service_id=?) +
+      (SELECT COUNT(*) FROM appointments WHERE requested_service_id=? OR promotion_selected_for_service_id=?) +
+      (SELECT COUNT(*) FROM clinic_promotion_services WHERE service_id=?) +
+      (SELECT COUNT(*) FROM billing_adjustment_requests WHERE catalog_service_id=?) AS count`,
+      [serviceId,serviceId,serviceId,serviceId,serviceId])
+    const count=Number(usage?.count || 0)
+    if (count > 0) {
+      if (Number(service.is_active)!==0) await conn.query('UPDATE billing_service_catalog SET is_active=0 WHERE id=?',[serviceId])
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role||'admin',action:'billing.service_archived',entityType:'billing_service',entityId:serviceId,oldValues:service,newValues:{is_active:0,historical_usage:count},ipAddress:req.ip||null},conn)
+      await conn.commit()
+      return res.json({message:'Service deactivated. Appointment, billing, and promotion history was preserved.',archived:true,deleted:false,deactivated:true,usage_count:count})
+    }
+    await conn.query('DELETE FROM billing_service_materials WHERE billing_service_id=?',[serviceId])
+    await conn.query('DELETE FROM billing_service_catalog WHERE id=?',[serviceId])
+    await writeAuditLog({userId:req.user.id,userRole:req.user?.role||'admin',action:'billing.service_deleted',entityType:'billing_service',entityId:serviceId,oldValues:service,newValues:null,ipAddress:req.ip||null},conn)
+    await conn.commit()
+    return res.json({message:'Unused service permanently deleted.',archived:false,deleted:true,deactivated:false,usage_count:0})
+  } catch(error) {
+    await conn.rollback().catch(()=>{})
+    if (['ER_ROW_IS_REFERENCED_2','ER_ROW_IS_REFERENCED'].includes(error.code)) return res.status(409).json({code:'SERVICE_REFERENCED',message:'Service has existing references. Refresh the list and deactivate it instead.'})
+    throw error
+  } finally {conn.release()}
 }
-
 
 const uploadPaymentQrImageAdmin = async (req, res) => {
   const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
@@ -3751,7 +3767,9 @@ const saveDiscountPresetAdmin = async (req,res) => {
 // ── System setup / inventory reference data ──────────────────────────────────
 const getSystemSetup = async (req, res) => {
   const [visitReasons, cancellationReasons, serviceCategories, uoms, suppliers, locationTypes, movementReasons] = await Promise.all([
-    db.query('SELECT id,label,clinic_type,is_active,sort_order FROM appointment_reason_options ORDER BY sort_order,label'),
+    db.query(`SELECT r.id,r.label,r.clinic_type,r.is_active,r.sort_order,r.created_at,
+      (SELECT COUNT(*) FROM appointments a WHERE a.created_at>=r.created_at AND (r.clinic_type='all' OR a.clinic_type=r.clinic_type)) AS usage_count
+      FROM appointment_reason_options r ORDER BY r.sort_order,r.label`),
     db.query(`SELECT r.id,r.label,r.is_active,r.sort_order,r.created_at,r.updated_at,
                      (SELECT COUNT(*) FROM appointments a WHERE a.cancellation_reason_id=r.id) AS appointment_count
               FROM appointment_cancellation_reasons r ORDER BY r.created_at ASC,r.id ASC`),
@@ -3763,12 +3781,16 @@ const getSystemSetup = async (req, res) => {
     db.query(`SELECT u.id,u.name,u.allow_decimal_quantity,u.decimal_precision,u.is_active,u.sort_order,
                      (SELECT COUNT(*) FROM inventory i WHERE LOWER(COALESCE(i.uom,i.base_unit,i.unit,''))=LOWER(u.name)) AS inventory_count
               FROM inventory_uoms u ORDER BY u.sort_order,u.name`),
-    db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers ORDER BY name ASC'),
-    db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY sort_order,name'),
-    db.query(`SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at
-              FROM inventory_movement_reasons
-              WHERE branch_id IS NULL
-              ORDER BY FIELD(movement_type,'in','out'), is_system DESC, name ASC`),
+    db.query(`SELECT s.id,s.name,s.contact_person,s.contact_number,s.address,s.category,s.is_active,
+      ((SELECT COUNT(*) FROM inventory i WHERE i.supplier_id=s.id) +
+       (SELECT COUNT(*) FROM inventory_batches ib WHERE ib.supplier_id=s.id)) AS usage_count FROM inventory_suppliers s ORDER BY s.name ASC`),
+    db.query(`SELECT t.id,t.name,t.code,t.is_active,t.sort_order,
+      ((SELECT COUNT(*) FROM inventory i WHERE i.location_type_id=t.id) +
+       (SELECT COUNT(*) FROM inventory_locations l WHERE l.location_type=t.code)) AS usage_count FROM inventory_location_types t ORDER BY t.sort_order,t.name`),
+    db.query(`SELECT r.id,r.name,r.code,r.movement_type,r.requires_batch,r.is_system,r.is_active,r.created_at,r.branch_id,
+      (SELECT COUNT(*) FROM inventory_logs il WHERE il.movement_type=r.code) AS usage_count
+      FROM inventory_movement_reasons r WHERE r.branch_id IS NULL
+      ORDER BY FIELD(r.movement_type,'in','out'), r.is_system DESC, r.name ASC`),
   ])
   res.json({
     visit_reasons: visitReasons[0],
@@ -4008,16 +4030,6 @@ const saveInventoryLocationType = async (req,res) => {
       const [[existing]] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE id=?', [id])
       if (!existing) return res.status(404).json({ message: 'Storage Location not found.' })
 
-      if (!isActive) {
-        const [[usage]] = await db.query('SELECT COUNT(*) AS total FROM inventory WHERE location_type_id=?', [id])
-        if (Number(usage?.total || 0) > 0) {
-          return res.status(409).json({
-            message: 'This Storage Location is assigned to inventory items. Reassign those items before deactivating it.',
-            code: 'LOCATION_TYPE_IN_USE',
-          })
-        }
-      }
-
       code = existing.code
       await db.query(
         'UPDATE inventory_location_types SET name=?,is_active=?,sort_order=? WHERE id=?',
@@ -4155,7 +4167,16 @@ const getInventoryLocationsAdmin = async (req,res) => {
   const [rows]=await db.query(`SELECT l.id,l.name,l.location_type,l.is_active,l.created_at,l.is_main_stockroom,l.clinic_type,
       COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.inventory_id END) AS item_count,
       COUNT(DISTINCT CASE WHEN ilb.quantity>0 THEN ilb.batch_id END) AS batch_count,
-      COALESCE(SUM(CASE WHEN ilb.quantity>0 THEN ilb.quantity ELSE 0 END),0) AS total_quantity
+      COALESCE(SUM(CASE WHEN ilb.quantity>0 THEN ilb.quantity ELSE 0 END),0) AS total_quantity,
+      ((SELECT COUNT(*) FROM inventory_location_batches x WHERE x.location_id=l.id) +
+       (SELECT COUNT(*) FROM inventory_location_stock x WHERE x.location_id=l.id) +
+       (SELECT COUNT(*) FROM inventory x WHERE x.default_location_id=l.id) +
+       (SELECT COUNT(*) FROM billing_item_batch_usage x WHERE x.source_location_id=l.id) +
+       (SELECT COUNT(*) FROM consultation_inventory_usage_batches x WHERE x.source_location_id=l.id) +
+       (SELECT COUNT(*) FROM supply_requests x WHERE x.destination_location_id=l.id) +
+       (SELECT COUNT(*) FROM supply_request_groups x WHERE x.destination_location_id=l.id) +
+       (SELECT COUNT(*) FROM inventory_transfers x WHERE (x.from_branch_id=l.branch_id AND x.from_location=l.name) OR (x.to_branch_id=l.branch_id AND x.to_location=l.name)) +
+       (SELECT COUNT(*) FROM inventory_logs x WHERE x.branch_id=l.branch_id AND (x.from_location=l.name OR x.to_location=l.name))) AS usage_count
     FROM inventory_locations l
     LEFT JOIN inventory_location_batches ilb ON ilb.location_id=l.id
     GROUP BY l.id
@@ -4341,5 +4362,6 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 

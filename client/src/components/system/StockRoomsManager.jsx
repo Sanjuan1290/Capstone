@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { MdAdd, MdEdit, MdMeetingRoom } from 'react-icons/md'
+import { MdAdd, MdEdit, MdDelete, MdMeetingRoom } from 'react-icons/md'
 import Modal from '../ui/Modal'
 import { useToast } from '../ui/ToastProvider'
 import { LoadingState, ErrorState } from '../ui/PageState'
-import { createInventoryLocation, getInventoryLocations, updateInventoryLocation } from '../../services/admin.service'
+import { createInventoryLocation, getInventoryLocations, updateInventoryLocation, deleteInventoryLocation } from '../../services/admin.service'
 
 const TYPE_OPTIONS = [
   ['stockroom', 'Stockroom'],
@@ -23,6 +23,7 @@ const StockRoomsManager = () => {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ name: '', location_type: 'room', clinic_type: '', is_active: 1 })
   const [saving, setSaving] = useState(false)
+  const [actionId, setActionId] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -71,6 +72,22 @@ const StockRoomsManager = () => {
     }
   }
 
+  const changeRoom = async (room,action) => {
+    if(Number(room.is_main_stockroom)===1)return
+    const name = room.name
+    if(action==='delete' && !window.confirm(`Permanently delete unused Stock Room "${name}"? This cannot be undone.`))return
+    if(action==='deactivate' && !window.confirm(`Deactivate "${name}"? It will not appear in new stock operations, but history will remain.`))return
+    setActionId(room.id)
+    try {
+      let response
+      if(action==='delete')response=await deleteInventoryLocation(room.id)
+      else response=await updateInventoryLocation(room.id,{name:room.name,location_type:room.location_type,is_active:action==='reactivate'?1:0})
+      toast.success(response?.message || (response?.deleted?'Stock Room deleted.':action==='reactivate'?'Stock Room reactivated.':'Stock Room deactivated.'))
+      await load()
+    }catch(err){toast.error(err.message||'Could not update Stock Room.')}
+    finally{setActionId(null)}
+  }
+
   if (loading) return <LoadingState label="Loading stock rooms..." />
   if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -99,7 +116,12 @@ const StockRoomsManager = () => {
                 
                 <td className="px-4 py-3 text-right">{Number(row.item_count || 0)}</td>
                 <td className="px-4 py-3">{Number(row.is_active ?? 1) === 1 ? 'Active' : 'Inactive'}</td>
-                <td className="px-5 py-3 text-right"><button type="button" className="button-secondary" onClick={() => openForm(row)}><MdEdit /> Edit</button></td>
+                <td className="px-5 py-3 text-right"><div className="inline-flex flex-wrap justify-end gap-2">
+                  <button type="button" className="button-secondary" onClick={() => openForm(row)}><MdEdit /> Edit</button>
+                  {Number(row.is_main_stockroom) !== 1 && (Number(row.is_active) === 0 && Number(row.usage_count||0)>0
+                    ? <button type="button" className="button-secondary" disabled={actionId===row.id} onClick={()=>changeRoom(row,'reactivate')}>Reactivate</button>
+                    : <button type="button" className="button-secondary" disabled={actionId===row.id} onClick={()=>changeRoom(row,Number(row.usage_count||0)>0?'deactivate':'delete')}><MdDelete /> {Number(row.usage_count||0)>0?'Deactivate':'Delete'}</button>)}
+                </div></td>
               </tr>
             ))}
           </tbody>
@@ -137,4 +159,5 @@ const StockRoomsManager = () => {
 }
 
 export default StockRoomsManager
+
 

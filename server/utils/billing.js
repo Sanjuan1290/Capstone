@@ -223,7 +223,12 @@ const listBillingCatalog = async (options = {}, executor = db) => {
        bsc.consultation_fee,
        bsc.profit_percentage,
        bsc.is_active,
-       bsc.sort_order
+       bsc.sort_order,
+       ${options.includeInactive ? `(
+       (SELECT COUNT(*) FROM billing_items bi WHERE bi.catalog_service_id=bsc.id) +
+       (SELECT COUNT(*) FROM appointments a WHERE a.requested_service_id=bsc.id OR a.promotion_selected_for_service_id=bsc.id) +
+       (SELECT COUNT(*) FROM clinic_promotion_services ps WHERE ps.service_id=bsc.id) +
+       (SELECT COUNT(*) FROM billing_adjustment_requests ar WHERE ar.catalog_service_id=bsc.id))` : '0'} AS usage_count
      FROM billing_service_catalog bsc
      LEFT JOIN billing_service_categories bcat ON bcat.id = bsc.category_id
      ${whereClause}
@@ -837,3 +842,4 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
+

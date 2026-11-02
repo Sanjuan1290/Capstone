@@ -77,16 +77,21 @@ async function saveService(req,res){
 async function deleteService(req,res){
  return run(req,res,async conn=>{
   const before=await verifyService(conn,req.branchId,req.params.serviceId)
-  const [[used]]=await conn.query('SELECT COUNT(*) AS total FROM billing_items WHERE catalog_service_id=?',[before.id])
+  const [[used]]=await conn.query(`SELECT
+     (SELECT COUNT(*) FROM billing_items WHERE catalog_service_id=?) +
+     (SELECT COUNT(*) FROM appointments WHERE branch_id=? AND (requested_service_id=? OR promotion_selected_for_service_id=?)) +
+     (SELECT COUNT(*) FROM clinic_promotion_services WHERE service_id=?) +
+     (SELECT COUNT(*) FROM billing_adjustment_requests WHERE catalog_service_id=?) AS total`,
+     [before.id,req.branchId,before.id,before.id,before.id,before.id])
   if(Number(used.total)>0){
    await conn.query('UPDATE billing_service_catalog SET is_active=0 WHERE id=? AND branch_id=?',[before.id,req.branchId])
    await audit(req,conn,'catalog.service_archived','billing_service',before.id,before,{is_active:0})
-   return {body:{archived:true,message:'Service archived; historical bills preserved.'}}
+   return {body:{archived:true,deleted:false,deactivated:true,message:'Service deactivated. Appointment, billing, and promotion history is preserved.'}}
   }
   await conn.query('DELETE FROM billing_service_materials WHERE billing_service_id=?',[before.id])
   await conn.query('DELETE FROM billing_service_catalog WHERE id=? AND branch_id=?',[before.id,req.branchId])
   await audit(req,conn,'catalog.service_deleted','billing_service',before.id,before,null)
-  return {body:{archived:false,message:'Service deleted.'}}
+  return {body:{archived:false,deleted:true,deactivated:false,message:'Unused service permanently deleted.'}}
  })
 }
 async function saveDiscount(req,res){
@@ -119,5 +124,6 @@ function registerBranchCatalogWrites(router,{requireSuper,branchContext,requireP
  }
 }
 module.exports={registerBranchCatalogWrites,saveService,deleteService,saveDiscount}
+
 
 
