@@ -2,21 +2,23 @@
 const db=require('../db/connect')
 const {sanitizeAuditValue,writeAuditLog}=require('../utils/audit')
 const {randomBytes}=require('crypto')
-const AREA_TYPES={appointments:['appointment','appointment_cancellation_reason'],doctor_schedule:['doctor_schedule','doctor_unavailable_date'],inventory:['inventory_item','inventory_movement_reason'],stock_transfers:['supply_request'],billing:['billing_record','billing_payment','billing_adjustment_request','cashier_closing','discount_preset','clinic_payment_settings'],service_catalog:['billing_service','billing_service_category'],clinical:['consultation'],reports:['report'],clinic_settings:['clinic_settings']}
+const {areaCaseSql,normalizeArea,knownAreas}=require('../utils/auditArea')
+const displayOutcomeSql = `CASE WHEN al.action='auth.login_failed' OR al.action LIKE 'security.%_blocked' THEN 'failure' WHEN al.action LIKE '%needs_review' OR al.action LIKE '%verification_requested' THEN 'pending' ELSE al.outcome END`
 const parseDate=s=>/^\d{4}-\d{2}-\d{2}$/.test(String(s||''))?String(s):null
 const id=v=>Number.isSafeInteger(Number(v))&&Number(v)>0
 const pageOpts=(query,defaultLimit=20)=>{const page=Math.max(1,Math.min(100000,Number(query.page)||1)),limit=Math.min(100,Math.max(1,Number(query.limit)||defaultLimit));return {page,limit,offset:(page-1)*limit}}
 const maybeJson=value=>{if(typeof value!=='string')return sanitizeAuditValue(value);try{return sanitizeAuditValue(JSON.parse(value))}catch{return '[REDACTED]'}}
-const privacy=row=>({...row,old_values:maybeJson(row.old_values),new_values:maybeJson(row.new_values)})
+const privacy=(row,req)=>({...row,ip_address:['admin','superadmin'].includes(req.user?.account_role || req.user?.role) ? row.ip_address : null,old_values:maybeJson(row.old_values),new_values:maybeJson(row.new_values)})
 function filters(req,archiveId=null){
  const parts=['al.branch_id=?',archiveId===null?'al.archive_id IS NULL':'al.archive_id=?',"al.action NOT IN ('auth.mfa_challenge_sent','auth.mfa_verified')"]
  const values=[req.branchId,...(archiveId===null?[]:[archiveId])]
  for(const [param,operator] of [['start_date','>='],['end_date','<=']]){const value=parseDate(req.query[param]);if(value){parts.push(`DATE(al.created_at) ${operator} ?`);values.push(value)}}
  if(req.query.user_role){parts.push('al.user_role=?');values.push(String(req.query.user_role).slice(0,20))}
  if(req.query.entity_type){parts.push('al.entity_type=?');values.push(String(req.query.entity_type).slice(0,80))}
+ if(req.query.outcome && ['success','failure','denied','pending'].includes(req.query.outcome)){parts.push(`${displayOutcomeSql}=?`);values.push(req.query.outcome)}
  if(req.query.action){parts.push('al.action LIKE ?');values.push(`%${String(req.query.action).slice(0,100)}%`)}
- if(req.query.area){const area=String(req.query.area);if(area==='account_security')parts.push("(al.action LIKE 'auth.%' OR al.action LIKE 'security.%' OR al.action LIKE 'account.%' OR al.action LIKE 'password_%')");else if(AREA_TYPES[area]){parts.push(`al.entity_type IN (${AREA_TYPES[area].map(()=>'?').join(',')})`);values.push(...AREA_TYPES[area])}}
- if(req.query.search){parts.push(`(al.action LIKE ? OR al.entity_type LIKE ? OR al.entity_id LIKE ? OR COALESCE(ad.full_name,st.full_name,dr.full_name,pt.full_name,'System') LIKE ?)`);const needle=`%${String(req.query.search).slice(0,120)}%`;values.push(needle,needle,needle,needle)}
+ if(req.query.area){const area=normalizeArea(String(req.query.area));parts.push(knownAreas.includes(area)?`(${areaCaseSql()})=?`:'1=0');if(knownAreas.includes(area))values.push(area)}
+ if(req.query.search){parts.push(`(al.action LIKE ? OR al.entity_type LIKE ? OR al.entity_id LIKE ? OR COALESCE(al.actor_name_snapshot,ad.full_name,st.full_name,dr.full_name,pt.full_name,'System') LIKE ? OR al.target_name_snapshot LIKE ? OR inv.name LIKE ? OR ap.full_name LIKE ? OR bp.full_name LIKE ?)`);const needle=`%${String(req.query.search).slice(0,120)}%`;values.push(needle,needle,needle,needle,needle,needle,needle,needle)}
  return {where:`WHERE ${parts.join(' AND ')}`,values}
 }
 const joins=`LEFT JOIN admins ad ON al.user_role IN ('admin','superadmin') AND ad.id=al.user_id
@@ -34,7 +36,9 @@ const joins=`LEFT JOIN admins ad ON al.user_role IN ('admin','superadmin') AND a
  LEFT JOIN doctors bd ON bd.id=bill.doctor_id
  LEFT JOIN doctors sd ON al.entity_type IN ('doctor_schedule','doctor_unavailable_date') AND sd.id=CAST(SUBSTRING_INDEX(al.entity_id,':',1) AS UNSIGNED) AND sd.branch_id=al.branch_id`
 const select=`al.id,al.user_role,al.user_id,al.action,al.entity_type,al.entity_id,al.old_values,al.new_values,al.created_at,
- CASE WHEN ad.id IS NOT NULL AND ad.account_role='superadmin' THEN 'Super Admin' ELSE COALESCE(ad.full_name,st.full_name,dr.full_name,pt.full_name,'System') END performed_by,
+ al.ip_address,al.outcome,al.actor_name_snapshot,al.target_name_snapshot,al.request_id,al.correlation_id,al.failure_reason_code,
+ ${areaCaseSql()} AS area_code, ${displayOutcomeSql} AS display_outcome,
+ COALESCE(al.actor_name_snapshot,CASE WHEN ad.id IS NOT NULL AND ad.account_role='superadmin' THEN 'Super Admin' ELSE COALESCE(ad.full_name,st.full_name,dr.full_name,pt.full_name,'System') END) performed_by,
  ap.full_name appointment_patient_name,adr.full_name appointment_doctor_name,apt.appointment_date,apt.appointment_time,
  inv.name inventory_item_name,gd.full_name supply_doctor_name,g.destination_location supply_destination,g.reason supply_reason,g.resolution_note supply_resolution_note,
  sd.full_name schedule_doctor_name,bp.full_name billing_patient_name,bd.full_name billing_doctor_name`
@@ -43,7 +47,32 @@ const readPage=async(req,res,archiveId=null)=>{
  const [[count]]=await db.query(`SELECT COUNT(*) total FROM audit_logs al ${joins} ${where}`,values)
  const [rows]=await db.query(`SELECT ${select} FROM audit_logs al ${joins} ${where} ORDER BY al.created_at ${dir},al.id ${dir} LIMIT ? OFFSET ?`,[...values,limit,offset])
  const total=Number(count.total||0),totalPages=Math.max(1,Math.ceil(total/limit))
- res.json({items:rows.map(privacy),pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages}})
+ res.json({items:rows.map(row=>privacy(row,req)),pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages}})
+}
+// Privacy-minimized CSV export: one branch, at most 1000 events, never raw payloads/IP.
+const csvCell=value=>{
+ let s=String(value??'').replace(/[\r\n\t]/g,' ')
+ if (/^[=+\-@]/.test(s)) s="'"+s // Prevent spreadsheet formula execution.
+ return '"'+s.replace(/"/g,'""')+'"'
+}
+const exportSummary=async(req,res)=>{
+ const rows=[]
+ for(let page=1;page<=10;page++){
+  let result=null
+  await readPage({...req,query:{...req.query,page,limit:100}},{json(value){result=value}})
+  rows.push(...result.items)
+  if(!result.pagination.hasNext||rows.length>=1000)break
+ }
+ await writeAuditLog({userId:req.user.id,userRole:req.user.account_role||req.user.role||'admin',
+  action:'audit.exported',entityType:'audit_log',branchId:req.branchId,ipAddress:req.ip,
+  newValues:{row_count:rows.length,area_code:req.query.area||'all'},requestId:req.id||null})
+ const columns=['Audit Event ID','Recorded At','Area','Action','Result','User ID','Performed By','Role','Record Type','Record ID']
+ const lines=[columns.map(csvCell).join(',')]
+ for(const r of rows){lines.push([r.id,r.created_at,r.area_code,r.action,r.display_outcome||r.outcome,r.user_id,r.performed_by,r.user_role,r.entity_type,r.entity_id].map(csvCell).join(','))}
+ res.setHeader('Content-Type','text/csv; charset=utf-8')
+ res.setHeader('Content-Disposition','attachment; filename="clinic-audit-summary.csv"')
+ res.setHeader('Cache-Control','private, no-store')
+ res.send('\ufeff'+lines.join('\r\n'))
 }
 const archives=async(req,res)=>{
  const {page,limit,offset}=pageOpts(req.query,10)
@@ -71,6 +100,7 @@ const archiveBranch=async(req,res)=>{
 }
 const registerBranchAudit=(router,{requireSuper,branchContext,requirePermission})=>{
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
+  router.get(`${prefix}/audit-logs/export`,...middle,requirePermission('audit_logs'),exportSummary)
   router.get(`${prefix}/audit-logs`,...middle,requirePermission('audit_logs'),(req,res)=>readPage(req,res))
   router.get(`${prefix}/audit-logs/archive`,...middle,requirePermission('audit_logs'),archives)
   router.post(`${prefix}/audit-logs/archive`,...middle,requirePermission('audit_logs'),archiveBranch)
@@ -80,3 +110,4 @@ const registerBranchAudit=(router,{requireSuper,branchContext,requirePermission}
  }
 }
 module.exports={registerBranchAudit,readPage,archives,detail,filters}
+

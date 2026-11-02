@@ -50,7 +50,8 @@ const migrationFiles = [
   '2026-10-17-announcements-campaigns.sql',
   promotionMigrationFile,
   '2026-10-31-doctor-multi-branch.sql',
-  '2026-11-01-booking-policy-content.sql',
+  '2026-11-02-handwritten-prescription-documents.sql',
+  '2026-11-02-audit-context.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -121,6 +122,15 @@ async function runRegisteredBranchMigrations(db) {
         await runTiDBMigration(connection, file, statements)
       } else {
         for (const statement of statements) {
+          if (file === '2026-11-02-audit-context.sql') {
+            const column = /^ALTER TABLE audit_logs ADD COLUMN ([a-z_]+) /i.exec(statement)?.[1]
+            if (!column) throw new Error('Unexpected audit context migration statement')
+            const [[existing]] = await connection.query(
+              'SELECT 1 AS found FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? LIMIT 1',
+              ['audit_logs', column]
+            )
+            if (existing) continue // Resume safely after partial DDL.
+          }
           if (/^USE\s+/i.test(statement)) continue // connection already selects DB_NAME
           if (/^DROP\s+TABLE\b/i.test(statement)) throw new Error('Destructive migration blocked')
           await connection.query(statement)
@@ -151,3 +161,5 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
+
+

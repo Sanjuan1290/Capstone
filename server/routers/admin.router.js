@@ -140,6 +140,7 @@ router.post('/billing/:id/confirm-payment', ...auth, staffCtrl.confirmBillPaymen
 router.get('/billing/:id/adjustment-requests', ...auth, staffCtrl.getBillingAdjustmentRequests)
 router.get('/reports', ...auth, adminCtrl.getReports)
 router.post('/reports/export-audit', ...auth, adminCtrl.recordReportExport)
+router.get('/audit-logs/export', ...auth, adminCtrl.exportAuditSummary)
 router.get('/audit-logs', ...auth, adminCtrl.getAuditLogs)
 router.get('/audit-logs/archive', ...auth, adminCtrl.getAuditArchiveBatches)
 router.post('/audit-logs/archive', ...auth, adminCtrl.archiveAuditLogs)
@@ -190,4 +191,5 @@ router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
 
 
 module.exports = router
+
 

@@ -7,6 +7,7 @@
 // 5. NEW: updateInventoryItem (PUT /inventory/:id) — edit a product
 // 6. NEW: deleteInventoryItem (DELETE /inventory/:id) — remove a product
 const { resolveReportRange } = require('../utils/reportRange')
+const { areaCaseSql, normalizeArea, knownAreas } = require('../utils/auditArea')
 const { normalizeOptionalImageUrl } = require('../utils/settingsValidation')
 const {
   createPaymentQrUploadSignature,
@@ -57,7 +58,7 @@ const {
 } = require('../utils/billing')
 const { getWalkInPrecheck, addWalkInVisit } = require('../utils/walkIn')
 const { setQueueState } = require('../utils/queueWorkflow')
-const { writeAuditLog } = require('../utils/audit')
+const { writeAuditLog, sanitizeAuditValue } = require('../utils/audit')
 const { normalizeText, normalizeOptionalText, normalizeNumber, normalizePositiveId, assertPlainObject } = require('../utils/inputValidation')
 const { validateAppointmentSlot, getAvailableAppointmentSlots, getAppointmentReservedDuration, withAppointmentSlotLock, assertAppointmentTransition, assertAppointmentMutationApplied } = require('../utils/appointmentSecurity')
 const { loadBookingSettings, saveBookingSettings, validateAverageDurationMinutes, roundReservedDurationMinutes } = require('../utils/bookingPolicy')
@@ -4255,22 +4256,8 @@ const getAuditLogs = async (req,res) => {
   if(req.query.end_date){filters.push('DATE(al.created_at)<=?');params.push(String(req.query.end_date))}
   if(req.query.user_role){filters.push('al.user_role=?');params.push(String(req.query.user_role))}
   if(req.query.entity_type){filters.push('al.entity_type=?');params.push(String(req.query.entity_type))}
-  if(req.query.area){
-    const area=String(req.query.area)
-    const areaTypes={
-      appointments:['appointment','appointment_cancellation_reason'],
-      doctor_schedule:['doctor_schedule','doctor_unavailable_date'],
-      inventory:['inventory_item','inventory_movement_reason'],
-      stock_transfers:['supply_request'],
-      billing:['billing_record','billing_payment','billing_adjustment_request','cashier_closing','discount_preset','clinic_payment_settings'],
-      service_catalog:['billing_service','billing_service_category'],
-      clinical:['consultation'],
-      reports:['report'],
-      clinic_settings:['clinic_settings'],
-    }[area]
-    if(area==='account_security'){filters.push("(al.action LIKE 'auth.%' OR al.action LIKE 'security.%' OR al.action LIKE 'account.%' OR al.action IN ('password_changed','first_password_change_completed'))")}
-    else if(areaTypes?.length){filters.push(`al.entity_type IN (${areaTypes.map(()=>'?').join(',')})`);params.push(...areaTypes)}
-  }
+  if(req.query.area){const area=normalizeArea(String(req.query.area));filters.push(knownAreas.includes(area)?`(${areaCaseSql()})=?`:'1=0');if(knownAreas.includes(area))params.push(area)}
+  if(req.query.outcome && ['success','failure','denied','pending'].includes(req.query.outcome)){filters.push("(CASE WHEN al.action='auth.login_failed' OR al.action LIKE 'security.%_blocked' THEN 'failure' WHEN al.action LIKE '%needs_review' OR al.action LIKE '%verification_requested' THEN 'pending' ELSE al.outcome END)=?");params.push(req.query.outcome)}
   if(req.query.action){filters.push('al.action LIKE ?');params.push(`%${String(req.query.action)}%`)}
   if(req.query.search){filters.push("(al.action LIKE ? OR al.entity_type LIKE ? OR al.entity_id LIKE ? OR COALESCE(a.full_name,s.full_name,d.full_name,p.full_name,'System') LIKE ? OR ap.full_name LIKE ? OR ad.full_name LIKE ? OR inv.name LIKE ? OR srp.full_name LIKE ? OR EXISTS (SELECT 1 FROM supply_requests srx JOIN inventory six ON six.id=srx.inventory_id WHERE srx.request_group_id=srg.id AND six.name LIKE ?))");const q=`%${String(req.query.search)}%`;params.push(q,q,q,q,q,q,q,q,q)}
   const joins=`
@@ -4290,8 +4277,8 @@ const getAuditLogs = async (req,res) => {
     LEFT JOIN doctors abd ON abd.id=abr.doctor_id`
   const finalWhere=`WHERE ${filters.join(' AND ')}`
   const [[count]]=await db.query(`SELECT COUNT(DISTINCT al.id) AS total FROM audit_logs al ${joins} ${finalWhere}`,params)
-  const [rows]=await db.query(`SELECT al.*,
-      CASE al.user_role WHEN 'admin' THEN a.full_name WHEN 'staff' THEN s.full_name WHEN 'doctor' THEN d.full_name WHEN 'patient' THEN p.full_name ELSE 'System' END AS performed_by,
+  const [rows]=await db.query(`SELECT al.*, ${areaCaseSql()} AS area_code, CASE WHEN al.action='auth.login_failed' OR al.action LIKE 'security.%_blocked' THEN 'failure' WHEN al.action LIKE '%needs_review' OR al.action LIKE '%verification_requested' THEN 'pending' ELSE al.outcome END AS display_outcome,
+      COALESCE(al.actor_name_snapshot,CASE al.user_role WHEN 'admin' THEN a.full_name WHEN 'staff' THEN s.full_name WHEN 'doctor' THEN d.full_name WHEN 'patient' THEN p.full_name ELSE 'System' END) AS performed_by,
       ap.full_name AS appointment_patient_name, ad.full_name AS appointment_doctor_name, apt.appointment_date, apt.appointment_time,
       inv.name AS inventory_item_name,
       (SELECT GROUP_CONCAT(si.name ORDER BY srl.id SEPARATOR ', ') FROM supply_requests srl JOIN inventory si ON si.id=srl.inventory_id WHERE srl.request_group_id=srg.id) AS supply_item_name,
@@ -4303,7 +4290,32 @@ const getAuditLogs = async (req,res) => {
       ${joins}
       ${finalWhere} ORDER BY al.created_at ${sortDirection},al.id ${sortDirection} LIMIT ? OFFSET ?`,[...params,limit,offset])
   const total=Number(count?.total||0),totalPages=Math.max(1,Math.ceil(total/limit))
-  res.json({items:rows,pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages}})
+  const safeJson = value => { try { return sanitizeAuditValue(typeof value === 'string' ? JSON.parse(value) : value) } catch { return '[REDACTED]' } }
+  res.json({items:rows.map(row=>({...row,old_values:safeJson(row.old_values),new_values:safeJson(row.new_values)})),pagination:{page,limit,total,totalPages,hasPrev:page>1,hasNext:page<totalPages}})
+}
+
+// Super Admin export uses the same page filters but only emits approved summary fields.
+const exportAuditSummary = async (req,res) => {
+  const rows=[]
+  for (let page=1;page<=10;page++) {
+    let result=null
+    await getAuditLogs({...req,query:{...req.query,page,limit:100}},{json(value){result=value}})
+    rows.push(...result.items)
+    if (!result.pagination.hasNext || rows.length >= 1000) break
+  }
+  await writeAuditLog({userId:req.user.id,userRole:'admin',action:'audit.exported',entityType:'audit_log',
+    ipAddress:req.ip,requestId:req.id||null,newValues:{row_count:rows.length,area_code:req.query.area||'all'}})
+  const csvCell=value=>{
+    let v=String(value??'').replace(/[\r\n\t]/g,' ')
+    if (/^[=+\-@]/.test(v)) v="'"+v
+    return '"'+v.replace(/"/g,'""')+'"'
+  }
+  const data=[['Audit Event ID','Recorded At','Area','Action','Result','User ID','Performed By','Role','Record Type','Record ID']]
+  for(const r of rows) data.push([r.id,r.created_at,r.area_code,r.action,r.display_outcome||r.outcome,r.user_id,r.performed_by,r.user_role,r.entity_type,r.entity_id])
+  res.setHeader('Content-Type','text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition','attachment; filename="clinic-audit-summary.csv"')
+  res.setHeader('Cache-Control','private, no-store')
+  res.send('\ufeff'+data.map(columns=>columns.map(csvCell).join(',')).join('\r\n'))
 }
 
 module.exports = {
@@ -4322,9 +4334,10 @@ module.exports = {
   getBookingPolicyAdmin, updateBookingPolicyAdmin,
   getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, uploadDiscountProofImageAdmin, getDiscountProofUploadScanStatusAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment, confirmBillingPaymentAction,
-  getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
+  getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, exportAuditSummary, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
   getSystemSetup, saveAppointmentCancellationReason, deleteAppointmentCancellationReason, saveBillingServiceCategory, deleteBillingServiceCategory, saveInventoryUom, deleteInventoryUom, saveInventorySupplier, saveInventoryLocationType, saveInventoryMovementReason, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
   getReports, recordReportExport, getInventoryLogs, getInventoryBatchHistory,
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+

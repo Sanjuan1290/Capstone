@@ -19,10 +19,10 @@ test('billing settings are registered before dynamic bill id',()=>{
  for(const prefix of ['/my/legacy','/workspace/:branchId/legacy']){assert.ok(paths.indexOf(`${prefix}/billing/payment-settings`)<paths.indexOf(`${prefix}/billing/:id`));assert.ok(paths.indexOf(`${prefix}/billing/reconciliation`)<paths.indexOf(`${prefix}/billing/:id`))}
 })
 test('branch audit queries require the branch and exclude MFA noise',()=>{
- const {filters}=load(audit,{'../db/connect':{query:async()=>[[]]},'../utils/audit':{sanitizeAuditValue:v=>v,writeAuditLog:async()=>{}},crypto:{randomBytes:()=>Buffer.from('abcd')}})
+ const {filters}=load(audit,{'../db/connect':{query:async()=>[[]]},'../utils/audit':{sanitizeAuditValue:v=>v,writeAuditLog:async()=>{}},'../utils/auditArea':require('../../utils/auditArea'),crypto:{randomBytes:()=>Buffer.from('abcd')}})
  const r=filters({branchId:76,query:{start_date:'2026-10-01',area:'billing',search:'test'}})
  assert.ok(r.where.includes('al.branch_id=?'));assert.equal(r.values[0],76)
- assert.ok(r.where.includes("auth.mfa_challenge_sent"));assert.ok(r.values.includes('billing_record'))
+ assert.ok(r.where.includes("auth.mfa_challenge_sent"));assert.ok(r.values.includes('billing'));assert.match(r.where,/CASE WHEN/)
 })
 test('branch legacy reports and audit handlers are registered before catchall',()=>{
  assert.ok(routes.indexOf("require("+"'./branchReports').registerBranchReports")<routes.indexOf("router.all('/my/legacy/*'"))
@@ -55,3 +55,4 @@ test('promotions cannot link services or recipients from another branch',()=>{
  assert.ok(src.includes('a.patient_id=patient.id AND a.branch_id=?'))
  assert.ok(src.includes('branch_id:req.branchId'))
 })
+

@@ -114,8 +114,6 @@ export const getBookingServices = (clinicType = '') => {
 
 export const getBookingPolicy = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`)
 export const updateBookingPolicy = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-export const getBookingPolicyContent = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy/content`)
-export const updateBookingPolicyContent = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy/content`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
 export const getAppointmentReasons = () =>
   requestJson(`${getAdminApiBase()}/appointment-reasons`)
@@ -150,6 +148,11 @@ export const getBills = (params = {}) => {
 }
 
 export const getBillById = (id) => requestJson(`${getAdminApiBase()}/billing/${id}`)
+export const getBillingCollectionsPeriod = (startDate, endDate) => {
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate })
+  return requestJson(`${getAdminApiBase()}/billing/collections-period?${params}`)
+}
+
 export const getBillingReconciliation = (date = '') => requestJson(`${getAdminApiBase()}/billing/reconciliation${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 export const voidBillingPayment = (paymentId, payload) => requestJson(`${getAdminApiBase()}/billing/payments/${paymentId}/void`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 export const refundBillingPayment = (paymentId, payload) => requestJson(`${getAdminApiBase()}/billing/payments/${paymentId}/refund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -391,12 +394,6 @@ export const addInventoryItem = (payload) =>
     body: JSON.stringify(payload),
   })
 
-export const importNewInventoryItems = (items) =>
-  requestJson(`${getAdminApiBase()}/inventory/import-new`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({items}) })
-
-export const bulkUpdateInventoryItems = (items) =>
-  requestJson(`${getAdminApiBase()}/inventory/bulk-update`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({items}) })
-
 // FIX 5: Edit inventory item (name, category, unit, threshold, price, supplier)
 export const updateInventoryItem = (id, payload) =>
   requestJson(`${getAdminApiBase()}/inventory/${id}`, {
@@ -476,6 +473,28 @@ export const getInventoryLocations = () => requestJson(`${getAdminApiBase()}/inv
 export const updateInventoryLocation = (id,payload) => requestJson(`${getAdminApiBase()}/inventory/locations/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const deleteInventoryLocation = (id) => requestJson(`${getAdminApiBase()}/inventory/locations/${id}`, { method:'DELETE' })
 export const getAuditArchives = (params = {}) => { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='')q.set(k,v)});return requestJson(`${getAdminApiBase()}/audit-logs/archive${q.toString()?`?${q}`:''}`) }
+export const exportAuditSummary = async (params={}) => {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key,value]) => { if(value !== undefined && value !== null && value !== '') search.set(key,value) })
+  const url = `${getAdminApiBase()}/audit-logs/export${search.size ? `?${search}` : ''}`
+  const superAdminGlobal = typeof window !== 'undefined' && window.location.pathname.startsWith('/superadmin') && !url.startsWith('/api/branches/')
+  const res = await fetch(url, { credentials: 'include', headers: { Accept: 'text/csv', ...(superAdminGlobal ? { 'X-Admin-Portal': 'superadmin' } : {}) } })
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}))
+    throw new Error(payload.message || 'Audit export could not be downloaded.')
+  }
+  if (!String(res.headers.get('content-type') || '').includes('text/csv')) throw new Error('Unexpected audit export response.')
+  const blob = await res.blob()
+  const href = URL.createObjectURL(blob)
+  try {
+    const link = document.createElement('a')
+    link.href = href
+    link.download = `CARAIT_Audit_Activity_${new Date().toISOString().slice(0,10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } finally { URL.revokeObjectURL(href) }
+}
 export const createAuditArchive = () => requestJson(`${getAdminApiBase()}/audit-logs/archive`, { method:'POST' })
 export const getAuditArchiveDetail = (id,params={}) => { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='')q.set(k,v)});return requestJson(`${getAdminApiBase()}/audit-logs/archive/${id}${q.toString()?`?${q}`:''}`) }
 export const deleteAuditArchive = (id,payload) => requestJson(`${getAdminApiBase()}/audit-logs/archive/${id}`, { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
