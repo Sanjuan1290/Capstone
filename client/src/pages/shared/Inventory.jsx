@@ -817,6 +817,8 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   const [stockLocations, setStockLocations] = useState([])
   const [batchManagerItem, setBatchManagerItem] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false)
+  const [excelWorkflowActive, setExcelWorkflowActive] = useState(false)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
   const [locationTypeFilter, setLocationTypeFilter] = useState('All')
@@ -846,11 +848,12 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       if (masters) setMasterData({ suppliers: masters?.suppliers || [], location_types: masters?.location_types || [], movement_reasons: masters?.movement_reasons || [] })
     } finally {
       setLoading(false)
+      setInitialLoadComplete(true)
     }
   }, [getInventory, getInventoryMasterData, getInventoryLocations])
 
   useEffect(() => { load() }, [load])
-  useClinicRefresh(load,['inventory.updated','service.updated','settings.updated'],{fallbackMs:60000,skip:()=>showAdd||Boolean(editItem)||Boolean(stockItem)||Boolean(moveItem)||Boolean(batchManagerItem)})
+  useClinicRefresh(load,['inventory.updated','service.updated','settings.updated'],{fallbackMs:60000,skip:()=>excelWorkflowActive||showAdd||Boolean(editItem)||Boolean(stockItem)||Boolean(moveItem)||Boolean(batchManagerItem)})
 
   const openMoveStock = async (item) => {
     try {
@@ -965,8 +968,11 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
     }
   }, [items, toast])
 
-  if (loading) {
-    return <div className="p-12 text-center text-sm text-slate-400">Loading inventory...</div>
+  // A background refresh must not replace the page: doing so unmounts an open
+  // Excel review modal immediately after returning from the operating-system
+  // file picker, losing the uploaded file and the confirmation state.
+  if (!initialLoadComplete) {
+    return <div className="p-12 text-center text-sm text-slate-400" role="status">Loading inventory...</div>
   }
 
   const summary = {
@@ -1001,7 +1007,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         </div>
       </div>
 
-      {canManageSellingPrice && <InventoryExcelTools items={items} stockRooms={stockLocations} masterData={masterData} services={services} onUpdated={load}/>}
+      {canManageSellingPrice && <InventoryExcelTools items={items} stockRooms={stockLocations} masterData={masterData} services={services} onUpdated={load} onWorkflowChange={setExcelWorkflowActive}/>}
 
       {feedback && (
         <div className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${
@@ -1152,6 +1158,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+
 
 
 
