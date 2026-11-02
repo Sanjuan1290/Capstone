@@ -238,12 +238,12 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
         </div>
         <div className="flex flex-wrap gap-2">
           {type === 'service_categories' && <Link className="button-secondary" to={`${portalBase}/system-setup/billing/services`}>Manage Services & Pricing</Link>}
-          {<button type="button" className="button-primary" onClick={() => open()}><MdAdd /> {type === 'movement_reasons' && !globalSetup ? 'Add Clinic Reason' : `Add ${config.title}`}</button>}
+          {<button type="button" className="button-primary" onClick={() => open()}><MdAdd /> {type === 'movement_reasons' && !globalSetup ? 'Add Branch Reason' : `Add ${config.title}`}</button>}
         </div>
       </div>
 
       {!rows.length ? (
-        <div className="p-5"><EmptyState title={`No ${config.plural.toLowerCase()} yet`} description="Add the first reusable option." /></div>
+        <div className="p-5"><EmptyState title={`No ${config.plural.toLowerCase()} yet`} description={type === 'movement_reasons' ? 'You can add Stock In or Stock Out reasons for this clinic. Shared Super Admin reasons will also appear here when available.' : 'Add the first reusable option.'} /></div>
       ) : (
         <div>
           <div className="overflow-x-auto">

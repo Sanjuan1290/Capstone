@@ -243,18 +243,9 @@ router.put('/admin-access/billing/payment-settings', ...auth, can('system_setup'
 router.get('/admin-access/clinic-settings', ...auth, can('system_setup'), readBranchBrand)
 router.put('/admin-access/clinic-settings', ...auth, can('system_setup'), updateBranchClinicSettings)
 router.get('/admin-access/inventory', ...auth, can('system_setup'), staffCtrl.getInventory)
-router.get('/admin-access/inventory/locations', ...auth, can('system_setup'), async(req,res)=>{
-  const [rows]=await db.query(`SELECT l.*,
-  ((SELECT COUNT(*) FROM inventory_location_batches x WHERE x.location_id=l.id) +
-   (SELECT COUNT(*) FROM inventory_location_stock x WHERE x.location_id=l.id) +
-   (SELECT COUNT(*) FROM inventory x WHERE x.default_location_id=l.id) +
-   (SELECT COUNT(*) FROM billing_item_batch_usage x WHERE x.source_location_id=l.id) +
-   (SELECT COUNT(*) FROM consultation_inventory_usage_batches x WHERE x.source_location_id=l.id) +
-   (SELECT COUNT(*) FROM supply_requests x WHERE x.destination_location_id=l.id) +
-   (SELECT COUNT(*) FROM supply_request_groups x WHERE x.destination_location_id=l.id) +
-   (SELECT COUNT(*) FROM inventory_transfers x WHERE (x.from_branch_id=l.branch_id AND x.from_location=l.name) OR (x.to_branch_id=l.branch_id AND x.to_location=l.name)) +
-   (SELECT COUNT(*) FROM inventory_logs x WHERE x.branch_id=l.branch_id AND (x.from_location=l.name OR x.to_location=l.name))) AS usage_count
-   FROM inventory_locations l WHERE l.branch_id=? ORDER BY l.name`,[req.branchId]);res.json(rows)
+router.get('/admin-access/inventory/locations', ...auth, can('system_setup'), async(req,res,next)=>{
+  try { res.json(await require('../utils/branchStockRoomSummary').getBranchStockRooms(db, req.branchId)) }
+  catch(error) { next(error) }
 })
 router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), updateSystemStockRoom)
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)

@@ -4,6 +4,7 @@ const db = require('../db/connect')
 const { getBillingRecordWithItems } = require('../utils/billing')
 const { loadCollectionLedger, summarizeLedgerRows } = require('../utils/reportMetrics')
 const { getTodayDateOnly } = require('../utils/date')
+const { getBranchStockRooms } = require('../utils/branchStockRoomSummary')
 
 const dateOnly = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : ''
 const pageOptions = (query) => {
@@ -221,17 +222,9 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
     reg('/system-setup','system_setup',readSystemSetup)
     router.get(`${prefix}/billing/payment-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})})
     router.get(`${prefix}/clinic-settings`,...middle,allowAnyPermission('billing','system_setup'),async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM clinic_settings WHERE id=1');res.json({...settings,clinic_name:req.branch.name,address:req.branch.address,phone:req.branch.phone,email:req.branch.email})})
-    router.get(`${prefix}/inventory/locations`,...middle,allowAnyPermission('inventory','system_setup'),async(req,res)=>{const [rows]=await db.query(`SELECT l.*,
-  ((SELECT COUNT(*) FROM inventory_location_batches x WHERE x.location_id=l.id) +
-   (SELECT COUNT(*) FROM inventory_location_stock x WHERE x.location_id=l.id) +
-   (SELECT COUNT(*) FROM inventory x WHERE x.default_location_id=l.id) +
-   (SELECT COUNT(*) FROM billing_item_batch_usage x WHERE x.source_location_id=l.id) +
-   (SELECT COUNT(*) FROM consultation_inventory_usage_batches x WHERE x.source_location_id=l.id) +
-   (SELECT COUNT(*) FROM supply_requests x WHERE x.destination_location_id=l.id) +
-   (SELECT COUNT(*) FROM supply_request_groups x WHERE x.destination_location_id=l.id) +
-   (SELECT COUNT(*) FROM inventory_transfers x WHERE (x.from_branch_id=l.branch_id AND x.from_location=l.name) OR (x.to_branch_id=l.branch_id AND x.to_location=l.name)) +
-   (SELECT COUNT(*) FROM inventory_logs x WHERE x.branch_id=l.branch_id AND (x.from_location=l.name OR x.to_location=l.name))) AS usage_count
-  FROM inventory_locations l WHERE l.branch_id=? ORDER BY l.name`,[req.branchId]);res.json(rows)})
+    router.get(`${prefix}/inventory/locations`,...middle,allowAnyPermission('inventory','system_setup'),async(req,res,next)=>{
+      try { res.json(await getBranchStockRooms(db,req.branchId)) } catch (error) { next(error) }
+    })
     reg('/inventory/master-data','inventory',readInventoryMasterData)
     reg('/inventory/logs','inventory',readInventoryLogs)
     reg('/inventory/batches/:batchId/history','inventory',readBatchHistory)

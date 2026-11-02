@@ -36,8 +36,9 @@ async function supplier(req,res){
  }catch(e){if(e.code==='ER_DUP_ENTRY')return res.status(409).json({message:'Supplier already exists in this branch.'});throw e}
 }
 async function createLocation(req,res){
- const name=String(req.body?.name||'').trim(),location_type=String(req.body?.location_type||'storage')
- if(!name||name.length>160||!['stockroom','room','dispensing','storage'].includes(location_type))return res.status(400).json({message:'Enter a valid stockroom name and type.'})
+ const name=String(req.body?.name||'').trim()
+ const location_type='room' // Internal classification; the Stock Room form only asks for a name.
+ if(!name||name.length>120)return res.status(400).json({message:'Enter a stock room name (up to 120 characters).'})
  const clinic_type=null // All new Stock Rooms are shared across clinic specialties.
  try{
   const [r]=await db.query('INSERT INTO inventory_locations (name,location_type,is_active,clinic_type,branch_id) VALUES (?,?,1,?,?)',[name,location_type,clinic_type,req.branchId])
@@ -45,10 +46,10 @@ async function createLocation(req,res){
  }catch(e){if(e.code==='ER_DUP_ENTRY')return res.status(409).json({message:'That location exists in your branch.'});throw e}
 }
 async function updateLocation(req,res){
- const name=String(req.body?.name||'').trim(),location_type=String(req.body?.location_type||'storage')
+ const name=String(req.body?.name||'').trim()
  const id=Number(req.params.id),isActive=req.body?.is_active===false||Number(req.body?.is_active)===0?0:1
- if(!isId(id)||!name||name.length>160||!['stockroom','room','dispensing','storage'].includes(location_type))
-   return res.status(400).json({message:'Enter a valid stock room name and type.'})
+ if(!isId(id)||!name||name.length>120)
+   return res.status(400).json({message:'Enter a stock room name (up to 120 characters).'})
  // Early ownership check avoids unnecessary transactions for foreign branches;
  // the same ownership is rechecked under FOR UPDATE before mutation.
  const [[exists]]=await db.query('SELECT id FROM inventory_locations WHERE id=? AND branch_id=?',[req.params.id,req.branchId])
@@ -58,6 +59,7 @@ async function updateLocation(req,res){
   await conn.beginTransaction()
   const [[prior]]=await conn.query('SELECT * FROM inventory_locations WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId])
   if(!prior){await conn.rollback();return res.status(404).json({message:'Stock Room not found in your branch.'})}
+  const location_type=prior.location_type // Keep stored type when editing; cannot alter via the generic room form.
   if(Number(prior.is_main_stockroom||0)===1 && (location_type!=='stockroom'||!isActive)){
     await conn.rollback();return res.status(409).json({code:'MAIN_STOCKROOM_PROTECTED',message:'Main Stockroom cannot be deactivated or changed to a different room type.'})
   }
