@@ -105,7 +105,7 @@ async function readSystemSetup(req,res){
     db.query('SELECT id,name,allow_decimal_quantity,decimal_precision,is_active,sort_order FROM inventory_uoms ORDER BY sort_order,name'),
     db.query('SELECT id,name,contact_person,contact_number,address,category,is_active FROM inventory_suppliers WHERE branch_id=? ORDER BY name',[b]),
     db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE branch_id=? ORDER BY sort_order,name',[b]),
-    db.query('SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at FROM inventory_movement_reasons ORDER BY name'),
+    db.query('SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at,branch_id FROM inventory_movement_reasons WHERE branch_id IS NULL OR branch_id=? ORDER BY is_system DESC,name', [b]),
   ])
   res.json({visit_reasons:visit[0],cancellation_reasons:cancel[0],service_categories:categories[0],uoms:uoms[0],suppliers:suppliers[0],location_types:types[0],movement_reasons:movements[0]})
 }
@@ -166,7 +166,7 @@ async function readInventoryMasterData(req,res){
  const category=['medical','derma'].includes(String(req.query.category||''))?String(req.query.category):null
  const [suppliers]=await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 AND branch_id=? ${category?"AND FIND_IN_SET(?,REPLACE(category,' ','')) > 0":''} ORDER BY name`,category?[req.branchId,category]:[req.branchId])
  const [types]=await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE branch_id=? ORDER BY is_active DESC,sort_order,name',[req.branchId])
- const [reasons]=await db.query("SELECT id,name,code,movement_type,requires_batch,is_system FROM inventory_movement_reasons WHERE is_active=1 ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name",[])
+ const [reasons]=await db.query("SELECT id,name,code,movement_type,requires_batch,is_system FROM inventory_movement_reasons WHERE is_active=1 AND (branch_id IS NULL OR branch_id=?) ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name",[req.branchId])
  res.json({suppliers,location_types:types,movement_reasons:reasons})
 }
 async function readInventoryLogs(req,res){
@@ -220,4 +220,5 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
   }
 }
 module.exports={registerBranchOperationalReads,readBills,readCashDrawer,readSystemSetup}
+
 

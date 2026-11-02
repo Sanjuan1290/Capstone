@@ -40,7 +40,8 @@ const supplierClinicLabel = (value) => {
 
 const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
   const referenceLocation = useLocation()
-  const globalReferenceReadOnly = type === 'movement_reasons' && !referenceLocation.pathname.startsWith('/superadmin/')
+  const superAdminMode = referenceLocation.pathname.startsWith('/superadmin/')
+  const canEditReference = (row) => type !== 'movement_reasons' || (superAdminMode ? row.branch_id == null : Number(row.branch_id) > 0)
   const toast = useToast()
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({})
@@ -92,7 +93,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
       plural: 'Movement Reasons',
       singular: 'movement reason',
       save: saveInventoryMovementReason,
-      description: 'Reusable reasons shown when recording Stock In or Stock Out. Built-in codes stay protected so existing inventory history remains valid.',
+      description: 'Add Stock In / Stock Out reasons for this clinic. Shared reasons are read-only. Changes to this clinic do not affect other branches.',
     },
   }[type]), [type])
 
@@ -205,7 +206,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
         </div>
         <div className="flex flex-wrap gap-2">
           {type === 'service_categories' && <Link className="button-secondary" to={`${portalBase}/system-setup/billing/services`}>Manage Services & Pricing</Link>}
-          {globalReferenceReadOnly ? <span className="text-xs text-slate-500">Managed centrally by Super Admin</span> : <button className="button-primary" onClick={() => open()}><MdAdd /> Add {config.title}</button>}
+          {<button type="button" className="button-primary" onClick={() => open()}><MdAdd /> {type === 'movement_reasons' && !superAdminMode ? 'Add Clinic Reason' : `Add ${config.title}`}</button>}
         </div>
       </div>
 
@@ -233,7 +234,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
             <tbody className="divide-y divide-slate-100">
               {pagination.pageItems.map((row) => (
                 <tr key={row.id}>
-                  <td className="px-5 py-4 font-semibold text-slate-800">{row.label || row.name}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-800">{row.label || row.name}{type === 'movement_reasons' && <span className="ml-2 text-xs font-normal text-slate-400">{row.branch_id == null ? 'Shared' : 'This clinic'}</span>}</td>
                   {type === 'cancellation_reasons' && <><td className="px-5 py-4 text-slate-500">{Number(row.appointment_count || 0)} appointment{Number(row.appointment_count || 0) === 1 ? '' : 's'}</td></>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.service_count || 0)} service{Number(row.service_count || 0) === 1 ? '' : 's'}</td>}
@@ -249,7 +250,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                   </td>
                   <td className="px-5 py-4 text-right">
                     <div className="inline-flex flex-wrap justify-end gap-2">
-                      {!globalReferenceReadOnly && <button className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button>}
+                      {canEditReference(row) ? <button type="button" className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button> : <span className="text-xs text-slate-500">{superAdminMode ? 'Managed by branch' : 'Shared · read only'}</span>}
                       {['service_categories','cancellation_reasons'].includes(type) && <button className="button-secondary !border-rose-200 !text-rose-600 hover:!bg-rose-50" onClick={() => requestDelete(row)}><MdDelete /> Delete</button>}
                     </div>
                   </td>

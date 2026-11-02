@@ -156,6 +156,71 @@ async function updateBranchClinicSettings(req,res){
  const [[global]]=await db.query('SELECT * FROM clinic_settings WHERE id=1')
  res.json({...global,clinic_name:name,address,phone,email})
 }
+
+// Branch-only Movement Reasons. Global defaults are read-only to branch admins.
+// Every write requires the existing system_setup grant and an authorized branch context.
+async function saveBranchMovementReason(req, res) {
+  const branchId = Number(req.branchId)
+  const id = Number(req.params.id || 0)
+  const name = String(req.body?.name || '').trim()
+  const movementType = String(req.body?.movement_type || '')
+  const requiresBatch = req.body?.requires_batch === true || Number(req.body?.requires_batch) === 1 ? 1 : 0
+  const isActive = active(req.body?.is_active, 1)
+  if (!safeId(branchId)) return res.status(403).json({ code: 'BRANCH_CONTEXT_REQUIRED', message: 'Select an authorized clinic branch.' })
+  if (req.params.id && !safeId(id)) return res.status(400).json({ message: 'Invalid movement reason.' })
+  if (!name || name.length > 120 || !['in', 'out'].includes(movementType)) {
+    return res.status(400).json({ message: 'Enter a reason name (up to 120 characters) and choose Stock In or Stock Out.' })
+  }
+  const conn = await db.getConnection()
+  try {
+    await conn.beginTransaction()
+    let prior = null
+    let targetId = id
+    if (id) {
+      [[prior]] = await conn.query('SELECT id,name,code,movement_type,requires_batch,is_active,branch_id FROM inventory_movement_reasons WHERE id=? AND branch_id=? FOR UPDATE', [id, branchId])
+      if (!prior) {
+        await conn.rollback()
+        return res.status(404).json({ code: 'MOVEMENT_REASON_NOT_OWNED', message: 'Only reasons created for this branch can be edited. Shared reasons are managed by Super Admin.' })
+      }
+      const [[nameCollision]] = await conn.query('SELECT id FROM inventory_movement_reasons WHERE branch_id=? AND id<>? AND LOWER(name)=LOWER(?) AND movement_type=? LIMIT 1', [branchId, id, name, movementType])
+      if (nameCollision) {
+        await conn.rollback()
+        return res.status(409).json({ code: 'DUPLICATE_MOVEMENT_REASON', message: 'This clinic already has a movement reason with that name.' })
+      }
+      if (movementType !== prior.movement_type) {
+        const [[usage]] = await conn.query('SELECT COUNT(*) total FROM inventory_logs WHERE branch_id=? AND movement_type=?', [branchId, prior.code])
+        if (Number(usage?.total || 0) > 0) {
+          await conn.rollback()
+          return res.status(409).json({ code: 'MOVEMENT_REASON_IN_USE', message: 'This reason was used in stock history. Its Stock In / Stock Out type cannot be changed.' })
+        }
+      }
+      await conn.query('UPDATE inventory_movement_reasons SET name=?,movement_type=?,requires_batch=?,is_active=? WHERE id=? AND branch_id=?', [name, movementType, requiresBatch, isActive, id, branchId])
+    } else {
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 58)
+      if (!slug) {
+        await conn.rollback()
+        return res.status(400).json({ message: 'Use letters or numbers in the reason name.' })
+      }
+      const code = `b${branchId}_${slug}`
+      const [[duplicate]] = await conn.query('SELECT id FROM inventory_movement_reasons WHERE branch_id=? AND (code=? OR (LOWER(name)=LOWER(?) AND movement_type=?)) LIMIT 1', [branchId, code, name, movementType])
+      if (duplicate) {
+        await conn.rollback()
+        return res.status(409).json({ code: 'DUPLICATE_MOVEMENT_REASON', message: 'This clinic already has a movement reason with that name.' })
+      }
+      const [created] = await conn.query('INSERT INTO inventory_movement_reasons (name,code,movement_type,requires_batch,is_system,is_active,branch_id) VALUES (?,?,?,?,0,?,?)', [name, code, movementType, requiresBatch, isActive, branchId])
+      targetId = Number(created.insertId)
+    }
+    const [[saved]] = await conn.query('SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at,branch_id FROM inventory_movement_reasons WHERE id=? AND branch_id=?', [targetId, branchId])
+    await writeAuditLog({userId:req.user.id, userRole:req.adminContext?.account_role||'admin', branchId, action:id?'system.movement_reason_updated':'system.movement_reason_created', entityType:'inventory_movement_reason',entityId:targetId,oldValues:prior,newValues:saved,ipAddress:req.ip||null}, conn)
+    await conn.commit()
+    res.status(id ? 200 : 201).json(saved)
+  } catch(error) {
+    await conn.rollback().catch(()=>{})
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({message:'This clinic already has that movement reason.'})
+    throw error
+  } finally {conn.release()}
+}
+const safeBranchMovementReason=(req,res,next)=>Promise.resolve(saveBranchMovementReason(req,res)).catch(next)
 function registerBranchExtraSetup(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const guard=[...middle,requirePermission('system_setup')]
@@ -164,6 +229,10 @@ function registerBranchExtraSetup(router,{requireSuper,branchContext,requirePerm
   router.post(`${prefix}/system-setup/location-types`,...guard,afterSuccessfulMutation('settings.updated'),saveBranchLocationType)
   router.put(`${prefix}/system-setup/location-types/:id`,...guard,afterSuccessfulMutation('settings.updated'),saveBranchLocationType)
   router.put(`${prefix}/clinic-settings`,...guard,afterSuccessfulMutation('settings.updated'),updateBranchClinicSettings)
+  if (prefix === '/my/legacy') {
+    router.post(`${prefix}/system-setup/movement-reasons`,...guard,afterSuccessfulMutation('settings.updated'),safeBranchMovementReason)
+    router.put(`${prefix}/system-setup/movement-reasons/:id`,...guard,afterSuccessfulMutation('settings.updated'),safeBranchMovementReason)
+  }
  }
 }
 module.exports.registerBranchExtraSetup=registerBranchExtraSetup
@@ -172,3 +241,5 @@ module.exports.saveBranchLocationType=saveBranchLocationType
 module.exports.updateBranchClinicSettings=updateBranchClinicSettings
 
 
+
+module.exports.saveBranchMovementReason=saveBranchMovementReason

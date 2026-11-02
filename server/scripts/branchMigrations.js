@@ -53,6 +53,7 @@ const migrationFiles = [
   '2026-11-02-handwritten-prescription-documents.sql',
   '2026-11-02-audit-context.sql',
   '2026-11-02-inventory-excel-receipts.sql',
+  '2026-11-02-branch-movement-reasons.sql',
 ]
 
 const schemaMigrationsSql = [

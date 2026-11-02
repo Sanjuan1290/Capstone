@@ -1748,8 +1748,8 @@ const getInventoryMasterData = async (req, res) => {
   const [suppliers] = await db.query(`SELECT id,name,category FROM inventory_suppliers WHERE is_active=1 AND branch_id=? ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name`, category ? [req.branchId,category] : [req.branchId])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types WHERE branch_id=? AND is_active=1 ORDER BY sort_order,name',[req.branchId])
   const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
-                                            FROM inventory_movement_reasons WHERE is_active=1
-                                            ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`)
+                                            FROM inventory_movement_reasons WHERE is_active=1 AND (branch_id IS NULL OR branch_id=?)
+                                            ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`, [Number(req.branchId) || 0])
   res.json({ suppliers, location_types: locationTypes, movement_reasons: movementReasons })
 }
 
@@ -2103,6 +2103,7 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

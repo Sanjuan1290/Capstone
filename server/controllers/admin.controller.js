@@ -2621,8 +2621,8 @@ const getInventoryMasterData = async (req, res) => {
   const [suppliers] = await db.query(`SELECT id,name,contact_person,contact_number,address,category FROM inventory_suppliers WHERE is_active=1 ${category ? "AND FIND_IN_SET(?, REPLACE(category,' ','')) > 0" : ''} ORDER BY name ASC`, category ? [category] : [])
   const [locationTypes] = await db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY is_active DESC,sort_order,name')
   const [movementReasons] = await db.query(`SELECT id,name,code,movement_type,requires_batch,is_system
-                                            FROM inventory_movement_reasons WHERE is_active=1
-                                            ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`)
+                                            FROM inventory_movement_reasons WHERE is_active=1 AND (branch_id IS NULL OR branch_id=?)
+                                            ORDER BY FIELD(movement_type,'in','out'),is_system DESC,name ASC`, [Number(req.branchId) || 0])
   res.json({ suppliers, location_types: locationTypes, movement_reasons: movementReasons })
 }
 
@@ -3767,6 +3767,7 @@ const getSystemSetup = async (req, res) => {
     db.query('SELECT id,name,code,is_active,sort_order FROM inventory_location_types ORDER BY sort_order,name'),
     db.query(`SELECT id,name,code,movement_type,requires_batch,is_system,is_active,created_at
               FROM inventory_movement_reasons
+              WHERE branch_id IS NULL
               ORDER BY FIELD(movement_type,'in','out'), is_system DESC, name ASC`),
   ])
   res.json({
@@ -4073,7 +4074,7 @@ const saveInventoryMovementReason = async (req, res) => {
 
     if (id) {
       const [[existing]] = await conn.query(
-        'SELECT id,name,code,movement_type,requires_batch,is_system,is_active FROM inventory_movement_reasons WHERE id=? FOR UPDATE',
+        'SELECT id,name,code,movement_type,requires_batch,is_system,is_active FROM inventory_movement_reasons WHERE id=? AND branch_id IS NULL FOR UPDATE',
         [id]
       )
       if (!existing) { await conn.rollback(); return res.status(404).json({ message: 'Movement reason not found.' }) }
@@ -4100,7 +4101,7 @@ const saveInventoryMovementReason = async (req, res) => {
       }
       if (!isActive && Number(existing.is_active) === 1) {
         const [[remaining]] = await conn.query(
-          'SELECT COUNT(*) AS total FROM inventory_movement_reasons WHERE movement_type=? AND is_active=1 AND id<>?',
+          'SELECT COUNT(*) AS total FROM inventory_movement_reasons WHERE movement_type=? AND is_active=1 AND branch_id IS NULL AND id<>?',
           [movementType,id]
         )
         if (Number(remaining?.total || 0) === 0) {
@@ -4110,7 +4111,7 @@ const saveInventoryMovementReason = async (req, res) => {
       }
 
       await conn.query(
-        'UPDATE inventory_movement_reasons SET name=?,movement_type=?,requires_batch=?,is_active=? WHERE id=?',
+        'UPDATE inventory_movement_reasons SET name=?,movement_type=?,requires_batch=?,is_active=? WHERE id=? AND branch_id IS NULL',
         [name,movementType,requiresBatch,isActive,id]
       )
     } else {
