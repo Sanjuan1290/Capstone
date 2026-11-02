@@ -79,8 +79,8 @@ const Admin_BillingReconciliation = () => {
     <div className="mx-auto w-full max-w-7xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPointOfSale className="text-amber-500" /> Daily Cash Reconciliation</h1>
-          <p className="mt-1 text-sm text-slate-500">Money collected on one day and each cashier's counted cash. Voids and refunds count on the day they were recorded.</p>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPointOfSale className="text-amber-500" /> End-of-Day Cash</h1>
+          <p className="mt-1 text-sm text-slate-500">At the end of each shift, compare the money the system expects with the cash you counted. Refunds and voids appear on their recorded dates.</p>
         </div>
         <div className="flex items-end gap-2">
           <label><span className="form-label">Date</span><input type="date" className="form-control mt-1.5" value={date} max={getLocalDateOnly()} onChange={(e) => setDate(e.target.value)} /></label>
@@ -107,7 +107,7 @@ const Admin_BillingReconciliation = () => {
           </div>
 
           <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-black text-slate-900">Cashiers</h2><p className="mt-1 text-xs text-slate-500">Cash each cashier received, and their end-of-day count.</p></div>
+            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-black text-slate-900">Cashier Drawer Counts</h2><p className="mt-1 text-xs text-slate-500">Check each cashier’s counted cash against the recorded collections.</p></div>
             {cashierRows.length === 0 ? <p className="p-5 text-sm text-slate-500">No payments or cash counts on this day.</p> : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
@@ -144,7 +144,7 @@ const Admin_BillingReconciliation = () => {
           </section>
 
           <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-black text-slate-900">By Payment Method</h2></div>
+            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-black text-slate-900">Payments by Method</h2></div>
             {!paymentMethods ? <p className="p-5 text-sm text-amber-700">Payment method details could not be displayed. Refresh to try again.</p> : paymentMethods.length === 0 ? <p className="p-5 text-sm text-slate-500">No money movement on this day.</p> : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">

@@ -113,7 +113,7 @@ const Admin_Billing = () => {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPayments className="text-amber-500" /> Billing</h1>
-          <p className="mt-1 text-sm text-slate-500">Process patient checkout and monitor collections, balances, transactions, and billing adjustments from one workspace.</p>
+          <p className="mt-1 text-sm text-slate-500">Find a patient, check their bill, record a verified payment, and print a receipt. Other billing tasks are in the menu below.</p>
         </div>
         {activeTab === 'overview' && <button type="button" onClick={load} className="button-secondary"><MdRefresh /> Refresh Overview</button>}
       </div>

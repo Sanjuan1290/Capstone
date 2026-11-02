@@ -13,7 +13,7 @@ import { formatDateOnly } from '../../utils/date'
 import { branchPortalPath } from '../../utils/branchPortalPath.mjs'
 
 const STATUS_OPTIONS = [
-  ['', 'All Statuses'], ['draft', 'Needs Review'], ['ready', 'Ready to Collect'], ['partially_paid', 'Balance Remaining'], ['paid', 'Completed'], ['refunded', 'Refunded'], ['voided', 'Voided'],
+  ['', 'Any status'], ['draft', 'Needs Review'], ['ready', 'Ready to Collect'], ['partially_paid', 'Balance Remaining'], ['paid', 'Completed'], ['refunded', 'Refunded'], ['voided', 'Voided'],
 ]
 
 const Admin_BillingTransactions = () => {
@@ -71,17 +71,17 @@ const Admin_BillingTransactions = () => {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdReceiptLong className="text-amber-500" /> Transactions</h1><p className="mt-1 text-sm text-slate-500">Search and review the complete billing history. Open a transaction for receipts, refunds, and void actions.</p></div><button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdReceiptLong className="text-amber-500" /> Bills & Receipts</h1><p className="mt-1 text-sm text-slate-500">Search bills by patient or bill number. Open a bill to view its receipt, payments, balance, and any approved corrections.</p></div><button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
       <AdminBillingNav pendingApprovals={pendingApprovals} />
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_230px]">
           <label className="relative xl:col-span-2"><MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="form-control pl-10" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Patient, doctor, bill #..." />{search && <button type="button" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><MdClose /></button>}</label>
           <select className="form-control" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>{STATUS_OPTIONS.map(([value, label]) => <option key={label} value={value}>{label}</option>)}</select>
-          <select className="form-control" value={paymentMethod} onChange={(e) => { setPaymentMethod(e.target.value); setPage(1) }}><option value="">All Methods</option><option value="cash">Cash</option><option value="gcash">GCash</option><option value="maya">Maya</option><option value="bank_transfer">Bank Transfer</option></select>
+<details className="md:col-span-2 rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer text-sm font-semibold text-slate-700">More filters — payment method and dates</summary><div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><select className="form-control" value={paymentMethod} onChange={(e) => { setPaymentMethod(e.target.value); setPage(1) }}><option value="">All Methods</option><option value="cash">Cash</option><option value="gcash">GCash</option><option value="maya">Maya</option><option value="bank_transfer">Bank Transfer</option></select>
           <select className="form-control" value={dateBasis} onChange={(e) => { setDateBasis(e.target.value); setPage(1) }} aria-label="Date basis"><option value="visit">Visit Date</option><option value="payment">Payment Date</option><option value="finalized">Bill Finalized Date</option></select>
           <input type="date" className="form-control" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} aria-label="Date from" />
-          <input type="date" className="form-control" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="Date to" />
+          <input type="date" className="form-control" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="Date to" /></div></details>
         </div>
         {(search || status || paymentMethod || dateBasis !== 'visit' || dateFrom || dateTo) && <div className="mt-3 flex justify-end"><button type="button" className="text-xs font-bold text-slate-500 hover:text-slate-800" onClick={clearFilters}>Clear filters</button></div>}
       </section>
