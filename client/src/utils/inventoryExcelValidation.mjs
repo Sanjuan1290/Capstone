@@ -81,6 +81,55 @@ export const MAX_INVENTORY_IMPORT_BATCH = 200
 const validCost = v => v!=='' && Number.isFinite(Number(v)) && Number(v)>=0 && Number(v)<=99999999 && Math.abs(Number(v)*100-Math.round(Number(v)*100))<0.000001
 const isAllowedExpiry = value => iso(value) && value >= new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'})
 
+
+// The single-sheet layout has one row per opening batch and may repeat an Item
+// Name. Group rows before calling the existing validated, atomic create API.
+// Do not count Initial Stock separately from opening_batches (stock always 0).
+export function preflightInventorySingleSheetCreate(rows,options={}){
+  const groups=new Map()
+  const rowErrors=[]
+  const norm=v=>String(v??'').trim().toLocaleLowerCase('en')
+  const metadata=['Category','Selling Price','Low Stock Alert','Supplier','Stock Room']
+  for(const row of rows){
+    const name=String(row['Item Name']??'').trim(),key=norm(name)
+    const rowNumber=row._excelRow||0
+    if(!groups.has(key))groups.set(key,{base:row,rows:[],batches:[],seenBatches:new Set()})
+    const group=groups.get(key)
+    const errors=[]
+    if(group.rows.length && metadata.some(field=>norm(row[field])!==norm(group.base[field])))
+      errors.push('Repeated Item Name must have the same category, price, alert, supplier and stock room as its first row.')
+    const qty=String(row['Initial Stock']??'').trim()
+    const expiry=String(row['Expiration Date']??'').trim()
+    const cost=String(row['Unit Cost']??'').trim()
+    const lot=String(row['Lot Number']??'').trim()
+    if(!requireWhole(qty))errors.push('Initial Stock must be a whole number (0 or more).')
+    else if(Number(qty)>0){
+      // The legacy batch preflight validates expiry, supplier, room and unit cost.
+      const signature=[expiry,lot,cost,norm(row.Supplier),norm(row['Stock Room']),qty].join('|')
+      if(group.seenBatches.has(signature))errors.push('This opening batch row is duplicated. Remove the duplicate to prevent counting stock twice.')
+      group.seenBatches.add(signature)
+      group.batches.push({
+        'Item Name':group.base['Item Name'],'Quantity':qty,'Expiration Date':expiry,
+        'Supplier Lot Number':lot,'Unit Cost':cost,'Stock Room':row['Stock Room'],
+        'Supplier':row.Supplier,_excelRow:rowNumber,
+      })
+    }else if(expiry || lot || cost){
+      errors.push('A row with zero Initial Stock must leave Expiration Date, Lot Number and Unit Cost blank.')
+    }
+    if(errors.length)rowErrors.push({row:rowNumber,sheet:'Inventory',name,action:'create',errors,changed:false})
+    group.rows.push(row)
+  }
+  const uniqueItems=[...groups.values()].map(g=>({
+    'Item Name':g.base['Item Name'],'Category':g.base.Category,
+    'Selling Price':g.base['Selling Price'],'Low Stock Alert':g.base['Low Stock Alert'],
+    'Supplier':g.base.Supplier,'Stock Room':g.base['Stock Room'],
+    'Initial Stock (calculated)':'',_excelRow:g.base._excelRow,
+  }))
+  const openingBatches=[...groups.values()].flatMap(g=>g.batches)
+  const created=preflightInventoryCreate(uniqueItems,{...options,openingBatches}).map(r=>({...r,sheet:'Inventory'}))
+  return [...created,...rowErrors]
+}
+
 export function preflightInventoryCreate(rows,{items=[],stockRooms=[],suppliers=[],openingBatches=[]}={}) {
   const seen=new Set()
   const knownItems=new Set(rows.map(r=>normalizedName(r['Item Name'])))
@@ -212,4 +261,5 @@ export function preflightInventoryBulkEdit(rows,{items=[]}={}) {
     return {row:row._excelRow||0,name:item?.name||name,action:'update',existing:item,payload,errors,changed:Object.keys(changes).length>0,fieldChanges,alreadyApplied,before:item&&{selling_price:item.selling_price??item.price,threshold:item.threshold}}
   })
 }
+
 

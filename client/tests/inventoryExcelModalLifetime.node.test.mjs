@@ -34,13 +34,14 @@ test('preview closes only with explicit cancel or successful save', () => {
 })
 
 test('file cancel, parse errors, and completed imports release refresh pause', () => {
-  assert.match(tools, /onCancel=\{\(\) => onWorkflowChange\?\.\(false\)\}/)
+  assert.match(tools, /onCancel=\{\(\)=>onWorkflowChange\?\.\(false\)\}/)
   assert.match(tools, /Could not read the Excel file[\s\S]*?onWorkflowChange\?\.\(false\)/)
   assert.match(tools, /setPreview\(null\); setConfirmed\(false\)\s*onWorkflowChange\?\.\(false\)\s*try\s*\{\s*await onUpdated/)
 })
 
 test('bulk Excel updates still cannot mutate stock or batches', () => {
-  assert.match(tools, /Only the two New columns can change the current selling price or low-stock alert/)
+  assert.match(tools, /Only New Selling Price and New Low Stock Alert can change/)
   assert.match(tools, /services\.bulkUpdateInventoryItems\(payload\)/)
   assert.doesNotMatch(tools, /services\.updateStock\(/)
 })
+

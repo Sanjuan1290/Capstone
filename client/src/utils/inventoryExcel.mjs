@@ -7,6 +7,7 @@ export const INVENTORY_HEADERS = ['Item Name', 'Selling Price', 'Initial Stock',
 // Separate workbooks make stock fields impossible to confuse with metadata edits.
 export const INVENTORY_CREATE_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Low Stock Alert', 'Supplier', 'Stock Room', 'Initial Stock (calculated)']
 export const INVENTORY_OPENING_BATCH_HEADERS = ['Item Name', 'Quantity', 'Expiration Date', 'Supplier Lot Number', 'Unit Cost', 'Stock Room', 'Supplier']
+export const INVENTORY_NEW_ITEM_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Initial Stock', 'Expiration Date', 'Low Stock Alert', 'Supplier', 'Stock Room', 'Lot Number', 'Unit Cost']
 export const INVENTORY_RECEIVE_HEADERS = ['Receipt Reference', 'Item ID', 'Barcode', 'Item Name', 'Quantity', 'Expiration Date', 'Supplier Lot Number', 'Unit Cost', 'Stock Room', 'Supplier']
 export const INVENTORY_BULK_EDIT_HEADERS = [
   'Item ID', 'Barcode', 'Item Name', 'Current Selling Price', 'New Selling Price',
@@ -40,29 +41,48 @@ const zipStored = (entries) => {
   for(const b of [...local,...central,end]){full.set(b,pos);pos+=b.length}
   return full
 }
-const worksheetXml=(headers,rows)=>{
+const inlineListValidation=(label,headers,values)=>{
+  const index=headers.indexOf(label)
+  const entries=[...new Set(values.map(v=>String(v??'').trim()).filter(v=>v&&!v.includes(',')&&!v.includes('"')))]
+  const content=entries.join(',')
+  if(index<0||!content||content.length>240)return ''
+  const letter=columnCode(index)
+  return `<dataValidation type="list" allowBlank="1" showErrorMessage="1" errorTitle="Invalid value" error="Select a value from the list" sqref="${letter}2:${letter}1001"><formula1>${escapeXml('"'+content+'"')}</formula1></dataValidation>`
+}
+const worksheetXml=(headers,rows,{readOnly=false,styled=false,validations={}}={})=>{
   const all=[headers,...rows];const body=all.map((row,ri)=>`<row r="${ri+1}">${headers.map((_,ci)=>{
     const v=row[ci];if(v===null||v===undefined||v==='')return ''
     const ref=`${columnCode(ci)}${ri+1}`
-    return typeof v==='number'&&Number.isFinite(v)?`<c r="${ref}"><v>${v}</v></c>`:`<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(v)}</t></is></c>`
+    return typeof v==='number'&&Number.isFinite(v)?`<c r="${ref}"${styled&&ri===0?' s="1"':''}><v>${v}</v></c>`:`<c r="${ref}"${styled&&ri===0?' s="1"':''} t="inlineStr"><is><t xml:space="preserve">${escapeXml(v)}</t></is></c>`
   }).join('')}</row>`).join('')
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${columnCode(headers.length-1)}${all.length}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="38" customWidth="1"/><col min="2" max="${headers.length}" width="19" customWidth="1"/></cols><sheetData>${body}</sheetData><autoFilter ref="A1:${columnCode(headers.length-1)}${all.length}"/></worksheet>`
+  const rules=Object.entries(validations).map(([label,choices])=>inlineListValidation(label,headers,choices)).filter(Boolean)
+  const validationXml=rules.length?`<dataValidations count="${rules.length}">${rules.join('')}</dataValidations>`:''
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${columnCode(headers.length-1)}${all.length}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="29" customWidth="1"/><col min="2" max="${headers.length}" width="21" customWidth="1"/></cols><sheetData>${body}</sheetData>${readOnly ? '<sheetProtection sheet="1" objects="1" scenarios="1" autoFilter="0" sort="0"/>' : ''}<autoFilter ref="A1:${columnCode(headers.length-1)}${all.length}"/>${validationXml}</worksheet>`
 }
-export const makeInventoryXlsx = (rows=[], headers=INVENTORY_HEADERS) => {
+const stylesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF183153"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="1" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf></cellXfs></styleSheet>`
+export const makeInventoryXlsx = (rows=[], headers=INVENTORY_HEADERS, options={}) => {
   if(rows.length>MAX_ROWS)throw new Error('Too many inventory rows for one workbook.')
   const entries=[
-    ['[Content_Types].xml',`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`],
+    ['[Content_Types].xml',`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>${options.styled ? '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' : ''}</Types>`],
     ['_rels/.rels',`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
     ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Inventory" sheetId="1" r:id="rId1"/></sheets></workbook>`],
-    ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`],
-    ['xl/worksheets/sheet1.xml',worksheetXml(headers,rows)],
+    ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>${options.styled ? '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' : ''}</Relationships>`],
+    ['xl/worksheets/sheet1.xml',worksheetXml(headers,rows,options)],
+    ...(options.styled ? [['xl/styles.xml',stylesXml]] : []),
   ]
   return new Blob([zipStored(entries)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
 }
 
-// Two worksheets make opening quantities come from actual batches. A product's
-// first-sheet Initial Stock is a computed preview and never sent as another stock
-// movement; that avoids doubling the receipt quantity.
+// New item imports use exactly one visible Inventory sheet. Each spreadsheet row
+// is one opening batch; repeated item names share one catalog record. The API
+// still receives stock:0 plus verified opening_batches, never a summed stock edit.
+export const makeInventoryNewItemsTemplate = ({stockRooms=[],suppliers=[]}={}) => makeInventoryXlsx([], INVENTORY_NEW_ITEM_HEADERS, {
+  styled:true,validations:{
+    'Category':['General Medicine','Dermatology'],
+    'Stock Room':stockRooms.filter(r=>Number(r.is_active??1)===1).map(r=>r.name),
+    'Supplier':suppliers.filter(r=>Number(r.is_active??1)===1).map(r=>r.name),
+  },
+})
 export const makeInventoryOpeningWorkbook = () => makeInventoryWorkbook([
   {name:'Items',headers:INVENTORY_CREATE_HEADERS,rows:[]},
   {name:'Opening Batches',headers:INVENTORY_OPENING_BATCH_HEADERS,rows:[]},
@@ -173,11 +193,18 @@ const xmlDoc=xml=>{
 const byTag=(node,name)=>[...node.getElementsByTagNameNS('*',name)]
 const excelDate=serial=>{const stamp=Date.UTC(1899,11,30)+Number(serial)*86400000;return Number.isFinite(stamp)?new Date(stamp).toISOString().slice(0,10):''}
 export const readInventoryFile=async (file,{ mode = 'legacy' }={})=>{
+  const requestedMode=mode
+  if(mode==='import' && !/\.xlsx$/i.test(file.name))throw new Error('Upload an .xlsx file downloaded from CARAIT Inventory Excel Tools.')
   if(file.size>MAX_BYTES)throw new Error('Maximum spreadsheet size is 6 MB.')
   let grid
   if(/\.csv$/i.test(file.name))grid=toCSV(await file.text())
   else if(/\.xlsx$/i.test(file.name)){
     const zip=await readZip(new Uint8Array(await file.arrayBuffer()))
+    if(mode==='import'){
+      const book=xmlDoc(zip.get('xl/workbook.xml')||'<workbook/>')
+      const names=byTag(book,'sheet').map(el=>el.getAttribute('name'))
+      if(names.length!==1||names[0]!=='Inventory') throw new Error('Use a one-sheet CARAIT Inventory workbook. Old two-sheet opening batch templates cannot be uploaded.')
+    }
     const sheet=zip.get('xl/worksheets/sheet1.xml');if(!sheet)throw new Error('The Excel file needs an Inventory sheet as the first worksheet.')
     const shared=zip.has('xl/sharedStrings.xml')?byTag(xmlDoc(zip.get('xl/sharedStrings.xml')),'si').map(si=>byTag(si,'t').map(x=>x.textContent).join('')):[]
     const doc=xmlDoc(sheet)
@@ -200,7 +227,15 @@ export const readInventoryFile=async (file,{ mode = 'legacy' }={})=>{
     .filter(({cells})=>cells.some(value=>String(value??'').trim()))
   const [head,...body]=records
   const headers=(head?.cells||[]).map(value=>String(value??'').trim().toLowerCase().replace(/\s+/g,' '))
-  const expectedHeaders = mode==='create' ? INVENTORY_CREATE_HEADERS : mode==='edit' ? INVENTORY_BULK_EDIT_HEADERS : mode==='receive' ? INVENTORY_RECEIVE_HEADERS : INVENTORY_HEADERS
+  // Upload File accepts only our one-sheet new-item template or an editable
+  // export. Read-only reports, receipt templates and old two-sheet files fail.
+  if(mode==='import') {
+    const same = expected => headers.length===expected.length && expected.every(h=>headers.includes(h.toLowerCase()))
+    if(same(INVENTORY_NEW_ITEM_HEADERS)) mode='new'
+    else if(same(INVENTORY_BULK_EDIT_HEADERS)) mode='edit'
+    else throw new Error('This file is not an Import template or editable Export. Download a fresh template or use Export Editable Excel. Inventory reports cannot be uploaded.')
+  }
+  const expectedHeaders = mode==='new' ? INVENTORY_NEW_ITEM_HEADERS : mode==='create' ? INVENTORY_CREATE_HEADERS : mode==='edit' ? INVENTORY_BULK_EDIT_HEADERS : mode==='receive' ? INVENTORY_RECEIVE_HEADERS : INVENTORY_HEADERS
   const required = expectedHeaders.map(label=>label.toLowerCase())
   if(required.some(key=>!headers.includes(key)))throw new Error(`Missing columns: ${required.filter(key=>!headers.includes(key)).join(', ')}. Download the matching CARAIT template.`)
   if(headers.some((h,i)=>h && headers.indexOf(h)!==i))throw new Error('Duplicate Excel column headers found. Use exactly one column for each field.')
@@ -210,12 +245,14 @@ export const readInventoryFile=async (file,{ mode = 'legacy' }={})=>{
   }
   if(body.length>MAX_ROWS)throw new Error('Maximum 2,000 items per spreadsheet.')
   const outputHeaders=mode==='legacy'?INVENTORY_BULK_EDIT_HEADERS:expectedHeaders
-  return body.map(({cells,excelRow})=>Object.fromEntries(outputHeaders.map(header=>{
+  const rows=body.map(({cells,excelRow})=>Object.fromEntries(outputHeaders.map(header=>{
     const idx=headers.indexOf(header.toLowerCase());let value=idx<0?'':String(cells[idx]??'').trim()
     if(header==='Expiration Date'&&/^\d{5}(?:\.\d+)?$/.test(value))value=excelDate(value)
     return [header,value]
   }).concat([['_excelRow',excelRow]])))
+  return requestedMode==='import' ? {mode,rows} : rows
 }
+export const readInventoryImportFile = file => readInventoryFile(file,{mode:'import'})
 export const asInventoryRow = (item,rooms,kind='view')=>{
   const room=rooms.find(x=>Number(x.id)===Number(item.default_location_id))
   const expiry=(item.batches||[]).filter(x=>Number(x.quantity)>0&&x.expiration_date).map(x=>String(x.expiration_date).slice(0,10)).sort()[0]||''
@@ -233,4 +270,5 @@ export const asInventoryBulkEditRow = (item) => [
   item.id, item.barcode || '', item.name || '', Number(item.selling_price ?? item.price ?? 0), '',
   Number(item.threshold ?? 0), '',
 ]
+
 
