@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { MdArrowForward, MdMedicalServices, MdFace, MdRefresh, MdExpandMore, MdExpandLess } from 'react-icons/md'
+import { MdArrowForward, MdMedicalServices, MdFace, MdRefresh } from 'react-icons/md'
 import { getBookingServices } from '../../services/patient.service'
 import { formatPublicServicePrice, listServicesForCategory } from '../../utils/patientServicePresentation.mjs'
+import { paginatePatientServices } from '../../utils/patientServicePagination.mjs'
+import Pagination from '../ui/Pagination'
 
 const clinicLabel = value => value === 'derma' ? 'Dermatology' : value === 'medical' ? 'General Medicine' : 'Clinic Service'
 const motion = 'transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none'
@@ -21,9 +23,9 @@ export default function PatientServices({ branchId }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [category, setCategory] = useState('all')
-  const [expanded, setExpanded] = useState(false)
   const [page, setPage] = useState(1)
   const currentBranch = useRef(branchId)
+  const sectionRef = useRef(null)
   currentBranch.current = branchId
 
   const load = useCallback(async () => {
@@ -36,7 +38,7 @@ export default function PatientServices({ branchId }) {
       if (currentBranch.current === branchId) { setError(err.message || 'Unable to load services.'); setServices([]) }
     } finally { if (currentBranch.current === branchId) setLoading(false) }
   }, [branchId])
-  useEffect(() => { setServices([]); setCategory('all'); setExpanded(false); setPage(1); void load() }, [load])
+  useEffect(() => { setServices([]); setCategory('all'); setPage(1); void load() }, [load])
   useEffect(() => {
     const onUpdate = event => { if (['service.updated', 'stream.reconnected'].includes(event.detail?.eventName)) void load() }
     window.addEventListener('clinic:refresh', onUpdate)
@@ -44,13 +46,17 @@ export default function PatientServices({ branchId }) {
   }, [load])
 
   const visible = listServicesForCategory(services, category)
-  const pageSize = expanded ? 6 : 4
-  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const pageItems = visible.slice((safePage - 1) * pageSize, safePage * pageSize)
+  // All Services lists every bookable service for this branch, across every page.
+  // Filter tabs use the same paging behavior so no matching service is hidden.
+  const { pageItems, pageCount, safePage, pageSize } = paginatePatientServices(visible, page)
+  const goToPage = nextPage => {
+    setPage(nextPage)
+    // Page controls sit below the cards; bring the new page back into view.
+    sectionRef.current?.scrollIntoView({ block: 'start', behavior: 'auto' })
+  }
 
-  return <section className="space-y-4" aria-label="Available clinic services">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-black text-slate-900 dark:text-white">Available Services</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Book a service offered at your selected clinic.</p></div>{visible.length > 4 && <button type="button" aria-expanded={expanded} onClick={() => { setExpanded(value => !value); setPage(1) }} className="inline-flex min-h-11 items-center gap-1 text-sm font-bold text-emerald-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700 dark:text-emerald-300">{expanded ? <>Show Fewer <MdExpandLess aria-hidden="true"/></> : <>View All Services <MdExpandMore aria-hidden="true"/></>}</button>}</div>
+  return <section ref={sectionRef} className="scroll-mt-24 space-y-4" aria-label="Available clinic services">
+    <div><h2 className="text-xl font-black text-slate-900 dark:text-white">Available Services</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Browse all available services at your selected clinic. Use the filters or page controls below.</p></div>
     <div className="flex flex-wrap gap-2" role="group" aria-label="Filter services by category">{[['all', 'All Services'], ['medical', 'General Medicine'], ['derma', 'Dermatology']].map(([id, label]) => <button key={id} type="button" aria-pressed={category === id} onClick={() => { setCategory(id); setPage(1) }} className={`min-h-11 rounded-full border px-4 text-sm font-semibold transition-colors duration-200 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700 ${category === id ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'}`}>{label}</button>)}</div>
     {loading ? <div role="status" aria-label="Loading clinic services" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map(n => <div key={n} className="h-44 animate-pulse rounded-2xl bg-slate-200 motion-reduce:animate-none dark:bg-slate-800"/>)}</div> : error ? <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-5"><p className="text-sm text-rose-800">We couldn't load available services. {error}</p><button className="mt-3 inline-flex min-h-11 items-center gap-1 text-sm font-bold text-rose-800 underline" type="button" onClick={load}><MdRefresh aria-hidden="true"/> Try Again</button></div> : !visible.length ? <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">No online-bookable services are listed in this category at this clinic. Select another category or contact the clinic.</div> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{pageItems.map(service => {
       const Icon = service.clinic_type === 'derma' ? MdFace : MdMedicalServices
@@ -59,7 +65,7 @@ export default function PatientServices({ branchId }) {
         <div className="mt-auto border-t border-slate-100 pt-4 dark:border-slate-700"><p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Service price: <strong>{formatPublicServicePrice(service)}</strong></p><NavLink to={serviceBookingPath(service,branchId)} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white transition-colors hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">{service.clinic_type === 'all' ? 'Choose Clinic & Book' : 'Book This Service'} <MdArrowForward aria-hidden="true"/></NavLink></div>
       </article>
     })}</div>}
-    {expanded && !loading && !error && visible.length > pageSize && <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-600 dark:text-slate-300">Showing {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, visible.length)} of {visible.length} services</p><div className="flex items-center gap-2"><button type="button" className="button-secondary" disabled={safePage <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</button><span className="text-sm">Page {safePage} of {pageCount}</span><button type="button" className="button-secondary" disabled={safePage >= pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))}>Next</button></div></div>}
+    {!loading && !error && visible.length > 0 && <nav aria-label="Available services pagination" className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"><Pagination page={safePage} totalPages={pageCount} total={visible.length} pageSize={pageSize} onPageChange={goToPage}/></nav>}
   </section>
 }
 
