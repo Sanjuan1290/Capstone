@@ -15,7 +15,7 @@
     "diagnose:consultation": "node scripts/diagnoseConsultationSchema.js",
     "verify:source": "node scripts/verifySourceGraph.js",
     "test:checkout": "node --test tests/checkouts/reopen-editing.node.cjs",
-    "pretest": "npm run verify:source",
+    "pretest": "npm run verify:source && npm run check:pricing-contract",
     "test:node": "node scripts/runNodeRegressionTests.js",
     "verify:reports-sql": "node scripts/verifyBranchReportsSql.js",
     "verify:runtime": "node scripts/verifyRuntimeReadOnly.js",
@@ -24,7 +24,8 @@
     "test:all": "npm test && npm run test:node",
     "check:syntax": "node scripts/verifyServerSyntax.js",
     "postinstall": "node scripts/verifyServerSyntax.js && node scripts/verifyCriticalRouteBindings.js",
-    "check:routes": "node scripts/verifyCriticalRouteBindings.js"
+    "check:routes": "node scripts/verifyCriticalRouteBindings.js",
+    "check:pricing-contract": "node --test tests/billing/servicePricingContract.node.test.cjs"
   },
   "keywords": [],
   "author": "",

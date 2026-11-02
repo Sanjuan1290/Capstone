@@ -62,7 +62,7 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     expect(inventory).not.toContain('Use Auto Code')
   })
 
-  it('keeps Service Price separate from calculated patient total and restricts pricing changes to Admin', () => {
+  it('shows total patient price while keeping the base fee separate and pricing changes Admin-only', () => {
     const catalog = read('client', 'src', 'pages', 'adminPage', 'Admin_BillingCatalog.jsx')
     const serviceForm = read('client', 'src', 'pages', 'adminPage', 'Admin_BillingServiceForm.jsx')
     const inventory = read('client', 'src', 'pages', 'shared', 'Inventory.jsx')
@@ -70,8 +70,11 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     const admin = read('server', 'controllers', 'admin.controller.js')
     const staff = read('server', 'controllers', 'staff.controller.js')
 
-    expect(catalog).toContain('Service Price</th>')
-    expect(catalog).toContain('formatMoney(servicePrice(service))')
+    // Patients must see the full saved total (base fee + configured consumables).
+    // Keep the original base fee visible separately for admin review.
+    expect(catalog).toContain('Total Patient Price</th>')
+    expect(catalog).toContain('formatMoney(patientPrice(service))')
+    expect(catalog).toContain('formatMoney(baseServicePrice(service))')
     expect(serviceForm).toContain('Services & Pricing is Admin-only')
     expect(inventory).toContain('Changing this Selling Price affects linked service totals')
     expect(inventory).toContain('Only Admin can change inventory pricing')
@@ -97,4 +100,5 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     expect(print).toContain('r.quantity??r.dosage')
   })
 })
+
 
