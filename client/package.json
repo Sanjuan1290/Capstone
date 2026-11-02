@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node --test tests/bookingPolicyServiceExports.node.test.mjs tests/bookingPolicyServiceContract20261102.node.test.mjs tests/inventoryExcelDiagnostics.node.test.mjs tests/inventoryBulkEndpointWiring.node.test.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -37,3 +38,4 @@
     "vite": "^8.3.5"
   }
 }
+

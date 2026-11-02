@@ -65,10 +65,15 @@ describe('September 25 UI/workflow regressions', () => {
     const branchRouter = read('server', 'routers', 'branches.router.js')
     expect(branchRouter).toContain('WHERE b.branch_id=?')
     expect(adminLayout).not.toContain("name: 'Checkout'")
-    expect(billingNav).toContain("label: 'Checkout'")
-    expect(billingNav).toContain("label: 'Overview'")
+    // The billing redesign kept the checkout and overview routes, but renamed
+    // their navigation labels for non-technical clinic staff.
+    expect(billingNav).toContain("label: 'Take Payment'")
+    expect(billingNav).toContain("path: '/admin/billing?tab=checkout'")
+    expect(billingNav).toContain("label: 'Summary & Reports'")
+    expect(billingNav).toContain("path: '/admin/billing?tab=overview'")
     expect(billingNav).not.toContain("label: 'Setup'")
     expect(checkout).toContain("/admin/billing/checkout/${bill.id}")
   })
 
 })
+

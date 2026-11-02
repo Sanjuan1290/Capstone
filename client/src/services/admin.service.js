@@ -115,6 +115,10 @@ export const getBookingServices = (clinicType = '') => {
 export const getBookingPolicy = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`)
 export const updateBookingPolicy = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
+// Branch-specific policy document used by Admin -> Appointment Settings.
+export const getBookingPolicyContent = () => requestJson(`${getAdminApiBase()}/system-setup/booking-policy/content`)
+export const updateBookingPolicyContent = (payload) => requestJson(`${getAdminApiBase()}/system-setup/booking-policy/content`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
 export const getAppointmentReasons = () =>
   requestJson(`${getAdminApiBase()}/appointment-reasons`)
 
@@ -402,6 +406,15 @@ export const updateInventoryItem = (id, payload) =>
     body: JSON.stringify(payload),
   })
 
+// Excel-only bulk operations. Server validates every row and commits atomically.
+// Stock In/Out, batches, barcodes and item identities cannot be modified here.
+export const importNewInventoryItems = (items) => requestJson(`${getAdminApiBase()}/inventory/import-new`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+})
+export const bulkUpdateInventoryItems = (items) => requestJson(`${getAdminApiBase()}/inventory/bulk-update`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+})
+
 // FIX 5: Delete inventory item
 export const deleteInventoryItem = (id) =>
   requestJson(`${getAdminApiBase()}/inventory/${id}`, {
@@ -569,6 +582,7 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
+
 
 
 

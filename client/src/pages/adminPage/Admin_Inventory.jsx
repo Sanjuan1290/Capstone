@@ -8,6 +8,8 @@ import {
 import Inventory from '../shared/Inventory'
 import {
   addInventoryItem,
+  importNewInventoryItems,
+  bulkUpdateInventoryItems,
   deleteInventoryItem,
   getInventory,
   getInventoryLogs,
@@ -27,6 +29,8 @@ const adminServices = {
   getInventory,
   updateStock,
   addInventoryItem,
+  importNewInventoryItems,
+  bulkUpdateInventoryItems,
   updateInventoryItem,
   deleteInventoryItem,
   getInventoryMasterData,
@@ -280,3 +284,4 @@ const AdminInventory = () => {
 }
 
 export default AdminInventory
+
