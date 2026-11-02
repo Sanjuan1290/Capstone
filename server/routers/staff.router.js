@@ -247,3 +247,4 @@ router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup')
 
 module.exports = router
 
+

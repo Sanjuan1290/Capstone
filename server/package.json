@@ -23,7 +23,8 @@
     "test:batchfree": "node --test tests/inventory/locationLedger.node.test.cjs tests/inventory/inventoryModeSafety.node.test.cjs",
     "test:all": "npm test && npm run test:node",
     "check:syntax": "node scripts/verifyServerSyntax.js",
-    "postinstall": "node scripts/verifyServerSyntax.js"
+    "postinstall": "node scripts/verifyServerSyntax.js && node scripts/verifyCriticalRouteBindings.js",
+    "check:routes": "node scripts/verifyCriticalRouteBindings.js"
   },
   "keywords": [],
   "author": "",

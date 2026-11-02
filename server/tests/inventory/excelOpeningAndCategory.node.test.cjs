@@ -24,6 +24,7 @@ function harness({breakSecondBatch=false,linked=0}={}){
  }
  const db={getConnection:async()=>{const d=structuredClone(state);return {beginTransaction:async()=>{},query:(s,p)=>query(d,s,p),commit:async()=>{commits++;state=d},rollback:async()=>{rollbacks++},release:()=>{}}}}
  const mock=(name)=>{
+  if(name==='../utils/systemSetupRemoval')return {removeBranchReference:async()=>{}}
   if(name==='../db/connect')return db
   if(name==='../utils/clinicEvents')return {afterSuccessfulMutation:()=>fn=>fn}
   if(name==='../utils/audit')return {writeAuditLog:async(args,conn)=>{ /* audit is transactional in real DB; mocked here */ }}
@@ -70,3 +71,4 @@ test('branch category deletion blocks any linked service, including inactive',as
 test('branch category deletion rejects cross-branch target',async()=>{
  const h=harness(),r=await h.del(2);assert.equal(r.statusCode,404);assert.ok(h.state.category)
 })
+

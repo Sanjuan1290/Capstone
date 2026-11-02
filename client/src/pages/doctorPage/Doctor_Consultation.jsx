@@ -1375,7 +1375,7 @@ const Doctor_Consultation = () => {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-bold text-slate-800">Extra Supplies</p>
-                        <p className="mt-1 text-xs text-slate-500">Record the quantity used in addition to the fixed Service Consumables. You may add a different item or add more of the same consumable already included in the fixed service setup.</p>
+                        <p className="mt-1 text-xs text-slate-500">Record additional products actually used during this consultation. You can add another item or record extra quantity of a selected consumable.</p>
                       </div>
                       {consultationStatus !== 'finalized' && extraConsumableTarget && (
                         <button type="button" onClick={() => setExtraConsumableOpen(true)} className="button-secondary">
@@ -1460,7 +1460,7 @@ const Doctor_Consultation = () => {
                     </div>
                     <span className="text-slate-400">No inventory is reserved when an appointment is confirmed.</span>
                   </div>
-                  <p className="mt-1 text-slate-400">Fixed service consumables and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory. Stock in this clinic's assigned treatment room is used first, with the Main Stockroom as fallback.</p>
+                  <p className="mt-1 text-slate-400">Actual service supplies and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory. Stock in this clinic's assigned treatment room is used first, with the Main Stockroom as fallback.</p>
                   <p className="mt-1 text-slate-400">Actual recorded medicines and consumables are stocked out only when you complete the consultation.</p>
                 </div>
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
@@ -1837,5 +1837,6 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+
 
 

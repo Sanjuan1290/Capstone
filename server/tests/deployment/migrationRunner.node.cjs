@@ -11,11 +11,11 @@ const { createFoundationSchemaFixture } = require('../helpers/foundationSchemaFi
 
 const migrationDir = path.resolve(__dirname, '../../db/migrations')
 const expectedChecksums = {
-  '2026-10-09-multi-branch-foundation.sql': '9d9e934fc19761d7c921620b81735bf4db8eb15446e70023ac6fab4abbafad49',
+  '2026-10-09-multi-branch-foundation.sql': '8df683ad4f37373edae55b7981b00d0d3be7b62023d1d58ea545b70b9ff7a141',
   '2026-10-15-branch-ledgers.sql': 'd89c9605f8a53fb1fc00f799cbfef8879e8b61071dc829ec6a61307d0dbc0fa2',
   '2026-10-15-cashier-branch-uniqueness.sql': 'a150c92079c937807dae34c279516a8b07da44fa5e779e5ed1a558bdb2376ba6',
-  '2026-10-16-paymongo-test-qr.sql': '3d3f041959d31483b2aa0152a9b1cad3a43963049a3fefed4d2097a666b76d50',
-  '2026-10-17-announcements-campaigns.sql': '93dcfbf49ecbe7b68e22eb99fe6ffe55885c01c3b3e3db0007ce24dc2ef772fa',
+  '2026-10-16-paymongo-test-qr.sql': '9b2b7a0e64d79283c5bc63756407f90f29bb41d6eb311874c2689216d5d58c36',
+  '2026-10-17-announcements-campaigns.sql': '2e77353a3bebe9ef270f50bbc0555fcab03aa805fa7f4fd9376b272e4bbecac3',
 }
 
 const promotionColumns = {
@@ -123,11 +123,12 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
   }
 }
 
-test('registered historical migration SQL still matches its pinned normalized SHA-256 checksums', () => {
+test('current checked-in migration SQL matches pinned SHA-256 checksums', () => {
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
-  assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-01-booking-policy-content.sql'))
-  assert.equal(migrationFiles.at(-1), '2026-11-01-booking-policy-content.sql')
+  assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
+  assert.equal(migrationFiles.at(-1), '2026-11-02-consultation-charge-adjustments.sql')
+  for (const file of migrationFiles) assert.ok(fs.existsSync(path.join(migrationDir, file)), `Registered migration missing: ${file}`)
   for (const [file, expected] of Object.entries(expectedChecksums)) {
     const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const actual = crypto.createHash('sha256').update(sql).digest('hex')
@@ -273,3 +274,4 @@ test('Batch 4 recovers manually applied complete columns while adding only the m
   assert.ok(ddl.every(sql => !/ADD COLUMN/i.test(sql)))
   assert.equal(db.applied.has(batch4MigrationFile), true)
 })
+

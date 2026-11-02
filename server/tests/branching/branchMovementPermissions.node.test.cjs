@@ -32,6 +32,7 @@ function harness({ ownerId = 1, duplicate = false, stockHistory = 0, branch = 1 
     '../db/connect': {getConnection: async () => connection},
     '../utils/audit': {writeAuditLog: async (event, executor) => {assert.equal(executor, connection);calls.push({audit:event})}},
     '../utils/clinicEvents': {afterSuccessfulMutation: () => (req,res,next) => next()},
+    '../utils/systemSetupRemoval': {removeBranchReference: async()=>{}},
   }
   const scope={module:{exports:{}}, exports:{},require:(name)=>{if(name in mocks) return mocks[name];throw Error('unexpected '+name)},console}
   vm.runInNewContext(source('routers/branchSystemWrites.js'),scope,{filename:'branchSystemWrites.js'})
@@ -85,7 +86,7 @@ test('does not accept a branch without a verified branch ID',async()=>{
 test('branch read and manual stock selection share a branch filter',()=>{
   const read=source('routers/branchOperationalReads.js')
   const manual=source('utils/manualInventoryMovement.js')
-  assert.match(read,/FROM inventory_movement_reasons WHERE branch_id IS NULL OR branch_id=\?/)
+  assert.match(read,/FROM inventory_movement_reasons r WHERE r.branch_id IS NULL OR r.branch_id=\?/)
   assert.match(read,/WHERE is_active=1 AND \(branch_id IS NULL OR branch_id=\?\)/)
   assert.match(manual,/WHERE movement_type=\? AND is_active=1 AND \(branch_id IS NULL OR branch_id=\?\)/)
   assert.match(manual,/resolveConfiguredMovementReason\('in', body.movement_reason, executor, branchId\)/)
@@ -102,18 +103,19 @@ test('System Setup checkbox controls branch settings; shared UOM stays Super Adm
   const src=source('routers/branchSystemWrites.js')
   const global=source('routers/branchGlobalReferenceWrites.js')
   const ui=fs.readFileSync(path.join(root,'../client/src/pages/adminPage/Admin_SystemSetup.jsx'),'utf8')
-  assert.match(src,/if \(prefix === '\/my\/legacy'\)/)
+  assert.match(src,/\['\/my\/legacy',\[branchContext\]\]/)
   assert.match(src,/requirePermission\('system_setup'\)/)
   assert.match(src,/safeBranchMovementReason/)
   assert.match(global,/requireSuper,requirePermission\('system_setup'\)/)
   assert.match(ui,/Shared · read only/)
-  assert.match(ui,/Add Clinic Reason/)
+  assert.match(ui,/Add Branch Reason/)
 })
 
 test('migration preserves shared reasons and is registered',()=>{
   const migration=source('db/migrations/2026-11-02-branch-movement-reasons.sql')
   const runner=source('scripts/branchMigrations.js')
-  assert.match(migration,/ADD COLUMN branch_id INT NULL DEFAULT NULL/)
+  assert.match(migration,/ADD COLUMN (?:IF NOT EXISTS )?branch_id INT NULL DEFAULT NULL/)
   assert.match(runner,/2026-11-02-branch-movement-reasons\.sql/)
   assert.doesNotMatch(migration,/DELETE FROM|TRUNCATE|UPDATE inventory/i)
 })
+

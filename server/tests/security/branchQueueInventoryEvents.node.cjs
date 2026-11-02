@@ -47,8 +47,8 @@ function fixture({rejectMovement=false}={}) {
   const routes=[]
   const router={get:(url,...handlers)=>routes.push({method:'get',url,handlers}),post:(url,...handlers)=>routes.push({method:'post',url,handlers}),put:(url,...handlers)=>routes.push({method:'put',url,handlers}),patch:(url,...handlers)=>routes.push({method:'patch',url,handlers}),delete:(url,...handlers)=>routes.push({method:'delete',url,handlers})}
   const allow=()=> (req,res,next)=>next()
-  mod.exports.registerBranchQueueInventoryWrites(router,{requireSuper:allow(),branchContext:allow(),requirePermission:allow})
-  mod.exports.registerBranchMoveStock(router,{requireSuper:allow(),branchContext:allow(),requirePermission:allow})
+  mod.exports.registerBranchQueueInventoryWrites(router,{requireSuper:allow(),branchContext:allow(),requirePermission:allow,allowAnyPermission:allow})
+  mod.exports.registerBranchMoveStock(router,{requireSuper:allow(),branchContext:allow(),requirePermission:allow,allowAnyPermission:allow})
   return {routes,calls}
 }
 function response(){
@@ -96,3 +96,4 @@ test('both workspace and branch-admin stock/move routes install authorized event
     }
   }
 })
+

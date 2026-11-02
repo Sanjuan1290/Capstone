@@ -15,24 +15,27 @@ describe('September 30 consultation workflow UX', () => {
     expect(portal).toContain('Clinical image upload failed (HTTP ${response.status}).')
   })
 
-  it('keeps booked service consumables fixed and allows extra quantity of the same inventory item', () => {
+  it('allows patient-specific substitutions while keeping the booked service, branch inventory and completion lock', () => {
     const consultation = read('client', 'src', 'pages', 'doctorPage', 'Doctor_Consultation.jsx')
     const controller = read('server', 'controllers', 'doctor.controller.js')
     const billing = read('server', 'utils', 'billing.js')
-    expect(consultation).toContain('Booked Service · Fixed')
-    expect(consultation).toContain('Supplies Included · Fixed')
-    expect(consultation).toContain('These consumables and quantities come directly from the service setup and cannot be changed during consultation.')
-    expect(consultation).toContain('Configured Quantity')
-    expect(consultation).toContain('Extra Consumables')
+    expect(consultation).toContain('Booked Service')
+    expect(consultation).toContain('Supplies Actually Used')
+    expect(consultation).toContain('Quantity Used')
+    expect(consultation).toContain('replaceIncludedMaterial(')
+    expect(consultation).toContain('removeIncludedMaterial(')
+    expect(consultation).toContain('updateServiceMaterial(')
+    expect(consultation).toContain('usage_change_reason')
+    expect(consultation).toContain('Clinical usage locked after completion')
     expect(consultation).toContain('Add Extra Consumable')
     expect(consultation).toContain('existingExtraConsumableIds')
-    expect(consultation).toContain('Also in Service Setup')
-    expect(consultation).not.toContain('existingConsumableIds')
     expect(controller).toContain('enforceFixedCatalogConsumables')
-    expect(controller).toContain('consultation_extra === true')
-    expect(controller).toContain('extrasByInventory')
+    expect(controller).toContain('SELECT id,name,category,unit,base_unit,uom,archived_at')
+    expect(controller).toContain('AND branch_id=? LIMIT 1')
+    expect(controller).toContain("'SUPPLY_CHANGE_REASON_REQUIRED'")
     expect(controller).toContain("'BOOKED_SERVICE_REQUIRED'")
     expect(billing).toContain('{ consultation_extra: true }')
+    expect(consultation).not.toContain('Supplies Included · Fixed')
   })
 
   it('uses Consultation -> Prescriptions navigation and keeps Complete Consultation on the prescription step', () => {
@@ -68,4 +71,5 @@ describe('September 30 consultation workflow UX', () => {
     expect(block).not.toContain('WHERE i.stock > 0')
   })
 })
+
 

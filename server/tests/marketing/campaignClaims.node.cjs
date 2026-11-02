@@ -94,6 +94,7 @@ function loadMarketing(db, provider) {
     fetch: globalThis.fetch,
     require(name) {
       if (name === '../db/connect') return db
+      if (name === './announcementDocument') return { PREFIX:'CARAIT_QUILL_V1:',parsePost:()=>null,readablePost:()=>'' }
       if (name === './date') return { getClinicDateTimeSql: () => '2026-10-20 12:34:56' }
       if (name === './resendEmail') return { sendResendEmail: async () => 'mocked-message-id' }
       return require(name)
@@ -131,3 +132,4 @@ test('MySQL keeps its existing SKIP LOCKED query variant', async () => {
   const claimSql = db.queries.find(sql => /SELECT r\.id,r\.patient_id FROM marketing_campaign_recipients/i.test(sql))
   assert.match(claimSql, /LIMIT 1 FOR UPDATE SKIP LOCKED$/)
 })
+

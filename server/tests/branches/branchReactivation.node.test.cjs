@@ -41,6 +41,9 @@ function buildRouter({active=0,exists=true,pending=0}={}) {
   if(moduleName==='../middlewares/auth.middleware')return {adminContext:()=>noOp}
   if(moduleName==='../utils/audit')return {writeAuditLog:async(args)=>{state.audits.push(args)}}
   if(moduleName==='../utils/clinicEvents')return {afterSuccessfulMutation:()=>noOp}
+  if(moduleName==='../utils/patientRecordView')return {listBranchPatients:noOp,getBranchPatientRecord:noOp}
+  if(moduleName==='../utils/billing')return {hydrateBillingCatalogRows:noOp}
+  if(moduleName==='../utils/bookingPolicyDocument')return {cloneDefaultBookingPolicyDocument:noOp,normalizeBookingPolicyDocument:noOp,parseStoredBookingPolicyDocument:noOp}
   if(moduleName==='../utils/inventoryBatches')return {attachBatchesToInventory:noOp}
   if(moduleName==='../utils/bookingPolicy')return {validateBookingSettings:noOp}
   if(moduleName==='../utils/branchProvisioning')return {provisionBranch:noOp}
@@ -142,3 +145,4 @@ test('inactive branch operational actions are disabled while status switch remai
 test('active/inactive status filter compares strings correctly',()=>{
  assert.match(branchesUi,/filter===\(Number\(b\.is_active\)\?'active':'inactive'\)/)
 })
+
