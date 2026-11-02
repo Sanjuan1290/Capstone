@@ -77,24 +77,81 @@ const supplierByName = (value, suppliers, category) => {
 }
 export const MAX_INVENTORY_IMPORT_BATCH = 200
 
-export function preflightInventoryCreate(rows,{items=[],stockRooms=[],suppliers=[]}={}) {
+
+const validCost = v => v!=='' && Number.isFinite(Number(v)) && Number(v)>=0 && Number(v)<=99999999 && Math.abs(Number(v)*100-Math.round(Number(v)*100))<0.000001
+const isAllowedExpiry = value => iso(value) && value >= new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'})
+
+export function preflightInventoryCreate(rows,{items=[],stockRooms=[],suppliers=[],openingBatches=[]}={}) {
   const seen=new Set()
-  return rows.map(row=>{
-    const errors=[], name=String(row['Item Name']??'').trim(),category=categoryOf(row.Category)
-    const price=String(row['Selling Price']??'').trim(), threshold=String(row['Low Stock Alert']??'').trim()
+  const knownItems=new Set(rows.map(r=>normalizedName(r['Item Name'])))
+  const grouped=new Map()
+  const batchErrors=[]
+  for(const b of openingBatches){
+    const errors=[]
+    const name=String(b['Item Name']??'').trim(),key=normalizedName(name)
+    const item=rows.find(r=>normalizedName(r['Item Name'])===key)
+    const cat=categoryOf(item?.Category)
+    const room=stockRooms.find(r=>matchName(r.name,b['Stock Room']) && Number(r.is_active??1)===1)
+    const supplier=supplierByName(b.Supplier,suppliers,cat)
+    const quantity=String(b.Quantity??'').trim(),expiry=String(b['Expiration Date']??'').trim(),cost=String(b['Unit Cost']??'').trim()
+    if(!knownItems.has(key)||!name)errors.push('Item Name must match an item on the Items sheet.')
+    if(!requireWhole(quantity)||Number(quantity)===0)errors.push('Quantity must be a whole number above zero.')
+    if(!isAllowedExpiry(expiry))errors.push('Medicine expiration date must be today or later, in YYYY-MM-DD format.')
+    if(!room)errors.push('Select an active Stock Room from this clinic branch.')
+    if(!supplier)errors.push('Select an active supplier for this clinic and category.')
+    if(!validCost(cost))errors.push('Unit Cost must be zero or higher, with at most two decimal places.')
+    if(String(b['Supplier Lot Number']||'').length>120)errors.push('Supplier Lot Number is too long (120 characters maximum).')
+    if(errors.length)batchErrors.push({row:b._excelRow||0,name,action:'batch',sheet:'Opening Batches',errors})
+    else {
+      if(!grouped.has(key))grouped.set(key,[])
+      grouped.get(key).push({quantity:Number(quantity),expiration_date:expiry,supplier_lot_number:String(b['Supplier Lot Number']||'').trim(),unit_cost:Number(cost),location_id:Number(room.id),supplier_id:Number(supplier.id)})
+    }
+  }
+  const results=rows.map(row=>{
+    const errors=[],name=String(row['Item Name']??'').trim(),category=categoryOf(row.Category)
+    const price=String(row['Selling Price']??'').trim(),threshold=String(row['Low Stock Alert']??'').trim()
     const room=stockRooms.find(r=>matchName(r.name,row['Stock Room']) && Number(r.is_active??1)===1)
     const supplierLabel=String(row.Supplier??'').trim()
     const supplier=supplierByName(supplierLabel,suppliers,category)
-    if(!name||name.length>150) errors.push('Item Name is required (maximum 150 characters).')
-    if(!category) errors.push('Category must be General Medicine or Dermatology.')
-    if(!validPrice(price)) errors.push('Selling Price must be above zero, with at most two decimal places.')
-    if(!requireWhole(threshold)) errors.push('Low Stock Alert must be a whole number (0 or more).')
-    if(!room) errors.push('Select an active Stock Room in this branch.')
-    if(supplierLabel&&!supplier) errors.push('Supplier must be active and available for this category and branch.')
-    if(items.some(i=>matchName(i.name,name)))errors.push('Item already exists. Use Update Existing Items.')
-    const key=normalizedName(name);if(seen.has(key))errors.push('Duplicate item name in the Excel file.');seen.add(key)
-    const payload={name,category,item_type:'medicine',stock:0,selling_price:Number(price),threshold:Number(threshold),supplier_id:supplier?.id||null,default_location_id:room?.id||null}
-    return {row:row._excelRow||0,name,action:'create',payload,errors,changed:true,before:null}
+    if(!name||name.length>150)errors.push('Item Name is required (maximum 150 characters).')
+    if(!category)errors.push('Category must be General Medicine or Dermatology.')
+    if(!validPrice(price))errors.push('Selling Price must be above zero, with at most two decimal places.')
+    if(!requireWhole(threshold))errors.push('Low Stock Alert must be a whole number (0 or more).')
+    if(!room)errors.push('Select an active Stock Room in this branch.')
+    if(supplierLabel&&!supplier)errors.push('Supplier must be active for this category and branch.')
+    if(items.some(i=>matchName(i.name,name)))errors.push('This item already exists. Use Update Existing Items or Receive Stock.')
+    const key=normalizedName(name);if(seen.has(key))errors.push('Duplicate Item Name on the Items sheet.');seen.add(key)
+    const batches=grouped.get(key)||[]
+    if(batches.length>30)errors.push('Maximum 30 opening batches per item. Split the receipt into smaller files.')
+    const initial=String(row['Initial Stock (calculated)']??'').trim()
+    if(initial)errors.push('Initial Stock is automatically calculated. Leave this cell blank and enter quantities on Opening Batches.')
+    const openingQuantity=batches.reduce((sum,b)=>sum+b.quantity,0)
+    const payload={name,category,item_type:'medicine',stock:0,selling_price:Number(price),threshold:Number(threshold),supplier_id:supplier?.id||null,default_location_id:room?.id||null,opening_batches:batches}
+    return {row:row._excelRow||0,sheet:'Items',name,action:'create',payload,errors,changed:true,openingQuantity,openingBatches:batches.length,before:null}
+  })
+  return [...results,...batchErrors.map(e=>({...e,changed:false}))]
+}
+
+export function preflightInventoryReceive(rows,{items=[],stockRooms=[],suppliers=[]}={}){
+  const seen=new Set()
+  return rows.map(row=>{
+    const errors=[],id=String(row['Item ID']||'').trim(),item=items.find(i=>String(i.id)===id)
+    const reference=String(row['Receipt Reference']??'').trim()
+    const quantity=String(row.Quantity??'').trim(),expiry=String(row['Expiration Date']??'').trim(),cost=String(row['Unit Cost']??'').trim()
+    const room=stockRooms.find(r=>matchName(r.name,row['Stock Room'])&&Number(r.is_active??1)===1)
+    const supplier=supplierByName(row.Supplier,suppliers,item?.category)
+    if(!item)errors.push('Item ID is missing or belongs to a different branch.')
+    if(!item||String(row.Barcode||'')!==String(item.barcode||''))errors.push('Barcode does not match this item.')
+    if(item&&!matchName(row['Item Name'],item.name))errors.push('Item Name does not match this item.')
+    if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{4,79}$/.test(reference))errors.push('Receipt Reference must be 5–80 letters, digits, underscores or dashes.')
+    if(seen.has(reference.toLowerCase()))errors.push('Duplicate Receipt Reference in this file.');seen.add(reference.toLowerCase())
+    if(!requireWhole(quantity)||Number(quantity)===0)errors.push('Quantity must be a positive whole number.')
+    if(!isAllowedExpiry(expiry))errors.push('Enter a valid expiration date today or later (YYYY-MM-DD).')
+    if(!room)errors.push('Select an active Stock Room.')
+    if(!supplier)errors.push('Select an active Supplier for the item category.')
+    if(!validCost(cost))errors.push('Unit Cost must be zero or more with at most two decimals.')
+    const payload={id:Number(id),barcode:String(row.Barcode||''),receipt_reference:reference,quantity:Number(quantity),expiration_date:expiry,supplier_lot_number:String(row['Supplier Lot Number']||'').trim(),unit_cost:Number(cost),location_id:Number(room?.id),supplier_id:Number(supplier?.id)}
+    return {row:row._excelRow||0,name:item?.name||row['Item Name'],action:'receive',payload,errors,changed:true,openingQuantity:Number(quantity)}
   })
 }
 
@@ -155,3 +212,4 @@ export function preflightInventoryBulkEdit(rows,{items=[]}={}) {
     return {row:row._excelRow||0,name:item?.name||name,action:'update',existing:item,payload,errors,changed:Object.keys(changes).length>0,fieldChanges,alreadyApplied,before:item&&{selling_price:item.selling_price??item.price,threshold:item.threshold}}
   })
 }
+

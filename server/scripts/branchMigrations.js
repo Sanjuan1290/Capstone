@@ -52,6 +52,7 @@ const migrationFiles = [
   '2026-10-31-doctor-multi-branch.sql',
   '2026-11-02-handwritten-prescription-documents.sql',
   '2026-11-02-audit-context.sql',
+  '2026-11-02-inventory-excel-receipts.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -161,5 +162,6 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
+
 
 

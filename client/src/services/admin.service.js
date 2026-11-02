@@ -411,6 +411,9 @@ export const updateInventoryItem = (id, payload) =>
 export const importNewInventoryItems = (items) => requestJson(`${getAdminApiBase()}/inventory/import-new`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
 })
+export const bulkReceiveInventoryItems = (items) => requestJson(`${getAdminApiBase()}/inventory/bulk-receive`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+})
 export const bulkUpdateInventoryItems = (items) => requestJson(`${getAdminApiBase()}/inventory/bulk-update`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
 })

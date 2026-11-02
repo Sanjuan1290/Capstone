@@ -46,9 +46,26 @@ async function saveCategory(req,res){
  if(id){await db.query('UPDATE billing_service_categories SET name=?,clinic_type=?,is_active=? WHERE id=? AND branch_id=?',[name,type,isActive,id,req.branchId]);await writeAudit(req,'category.updated','billing_service_category',id,old,{name,clinic_type:type,is_active:isActive});return res.json({id,name,clinic_type:type,is_active:isActive})}
  const [insert]=await db.query('INSERT INTO billing_service_categories (name,clinic_type,is_active,branch_id) VALUES (?,?,?,?)',[name,type,isActive,req.branchId]);await writeAudit(req,'category.created','billing_service_category',insert.insertId,null,{name,clinic_type:type});res.status(201).json({id:insert.insertId,name,clinic_type:type,is_active:isActive})
 }
-async function deactivateCategory(req,res){
- const [[old]]=await db.query('SELECT id,name FROM billing_service_categories WHERE id=? AND branch_id=?',[req.params.id,req.branchId]);if(!old)return res.status(404).json({message:'Category not found in your branch.'})
- await db.query('UPDATE billing_service_categories SET is_active=0 WHERE id=? AND branch_id=?',[old.id,req.branchId]);await writeAudit(req,'category.deactivated','billing_service_category',old.id,old,{is_active:0});res.json({message:'Category deactivated. Existing services retain their category history.'})
+// Delete and deactivate are separate actions. Never claim a category was deleted
+// when the database only updated is_active. A category referenced by an inactive
+// service is still in use and must remain available for historical links.
+async function deleteCategory(req,res){
+ const id=Number(req.params.id)
+ if(!safeId(id))return res.status(400).json({code:'INVALID_CATEGORY',message:'Choose a valid Service Category.'})
+ const conn=await db.getConnection()
+ try{
+  await conn.beginTransaction()
+  const [[prior]]=await conn.query('SELECT id,name,clinic_type,is_active,branch_id FROM billing_service_categories WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId])
+  if(!prior){await conn.rollback();return res.status(404).json({code:'CATEGORY_NOT_FOUND',message:'Service Category not found in this branch.'})}
+  const [[usage]]=await conn.query('SELECT COUNT(*) AS total FROM billing_service_catalog WHERE category_id=? AND branch_id=?',[id,req.branchId])
+  const count=Number(usage?.total||0)
+  if(count){await conn.rollback();return res.status(409).json({code:'SERVICE_CATEGORY_IN_USE',service_count:count,message:`This category is linked to ${count} service${count===1?'':'s'}, including inactive ones. Deactivate it instead of deleting.`})}
+  await conn.query('DELETE FROM billing_service_categories WHERE id=? AND branch_id=?',[id,req.branchId])
+  await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',branchId:req.branchId,action:'system.service_category_deleted',entityType:'billing_service_category',entityId:id,oldValues:prior,ipAddress:req.ip},conn)
+  await conn.commit()
+  return res.json({deleted:true,id,message:'Service Category permanently deleted.'})
+ }catch(error){await conn.rollback().catch(()=>{});if(error.code==='ER_ROW_IS_REFERENCED_2')return res.status(409).json({code:'SERVICE_CATEGORY_IN_USE',message:'This category is still used by another record. Deactivate it instead.'});throw error}
+ finally{conn.release()}
 }
 
 const registerBranchSystemWrites=(router,{requireSuper,branchContext,requirePermission})=>{
@@ -64,10 +81,10 @@ const registerBranchSystemWrites=(router,{requireSuper,branchContext,requirePerm
   withSetup('/system-setup/cancellation-reasons/:id','delete',deactivateCancellation)
   withSetup('/system-setup/service-categories','post',saveCategory)
   withSetup('/system-setup/service-categories/:id','put',saveCategory)
-  withSetup('/system-setup/service-categories/:id','delete',deactivateCategory)
+  withSetup('/system-setup/service-categories/:id','delete',deleteCategory)
  }
 }
-module.exports={registerBranchSystemWrites,saveVisitReason,deactivateVisitReason,saveCancellation,deactivateCancellation,saveCategory,deactivateCategory}
+module.exports={registerBranchSystemWrites,saveVisitReason,deactivateVisitReason,saveCancellation,deactivateCancellation,saveCategory,deleteCategory}
 
 
 // Branch-owned suppliers and location types. UOMs and movement reasons are
@@ -153,4 +170,5 @@ module.exports.registerBranchExtraSetup=registerBranchExtraSetup
 module.exports.saveBranchSupplier=saveBranchSupplier
 module.exports.saveBranchLocationType=saveBranchLocationType
 module.exports.updateBranchClinicSettings=updateBranchClinicSettings
+
 

@@ -3917,7 +3917,7 @@ const deleteBillingServiceCategory = async (req, res) => {
     await conn.query('DELETE FROM billing_service_categories WHERE id=?', [id])
     await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'system.service_category_deleted',entityType:'billing_service_category',entityId:id,oldValues:category,ipAddress:req.ip||null }, conn)
     await conn.commit()
-    res.json({ message: 'Service Category deleted.' })
+    res.json({ deleted:true, id, message: 'Service Category permanently deleted.' })
   } catch (error) {
     await conn.rollback().catch(() => {})
     throw error
@@ -4340,4 +4340,5 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 

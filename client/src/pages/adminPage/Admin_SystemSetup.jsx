@@ -1,5 +1,5 @@
 import useClinicRefresh from '../../hooks/useClinicRefresh'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import {
@@ -47,6 +47,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
 
   const nameMaxLength = {
@@ -168,6 +169,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
 
   const requestDelete = (row) => {
     if (!['service_categories', 'cancellation_reasons'].includes(type)) return
+    setDeleteError('')
     setDeleteTarget(row)
   }
 
@@ -179,12 +181,15 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
     if (inUseCount > 0) return
     setDeleting(true)
     try {
-      if (type === 'service_categories') await deleteBillingServiceCategory(deleteTarget.id)
-      else await deleteAppointmentCancellationReason(deleteTarget.id)
+      if (type === 'service_categories') {
+        const result = await deleteBillingServiceCategory(deleteTarget.id)
+        if (result?.deleted !== true) throw new Error('The server did not confirm permanent deletion. Refresh and check this category before trying again.')
+      } else await deleteAppointmentCancellationReason(deleteTarget.id)
       toast.success(`${config.title} deleted.`)
       setDeleteTarget(null)
       await onReload()
     } catch (err) {
+      setDeleteError(err.message || `Could not delete ${config.singular}.`)
       toast.error(err.message || `Could not delete ${config.singular}.`)
     } finally {
       setDeleting(false)
@@ -382,12 +387,13 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                 )}
               </div>
             </div>
+            {deleteError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{deleteError}</p>}
             <div className="flex justify-end gap-2">
-              <button className="button-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>{inUseCount > 0 ? 'Close' : 'Cancel'}</button>
+              <button type="button" className="button-secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>{inUseCount > 0 ? 'Close' : 'Cancel'}</button>
               {inUseCount > 0 ? (
-                <button className="button-primary" onClick={() => { setDeleteTarget(null); open(deleteTarget) }}>Edit & Deactivate</button>
+                <button type="button" className="button-primary" onClick={() => { setDeleteTarget(null); open(deleteTarget) }}>Edit & Deactivate</button>
               ) : (
-                <button className="button-primary !bg-rose-600 hover:!bg-rose-700" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : `Delete ${config.title}`}</button>
+                <button type="button" className="button-primary !bg-rose-600 hover:!bg-rose-700" disabled={deleting} onClick={confirmDelete}>{deleting ? 'Deleting…' : `Delete ${config.title}`}</button>
               )}
             </div>
           </div>
@@ -406,17 +412,23 @@ const Admin_SystemSetup = () => {
   const [tab, setTab] = useState(validTab)
   const [data, setData] = useState({ cancellation_reasons: [], service_categories: [], suppliers: [], location_types: [], movement_reasons: [] })
   const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
+  const requestVersion = useRef(0)
 
   const load = async () => {
+    const version = ++requestVersion.current
     setLoading(true)
-    setError('')
     try {
-      setData(await getSystemSetup())
+      const result = await getSystemSetup()
+      if (version !== requestVersion.current) return
+      setData(result)
+      setLoaded(true)
+      setError('')
     } catch (err) {
-      setError(err.message || 'Could not load System Setup.')
+      if (version === requestVersion.current) setError(err.message || 'Could not refresh System Setup.')
     } finally {
-      setLoading(false)
+      if (version === requestVersion.current) setLoading(false)
     }
   }
 
@@ -442,13 +454,15 @@ const Admin_SystemSetup = () => {
 
       <SystemSetupTabs />
 
+      {loaded && loading && <p role="status" className="text-xs text-slate-500">Updating list…</p>}
+      {loaded && error && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{error} <button type="button" className="underline" onClick={load}>Retry</button></div>}
       {tab === 'visits' ? (
         <Admin_PatientBooking embedded />
       ) : tab === 'stock_rooms' ? (
         <StockRoomsManager />
-      ) : loading ? (
+      ) : loading && !loaded ? (
         <LoadingState label="Loading System Setup..." />
-      ) : error ? (
+      ) : error && !loaded ? (
         <ErrorState message={error} onRetry={load} />
       ) : (
         <ReferenceManager type={tab} rows={data[tab] || []} onReload={load} portalBase={portalBase} />
@@ -458,4 +472,5 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
 

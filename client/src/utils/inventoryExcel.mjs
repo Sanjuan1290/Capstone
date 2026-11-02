@@ -5,7 +5,9 @@ import { inflateRaw } from '../vendor/pakoInflate.mjs'
 export const INVENTORY_HEADERS = ['Item Name', 'Selling Price', 'Initial Stock', 'Quantity', 'Expiration Date', 'Category', 'Stock Room', 'Low Stock Alert', 'Supplier']
 // Internal record identifiers are retained ONLY in bulk-edit exports for safe matching.
 // Separate workbooks make stock fields impossible to confuse with metadata edits.
-export const INVENTORY_CREATE_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Low Stock Alert', 'Supplier', 'Stock Room']
+export const INVENTORY_CREATE_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Low Stock Alert', 'Supplier', 'Stock Room', 'Initial Stock (calculated)']
+export const INVENTORY_OPENING_BATCH_HEADERS = ['Item Name', 'Quantity', 'Expiration Date', 'Supplier Lot Number', 'Unit Cost', 'Stock Room', 'Supplier']
+export const INVENTORY_RECEIVE_HEADERS = ['Receipt Reference', 'Item ID', 'Barcode', 'Item Name', 'Quantity', 'Expiration Date', 'Supplier Lot Number', 'Unit Cost', 'Stock Room', 'Supplier']
 export const INVENTORY_BULK_EDIT_HEADERS = [
   'Item ID', 'Barcode', 'Item Name', 'Current Selling Price', 'New Selling Price',
   'Current Low Stock Alert', 'New Low Stock Alert',
@@ -57,6 +59,70 @@ export const makeInventoryXlsx = (rows=[], headers=INVENTORY_HEADERS) => {
   ]
   return new Blob([zipStored(entries)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
 }
+
+// Two worksheets make opening quantities come from actual batches. A product's
+// first-sheet Initial Stock is a computed preview and never sent as another stock
+// movement; that avoids doubling the receipt quantity.
+export const makeInventoryOpeningWorkbook = () => makeInventoryWorkbook([
+  {name:'Items',headers:INVENTORY_CREATE_HEADERS,rows:[]},
+  {name:'Opening Batches',headers:INVENTORY_OPENING_BATCH_HEADERS,rows:[]},
+])
+export const makeInventoryWorkbook = (sheets) => {
+  if(!Array.isArray(sheets)||sheets.length<1||sheets.length>2)throw new Error('Use one or two inventory worksheets.')
+  if(sheets.some(x=>x.rows.length>MAX_ROWS))throw new Error('Too many rows in one worksheet.')
+  const overrides=sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
+  const sheetList=sheets.map((s,i)=>`<sheet name="${escapeXml(s.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')
+  const relationships=sheets.map((_,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')
+  const entries=[
+    ['[Content_Types].xml',`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${overrides}</Types>`],
+    ['_rels/.rels',`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"> <sheets>${sheetList}</sheets></workbook>`],
+    ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships}</Relationships>`],
+    ...sheets.map((sheet,i)=>[`xl/worksheets/sheet${i+1}.xml`,worksheetXml(sheet.headers,sheet.rows)]),
+  ]
+  return new Blob([zipStored(entries)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
+}
+
+const parseGrid = (sheet, shared) => byTag(xmlDoc(sheet),'row').slice(0,MAX_ROWS+2).map(row=>{
+  const cells=[]
+  for(const c of [...row.children].filter(node=>node.localName==='c')) {
+    const column=colIndex(c.getAttribute('r'))
+    if(column<0||column>40)continue
+    const kind=c.getAttribute('t'),raw=byTag(c,'v')[0]?.textContent
+    const inline=byTag(c,'is')[0]
+    cells[column]=kind==='s'?shared[Number(raw)]??'':kind==='inlineStr'?byTag(inline,'t').map(x=>x.textContent).join(''):raw??''
+  }
+  cells._excelRow=Number(row.getAttribute('r'))||null
+  return cells
+})
+const gridAsRecords = (grid,expected,sheetName) => {
+  const records=grid.map((cells,i)=>({cells,line:cells._excelRow||i+1})).filter(({cells})=>cells.some(x=>String(x??'').trim()))
+  if(!records.length)throw new Error(`${sheetName}: column headings are missing.`)
+  const headers=records[0].cells.map(x=>String(x??'').trim().toLowerCase().replace(/\s+/g,' '))
+  const required=expected.map(h=>h.toLowerCase())
+  const missing=required.filter(h=>!headers.includes(h))
+  const extra=headers.filter(h=>h&&!required.includes(h))
+  if(missing.length||extra.length||headers.some((h,i)=>h&&headers.indexOf(h)!==i))throw new Error(`${sheetName}: incorrect columns. ${missing.length?'Missing '+missing.join(', ')+'. ':''}${extra.length?'Unexpected '+extra.join(', ')+'. ':''}Download the matching template.`)
+  return records.slice(1).map(({cells,line})=>Object.fromEntries(expected.map(header=>{
+    let value=String(cells[headers.indexOf(header.toLowerCase())]??'').trim()
+    if(header==='Expiration Date'&&/^\d{5}(?:\.\d+)?$/.test(value))value=excelDate(value)
+    return [header,value]
+  }).concat([['_excelRow',line],['_sheet',sheetName]])))
+}
+export const readInventoryOpeningWorkbook = async file => {
+  if(!/\.xlsx$/i.test(file.name))throw new Error('Opening batches need an .xlsx workbook with Items and Opening Batches sheets.')
+  if(file.size>MAX_BYTES)throw new Error('Workbook must be 6 MB or smaller.')
+  const zip=await readZip(new Uint8Array(await file.arrayBuffer()))
+  const first=zip.get('xl/worksheets/sheet1.xml'),second=zip.get('xl/worksheets/sheet2.xml')
+  if(!first||!second)throw new Error('Download the new template. It must have Items and Opening Batches worksheets.')
+  const book=xmlDoc(zip.get('xl/workbook.xml')||'<workbook/>')
+  // If an externally generated workbook is supplied, reject renamed/reordered sheets.
+  const names=byTag(book,'sheet').map(x=>x.getAttribute('name'))
+  if(names[0]!=='Items'||names[1]!=='Opening Batches')throw new Error('Worksheets must be named Items and Opening Batches, in that order.')
+  const shared=zip.has('xl/sharedStrings.xml')?byTag(xmlDoc(zip.get('xl/sharedStrings.xml')),'si').map(si=>byTag(si,'t').map(x=>x.textContent).join('')):[]
+  return {items:gridAsRecords(parseGrid(first,shared),INVENTORY_CREATE_HEADERS,'Items'),batches:gridAsRecords(parseGrid(second,shared),INVENTORY_OPENING_BATCH_HEADERS,'Opening Batches')}
+}
+
 const toCSV = text => {
   const rows=[];let row=[],cell='',quoted=false
   for(let i=0;i<text.length;i++){
@@ -87,7 +153,7 @@ const readZip=async(bytes)=>{
     const flags=view.getUint16(offset+8,true),method=view.getUint16(offset+10,true),size=view.getUint32(offset+20,true),expanded=view.getUint32(offset+24,true),nameLen=view.getUint16(offset+28,true),extra=view.getUint16(offset+30,true),comment=view.getUint16(offset+32,true),location=view.getUint32(offset+42,true)
     if(flags&1||expanded>15*1024*1024||size>MAX_BYTES)throw new Error('Encrypted or oversized workbook files are not supported.')
     const name=decoder.decode(bytes.slice(offset+46,offset+46+nameLen));offset+=46+nameLen+extra+comment
-    if(name==='xl/worksheets/sheet1.xml'||name==='xl/sharedStrings.xml'){
+    if(/^xl\/worksheets\/sheet[12]\.xml$/.test(name)||name==='xl/sharedStrings.xml'||name==='xl/workbook.xml'){
       if(location+30>bytes.length||view.getUint32(location,true)!==0x04034b50)throw new Error('Invalid Excel ZIP item.')
       const dataStart=location+30+view.getUint16(location+26,true)+view.getUint16(location+28,true)
       if(dataStart+size>bytes.length)throw new Error('Invalid ZIP item length.')
@@ -134,13 +200,13 @@ export const readInventoryFile=async (file,{ mode = 'legacy' }={})=>{
     .filter(({cells})=>cells.some(value=>String(value??'').trim()))
   const [head,...body]=records
   const headers=(head?.cells||[]).map(value=>String(value??'').trim().toLowerCase().replace(/\s+/g,' '))
-  const expectedHeaders = mode==='create' ? INVENTORY_CREATE_HEADERS : mode==='edit' ? INVENTORY_BULK_EDIT_HEADERS : INVENTORY_HEADERS
+  const expectedHeaders = mode==='create' ? INVENTORY_CREATE_HEADERS : mode==='edit' ? INVENTORY_BULK_EDIT_HEADERS : mode==='receive' ? INVENTORY_RECEIVE_HEADERS : INVENTORY_HEADERS
   const required = expectedHeaders.map(label=>label.toLowerCase())
   if(required.some(key=>!headers.includes(key)))throw new Error(`Missing columns: ${required.filter(key=>!headers.includes(key)).join(', ')}. Download the matching CARAIT template.`)
   if(headers.some((h,i)=>h && headers.indexOf(h)!==i))throw new Error('Duplicate Excel column headers found. Use exactly one column for each field.')
   if(mode !== 'legacy') {
     const unexpected = headers.filter(h=>h && !required.includes(h))
-    if(unexpected.length) throw new Error(`Unexpected columns: ${unexpected.join(', ')}. Use the ${mode==='edit'?'Update Existing Items':'Add New Items'} template. Stock, expiry and batch details are managed separately.`)
+    if(unexpected.length) throw new Error(`Unexpected columns: ${unexpected.join(', ')}. Download the matching CARAIT Excel template.`)
   }
   if(body.length>MAX_ROWS)throw new Error('Maximum 2,000 items per spreadsheet.')
   const outputHeaders=mode==='legacy'?INVENTORY_BULK_EDIT_HEADERS:expectedHeaders
@@ -167,3 +233,4 @@ export const asInventoryBulkEditRow = (item) => [
   item.id, item.barcode || '', item.name || '', Number(item.selling_price ?? item.price ?? 0), '',
   Number(item.threshold ?? 0), '',
 ]
+

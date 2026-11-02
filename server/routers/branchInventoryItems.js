@@ -134,11 +134,24 @@ async function archiveItem(req,res){
   }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
 }
 
-// Inventory Excel endpoints deliberately accept only catalog metadata. Neither
-// endpoint accepts quantity, batches, expiry, location movements or barcode edits.
+// Separate Excel operations: create item + opening batches, metadata edit, and
+// authenticated stock receipts. Only the receipt engines change stock balances.
 const bulkFields = (value, allowed) => value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).every(k=>allowed.includes(k))
 const priceMatch=(a,b)=>Number(a).toFixed(2)===Number(b).toFixed(2)
 const validMoney=value=>Number.isFinite(Number(value))&&Number(value)>=0.01&&Number(value)<=99999999&&Math.abs(Number(value)*100-Math.round(Number(value)*100))<0.000001
+const getTodayDateOnly = () => new Date(Date.now()+8*60*60*1000).toISOString().slice(0,10)
+const validWhole = value => typeof value==='number'&&Number.isSafeInteger(value)&&value>=0
+const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value)) && !Number.isNaN(Date.parse(value+'T00:00:00Z')) && new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value
+const validBatch = b => bulkFields(b,['quantity','expiration_date','supplier_lot_number','unit_cost','location_id','supplier_id']) && validWhole(b.quantity) && b.quantity>0 && validMoneyOrZero(b.unit_cost) && (!b.supplier_lot_number || String(b.supplier_lot_number).length<=120) && positiveId(b.location_id) && positiveId(b.supplier_id) && validDate(b.expiration_date) && b.expiration_date>=getTodayDateOnly()
+const validMoneyOrZero = v => typeof v==='number' && Number.isFinite(v) && v>=0 && v<=99999999 && Math.abs(v*100-Math.round(v*100))<0.000001
+const getValidReceivingRefs = async (conn, branchId, category, b) => {
+ const [[room]]=await conn.query('SELECT id,name FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1',[b.location_id,branchId])
+ if(!room)throw fail(400,'INVALID_STOCK_ROOM','Opening batch Stock Room is inactive or belongs to another clinic branch.')
+ const [[supplier]]=await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1',[b.supplier_id,branchId])
+ if(!supplier || !String(supplier.category||'').split(',').map(x=>x.trim()).includes(category))throw fail(400,'INVALID_SUPPLIER','Opening batch supplier is not active for this category and branch.')
+ return {room,supplier}
+}
+
 const bulkRows = body => {
   if(!Array.isArray(body?.items)||!body.items.length||body.items.length>200)throw fail(400,'INVALID_BULK_SIZE','Choose 1 to 200 items per Excel upload.')
   return body.items
@@ -147,10 +160,12 @@ async function bulkCreateItems(req,res) {
   let conn
   try {
     const rows=bulkRows(req.body)
+    if(rows.reduce((total,row)=>total+(Array.isArray(row.opening_batches)?row.opening_batches.length:0),0)>1000)throw fail(400,'TOO_MANY_OPENING_BATCHES','Upload at most 1,000 opening batches per file.')
     const seen=new Set()
     for(const row of rows) {
-      if(!bulkFields(row,['name','category','item_type','stock','selling_price','threshold','supplier_id','default_location_id'])) throw fail(400,'FORBIDDEN_BULK_FIELD','New-item Excel can only register item details. Use Stock In to record quantities.')
-      if(row.stock!==0||row.item_type!=='medicine')throw fail(400,'OPENING_STOCK_NOT_ALLOWED','New-item Excel creates zero-stock medicine items only. Record stock using Stock In and Manage Batches.')
+      if(!bulkFields(row,['name','category','item_type','stock','selling_price','threshold','supplier_id','default_location_id','opening_batches'])) throw fail(400,'FORBIDDEN_BULK_FIELD','New-item Excel only accepts item details and verified opening batches.')
+      if(row.stock!==0||row.item_type!=='medicine')throw fail(400,'INVALID_ITEM_TYPE','New-item Excel currently supports Medicine only. Opening quantity is calculated from batch rows.')
+      if((row.opening_batches!==undefined&&!Array.isArray(row.opening_batches))||(row.opening_batches||[]).length>30||(row.opening_batches||[]).some(b=>!validBatch(b)))throw fail(400,'INVALID_OPENING_BATCH','Each opening batch needs a whole positive quantity, valid future expiry, active Stock Room, supplier, and valid unit cost.')
       const rawName=String(row.name||'').trim()
       if(!rawName || rawName.length>150)throw fail(400,'INVALID_ITEM_NAME','Item Name is required (maximum 150 characters).')
       const key=rawName.toLowerCase()
@@ -170,13 +185,60 @@ async function bulkCreateItems(req,res) {
         (branch_id,barcode,name,category,item_type,uom,dosage_form,strength,measurement_value,measurement_unit,unit,base_unit,unit_size,stock,stock_base,threshold,price,selling_price,supplier,supplier_id,default_location_id)
         VALUES (?,?,?,?,?,'unit',?,?,?,?,'unit','unit',1,0,0,?,?,?,?,?,?)`,
         [req.branchId,barcode,p.name,p.category,p.item_type,p.dosage_form,p.strength,p.measurement_value,p.measurement_unit,p.threshold,p.selling_price,p.selling_price,supplier?.name||null,p.supplier_id,p.default_location_id])
-      await audit(req,conn,'inventory.item_created',result.insertId,null,{...p,barcode,opening_quantity:0,source:'excel_import'})
-      created.push({id:result.insertId,name:p.name,barcode})
+      let openingQuantity=0
+      for(const batch of (row.opening_batches||[])){
+        const {room,supplier:batchSupplier}=await getValidReceivingRefs(conn,req.branchId,p.category,batch)
+        const receipt=await receiveInventoryBatch(result.insertId,{quantity:batch.quantity,expiration_date:batch.expiration_date,location_id:room.id,supplier_id:batchSupplier.id,supplier_lot_number:batch.supplier_lot_number||null,unit_cost:batch.unit_cost,note:'Excel opening stock'},conn)
+        await conn.query(`INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id)
+          VALUES (?,?,'in',?,'Excel opening stock','received',?,?,?)`,[result.insertId,req.user.id,batch.quantity,receipt.batch_id,room.name,req.branchId])
+        openingQuantity+=batch.quantity
+      }
+      if(openingQuantity>0)await syncInventorySnapshot(result.insertId,conn)
+      await audit(req,conn,'inventory.item_created',result.insertId,null,{...p,barcode,opening_quantity:openingQuantity,opening_batch_count:(row.opening_batches||[]).length,source:'excel_import'})
+      created.push({id:result.insertId,name:p.name,barcode,opening_quantity:openingQuantity,opening_batches:(row.opening_batches||[]).length})
     }
     await conn.commit();conn.release();conn=null
-    return res.status(201).json({created:created.length,updated:0,items:created,message:'New items saved with zero stock. Use Stock In when quantities arrive.'})
+    return res.status(201).json({created:created.length,updated:0,items:created,message:'New items and opening batches were saved. Stock balances match the received batches.'})
   }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
 }
+
+// Import Stock In for existing items, with a branch-scoped idempotency record.
+// The same receipt reference never adds stock twice, even after a browser retry.
+async function bulkReceiveItems(req,res){
+ let conn
+ try{
+  const rows=bulkRows(req.body),seen=new Set()
+  for(const row of rows){
+   if(!bulkFields(row,['id','barcode','receipt_reference','quantity','expiration_date','supplier_lot_number','unit_cost','location_id','supplier_id']) || !positiveId(row.id) || !validBatch({quantity:row.quantity,expiration_date:row.expiration_date,supplier_lot_number:row.supplier_lot_number,unit_cost:row.unit_cost,location_id:row.location_id,supplier_id:row.supplier_id}))throw fail(400,'INVALID_RECEIPT','Each Stock In row needs an item, valid batch details and receipt reference.')
+   const ref=String(row.receipt_reference||'').trim()
+   if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{4,79}$/.test(ref))throw fail(400,'INVALID_RECEIPT_REFERENCE','Receipt Reference must be 5–80 letters, digits, dashes or underscores.')
+   const key=ref.toLowerCase();if(seen.has(key))throw fail(400,'DUPLICATE_RECEIPT_REFERENCE','The same receipt reference appears twice in this Excel upload.')
+   seen.add(key)
+  }
+  conn=await db.getConnection();await conn.beginTransaction()
+  const received=[]
+  for(const row of rows){
+   const [[item]]=await conn.query('SELECT id,name,barcode,category,archived_at FROM inventory WHERE id=? AND branch_id=? FOR UPDATE',[row.id,req.branchId])
+   if(!item||item.archived_at)throw fail(409,'INVENTORY_NOT_FOUND','Item is missing or archived in this clinic branch.')
+   if(String(item.barcode||'')!==String(row.barcode||''))throw fail(409,'BARCODE_MISMATCH',`Barcode changed for ${item.name}. Download a fresh Stock In template.`)
+   // Claim the reference before any batch movement. DB unique key prevents two
+   // requests from recording the same external stock delivery twice.
+   const [[existing]]=await conn.query('SELECT id FROM inventory_excel_receipts WHERE branch_id=? AND receipt_reference=? LIMIT 1',[req.branchId,row.receipt_reference])
+   if(existing)throw fail(409,'RECEIPT_ALREADY_IMPORTED',`Receipt ${row.receipt_reference} was already imported. No additional stock was received.`)
+   await conn.query('INSERT INTO inventory_excel_receipts (branch_id,receipt_reference,inventory_id,created_by_admin_id) VALUES (?,?,?,?)',[req.branchId,row.receipt_reference,item.id,req.user.id])
+   const {room,supplier}=await getValidReceivingRefs(conn,req.branchId,item.category,row)
+   const receipt=await receiveInventoryBatch(item.id,{quantity:row.quantity,expiration_date:row.expiration_date,location_id:room.id,supplier_id:supplier.id,supplier_lot_number:row.supplier_lot_number||null,unit_cost:row.unit_cost,note:`Excel Stock In ${row.receipt_reference}`},conn)
+   await syncInventorySnapshot(item.id,conn)
+   await conn.query(`INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id) VALUES (?,?,'in',?,?,'received',?,?,?)`,[item.id,req.user.id,row.quantity,`Excel Stock In ${row.receipt_reference}`,receipt.batch_id,room.name,req.branchId])
+   await conn.query('UPDATE inventory_excel_receipts SET batch_id=? WHERE branch_id=? AND receipt_reference=?',[receipt.batch_id,req.branchId,row.receipt_reference])
+   await audit(req,conn,'inventory.bulk_stock_received',item.id,null,{receipt_reference:row.receipt_reference,quantity:row.quantity,batch_id:receipt.batch_id,location:room.name,supplier:supplier.name})
+   received.push({id:item.id,batch_id:receipt.batch_id,receipt_reference:row.receipt_reference,quantity:row.quantity})
+  }
+  await conn.commit();conn.release();conn=null
+  return res.status(201).json({created:0,updated:received.length,receipts:received,message:`${received.length} stock receipt(s) recorded. Inventory and batch balances were updated.`})
+ }catch(error){if(conn){await conn.rollback().catch(()=>{});conn.release()}if(error.code==='ER_DUP_ENTRY')return res.status(409).json({code:'RECEIPT_ALREADY_IMPORTED',message:'This receipt reference has already been used. Stock was not added again.'});return errorResponse(error,res)}
+}
+
 // Conflict handling must run inside the same transaction as the write. Compare
 // only explicitly requested fields: unrelated metadata changes do not block edits.
 const bulkDetailError=(code,prior,row,field,downloaded,current,requested)=>{
@@ -250,10 +312,12 @@ function registerBranchInventoryItems(router,{requireSuper,branchContext,require
   router.post(`${prefix}/inventory`,...guard,afterSuccessfulMutation('inventory.updated'),createItem)
   router.post(`${prefix}/inventory/import-new`,...guard,afterSuccessfulMutation('inventory.updated'),bulkCreateItems)
   router.post(`${prefix}/inventory/bulk-update`,...guard,afterSuccessfulMutation('inventory.updated'),bulkUpdateItems)
+  router.post(`${prefix}/inventory/bulk-receive`,...guard,afterSuccessfulMutation('inventory.updated'),bulkReceiveItems)
   router.put(`${prefix}/inventory/:id`,...guard,afterSuccessfulMutation('inventory.updated'),updateItem)
   router.delete(`${prefix}/inventory/:id`,...guard,afterSuccessfulMutation('inventory.updated'),archiveItem)
  }
 }
-module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem,bulkCreateItems,bulkUpdateItems}
+module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem,bulkCreateItems,bulkUpdateItems,bulkReceiveItems}
+
 
 
