@@ -7,8 +7,8 @@ export const INVENTORY_HEADERS = ['Item Name', 'Selling Price', 'Initial Stock',
 // Separate workbooks make stock fields impossible to confuse with metadata edits.
 export const INVENTORY_CREATE_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Low Stock Alert', 'Supplier', 'Stock Room']
 export const INVENTORY_BULK_EDIT_HEADERS = [
-  'Item ID', 'Barcode', 'Item Name', 'Selling Price', 'Low Stock Alert', 'Supplier',
-  'Original Name', 'Original Selling Price', 'Original Low Stock Alert', 'Original Supplier ID',
+  'Item ID', 'Barcode', 'Item Name', 'Current Selling Price', 'New Selling Price',
+  'Current Low Stock Alert', 'New Low Stock Alert',
 ]
 const MAX_BYTES = 6 * 1024 * 1024
 const MAX_ROWS = 2000
@@ -164,8 +164,6 @@ export const asInventoryRow = (item,rooms,kind='view')=>{
 // Existing-item metadata template deliberately excludes quantity, category, location,
 // batch data and opening balances. Original values support stale-export detection.
 export const asInventoryBulkEditRow = (item) => [
-  item.id, item.barcode || '', item.name || '', Number(item.selling_price ?? item.price ?? 0),
-  Number(item.threshold ?? 5), item.supplier || '', item.name || '',
-  Number(item.selling_price ?? item.price ?? 0), Number(item.threshold ?? 5),
-  item.supplier_id == null ? '' : item.supplier_id,
+  item.id, item.barcode || '', item.name || '', Number(item.selling_price ?? item.price ?? 0), '',
+  Number(item.threshold ?? 0), '',
 ]

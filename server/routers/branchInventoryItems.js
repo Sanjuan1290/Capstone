@@ -34,7 +34,7 @@ const normalize = body => {
 }
 const audit = (req,conn,action,id,before,after) => writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action,entityType:'inventory_item',entityId:id,branchId:req.branchId,oldValues:before,newValues:after,ipAddress:req.ip},conn)
 const errorResponse=(error,res)=> {
-  if(error.statusCode)return res.status(error.statusCode).json({message:error.message,code:error.code})
+  if(error.statusCode)return res.status(error.statusCode).json({message:error.message,code:error.code,details:error.details||null})
   if(error.code==='ER_DUP_ENTRY')return res.status(409).json({code:'INVENTORY_DUPLICATE',message:'This barcode or item already exists in your branch.'})
   throw error
 }
@@ -177,51 +177,70 @@ async function bulkCreateItems(req,res) {
     return res.status(201).json({created:created.length,updated:0,items:created,message:'New items saved with zero stock. Use Stock In when quantities arrive.'})
   }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
 }
+// Conflict handling must run inside the same transaction as the write. Compare
+// only explicitly requested fields: unrelated metadata changes do not block edits.
+const bulkDetailError=(code,prior,row,field,downloaded,current,requested)=>{
+  const rowLabel=Number.isSafeInteger(Number(row.excel_row))&&Number(row.excel_row)>1?`Excel row ${row.excel_row}: `:''
+  const friendly=field==='selling_price'?'Selling Price':'Low Stock Alert'
+  const error=fail(409,code,`${rowLabel}${prior.name} — ${friendly} was updated after you downloaded the file. Current: ${current}. Download a fresh Excel file to review this change. Nothing was saved.`)
+  error.details={excel_row:row.excel_row||null,item_id:prior.id,item_name:prior.name,field:friendly,downloaded,current,requested}
+  return error
+}
 async function bulkUpdateItems(req,res) {
   let conn
   try {
-    const rows=bulkRows(req.body), seen=new Set()
+    const rows=bulkRows(req.body),seen=new Set()
     for(const row of rows) {
-      if(!bulkFields(row,['id','barcode','name','selling_price','threshold','supplier_id','expected']) ||
-        !bulkFields(row.expected,['name','selling_price','threshold','supplier_id'])) throw fail(400,'FORBIDDEN_BULK_FIELD','Bulk Edit can change only item name, selling price, supplier and low-stock alert. Stock, location and category cannot be edited in Excel.')
+      if(!bulkFields(row,['id','barcode','changes','expected','excel_row']) ||
+        !bulkFields(row.changes,['selling_price','threshold']) ||
+        !bulkFields(row.expected,['selling_price','threshold']) ||
+        !row.changes || !row.expected || !Object.keys(row.changes).length ||
+        Object.keys(row.changes).length!==Object.keys(row.expected).length ||
+        Object.keys(row.changes).some(key=>!Object.hasOwn(row.expected,key))) {
+        throw fail(400,'FORBIDDEN_BULK_FIELD','Excel Bulk Edit only allows New Selling Price and New Low Stock Alert. Other item details, quantities, and batches cannot be changed.')
+      }
       if(!positiveId(row.id)||seen.has(Number(row.id)))throw fail(400,'INVALID_BULK_ID','Item IDs must be valid and appear only once.')
       seen.add(Number(row.id))
-      if(!clean(row.name)||String(row.name).trim().length>150||!validMoney(row.selling_price)||!Number.isSafeInteger(Number(row.threshold))||Number(row.threshold)<0)throw fail(400,'INVALID_BULK_VALUE','Check item name, selling price (two decimals) and low-stock alert.')
-      if(row.supplier_id!==null && row.supplier_id!==undefined && !positiveId(row.supplier_id))throw fail(400,'INVALID_SUPPLIER','Choose an active supplier or leave Supplier blank.')
+      if(Object.hasOwn(row.changes,'selling_price') && (!validMoney(row.changes.selling_price) || !validMoney(row.expected.selling_price)))throw fail(400,'INVALID_BULK_VALUE','Selling Price must be greater than zero with up to two decimal places.')
+      if(Object.hasOwn(row.changes,'threshold') && (![row.changes.threshold,row.expected.threshold].every(v=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0)))throw fail(400,'INVALID_BULK_VALUE','Low Stock Alert must be a whole number of 0 or more.')
+      if(row.excel_row!==undefined && (!Number.isSafeInteger(row.excel_row)||row.excel_row<2||row.excel_row>2001))throw fail(400,'INVALID_EXCEL_ROW','Excel row number is invalid.')
     }
     conn=await db.getConnection();await conn.beginTransaction()
-    const updated=[]
+    const updated=[],alreadyApplied=[]
     for(const row of rows) {
       const [[prior]]=await conn.query('SELECT * FROM inventory WHERE id=? AND branch_id=? FOR UPDATE',[row.id,req.branchId])
-      if(!prior||prior.archived_at)throw fail(409,'ITEM_UNAVAILABLE',`Item ${row.id} is missing or archived in this branch. No items have been saved.`)
-      if(String(prior.barcode||'')!==String(row.barcode||''))throw fail(409,'BARCODE_MISMATCH',`Barcode changed for ${prior.name}. Download a fresh Bulk Edit file.`)
-      const before=row.expected
-      if(String(prior.name)!==String(before.name) || !priceMatch(prior.selling_price,before.selling_price) || Number(prior.threshold)!==Number(before.threshold) || Number(prior.supplier_id||0)!==Number(before.supplier_id||0)) throw fail(409,'STALE_BULK_EXPORT',`${prior.name} was edited after the Excel export. Download a fresh file. No items have been saved.`)
-      const nextName=String(row.name).trim(),nextPrice=Number(row.selling_price),nextThreshold=Number(row.threshold),nextSupplierId=row.supplier_id==null?null:Number(row.supplier_id)
-      const changed=nextName!==prior.name||!priceMatch(nextPrice,prior.selling_price)||nextThreshold!==Number(prior.threshold)||Number(nextSupplierId||0)!==Number(prior.supplier_id||0)
-      if(!changed)continue
-      if(!priceMatch(prior.selling_price,nextPrice)) {
-        const [[linked]]=await conn.query('SELECT COUNT(*) AS n FROM billing_service_materials WHERE inventory_id=?',[prior.id])
-        if(Number(linked.n)>0)throw fail(409,'LINKED_SERVICE_REPRICING',`${prior.name} is linked to billable services. Update its pricing through Services & Pricing.`)
+      if(!prior||prior.archived_at)throw fail(409,'ITEM_UNAVAILABLE',`Item ID ${row.id} is missing or archived in this branch. No items were saved.`)
+      if(String(prior.barcode||'')!==String(row.barcode||''))throw fail(409,'BARCODE_MISMATCH',`Barcode changed for ${prior.name}. Download a new Bulk Edit file. No items were saved.`)
+      const updates=[]
+      const auditBefore={},auditAfter={source:'excel_bulk_edit'}
+      for(const field of ['selling_price','threshold']){
+        if(!Object.hasOwn(row.changes,field))continue
+        const current=field==='selling_price'?Number(prior.selling_price):Number(prior.threshold)
+        const requested=Number(row.changes[field])
+        const downloaded=Number(row.expected[field])
+        const same=field==='selling_price'?priceMatch:(a,b)=>a===b
+        if(same(current,requested))continue // Re-uploading a successful change is safe.
+        if(!same(current,downloaded))throw bulkDetailError('BULK_FIELD_CONFLICT',prior,row,field,downloaded,current,requested)
+        if(field==='selling_price') {
+          const [[linked]]=await conn.query('SELECT COUNT(*) AS n FROM billing_service_materials WHERE inventory_id=?',[prior.id])
+          if(Number(linked.n)>0)throw fail(409,'LINKED_SERVICE_REPRICING',`${prior.name} is linked to billable services. Change its price using Services & Pricing. No items were saved.`)
+        }
+        updates.push(field)
+        auditBefore[field]=current
+        auditAfter[field]=requested
       }
-      let supplierName=prior.supplier||null
-      if(Number(nextSupplierId||0)!==Number(prior.supplier_id||0)) {
-        if(nextSupplierId) {
-          const [[supplier]]=await conn.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1',[nextSupplierId,req.branchId])
-          if(!supplier||!String(supplier.category||'').split(',').map(x=>x.trim()).includes(prior.category))throw fail(409,'INVALID_SUPPLIER',`Supplier not available for ${prior.name}.`)
-          supplierName=supplier.name
-        }else supplierName=null
-      }
-      const [[duplicate]]=await conn.query('SELECT id FROM inventory WHERE branch_id=? AND id<>? AND LOWER(TRIM(name))=LOWER(?) LIMIT 1',[req.branchId,prior.id,nextName])
-      if(duplicate)throw fail(409,'INVENTORY_DUPLICATE',`Another item already uses ${nextName}.`)
-      // Crucially: no inventory stock, batch, category, barcode or location columns.
-      await conn.query('UPDATE inventory SET name=?,selling_price=?,price=?,threshold=?,supplier_id=?,supplier=? WHERE id=? AND branch_id=?',
-        [nextName,nextPrice,nextPrice,nextThreshold,nextSupplierId,supplierName,prior.id,req.branchId])
-      await audit(req,conn,'inventory.item_updated',prior.id,prior,{name:nextName,selling_price:nextPrice,threshold:nextThreshold,supplier_id:nextSupplierId,supplier:supplierName,source:'excel_bulk_edit'})
-      updated.push({id:prior.id,name:nextName})
+      if(!updates.length){alreadyApplied.push({id:prior.id,name:prior.name});continue}
+      // Deliberately never touch item names, stock, stock logs, batches, bills, or receipts.
+      const sets=[],params=[]
+      if(updates.includes('selling_price')){sets.push('selling_price=?','price=?');params.push(row.changes.selling_price,row.changes.selling_price)}
+      if(updates.includes('threshold')){sets.push('threshold=?');params.push(row.changes.threshold)}
+      params.push(prior.id,req.branchId)
+      await conn.query(`UPDATE inventory SET ${sets.join(',')} WHERE id=? AND branch_id=?`,params)
+      await audit(req,conn,'inventory.item_bulk_details_updated',prior.id,auditBefore,auditAfter)
+      updated.push({id:prior.id,name:prior.name,fields:updates})
     }
     await conn.commit();conn.release();conn=null
-    return res.json({created:0,updated:updated.length,items:updated,message:'Item details updated. Stock quantities and batch records were not changed.'})
+    return res.json({created:0,updated:updated.length,already_applied:alreadyApplied.length,items:updated,message:updated.length?`${updated.length} item(s) updated. Earlier bills, stock movements, and current quantities were not edited.`:'These changes are already applied. Nothing else was updated.'})
   }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
 }
 

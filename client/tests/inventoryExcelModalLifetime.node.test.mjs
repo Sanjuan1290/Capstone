@@ -40,7 +40,7 @@ test('file cancel, parse errors, and completed imports release refresh pause', (
 })
 
 test('bulk Excel updates still cannot mutate stock or batches', () => {
-  assert.match(tools, /Only item details will be updated\. Current stock and all batch balances remain unchanged/)
+  assert.match(tools, /Only the two New columns can change the current selling price or low-stock alert/)
   assert.match(tools, /services\.bulkUpdateInventoryItems\(payload\)/)
   assert.doesNotMatch(tools, /services\.updateStock\(/)
 })

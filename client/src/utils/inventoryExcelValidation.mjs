@@ -98,29 +98,60 @@ export function preflightInventoryCreate(rows,{items=[],stockRooms=[],suppliers=
   })
 }
 
-export function preflightInventoryBulkEdit(rows,{items=[],suppliers=[]}={}) {
+// Bulk Edit can change exactly two independent catalog fields. The Current columns
+// are a snapshot from export; the New columns are optional. A repeated upload is a
+// no-op if the requested value is already in the database. Unrelated changes are
+// never overwritten or treated as conflicts.
+export function preflightInventoryBulkEdit(rows,{items=[]}={}) {
   const seen=new Set()
   return rows.map(row=>{
-    const errors=[], id=String(row['Item ID']??'').trim(), name=String(row['Item Name']??'').trim()
+    const errors=[]
+    const id=String(row['Item ID']??'').trim()
     const item=items.find(i=>String(i.id)===id)
-    const price=String(row['Selling Price']??'').trim(),threshold=String(row['Low Stock Alert']??'').trim()
-    const supplierLabel=String(row.Supplier??'').trim()
-    const keepExistingSupplier=Boolean(item && matchName(supplierLabel,item.supplier||''))
-    const supplier=keepExistingSupplier ? {id:item.supplier_id||null} : supplierByName(supplierLabel,suppliers,item?.category)
-    if(!/^\d{1,12}$/.test(id)||Number(id)<=0||!item)errors.push('Item ID does not belong to an inventory item in this branch.')
-    if(!row.Barcode || !item || String(row.Barcode)!==String(item.barcode||''))errors.push('Barcode must match the downloaded inventory file.')
-    if(!name||name.length>150)errors.push('Item Name is required (maximum 150 characters).')
-    if(!validPrice(price))errors.push('Selling Price must be above zero, with at most two decimal places.')
-    if(!requireWhole(threshold))errors.push('Low Stock Alert must be a whole number (0 or more).')
-    if(supplierLabel&&!supplier)errors.push('Supplier must be active and available for this item category.')
-    if(items.some(i=>String(i.id)!==id && matchName(i.name,name)))errors.push('Another item already uses this name.')
-    if(seen.has(id))errors.push('Duplicate Item ID in the Excel file.');seen.add(id)
-    // Reject stale exports only for item metadata. Stock movements don't affect these comparisons.
-    const expected={name:String(row['Original Name']??''),selling_price:Number(row['Original Selling Price']),threshold:Number(row['Original Low Stock Alert']),supplier_id:row['Original Supplier ID']===''?null:Number(row['Original Supplier ID'])}
-    if(item && (item.name!==expected.name || !samePrice(item.selling_price??item.price,expected.selling_price) || Number(item.threshold)!==expected.threshold || Number(item.supplier_id||0)!==Number(expected.supplier_id||0))) errors.push('Item details changed after export. Download a fresh Bulk Edit file.')
-    if(item && Number(item.linked_service_count)>0 && !samePrice(item.selling_price??item.price,price))errors.push('This price is linked to billable services. Use Services & Pricing.')
-    const payload={id:Number(id),barcode:String(row.Barcode??''),name,selling_price:Number(price),threshold:Number(threshold),supplier_id:supplier?.id||null,expected}
-    const changed=Boolean(item)&& (name!==item.name || !samePrice(item.selling_price??item.price,price) || Number(item.threshold)!==Number(threshold) || Number(item.supplier_id||0)!==Number(supplier?.id||0))
-    return {row:row._excelRow||0,name,action:'update',existing:item,payload,errors,changed,before:item&&{name:item.name,selling_price:item.selling_price??item.price,threshold:item.threshold,supplier:item.supplier||''}}
+    const name=String(row['Item Name']??'').trim()
+    const expectedPrice=String(row['Current Selling Price']??'').trim()
+    const requestedPrice=String(row['New Selling Price']??'').trim()
+    const expectedThreshold=String(row['Current Low Stock Alert']??'').trim()
+    const requestedThreshold=String(row['New Low Stock Alert']??'').trim()
+    const changes={},expected={},fieldChanges=[],alreadyApplied=[]
+
+    if(!/^\d{1,12}$/.test(id)||Number(id)<=0||!item)errors.push('Item ID does not belong to your selected clinic branch.')
+    if(!row.Barcode||!item||String(row.Barcode)!==String(item.barcode||''))errors.push('Barcode does not match the inventory record. Download a fresh file.')
+    if(item && name!==item.name) errors.push('Item Name is for reference only. Use Edit Item to rename a product.')
+    if(!validPrice(expectedPrice))errors.push('Current Selling Price is invalid. Download a fresh file.')
+    if(!requireWhole(expectedThreshold))errors.push('Current Low Stock Alert is invalid. Download a fresh file.')
+    if(seen.has(id))errors.push('Duplicate Item ID in this Excel file.')
+    seen.add(id)
+
+    // Blank New fields do not request any change; 0 is valid for the alert.
+    if(requestedPrice!=='') {
+      if(!validPrice(requestedPrice))errors.push('New Selling Price must be above ₱0.00, with at most two decimal places.')
+      else if(validPrice(expectedPrice) && !samePrice(requestedPrice,expectedPrice)) {
+        const current=item?.selling_price??item?.price
+        if(item && samePrice(current,requestedPrice)) alreadyApplied.push('Selling Price')
+        else if(item && !samePrice(current,expectedPrice))errors.push(`Selling Price changed since export: downloaded ₱${Number(expectedPrice).toFixed(2)}, now ₱${Number(current).toFixed(2)}, requested ₱${Number(requestedPrice).toFixed(2)}. Download a fresh file to review this price.`)
+        else {
+          if(item && Number(item.linked_service_count)>0)errors.push('Selling Price is connected to billable services. Update it in Services & Pricing.')
+          changes.selling_price=Number(requestedPrice)
+          expected.selling_price=Number(expectedPrice)
+          fieldChanges.push({label:'Selling Price',before:current,after:Number(requestedPrice)})
+        }
+      }
+    }
+    if(requestedThreshold!=='') {
+      if(!requireWhole(requestedThreshold))errors.push('New Low Stock Alert must be a whole number of 0 or more.')
+      else if(requireWhole(expectedThreshold) && Number(requestedThreshold)!==Number(expectedThreshold)) {
+        const current=Number(item?.threshold)
+        if(item && current===Number(requestedThreshold))alreadyApplied.push('Low Stock Alert')
+        else if(item && current!==Number(expectedThreshold))errors.push(`Low Stock Alert changed since export: downloaded ${Number(expectedThreshold)}, now ${current}, requested ${Number(requestedThreshold)}. Download a fresh file to review this alert.`)
+        else {
+          changes.threshold=Number(requestedThreshold)
+          expected.threshold=Number(expectedThreshold)
+          fieldChanges.push({label:'Low Stock Alert',before:current,after:Number(requestedThreshold)})
+        }
+      }
+    }
+    const payload={id:Number(id),barcode:String(row.Barcode??''),changes,expected,excel_row:row._excelRow||0}
+    return {row:row._excelRow||0,name:item?.name||name,action:'update',existing:item,payload,errors,changed:Object.keys(changes).length>0,fieldChanges,alreadyApplied,before:item&&{selling_price:item.selling_price??item.price,threshold:item.threshold}}
   })
 }
