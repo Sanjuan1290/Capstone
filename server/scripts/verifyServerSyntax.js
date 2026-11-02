@@ -30,3 +30,16 @@ if (failures) {
   process.exit(1)
 }
 console.log(`Server syntax verification passed: ${files.length} JavaScript modules.`)
+
+// Syntax checks cannot catch undefined callbacks wired into Express routes.
+// This dependency-free route registration test runs during `npm ci` (postinstall)
+// so a mismatched handler import fails the build instead of crashing Render.
+const routeTest = path.join(root, 'tests/security/staffRouteBindings.node.test.cjs')
+const routeResult = spawnSync(process.execPath, ['--test', routeTest], { encoding: 'utf8' })
+if (routeResult.status !== 0) {
+  console.error('Staff route registration validation failed. The server may fail at startup.')
+  console.error(routeResult.stdout || '')
+  console.error(routeResult.stderr || routeResult.error?.message || '')
+  process.exit(1)
+}
+console.log('Staff route registration validation passed.')
