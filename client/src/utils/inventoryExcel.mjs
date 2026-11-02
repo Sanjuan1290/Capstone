@@ -7,7 +7,7 @@ export const INVENTORY_HEADERS = ['Item Name', 'Selling Price', 'Initial Stock',
 // Separate workbooks make stock fields impossible to confuse with metadata edits.
 export const INVENTORY_CREATE_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Low Stock Alert', 'Supplier', 'Stock Room', 'Initial Stock (calculated)']
 export const INVENTORY_OPENING_BATCH_HEADERS = ['Item Name', 'Quantity', 'Expiration Date', 'Supplier Lot Number', 'Unit Cost', 'Stock Room', 'Supplier']
-export const INVENTORY_NEW_ITEM_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Initial Stock', 'Expiration Date', 'Low Stock Alert', 'Supplier', 'Stock Room', 'Lot Number', 'Unit Cost']
+export const INVENTORY_NEW_ITEM_HEADERS = ['Item Name', 'Category', 'Selling Price', 'Initial Stock', 'Expiration Date', 'Low Stock Alert', 'Supplier', 'Stock Room']
 export const INVENTORY_RECEIVE_HEADERS = ['Receipt Reference', 'Item ID', 'Barcode', 'Item Name', 'Quantity', 'Expiration Date', 'Supplier Lot Number', 'Unit Cost', 'Stock Room', 'Supplier']
 export const INVENTORY_BULK_EDIT_HEADERS = [
   'Item ID', 'Barcode', 'Item Name', 'Current Selling Price', 'New Selling Price',

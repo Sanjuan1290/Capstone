@@ -100,21 +100,22 @@ export function preflightInventorySingleSheetCreate(rows,options={}){
       errors.push('Repeated Item Name must have the same category, price, alert, supplier and stock room as its first row.')
     const qty=String(row['Initial Stock']??'').trim()
     const expiry=String(row['Expiration Date']??'').trim()
-    const cost=String(row['Unit Cost']??'').trim()
-    const lot=String(row['Lot Number']??'').trim()
+    // Unit Cost and Supplier Lot Number are optional backend batch fields.
+    // This simplified import does not collect them: store zero cost and no supplier lot.
     if(!requireWhole(qty))errors.push('Initial Stock must be a whole number (0 or more).')
     else if(Number(qty)>0){
-      // The legacy batch preflight validates expiry, supplier, room and unit cost.
-      const signature=[expiry,lot,cost,norm(row.Supplier),norm(row['Stock Room']),qty].join('|')
+      // Without an external lot number, identical opening rows cannot be
+      // distinguished reliably. Reject duplicates to avoid double-counting.
+      const signature=[expiry,qty,norm(row.Supplier),norm(row['Stock Room'])].join('|')
       if(group.seenBatches.has(signature))errors.push('This opening batch row is duplicated. Remove the duplicate to prevent counting stock twice.')
       group.seenBatches.add(signature)
       group.batches.push({
         'Item Name':group.base['Item Name'],'Quantity':qty,'Expiration Date':expiry,
-        'Supplier Lot Number':lot,'Unit Cost':cost,'Stock Room':row['Stock Room'],
+        'Supplier Lot Number':'','Unit Cost':'0','Stock Room':row['Stock Room'],
         'Supplier':row.Supplier,_excelRow:rowNumber,
       })
-    }else if(expiry || lot || cost){
-      errors.push('A row with zero Initial Stock must leave Expiration Date, Lot Number and Unit Cost blank.')
+    }else if(expiry){
+      errors.push('A row with zero Initial Stock must leave Expiration Date blank.')
     }
     if(errors.length)rowErrors.push({row:rowNumber,sheet:'Inventory',name,action:'create',errors,changed:false})
     group.rows.push(row)

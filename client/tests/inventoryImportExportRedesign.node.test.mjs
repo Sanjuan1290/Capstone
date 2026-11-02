@@ -12,21 +12,21 @@ const options={items:[],suppliers,stockRooms:rooms}
 const makeRow=(details={})=>({
   'Item Name':'Acne Gel',Category:'Dermatology','Selling Price':'200.00',
   'Initial Stock':'50','Expiration Date':'2030-05-01','Low Stock Alert':'5',
-  Supplier:'Supplier A','Stock Room':'Main Stockroom','Lot Number':'LOT-01',
-  'Unit Cost':'35.00',_excelRow:2,...details
+  Supplier:'Supplier A','Stock Room':'Main Stockroom',_excelRow:2,...details
 })
 
-test('new-item template is one worksheet with editable batch details',async()=>{
+test('new-item template has exactly eight visible columns and one worksheet',async()=>{
   assert.deepEqual(INVENTORY_NEW_ITEM_HEADERS,[
     'Item Name','Category','Selling Price','Initial Stock','Expiration Date',
-    'Low Stock Alert','Supplier','Stock Room','Lot Number','Unit Cost'])
+    'Low Stock Alert','Supplier','Stock Room'])
   const xml=new TextDecoder().decode(await makeInventoryNewItemsTemplate().arrayBuffer())
   assert.match(xml, /<sheet name="Inventory"/)
   assert.doesNotMatch(xml,/sheet2.xml|Opening Batches|sheetProtection/)
   assert.match(xml,/Initial Stock/)
+  assert.doesNotMatch(xml, /<t xml:space="preserve">(?:Lot Number|Unit Cost)<\/t>/)
 })
 test('two rows for the same new item become two traceable batches and zero direct stock',()=>{
-  const rows=[makeRow(),makeRow({'Initial Stock':'30','Expiration Date':'2030-06-01','Lot Number':'LOT-02',_excelRow:3})]
+  const rows=[makeRow(),makeRow({'Initial Stock':'30','Expiration Date':'2030-06-01',_excelRow:3})]
   const result=preflightInventorySingleSheetCreate(rows,options)
   assert.equal(result.length,1)
   assert.deepEqual(result[0].errors,[])
@@ -34,17 +34,20 @@ test('two rows for the same new item become two traceable batches and zero direc
   assert.equal(result[0].openingQuantity,80)
   assert.equal(result[0].openingBatches,2)
   assert.deepEqual(result[0].payload.opening_batches.map(b=>b.quantity),[50,30])
-  assert.deepEqual(result[0].payload.opening_batches.map(b=>b.supplier_lot_number),['LOT-01','LOT-02'])
+  assert.deepEqual(result[0].payload.opening_batches.map(b=>b.supplier_lot_number),['',''])
+  assert.deepEqual(result[0].payload.opening_batches.map(b=>b.unit_cost),[0,0])
+  assert.deepEqual(Object.keys(result[0].payload.opening_batches[0]).sort(),
+    ['quantity','expiration_date','supplier_lot_number','unit_cost','location_id','supplier_id'].sort())
 })
-test('zero opening stock needs no expiration date, lot number or unit cost',()=>{
-  const row=makeRow({'Initial Stock':'0','Expiration Date':'','Lot Number':'','Unit Cost':''})
+test('zero opening stock needs no expiration date',()=>{
+  const row=makeRow({'Initial Stock':'0','Expiration Date':''})
   const [r]=preflightInventorySingleSheetCreate([row],options)
   assert.deepEqual(r.errors,[])
   assert.equal(r.openingQuantity,0)
   assert.deepEqual(r.payload.opening_batches,[])
 })
 test('duplicate opening rows and conflicting item details stop the whole upload',()=>{
-  const rows=[makeRow(),makeRow({_excelRow:3}),makeRow({'Selling Price':'90',_excelRow:4,'Lot Number':'LOT-03'})]
+  const rows=[makeRow(),makeRow({_excelRow:3}),makeRow({'Selling Price':'90',_excelRow:4})]
   const result=preflightInventorySingleSheetCreate(rows,options)
   assert.ok(result.some(r=>r.row===3&&r.errors.some(e=>e.includes('duplicated'))))
   assert.ok(result.some(r=>r.row===4&&r.errors.some(e=>e.includes('Repeated Item Name'))))
