@@ -8,6 +8,7 @@ import Pagination from '../../components/ui/Pagination'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/PageState'
 import BillingSetupNav from '../../components/billing/BillingSetupNav'
+import SetupTableActions, { SETUP_ACTION_BUTTON, SETUP_ACTION_CELL } from '../../components/system/SetupTableActions'
 import { formatMoney } from '../../utils/billingUi'
 
 const CLINIC_TYPES = [
@@ -136,15 +137,23 @@ const Admin_BillingCatalog = () => {
         : error ? <div className="p-5"><ErrorState message={error} onRetry={load} /></div>
           : rows.length === 0 ? <div className="p-8 text-center">{search ? <EmptyState title="No matching services" description="Clear the search or change the clinic filter." /> : <EmptyState title={filter !== 'all' ? `No ${clinicLabel(filter)} services configured` : 'No services configured yet'} description={canEditPricing ? 'Add an active service with a Service Price so it can be used for booking and billing.' : 'An Admin must configure Services & Pricing.'} />}{canEditPricing && filter !== 'all' && <Link to={newServicePath(filter)} className="button-primary mt-4 inline-flex"><MdAdd /> Add {clinicLabel(filter)} Service</Link>}</div>
             : <>
-              <div className="overflow-x-auto"><table className="min-w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Service</th><th className="px-5 py-3">Clinic</th><th className="px-5 py-3">Service Price</th><th className="px-5 py-3">Appointment Length</th><th className="px-5 py-3">Supplies Used</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">{rows.map((service) => <tr key={service.id}>
+              <div className="overflow-x-auto"><table className="w-full min-w-[1130px] text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Service</th><th className="px-5 py-3">Clinic</th><th className="px-5 py-3">Service Price</th><th className="px-5 py-3">Appointment Length</th><th className="px-5 py-3">Supplies Used</th><th className="px-5 py-3">Status</th><th className={SETUP_ACTION_CELL}>Actions</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">{rows.map((service) => <tr key={service.id} className="align-middle">
                   <td className="px-5 py-4"><p className="font-black text-slate-800">{service.service_name}</p><p className="mt-1 text-xs text-slate-500">{service.category || 'Uncategorized'}</p></td>
                   <td className="px-5 py-4">{clinicLabel(service.clinic_type)}</td>
                   <td className="px-5 py-4 font-black text-slate-900">{formatMoney(servicePrice(service))}</td>
                   <td className="px-5 py-4 font-semibold text-slate-700">{formatDuration(service.average_duration_minutes)}</td><td className="px-5 py-4">{service.materials?.length || 0}</td>
                   <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${Number(service.is_active) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{Number(service.is_active) === 1 ? 'Active' : 'Inactive'}</span></td>
-                  <td className="px-5 py-4"><div className="flex justify-end gap-2">{canEditPricing ? <><Link className="button-secondary" to={`${portalBase}/system-setup/billing/services/${service.id}/edit`}><MdEdit /> Edit</Link>{(Number(service.is_active) === 1 || Number(service.usage_count||0) === 0) && <button className="button-secondary text-rose-700" onClick={() => setDeleteCandidate(service)}><MdDelete /> {Number(service.usage_count||0)>0?'Deactivate':'Delete'}</button>}</> : <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-400"><MdLock /> Admin only</span>}</div></td>
+                  <td className={SETUP_ACTION_CELL}>
+                    <SetupTableActions
+                      note={!canEditPricing ? 'Admin only' : null}
+                      primary={canEditPricing ? <Link className={SETUP_ACTION_BUTTON} to={`${portalBase}/system-setup/billing/services/${service.id}/edit`}><MdEdit /> Edit</Link> : null}
+                      secondary={canEditPricing && (Number(service.is_active) === 1 || Number(service.usage_count||0) === 0)
+                        ? <button className={`${SETUP_ACTION_BUTTON} !border-rose-200 !text-rose-700`} onClick={() => setDeleteCandidate(service)}><MdDelete /> {Number(service.usage_count||0)>0?'Deactivate':'Delete'}</button>
+                        : null}
+                    />
+                  </td>
                 </tr>)}</tbody>
               </table></div>
               <div className="border-t border-slate-100 p-4"><Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1) }} /></div>

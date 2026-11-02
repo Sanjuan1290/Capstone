@@ -15,6 +15,7 @@ import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
 import SystemSetupTabs, { SYSTEM_SETUP_TABS } from '../../components/system/SystemSetupTabs'
 import StockRoomsManager from '../../components/system/StockRoomsManager'
+import SetupTableActions, { SETUP_ACTION_BUTTON, SETUP_ACTION_CELL } from '../../components/system/SetupTableActions'
 import useClientPagination from '../../hooks/useClientPagination'
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/PageState'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -247,7 +248,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
       ) : (
         <div>
           <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
+          <table className={`w-full text-sm ${type === 'suppliers' ? 'min-w-[1160px]' : type === 'movement_reasons' ? 'min-w-[950px]' : 'min-w-[820px]'}`}>
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
               <tr>
                 <th className="px-5 py-3">Name</th>
@@ -259,14 +260,14 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                 {type === 'suppliers' && <th className="px-5 py-3">Clinic</th>}
                 {type === 'movement_reasons' && <th className="px-5 py-3">Movement</th>}
                 {type === 'movement_reasons' && <th className="px-5 py-3">Batch Rule</th>}
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3 text-right">Action</th>
+                <th className="min-w-[100px] px-5 py-3">Status</th>
+                <th className={SETUP_ACTION_CELL}>Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {pagination.pageItems.map((row) => (
-                <tr key={row.id}>
-                  <td className="px-5 py-4 font-semibold text-slate-800">{row.label || row.name}{type === 'movement_reasons' && <span className="ml-2 text-xs font-normal text-slate-400">{row.branch_id == null ? 'Shared' : 'This clinic'}</span>}</td>
+                <tr key={row.id} className="align-middle">
+                  <td className="min-w-[180px] px-5 py-4 font-semibold text-slate-800 break-words">{row.label || row.name}{type === 'movement_reasons' && <span className="ml-2 text-xs font-normal text-slate-400">{row.branch_id == null ? 'Shared' : 'This clinic'}</span>}</td>
                   {type === 'cancellation_reasons' && <><td className="px-5 py-4 text-slate-500">{Number(row.appointment_count || 0)} appointment{Number(row.appointment_count || 0) === 1 ? '' : 's'}</td></>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{clinicLabel(row.clinic_type)}</td>}
                   {type === 'service_categories' && <td className="px-5 py-4 text-slate-500">{Number(row.service_count || 0)} service{Number(row.service_count || 0) === 1 ? '' : 's'}</td>}
@@ -280,12 +281,16 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                       {Number(row.is_active) === 1 ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td className="px-5 py-4 text-right">
-                    <div className="inline-flex flex-wrap justify-end gap-2">
-                      {canEditReference(row) ? <button type="button" className="button-secondary" onClick={() => open(row)}><MdEdit /> Edit</button> : <span className="text-xs text-slate-500">{globalSetup ? 'Managed by branch' : 'Shared · read only'}</span>}
-                      {canRemoveReference(row) && Number(row.is_active) === 0 && getUsage(row) > 0 && <button type="button" className="button-secondary" onClick={() => reactivate(row)}>Reactivate</button>}
-                      {canRemoveReference(row) && (Number(row.is_active) === 1 || getUsage(row) === 0) && <button type="button" className={`button-secondary ${getUsage(row) === 0 ? '!border-rose-200 !text-rose-600 hover:!bg-rose-50' : ''}`} onClick={() => requestDelete(row)}><MdDelete /> {deleteAction(row)}</button>}
-                    </div>
+                  <td className={SETUP_ACTION_CELL}>
+                    <SetupTableActions
+                      note={!canEditReference(row) ? (globalSetup ? 'Managed by branch' : 'Shared · read only') : null}
+                      primary={canEditReference(row) ? <button type="button" className={SETUP_ACTION_BUTTON} onClick={() => open(row)}><MdEdit /> Edit</button> : null}
+                      secondary={canRemoveReference(row) && Number(row.is_active) === 0 && getUsage(row) > 0
+                        ? <button type="button" className={SETUP_ACTION_BUTTON} onClick={() => reactivate(row)}>Reactivate</button>
+                        : canRemoveReference(row) && (Number(row.is_active) === 1 || getUsage(row) === 0)
+                          ? <button type="button" className={`${SETUP_ACTION_BUTTON} ${getUsage(row) === 0 ? '!border-rose-200 !text-rose-600 hover:!bg-rose-50' : ''}`} onClick={() => requestDelete(row)}><MdDelete /> {deleteAction(row)}</button>
+                          : null}
+                    />
                   </td>
                 </tr>
               ))}

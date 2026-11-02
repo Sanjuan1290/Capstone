@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
+import SetupTableActions, { SETUP_ACTION_BUTTON } from '../../components/system/SetupTableActions'
 import useClientPagination from '../../hooks/useClientPagination'
 import {
   getAppointmentReasons,
@@ -652,8 +653,8 @@ const Admin_PatientBooking = () => {
           ) : (
             <div className="divide-y divide-slate-100">
               {reasonPagination.pageItems.map((reason) => (
-                <div key={reason.id} className="px-5 py-4 flex items-start gap-3">
-                  <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${Number(reason.is_active) === 1 ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                <div key={reason.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+                  <div className={`hidden sm:block mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${Number(reason.is_active) === 1 ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-bold text-slate-800">{reason.label}</p>
@@ -669,23 +670,16 @@ const Admin_PatientBooking = () => {
                       <span>{clinicLabel(reason.clinic_type)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => startEdit(reason)}
-                      className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-100 transition-colors"
-                    >
-                      <span className="flex items-center gap-1"><MdEdit className="text-[13px]" /> Edit</span>
-                    </button>
-                    {(Number(reason.is_active) === 1 || Number(reason.usage_count || 0) === 0) && <button
-                      onClick={() => handleDelete(reason)}
-                      disabled={deletingId === reason.id}
-                      className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100 disabled:opacity-50 transition-colors"
-                    >
-                      <span className="flex items-center gap-1">
-                        <MdDelete className="text-[13px]" />
-                        {deletingId === reason.id ? 'Saving...' : (Number(reason.usage_count || 0) > 0 ? 'Deactivate' : 'Delete')}
-                      </span>
-                    </button>}
+                  <div className="flex w-full justify-end sm:w-auto sm:shrink-0">
+                    <SetupTableActions
+                      primary={<button onClick={() => startEdit(reason)} className={SETUP_ACTION_BUTTON}><MdEdit /> Edit</button>}
+                      secondary={(Number(reason.is_active) === 1 || Number(reason.usage_count || 0) === 0) ? (
+                        <button onClick={() => handleDelete(reason)} disabled={deletingId === reason.id}
+                          className={`${SETUP_ACTION_BUTTON} !border-red-200 !text-red-600 hover:!bg-red-50`}>
+                          <MdDelete /> {deletingId === reason.id ? 'Saving…' : Number(reason.usage_count || 0) > 0 ? 'Deactivate' : 'Delete'}
+                        </button>
+                      ) : null}
+                    />
                   </div>
                 </div>
               ))}

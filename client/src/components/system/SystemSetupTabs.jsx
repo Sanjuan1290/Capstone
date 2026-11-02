@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'
 import {
-  MdCategory, MdEventBusy, MdLocalShipping, MdMeetingRoom, MdPayments, MdPlace, MdSettings, MdSwapVert,
+  MdCategory, MdEventBusy, MdLocalShipping, MdMeetingRoom, MdPayments, MdSettings, MdSwapVert,
 } from 'react-icons/md'
 
 export const SYSTEM_SETUP_TABS = [
@@ -21,15 +21,17 @@ const SystemSetupTabs = () => {
   const activeKey = location.pathname.includes('/system-setup/billing') ? 'billing_setup' : (SYSTEM_SETUP_TABS.some((tab) => tab.key === requestedTab) ? requestedTab : 'visits')
 
   return (
-    <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2">
-      {SYSTEM_SETUP_TABS.map(({ key, label, Icon, suffix }) => (
-        <Link key={key} to={`${base}${suffix}`} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${activeKey === key ? 'bg-[#0b1a2c] text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
-          <Icon /> {label}
-        </Link>
-      ))}
-    </div>
+    <nav aria-label="System Setup sections" className="w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2">
+      <div className="flex w-max min-w-full items-center gap-2">
+        {SYSTEM_SETUP_TABS.map(({ key, label, Icon, suffix }) => (
+          <Link key={key} to={`${base}${suffix}`} aria-current={activeKey === key ? 'page' : undefined}
+            className={`inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${activeKey === key ? 'bg-[#0b1a2c] text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+            <Icon aria-hidden="true" /> {label}
+          </Link>
+        ))}
+      </div>
+    </nav>
   )
 }
 
 export default SystemSetupTabs
-

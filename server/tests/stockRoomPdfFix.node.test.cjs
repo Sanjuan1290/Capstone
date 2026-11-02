@@ -66,7 +66,9 @@ test('UI no longer shows a Room Type control but preserves the internal stored t
  assert.doesNotMatch(ui,/>Type<\/th>/)
  assert.match(ui,/location_type: editing\?\.id \? editing.location_type : 'room'/)
  assert.match(ui,/row.item_count/)
- assert.match(ui,/row.total_quantity/)
+ assert.doesNotMatch(ui,/row.total_quantity/)
+ assert.match(ui,/Products in Room/)
+ assert.doesNotMatch(ui,/text-right\">Stock<\/th>/)
 })
 test('room writes keep internal type unchanged on edit and default new rooms internally',()=>{
  const route=file('routers/branchQueueInventoryWrites.js')

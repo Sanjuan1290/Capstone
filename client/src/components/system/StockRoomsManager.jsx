@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { MdAdd, MdEdit, MdDelete, MdMeetingRoom } from 'react-icons/md'
 import Modal from '../ui/Modal'
+import SetupTableActions, { SETUP_ACTION_BUTTON, SETUP_ACTION_CELL } from './SetupTableActions'
 import { useToast } from '../ui/ToastProvider'
 import { LoadingState, ErrorState } from '../ui/PageState'
 import { createInventoryLocation, getInventoryLocations, updateInventoryLocation, deleteInventoryLocation } from '../../services/admin.service'
@@ -88,31 +89,37 @@ const StockRoomsManager = () => {
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 p-5">
         <div>
           <h2 className="flex items-center gap-2 font-black text-slate-900"><MdMeetingRoom className="text-sky-500" /> Stock Rooms</h2>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">Items and stock show quantities physically allocated to each room. Changing a room name does not move stock.</p>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">Products in Room counts different products with available stock in that room, not the number of units. Each product counts once. Changing a room name does not move stock.</p>
         </div>
         <button type="button" className="button-primary" onClick={() => openForm()}><MdAdd /> Add Stock Room</button>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs text-slate-500">
-            <tr><th className="px-5 py-3">Name</th><th className="px-4 py-3 text-right">Items</th><th className="px-4 py-3 text-right">Stock</th><th className="px-4 py-3">Status</th><th className="px-5 py-3 text-right"><span className="sr-only">Actions</span></th></tr>
+        <table className="w-full min-w-[840px] text-sm">
+          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th scope="col" className="px-5 py-3">Stock Room</th>
+              <th scope="col" className="w-[190px] px-4 py-3 text-center" title="Number of different products with stock in this room; not total units">Products in Room</th>
+              <th scope="col" className="w-[105px] px-4 py-3">Status</th>
+              <th scope="col" className={SETUP_ACTION_CELL}>Actions</th>
+            </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((row) => (
-              <tr key={row.id} className={Number(row.is_active ?? 1) === 1 ? '' : 'text-slate-400'}>
+              <tr key={row.id} className={Number(row.is_active ?? 1) === 1 ? 'align-middle' : 'align-middle text-slate-400'}>
                 <td className="px-5 py-3">
                   <p className="font-bold text-slate-900">{row.name}</p>
                   {Number(row.is_main_stockroom || 0) === 1 && <p className="text-xs font-semibold text-emerald-700">Main Stockroom</p>}
                 </td>
-                <td className="px-4 py-3 text-right">{Number(row.item_count || 0)}</td>
-                <td className="px-4 py-3 text-right">{Number(row.total_quantity || 0).toLocaleString('en-PH')}</td>
-                <td className="px-4 py-3">{Number(row.is_active ?? 1) === 1 ? 'Active' : 'Inactive'}</td>
-                <td className="px-5 py-3 text-right"><div className="inline-flex flex-wrap justify-end gap-2">
-                  <button type="button" className="button-secondary" onClick={() => openForm(row)}><MdEdit /> Edit</button>
-                  {Number(row.is_main_stockroom) !== 1 && (Number(row.is_active) === 0 && Number(row.usage_count||0)>0
-                    ? <button type="button" className="button-secondary" disabled={actionId===row.id} onClick={()=>changeRoom(row,'reactivate')}>Reactivate</button>
-                    : <button type="button" className="button-secondary" disabled={actionId===row.id} onClick={()=>changeRoom(row,Number(row.usage_count||0)>0?'deactivate':'delete')}><MdDelete /> {Number(row.usage_count||0)>0?'Deactivate':'Delete'}</button>)}
-                </div></td>
+                <td className="px-4 py-3 text-center font-semibold tabular-nums text-slate-800">{Number(row.item_count || 0).toLocaleString('en-PH')}</td>
+                <td className="px-4 py-3"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${Number(row.is_active ?? 1) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{Number(row.is_active ?? 1) === 1 ? 'Active' : 'Inactive'}</span></td>
+                <td className={SETUP_ACTION_CELL}>
+                  <SetupTableActions
+                    primary={<button type="button" className={SETUP_ACTION_BUTTON} onClick={() => openForm(row)}><MdEdit /> Edit</button>}
+                    secondary={Number(row.is_main_stockroom) !== 1 ? (Number(row.is_active) === 0 && Number(row.usage_count||0)>0
+                      ? <button type="button" className={SETUP_ACTION_BUTTON} disabled={actionId===row.id} onClick={()=>changeRoom(row,'reactivate')}>Reactivate</button>
+                      : <button type="button" className={SETUP_ACTION_BUTTON} disabled={actionId===row.id} onClick={()=>changeRoom(row,Number(row.usage_count||0)>0?'deactivate':'delete')}><MdDelete /> {Number(row.usage_count||0)>0?'Deactivate':'Delete'}</button>) : null}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
