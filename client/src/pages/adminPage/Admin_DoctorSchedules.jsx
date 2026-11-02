@@ -1,5 +1,5 @@
 import useClinicRefresh from '../../hooks/useClinicRefresh'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   deleteDoctorUnavailableDate,
   getDoctors,
@@ -157,6 +157,8 @@ const Admin_DoctorSchedules = () => {
   const [schedLoading, setSchedLoading] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
   const [doctorSearch, setDoctorSearch] = useState('')
+  const requestVersion = useRef(0)
+  const [refreshError, setRefreshError] = useState('')
 
   useEffect(() => {
     getDoctors()
@@ -165,29 +167,39 @@ const Admin_DoctorSchedules = () => {
       .finally(() => setLoading(false))
   }, [])
 
-  const loadScheduleData = async (doctor) => {
-    setSelected(doctor)
-    setShowPicker(false)
-    setSchedLoading(true)
+  // Background updates must not replace/unmount the schedule cards.
+  // Only selecting a different doctor displays the initial loading view.
+  const loadScheduleData = async (doctor, { silent = false } = {}) => {
+    if (!doctor?.id) return
+    const request = ++requestVersion.current
+    if (!silent) {
+      setSelected(doctor)
+      setShowPicker(false)
+      setSchedLoading(true)
+    }
+    setRefreshError('')
     try {
       const [scheduleRows, unavailableRows] = await Promise.all([
         getDoctorSchedules(doctor.id),
         getDoctorUnavailableDates(doctor.id),
       ])
+      if (request !== requestVersion.current) return
       setSchedules(Array.isArray(scheduleRows) ? scheduleRows : [])
       setUnavailableDates(Array.isArray(unavailableRows) ? unavailableRows : [])
     } catch {
-      setSchedules([])
-      setUnavailableDates([])
+      if (request === requestVersion.current) {
+        if (!silent) { setSchedules([]); setUnavailableDates([]) }
+        setRefreshError('Could not refresh the schedule. Your current view was kept; try again.')
+      }
     } finally {
-      setSchedLoading(false)
+      if (!silent && request === requestVersion.current) setSchedLoading(false)
     }
   }
 
   useClinicRefresh(async()=>{
     const rows=await getDoctors()
     if(Array.isArray(rows))setDoctors(rows)
-    if(selected && !schedLoading)await loadScheduleData(selected)
+    if(selected && !schedLoading)await loadScheduleData(selected,{silent:true})
   },['schedule.updated','accounts.updated'],{fallbackMs:90000,skip:()=>schedLoading||showPicker})
 
   const getForDay = (day) => schedules.find((schedule) => schedule.day_of_week === day)
@@ -305,6 +317,8 @@ const Admin_DoctorSchedules = () => {
         </div>
       )}
 
+      {selected && refreshError && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{refreshError}</p>}
+
       {selected && (
         schedLoading ? (
           <div className="flex items-center justify-center py-16">
@@ -318,7 +332,7 @@ const Admin_DoctorSchedules = () => {
                 day={day}
                 schedule={getForDay(day)}
                 onSave={(payload) => saveDaySchedule(selected.id, payload)}
-                onSaved={() => loadScheduleData(selected)}
+                onSaved={() => loadScheduleData(selected,{silent:true})}
               />
             ))}
           </div>
@@ -329,7 +343,7 @@ const Admin_DoctorSchedules = () => {
         <UnavailableDatesPanel
           doctorId={selected.id}
           dates={unavailableDates}
-          onSaved={() => loadScheduleData(selected)}
+          onSaved={() => loadScheduleData(selected,{silent:true})}
         />
       )}
 
@@ -345,3 +359,4 @@ const Admin_DoctorSchedules = () => {
 }
 
 export default Admin_DoctorSchedules
+

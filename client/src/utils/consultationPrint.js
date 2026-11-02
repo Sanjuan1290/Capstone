@@ -20,66 +20,149 @@ export const printConsultationRecord = ({ patient, diagnosis, notes, prescriptio
 }
 
 
-// This is deliberately separate from the consultation-record printout. The
-// clinic can print/cut two copies of a prescription without disclosing clinical
-// notes, services or other internal consultation details.
-export const buildPrescriptionPadHtml = ({ patient, diagnosis, prescriptions = [], doctorName, doctorSpecialty, prcLicense, ptrNumber, date, clinic, followUp } = {}) => {
-  const lines = (Array.isArray(prescriptions) ? prescriptions : []).filter(item => String(item?.medicine || '').trim())
-  const logo = typeof window !== 'undefined' ? `${window.location.origin}/logo.png` : '/logo.png'
-  const info = [clinic?.address, clinic?.phone, clinic?.email].filter(Boolean)
-  const medicationRow = (r) => `<div class="medication">
-      <strong>${escapeHtml(r.medicine)}</strong>
-      ${(r.quantity !== undefined && r.quantity !== null && r.quantity !== '') || r.dosage ? `<div class="rx-qty">#${escapeHtml(r.quantity ?? r.dosage)}${r.unit_label ? ` ${escapeHtml(r.unit_label)}` : ''}</div>` : ''}
-      ${[r.frequency, r.duration].filter(Boolean).length ? `<div class="rx-directions">${[r.frequency, r.duration].filter(Boolean).map(escapeHtml).join(' · ')}</div>` : ''}
-      ${r.notes ? `<div class="rx-directions">${escapeHtml(r.notes)}</div>` : ''}
-    </div>`
-  // Keep every medicine in the printout. Each page gets up to four medicines.
-  // Long prescription lists continue on another landscape page, rather than
-  // disappearing behind a fixed-height clipped container.
-  const groups = []
-  if (!lines.length) groups.push([])
-  else for (let i = 0; i < lines.length; i += 4) groups.push(lines.slice(i, i + 4))
-  const panel = (group) => `<section class="pad">
-      <header class="pad-head"><img src="${logo}" alt="Carait clinic logo"/><div class="clinic-head"><h1>${escapeHtml(clinic?.clinic_name || 'Carait Medical and Dermatology Clinic')}</h1>${info.map(v=>`<div>${escapeHtml(v)}</div>`).join('')}</div></header>
-      <div class="pad-rule"></div>
-      <div class="patient"><div class="patient-top"><span><b>Name:</b> ${escapeHtml(patient?.name || '')}</span><span>${escapeHtml(date || '')}</span></div><div><b>Age/Sex:</b> ${escapeHtml([patient?.age,patient?.sex].filter(Boolean).join(' / '))}</div></div>
-      <div class="rx-mark" aria-label="Rx">R<span>x</span></div>
-      <div class="medications">${group.length ? group.map(medicationRow).join('') : '<p class="empty">No medications prescribed.</p>'}</div>
-      ${diagnosis ? `<div class="diagnosis"><b>Diagnosis:</b> ${escapeHtml(diagnosis)}</div>` : ''}
-      <footer class="doctor"><strong>${escapeHtml(doctorName || 'Attending Physician')}</strong>
-      ${doctorSpecialty ? `<div>${escapeHtml(doctorSpecialty)}</div>` : ''}
-      ${prcLicense ? `<div>License No. ${escapeHtml(prcLicense)}</div>` : ''}
-      ${ptrNumber ? `<div>PTR No. ${escapeHtml(ptrNumber)}</div>` : ''}
-      ${followUp ? `<div class="followup">Follow up: ${escapeHtml(followUp)}</div>` : ''}</footer>
-    </section>`
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Prescription - ${escapeHtml(patient?.name || 'Patient')}</title><style>
-    @page{size:letter landscape;margin:7mm}
-    *{box-sizing:border-box}html,body{margin:0;color:#111;font-family:Arial,sans-serif}
-    body{background:#fff}.page{break-after:page;display:grid;grid-template-columns:1fr 1fr;gap:7mm;max-width:279mm;margin:0 auto}
-    .pad{height:201mm;position:relative;padding:3mm 3mm 4mm;break-inside:avoid}
-    .pad-head{display:flex;align-items:center;gap:3mm;min-height:29mm}
-    .pad-head img{width:18mm;height:18mm;object-fit:contain;flex:none}
-    .clinic-head{min-width:0;font-size:8pt;line-height:1.3;overflow-wrap:anywhere}
-    .clinic-head h1{font-size:11pt;line-height:1.2;margin:0 0 2mm}
-    .pad-rule{height:1px;background:#333;margin:1mm 0 2mm}
-    .patient{padding-left:30mm;font-size:10pt;min-height:22mm;line-height:1.5}
-    .patient-top{display:flex;justify-content:space-between;gap:2mm}.patient-top span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}
-    .rx-mark{position:absolute;top:37mm;left:3mm;font-family:Georgia,serif;font-size:60pt;line-height:1;letter-spacing:-.12em}
-    .rx-mark span{font-size:43pt;vertical-align:-.3em}
-    .medications{margin:11mm 1mm 0 28mm;font-size:10pt;line-height:1.3;min-height:15mm}
-    .medication{margin-bottom:5mm;break-inside:avoid;overflow-wrap:anywhere}
-    .medication strong{font-size:10pt;font-weight:500}.rx-qty{margin-left:12mm;margin-top:1mm}.rx-directions{margin-top:1mm}
-    .diagnosis{position:absolute;left:26mm;right:4mm;bottom:48mm;font-size:9pt;overflow-wrap:anywhere}
-    .doctor{position:absolute;left:38mm;right:4mm;bottom:7mm;font-size:9pt;line-height:1.4;overflow-wrap:anywhere}
-    .doctor strong{font-size:10pt}.followup{margin-top:4mm;font-style:italic}
-    .empty{color:#555;font-size:9pt}
-    @media screen{body{padding:15px;background:#eceff3}.pad{background:#fff;box-shadow:0 2px 8px #b6bdc6}}
-    @media print{.page{max-width:none}.page:last-child{break-after:auto}}
-  </style></head><body><main>${groups.map(group => `<section class="page">${panel(group)}${panel(group)}</section>`).join('')}</main></body></html>`
+// Separate prescription-pad printing keeps clinical notes and service charges out
+// of the patient handout. Layout follows the clinic-supplied prescription-pad PDF.
+// The left ManilaMed header is part of that template; the right clinic details
+// use configured clinic data when available, falling back to the supplied pad.
+const RX_REFERENCE = Object.freeze({
+  manilaAddress: 'UN Avenue cor Taft Avenue Manila 1000',
+  manilaPhone: 'Tel No: 02- 5222275',
+  manilaMonday: 'Monday: 9-12am',
+  manilaThursday: 'Thursday 2-6pm',
+  clinicAddress: 'Bonifacio Street, Canlalay, Binan Laguna 4024',
+  clinicPhone: '09499986956; 049-5113816',
+  clinicMonday: 'Monday & Wednesday 2-5pm',
+  clinicTuesday: 'Tuesday: 11-5pm',
+  clinicSaturday: 'Saturdays: 1am-6pm',
+})
+
+const prescriptionAssets = (base = '') => ({
+  medCenter: `${base}/prescription/manilamed-logo.jpeg`,
+  clinic: `${base}/prescription/carait-reference-logo.png`,
+  rx: `${base}/prescription/rx-mark.png`,
+})
+
+const formattedPatientSex = sex => {
+  const v = String(sex || '').trim()
+  if (/^female$/i.test(v)) return 'F'
+  if (/^male$/i.test(v)) return 'M'
+  return v
 }
 
-export const printPrescriptionPad = (details) => {
-  const popup = window.open('', '_blank', 'width=1150,height=840')
+const printQuantity = rx => {
+  const value = rx?.quantity
+  if (value !== null && value !== undefined && String(value).trim() !== '') {
+    return `<div class="medicine-qty">#${escapeHtml(value)}${rx.unit_label ? ` ${escapeHtml(rx.unit_label)}` : ''}</div>`
+  }
+  return ''
+}
+
+const prescriptionMedicine = rx => {
+  const instructions = [rx.frequency, rx.duration].filter(v => String(v ?? '').trim())
+  return `<div class="medicine-entry">
+    <div class="medicine-name">${escapeHtml(rx.medicine)}</div>
+    ${printQuantity(rx)}
+    ${instructions.length ? `<div class="medicine-directions">${instructions.map(escapeHtml).join(' · ')}</div>` : ''}
+    ${rx.dosage && !rx.quantity ? `<div class="medicine-directions">${escapeHtml(rx.dosage)}</div>` : ''}
+    ${rx.notes ? `<div class="medicine-directions">${escapeHtml(rx.notes)}</div>` : ''}
+  </div>`
+}
+
+// Three medicines fit the reference pad's writing area comfortably. Additional
+// medicines get another physical sheet; never clip or drop prescription entries.
+const splitPrescriptionPages = rx => {
+  const pages = []
+  for (let index = 0; index < rx.length; index += 3) pages.push(rx.slice(index, index + 3))
+  return pages.length ? pages : [[]]
+}
+
+export const buildPrescriptionPadHtml = ({ patient, diagnosis, prescriptions = [], doctorName, doctorSpecialty, prcLicense, ptrNumber, date, clinic, followUp } = {}) => {
+  const rx = (Array.isArray(prescriptions) ? prescriptions : []).filter(item => String(item?.medicine || '').trim())
+  const assets = prescriptionAssets()
+  const clinicName = clinic?.clinic_name || 'Carait Medical and Dermatology Clinic'
+  const clinicAddress = clinic?.address || RX_REFERENCE.clinicAddress
+  const clinicPhone = clinic?.phone || RX_REFERENCE.clinicPhone
+  const dateLabel = String(date || '')
+  const ageSex = [patient?.age, formattedPatientSex(patient?.sex)].filter(v => String(v ?? '').trim()).join(' / ')
+  const clinicInfo = `<div class="carait-info">
+    <div class="carait-brand"><img src="${assets.clinic}" alt="Carait clinic logo"><strong>${escapeHtml(clinicName)}</strong></div>
+    <div class="carait-address">${escapeHtml(clinicAddress)}</div>
+    <div class="carait-phone">Tel No. ${escapeHtml(clinicPhone)}</div>
+    <div>${escapeHtml(RX_REFERENCE.clinicMonday)}</div>
+    <div>${escapeHtml(RX_REFERENCE.clinicTuesday)}</div>
+    <div>${escapeHtml(RX_REFERENCE.clinicSaturday)}</div>
+  </div>`
+  const pad = group => `<section class="pad">
+      <header class="pad-header">
+        <div class="manilamed-info">
+          <img src="${assets.medCenter}" alt="ManilaMed Medical Center Manila">
+          <div class="manilamed-name">Room 215 Medical Center Manila</div>
+          <div class="manilamed-address">${escapeHtml(RX_REFERENCE.manilaAddress)}</div>
+          <div>${escapeHtml(RX_REFERENCE.manilaPhone)}</div>
+          <div>${escapeHtml(RX_REFERENCE.manilaMonday)}</div>
+          <div>${escapeHtml(RX_REFERENCE.manilaThursday)}</div>
+        </div>
+        ${clinicInfo}
+      </header>
+      <div class="rule"></div>
+      <div class="patient-info">
+        <div class="patient-name"><span>Name&nbsp; :&nbsp; ${escapeHtml(patient?.name || '')}</span><span>${escapeHtml(dateLabel)}</span></div>
+        <div>Age/Sex :&nbsp; ${escapeHtml(ageSex)}</div>
+      </div>
+      <img class="rx-mark" src="${assets.rx}" alt="Rx">
+      <div class="medicine-list">${group.length ? group.map(prescriptionMedicine).join('') : ''}</div>
+      ${diagnosis ? `<div class="diagnosis ${group.length ? 'diagnosis-with-meds' : ''}">Diagnosis: ${escapeHtml(diagnosis)}</div>` : ''}
+      <footer class="doctor-details">
+        <strong>${escapeHtml(doctorName || 'Attending Physician')}</strong>
+        ${doctorSpecialty ? `<div>${escapeHtml(doctorSpecialty)}</div>` : ''}
+        ${prcLicense ? `<div>License No. ${escapeHtml(prcLicense)}</div>` : ''}
+        ${ptrNumber ? `<div>PTR No. ${escapeHtml(ptrNumber)}</div>` : ''}
+      </footer>
+      <div class="follow-up">Follow up: ${followUp ? escapeHtml(followUp) : '__________'}</div>
+    </section>`
+  return `<!doctype html><html><head><meta charset="utf-8">
+    <title>Prescription - ${escapeHtml(patient?.name || 'Patient')}</title>
+    <style>
+      @page{size:A5 portrait;margin:0}
+      *{box-sizing:border-box}
+      html,body{width:148mm;margin:0;padding:0;color:#000;font-family:Arial,Helvetica,sans-serif;background:#fff}
+      .sheet{width:148mm;height:210mm;position:relative;break-after:page;page-break-after:always}
+      .sheet:last-child{break-after:auto;page-break-after:auto}
+      .pad{position:absolute;top:8mm;left:13.1mm;width:121.8mm;height:190mm;overflow:visible;break-inside:avoid}
+      .pad-header{position:relative;height:29.5mm}
+      .manilamed-info{position:absolute;left:0;top:0;width:47.5mm;font-size:6pt;font-weight:600;line-height:1.38}
+      .manilamed-info img{display:block;width:25.35mm;height:6.7mm;object-fit:contain;object-position:left center}
+      .manilamed-name{font-size:8.2pt;letter-spacing:-.22px;white-space:nowrap;line-height:1.12;margin:.35mm 0 1.1mm}
+      .manilamed-address{font-size:6.45pt;white-space:nowrap;line-height:1.25;margin:1.2mm 0 .2mm}
+      .carait-info{position:absolute;left:54mm;right:0;top:0;font-size:6pt;font-weight:600;line-height:1.38}
+      .carait-brand{display:flex;align-items:center;height:9.9mm;gap:.5mm;margin-bottom:.4mm}
+      .carait-brand img{width:9.9mm;height:9.9mm;object-fit:contain;flex:none}
+      .carait-brand strong{font-size:8.9pt;line-height:1.05;white-space:nowrap;letter-spacing:-.25px}
+      .carait-address{font-size:7.6pt;line-height:1.2;white-space:nowrap;letter-spacing:-.14px;margin:.1mm 0 .3mm}
+      .carait-phone{font-size:6.55pt;white-space:nowrap}
+      .rule{height:.5mm;background:#111;width:100%;margin:0 0 1.1mm}
+      .patient-info{z-index:2;position:absolute;left:24mm;right:0;top:31.5mm;font-size:10.1pt;line-height:1.48}
+      .patient-name{display:flex;align-items:baseline;justify-content:space-between;gap:1mm}
+      .patient-name span:first-child{min-width:0;overflow-wrap:anywhere}
+      .patient-name span:last-child{white-space:nowrap;flex:none}
+      .rx-mark{z-index:1;position:absolute;top:29.8mm;left:0;width:29.4mm;height:31.4mm;object-fit:contain}
+      .medicine-list{position:absolute;left:40mm;right:5.7mm;top:66.7mm;text-align:center;font-size:10.2pt;line-height:1.27}
+      .medicine-entry{margin:0 0 5mm;overflow-wrap:anywhere;break-inside:avoid}
+      .medicine-name{font-weight:400}
+      .medicine-qty{margin-top:1mm}
+      .medicine-directions{margin-top:.8mm}
+      .diagnosis{position:absolute;top:111mm;left:30mm;right:1mm;text-align:left;font-size:10pt;overflow-wrap:anywhere}
+      .diagnosis-with-meds{top:139mm;left:40mm;font-size:8.5pt}
+      .doctor-details{position:absolute;top:149.5mm;left:43mm;right:0;font-size:10pt;line-height:1.32;overflow-wrap:anywhere}
+      .doctor-details strong{display:block;font-size:10pt;line-height:1.2;margin-bottom:1mm}
+      .follow-up{position:absolute;left:2mm;top:172mm;font-size:10pt;font-style:italic}
+      @media screen{body{background:#e8ecf1;margin:auto}.sheet{background:#fff;box-shadow:0 0 8px #c1c7ce;margin:8mm auto}}
+      @media print{html,body{background:#fff}.sheet{box-shadow:none;margin:0}}
+    </style></head><body><main>${splitPrescriptionPages(rx).map(group => `<div class="sheet">${pad(group)}</div>`).join('')}</main></body></html>`
+}
+
+export const printPrescriptionPad = details => {
+  const popup = window.open('', '_blank', 'width=640,height=900')
   if (!popup) throw new Error('Pop-up printing is blocked by the browser. Allow pop-ups and try again.')
   popup.document.open()
   popup.document.write(buildPrescriptionPadHtml(details))

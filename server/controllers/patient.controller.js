@@ -625,7 +625,7 @@ const getBookingServices = async (req, res) => {
     category: service.category,
     service_name: service.service_name,
     clinic_type: service.clinic_type,
-    default_price: Number(service.default_price || 0),
+    default_price: service.default_price == null ? null : Number(service.default_price),
     average_duration_minutes: Number(service.average_duration_minutes || 60),
     reserved_duration_minutes: roundReservedDurationMinutes(Number(service.average_duration_minutes || 60)),
   })))
@@ -1168,6 +1168,7 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 
 
 

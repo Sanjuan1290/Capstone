@@ -60,6 +60,8 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
   }
 
   const handleToggle = async () => {
+    if (saving) return
+    setSaving(true)
     const previous = form.is_active
     const nextForm = { ...form, is_active: isActive ? 0 : 1 }
     setForm(nextForm); setError('')
@@ -69,7 +71,7 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
     } catch (err) {
       setForm((current) => ({ ...current, is_active: previous }))
       if (err?.code !== 'SCHEDULE_CHANGE_CANCELLED') setError(err.message || 'Could not update schedule.')
-    }
+    } finally { setSaving(false) }
   }
 
   const handleSave = async () => {
@@ -132,4 +134,5 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
 }
 
 export default ScheduleDayCard
+
 

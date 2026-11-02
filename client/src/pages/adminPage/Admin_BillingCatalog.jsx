@@ -21,7 +21,6 @@ const formatDuration = (minutes) => { const total=Number(minutes||60); const h=M
 const patientPrice = (service) => Number(service?.default_price ?? service?.patient_price ?? service?.suggested_price ?? 0)
 const baseServicePrice = (service) => Number(service?.consultation_fee ?? 0)
 
-
 const Admin_BillingCatalog = () => {
   const location = useLocation()
   const portalBase = portalBaseForPath(location.pathname)

@@ -1,3 +1,4 @@
+import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'
 import { usePatientBranch } from '../../context/PatientBranchContext'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 // client/src/pages/patientPage/BookAppointment.jsx
@@ -114,6 +115,7 @@ const StepService = ({ category, onCategoryChange, value, onChange, services, re
           </div>
           <p className="mt-2 break-words text-base font-bold text-slate-900">{service.service_name}</p>
           <p className="mt-1 text-sm text-slate-600">{service.category || 'Consultation or treatment'}</p>
+          <p className="mt-2 text-sm font-bold text-emerald-800">Service price: {formatPublicServicePrice(service)}</p>
           <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-4 text-sm">
             <span className="text-slate-600">{formatDuration(service.average_duration_minutes)} estimated</span>
             <span className="font-semibold text-emerald-800">{selected ? 'Selected' : bookable ? 'Select service' : 'Not available'}</span>
@@ -121,7 +123,7 @@ const StepService = ({ category, onCategoryChange, value, onChange, services, re
         </button>
       })}
     </div>
-    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Service selected. The clinic will confirm applicable charges. Any additional treatment or supplies may affect the final bill.</p>}
+    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Selected service: <strong>{formatPublicServicePrice(value)}</strong>. Additional treatment or supplies, if approved, may affect the final bill.</p>}
   </div>
 }
 
@@ -393,6 +395,7 @@ const BookingSummary = ({ form, branchName, selectedPromotion }) => {
     {[
       ['Clinic Branch',branchName],
       ['Service',form.service?.service_name || 'Not selected yet'],
+      ['Service Price',form.service ? formatPublicServicePrice(form.service) : 'Not selected yet'],
       ['Doctor',form.doctor?.full_name || form.doctor?.name || 'Not selected yet'],
       ['Date',dateText],
       ['Time',form.time ? formatAppointmentTimeRange(form.time,form.service?.reserved_duration_minutes || 60) : 'Not selected yet'],
@@ -417,6 +420,7 @@ const SuccessScreen = ({ onReset, form, branchName }) => (
     <div className="mb-5 w-full max-w-sm rounded-xl border border-amber-200 bg-amber-50 p-4 text-left text-sm">
       <p className="font-bold text-amber-900">Status: Pending Clinic Confirmation</p>
       <p className="mt-2 text-slate-800">{form.service?.service_name} · {form.doctor?.full_name || form.doctor?.name}</p>
+      <p className="mt-1 font-semibold text-emerald-900">Service price: {formatPublicServicePrice(form.service)}</p>
       <p className="mt-1 text-slate-700">{branchName} · {form.date} · {form.time}</p>
     </div>
     <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
@@ -905,6 +909,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 

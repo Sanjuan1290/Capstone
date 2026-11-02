@@ -1,5 +1,5 @@
 import useClinicRefresh from '../../hooks/useClinicRefresh'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   deleteMyUnavailableDate,
   getMyScheduleAll,
@@ -116,30 +116,36 @@ const Doctor_Schedule = () => {
   const [unavailableDates, setUnavailableDates] = useState([])
   const [loading, setLoading] = useState(true)
   const [schedLoading, setSchedLoading] = useState(false)
+  const [scheduleError, setScheduleError] = useState('')
+  const requestVersion = useRef(0)
 
-  const loadScheduleData = async () => {
-    setSchedLoading(true)
+  const loadScheduleData = async ({ silent = false } = {}) => {
+    const request = ++requestVersion.current
+    if (!silent) setSchedLoading(true)
+    setScheduleError('')
     try {
       const [scheduleRows, unavailableRows] = await Promise.all([
         getMyScheduleAll(),
         getMyUnavailableDates(),
       ])
+      if (request !== requestVersion.current) return
       setSchedules(Array.isArray(scheduleRows) ? scheduleRows : [])
       setUnavailableDates(Array.isArray(unavailableRows) ? unavailableRows : [])
     } catch (err) {
-      console.error('Schedule load error:', err)
-      setSchedules([])
-      setUnavailableDates([])
+      if (request === requestVersion.current) {
+        console.error('Schedule load error:', err)
+        setScheduleError('Could not refresh your schedule. Your current view was kept.')
+      }
     } finally {
-      setLoading(false)
-      setSchedLoading(false)
+      if (request === requestVersion.current) {
+        if (!silent) setSchedLoading(false)
+        setLoading(false)
+      }
     }
   }
 
-  useEffect(() => {
-    loadScheduleData()
-  }, [])
-  useClinicRefresh(loadScheduleData,['schedule.updated','appointment.updated'],{fallbackMs:90000})
+  useEffect(() => { void loadScheduleData() }, [])
+  useClinicRefresh(() => loadScheduleData({silent:true}),['schedule.updated','appointment.updated'],{fallbackMs:90000})
 
   const getForDay = (day) => schedules.find((schedule) => schedule.day_of_week === day)
   const activeDays = DAYS.filter((day) => getForDay(day)?.is_active)
@@ -169,6 +175,8 @@ const Doctor_Schedule = () => {
           <div className="mt-1 h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-violet-500" />
         )}
       </div>
+
+      {scheduleError && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{scheduleError}</p>}
 
       <div className="flex items-start gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4">
         <MdInfo className="mt-0.5 shrink-0 text-[18px] text-violet-500" />
@@ -227,17 +235,18 @@ const Doctor_Schedule = () => {
             day={day}
             schedule={getForDay(day)}
             onSave={saveMyScheduleDay}
-            onSaved={loadScheduleData}
+            onSaved={() => loadScheduleData({silent:true})}
           />
         ))}
       </div>
 
       <UnavailableDatesPanel
         dates={unavailableDates}
-        onSaved={loadScheduleData}
+        onSaved={() => loadScheduleData({silent:true})}
       />
     </div>
   )
 }
 
 export default Doctor_Schedule
+
