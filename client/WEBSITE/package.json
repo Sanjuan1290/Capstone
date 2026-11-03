@@ -1,0 +1,23 @@
+{
+  "name": "@dc-prime/website-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "prebuild": "node ../scripts/restore-website-media.mjs --check && node --test tests/uiRegression.test.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:ui": "node --test tests/uiRegression.test.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-icons": "^5.6.0",
+    "react-router-dom": "^7.17.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "vite": "^8.1.1"
+  }
+}
