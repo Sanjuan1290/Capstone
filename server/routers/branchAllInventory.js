@@ -1,7 +1,7 @@
 // Super Admin only. All endpoints are read-only and branch-scoped via the request's Super Admin guard.
 const db = require('../db/connect')
 const { getTodayDateOnly, addDaysDateOnly } = require('../utils/date')
-const { dateOnly, statusFor, costCoverage, summaryFor } = require('../utils/allInventoryOverview')
+const { dateOnly, statusFor, summaryFor } = require('../utils/allInventoryOverview')
 const safeId = value => Number.isSafeInteger(Number(value)) && Number(value)>0
 const stockOf = item => Number(item.stock_base ?? item.stock ?? 0)
 const keyOf = item => [item.name,item.strength,item.dosage_form,item.measurement_value,item.measurement_unit,item.base_unit,item.category,item.item_type]
@@ -34,19 +34,13 @@ function registerAllInventory(router,requireSuper) {
   if(search){conditions.push('LOWER(CONCAT_WS(\' \',i.name,i.barcode,i.strength,i.dosage_form)) LIKE ?');args.push(`%${search}%`)}
   const [items]=await db.query(`SELECT i.*,b.name AS branch_name,b.code AS branch_code,
     (SELECT MIN(batch.expiration_date) FROM inventory_batches batch WHERE batch.inventory_id=i.id
-       AND batch.branch_id=i.branch_id AND batch.quantity>0 AND batch.archived_at IS NULL) AS nearest_expiry,
-    (SELECT COALESCE(SUM(batch.quantity*batch.unit_cost),0) FROM inventory_batches batch
-       WHERE batch.inventory_id=i.id AND batch.branch_id=i.branch_id AND batch.quantity>0 AND batch.archived_at IS NULL) AS cost_value,
-    (SELECT COUNT(*) FROM inventory_batches batch WHERE batch.inventory_id=i.id AND batch.branch_id=i.branch_id AND batch.quantity>0 AND batch.archived_at IS NULL) AS active_batch_count,
-    (SELECT COUNT(*) FROM inventory_batches batch WHERE batch.inventory_id=i.id AND batch.branch_id=i.branch_id AND batch.quantity>0 AND batch.unit_cost>0 AND batch.archived_at IS NULL) AS priced_batch_count
+       AND batch.branch_id=i.branch_id AND batch.quantity>0 AND batch.archived_at IS NULL) AS nearest_expiry
     FROM inventory i JOIN clinic_branches b ON b.id=i.branch_id
     WHERE ${conditions.join(' AND ')} ORDER BY i.name,i.branch_id,i.id`,args)
   const today=getTodayDateOnly(),expiryCutoff=addDaysDateOnly(today,days),cutoff30=addDaysDateOnly(today,30)
   const byBranch=items.map(i=>{
-   const quantity_base=stockOf(i),cost_value=Number(i.cost_value)||0
-   const active_batch_count=Number(i.active_batch_count ?? (cost_value>0?1:0))
-   const priced_batch_count=Number(i.priced_batch_count ?? (cost_value>0?1:0))
-   return {...i,quantity_base,cost_value,active_batch_count,priced_batch_count,
+   const quantity_base=stockOf(i)
+   return {...i,quantity_base,
     selling_value:Number(i.stock??quantity_base)*Number(i.selling_price||0),
     ...statusFor({...i,quantity_base},today,expiryCutoff)}
   })
@@ -65,16 +59,15 @@ function registerAllInventory(router,requireSuper) {
    if(!grouped.has(key))grouped.set(key,{
     key,name:i.name,category:i.category,item_type:i.item_type,strength:i.strength,dosage_form:i.dosage_form,
     measurement_value:i.measurement_value,measurement_unit:i.measurement_unit,base_unit:i.base_unit,
-    quantity_base:0,cost_value:0,selling_value:0,branches_below_threshold:[],nearest_expiry:null,
-    nearest_expiry_branch:null,per_branch:[],inventory_ids:[],active_batch_count:0,priced_batch_count:0,
+    quantity_base:0,selling_value:0,branches_below_threshold:[],nearest_expiry:null,
+    nearest_expiry_branch:null,per_branch:[],inventory_ids:[],
     low:false,out:false,expired:false,expiring:false,archived_count:0,branch_coverage:0,
    })
    const g=grouped.get(key)
-   g.quantity_base+=i.quantity_base;g.cost_value+=i.cost_value;g.selling_value+=i.selling_value
-   g.active_batch_count+=i.active_batch_count;g.priced_batch_count+=i.priced_batch_count
+   g.quantity_base+=i.quantity_base;g.selling_value+=i.selling_value
    g.per_branch.push({branch_id:i.branch_id,branch_name:i.branch_name,inventory_id:i.id,quantity_base:i.quantity_base,
-    threshold:Number(i.threshold||0),cost_value:i.cost_value,selling_value:i.selling_value,nearest_expiry:i.nearest_expiry,
-    low:i.low,out:i.out,expired:i.expired,expiring:i.expiring,active_batch_count:i.active_batch_count,priced_batch_count:i.priced_batch_count})
+    threshold:Number(i.threshold||0),selling_value:i.selling_value,nearest_expiry:i.nearest_expiry,
+    low:i.low,out:i.out,expired:i.expired,expiring:i.expiring})
    g.inventory_ids.push(i.id)
    if(i.low||i.out)g.branches_below_threshold.push(i.branch_name)
    for(const k of ['low','out','expired','expiring'])if(i[k])g[k]=true
@@ -82,26 +75,25 @@ function registerAllInventory(router,requireSuper) {
    if(i.quantity_base>0)g.branch_coverage++
    if(i.nearest_expiry&&(!g.nearest_expiry||dateOnly(i.nearest_expiry)<dateOnly(g.nearest_expiry))){g.nearest_expiry=i.nearest_expiry;g.nearest_expiry_branch=i.branch_name}
   }
-  const groupRows=[...grouped.values()].map(g=>({...g,cost_coverage:costCoverage(g.per_branch)}))
+  const groupRows=[...grouped.values()]
   const summary=summaryFor(filtered,groupRows,branches,today,cutoff30)
   const comparison=branches.map(b=>{
    const rows=filtered.filter(i=>Number(i.branch_id)===Number(b.id))
    return {branch_id:b.id,branch_name:b.name,item_count:rows.length,quantity_base:rows.reduce((s,i)=>s+i.quantity_base,0),
     low_stock:rows.filter(i=>i.low).length,out_of_stock:rows.filter(i=>i.out).length,
     expiring:rows.filter(i=>i.expiring).length,expired:rows.filter(i=>i.expired).length,
-    cost_value:rows.reduce((s,i)=>s+i.cost_value,0),selling_value:rows.reduce((s,i)=>s+i.selling_value,0),
-    ...costCoverage(rows)}
+    selling_value:rows.reduce((s,i)=>s+i.selling_value,0)}
   })
   const result=view==='combined'?groupRows:filtered
-  const sort=validEnum(req.query.sort,['name','quantity','cost','expiry'])||'name'
-  result.sort((a,b)=>sort==='quantity'?b.quantity_base-a.quantity_base:sort==='cost'?b.cost_value-a.cost_value:sort==='expiry'?String(dateOnly(a.nearest_expiry)||'9999').localeCompare(String(dateOnly(b.nearest_expiry)||'9999')):String(a.name).localeCompare(String(b.name)))
+  const sort=validEnum(req.query.sort,['name','quantity','selling_value','expiry'])||'name'
+  result.sort((a,b)=>sort==='quantity'?b.quantity_base-a.quantity_base:sort==='selling_value'?b.selling_value-a.selling_value:sort==='expiry'?String(dateOnly(a.nearest_expiry)||'9999').localeCompare(String(dateOnly(b.nearest_expiry)||'9999')):String(a.name).localeCompare(String(b.name)))
   res.json({view,page,limit,total:result.length,rows:result.slice((page-1)*limit,page*limit),summary,branches,comparison})
  })
  router.get('/inventory/all/batches',requireSuper,async(req,res)=>{
   const ids=String(req.query.item_ids||'').split(',').filter(Boolean).map(Number)
   if(!ids.length||ids.length>100||ids.some(v=>!safeId(v)))return res.status(400).json({message:'Select valid inventory IDs.'})
   const [rows]=await db.query(`SELECT batch.id,batch.inventory_id,batch.batch_code,batch.supplier_lot_number AS lot,
-    batch.expiration_date,batch.quantity,batch.unit_cost,b.name AS branch_name,b.id AS branch_id,
+    batch.expiration_date,batch.quantity,b.name AS branch_name,b.id AS branch_id,
     location.name AS location_name,locationBatch.quantity AS location_quantity
     FROM inventory_batches batch JOIN inventory i ON i.id=batch.inventory_id AND i.branch_id=batch.branch_id
     JOIN clinic_branches b ON b.id=i.branch_id

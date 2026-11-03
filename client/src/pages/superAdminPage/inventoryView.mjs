@@ -9,24 +9,17 @@ export const statusLabels = item => {
   else if(item?.expiring)out.push({label:'Expiring soon',tone:'warning'})
   return out.length?out:[{label:'No current alert',tone:'success'}]
 }
-export const costDisplay = item => {
-  const priced=Number(item?.priced_batch_count ?? item?.priced_items ?? 0)
-  const active=Number(item?.active_batch_count ?? 0)
-  if(!priced) return {amount:'Not recorded',note:'No positive batch cost'}
-  return {amount:money(item?.cost_value),note:(Number(item?.unpriced_items)>0||active>priced)?'Partial cost data':null}
-}
 export const createInventoryCsv = (rows,view) => {
   const csvCell = x => {
     let s=String(x??'')
     if(/^[\s]*[=+@\-\t\r]/.test(s))s="'"+s
     return '"'+s.replace(/"/g,'""')+'"'
   }
-  const headings=['Product','Category','Type',...(view==='by_branch'?['Branch']:[]),'Quantity (base units)','Branches with stock','Alerts','Nearest expiry','Recorded cost (PHP)','Cost recording','Potential selling value (PHP)']
+  const headings=['Product','Category','Type',...(view==='by_branch'?['Branch']:[]),'Quantity (base units)','Branches with stock','Alerts','Nearest expiry','Potential selling value (PHP)']
   const lines=rows.map(r=>[
     r.name,r.category,r.item_type,...(view==='by_branch'?[r.branch_name]:[]),r.quantity_base,
     view==='by_branch'?(Number(r.quantity_base)>0?1:0):r.branch_coverage??'',statusLabels(r).map(s=>s.label).join('; '),
-    dateOnly(r.nearest_expiry),Number(r.cost_value)||0,costDisplay(r).note||costDisplay(r).amount,
-    Number(r.selling_value)||0,
+    dateOnly(r.nearest_expiry),Number(r.selling_value)||0,
   ])
   return '\uFEFF'+[headings,...lines].map(r=>r.map(csvCell).join(',')).join('\r\n')+'\r\n'
 }

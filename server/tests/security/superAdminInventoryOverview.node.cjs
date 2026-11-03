@@ -5,9 +5,9 @@ const vm=require('node:vm'),fs=require('node:fs'),path=require('node:path')
 const src=fs.readFileSync(path.resolve(__dirname,'../../routers/branchAllInventory.js'),'utf8')
 const metrics=require('../../utils/allInventoryOverview')
 const inventory=[
- {id:1,branch_id:1,branch_name:'Laguna',name:'Saline',category:'medical',item_type:'supplies',stock:50,stock_base:50,threshold:5,cost_value:0,active_batch_count:1,priced_batch_count:0,selling_price:65,nearest_expiry:'2027-12-31'},
- {id:2,branch_id:2,branch_name:'Tagaytay',name:'Saline',category:'medical',item_type:'supplies',stock:3,stock_base:3,threshold:5,cost_value:15,active_batch_count:1,priced_batch_count:1,selling_price:65,nearest_expiry:'2026-11-15'},
- {id:3,branch_id:2,branch_name:'Tagaytay',name:'Gloves',category:'medical',item_type:'supplies',stock:0,stock_base:0,threshold:4,cost_value:0,active_batch_count:0,priced_batch_count:0,selling_price:40,nearest_expiry:null},
+ {id:1,branch_id:1,branch_name:'Laguna',name:'Saline',category:'medical',item_type:'supplies',stock:50,stock_base:50,threshold:5,selling_price:65,nearest_expiry:'2027-12-31'},
+ {id:2,branch_id:2,branch_name:'Tagaytay',name:'Saline',category:'medical',item_type:'supplies',stock:3,stock_base:3,threshold:5,selling_price:65,nearest_expiry:'2026-11-15'},
+ {id:3,branch_id:2,branch_name:'Tagaytay',name:'Gloves',category:'medical',item_type:'supplies',stock:0,stock_base:0,threshold:4,selling_price:40,nearest_expiry:null},
 ]
 function harness(){
  const queries=[]
@@ -38,7 +38,8 @@ test('combined inventory counts distinct products and branch-item alerts separat
  assert.equal(r.body.summary.out_of_stock,1)
  assert.equal(r.body.summary.total_units,53)
  assert.equal(r.body.summary.total_selling_value,53*65)
- assert.equal(r.body.summary.unpriced_items,1)
+ assert.equal(Object.hasOwn(r.body.summary,'total_stock_value'),false)
+ assert.equal(Object.hasOwn(r.body.summary,'unpriced_items'),false)
  assert.equal(r.body.summary.branches_with_alerts,1)
 })
 test('alert filter returns the flagged branch-item rows without changing inventory',async()=>{
@@ -59,11 +60,14 @@ test('invalid branch IDs are rejected without inventory query',async()=>{
  assert.equal(r.statusCode,400)
  assert.equal(queries.length,0)
 })
-test('unpriced active inventory is explicitly marked incomplete',()=>{
- const coverage=metrics.costCoverage([inventory[0],inventory[1]])
- assert.equal(coverage.completeness,'partial')
- assert.equal(coverage.unpriced_items,1)
- assert.equal(coverage.priced_items,1)
+test('all inventory endpoint omits purchase-cost reporting and can sort by selling value',async()=>{
+ const {run,queries}=harness(),r=await run({sort:'selling_value'})
+ assert.equal(r.statusCode,200)
+ assert.deepEqual(Array.from(r.body.rows,row=>row.name),['Saline','Gloves'])
+ assert.ok(queries.every(sql=>!String(sql).includes('unit_cost')))
+ assert.equal(Object.hasOwn(r.body.summary,'total_stock_value'),false)
+ assert.ok(r.body.comparison.every(branch=>!Object.hasOwn(branch,'cost_value')))
+ assert.ok(r.body.rows.every(row=>!Object.hasOwn(row,'cost_value')))
 })
 test('batch list is scoped to known item ids and read-only',async()=>{
  const {routes}=harness()

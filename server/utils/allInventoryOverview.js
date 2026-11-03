@@ -13,11 +13,6 @@ const statusFor = (row, today, cutoff) => {
     expiring:Boolean(expiry&&expiry>=today&&expiry<=cutoff),
   }
 }
-const costCoverage = rows => {
-  const withCost=rows.filter(r=>Number(r.priced_batch_count)>0)
-  const missing=rows.filter(r=>(Number(r.active_batch_count)>0&&Number(r.priced_batch_count)<Number(r.active_batch_count)) || (Number(r.quantity_base)>0&&Number(r.priced_batch_count)===0))
-  return {priced_items:withCost.length,unpriced_items:missing.length,completeness:!rows.length?'none':missing.length===0?'complete':withCost.length?'partial':'none'}
-}
 const summaryFor = (rows, groups, branches, today, cutoff30) => {
   const alerts=rows.filter(r=>r.low||r.out||r.expired||r.expiring)
   const nearest=rows.map(r=>dateOnly(r.nearest_expiry)).filter(v=>v&&v>=today).sort()[0]||null
@@ -31,13 +26,11 @@ const summaryFor = (rows, groups, branches, today, cutoff30) => {
     expired:rows.filter(r=>r.expired).length,
     expiring_30_days:rows.filter(r=>{const e=dateOnly(r.nearest_expiry);return !!e&&e>=today&&e<=cutoff30}).length,
     branches_with_alerts:new Set(alerts.map(r=>Number(r.branch_id))).size,
-    total_stock_value:rows.reduce((s,r)=>s+positive(r.cost_value),0),
     total_selling_value:rows.reduce((s,r)=>s+positive(r.selling_value),0),
     nearest_upcoming_expiry:nearest,
     highest_selling_product:top?.name||null,
     highest_selling_value:top?.selling_value||0,
     branch_count:branches.length,
-    ...costCoverage(rows),
   }
 }
-module.exports={dateOnly,statusFor,costCoverage,summaryFor}
+module.exports={dateOnly,statusFor,summaryFor}
