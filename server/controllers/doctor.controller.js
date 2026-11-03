@@ -541,7 +541,7 @@ const assertBookedServicePresent = (appointment, billableServices) => {
 // Service Setup defines the default, not the materials physically used for every patient.
 // Validate the doctor's per-consultation choices inside the same transaction that
 // saves the bill, before any physical inventory movement is written.
-const enforceFixedCatalogConsumables = async (billableServices, executor = db, branchId) => {
+const enforceFixedCatalogConsumables = async (billableServices, executor = db, branchId, { requireReason = true } = {}) => {
   if (!Array.isArray(billableServices) || billableServices.length > 30) {
     throw makeConsultationValidationError('Select valid consultation services.', 'INVALID_SERVICE_USAGE')
   }
@@ -588,7 +588,7 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db, b
     const actual = new Map(normalizedMaterials.filter(m=>!m.consultation_extra).map(m=>[m.inventory_id,m.quantity]))
     const changed = configured.size !== actual.size || [...configured].some(([id,qty])=>actual.get(id)!==qty)
     const reason=String(raw?.usage_change_reason || '').trim()
-    if ((changed || normalizedMaterials.some(m=>m.consultation_extra)) && (reason.length < 5 || reason.length > 255)) {
+    if (reason.length > 255 || (requireReason && (changed || normalizedMaterials.some(m=>m.consultation_extra)) && reason.length < 5)) {
       throw makeConsultationValidationError('Enter a reason (5–255 characters) when changing or adding supplies.', 'SUPPLY_CHANGE_REASON_REQUIRED')
     }
     if (Number(raw?.quantity ?? 1)!==1)throw makeConsultationValidationError('Service quantity must remain 1.', 'SERVICE_QUANTITY_FIXED')
@@ -667,7 +667,9 @@ const saveConsultationDraft = async (req, res) => {
       await syncConsultationImages(consultationId, authorizedImages, conn)
     }
     if (payload.billableServices !== null) {
-      const fixedBillableServices = await enforceFixedCatalogConsumables(payload.billableServices, conn, req.branchId)
+      // Save all clinical draft fields even while the doctor is still entering a
+      // supply-change reason. Finalization revalidates the required reason.
+      const fixedBillableServices = await enforceFixedCatalogConsumables(payload.billableServices, conn, req.branchId, { requireReason: false })
       assertBookedServicePresent(appt, fixedBillableServices)
       billing = await upsertDraftBillingForAppointment({ appointment: appt, consultationId, items: fixedBillableServices }, conn)
     } else {
@@ -1725,6 +1727,7 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 
 
 

@@ -1,4 +1,5 @@
 import { estimateConsultationServicePrice } from '../../utils/consultationPricing.mjs'
+import { restoreConsultationServicesFromBilling, supplyReasonStatus } from '../../utils/consultationSupplyReason.mjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
@@ -323,6 +324,7 @@ const Doctor_Consultation = () => {
   const [extraConsumableSearch, setExtraConsumableSearch] = useState('')
   const [extraConsumableId, setExtraConsumableId] = useState('')
   const [extraConsumableQuantity, setExtraConsumableQuantity] = useState(1)
+  const [extraConsumableReason, setExtraConsumableReason] = useState('')
 
   const openProgressImagePreview = useCallback((images, imageUrl) => {
     const validImages = normalizeProgressImages(images).filter((image) => image.image_url)
@@ -383,12 +385,9 @@ const Doctor_Consultation = () => {
       setPrescriptions([])
       setPrescriptionDecision(normalizePrescriptionDecision(consult.prescription_status, [], nextStatus))
     }
-    const serviceItems = Array.isArray(consult?.billing?.items) ? consult.billing.items.filter((item) => item.item_type === 'service') : []
-    setBillableServices(serviceItems.map((item) => {
-      let details = {}
-      try { details = typeof item.details_json === 'string' ? JSON.parse(item.details_json) : (item.details_json || {}) } catch { details = {} }
-      return { catalog_service_id: item.catalog_service_id, service_name: item.service_name, quantity: Number(item.quantity || 1), materials: Array.isArray(details?.materials) ? details.materials : [], usage_change_reason:details?.usage_change_reason || '', usage_overridden:Boolean(details?.usage_overridden) }
-    }))
+    // Extras are saved as their own billing lines; restore them to the
+    // consultation's editable supply list when reopening an autosaved draft.
+    setBillableServices(restoreConsultationServicesFromBilling(consult?.billing?.items))
   }
 
   useEffect(() => {
@@ -778,6 +777,7 @@ const Doctor_Consultation = () => {
     setExtraConsumableId('')
     setExtraConsumableSearch('')
     setExtraConsumableQuantity(1)
+    setExtraConsumableReason(billableServices.find(s=>Number(s.catalog_service_id)===Number(serviceId))?.usage_change_reason || '')
     setExtraConsumableOpen(true)
   }
   const removeIncludedMaterial = (serviceId, materialIndex) => {
@@ -838,9 +838,14 @@ const Doctor_Consultation = () => {
       window.alert('Enter the additional quantity used for this extra consumable.')
       return
     }
+    const reason = extraConsumableReason.trim()
+    if (reason.length < 5 || reason.length > 255) {
+      window.alert('Enter a reason (5–255 characters) for the added or replaced supply.')
+      return
+    }
     const targetId=replacementTarget?.serviceId || extraConsumableTarget?.catalog_service_id
     setBillableServices(current=>current.map(service=>Number(service.catalog_service_id)===Number(targetId)
-      ? {...service,materials:replacementTarget
+      ? {...service, usage_change_reason: reason, materials:replacementTarget
         ? (service.materials||[]).map((m,index)=>index===replacementTarget.materialIndex
           ? {inventory_id:extraConsumableSelected.id,material_name:extraConsumableSelected.name,quantity,unit_label:extraConsumableSelected.uom||extraConsumableSelected.unit||'unit'} : m)
         : [...(service.materials||[]),{inventory_id:extraConsumableSelected.id,material_name:extraConsumableSelected.name,quantity,unit_label:extraConsumableSelected.uom||extraConsumableSelected.unit||'unit',consultation_extra:true}]}
@@ -850,6 +855,7 @@ const Doctor_Consultation = () => {
     setExtraConsumableSearch('')
     setExtraConsumableId('')
     setExtraConsumableQuantity(1)
+    setExtraConsumableReason('')
   }
 
   const handleAddAmendment = async () => {
@@ -898,6 +904,20 @@ const Doctor_Consultation = () => {
     }
   }, [appointmentId, draftSignature, draftPayload, autosaveReady])
 
+  const missingSupplyReasons = useMemo(() => billableServices.filter((service) => !supplyReasonStatus(
+    service, billingCatalog.find((catalog) => Number(catalog.id) === Number(service.catalog_service_id)),
+  ).valid), [billableServices, billingCatalog])
+
+  // A prior server version could permanently block autosave for a missing reason.
+  // Recover automatically after the doctor fills the reason, but never loop on
+  // unrelated validation, access, or version-conflict errors.
+  useEffect(() => {
+    if (autoSaveState !== 'blocked' || !/reason.*(5|supplies)|enter a reason/i.test(autoSaveError) || missingSupplyReasons.length) return
+    if (!autosaveQueueRef.current?.isBlocked()) return
+    updateAutoSaveState('pending')
+    void autosaveQueueRef.current.retryBlocked()
+  }, [autoSaveState, autoSaveError, missingSupplyReasons, draftSignature])
+
   const persistDraft = useCallback(async ({ force = false } = {}) => {
     if (!appointmentId || consultationStatus === 'finalized' || !autosaveReady || uploadingIndex !== null || finalizingRef.current) return false
     return autosaveQueueRef.current.persist({ force })
@@ -918,6 +938,17 @@ const Doctor_Consultation = () => {
     if (appt?.requested_service_id && !billableServices.some((service) => Number(service.catalog_service_id) === Number(appt.requested_service_id))) {
       setTab('consultation')
       window.alert('The booked service is missing from this consultation. Reload the page before completing the consultation.')
+      return
+    }
+    const missingSupplyReason = billableServices.find((service) => !supplyReasonStatus(
+      service, billingCatalog.find((catalog) => Number(catalog.id) === Number(service.catalog_service_id)),
+    ).valid)
+    if (missingSupplyReason) {
+      setTab('consultation')
+      window.alert('Enter a reason of 5–255 characters for changed or additional supplies before completing the consultation. Your draft can still save.')
+      requestAnimationFrame(() => {
+        document.getElementById(`consultation-supply-reason-${missingSupplyReason.catalog_service_id}`)?.focus()
+      })
       return
     }
     if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct the actual recorded consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
@@ -1363,8 +1394,9 @@ const Doctor_Consultation = () => {
                           ) : (
                             <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-4 text-xs text-slate-400">This service has no configured consumables.</div>
                           )}
-                          {!isEditMode && <label className="mt-4 block text-xs font-semibold text-slate-700">Reason for changed or additional supplies
-                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Required when you substitute, remove, add, or change quantities" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
+                          {!isEditMode && Number(service.catalog_service_id) !== Number(extraConsumableTarget?.catalog_service_id) && <label className="mt-4 block text-xs font-semibold text-slate-700">Reason for supply changes
+                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Required before completing when supplies change" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
+                            {!supplyReasonStatus(service, catalogService).valid && <span className="mt-1 block text-amber-700">Add a reason of at least 5 characters before completing the consultation. Your draft can still save.</span>}
                           </label>}
                         </div>
                       </div>
@@ -1375,10 +1407,10 @@ const Doctor_Consultation = () => {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-bold text-slate-800">Extra Supplies</p>
-                        <p className="mt-1 text-xs text-slate-500">Record additional products actually used during this consultation. You can add another item or record extra quantity of a selected consumable.</p>
+                        <p className="mt-1 text-xs text-slate-500">Record the quantity used in addition to the fixed Service Consumables. You may add a different item or add more of the same consumable already included in the fixed service setup.</p>
                       </div>
                       {consultationStatus !== 'finalized' && extraConsumableTarget && (
-                        <button type="button" onClick={() => setExtraConsumableOpen(true)} className="button-secondary">
+                        <button type="button" onClick={() => { setReplacementTarget(null); setExtraConsumableReason(extraConsumableTarget?.usage_change_reason || ''); setExtraConsumableOpen(true) }} className="button-secondary">
                           <MdAdd /> Add Extra Consumable
                         </button>
                       )}
@@ -1412,6 +1444,11 @@ const Doctor_Consultation = () => {
                     ) : (
                       <div className="mt-3 rounded-xl border border-dashed border-amber-200 bg-white px-4 py-5 text-xs text-slate-400">No extra consumables recorded.</div>
                     )}
+                    {!isEditMode && extraConsumableTarget && <label className="mt-3 block text-xs font-semibold text-slate-700" htmlFor={`consultation-supply-reason-${extraConsumableTarget.catalog_service_id}`}>
+                      Reason for changed or added supplies {supplyReasonStatus(extraConsumableTarget,billingCatalog.find(s=>Number(s.id)===Number(extraConsumableTarget.catalog_service_id))).required ? '*' : '(if applicable)'}
+                      <input id={`consultation-supply-reason-${extraConsumableTarget.catalog_service_id}`} className="form-control mt-1" maxLength={255} value={extraConsumableTarget.usage_change_reason || ''} placeholder="Example: Used an additional syringe for treatment" onChange={event=>updateServiceReason(extraConsumableTarget.catalog_service_id,event.target.value)} aria-invalid={!supplyReasonStatus(extraConsumableTarget,billingCatalog.find(s=>Number(s.id)===Number(extraConsumableTarget.catalog_service_id))).valid}/>
+                      {!supplyReasonStatus(extraConsumableTarget,billingCatalog.find(s=>Number(s.id)===Number(extraConsumableTarget.catalog_service_id))).valid && <span className="mt-1 block text-amber-700">Enter at least 5 characters before completing. Your consultation draft will still autosave.</span>}
+                    </label>}
                   </div>
                 </div>
               )}
@@ -1455,13 +1492,12 @@ const Doctor_Consultation = () => {
                       {autoSaveState === 'pending' && <span className="font-semibold text-slate-600">Changes detected — saving automatically…</span>}
                       {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Save failed temporarily — your latest changes have not been saved. Retrying. {autoSaveError}</span>}
                       {autoSaveState === 'blocked' && <div role="alert" className="flex flex-wrap items-center gap-2 text-rose-700 dark:text-rose-300"><span className="font-semibold">Not saved — automatic retries stopped because the server rejected this request. Keep this page open. {autoSaveError}</span><button type="button" className="rounded-md border border-rose-500 px-2 py-1 text-xs font-bold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></div>}
-                      {!['saving','pending','error','blocked'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
+                      {!['saving','pending','error','blocked'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ Draft saved{missingSupplyReasons.length ? ' · Supply reason needed before completion' : ''} · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
                       {!['saving','pending','error','blocked'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
                     </div>
                     <span className="text-slate-400">No inventory is reserved when an appointment is confirmed.</span>
                   </div>
-                  <p className="mt-1 text-slate-400">Actual service supplies and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory. Stock in this clinic's assigned treatment room is used first, with the Main Stockroom as fallback.</p>
-                  <p className="mt-1 text-slate-400">Actual recorded medicines and consumables are stocked out only when you complete the consultation.</p>
+                  <p className="mt-1 text-slate-400">Actual consultation supplies are deducted once at completion, from the treatment room first and then the Main Stockroom if needed. Prescriptions alone do not deduct inventory.</p>
                 </div>
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                   <button
@@ -1618,7 +1654,7 @@ const Doctor_Consultation = () => {
                       {autoSaveState === 'pending' && <span className="font-semibold text-slate-600">Changes detected — saving automatically…</span>}
                       {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Save failed temporarily — your latest changes have not been saved. Retrying. {autoSaveError}</span>}
                       {autoSaveState === 'blocked' && <div role="alert" className="flex flex-wrap items-center gap-2 text-rose-700 dark:text-rose-300"><span className="font-semibold">Not saved — automatic retries stopped because the server rejected this request. Keep this page open. {autoSaveError}</span><button type="button" className="rounded-md border border-rose-500 px-2 py-1 text-xs font-bold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></div>}
-                      {!['saving','pending','error','blocked'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ All consultation progress saved · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
+                      {!['saving','pending','error','blocked'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ Draft saved{missingSupplyReasons.length ? ' · Supply reason needed before completion' : ''} · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
                       {!['saving','pending','error','blocked'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
                     </div>
                     <span className="text-slate-400">Prescriptions never reserve or deduct inventory.</span>
@@ -1785,9 +1821,13 @@ const Doctor_Consultation = () => {
               </div>
             </label>
           )}
+          <label className="block text-sm font-semibold text-slate-700">Reason for {replacementTarget ? 'replacement' : 'additional supply'} *
+            <textarea className="form-control mt-1" rows={2} maxLength={255} value={extraConsumableReason} onChange={(e)=>setExtraConsumableReason(e.target.value)} placeholder="Why was this product used? (at least 5 characters)" />
+            <span className="mt-1 block text-xs font-normal text-slate-500">The reason is saved with this patient's consultation, not the standard service.</span>
+          </label>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" className="button-secondary" onClick={() => { setExtraConsumableOpen(false); setExtraConsumableSearch(''); setExtraConsumableId(''); setExtraConsumableQuantity(1) }}>Cancel</button>
-            <button type="button" className="button-primary" disabled={!extraConsumableSelected || !(Number(extraConsumableQuantity) > 0)} onClick={addExtraConsumable}><MdInventory2 /> {replacementTarget ? 'Replace Consumable' : 'Add Consumable'}</button>
+            <button type="button" className="button-secondary" onClick={() => { setExtraConsumableOpen(false); setExtraConsumableSearch(''); setExtraConsumableId(''); setExtraConsumableQuantity(1); setExtraConsumableReason('') }}>Cancel</button>
+            <button type="button" className="button-primary" disabled={!extraConsumableSelected || !(Number(extraConsumableQuantity) > 0) || extraConsumableReason.trim().length < 5} onClick={addExtraConsumable}><MdInventory2 /> {replacementTarget ? 'Replace Consumable' : 'Add Consumable'}</button>
           </div>
         </div>
       </Modal>

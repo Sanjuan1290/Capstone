@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node --test tests/bookingPolicyServiceExports.node.test.mjs tests/bookingPolicyServiceContract20261102.node.test.mjs tests/inventoryExcelDiagnostics.node.test.mjs tests/inventoryBulkEndpointWiring.node.test.mjs",
+    "prebuild": "node --test tests/bookingPolicyServiceExports.node.test.mjs tests/bookingPolicyServiceContract20261102.node.test.mjs tests/inventoryExcelDiagnostics.node.test.mjs tests/inventoryBulkEndpointWiring.node.test.mjs tests/consultationSupplyReason.node.test.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:design": "node --test tests/superAdminDesign.node.test.mjs",
     "test:hosting": "node --test tests/cloudflareProxy.node.test.mjs",
-    "test:autosave": "node --test tests/consultationAutosave.node.test.mjs"
+    "test:autosave": "node --test tests/consultationAutosave.node.test.mjs tests/consultationSupplyReason.node.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",
@@ -38,4 +38,3 @@
     "vite": "^8.3.5"
   }
 }
-
