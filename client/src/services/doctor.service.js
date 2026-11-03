@@ -139,4 +139,4 @@ export const markQueueEntryDone = (id) =>
 
 
 
-export const requestConsultationChargeAdjustment=(appointmentId,payload)=>requestJson(`${BASE}/consultations/${appointmentId}/charge-adjustments`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+

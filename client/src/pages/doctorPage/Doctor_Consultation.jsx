@@ -14,7 +14,6 @@ import {
   getInventoryItems,
   getBillingCatalog,
   addConsultationAmendment,
-  requestConsultationChargeAdjustment,
 } from '../../services/doctor.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import { getClinicSettings } from '../../services/clinic.service'
@@ -259,10 +258,6 @@ const Doctor_Consultation = () => {
   const [scanBypassPrompt, setScanBypassPrompt] = useState(null)
   const [pendingScanPrompt, setPendingScanPrompt] = useState(null)
   const [consultationStatus, setConsultationStatus] = useState('draft')
-  const [discountRequestAmount,setDiscountRequestAmount]=useState('')
-  const [discountRequestReason,setDiscountRequestReason]=useState('')
-  const [discountRequestStatus,setDiscountRequestStatus]=useState('')
-  const [discountRequestSaving,setDiscountRequestSaving]=useState(false)
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState('')
   const [autoSaveState, setAutoSaveState] = useState('idle')
@@ -1628,23 +1623,6 @@ const Doctor_Consultation = () => {
               </div>
             </fieldset>
 
-            {consultationStatus === 'finalized' && appt?.requested_service_id && (
-              <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
-                <h3 className="text-sm font-bold text-slate-900">Request a Service Fee Reduction</h3>
-                <p className="text-xs text-slate-600">Ask Admin to lower this patient's service fee. This does not change clinical usage, stock deductions, or the default service price.</p>
-                <div className="grid gap-2 sm:grid-cols-[150px_1fr_auto]">
-                  <label className="text-xs font-semibold">Reduction (₱)<input className="form-control mt-1" type="number" min="0.01" step="0.01" value={discountRequestAmount} onChange={e=>setDiscountRequestAmount(e.target.value)}/></label>
-                  <label className="text-xs font-semibold">Reason<input className="form-control mt-1" maxLength={255} placeholder="Why is the fee being reduced?" value={discountRequestReason} onChange={e=>setDiscountRequestReason(e.target.value)}/></label>
-                  <button type="button" className="button-secondary self-end" disabled={discountRequestSaving||Number(discountRequestAmount)<=0||discountRequestReason.trim().length<5} onClick={async()=>{
-                    setDiscountRequestSaving(true);setDiscountRequestStatus('')
-                    try{const result=await requestConsultationChargeAdjustment(appt.id,{target_type:'service_fee',catalog_service_id:appt.requested_service_id,amount:Number(discountRequestAmount),reason:discountRequestReason});setDiscountRequestStatus(result.message||'Approval requested.');setDiscountRequestAmount('');setDiscountRequestReason('')}
-                    catch(e){setDiscountRequestStatus(e.message||'Could not request an adjustment.')}
-                    finally{setDiscountRequestSaving(false)}
-                  }}>{discountRequestSaving?'Sending…':'Request Approval'}</button>
-                </div>
-                {discountRequestStatus && <p role="status" className="text-xs text-slate-700">{discountRequestStatus}</p>}
-              </section>
-            )}
             {consultationStatus !== 'finalized' && (
               <div className="space-y-3">
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs">
