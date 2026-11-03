@@ -32,6 +32,7 @@ const { assertPlainObject, normalizeText } = require('../utils/inputValidation')
 const { listCancellationReasons, resolveCancellationInput } = require('../utils/appointmentCancellation')
 const { getOnlineBookingReadiness, applyBranchBookingOfferings } = require('../utils/bookingReadiness')
 const { isOtherVisitReason, withSystemOtherVisitReason } = require('../utils/appointmentReasons')
+const { listMyBillingHistory, getMyBillDetails } = require('../utils/patientBillingHistory')
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
@@ -583,11 +584,18 @@ const getHistory = async (req, res) => {
        c.id AS consultation_id,
        c.diagnosis,
        c.prescription,
-       c.notes AS consultation_notes
+       c.notes AS consultation_notes,
+       br.id AS billing_id, br.status AS billing_status,
+       br.total_amount AS billing_total,
+       COALESCE(bp.paid_amount,0) AS billing_paid_amount
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.id
      JOIN clinic_branches b ON b.id = a.branch_id
      LEFT JOIN consultations c ON c.appointment_id = a.id
+     LEFT JOIN billing_records br ON br.appointment_id = a.id AND br.patient_id = a.patient_id AND br.branch_id = a.branch_id
+     LEFT JOIN (SELECT billing_id, SUM(CASE WHEN status <> 'voided' AND voided_at IS NULL
+       THEN GREATEST(0, amount - COALESCE(refund_amount,0)) ELSE 0 END) AS paid_amount
+       FROM billing_payments GROUP BY billing_id) bp ON bp.billing_id = br.id
      WHERE a.patient_id = ? AND a.status IN ('completed', 'cancelled', 'no_show', 'rejected')
      ORDER BY a.appointment_date DESC`,
     [req.user.id]
@@ -597,6 +605,25 @@ const getHistory = async (req, res) => {
     ...row,
     progress_images: imagesByConsultationId[row.consultation_id] || [],
   })))
+}
+
+const getMyBillingHistory = async (req, res) => {
+  try {
+    res.json(await listMyBillingHistory({ patientId: req.user.id, query: req.query, executor: db }))
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message })
+    throw error
+  }
+}
+const getMyBillingDetails = async (req, res) => {
+  try {
+    const bill = await getMyBillDetails({ patientId: req.user.id, billingId: req.params.id, executor: db })
+    if (!bill) return res.status(404).json({ message: 'Bill not found.' })
+    res.json(bill)
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message })
+    throw error
+  }
 }
 
 const readBranchId = (req) => Number(req.body?.branch_id || req.query?.branch_id || 0)
@@ -1154,6 +1181,8 @@ module.exports = {
   updateProfile,
   getAppointments,
   getHistory,
+  getMyBillingHistory,
+  getMyBillingDetails,
   createAppointment,
   cancelAppointment,
   rescheduleAppointment,
@@ -1168,6 +1197,7 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 
 
 

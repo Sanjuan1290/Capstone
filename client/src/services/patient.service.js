@@ -23,6 +23,17 @@ export const getMyHistory = async () => {
 }
 
 
+// Patient billing history stays read-only. The server derives ownership from the session.
+export const getMyBillingHistory = async (filters = {}) => {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) if (value !== '' && value !== null && value !== undefined && value !== 'all') search.set(key, String(value))
+  const query = search.toString()
+  return parseJson(await fetch(`${BASE}/billing/history${query ? `?${query}` : ''}`, { credentials: 'include' }))
+}
+export const getMyBillingDetails = async (billId) => {
+  return parseJson(await fetch(`${BASE}/billing/history/${encodeURIComponent(billId)}`, { credentials: 'include' }))
+}
+
 export const getActiveBranches = async () => parseJson(await fetch(`${BASE}/branches`, {credentials:'include'}))
 export const getPublicBookingPolicy = async (branchId = '') => {
   const query = branchId ? `?branch_id=${encodeURIComponent(branchId)}` : ''
@@ -161,3 +172,4 @@ export const updatePatientProfile = async (payload) => {
   })
   return parseJson(res)
 }
+

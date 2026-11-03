@@ -9,7 +9,7 @@ const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middle
 const {
   register, verifyRegistration, resendRegistrationVerification, login, checkAuth, logout,
   getProfileStatus, updateProfile,
-  getAppointments, getHistory,
+  getAppointments, getHistory, getMyBillingHistory, getMyBillingDetails,
   createAppointment, cancelAppointment, rescheduleAppointment, getAppointmentCancellationReasons,
   getAppointmentReasons, getBookingReadiness, getBookingServices, getDoctors, getDoctorsAvailability, getDoctorSchedule, getDoctorUnavailableDatesController, getDoctorAvailableSlots, getDoctorTakenSlots,
 } = require('../controllers/patient.controller')
@@ -66,6 +66,8 @@ router.put('/profile-status',                       updateProfile)
 router.get('/appointments',                        getAppointments)
 router.post('/appointments',                       createAppointment)
 router.get('/appointments/history',                getHistory)
+router.get('/billing/history',                      getMyBillingHistory)
+router.get('/billing/history/:id',                  getMyBillingDetails)
 router.get('/appointment-reasons',                 getAppointmentReasons)
 router.get('/appointment-cancellation-reasons',    getAppointmentCancellationReasons)
 router.get('/booking-readiness',                    getBookingReadiness)
@@ -81,3 +83,4 @@ router.get('/doctors/:id/available-slots',          getDoctorAvailableSlots)
 router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router
+
