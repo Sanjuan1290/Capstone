@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import useClientPagination from '../../hooks/useClientPagination'
 import StaffPermissionPicker from '../../components/accounts/StaffPermissionPicker'
-import { DEFAULT_STAFF_PERMISSIONS, STAFF_PERMISSION_MAP, normalizeStaffPermissions } from '../../config/staffPermissions'
+import { DEFAULT_STAFF_PERMISSIONS, STAFF_PERMISSION_KEYS, STAFF_PERMISSION_MAP, normalizeStaffPermissions } from '../../config/staffPermissions'
 import { getStaff, createStaff, toggleStaff, updateStaff } from '../../services/admin.service'
 import {
   MdAdd, MdArrowBack, MdBlock, MdCalendarToday, MdCheck, MdChevronRight,
@@ -173,7 +173,7 @@ const DetailPanel = ({ staff, onClose, onToggle, onEdit }) => {
         <div className="rounded-2xl border border-slate-200 p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Access Permissions</p><p className="mt-1 text-xs text-slate-500">Hover over a label for the feature description.</p></div>
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-600">{permissionCount}/13 enabled</span>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-600">{permissionCount}/{STAFF_PERMISSION_KEYS.length} enabled</span>
           </div>
           <PermissionSummary permissions={staff.permissions} />
         </div>
@@ -265,7 +265,7 @@ const Admin_StaffAccount = ({ embedded = false }) => {
                     return (
                       <button key={item.id} onClick={() => setSelected(item)} className={`flex w-full items-center gap-3 border-b border-slate-50 px-4 py-3 text-left transition hover:bg-slate-50 ${selected?.id === item.id ? 'bg-amber-50/60' : ''}`}>
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0b1a2c] text-xs font-black text-amber-400">{String(item.full_name || '?').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
-                        <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-800">{item.full_name}</p><p className="truncate text-xs text-slate-400">{item.email}</p><p className="mt-1 text-[10px] font-semibold text-slate-400">{permissionCount}/13 permissions</p></div>
+                        <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-800">{item.full_name}</p><p className="truncate text-xs text-slate-400">{item.email}</p><p className="mt-1 text-[10px] font-semibold text-slate-400">{permissionCount}/{STAFF_PERMISSION_KEYS.length} permissions</p></div>
                         <div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${active ? 'bg-emerald-400' : 'bg-slate-300'}`} /><MdChevronRight className="text-slate-300" /></div>
                       </button>
                     )
@@ -287,3 +287,4 @@ const Admin_StaffAccount = ({ embedded = false }) => {
 }
 
 export default Admin_StaffAccount
+
