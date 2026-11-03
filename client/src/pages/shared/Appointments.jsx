@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   MdAdd,
   MdCalendarToday,
@@ -9,27 +10,17 @@ import {
   MdClose,
   MdRefresh,
   MdSearch,
-  MdPersonAdd,
-  MdBadge,
-  MdPhone,
-  MdEmail,
-  MdHome,
 } from 'react-icons/md'
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 import Pagination from '../../components/ui/Pagination'
 import { APPOINTMENT_PAGE_SIZES, appointmentStats, filterAppointmentList, isAwaitingAction, hasRescheduleRequest, paginateAppointments, sortAppointmentList, visiblePageNumbers } from '../../utils/appointmentList.mjs'
-import { getClinicToday, getMinPatientBirthdate } from '../../utils/patientBirthdate.mjs'
+import { getClinicToday } from '../../utils/patientBirthdate.mjs'
 import CancellationReasonModal from '../../components/appointments/CancellationReasonModal'
 import {
   formatAppointmentRange,
-  formatAppointmentTimeRange,
   formatDurationMinutes,
   getReservedDurationMinutes,
-  roundToBookingBlock,
 } from '../../utils/appointmentTime'
-
-const maxPatientBirthdate = getClinicToday
-const minPatientBirthdate = getMinPatientBirthdate
 
 const STATUS_TABS = [
   { key: 'all', label: 'All Appointments' },
@@ -254,377 +245,6 @@ const AppointmentViewModal = ({ appointment, onClose, busyId, onConfirm, onCance
   )
 }
 
-const AddAppointmentModal = ({ services, onClose, onCreated }) => {
-  const [patients, setPatients] = useState([])
-  const [doctors, setDoctors] = useState([])
-  const [serviceOptions, setServiceOptions] = useState([])
-  const [availableSlots, setAvailableSlots] = useState([])
-  const [slotsLoading, setSlotsLoading] = useState(false)
-  const [search, setSearch] = useState('')
-  const [mode, setMode] = useState('existing')
-  const [visitType, setVisitType] = useState('scheduled')
-  const [walkInDoctors, setWalkInDoctors] = useState([])
-  const [walkInLoading, setWalkInLoading] = useState(false)
-  const [createdPatientId, setCreatedPatientId] = useState(null)
-  const [queueReceipt, setQueueReceipt] = useState(null)
-  const [step, setStep] = useState(1)
-  const [selectedPatient, setSelectedPatient] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [noShowWarning, setNoShowWarning] = useState(null)
-  const [form, setForm] = useState({
-    patient_id: '',
-    doctor_id: '',
-    clinic_type: 'medical',
-    requested_service_id: '',
-    reason: '',
-    appointment_date: '',
-    appointment_time: '',
-    notes: '',
-  })
-  const [patientForm, setPatientForm] = useState({
-    full_name: '',
-    birthdate: '',
-    sex: 'Female',
-    civil_status: 'Single',
-    phone: '',
-    address: '',
-    email: '',
-    consent_given: true,
-  })
-
-  useEffect(() => {
-    services.getDoctors?.().then((rows) => setDoctors(Array.isArray(rows) ? rows : [])).catch(() => {})
-  }, [services])
-
-  useEffect(() => {
-    if (mode !== 'existing' || search.trim().length < 2 || (selectedPatient?.full_name || selectedPatient?.name) === search) {
-      setPatients([])
-      return
-    }
-    const timeout = window.setTimeout(() => {
-      services.getPatients?.(search).then((rows) => setPatients(Array.isArray(rows) ? rows : [])).catch(() => {})
-    }, 300)
-    return () => window.clearTimeout(timeout)
-  }, [mode, search, selectedPatient, services])
-
-  const filteredDoctors = doctors.filter((doctor) => String(doctor.clinic_type || doctor.type || '') === form.clinic_type)
-  const selectedDoctor = (visitType === 'walk_in' ? walkInDoctors : doctors).find((doctor) => String(doctor.id) === String(form.doctor_id))
-  const selectedService = serviceOptions.find((service) => String(service.id) === String(form.requested_service_id))
-
-  useEffect(() => {
-    if (visitType !== 'scheduled' || !services.getBookingServices) { setServiceOptions([]); return }
-    let active = true
-    setServiceOptions([])
-    services.getBookingServices(form.clinic_type)
-      .then((rows) => {
-        if (!active) return
-        setServiceOptions((Array.isArray(rows) ? rows : []).filter((service) =>
-          Number(service.is_active ?? 1) === 1 && ['all', form.clinic_type].includes(String(service.clinic_type || ''))))
-      })
-      .catch(() => { if (active) setServiceOptions([]) })
-    return () => { active = false }
-  }, [form.clinic_type, services, visitType])
-
-  useEffect(() => {
-    if (visitType !== 'walk_in' || !services.getWalkInAvailableDoctors) { setWalkInDoctors([]); return }
-    let active = true
-    setWalkInLoading(true)
-    services.getWalkInAvailableDoctors(form.clinic_type)
-      .then((response) => { if (active) setWalkInDoctors((response?.doctors || []).filter((d) => d.available_now)) })
-      .catch(() => { if (active) setWalkInDoctors([]) })
-      .finally(() => { if (active) setWalkInLoading(false) })
-    return () => { active = false }
-  }, [visitType, form.clinic_type, services])
-
-  useEffect(() => {
-    if (visitType !== 'scheduled' || !form.doctor_id || !form.appointment_date || !form.requested_service_id || !services.getAppointmentAvailableSlots) { setAvailableSlots([]); return }
-    let active=true; setSlotsLoading(true)
-    services.getAppointmentAvailableSlots(form.doctor_id,{date:form.appointment_date,serviceId:form.requested_service_id,clinicType:form.clinic_type})
-      .then((result)=>{ if(!active)return; const slots=Array.isArray(result?.slots)?result.slots:[]; setAvailableSlots(slots); setForm((current)=>current.appointment_time&&!slots.includes(current.appointment_time)?{...current,appointment_time:''}:current) })
-      .catch(()=>active&&setAvailableSlots([])).finally(()=>active&&setSlotsLoading(false))
-    return()=>{active=false}
-  }, [form.doctor_id, form.appointment_date, form.requested_service_id, form.clinic_type, services, visitType])
-
-  const patientReady = mode === 'existing'
-    ? Boolean(form.patient_id && selectedPatient)
-    : Boolean(patientForm.full_name.trim() && patientForm.birthdate && patientForm.phone.trim() && patientForm.consent_given)
-  const scheduleReady = visitType === 'walk_in'
-    ? Boolean(form.doctor_id && form.reason.trim() && walkInDoctors.some((d) => String(d.id) === String(form.doctor_id)))
-    : Boolean(form.requested_service_id && form.doctor_id && form.appointment_date && form.appointment_time && form.reason.trim())
-
-  const goNext = () => {
-    setError('')
-    if (step === 1 && !patientReady) {
-      setError(mode === 'existing' ? 'Select a patient before continuing.' : 'Complete the required patient details and confirm privacy consent.')
-      return
-    }
-    if (step === 2 && !scheduleReady) {
-      setError(visitType === 'walk_in' ? 'Choose a currently available doctor and a reason for this walk-in.' : 'Select the service, doctor, date, time, and appointment reason before continuing.')
-      return
-    }
-    setStep((current) => Math.min(3, current + 1))
-  }
-
-  const handleCreate = async (overrideNoShowWarning = false) => {
-    setSaving(true)
-    setError('')
-    try {
-      let patientId = mode === 'new' ? createdPatientId : form.patient_id
-      if (mode === 'new' && !patientId) {
-        const createdPatient = await services.createWalkInPatient?.(patientForm)
-        patientId = createdPatient?.id
-        if (patientId) setCreatedPatientId(patientId) // Reuse after a failed booking/queue request.
-      }
-      if (!patientId) throw new Error('Select an existing patient or complete the new patient details first.')
-      if (visitType === 'walk_in') {
-        if (!services.getQueuePrecheck || !services.addToQueue) throw new Error('Walk-in registration is not available for this role.')
-        const precheck = await services.getQueuePrecheck(patientId)
-        if (precheck?.active_queue) throw new Error('This patient is already in today’s queue. Open the Walk-in Queue to continue.')
-        const existing = precheck?.today_appointment
-        if (existing && !window.confirm(`This patient already has an appointment today with ${existing.doctor_name || 'their doctor'}. Check in to that appointment instead of creating another visit?`)) {
-          throw new Error('Walk-in registration cancelled. Review the patient’s existing appointment.')
-        }
-        const queued = await services.addToQueue({
-          patient_id: patientId,
-          patient_name: patientName,
-          doctor_id: existing ? existing.doctor_id : Number(form.doctor_id),
-          type: existing ? existing.clinic_type : form.clinic_type,
-          reason: existing ? (existing.reason || form.reason) : form.reason,
-          ...(existing ? {check_in_appointment_id:existing.id} : {}),
-        })
-        setQueueReceipt(queued)
-        await onCreated().catch(() => {})
-      } else {
-        await services.createAppointment({
-          ...form,
-          patient_id: patientId,
-          override_no_show_warning: overrideNoShowWarning,
-        })
-        await onCreated()
-        onClose()
-      }
-    } catch (err) {
-      if (err.code === 'NO_SHOW_WARNING') {
-        setNoShowWarning({ message: err.message, policy: err.policy, lastNoShow: err.last_no_show })
-      } else {
-        setError(err.message || 'Failed to create appointment.')
-      }
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const patientName = mode === 'existing'
-    ? selectedPatient?.full_name || selectedPatient?.name || '—'
-    : patientForm.full_name || '—'
-
-  const steps = [
-    { number: 1, label: 'Patient' },
-    { number: 2, label: 'Visit Details' },
-    { number: 3, label: 'Review' },
-  ]
-
-  return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={saving ? undefined : onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-50 h-[100dvh] bg-white shadow-2xl sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
-        <div className="flex h-full flex-col sm:max-h-[92vh]">
-          <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-base font-bold text-slate-900">New Appointment</p>
-                <p className="mt-0.5 text-xs text-slate-500">Choose a patient, select scheduled or walk-in, then review.</p>
-              </div>
-              <button disabled={saving} onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 disabled:opacity-40"><MdClose /></button>
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
-              {steps.map((item) => (
-                <div key={item.number} className={`flex items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-xs font-bold transition ${step === item.number ? 'bg-white text-slate-900 shadow-sm' : step > item.number ? 'text-emerald-700' : 'text-slate-400'}`}>
-                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${step > item.number ? 'bg-emerald-100 text-emerald-700' : step === item.number ? 'bg-[#0b1a2c] text-white' : 'bg-slate-200 text-slate-500'}`}>
-                    {step > item.number ? <MdCheck /> : item.number}
-                  </span>
-                  {item.label}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-            {step === 1 && (
-              <div className="space-y-5">
-                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
-                  {[
-                    { key: 'existing', label: 'Existing Patient' },
-                    { key: 'new', label: 'Register New Patient' },
-                  ].map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => {
-                        setMode(option.key)
-                        setCreatedPatientId(null)
-                        setError('')
-                        setSelectedPatient(null)
-                        setForm((prev) => ({ ...prev, patient_id: '' }))
-                        setSearch('')
-                      }}
-                      className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${mode === option.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-
-                {mode === 'existing' ? (
-                  <div>
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-400">Patient</span>
-                      <div className="relative">
-                        <MdSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          value={search}
-                          onChange={(e) => {
-                            setSearch(e.target.value)
-                            if (selectedPatient && e.target.value !== (selectedPatient.full_name || selectedPatient.name)) {
-                              setSelectedPatient(null)
-                              setForm((prev) => ({ ...prev, patient_id: '' }))
-                            }
-                          }}
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:border-sky-400"
-                          placeholder="Search patient by name"
-                        />
-                      </div>
-                    </label>
-                    {patients.length > 0 && (
-                      <div className="mt-2 max-h-48 overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-                        {patients.map((patient) => (
-                          <button
-                            type="button"
-                            key={patient.id}
-                            onClick={() => {
-                              setForm((prev) => ({ ...prev, patient_id: patient.id }))
-                              setSelectedPatient(patient)
-                              setSearch(patient.full_name || patient.name)
-                              setPatients([])
-                            }}
-                            className="block w-full border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50"
-                          >
-                            <p className="text-sm font-bold text-slate-800">{patient.full_name || patient.name}</p>
-                            <p className="mt-0.5 text-xs text-slate-500">{patient.phone || 'No phone'}{patient.email ? ` · ${patient.email}` : ''}</p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {selectedPatient && (
-                      <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700"><MdCheck /></div>
-                          <div className="min-w-0">
-                            <p className="font-bold text-slate-900">{selectedPatient.full_name || selectedPatient.name}</p>
-                            <p className="mt-1 text-xs text-slate-600">{selectedPatient.phone || 'No phone'}{selectedPatient.email ? ` · ${selectedPatient.email}` : ''}</p>
-                            {selectedPatient.address && <p className="mt-1 text-xs text-slate-500">{selectedPatient.address}</p>}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Full Name *</span><input value={patientForm.full_name} onChange={(e) => setPatientForm((prev) => ({ ...prev, full_name: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Patient full name" /></label>
-                    <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Birthdate *</span><input type="date" min={minPatientBirthdate()} max={maxPatientBirthdate()} value={patientForm.birthdate} onChange={(e) => setPatientForm((prev) => ({ ...prev, birthdate: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" /></label>
-                    <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Phone *</span><input value={patientForm.phone} onChange={(e) => setPatientForm((prev) => ({ ...prev, phone: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="09XXXXXXXXX" /></label>
-                    <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Sex</span><select value={patientForm.sex} onChange={(e) => setPatientForm((prev) => ({ ...prev, sex: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="Female">Female</option><option value="Male">Male</option></select></label>
-                    <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Civil Status</span><select value={patientForm.civil_status} onChange={(e) => setPatientForm((prev) => ({ ...prev, civil_status: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="Single">Single</option><option value="Married">Married</option><option value="Widowed">Widowed</option><option value="Separated">Separated</option></select></label>
-                    <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Address</span><input value={patientForm.address} onChange={(e) => setPatientForm((prev) => ({ ...prev, address: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Street, barangay, city" /></label>
-                    <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Email</span><input type="email" value={patientForm.email} onChange={(e) => setPatientForm((prev) => ({ ...prev, email: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Optional email" /></label>
-                    <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 sm:col-span-2"><input className="mt-1" type="checkbox" checked={patientForm.consent_given} onChange={(e) => setPatientForm((prev) => ({ ...prev, consent_given: e.target.checked }))} /><span>Data privacy consent has been obtained during intake. *</span></label>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {step === 2 && (
-              <div className="space-y-5">
-                <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Visit type">
-                  {[{value:'scheduled',label:'Scheduled Appointment',help:'Choose a date and available time.'},{value:'walk_in',label:'Walk-in Now',help:'Check in immediately and receive a queue number.'}].map((option) => (
-                    <button type="button" key={option.value} aria-pressed={visitType===option.value}
-                      onClick={()=>{setVisitType(option.value);setError('');setForm((current)=>({...current,doctor_id:'',requested_service_id:'',appointment_date:'',appointment_time:''}))}}
-                      className={`rounded-2xl border p-3 text-left text-sm ${visitType===option.value?'border-emerald-500 bg-emerald-50 text-emerald-900':'border-slate-200 bg-white text-slate-700'}`}>
-                      <strong className="block">{option.label}</strong><span className="mt-1 block text-xs">{option.help}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Clinic Type</span><select value={form.clinic_type} onChange={(e) => setForm((prev) => ({ ...prev, clinic_type: e.target.value, requested_service_id: '', doctor_id: '', appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="medical">Medical</option><option value="derma">Dermatology</option></select></label>
-                  {visitType === 'scheduled' && <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Service *</span><select value={form.requested_service_id} onChange={(e)=>setForm((prev)=>({...prev,requested_service_id:e.target.value,appointment_time:''}))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="">Select service</option>{serviceOptions.map((service)=><option key={service.id} value={service.id}>{service.service_name} · {formatDurationMinutes(roundToBookingBlock(service.average_duration_minutes || 60))} reserved</option>)}</select></label>}
-                  <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Doctor *</span><select value={form.doctor_id} onChange={(e) => setForm((prev) => ({ ...prev, doctor_id: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400"><option value="">Select doctor</option>{(visitType === 'walk_in' ? walkInDoctors : filteredDoctors).map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.full_name || doctor.name}</option>)}</select></label>
-                  {visitType === 'scheduled' && <label className="block sm:col-span-2"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Date *</span><input type="date" min={getLocalDateOnly()} value={form.appointment_date} onChange={(e) => setForm((prev) => ({ ...prev, appointment_date: e.target.value, appointment_time: '' }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" /></label>}
-                </div>
-                {visitType === 'walk_in' && <p className="rounded-xl bg-sky-50 p-3 text-xs text-sky-800">{walkInLoading ? 'Checking doctors available now…' : 'Only doctors currently accepting walk-ins are listed. The queue will assign the visit time and number.'} No service price is automatically selected; billing is reviewed at checkout.</p>}
-                {visitType === 'scheduled' && <div>
-                  <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-400">Available Time *</span>
-                  <TimeSlotPicker date={form.appointment_date} value={form.appointment_time} onChange={(slot) => setForm((prev) => ({ ...prev, appointment_time: slot }))} availableSlots={availableSlots} loading={slotsLoading} emptyMessage={form.doctor_id && form.requested_service_id ? 'No start time can fit the full service duration on this date.' : 'Select a service and doctor first to view available time slots.'} />
-                </div>}
-                <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Reason *</span><input value={form.reason} onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="e.g. General Consultation" /></label>
-              </div>
-            )}
-
-            {step === 3 && (
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Patient</p>
-                  <p className="mt-2 text-lg font-black text-slate-900">{patientName}</p>
-                  <p className="mt-1 text-sm text-slate-500">{mode === 'existing' ? selectedPatient?.phone || 'No phone' : patientForm.phone}</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-{visitType === 'scheduled' && <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Service</p><p className="mt-1 font-bold text-slate-900">{selectedService?.service_name || '—'}</p><p className="text-xs text-slate-500">{selectedService ? `${formatDurationMinutes(roundToBookingBlock(selectedService.average_duration_minutes || 60))} reserved` : ''}</p></div>}                  <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Doctor</p><p className="mt-1 font-bold text-slate-900">{selectedDoctor?.full_name || selectedDoctor?.name || '—'}</p><p className="text-xs text-slate-500">{form.clinic_type === 'derma' ? 'Dermatology' : 'Medical'}</p></div>
-                  {visitType === 'scheduled' && <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Schedule</p><p className="mt-1 font-bold text-slate-900">{formatDate(form.appointment_date)}</p><p className="text-xs text-slate-500">{form.appointment_time ? formatAppointmentTimeRange(form.appointment_time, roundToBookingBlock(selectedService?.average_duration_minutes || 60)) : '—'}</p></div>}
-                  {visitType === 'walk_in' && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><strong>Walk-in now</strong><p>The queue number and appointment time are assigned at check-in.</p></div>}
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Reason</p><p className="mt-1 font-semibold text-slate-800">{form.reason || '—'}</p></div>
-                {visitType === 'scheduled' && <label className="block"><span className="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-400">Scheduling Notes</span><textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} rows={3} className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-sky-400" placeholder="Optional referral notes, symptoms, intake remarks, preferred contact, etc." /></label>}
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{visitType === 'walk_in' ? 'Review the walk-in. If the patient already has an appointment today, you will be prompted to check them in instead.' : 'Review the patient and schedule above before creating the appointment.'}</div>
-              </div>
-            )}
-
-            {queueReceipt && <div role="status" className="mt-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-900"><strong>Walk-in successfully checked in</strong><p className="mt-2 text-lg font-bold">Queue #{queueReceipt.queue_number}</p><p className="text-sm">Appointment #{queueReceipt.appointment_id}. {queueReceipt.checked_in_existing_appointment ? 'Existing appointment checked in.' : 'New walk-in visit linked to the queue.'}</p></div>}
-            {error && <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-          </div>
-
-          <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-4 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] sm:px-6">
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <button disabled={saving || Boolean(queueReceipt)} onClick={step === 1 ? onClose : () => { setError(''); setStep((current) => current - 1) }} className="w-full rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50 sm:w-auto sm:min-w-[120px]">
-                {step === 1 ? 'Cancel' : 'Back'}
-              </button>
-              {queueReceipt ? (
-                <button onClick={onClose} className="w-full rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-semibold text-white sm:w-auto">Done</button>
-              ) : step < 3 ? (
-                <button onClick={goNext} className="w-full rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white sm:w-auto sm:min-w-[140px]">Next</button>
-              ) : (
-                <button onClick={() => handleCreate()} disabled={saving} className="w-full rounded-2xl bg-[#0b1a2c] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto sm:min-w-[180px]">{saving ? 'Creating...' : (visitType === 'walk_in' ? 'Check In Walk-in' : 'Create Appointment')}</button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {noShowWarning && (
-        <>
-          <div className="fixed inset-0 z-[60] bg-black/50" />
-          <div className="fixed left-1/2 top-1/2 z-[70] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-3xl bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-black text-slate-900">Previous No-Show</h3>
-            <p className="mt-2 text-sm text-slate-600">{noShowWarning.message}</p>
-            {noShowWarning.lastNoShow && <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm text-amber-800">Last no-show: {noShowWarning.lastNoShow.appointment_date} at {noShowWarning.lastNoShow.appointment_time} with {noShowWarning.lastNoShow.doctor_name}.</div>}
-            {noShowWarning.policy && <p className="mt-3 text-xs text-slate-500">Policy reminder: {noShowWarning.policy}</p>}
-            <div className="mt-5 flex gap-3"><button onClick={() => setNoShowWarning(null)} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600">Go Back</button><button disabled={saving} onClick={async () => { setNoShowWarning(null); await handleCreate(true) }} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-60">Continue Anyway</button></div>
-          </div>
-        </>
-      )}
-    </>
-  )
-}
-
 const Appointments = ({ services }) => {
   const [appointments, setAppointments] = useState([])
   const [reminding, setReminding] = useState(null)
@@ -645,7 +265,8 @@ const Appointments = ({ services }) => {
   const [viewAppointment, setViewAppointment] = useState(null)
   const [rescheduleAppointment, setRescheduleAppointment] = useState(null)
   const [cancelAppointmentTarget, setCancelAppointmentTarget] = useState(null)
-  const [showAdd, setShowAdd] = useState(false)
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const loadAppointments = useCallback(async () => {
     setLoading(true)
@@ -777,11 +398,12 @@ const Appointments = ({ services }) => {
           <p className="mt-1 text-sm text-slate-500">Review requests needing confirmation, manage schedules, and find previous appointments.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+            <a href="/display/queue" target="_blank" rel="noopener noreferrer" aria-label="Open Queue Display in a new tab" className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Open Queue Display <span aria-hidden="true">↗</span></a>
           <button type="button" disabled={loading} onClick={loadAppointments} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
             <MdRefresh /> Refresh
           </button>
           {services.createAppointment && (
-            <button onClick={() => setShowAdd(true)} className="inline-flex items-center gap-2 rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white">
+            <button onClick={() => navigate(`${location.pathname.replace(/\/$/, '')}/new`)} className="inline-flex items-center gap-2 rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white">
               <MdAdd /> New Appointment
             </button>
           )}
@@ -1054,12 +676,13 @@ const Appointments = ({ services }) => {
         onClose={() => setCancelAppointmentTarget(null)}
         onConfirm={confirmCancellation}
       />
-      {showAdd && <AddAppointmentModal services={services} onClose={() => setShowAdd(false)} onCreated={loadAppointments} />}
+
     </div>
   )
 }
 
 export default Appointments
+
 
 
 

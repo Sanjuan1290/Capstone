@@ -23,8 +23,8 @@ describe('September 29 Batch 6B — clinic assignment is authoritative', () => {
   })
 
   it('filters Admin/Staff appointment doctor choices using clinic assignment', () => {
-    const source = read('client', 'src', 'pages', 'shared', 'Appointments.jsx')
-    expect(source).toContain("String(doctor.clinic_type || doctor.type || '') === form.clinic_type")
+    const source = read('client', 'src', 'pages', 'shared', 'AppointmentCreatePage.jsx')
+    expect(source).toContain("['medical', 'derma'].includes(String(doctor.clinic_type || doctor.type))")
     expect(source).not.toContain("specialty.includes('derm')")
   })
 
@@ -45,4 +45,5 @@ describe('September 29 Batch 6B — clinic assignment is authoritative', () => {
     expect(schedules).not.toContain("specialty || '').toLowerCase().includes('derm')")
   })
 })
+
 

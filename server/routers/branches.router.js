@@ -678,7 +678,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
     }catch(error){next(error)}
   })
   router.get(`${prefix}/doctors`,...middle,allowAnyPermission('doctor_schedules','accounts','appointments'),originalDoctors)
-  router.get(`${prefix}/doctors/:id/schedules`,...middle,requirePermission('doctor_schedules'),originalDoctorSchedules)
+  router.get(`${prefix}/doctors/:id/schedules`,...middle,allowAnyPermission('appointments','doctor_schedules'),originalDoctorSchedules)
   router.get(`${prefix}/staff`,...middle,requirePermission('accounts'),originalStaff)
   const validateDelegation=(req,res,next)=>{
     if(req.adminContext.account_role==='superadmin')return next()
@@ -705,7 +705,15 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.put(`${prefix}/doctors/:id`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.updateDoctor))
   router.patch(`${prefix}/doctors/:id/toggle`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.toggleDoctor))
   router.put(`${prefix}/doctors/:id/schedules`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDaySchedule))
-  router.get(`${prefix}/doctors/:id/unavailable-dates`,...ownedPerson('doctors','doctor_schedules',oldAdmin.getDoctorUnavailableDatesAdmin))
+  router.get(`${prefix}/doctors/:id/unavailable-dates`,...middle,allowAnyPermission('appointments','doctor_schedules'),async(req,res,next)=>{
+    const id=Number(req.params.id)
+    if(!validId(id))return res.status(400).json({message:'Invalid doctor.'})
+    try{
+      const [[doctor]]=await db.query('SELECT doctor_id AS id FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=?',[id,req.branchId])
+      if(!doctor)return res.status(404).json({message:'Doctor not found in this branch.'})
+      return await oldAdmin.getDoctorUnavailableDatesAdmin(req,res)
+    }catch(error){next(error)}
+  })
   router.get(`${prefix}/doctors/:id/available-slots`,...middle,allowAnyPermission('appointments','doctor_schedules'),async(req,res,next)=>{
     const id=Number(req.params.id)
     if(!validId(id))return res.status(400).json({message:'Invalid doctor.'})
@@ -786,4 +794,5 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 

@@ -56,10 +56,11 @@ test('branch slot read allows appointment privilege but not doctor schedule modi
   assert.match(src,/put\(`\$\{prefix\}\/doctors\/:id\/schedules`,afterSuccessfulMutation\('schedule.updated'\),\.\.\.ownedPerson\('doctors','doctor_schedules'/)
 })
 test('walk-in mode uses existing authorized queue endpoint and receipt instead of scheduled booking',()=>{
-  const ui=fs.readFileSync(path.resolve(__dirname,'../../../client/src/pages/shared/Appointments.jsx'),'utf8')
+  const ui=fs.readFileSync(path.resolve(__dirname,'../../../client/src/pages/shared/AppointmentCreatePage.jsx'),'utf8')
   assert.match(ui,/Walk-in Now/)
-  assert.match(ui,/services\.getQueuePrecheck\(patientId\)/)
-  assert.match(ui,/services\.addToQueue\(\{/)
-  assert.match(ui,/check_in_appointment_id:existing\.id/)
-  assert.match(ui,/queueReceipt\.queue_number/)
+  assert.match(ui,/services\.getQueuePrecheck\(savedPatientId\)/)
+  assert.match(ui,/services\.addToQueue\(payload\)/)
+  assert.match(ui,/check_in_appointment_id: existing\.id/)
+  assert.match(ui,/success\.receipt\?\.queue_number/)
 })
+

@@ -15,6 +15,8 @@ import {
   getPatients,
   getDoctors,
   getDoctorSchedules,
+  getDoctorUnavailableDates,
+  getAppointmentReasons,
   getAppointmentCancellationReasons,
   getAppointmentAvailableSlots,
   getBookingServices,
@@ -23,7 +25,7 @@ import {
   addToQueue,
 } from '../../services/admin.service'
 
-const adminServices = {
+export const adminServices = {
   getAppointments,
   sendAppointmentReminderNow,
   getAppointmentInventoryReadiness,
@@ -36,6 +38,8 @@ const adminServices = {
   getPatients,
   getDoctors,
   getDoctorSchedules,
+  getDoctorUnavailableDates,
+  getAppointmentReasons,
   getAppointmentCancellationReasons,
   getAppointmentAvailableSlots,
   getBookingServices,
@@ -47,4 +51,5 @@ const adminServices = {
 const Admin_Appointments = () => <Appointments services={adminServices} />
 
 export default Admin_Appointments
+
 

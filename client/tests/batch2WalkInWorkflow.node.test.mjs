@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 const root = new URL('../src/',import.meta.url)
 const read = path => fs.readFileSync(new URL(path,root),'utf8')
-const modal = read('pages/shared/Appointments.jsx')
+const page = read('pages/shared/AppointmentCreatePage.jsx')
 test('walk-in now is an explicit choice; scheduled booking remains the default',()=>{
-  assert.match(modal,/useState\('scheduled'\)/)
-  assert.match(modal,/Walk-in Now/)
-  assert.match(modal,/Scheduled Appointment/)
+  assert.match(page,/useState\('scheduled'\)/)
+  assert.match(page,/Walk-in Now/)
+  assert.match(page,/Scheduled Appointment/)
 })
 test('branch/admin/staff services expose the same walk-in queue primitives',()=>{
   for(const role of ['admin','staff']){
@@ -18,18 +18,19 @@ test('branch/admin/staff services expose the same walk-in queue primitives',()=>
   }
 })
 test('walk-in path checks an existing appointment and never writes a second scheduled one',()=>{
-  assert.match(modal,/services\.getQueuePrecheck\(patientId\)/)
-  assert.match(modal,/check_in_appointment_id:existing\.id/)
-  assert.match(modal,/services\.addToQueue\(/)
-  assert.match(modal,/setQueueReceipt\(queued\)/)
+  assert.match(page,/services\.getQueuePrecheck\(savedPatientId\)/)
+  assert.match(page,/check_in_appointment_id: existing\.id/)
+  assert.match(page,/services\.addToQueue\(/)
+  assert.match(page,/setSuccess\(\{ type: 'walk_in'/)
 })
 test('switching clinic isolates async service and doctor responses',()=>{
-  assert.match(modal,/let active = true/)
-  assert.match(modal,/return \(\) => \{ active = false \}/)
-  assert.match(modal,/\['all', form\.clinic_type\]/)
-  assert.match(modal,/\(response\?\.doctors \|\| \[\]\)\.filter\(\(d\) => d\.available_now\)/)
+  assert.match(page,/let active = true/)
+  assert.match(page,/return \(\) => \{ active = false \}/)
+  assert.match(page,/normalizeBookingServiceResults/)
+  assert.match(page,/\.filter\(\(d\) => d\.available_now\)/)
 })
 test('newly created patient is reused after a failed queue attempt; receipt displays its queue number',()=>{
-  assert.match(modal,/setCreatedPatientId\(patientId\)/)
-  assert.match(modal,/queueReceipt\.queue_number/)
+  assert.match(page,/setCreatedPatientId\(savedPatientId\)/)
+  assert.match(page,/success\.receipt\?\.queue_number/)
 })
+

@@ -27,10 +27,11 @@ test('supports newborns and exact 100-year boundary', () => {
   assert.equal(validatePatientBirthdate('', midnight), 'Birthdate is required.')
 })
 test('registration, admin and staff intake use shared clinic-date bounds', () => {
-  for(const rel of ['src/pages/auth/Patient/PatientRegister.jsx', 'src/pages/shared/Appointments.jsx','src/pages/staffPage/Staff_WalkInQueue.jsx']){
+  for(const rel of ['src/pages/auth/Patient/PatientRegister.jsx', 'src/pages/shared/AppointmentCreatePage.jsx','src/pages/staffPage/Staff_WalkInQueue.jsx']){
     const source=fs.readFileSync(path.join(root,rel),'utf8')
     assert.match(source,/patientBirthdate\.mjs/,rel)
     assert.match(source,/getClinicToday/,rel)
     assert.match(source,/getMinPatientBirthdate/,rel)
   }
 })
+

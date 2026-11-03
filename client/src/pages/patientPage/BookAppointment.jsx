@@ -47,14 +47,14 @@ function formatDuration(minutes) { const total=Number(minutes||60); const h=Math
 
 
 // ── Four-step progress ──────────────────────────────────────────────────────
-const StepBar = ({ current }) => (
-  <div className="mb-6" aria-label={`Step ${current + 1} of ${STEPS.length}: ${STEPS[current]}`}>
+export const StepBar = ({ current, labels = STEPS }) => (
+  <div className="mb-6" aria-label={`Step ${current + 1} of ${labels.length}: ${labels[current]}`}>
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm font-bold text-slate-800">Step {current + 1} of 4</p>
-      <p className="text-sm text-emerald-700 font-semibold">{STEPS[current]}</p>
+      <p className="text-sm font-bold text-slate-800">Step {current + 1} of {labels.length}</p>
+      <p className="text-sm text-emerald-700 font-semibold">{labels[current]}</p>
     </div>
-    <div className="grid grid-cols-4 gap-2" role="list" aria-label="Booking progress">
-      {STEPS.map((label, index) => (
+    <div className="grid gap-2" style={{gridTemplateColumns:`repeat(${labels.length},minmax(0,1fr))`}} role="list" aria-label="Booking progress">
+      {labels.map((label, index) => (
         <div key={label} role="listitem" aria-current={index === current ? 'step' : undefined}>
           <div className={`h-1.5 rounded-full transition-colors duration-200 motion-reduce:transition-none ${index <= current ? 'bg-emerald-500' : 'bg-slate-200'}`} />
           <p className={`mt-2 text-center text-[11px] sm:text-xs font-semibold ${index === current ? 'text-emerald-800' : 'text-slate-500'}`}>
@@ -67,7 +67,7 @@ const StepBar = ({ current }) => (
 )
 
 // ── Step 1: Category and service selection in one screen ────────────────────
-const StepService = ({ category, onCategoryChange, value, onChange, services, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness }) => {
+export const StepService = ({ category, onCategoryChange, value, onChange, services, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness }) => {
   const [query, setQuery] = useState('')
   const filtered = services.filter(service =>
     (category === 'all' || service.booking_clinic_type === category) &&
@@ -128,7 +128,7 @@ const StepService = ({ category, onCategoryChange, value, onChange, services, re
 }
 
 // ── Step 3: Doctor ────────────────────────────────────────────────────────────
-const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, doctorError, onRetry }) => {
+export const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, doctorError, onRetry }) => {
   const list = doctorList[clinicType] || []
   const ct = CLINIC_TYPES.find(c => c.id === clinicType)
   return (
@@ -167,7 +167,7 @@ const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, d
 }
 
 // ── Step 4: Schedule ──────────────────────────────────────────────────────────
-const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules, unavailableDates, loadingSlots, slotsError }) => {
+export const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules, unavailableDates, loadingSlots, slotsError }) => {
   const today = new Date()
   const [viewYear,  setViewYear]  = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
@@ -289,7 +289,7 @@ const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, docto
 }
 
 // ── Step 5: Details ───────────────────────────────────────────────────────────
-const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadingReasons, onReasonChange, onReasonDetailsChange, onNotesChange }) => (
+export const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadingReasons, onReasonChange, onReasonDetailsChange, onNotesChange }) => (
   <div className="space-y-4">
     <div>
       <h2 className="text-lg font-bold text-slate-800">Visit Details</h2>
@@ -387,7 +387,7 @@ const StepReview = ({ form, branchName, promotions, selectedPromotionId, onPromo
 }
 
 // A quick reference stays visible throughout booking; it does not create a reservation.
-const BookingSummary = ({ form, branchName, selectedPromotion }) => {
+export const BookingSummary = ({ form, branchName, selectedPromotion }) => {
   const dateText = form.date && /^\d{4}-\d{2}-\d{2}$/.test(form.date)
     ? new Date(`${form.date}T12:00:00`).toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) : 'Not selected yet'
   return <div className="space-y-4">
@@ -909,6 +909,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 

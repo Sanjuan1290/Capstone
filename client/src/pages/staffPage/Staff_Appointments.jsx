@@ -15,6 +15,8 @@ import {
   getPatients,
   getDoctors,
   getDoctorSchedules,
+  getDoctorUnavailableDates,
+  getAppointmentReasons,
   getAppointmentCancellationReasons,
   getAppointmentAvailableSlots,
   getBookingServices,
@@ -23,7 +25,7 @@ import {
   addToQueue,
 } from '../../services/staff.service'
 
-const staffServices = {
+export const staffServices = {
   getAppointments,
   sendAppointmentReminderNow,
   getAppointmentInventoryReadiness,
@@ -36,6 +38,8 @@ const staffServices = {
   getPatients,
   getDoctors,
   getDoctorSchedules,
+  getDoctorUnavailableDates,
+  getAppointmentReasons,
   getAppointmentCancellationReasons,
   getAppointmentAvailableSlots,
   getBookingServices,
@@ -47,4 +51,5 @@ const staffServices = {
 const Staff_Appointments = () => <Appointments services={staffServices} />
 
 export default Staff_Appointments
+
 

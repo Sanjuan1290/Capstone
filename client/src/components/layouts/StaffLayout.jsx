@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { hasStaffPermission, STAFF_PERMISSION_MAP } from '../../config/staffPermissions'
@@ -25,7 +25,7 @@ const NAV_GROUPS = [
     { permission: 'doctor_schedules', name: 'Doctor Schedules', path: '/staff/doctor-schedules', icon: MdCalendarToday, short: 'Doctors' },
   ] },
   { label: 'Billing & Stock', items: [
-    { permission: 'checkout', name: 'Checkout', path: '/staff/checkout', icon: MdPayments, short: 'Checkout' },
+    { permission: 'checkout', name: 'Billing', path: '/staff/checkout', icon: MdPayments, short: 'Billing' },
     { permission: 'billing', name: 'Billing', path: '/staff/billing', icon: MdPayments, short: 'Billing' },
     { permission: 'inventory', name: 'Inventory', path: '/staff/inventory', icon: MdInventory2, short: 'Stock' },
   ] },
@@ -43,13 +43,14 @@ const StaffLayout = () => {
   const { user, logout: clearAuth } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [pending, setPending] = useState(0)
 
   const groups = useMemo(() => NAV_GROUPS
-    .map((group) => ({ ...group, items: group.items.filter((item) => hasStaffPermission(user, item.permission)) }))
+    .map((group) => ({ ...group, items: group.items.filter((item) => hasStaffPermission(user, item.permission) && !(item.path === '/staff/billing' && hasStaffPermission(user, 'checkout'))) }))
     .filter((group) => group.items.length > 0), [user])
 
   const loadCounts = useCallback(() => {
@@ -79,6 +80,8 @@ const StaffLayout = () => {
   const badgeFor = (item) => item.badge === 'pending' ? pending : 0
   const descriptionFor = (item) => item.description || STAFF_PERMISSION_MAP[item.permission]?.description || item.name
 
+  const isNavActive = (isActive, item) => isActive || (item.path === '/staff/checkout' && location.pathname.startsWith('/staff/billing'))
+
   const Item = ({ item }) => {
     const Icon = item.icon
     const badge = badgeFor(item)
@@ -88,10 +91,10 @@ const StaffLayout = () => {
         end={item.path === '/staff'}
         title={descriptionFor(item)}
         onClick={() => setMobileOpen(false)}
-        className={({ isActive }) => `relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${isActive ? 'bg-sky-500/15 text-sky-400' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+        className={({ isActive }) => `relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${isNavActive(isActive, item) ? 'bg-sky-500/15 text-sky-400' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
       >
         {({ isActive }) => <>
-          {isActive && <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-sky-400" />}
+          {isNavActive(isActive, item) && <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-sky-400" />}
           <Icon className="shrink-0 text-[19px]" />
           <span className={`min-w-0 flex-1 whitespace-nowrap ${collapsed ? 'hidden' : ''}`}>{item.name}</span>
           {badge > 0 && <span className={`min-w-6 rounded-full bg-sky-400 px-1.5 py-0.5 text-center text-[10px] font-black text-[#0b1a2c] ${collapsed ? 'absolute -right-1 -top-1' : ''}`}>{badge > 99 ? '99+' : badge}</span>}
@@ -134,4 +137,5 @@ const StaffLayout = () => {
   )
 }
 export default StaffLayout
+
 

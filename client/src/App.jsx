@@ -32,8 +32,8 @@ import StaffLayout           from './components/layouts/StaffLayout'
 import Staff_Dashboard       from './pages/staffPage/Staff_Dashboard'
 import Staff_Home             from './pages/staffPage/Staff_Home'
 import Staff_AccountsView     from './pages/staffPage/Staff_AccountsView'
-import Staff_BillingRecords   from './pages/staffPage/Staff_BillingRecords'
 import Staff_Appointments    from './pages/staffPage/Staff_Appointments'
+import Staff_NewAppointment from './pages/staffPage/Staff_NewAppointment'
 import Staff_Billing         from './pages/staffPage/Staff_Billing'
 import Staff_CheckoutDetail  from './pages/staffPage/Staff_CheckoutDetail'
 import Staff_WalkInQueue     from './pages/staffPage/Staff_WalkInQueue'
@@ -61,6 +61,7 @@ import Admin_Accounts         from './pages/adminPage/Admin_Accounts'
 import Admin_DoctorAccount   from './pages/adminPage/Admin_DoctorAccount'
 import Admin_DoctorSchedules from './pages/adminPage/Admin_DoctorSchedules'
 import Admin_Appointments    from './pages/adminPage/Admin_Appointments'
+import Admin_NewAppointment from './pages/adminPage/Admin_NewAppointment'
 import Admin_PatientRecord    from './pages/adminPage/Admin_PatientRecord'
 import Admin_PatientBooking  from './pages/adminPage/Admin_PatientBooking'
 import Admin_BillingCatalog  from './pages/adminPage/Admin_BillingCatalog'
@@ -156,12 +157,13 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/staff' element={<StaffRoute><StaffLayout /></StaffRoute>}>
         <Route index element={<Staff_Home />} />
         <Route path='appointments' element={<StaffPermissionRoute permission="appointments"><Staff_Appointments /></StaffPermissionRoute>} />
+        <Route path='appointments/new' element={<StaffPermissionRoute permission="appointments"><Staff_NewAppointment /></StaffPermissionRoute>} />
         <Route path='walkin' element={<StaffPermissionRoute permission="appointments"><Staff_WalkInQueue /></StaffPermissionRoute>} />
         <Route path='patient-records' element={<StaffPermissionRoute permission="patient_records"><Staff_PatientRecord /></StaffPermissionRoute>} />
         <Route path='doctor-schedules' element={<StaffPermissionRoute permission="doctor_schedules"><Staff_DoctorSchedules /></StaffPermissionRoute>} />
         <Route path='checkout' element={<StaffPermissionRoute permission="checkout"><Staff_Billing /></StaffPermissionRoute>} />
         <Route path='checkout/:billingId' element={<StaffPermissionRoute permission="checkout"><Staff_CheckoutDetail /></StaffPermissionRoute>} />
-        <Route path='billing' element={<StaffPermissionRoute permission="billing"><Staff_BillingRecords /></StaffPermissionRoute>} />
+        <Route path='billing' element={<StaffPermissionRoute permission="billing"><Staff_Billing /></StaffPermissionRoute>} />
         <Route path='inventory' element={<StaffPermissionRoute permission="inventory"><Staff_Inventory /></StaffPermissionRoute>} />
         <Route path='accounts' element={<StaffPermissionRoute permission="accounts"><Staff_AccountsView /></StaffPermissionRoute>} />
         <Route path='system-setup' element={<StaffPermissionRoute permission="system_setup"><Admin_SystemSetup /></StaffPermissionRoute>} />
@@ -227,6 +229,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/superadmin/branches/:branchId' element={<SuperAdminRoute><BranchOperationsLayout /></SuperAdminRoute>} errorElement={<PortalErrorPage />}>
         <Route index element={<Admin_Dashboard />} />
         <Route path='appointments' element={<Admin_Appointments />} />
+        <Route path='appointments/new' element={<Admin_NewAppointment />} />
         <Route path='patient-records' element={<Admin_PatientRecord />} />
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='billing' element={<Admin_Billing />} />
@@ -262,6 +265,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/admin' element={<AdminRoute><BranchOperationsLayout admin /></AdminRoute>} errorElement={<PortalErrorPage />}>
         <Route index element={<Admin_Dashboard />} />
         <Route path='appointments' element={<Admin_Appointments />} />
+        <Route path='appointments/new' element={<Admin_NewAppointment />} />
         <Route path='patient-records' element={<Admin_PatientRecord />} />
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='billing' element={<Admin_Billing />} />
@@ -312,3 +316,4 @@ const App = () => (
 )
 
 export default App
+
