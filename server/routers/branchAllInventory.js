@@ -54,7 +54,9 @@ function registerAllInventory(router,requireSuper) {
    return i.expiring
   })
   const grouped=new Map()
-  for(const i of filtered){
+  // An alert in one branch qualifies the combined product, but its totals must
+  // still include stock and value from every branch in the selected scope.
+  for(const i of (view==='combined'?byBranch:filtered)){
    const key=keyOf(i)
    if(!grouped.has(key))grouped.set(key,{
     key,name:i.name,category:i.category,item_type:i.item_type,strength:i.strength,dosage_form:i.dosage_form,
@@ -66,6 +68,9 @@ function registerAllInventory(router,requireSuper) {
    const g=grouped.get(key)
    g.quantity_base+=i.quantity_base;g.selling_value+=i.selling_value
    g.per_branch.push({branch_id:i.branch_id,branch_name:i.branch_name,inventory_id:i.id,quantity_base:i.quantity_base,
+    // Quantities are in base units, but selling prices use the configured selling unit.
+    selling_quantity:Math.max(0,Number(i.stock??i.quantity_base??0)),selling_price:i.selling_price==null?null:Number(i.selling_price),
+    selling_unit:i.uom||i.unit||'item',
     threshold:Number(i.threshold||0),selling_value:i.selling_value,nearest_expiry:i.nearest_expiry,
     low:i.low,out:i.out,expired:i.expired,expiring:i.expiring})
    g.inventory_ids.push(i.id)
@@ -75,10 +80,20 @@ function registerAllInventory(router,requireSuper) {
    if(i.quantity_base>0)g.branch_coverage++
    if(i.nearest_expiry&&(!g.nearest_expiry||dateOnly(i.nearest_expiry)<dateOnly(g.nearest_expiry))){g.nearest_expiry=i.nearest_expiry;g.nearest_expiry_branch=i.branch_name}
   }
-  const groupRows=[...grouped.values()]
-  const summary=summaryFor(filtered,groupRows,branches,today,cutoff30)
+  const groupRows=[...grouped.values()].filter(g=>{
+   if(view!=='combined'||!status)return true
+   if(status==='alerts')return g.low||g.out||g.expired||g.expiring
+   if(status==='out')return g.out
+   if(status==='low')return g.low
+   if(status==='expired')return g.expired
+   if(status==='expiring')return g.expiring
+   return !g.low&&!g.out&&!g.expired&&!g.expiring
+  })
+  const matchingKeys=new Set(groupRows.map(g=>g.key))
+  const scopeRows=view==='combined'?byBranch.filter(i=>matchingKeys.has(keyOf(i))):filtered
+  const summary=summaryFor(scopeRows,groupRows,branches,today,cutoff30)
   const comparison=branches.map(b=>{
-   const rows=filtered.filter(i=>Number(i.branch_id)===Number(b.id))
+   const rows=scopeRows.filter(i=>Number(i.branch_id)===Number(b.id))
    return {branch_id:b.id,branch_name:b.name,item_count:rows.length,quantity_base:rows.reduce((s,i)=>s+i.quantity_base,0),
     low_stock:rows.filter(i=>i.low).length,out_of_stock:rows.filter(i=>i.out).length,
     expiring:rows.filter(i=>i.expiring).length,expired:rows.filter(i=>i.expired).length,
@@ -105,3 +120,4 @@ function registerAllInventory(router,requireSuper) {
  })
 }
 module.exports={registerAllInventory,keyOf}
+

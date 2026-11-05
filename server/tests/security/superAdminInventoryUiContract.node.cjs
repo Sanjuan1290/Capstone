@@ -1,31 +1,44 @@
 'use strict'
-const {test}=require('node:test')
-const assert=require('node:assert/strict')
-const fs=require('node:fs'),path=require('node:path')
-const root=path.resolve(__dirname,'../../..')
-const source=fs.readFileSync(path.join(root,'client/src/pages/superAdminPage/AllInventory.jsx'),'utf8')
-const helper=fs.readFileSync(path.join(root,'client/src/pages/superAdminPage/inventoryView.mjs'),'utf8')
-const api=fs.readFileSync(path.join(root,'server/routers/branchAllInventory.js'),'utf8')
-test('read-only Super Admin UI distinguishes branch-item alerts from product groups',()=>{
- for(const label of ['Distinct Products','Recorded Base Units','Low Stock Records','Out-of-Stock Records','Potential Selling Value','Branches Monitored','Branches with Stock'])assert.ok(source.includes(label),label)
- assert.match(source,/Read-only/)
- assert.match(source,/branch_coverage/)
-})
-test('details, pagination and page-only export remain connected',()=>{
- for(const token of ['openDetails','batchesLoading','pageTo(totalPages)','Rows per page','Export Current Page','createInventoryCsv(data.rows'])assert.ok(source.includes(token),token)
-})
-test('Super Admin read-only endpoints use GET registration and never write inventory',()=>{
- assert.match(api,/router\.get\('\/inventory\/all'/)
- assert.match(api,/router\.get\('\/inventory\/all\/batches'/)
- assert.doesNotMatch(api,/router\.(?:post|patch|put|delete)\(/)
- assert.doesNotMatch(api,/\b(?:UPDATE|INSERT INTO|DELETE FROM)\s+inventory\b/i)
+const {test} = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const root = path.resolve(__dirname, '../../..')
+const read = relative => fs.readFileSync(path.join(root, relative), 'utf8')
+const page = read('client/src/pages/superAdminPage/AllInventory.jsx')
+const helper = read('client/src/pages/superAdminPage/inventoryView.mjs')
+const router = read('server/routers/branchAllInventory.js')
+
+test('All Inventory has only four summary cards', () => {
+  for (const label of ['Total Products', 'Total Selling Value', 'Low Stock', 'Out of Stock']) assert.match(page, new RegExp(label))
+  assert.doesNotMatch(page, /Quick insights|Branch comparison|showAdvanced|More filters|Recorded Base Units/)
+  assert.match(page, /Read-only/)
 })
 
-test('purchase-cost fields are absent from All Inventory UI, CSV and read-only endpoint',()=>{
- for(const [label,body] of [['UI',source],['CSV helper',helper],['API',api]]){
-  assert.doesNotMatch(body,/recorded cost|cost information is incomplete|purchase cost|costDisplay|unit_cost|cost_value|priced_batch_count|cost_coverage/i,`${label} must not include purchase-cost reporting`)
- }
- assert.match(source,/Potential Selling Value/)
- assert.match(source,/Selling Value/)
- assert.match(helper,/Potential selling value \(PHP\)/)
+test('single combined table shows value and branch coverage and a branch-price breakdown', () => {
+  for (const heading of ['Total Stock', 'Selling Price', 'Branches with Stock', 'Total Selling Value', 'Status', 'View Details']) {
+    assert.ok(page.includes(heading), heading)
+  }
+  assert.match(page, /selected\.per_branch\.map/)
+  assert.match(page, /branch\.selling_price/)
+  assert.match(page, /branch\.selling_value/)
+  assert.match(page, /openDetails\(row\)/)
+  assert.match(page, /Rows per page/)
+})
+
+test('search, branch and status are always visible without an expand/collapse filter', () => {
+  for (const label of ['Search product or barcode', 'Filter branch', 'Filter stock status']) assert.ok(page.includes(label), label)
+  assert.doesNotMatch(page, /<details|<summary|More filters/)
+})
+
+test('Super Admin inventory requests remain read-only', () => {
+  assert.match(router, /router\.get\('\/inventory\/all'/)
+  assert.match(router, /router\.get\('\/inventory\/all\/batches'/)
+  assert.doesNotMatch(router, /router\.(?:post|patch|put|delete)\(/i)
+})
+
+test('purchase-cost collection is absent; CSV includes branch selling values', () => {
+  for (const source of [page, helper]) assert.doesNotMatch(source, /purchase.cost|unit_cost|cost_value/i)
+  assert.match(helper, /Total selling value \(PHP\)/)
+  assert.match(helper, /branch\.selling_value/)
 })
