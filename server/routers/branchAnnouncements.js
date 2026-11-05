@@ -8,6 +8,7 @@ const cloud = require('../utils/cloudinarySecurity')
 // Clinic publication dates are stored as Philippine wall-clock DATETIME values.
 const CLINIC_NOW_SQL = "CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')"
 const {afterSuccessfulMutation}=require('../utils/clinicEvents')
+const {queuePublication}=require('../utils/publicationNotifications')
 const idOk = n => Number.isSafeInteger(Number(n)) && Number(n) > 0
 const bad = (message,status=400) => Object.assign(new Error(message), {statusCode:status})
 const clean = (v,max=255) => String(v ?? '').trim().slice(0,max)
@@ -33,8 +34,9 @@ const validatePost = body => {
     // Only clinic-owned booking targets may be saved by the editor.
     if (!rawUrl.startsWith('/patient/book') || !/^\/patient\/book(?:\?.*)?$/.test(rawUrl)) throw bad('Choose a clinic booking destination from the list.')
     const url = new URL(rawUrl,'https://caraitclinic.invalid')
-    if ([...url.searchParams.keys()].some(key=>!['branch_id','clinic','service_id'].includes(key)) || (url.searchParams.get('clinic') && !['medical','derma'].includes(url.searchParams.get('clinic')))) throw bad('Invalid booking destination.')
+    if ([...url.searchParams.keys()].some(key=>!['branch_id','clinic','service_id','promotion_id'].includes(key)) || (url.searchParams.get('clinic') && !['medical','derma'].includes(url.searchParams.get('clinic')))) throw bad('Invalid booking destination.')
     const branchId=url.searchParams.get('branch_id'), serviceId=url.searchParams.get('service_id')
+    if(url.searchParams.has('promotion_id') && (!promotionId || Number(url.searchParams.get('promotion_id'))!==promotionId))throw bad('Booking promotion does not match this post.')
     if(branchId && !idOk(branchId))throw bad('Invalid booking branch.')
     if(serviceId && (!idOk(serviceId) || !url.searchParams.get('clinic') || !branchId))throw bad('Select a valid service and clinic type.')
     if(!serviceId && url.searchParams.has('clinic'))throw bad('Select a specific service for this booking type.')
@@ -54,7 +56,7 @@ const uniqueSlug = async (base,branchId,id=null) => {
 }
 const audit=(req,action,id,details)=>writeAuditLog({userId:req.user.id,userRole:req.adminContext.account_role,branchId:req.branchId,action,entityType:'announcement',entityId:id,newValues:details,ipAddress:req.ip}).catch(()=>{})
 const list = async(req,res)=>{
-  const [rows]=await db.query(`SELECT a.id,a.branch_id,a.promotion_id,a.type,a.title,a.slug,a.caption,a.body,a.cover_image_url,a.cover_image_asset_id,a.cta_label,a.cta_url,a.status, DATE_FORMAT(a.publish_at,'%Y-%m-%d %H:%i:%s') AS publish_at, DATE_FORMAT(a.expires_at,'%Y-%m-%d %H:%i:%s') AS expires_at,a.created_at,a.updated_at,p.title AS promotion_title FROM clinic_announcements a LEFT JOIN clinic_promotions p ON p.id=a.promotion_id AND p.branch_id=a.branch_id WHERE a.branch_id=? ORDER BY a.updated_at DESC,a.id DESC LIMIT 300`,[req.branchId])
+  const [rows]=await db.query(`SELECT a.id,a.branch_id,a.promotion_id,a.type,a.title,a.slug,a.caption,a.body,a.cover_image_url,a.cover_image_asset_id,a.cta_label,a.cta_url,a.status, CASE WHEN a.status IN ('published','scheduled') AND a.expires_at IS NOT NULL AND a.expires_at<=${CLINIC_NOW_SQL} THEN 'expired' WHEN a.status='scheduled' AND a.publish_at IS NOT NULL AND a.publish_at<=${CLINIC_NOW_SQL} THEN 'published' ELSE a.status END AS effective_status, DATE_FORMAT(a.publish_at,'%Y-%m-%d %H:%i:%s') AS publish_at, DATE_FORMAT(a.expires_at,'%Y-%m-%d %H:%i:%s') AS expires_at,a.created_at,a.updated_at,p.title AS promotion_title FROM clinic_announcements a LEFT JOIN clinic_promotions p ON p.id=a.promotion_id AND p.branch_id=a.branch_id WHERE a.branch_id=? ORDER BY a.updated_at DESC,a.id DESC LIMIT 300`,[req.branchId])
   res.json(rows)
 }
 const bookingOptions=async(req,res)=>{
@@ -67,6 +69,8 @@ const bookingOptions=async(req,res)=>{
 }
 const save = async(req,res)=>{
   const values=validatePost(req.body)
+  if(values.status==='published' && values.expires_at && new Date(`${values.expires_at.replace(' ','T')}+08:00`).getTime()<=Date.now())
+    throw bad('This post has already expired. Extend the end date before publishing.',409)
   const id=req.params.id?Number(req.params.id):null
   if(id!==null&&!idOk(id))throw bad('Invalid announcement ID.')
   if(values.promotion_id){const [[promotion]]=await db.query('SELECT id FROM clinic_promotions WHERE id=? AND branch_id=?',[values.promotion_id,req.branchId]);if(!promotion)throw bad('Linked promotion must belong to the selected branch.')}
@@ -96,14 +100,25 @@ const save = async(req,res)=>{
   } else if(req.body.clear_cover_image===true){assetId=null;img=null}
   const autoSlug=await uniqueSlug(values.slug,req.branchId,id)
   const args=[values.title,autoSlug,values.caption,values.body,values.type,values.status,values.publish_at,values.expires_at,values.cta_label,values.cta_url,values.promotion_id,img,assetId]
+  const conn=await db.getConnection()
+  let savedId=id
   try{
+    await conn.beginTransaction()
     if(id) {
-      await db.query(`UPDATE clinic_announcements SET title=?,slug=?,caption=?,body=?,type=?,status=?,publish_at=?,expires_at=?,cta_label=?,cta_url=?,promotion_id=?,cover_image_url=?,cover_image_asset_id=? WHERE id=? AND branch_id=?`,[...args,id,req.branchId])
+      await conn.query(`UPDATE clinic_announcements SET title=?,slug=?,caption=?,body=?,type=?,status=?,publish_at=?,expires_at=?,cta_label=?,cta_url=?,promotion_id=?,cover_image_url=?,cover_image_asset_id=? WHERE id=? AND branch_id=?`,[...args,id,req.branchId])
     } else {
-      const [result]=await db.query(`INSERT INTO clinic_announcements (title,slug,caption,body,type,status,publish_at,expires_at,cta_label,cta_url,promotion_id,cover_image_url,cover_image_asset_id,branch_id,created_by_admin_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[...args,req.branchId,req.user.id]);req.savedAnnouncementId=result.insertId
+      const [result]=await conn.query(`INSERT INTO clinic_announcements (title,slug,caption,body,type,status,publish_at,expires_at,cta_label,cta_url,promotion_id,cover_image_url,cover_image_asset_id,branch_id,created_by_admin_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[...args,req.branchId,req.user.id]);savedId=result.insertId
     }
-  }catch(error){if(error.code==='ER_DUP_ENTRY')throw bad('Another post was created with this title. Refresh and try again.',409);throw error}
-  const savedId=id||req.savedAnnouncementId
+    // The notification job and its post commit together. A failed enqueue
+    // cannot save a post and then make "Publish" report an unrelated error.
+    if(values.type==='promotion' && !values.promotion_id && ['published','scheduled'].includes(values.status))
+      await queuePublication({kind:'announcement',entityId:savedId,branchId:req.branchId,executor:conn})
+    await conn.commit()
+  }catch(error){
+    await conn.rollback().catch(()=>{})
+    if(error.code==='ER_DUP_ENTRY')throw bad('Another post was created with this title. Refresh and try again.',409)
+    throw error
+  }finally{conn.release()}
   await audit(req,id?'announcement.updated':'announcement.created',savedId,{title:values.title,status:values.status})
   res.json({id:savedId,message:'Announcement saved.'})
 }
@@ -121,8 +136,17 @@ const changeStatus=async(req,res)=>{
   const id=Number(req.params.id),status=String(req.body?.status||'')
   if(!idOk(id)||!['published','archived'].includes(status))throw bad('Invalid status change.')
   if(status==='published'){const [[current]]=await db.query(`SELECT expires_at IS NOT NULL AND expires_at<=${CLINIC_NOW_SQL} AS expired FROM clinic_announcements WHERE id=? AND branch_id=?`,[id,req.branchId]);if(current?.expired)throw bad('This post has expired. Edit the expiry date before activating it.',409)}
-  const [result]=await db.query("UPDATE clinic_announcements SET status=?,publish_at=CASE WHEN ?='published' THEN CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00') ELSE publish_at END WHERE id=? AND branch_id=? AND status IN ('draft','published','scheduled','archived')",[status,status,id,req.branchId])
-  if(!result.affectedRows)throw bad('Post not found in your branch.',404)
+  const conn=await db.getConnection()
+  try{
+    await conn.beginTransaction()
+    const [result]=await conn.query("UPDATE clinic_announcements SET status=?,publish_at=CASE WHEN ?='published' THEN CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00') ELSE publish_at END WHERE id=? AND branch_id=? AND status IN ('draft','published','scheduled','archived')",[status,status,id,req.branchId])
+    if(!result.affectedRows)throw bad('Post not found in your branch.',404)
+    if(status==='published'){
+      const [[post]]=await conn.query('SELECT type,promotion_id FROM clinic_announcements WHERE id=? AND branch_id=?',[id,req.branchId])
+      if(post?.type==='promotion' && !post.promotion_id)await queuePublication({kind:'announcement',entityId:id,branchId:req.branchId,executor:conn})
+    }
+    await conn.commit()
+  }catch(error){await conn.rollback().catch(()=>{});throw error}finally{conn.release()}
   await audit(req,'announcement.status_changed',id,{status})
   res.json({message:'Post status updated.',status})
 }
@@ -268,5 +292,6 @@ publicRouter.post('/unsubscribe',unsubscribe)
 // RFC 8058 one-click unsubscribe: POST only; GET never modifies consent.
 publicRouter.post('/unsubscribe-one-click',unsubscribe)
 module.exports={registerBranchAnnouncements,publicRouter,validatePost,slug,dateTime}
+
 
 

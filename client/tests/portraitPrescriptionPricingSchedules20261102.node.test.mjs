@@ -40,9 +40,11 @@ test('available service cards show price for every service',()=>{
 })
 test('booking shows service price in selection, review, and success',()=>{
   const src=read('src/pages/patientPage/BookAppointment.jsx')
+  assert.match(src,/preview\.quote\?\.discount > 0/)
   assert.match(src,/Service price: \{formatPublicServicePrice\(service\)\}/)
-  assert.match(src,/\['Service Price',form\.service \? formatPublicServicePrice\(form\.service\)/)
+  assert.match(src,/\['Service Price',form\.service \? \(hasDiscount \? peso\(quote\.current\)/)
   assert.match(src,/Service price: \{formatPublicServicePrice\(form\.service\)\}/)
+  assert.match(src,/selectedPromotion=\{selectedPromotion\}/)
 })
 test('doctor schedule background refresh does not hide schedule cards',()=>{
  const src=read('src/pages/adminPage/Admin_DoctorSchedules.jsx')
@@ -60,3 +62,4 @@ test('schedule toggle prevents simultaneous writes',()=>{
  assert.match(src,/if \(saving\) return\s*setSaving\(true\)/)
  assert.match(src,/finally \{ setSaving\(false\) \}/)
 })
+

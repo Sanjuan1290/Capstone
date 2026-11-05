@@ -234,7 +234,7 @@ const DoctorLayout = () => {
           <div className="hidden lg:block" />
 
           <div className="flex items-center gap-3">
-            <NotificationBell role="doctor" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center" aria-label="Doctor notifications"><NotificationBell role="doctor" /></div>
             <button onClick={toggleTheme} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
               {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
             </button>
@@ -300,5 +300,6 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
+
 
 

@@ -22,7 +22,7 @@ import {
 import { getLocalDateOnly } from '../../utils/date'
 import { readSlotPrefill } from '../../utils/bookingHandoff.mjs'
 import { formatAppointmentTimeRange } from '../../utils/appointmentTime'
-import { BOOKING_STEPS, normalizeBookingServiceResults, eligibleBookingPromotions } from '../../utils/patientBookingFlow.mjs'
+import { BOOKING_STEPS, normalizeBookingServiceResults, eligibleBookingPromotions, selectBookingPrice } from '../../utils/patientBookingFlow.mjs'
 import { buildBookingPolicyUrl } from '../../utils/bookingPolicyNavigation.mjs'
 import {
   buildUnavailableDateSet,
@@ -68,7 +68,7 @@ export const StepBar = ({ current, labels = STEPS }) => (
 )
 
 // ── Step 1: Category and service selection in one screen ────────────────────
-export const StepService = ({ category, onCategoryChange, value, onChange, services, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness }) => {
+export const StepService = ({ category, onCategoryChange, value, onChange, services, promotions = [], promotionsLoading = false, branchId, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness }) => {
   const [query, setQuery] = useState('')
   const filtered = services.filter(service =>
     (category === 'all' || service.booking_clinic_type === category) &&
@@ -108,6 +108,7 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
         const selected = Number(value?.id)===Number(service.id) && value?.booking_clinic_type===service.booking_clinic_type
         const clinic = CLINIC_TYPES.find(c=>c.id===service.booking_clinic_type)
         const bookable = !readinessError && Boolean(readiness?.[service.booking_clinic_type]?.bookable)
+        const preview = selectBookingPrice(service, promotions, { branchId, date: getLocalDateOnly(), fallbackCurrentOffer: promotionsLoading })
         return <button key={`${service.booking_clinic_type}:${service.id}`} type="button" disabled={!bookable} aria-pressed={selected}
           onClick={() => onChange(service)} className={`flex min-h-40 flex-col rounded-2xl border-2 p-4 text-left transition-all duration-200 motion-reduce:transition-none ${!bookable ? 'cursor-not-allowed opacity-60' : 'hover:shadow-md'} ${selected ? 'border-emerald-600 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:border-emerald-300'}`}>
           <div className="flex w-full items-start justify-between gap-2">
@@ -116,7 +117,11 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
           </div>
           <p className="mt-2 break-words text-base font-bold text-slate-900">{service.service_name}</p>
           <p className="mt-1 text-sm text-slate-600">{service.category || 'Consultation or treatment'}</p>
-          <p className="mt-2 text-sm font-bold text-emerald-800">Service price: {formatPublicServicePrice(service)}</p>
+          {preview.quote?.discount > 0 ? <div className="mt-2 space-y-0.5" aria-label="Special offer price">
+            <p className="text-xs font-bold text-emerald-700"><MdLocalOffer className="mr-1 inline" />{preview.promotion.title} · {preview.promotion.discount_type === 'percentage' ? `${preview.promotion.discount_value}% OFF` : `Save ${peso(preview.quote.discount)}`}</p>
+            <p className="text-sm"><span className="mr-2 text-slate-500 line-through">{peso(preview.quote.original)}</span><strong className="text-emerald-800">{peso(preview.quote.current)}</strong></p>
+            <p className="text-[11px] text-slate-500">Discount subject to your appointment date.</p>
+          </div> : <p className="mt-2 text-sm font-bold text-emerald-800">Service price: {formatPublicServicePrice(service)}</p>}
           <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-4 text-sm">
             <span className="text-slate-600">{formatDuration(service.average_duration_minutes)} estimated</span>
             <span className="font-semibold text-emerald-800">{selected ? 'Selected' : bookable ? 'Select service' : 'Not available'}</span>
@@ -124,12 +129,23 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
         </button>
       })}
     </div>
-    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Selected service: <strong>{formatPublicServicePrice(value)}</strong>. Additional treatment or supplies, if approved, may affect the final bill.</p>}
+    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Selected service: <strong>{value.service_name}</strong>. The service discount shown above is subject to your appointment date. Additional treatment or supplies, if approved, may affect the final bill.</p>}
+  </div>
+}
+
+// Estimated prices are informational. Booking and cashier APIs make the final decision.
+const BookingPriceNotice = ({ service, promotion, date }) => {
+  const quote = promotionQuote(service?.default_price, promotion)
+  if (!service || !promotion || !(quote?.discount > 0)) return null
+  return <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm" aria-label="Your selected offer">
+    <p className="font-bold text-emerald-900"><MdLocalOffer className="mr-1 inline" />{promotion.title}</p>
+    <p className="mt-1"><span className="mr-2 text-slate-500 line-through">{peso(quote.original)}</span><strong className="text-emerald-800">{peso(quote.current)}</strong> <span className="text-emerald-800">(save {peso(quote.discount)})</span></p>
+    <p className="mt-1 text-xs text-slate-600">{date ? `Offer valid for your selected appointment date: ${date}.` : 'Final eligibility depends on your appointment date.'} Additional charges are billed separately.</p>
   </div>
 }
 
 // ── Step 3: Doctor ────────────────────────────────────────────────────────────
-export const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, doctorError, onRetry }) => {
+export const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoctors, doctorError, onRetry, service, promotion }) => {
   const list = doctorList[clinicType] || []
   const ct = CLINIC_TYPES.find(c => c.id === clinicType)
   return (
@@ -138,6 +154,7 @@ export const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoc
         <h2 className="text-lg font-bold text-slate-800">Select a Doctor</h2>
         <p className="text-sm text-slate-500 mt-0.5">Doctors available for {ct?.label}.</p>
       </div>
+      <BookingPriceNotice service={service} promotion={promotion} />
       {loadingDoctors && <div className="py-10 text-center text-slate-400 text-sm">Loading available doctors...</div>}
       {!loadingDoctors && doctorError && <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-center text-sm text-red-600">We couldn't load doctors.<button onClick={onRetry} className="ml-2 font-bold">Try again</button></div>}
       {!loadingDoctors && !doctorError && list.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-700">No doctors are currently available for {ct?.label}.</p><p className="mt-1 text-xs text-slate-400">Choose another clinic type or check again later.</p></div>}
@@ -168,7 +185,7 @@ export const StepDoctor = ({ clinicType, value, onChange, doctorList, loadingDoc
 }
 
 // ── Step 4: Schedule ──────────────────────────────────────────────────────────
-export const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules, unavailableDates, loadingSlots, slotsError }) => {
+export const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots, doctorSchedules, unavailableDates, loadingSlots, slotsError, service, promotion, hasCurrentServiceOffer = false }) => {
   const today = new Date()
   const [viewYear,  setViewYear]  = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
@@ -205,6 +222,8 @@ export const StepSchedule = ({ date, time, onDateChange, onTimeChange, timeSlots
         <h2 className="text-lg font-bold text-slate-800">Pick a Date & Time</h2>
         <p className="text-sm text-slate-500 mt-0.5">Select a date then choose an available slot.</p>
       </div>
+      <BookingPriceNotice service={service} promotion={promotion} date={date} />
+      {service && date && !promotion && hasCurrentServiceOffer && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Your selected date is outside the available promotion dates. The regular service price of <strong>{formatPublicServicePrice(service)}</strong> will apply. Choose a different date to use an eligible offer.</p>}
 
       {/* Calendar */}
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
@@ -392,6 +411,8 @@ const StepReview = ({ form, branchName, promotions, selectedPromotionId, onPromo
 
 // A quick reference stays visible throughout booking; it does not create a reservation.
 export const BookingSummary = ({ form, branchName, selectedPromotion }) => {
+  const quote = promotionQuote(form.service?.default_price, selectedPromotion)
+  const hasDiscount = Boolean(selectedPromotion && quote?.discount > 0)
   const dateText = form.date && /^\d{4}-\d{2}-\d{2}$/.test(form.date)
     ? new Date(`${form.date}T12:00:00`).toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) : 'Not selected yet'
   return <div className="space-y-4">
@@ -399,20 +420,26 @@ export const BookingSummary = ({ form, branchName, selectedPromotion }) => {
     {[
       ['Clinic Branch',branchName],
       ['Service',form.service?.service_name || 'Not selected yet'],
-      ['Service Price',form.service ? formatPublicServicePrice(form.service) : 'Not selected yet'],
+      ['Service Price',form.service ? (hasDiscount ? peso(quote.current) : formatPublicServicePrice(form.service)) : 'Not selected yet'],
       ['Doctor',form.doctor?.full_name || form.doctor?.name || 'Not selected yet'],
       ['Date',dateText],
       ['Time',form.time ? formatAppointmentTimeRange(form.time,form.service?.reserved_duration_minutes || 60) : 'Not selected yet'],
     ].map(([label,value])=><div key={label} className="border-b border-slate-200 pb-3 last:border-0 last:pb-0">
       <p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
     </div>)}
-    {selectedPromotion && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><MdLocalOffer className="mr-1 inline" /> Requested offer: {selectedPromotion.title}</p>}
+    {hasDiscount && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" aria-label="Appointment promotion price">
+      <p className="font-semibold"><MdLocalOffer className="mr-1 inline" />{selectedPromotion.title}</p>
+      <p className="mt-1"><span className="line-through text-slate-500">{peso(quote.original)}</span> <strong className="ml-2">{peso(quote.current)}</strong></p>
+      <p className="mt-1 text-xs">Promotion discount: −{peso(quote.discount)} · Only applies to this service.</p>
+      {!form.date && <p className="mt-1 text-xs">Final discount eligibility depends on your appointment date.</p>}
+    </div>}
+    {selectedPromotion && !hasDiscount && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><MdLocalOffer className="mr-1 inline" /> Selected offer: {selectedPromotion.title} (no automatic price reduction)</p>}
     <p className="rounded-xl bg-sky-50 p-3 text-sm leading-relaxed text-sky-900"><MdInfoOutline className="mr-1 inline" /> The clinic confirms availability and final charges. Your request is not yet a confirmed appointment.</p>
   </div>
 }
 
 // ── Success ───────────────────────────────────────────────────────────────────
-const SuccessScreen = ({ onReset, form, branchName }) => (
+const SuccessScreen = ({ onReset, form, branchName, selectedPromotion }) => (
   <div className="flex flex-col items-center text-center py-10">
     <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-5">
       <MdCheck className="text-emerald-500 text-[40px]" />
@@ -424,7 +451,10 @@ const SuccessScreen = ({ onReset, form, branchName }) => (
     <div className="mb-5 w-full max-w-sm rounded-xl border border-amber-200 bg-amber-50 p-4 text-left text-sm">
       <p className="font-bold text-amber-900">Status: Pending Clinic Confirmation</p>
       <p className="mt-2 text-slate-800">{form.service?.service_name} · {form.doctor?.full_name || form.doctor?.name}</p>
-      <p className="mt-1 font-semibold text-emerald-900">Service price: {formatPublicServicePrice(form.service)}</p>
+      {selectedPromotion && promotionQuote(form.service?.default_price, selectedPromotion)?.discount > 0 ? <div className="mt-2 text-sm">
+        <p className="font-semibold text-emerald-900">{selectedPromotion.title}: <span className="line-through text-slate-500">{peso(form.service.default_price)}</span> {peso(promotionQuote(form.service.default_price, selectedPromotion).current)}</p>
+        <p className="text-xs text-slate-600">Service discount: −{peso(promotionQuote(form.service.default_price, selectedPromotion).discount)} · Other charges may apply.</p>
+      </div> : <p className="mt-1 font-semibold text-emerald-900">Service price: {formatPublicServicePrice(form.service)}</p>}
       <p className="mt-1 text-slate-700">{branchName} · {form.date} · {form.time}</p>
     </div>
     <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
@@ -476,6 +506,8 @@ const BookAppointment = () => {
   const [loadingReasons, setLoadingReasons] = useState(false)
   const [services, setServices] = useState([])
   const [promotions, setPromotions] = useState([])
+  const [promotionsLoading, setPromotionsLoading] = useState(true)
+  const [promotionsError, setPromotionsError] = useState('')
   const promotionsRequestId = useRef(0)
   const [selectedPromotionId, setSelectedPromotionId] = useState(null)
   const linkedPromotionConsumed = useRef(false)
@@ -570,25 +602,29 @@ const BookAppointment = () => {
   const loadPromotions=()=>{
     const requestId=++promotionsRequestId.current
     const requestedBranch=branchId
-    if(!requestedBranch){setPromotions([]);return Promise.resolve()}
+    setPromotionsLoading(true)
+    setPromotionsError('')
+    if(!requestedBranch){setPromotions([]);setPromotionsLoading(false);return Promise.resolve()}
     return getCurrentPromotions(requestedBranch)
       .then(rows=>{if(requestId===promotionsRequestId.current)setPromotions(Array.isArray(rows)?rows.filter(p=>Number(p.branch_id)===Number(requestedBranch)):[])})
-      .catch(()=>{if(requestId===promotionsRequestId.current)setPromotions([])})
+      .catch(()=>{if(requestId===promotionsRequestId.current){setPromotions([]);setPromotionsError('Current offers could not be checked. Please retry before booking a discounted service.')}})
+      .finally(()=>{if(requestId===promotionsRequestId.current)setPromotionsLoading(false)})
   }
   useEffect(() => {setPromotions([]);setSelectedPromotionId(null);void loadPromotions();return ()=>{promotionsRequestId.current+=1}}, [branchId])
   useEffect(()=>{
     if(!form.service){setSelectedPromotionId(null);return}
-    const applicable=promotions.filter(p=>Number(p.branch_id)===Number(branchId) && Array.isArray(p.service_ids) && p.service_ids.includes(Number(form.service.id)) && (!form.date||(form.date>=p.starts_on && form.date<=p.ends_on)))
+    const applicable=eligibleBookingPromotions(promotions,{branchId,serviceId:form.service.id,date:form.date || getLocalDateOnly()})
+      .filter(p=>Number(p.is_active ?? 1)!==0 && p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly())
     setSelectedPromotionId(current=>{
       if(current && applicable.some(p=>Number(p.id)===Number(current)))return current
       if(!linkedPromotionConsumed.current && linkedPromotionId && applicable.some(p=>Number(p.id)===linkedPromotionId)){linkedPromotionConsumed.current=true;return linkedPromotionId}
-      return applicable.find(p=>['percentage','fixed'].includes(p.discount_type))?.id||null
+      return selectBookingPrice(form.service,applicable,{branchId,date:form.date || getLocalDateOnly()}).promotion?.id || null
     })
   },[form.service?.id,form.date,branchId,promotions])
   useEffect(()=>{
     if(!form.date || !selectedPromotionId)return
     const offer=promotions.find(p=>Number(p.id)===Number(selectedPromotionId))
-    if(!offer || form.date<offer.starts_on || form.date>offer.ends_on)setSelectedPromotionId(null)
+    if(!offer || form.date<offer.starts_on || form.date>offer.ends_on || offer.starts_on>getLocalDateOnly() || offer.ends_on<getLocalDateOnly())setSelectedPromotionId(null)
   },[form.date,selectedPromotionId,promotions])
   useClinicRefresh(loadPromotions,['promotion.updated','service.updated'],{fallbackMs:90000})
 
@@ -762,7 +798,8 @@ const BookAppointment = () => {
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
   const canNext = () => {
-    if (loadingReadiness || readinessError || emailStatus !== 'verified') return false
+    if (loadingReadiness || readinessError || emailStatus !== 'verified' || promotionsLoading) return false
+    if (promotionsError && form.service?.current_offer) return false
     if (step===0) return !!form.service && !!form.clinicType && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
     if (step===1) return !checkingVisits && !!form.doctor && !matchingActiveDoctor(form.doctor)
     if (step===2) return !loadingSlots && !slotsError && !!form.date && !!form.time && timeSlots.includes(form.time)
@@ -784,7 +821,12 @@ const BookAppointment = () => {
   }, [step])
 
   const handleConfirm = async () => {
-    if (bookingSubmissionLock.current || submitting || !policyAccepted || !form.reason || !form.date || !form.time || !timeSlots.includes(form.time) || !form.doctor || !form.service || !bookingReadiness?.[form.clinicType]?.bookable || readinessError || emailStatus !== 'verified') return
+    if (bookingSubmissionLock.current || submitting || promotionsLoading || (promotionsError && form.service?.current_offer) || !policyAccepted || !form.reason || !form.date || !form.time || !timeSlots.includes(form.time) || !form.doctor || !form.service || !bookingReadiness?.[form.clinicType]?.bookable || readinessError || emailStatus !== 'verified') return
+    const effective = eligibleBookingPromotions(promotions,{branchId,serviceId:form.service.id,date:form.date})
+      .filter(p=>p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly())
+    if(selectedPromotionId && !effective.some(p=>Number(p.id)===Number(selectedPromotionId))){
+      setBookingNotice('The selected offer is no longer available on this appointment date. Please review your service and date.');setSelectedPromotionId(null);return
+    }
     bookingSubmissionLock.current = true
     setSubmitting(true)
     try {
@@ -841,7 +883,10 @@ const BookAppointment = () => {
   if(!branchId)return <div className="max-w-2xl mx-auto space-y-4">{emailVerificationNotice}<h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{selectBranch(String(b.id));setSelectedPromotionId(null);setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
 
   const branchName = branches.find(b=>String(b.id)===String(branchId))?.name || 'Selected Clinic Branch'
-  const selectedPromotion = promotions.find(p=>Number(p.id)===Number(selectedPromotionId))
+  const effectivePromotions = eligibleBookingPromotions(promotions,{branchId,serviceId:form.service?.id,date:form.date || getLocalDateOnly()})
+    .filter(p=>p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly())
+  const selectedPromotion = effectivePromotions.find(p=>Number(p.id)===Number(selectedPromotionId)) || null
+  const hasCurrentServiceOffer = promotions.some(p=>Number(p.branch_id)===Number(branchId) && Number(p.is_active ?? 1)!==0 && p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly() && p.service_ids?.some(id=>Number(id)===Number(form.service?.id)) && ['percentage','fixed'].includes(p.discount_type))
   return (
     <div className="mx-auto max-w-6xl space-y-5 px-1 pb-8 sm:px-3">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -858,6 +903,10 @@ const BookAppointment = () => {
         </a>
       </div>
       {emailVerificationNotice}
+      {promotionsError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <span>{promotionsError}</span>
+        <button type="button" onClick={()=>void loadPromotions()} className="min-h-10 rounded-lg border border-amber-300 bg-white px-3 font-bold text-amber-900">Retry Offers</button>
+      </div>}
       {activeVisits.length > 0 && <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900" role="status">
         <p className="font-bold">You have {activeVisits.length} active appointment{activeVisits.length===1?'':'s'}.</p>
         <p className="mt-1">You cannot request another appointment with the same doctor until your earlier booking is completed or cancelled.</p>
@@ -867,13 +916,13 @@ const BookAppointment = () => {
         <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="p-4 sm:p-6 lg:p-7">
             {!done && <StepBar current={step} />}
-            {done ? <SuccessScreen onReset={handleReset} form={form} branchName={branchName} /> : <>
+            {done ? <SuccessScreen onReset={handleReset} form={form} branchName={branchName} selectedPromotion={selectedPromotion} /> : <>
               <div ref={bookingContentRef} tabIndex={-1} className="outline-none" aria-label={STEPS[step]}>
                 {step===0 && <StepService category={serviceCategory} onCategoryChange={selectCategory} value={form.service} onChange={selectService}
-                  services={services} readiness={bookingReadiness} readinessLoading={loadingReadiness} readinessError={readinessError}
+                  services={services} promotions={promotions} promotionsLoading={promotionsLoading} branchId={branchId} readiness={bookingReadiness} readinessLoading={loadingReadiness} readinessError={readinessError}
                   loading={loadingServices} error={serviceError} onRetry={loadServices} onRetryReadiness={loadBookingReadiness} />}
-                {step===1 && <StepDoctor clinicType={form.clinicType} value={form.doctor} onChange={selectDoctorSafely} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
-                {step===2 && <StepSchedule date={form.date} time={form.time} onDateChange={set('date')} onTimeChange={set('time')} timeSlots={timeSlots} doctorSchedules={doctorSchedules} unavailableDates={doctorUnavailableDates} loadingSlots={loadingSlots} slotsError={slotsError} />}
+                {step===1 && <StepDoctor clinicType={form.clinicType} service={form.service} promotion={selectedPromotion} value={form.doctor} onChange={selectDoctorSafely} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
+                {step===2 && <StepSchedule date={form.date} time={form.time} service={form.service} promotion={selectedPromotion} hasCurrentServiceOffer={hasCurrentServiceOffer} onDateChange={set('date')} onTimeChange={set('time')} timeSlots={timeSlots} doctorSchedules={doctorSchedules} unavailableDates={doctorUnavailableDates} loadingSlots={loadingSlots} slotsError={slotsError} />}
                 {step===3 && <StepReview form={{...form,branchId}} branchName={branchName} promotions={promotions} selectedPromotionId={selectedPromotionId} onPromotionChange={setSelectedPromotionId}
                   reasonOptions={reasonOptions} loadingReasons={loadingReasons} onReasonChange={(nextReason)=>setForm(current=>({...current,reason:nextReason,reasonDetails:nextReason==='Other'?current.reasonDetails:''}))}
                   onReasonDetailsChange={set('reasonDetails')} onNotesChange={set('notes')} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}

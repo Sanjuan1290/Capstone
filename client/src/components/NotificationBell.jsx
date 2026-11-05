@@ -260,6 +260,7 @@ const NotificationBell = ({ role }) => {
         type="button"
         onClick={() => setOpen((previous) => !previous)}
         aria-label={`Notifications${unread > 0 ? `, ${unread} unread` : ''}`}
+        title="Notifications"
         aria-expanded={open}
         aria-controls={panelId}
         aria-haspopup="dialog"

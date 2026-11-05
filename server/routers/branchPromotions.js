@@ -3,6 +3,7 @@ const db=require('../db/connect')
 const {validRule}=require('../utils/promotionPricing')
 const {writeAuditLog}=require('../utils/audit')
 const {createNotification}=require('../utils/notifications')
+const {queuePublication}=require('../utils/publicationNotifications')
 const cloud=require('../utils/cloudinarySecurity')
 const {broadcastClinicChange}=require('../utils/clinicEvents')
 const express=require('express')
@@ -47,7 +48,9 @@ const save=async(req,res)=>{
     await conn.query('UPDATE clinic_promotions SET title=?,description=?,badge_text=?,starts_on=?,ends_on=?,is_active=?,show_on_dashboard=?,image_url=?,image_asset_id=?,featured_order=?,discount_type=?,discount_value=? WHERE id=? AND branch_id=?',[data.title,data.description,data.badge_text,data.starts_on,data.ends_on,data.is_active,data.show_on_dashboard,imageUrl,imageAssetId,data.featured_order,data.discount_type,data.discount_value,id,req.branchId]);await conn.query('DELETE FROM clinic_promotion_services WHERE promotion_id=?',[id])
   }else{const [created]=await conn.query('INSERT INTO clinic_promotions (title,description,badge_text,starts_on,ends_on,is_active,show_on_dashboard,created_by_admin_id,branch_id,image_url,image_asset_id,featured_order,discount_type,discount_value) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[data.title,data.description,data.badge_text,data.starts_on,data.ends_on,data.is_active,data.show_on_dashboard,(req.adminContext ? req.user.id : null),req.branchId,imageUrl,imageAssetId,data.featured_order,data.discount_type,data.discount_value]);savedId=created.insertId}
   for(const serviceId of data.service_ids)await conn.query('INSERT INTO clinic_promotion_services (promotion_id,service_id) VALUES (?,?)',[savedId,serviceId])
-  await audit(req,conn,id?'promotion.updated':'promotion.created',savedId,{...data,branch_id:req.branchId,image_url:imageUrl});await conn.commit();broadcastClinicChange('promotion.updated',{branchId:req.branchId,id:savedId});res.json({id:savedId,message:id?'Promotion updated.':'Promotion created.'})
+  await audit(req,conn,id?'promotion.updated':'promotion.created',savedId,{...data,branch_id:req.branchId,image_url:imageUrl});
+  if(data.is_active)await queuePublication({kind:'promotion',entityId:savedId,branchId:req.branchId,executor:conn});
+  await conn.commit();broadcastClinicChange('promotion.updated',{branchId:req.branchId,id:savedId});res.json({id:savedId,message:id?'Promotion updated.':'Promotion created.'})
  }catch(e){await conn.rollback().catch(()=>{});throw e}finally{conn.release()}
 }
 const deactivate=async(req,res)=>{

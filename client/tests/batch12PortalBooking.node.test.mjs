@@ -65,6 +65,7 @@ test('booking state is preserved on transient API failures and submission is gat
   const source = read('../src/pages/patientPage/BookAppointment.jsx')
   assert.match(source, /Keep last known readiness and the user's draft/)
   assert.match(source, /const readinessRequestId = useRef\(0\)/)
-  assert.match(source, /if \(bookingSubmissionLock\.current \|\| submitting \|\| !policyAccepted/)
+  assert.match(source, /if \(bookingSubmissionLock\.current \|\| submitting \|\| promotionsLoading/)
   assert.doesNotMatch(source, /setBookingReadiness\(null\)\s*setReadinessError\(err\.message/)
 })
+

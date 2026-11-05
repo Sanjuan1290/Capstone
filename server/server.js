@@ -178,6 +178,7 @@ const start = async () => {
       require('./utils/reminder')
       startReconciliationSweeper()
       require('./utils/marketingCampaigns').startMarketingWorker()
+      require('./utils/publicationNotifications').startPublicationNotificationWorker().catch(error => console.error('[publication-notifications] worker disabled until migration is applied:', error.message))
     })
   } catch (err) {
     console.error('Failed to start server:', err)
@@ -189,3 +190,4 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
+

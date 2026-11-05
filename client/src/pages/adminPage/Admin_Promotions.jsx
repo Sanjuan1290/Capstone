@@ -1,11 +1,11 @@
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import { MdAdd, MdCampaign, MdEdit, MdDelete, MdRefresh, MdCloudUpload, MdMap, MdNotificationsActive } from 'react-icons/md'
-import { getAdminPromotions, saveAdminPromotion, deleteAdminPromotion, getBillingCatalog, uploadPromotionImage, checkPromotionImage, notifyAdminPromotion } from '../../services/admin.service'
+import { MdAdd, MdCampaign, MdEdit, MdRefresh, MdCloudUpload, MdMap } from 'react-icons/md'
+import { getAdminPromotions, saveAdminPromotion, getBillingCatalog, uploadPromotionImage, checkPromotionImage, } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import { getLocalDateOnly } from '../../utils/date'
 import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'
+import VisibilitySwitch from '../../components/ui/VisibilitySwitch'
 
 const newPromotion = () => ({
   title: '', description: '', badge_text: 'Special offer', starts_on: '', ends_on: '',
@@ -15,7 +15,6 @@ const newPromotion = () => ({
 
 export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
   const toast = useToast()
-  const location = useLocation()
   const [promotions, setPromotions] = useState([])
   const [services, setServices] = useState([])
   const [loading, setLoading] = useState(true)
@@ -26,7 +25,6 @@ export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
   const [imageScan, setImageScan] = useState(null)
   const [filter, setFilter] = useState('')
   const [branchName, setBranchName] = useState('Your clinic branch')
-  const isStaff = location.pathname.startsWith('/staff')
 
   const load = async () => {
     setLoading(true)
@@ -67,18 +65,13 @@ export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
     } catch (err) { setError(err.message || 'Could not save promotion.') }
     finally { setSaving(false) }
   }
-  const remove = async promo => {
-    if (!window.confirm(`Hide “${promo.title}”? Previous bookings and notifications will be kept.`)) return
-    try { await deleteAdminPromotion(promo.id); toast.success('Promotion hidden.'); await load() }
-    catch (err) { setError(err.message || 'Could not hide promotion.') }
-  }
-  const notify = async promo => {
-    if (!window.confirm(`Notify patients who chose to receive promotion updates about “${promo.title}”?`)) return
+  const setVisibility = async (promo, visible) => {
     setSaving(true); setError('')
     try {
-      const result = await notifyAdminPromotion(promo.id)
-      toast.success(result?.message || 'Patient notifications sent.')
-    } catch (err) { setError(err.message || 'Could not send notifications.') }
+      await saveAdminPromotion({ ...promo, is_active: visible }, promo.id)
+      toast.success(visible ? 'Promotion is visible.' : 'Promotion hidden.')
+      await load()
+    } catch (err) { setError(err.message || 'Could not update promotion visibility.') }
     finally { setSaving(false) }
   }
   const uploadImage = async file => {
@@ -149,7 +142,10 @@ export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
         </label>}
         <p className="text-xs text-slate-600 sm:col-span-2">Discounts apply only to eligible services. They do not change the service catalog's original price.</p>
       </div>
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(form.is_active)} onChange={e => update('is_active', e.target.checked)} /> Show this promotion</label>
+      <div className="rounded-xl border border-slate-200 px-3 py-2">
+        <VisibilitySwitch checked={Boolean(form.is_active)} onChange={visible=>update('is_active',visible)} label="Show promotion" disabled={saving} />
+        <p className="pl-2 text-xs text-slate-500">Patients who opted in and previously visited this branch receive one in-app alert when this offer goes live. No SMS or email is sent.</p>
+      </div>
       <details className="rounded-xl border border-slate-200 p-3">
         <summary className="cursor-pointer text-sm font-bold">Eligible Services {form.discount_type==='none'?'(Optional)':'*'}</summary>
         <p className="mt-2 text-xs text-slate-500">Choose the services this offer applies to. Discounted offers require at least one service.</p>
@@ -173,9 +169,9 @@ export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
           <div className="min-w-0 flex-1 p-4"><div className="flex flex-wrap items-start justify-between gap-3">
             <div><div className="flex items-center gap-2"><h3 className="font-bold">{promo.title}</h3><span className={`rounded-full px-2 py-0.5 text-xs ${live ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{live ? 'Showing' : !promo.is_active ? 'Hidden' : promo.starts_on > today ? 'Upcoming' : 'Ended'}</span></div>
               <p className="mt-1 text-sm text-slate-600">{promo.description}</p><p className="mt-2 text-xs text-slate-500">{promo.branch_name || branchName} · {promo.starts_on} to {promo.ends_on}{promo.service_ids?.length ? ` · ${promo.service_ids.length} selected service(s)` : ' · General offer'}{promo.discount_type==='percentage'?` · ${promo.discount_value}% off`:promo.discount_type==='fixed'?` · ₱${Number(promo.discount_value).toFixed(2)} off`:''}</p>
-            </div><div className="flex flex-wrap gap-2">{live && !isStaff && <button type="button" className="button-secondary" disabled={saving} onClick={() => notify(promo)}><MdNotificationsActive /> In-app Notification</button>}
+            </div><div className="flex flex-wrap gap-2">
               {onComposePost && <button type="button" className="button-secondary" onClick={()=>onComposePost(promo)}>Create Promo Post</button>}
-              {onEmailOffer && <button type="button" className="button-secondary" onClick={()=>onEmailOffer(promo)}>Email Patients</button>}<button type="button" className="button-secondary" onClick={() => open(promo)}><MdEdit /> Edit</button><button type="button" className="button-secondary text-rose-700" disabled={!promo.is_active || isStaff && saving} onClick={() => remove(promo)}><MdDelete /> Hide</button></div>
+              {onEmailOffer && <button type="button" className="button-secondary" onClick={()=>onEmailOffer(promo)}>Email Patients</button>}<button type="button" className="button-secondary" onClick={() => open(promo)}><MdEdit /> Edit</button><VisibilitySwitch checked={Boolean(promo.is_active)} onChange={visible=>setVisibility(promo,visible)} label="Show promotion" disabled={saving} /></div>
           </div></div>
         </article>
       })}
