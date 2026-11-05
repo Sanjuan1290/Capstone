@@ -48,9 +48,16 @@ test('audit display retains redaction and improved filtering',()=>{
  assert.match(source,/resetFilters/)
  assert.match(source,/Changes Made/)
 })
-test('superadmin includes notification readiness and settings navigation',()=>{
+test('superadmin has one main notification bell and keeps branch readiness on its page',()=>{
  const source=readFileSync(join(src,'BranchPortals.jsx'),'utf8')
- assert.match(source,/Branch Readiness/)
+ const branches=page('Branches.jsx')
+ const overview=page('Overview.jsx')
+ assert.match(source,/<NotificationBell role=\{superMode \? "superadmin" : "admin"\} \/>/)
+ assert.doesNotMatch(source,/Branch readiness alerts|MdNotificationsActive|alertsOpen/)
+ assert.equal((source.match(/<NotificationBell /g)||[]).length,1)
  assert.match(source,/Account settings/)
  assert.match(source,/superMode/)
+ assert.match(branches,/Branch Readiness/)
+ assert.match(overview,/Review branch readiness/)
 })
+
