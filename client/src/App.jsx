@@ -1,5 +1,3 @@
-import BillHistory from './components/billing/BillHistory'
-import BillFinancialTools from './components/billing/BillFinancialTools'
 import PatientOffers from './pages/patientPage/PatientOffers.jsx'
 // client/src/App.jsx
 // ADDED: /terms route → TermsOfService page
@@ -68,12 +66,8 @@ import Admin_PatientRecord    from './pages/adminPage/Admin_PatientRecord'
 import Admin_PatientBooking  from './pages/adminPage/Admin_PatientBooking'
 import Admin_BillingCatalog  from './pages/adminPage/Admin_BillingCatalog'
 import Admin_Billing         from './pages/adminPage/Admin_Billing'
+import BillHistoryDetail from './components/billing/BillHistoryDetail'
 import Admin_CheckoutDetail  from './pages/adminPage/Admin_CheckoutDetail'
-import Admin_BillingTransactions from './pages/adminPage/Admin_BillingTransactions'
-import Admin_BillingTransactionDetail from './pages/adminPage/Admin_BillingTransactionDetail'
-import Admin_BillingApprovals from './pages/adminPage/Admin_BillingApprovals'
-import Admin_BillingReconciliation from './pages/adminPage/Admin_BillingReconciliation'
-import Admin_PaymentIssues from './pages/adminPage/Admin_PaymentIssues'
 import Admin_BillingPaymentMethods from './pages/adminPage/Admin_BillingPaymentMethods'
 import Admin_BillingDiscounts from './pages/adminPage/Admin_BillingDiscounts'
 import Admin_BillingReceiptSettings from './pages/adminPage/Admin_BillingReceiptSettings'
@@ -105,6 +99,12 @@ import PrivacyPolicys from './pages/shared/PrivacyPolicys'
 import TermsOfService from './pages/shared/TermsOfService'   // NEW
 import BookingPolicy from './pages/shared/BookingPolicy'
 
+
+const LegacyBillingRedirect = ({ section = 'history', paymentStatus = '' }) => {
+  const location = useLocation()
+  const prefix = location.pathname.match(/^(\/superadmin\/branches\/\d+|\/admin)(?:\/|$)/)?.[1] || '/admin'
+  return <Navigate to={`${prefix}/billing?tab=${section}${paymentStatus ? `&status=${paymentStatus}` : ''}`} replace />
+}
 
 const LegacyCheckoutDetailRedirect = () => {
   const { billingId } = useParams()
@@ -165,8 +165,9 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='doctor-schedules' element={<StaffPermissionRoute permission="doctor_schedules"><Staff_DoctorSchedules /></StaffPermissionRoute>} />
         <Route path='checkout' element={<StaffPermissionRoute permission="checkout"><Staff_Billing /></StaffPermissionRoute>} />
         <Route path='checkout/:billingId' element={<StaffPermissionRoute permission="checkout"><Staff_CheckoutDetail /></StaffPermissionRoute>} />
+        <Route path='checkout/history/:billingId' element={<StaffPermissionRoute permission="checkout"><BillHistoryDetail role='staff' /></StaffPermissionRoute>} />
+        <Route path='billing/history/:billingId' element={<StaffPermissionRoute permission="billing"><BillHistoryDetail role='staff' /></StaffPermissionRoute>} />
         <Route path='billing' element={<StaffPermissionRoute permission="billing"><Staff_Billing /></StaffPermissionRoute>} />
-        <Route path='billing/history/:billingId' element={<StaffPermissionRoute permissions={['checkout','billing']}><BillHistory /></StaffPermissionRoute>} />
         <Route path='inventory' element={<StaffPermissionRoute permission="inventory"><Staff_Inventory /></StaffPermissionRoute>} />
         <Route path='accounts' element={<StaffPermissionRoute permission="accounts"><Staff_AccountsView /></StaffPermissionRoute>} />
         <Route path='system-setup' element={<StaffPermissionRoute permission="system_setup"><Admin_SystemSetup /></StaffPermissionRoute>} />
@@ -237,12 +238,11 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='billing' element={<Admin_Billing />} />
         <Route path='billing/checkout/:billingId' element={<Admin_CheckoutDetail />} />
-        <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
-        <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
-        <Route path='billing/admin-tools/:billingId' element={<BillFinancialTools />} />
-        <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
-        <Route path='billing/payment-issues' element={<Admin_PaymentIssues />} />
-        <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
+        <Route path='billing/transactions' element={<LegacyBillingRedirect section='history' />} />
+        <Route path='billing/transactions/:billingId' element={<BillHistoryDetail role='admin' />} />
+        <Route path='billing/approvals' element={<LegacyBillingRedirect section='payments' />} />
+        <Route path='billing/payment-issues' element={<LegacyBillingRedirect section='payments' paymentStatus='failed' />} />
+        <Route path='billing/reconciliation' element={<LegacyBillingRedirect section='history' />} />
         <Route path='inventory' element={<Admin_Inventory />} />
         <Route path='accounts' element={<Admin_Accounts />} />
         <Route path='staff-accounts' element={<Admin_StaffAccount />} />
@@ -274,12 +274,11 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
         <Route path='billing' element={<Admin_Billing />} />
         <Route path='billing/checkout/:billingId' element={<Admin_CheckoutDetail />} />
-        <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
-        <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
-        <Route path='billing/admin-tools/:billingId' element={<BillFinancialTools />} />
-        <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
-        <Route path='billing/payment-issues' element={<Admin_PaymentIssues />} />
-        <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
+        <Route path='billing/transactions' element={<LegacyBillingRedirect section='history' />} />
+        <Route path='billing/transactions/:billingId' element={<BillHistoryDetail role='admin' />} />
+        <Route path='billing/approvals' element={<LegacyBillingRedirect section='payments' />} />
+        <Route path='billing/payment-issues' element={<LegacyBillingRedirect section='payments' paymentStatus='failed' />} />
+        <Route path='billing/reconciliation' element={<LegacyBillingRedirect section='history' />} />
         <Route path='inventory' element={<Admin_Inventory />} />
         <Route path='accounts' element={<Admin_Accounts />} />
         <Route path='staff-accounts' element={<Admin_StaffAccount />} />
@@ -321,4 +320,5 @@ const App = () => (
 )
 
 export default App
+
 

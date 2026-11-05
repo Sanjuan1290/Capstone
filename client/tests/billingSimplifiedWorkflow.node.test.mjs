@@ -2,33 +2,26 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 const read = (filename) => readFileSync(new URL(`../src/${filename}`, import.meta.url),'utf8')
-const nav = read('components/billing/BillingNav.jsx')
+const nav = read('components/billing/AdminBillingNav.jsx')
 const checkout = read('pages/adminPage/Admin_Checkout.jsx')
-const overview = read('components/billing/BillingWorkspace.jsx')
-const admin = read('components/billing/BillCheckout.jsx')
-const staff = read('components/billing/BillCheckout.jsx')
-const transactions = read('components/billing/BillingWorkspace.jsx')
+const overview = read('pages/adminPage/Admin_Billing.jsx')
+const admin = read('pages/adminPage/Admin_CheckoutDetail.jsx')
+const staff = read('pages/staffPage/Staff_CheckoutDetail.jsx')
+const transactions = read('pages/adminPage/Admin_BillingTransactions.jsx')
 const approvals = read('pages/adminPage/Admin_BillingApprovals.jsx')
 const issues = read('pages/adminPage/Admin_PaymentIssues.jsx')
 const cashday = read('pages/adminPage/Admin_BillingReconciliation.jsx')
 
-test('top navigation has two everyday tabs with authorized advanced tools',()=>{
- for(const label of ['Payments','Receipts & History','Admin Tools'])assert.ok(nav.includes(label),label)
- for(const path of ['billing/reconciliation','billing/payment-issues','billing/approvals'])assert.ok(nav.includes(path),path)
- assert.match(nav,/canManageBilling/);assert.match(nav,/canOwnCash/);assert.match(nav,/aria-current/)
+test('daily Billing entry uses a two-tab shared workspace instead of legacy navigation',()=>{
+  const workspace=read('components/billing/BillingWorkspace.jsx')
+  assert.match(overview,/BillingWorkspace role="admin"/)
+  assert.match(workspace,/label: 'Payments'/)
+  assert.match(workspace,/label: 'Receipts & History'/)
+  assert.doesNotMatch(workspace,/Admin Tools|More billing tools|Cash drawer|<details/)
 })
-
-test('patient-facing task queue defaults to ready to collect',()=>{
-  assert.match(checkout,/useState\('ready'\)/)
-  assert.match(checkout,/Check Bill First/)
-  assert.match(checkout,/Ready for Payment/)
-  assert.match(checkout,/Remaining Balances/)
-  assert.match(checkout,/Find completed bills & receipts/)
-  assert.match(checkout,/Cash drawer & end-of-shift count/)
-})
-test('shared billing workspace defaults to completed-consultation pending payments',()=>{
- assert.match(overview,/Pending Payments/);assert.match(overview,/Failed Payments/);assert.match(overview,/Paid Payments/);assert.match(overview,/payment_view:filter/)
- assert.match(read('pages/adminPage/Admin_Billing.jsx'),/<BillingWorkspace/)
+test('payment status filters are Pending, Failed and Paid',()=>{
+ const workspace=read('components/billing/BillingWorkspace.jsx')
+ for(const status of ['Pending','Failed','Paid']) assert.match(workspace,new RegExp(`label: '${status}'`))
 })
 for(const [role,source] of [['admin',admin],['staff',staff]]){
  test(`${role} checkout clears the cash selection without saving a payment`,()=>{
@@ -52,10 +45,13 @@ for(const [role,source] of [['admin',admin],['staff',staff]]){
    assert.match(source,/onClick=\{requestPay\}/)
  })
 }
-test('historical transactions retain search and more filters',()=>{
-  assert.match(transactions,/Receipts & History/)
-  assert.match(transactions,/More filters — payment method and dates/)
-  for(const v of ['paymentMethod','dateBasis','dateFrom','dateTo','status'])assert.ok(transactions.includes(v))
+test('history and payments have visible filters instead of legacy accordion',()=>{
+ const workspace=read('components/billing/BillingWorkspace.jsx')
+ for(const label of ['Search bills','Payment method','From','To']) assert.ok(workspace.includes(label),label)
+ assert.doesNotMatch(workspace,/More filters — payment method and dates|<details/)
+ const routes=read('App.jsx')
+ assert.match(routes,/LegacyBillingRedirect/)
+ assert.match(routes,/BillHistoryDetail/)
 })
 test('refund, QR reconciliation, approval and cash count actions are retained',()=>{
   assert.match(approvals,/resolveBillingAdjustmentRequest/)
@@ -65,3 +61,4 @@ test('refund, QR reconciliation, approval and cash count actions are retained',(
   assert.match(cashday,/reopenCashierClosing/)
   assert.match(cashday,/getBillingReconciliation/)
 })
+

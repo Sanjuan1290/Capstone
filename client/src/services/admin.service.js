@@ -1,4 +1,3 @@
-import { manualAppointmentPayload } from '../utils/manualAppointment.mjs'
 import { makeSecurityScanError, waitForSecurityScan } from './cloudinaryScan'
 import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/admin.service.js
@@ -93,7 +92,7 @@ export const createAppointment = (payload) =>
   requestJson(`${getAdminApiBase()}/appointments`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(manualAppointmentPayload(payload)),
+    body: JSON.stringify(payload),
   })
 
 
@@ -535,6 +534,7 @@ export const finalizeAdminCheckoutBill = (id,expectedVersion) => requestJson(`${
 export const reopenAdminCheckoutBill = (id, expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/reopen-for-editing`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
 export const payAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}/pay`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminBillAdjustmentRequests = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/adjustment-requests`)
+export const getAdminBillChargeAdjustments = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/charge-adjustments`)
 export const getAdminDiscountPresets = () => requestJson(`${getAdminApiBase()}/billing/discount-presets`)
 
 export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ clinicType })
@@ -589,6 +589,7 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
+
 
 
 

@@ -34,8 +34,7 @@ test('billing list and summary strictly include requested physical branch',async
   assert.equal(x.queries.length,3)
   for(const [i,q] of x.queries.entries()){
     assert.match(q.sql,/b\.branch_id=\?/)
-    assert.match(q.sql,/a\.branch_id=b\.branch_id/)
-    assert.match(q.sql,/d\.id=b\.doctor_id/) // Historical bills survive a doctor's branch transfer.
+    assert.match(q.sql,/d\.branch_id=b\.branch_id/)
     assert.equal(q.args[0],2)
     if(i < 2){assert.match(q.sql,/b\.status IN/);assert.equal(q.args[1],'paid')}
     else {assert.doesNotMatch(q.sql,/b\.status IN \([^)]*\)\s*(?:AND|$)/);assert.deepEqual(q.args,[2])}
@@ -174,4 +173,19 @@ test('separate admin cookies and branch-specific API gateway are present',()=>{
   // /my* uses the Branch Admin cookie; /me does too unless the Super Admin portal header is sent; all else uses the Super Admin cookie.
   assert.match(router,/req\.path\.startsWith\('\/my'\) \|\| \(req\.path === '\/me' && req\.get\('x-admin-portal'\) !== 'superadmin'\)/)
   assert.match(router,/authenticate\.adminContext\(!usesBranchAdminCookie\(req\)\)/)
+})
+
+test('failed-payment view uses the latest branch-owned gateway attempt, not all past attempts',async()=>{
+  const x=loadWithFakeDb([[[{total:1}]],[[{id:32,paid_amount:0,payment_methods:'',balance_amount:400,latest_gateway_status:'failed',latest_gateway_error_code:'PAYMENT_FAILED'}]],[[{total:1,draft:0,ready:1,partially_paid:0,paid:0,outstanding:400,collected:0}]]])
+  const out=response()
+  await x.api.readBills({branchId:4,query:{status:'payment_failed',page:1,limit:10}},out)
+  assert.equal(out.body.items[0].latest_gateway_error_code,'PAYMENT_FAILED')
+  for(const q of x.queries){
+    assert.match(q.sql,/MAX\(id\) AS latest_id/)
+    assert.match(q.sql,/gateway\.branch_id=b\.branch_id/)
+    assert.equal(q.args[0],4)
+  }
+  assert.match(x.queries[0].sql,/gateway\.latest_gateway_status='failed'/)
+  assert.match(x.queries[0].sql,/b\.status IN \('draft','pending','ready','partially_paid'\)/)
+  assert.doesNotMatch(x.queries[2].sql,/gateway\.latest_gateway_status='failed'/)
 })

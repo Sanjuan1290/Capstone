@@ -1,4 +1,3 @@
-import { manualAppointmentPayload } from '../utils/manualAppointment.mjs'
 import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/staff.service.js
 const BASE = '/api/staff'
@@ -52,7 +51,7 @@ export const createAppointment = (payload) =>
   requestJson(`${BASE}/appointments`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(manualAppointmentPayload(payload)),
+    body: JSON.stringify(payload),
   })
 
 export const getAppointmentAvailableSlots = (doctorId, { date = '', serviceId = '', appointmentId = '', clinicType = '' } = {}) => {
@@ -166,6 +165,7 @@ export const reopenBillForEditing = (id, expectedVersion) =>
 export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
+export const getStaffBillChargeAdjustments = (id) => requestJson(`${BASE}/billing/${id}/charge-adjustments`)
 export const requestBillingAdjustment = (id, payload) => requestJson(`${BASE}/billing/${id}/adjustment-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 export const uploadDiscountProofImage = (file, billingId, options = {}) => uploadDiscountProofViaApi({
   file, billingId, ...options,
@@ -283,4 +283,5 @@ export const cancelStaffQrPayment = (id, attemptId) => requestJson(`${BASE}/bill
 
 
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${BASE}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
+
 

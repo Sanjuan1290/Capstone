@@ -1,40 +1,125 @@
-import {useCallback,useEffect,useMemo,useState} from 'react'
-import {Link,useLocation,useSearchParams} from 'react-router-dom'
-import {billingPortalApi} from '../../services/billingPortal.service'
-import {billPaymentLabel} from '../../utils/billingPortal.mjs'
-import {formatMoney,paymentMethodLabel} from '../../utils/billingUi'
-import BillingNav from './BillingNav'
-import {LoadingState,ErrorState} from '../ui/PageState'
-export default function BillingWorkspace({canCheckout=true,forcedTab}){
- const location=useLocation(),[params,setParams]=useSearchParams()
- const api=useMemo(()=>billingPortalApi(location.pathname),[location.pathname])
- const tab=forcedTab||(['history','transactions'].includes(params.get('tab'))?'history':'payments')
- const filter=['pending','failed','paid'].includes(params.get('filter'))?params.get('filter'):'pending'
- const [paymentMethod,setPaymentMethod]=useState(''),[dateBasis,setDateBasis]=useState('visit'),[dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState(''),[status,setStatus]=useState('')
- const [search,setSearch]=useState(''),[debounced,setDebounced]=useState(''),[page,setPage]=useState(1),[revision,setRevision]=useState(0)
- const [data,setData]=useState({items:[],pagination:{}}),[loading,setLoading]=useState(true),[error,setError]=useState('')
- useEffect(()=>{const timer=setTimeout(()=>{setDebounced(search);setPage(1)},250);return()=>clearTimeout(timer)},[search])
- const refresh=useCallback(()=>setRevision(n=>n+1),[])
- useEffect(()=>{window.addEventListener('clinic:refresh',refresh);return()=>window.removeEventListener('clinic:refresh',refresh)},[refresh])
- useEffect(()=>{
-  let current=true;setLoading(true);setError('')
-  api.list({page:String(page),limit:'10',search:debounced,...(tab==='payments'?{payment_view:filter}:{payment_method:paymentMethod,date_basis:dateBasis,date_from:dateFrom,date_to:dateTo,status})}).then(result=>{if(current)setData(result)}).catch(e=>{if(current)setError(e.message)}).finally(()=>{if(current)setLoading(false)})
-  return()=>{current=false}
- },[api,page,debounced,tab,filter,revision,paymentMethod,dateBasis,dateFrom,dateTo,status])
- const changeFilter=value=>{setPage(1);setParams({tab:'payments',filter:value})}
- const detail=id=>`${api.portal.base}/${api.portal.admin?'billing/transactions':'billing/history'}/${id}`
- const checkout=id=>`${api.portal.base}/${api.portal.admin?'billing/checkout':'checkout'}/${id}`
- return <main className="mx-auto max-w-7xl space-y-5"><header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-black text-slate-900">Billing</h1><p className="mt-1 text-sm text-slate-500">Review completed consultations, collect payments, and find receipts.</p></div><button type="button" className="button-secondary" onClick={refresh}>Refresh</button></header><BillingNav activeTab={tab}/>
- <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">{tab==='history'?'Receipts & History':'Payments'}</h2><label className="w-full sm:w-72"><span className="sr-only">Search patient, doctor, or bill number</span><input className="form-control" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search patient, doctor, or bill number"/></label></div>
- {tab==='payments'&&<div role="group" aria-label="Payment status" className="flex flex-wrap gap-2">{[['pending','Pending Payments'],['failed','Failed Payments'],['paid','Paid Payments']].map(([id,label])=><button type="button" key={id} aria-pressed={filter===id} onClick={()=>changeFilter(id)} className={`rounded-xl border px-4 py-2 text-sm font-semibold ${filter===id?'border-sky-600 bg-sky-50 text-sky-800':'border-slate-200 text-slate-600'}`}>{label}</button>)}</div>}
- {tab==='history'&&<details className="rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer text-sm font-semibold text-slate-600">More filters — payment method and dates</summary><div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><label className="text-xs">Payment method<select className="form-control mt-1" value={paymentMethod} onChange={e=>{setPaymentMethod(e.target.value);setPage(1)}}><option value="">All methods</option>{['cash','qrph','gcash','maya','bank_transfer'].map(v=><option key={v} value={v}>{paymentMethodLabel(v)}</option>)}</select></label><label className="text-xs">Date basis<select className="form-control mt-1" value={dateBasis} onChange={e=>{setDateBasis(e.target.value);setPage(1)}}><option value="visit">Appointment date</option><option value="payment">Payment date</option><option value="finalized">Confirmation date</option></select></label><label className="text-xs">From<input type="date" className="form-control mt-1" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setPage(1)}}/></label><label className="text-xs">To<input type="date" className="form-control mt-1" value={dateTo} onChange={e=>{setDateTo(e.target.value);setPage(1)}}/></label><label className="text-xs">Bill status<select className="form-control mt-1" value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}}><option value="">All statuses</option>{['draft','pending','ready','partially_paid','paid','voided','refunded'].map(v=><option value={v} key={v}>{v.replaceAll('_',' ')}</option>)}</select></label></div></details>}
- {filter==='failed'&&tab==='payments'&&<p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-900">A failed QR attempt does not close the bill. Review its status before retrying or collecting the remaining balance.</p>}
- {loading?<LoadingState label="Loading bills…"/>:error?<ErrorState message={error} onRetry={refresh}/>:!data.items?.length?<p className="py-10 text-center text-sm text-slate-500">No bills match this view.</p>:<div className="space-y-3">{data.items.map(bill=>{
- const paid=bill.status==='paid'&&Number(bill.balance_amount)===0
- return <article key={bill.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-bold text-slate-900">{bill.patient_name}</h3><p className="mt-1 text-xs text-slate-500">Bill #{bill.id} · {bill.doctor_name} · {bill.services_performed||'Consultation'}</p><span className="mt-2 inline-block rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{billPaymentLabel(bill)}</span></div><div className="text-right"><p className="text-xs text-slate-500">Outstanding</p><p className="text-xl font-black text-slate-900">{formatMoney(bill.balance_amount)}</p></div></div><dl className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><dt className="text-slate-500">Original charges</dt><dd className="mt-1 font-semibold">{formatMoney(bill.subtotal)}</dd></div><div><dt className="text-slate-500">Discounts & reductions</dt><dd className="mt-1 font-semibold">−{formatMoney(bill.discount_amount)}</dd></div><div><dt className="text-slate-500">Amount paid</dt><dd className="mt-1 font-semibold">{formatMoney(bill.paid_amount)}</dd></div><div><dt className="text-slate-500">Final bill</dt><dd className="mt-1 font-semibold">{formatMoney(bill.total_amount)}</dd></div></dl>
- {paid&&<p className="mt-3 text-xs text-slate-600">{(bill.payment_methods||[]).map(paymentMethodLabel).join(', ')} · {bill.latest_paid_at?new Date(bill.latest_paid_at).toLocaleString('en-PH'):''} · Receipt: {bill.receipt_numbers||'See payment details'}</p>}
- {(bill.attempt_status==='failed'||bill.failed_event_id)&&Number(bill.balance_amount)>0&&<p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs text-rose-800">QR Ph failed: {bill.failure_reason||'No failure reason was supplied by the provider.'} · {bill.attempt_date?new Date(bill.attempt_date).toLocaleString('en-PH'):''}</p>}
- <div className="mt-4 flex flex-wrap gap-2">{canCheckout&&!paid&&['draft','pending','ready','partially_paid'].includes(bill.status)&&<Link className="button-primary" to={checkout(bill.id)}>{filter==='failed'&&tab==='payments'?'Retry / Review Payment':'Open Bill'}</Link>}<Link className="button-secondary" to={detail(bill.id)}>{paid?'View Receipt':'Bill Details & History'}</Link></div></article>
- })}</div>}
- <div className="flex items-center justify-between border-t border-slate-100 pt-4 text-xs text-slate-600"><span>{data.pagination?.total||0} bills · Page {data.pagination?.page||page} of {data.pagination?.totalPages||1}</span><div className="flex gap-2"><button type="button" disabled={loading||page<=1} onClick={()=>setPage(n=>n-1)} className="button-secondary">Previous</button><button type="button" disabled={loading||page>=(data.pagination?.totalPages||1)} onClick={()=>setPage(n=>n+1)} className="button-secondary">Next</button></div></div></section></main>
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { MdArrowForward, MdClose, MdPayments, MdReceiptLong, MdRefresh, MdSearch } from 'react-icons/md'
+import { getBills as getAdminBills } from '../../services/admin.service'
+import { getBills as getStaffBills } from '../../services/staff.service'
+import { useAuth } from '../../context/AuthContext'
+import { hasStaffPermission } from '../../config/staffPermissions'
+import { branchPortalPath } from '../../utils/branchPortalPath.mjs'
+import { formatMoney, paymentMethodLabel } from '../../utils/billingUi'
+import BillingStatusBadge from './BillingStatusBadge'
+import Pagination from '../ui/Pagination'
+import { normalizedBillingTab, statusQueryFor } from './billingWorkspaceModel.mjs'
+import { EmptyState, ErrorState, LoadingState } from '../ui/PageState'
+
+const sections = [{ id: 'payments', label: 'Payments', icon: MdPayments }, { id: 'history', label: 'Receipts & History', icon: MdReceiptLong }]
+const paymentTabs = [{ id: 'pending', label: 'Pending' }, { id: 'failed', label: 'Failed' }, { id: 'paid', label: 'Paid' }]
+const cleanAmount = value => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0
+const settled = bill => bill.status === 'paid'
+const failure = bill => bill.latest_gateway_failure_message || bill.latest_gateway_error_code || 'The latest payment attempt failed. Open the bill to review the payment status.'
+
+/** Shared billing workspace. Same visual flow; server permissions still control actions. */
+export default function BillingWorkspace({ role = 'admin' }) {
+  const staff = role === 'staff'
+  const { user } = useAuth()
+  const canCheckout = !staff || hasStaffPermission(user, 'checkout')
+  const canRead = !staff || canCheckout || hasStaffPermission(user, 'billing')
+  const location = useLocation()
+  const [params, setParams] = useSearchParams()
+  const selectedTab = normalizedBillingTab(params.get('tab'))
+  const section = staff && !canCheckout ? 'history' : selectedTab
+  const [status, setStatus] = useState(params.get('status') === 'failed' || params.get('tab') === 'payment-issues' ? 'failed' : 'pending')
+  const [search, setSearch] = useState('')
+  const [method, setMethod] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [result, setResult] = useState({ items: [], pagination: {} })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const latestRequest = useRef(0)
+  const fetchBills = staff ? getStaffBills : getAdminBills
+  const portalPath = path => staff ? path : branchPortalPath(path, location.pathname)
+  const base = staff ? (location.pathname.startsWith('/staff/checkout') ? '/staff/checkout' : '/staff/billing') : portalPath('/admin/billing')
+  const canFilterMethod = section === 'history' || status === 'paid'
+  const query = useMemo(() => ({
+    status: statusQueryFor(section, status), search: search.trim(),
+    payment_method: canFilterMethod ? method : '', date_from: from, date_to: to,
+    date_basis: canFilterMethod && method ? 'payment' : 'visit', page, limit: pageSize,
+  }), [section, status, search, canFilterMethod, method, from, to, page, pageSize])
+  const load = useCallback(async () => {
+    if (!canRead) return
+    const requestId = ++latestRequest.current
+    setLoading(true); setError('')
+    try {
+      const data = await fetchBills(query)
+      if (requestId === latestRequest.current) setResult({ items: Array.isArray(data?.items) ? data.items : [], pagination: data?.pagination || {}, summary: data?.summary || {} })
+    } catch (err) { if (requestId === latestRequest.current) setError(err.message || 'Unable to load bills.') }
+    finally { if (requestId === latestRequest.current) setLoading(false) }
+  }, [canRead, fetchBills, query, location.pathname])
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load() }, search ? 250 : 0)
+    return () => window.clearTimeout(timer)
+  }, [load, search])
+  useEffect(() => {
+    const onUpdate = () => { void load() }
+    window.addEventListener('clinic:refresh', onUpdate)
+    return () => window.removeEventListener('clinic:refresh', onUpdate)
+  }, [load])
+  if (!canRead) return <p role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5">You do not have Billing access.</p>
+  const records = result.items || []
+  const pagination = result.pagination || {}
+  const pendingCount = Number(result?.summary?.draft || 0) + Number(result?.summary?.ready || 0) + Number(result?.summary?.partially_paid || 0)
+  const historyPath = id => staff ? `${base}/history/${id}` : portalPath(`/admin/billing/transactions/${id}`)
+  const checkoutPath = id => staff ? `/staff/checkout/${id}` : portalPath(`/admin/billing/checkout/${id}`)
+  const showSection = next => { setParams({ tab: next }, { replace: false }); setPage(1); setMethod('') }
+  const changeStatus = next => { setStatus(next); setPage(1); setMethod('') }
+  const clear = () => { setSearch(''); setMethod(''); setFrom(''); setTo(''); setPage(1) }
+  return <main className="mx-auto w-full max-w-7xl space-y-5" aria-label="Billing workspace">
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div><h1 className="text-2xl font-black text-slate-900">Billing</h1><p className="mt-1 text-sm text-slate-500">Review bills, collect payments and find receipts in one place.</p></div>
+      <button type="button" onClick={() => void load()} className="button-secondary"><MdRefresh/> Refresh</button>
+    </header>
+    <nav aria-label="Billing sections" className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+      {sections.filter(tab => !(staff && !canCheckout && tab.id === 'payments')).map(tab => {
+        const Icon = tab.icon
+        return <button type="button" key={tab.id} onClick={() => showSection(tab.id)} aria-current={section === tab.id ? 'page' : undefined}
+          className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold transition-colors ${section === tab.id ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}><Icon/>{tab.label}</button>
+      })}
+    </nav>
+    {section === 'payments' && <div className="flex flex-wrap gap-2" role="group" aria-label="Payment status">
+      {paymentTabs.map(tab => <button type="button" key={tab.id} onClick={() => changeStatus(tab.id)} aria-pressed={status === tab.id}
+        className={`min-h-10 rounded-xl px-4 text-sm font-bold ${status === tab.id ? 'bg-emerald-700 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{tab.label}{tab.id === 'pending' && status === 'pending' && !loading ? ` (${pendingCount})` : ''}</button>)}
+    </div>}
+    <section aria-label="Search and filter bills" className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_190px_180px_180px_auto] xl:items-end">
+      <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Search bills</span><span className="relative block"><MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input className="form-control pl-10" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Patient or bill number" /></span></label>
+      {canFilterMethod && <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">Payment method</span><select className="form-control" value={method} onChange={e => { setMethod(e.target.value); setPage(1) }}><option value="">All methods</option><option value="cash">Cash</option><option value="gcash">GCash</option><option value="maya">Maya</option><option value="bank_transfer">Bank transfer</option><option value="qrph">QR Ph</option></select></label>}
+      <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">From</span><input type="date" className="form-control" value={from} onChange={e => { setFrom(e.target.value); setPage(1) }}/></label>
+      <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">To</span><input type="date" min={from || undefined} className="form-control" value={to} onChange={e => { setTo(e.target.value); setPage(1) }}/></label>
+      <button type="button" onClick={clear} className="button-secondary">Clear</button>
+    </section>
+    {from && to && from > to ? <p role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">The end date must be on or after the start date.</p> :
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-label="Bills">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3"><h2 className="font-bold text-slate-900">{section === 'history' ? 'Receipts & History' : `${paymentTabs.find(tab=>tab.id === status)?.label} Payments`}</h2><span className="text-xs text-slate-500">{pagination.total ?? records.length} bill(s)</span></div>
+      {loading ? <div className="p-5"><LoadingState label="Loading bills…" /></div>
+        : error ? <div className="p-5"><ErrorState message={error} onRetry={load}/></div>
+        : records.length === 0 ? <div className="p-5"><EmptyState title="No bills found" description="Try a different date range or search." /></div>
+        : <div className="divide-y divide-slate-100">{records.map(bill => {
+            const amountDue = cleanAmount(bill.balance_amount ?? (Number(bill.total_amount || 0) - Number(bill.paid_amount || 0)))
+            const to = section === 'history' || status === 'paid' || !canCheckout ? historyPath(bill.id) : checkoutPath(bill.id)
+            return <article key={bill.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 hover:bg-slate-50 sm:px-5">
+              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{bill.patient_name || 'Patient'}</strong><BillingStatusBadge status={bill.status}/>{status === 'failed' && <span className="rounded-lg bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">Payment failed</span>}</div>
+                <p className="mt-1 text-xs text-slate-500">Bill #{bill.id} · {bill.doctor_name || 'Doctor'} · {bill.appointment_date || '—'}</p>
+                <p className="mt-1 text-sm text-slate-600">{bill.appointment_reason || 'Clinic consultation'}</p>
+                {status === 'failed' && section === 'payments' && <p className="mt-2 max-w-lg text-xs text-rose-700">{failure(bill)}</p>}
+                {settled(bill) && <p className="mt-1 text-xs text-slate-500">{(Array.isArray(bill.payment_methods) ? bill.payment_methods : []).map(paymentMethodLabel).join(', ')}</p>}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 sm:gap-5"><div className="text-right"><p className="text-xs text-slate-500">{section === 'history' && settled(bill) ? 'Total' : 'Balance due'}</p><p className="text-lg font-black tabular-nums text-slate-900">{formatMoney(section === 'history' && settled(bill) ? bill.total_amount : amountDue)}</p></div>
+                <Link to={to} className="button-secondary inline-flex items-center gap-1">{section === 'history' || status === 'paid' || !canCheckout ? 'View Bill' : status === 'failed' ? 'Review Payment' : 'Bill Checkout'} <MdArrowForward/></Link></div>
+            </article>
+          })}</div>}
+      <div className="p-3"><Pagination page={pagination.page || page} totalPages={pagination.totalPages || 1} pageSize={pageSize} total={pagination.total || 0} disabled={loading} onPageChange={setPage} onPageSizeChange={size => {setPageSize(size);setPage(1)}} /></div>
+    </section>}
+  </main>
 }
