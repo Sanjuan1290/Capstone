@@ -31,14 +31,12 @@ test('real scheduling slots produce Available, Booked, Unavailable presentation'
   assert.deepEqual(dayAvailabilityCounts(slots), { available: 2, booked: 1, unavailable: 1 })
 })
 
-test('doctor page shows centered responsive date and time grids, readable status legend and only links available slots', () => {
+test('doctor page shows a calendar, not the old list of all time slots', () => {
   const src = read('pages/patientPage/DoctorAvailability.jsx')
-  assert.match(src, /statusStyles\[displayState\]/)
-  assert.match(src, /displayState === 'available' \? <NavLink/)
-  assert.match(src, /dayAvailabilityCounts\(slots\)/)
-  assert.match(src, /aria-label="Time slot statuses"/)
-  assert.match(src, /grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3/)
-  assert.match(src, /items-center justify-center/)
-  assert.match(src, /No scheduled appointment times for this date/)
+  assert.match(src, /monthDateList\(monthKey\)/)
+  assert.match(src, /aria-label="Calendar date statuses"/)
+  assert.match(src, /unavailableDayReason\(selectedDate, selectedDay, today\)/)
+  assert.match(src, /available\.map\(slot => <NavLink/)
+  assert.match(src, /lg:grid-cols-\[minmax\(0,1\.6fr\)_minmax\(270px,1fr\)\]/)
   assert.doesNotMatch(src, /Check Time/)
 })

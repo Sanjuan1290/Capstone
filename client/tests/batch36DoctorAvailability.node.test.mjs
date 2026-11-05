@@ -11,12 +11,14 @@ test('availability slot builds branch-scoped doctor/date/time link',()=>{
  assert.deepEqual(readSlotPrefill(p,'2026-10-22'),{date:'2026-11-20',time:'9:00 AM'})
  assert.deepEqual(readSlotPrefill(new URLSearchParams('date=2025-01-01&time=10:00'), '2026-10-22'),{date:null,time:''})
 })
-test('doctor availability shows selectable only for available slots',()=>{
+test('doctor availability uses a month calendar and links only available selected-day times',()=>{
  const src=read('pages/patientPage/DoctorAvailability.jsx')
- assert.match(src,/displayState === 'available' \? <NavLink/)
- assert.match(src,/slotDisplayState\(slot\)/)
- assert.match(src,/slotDisplayLabel\(slot\)/)
- assert.match(src,/buildSlotBookingPath\(\{\s*branchId,\s*doctorId:\s*doctor\.id,\s*clinicType,\s*date:\s*day\.date,\s*time:\s*slot\.time\s*\}\)/)
+ assert.match(src,/monthAvailabilityRequests\(monthKey\)/)
+ assert.match(src,/monthDateList\(monthKey\)/)
+ assert.match(src,/availableSlotsForDay\(selectedDay\)/)
+ assert.match(src,/available\.map\(slot => <NavLink/)
+ assert.match(src,/date: selectedDate, time: slot\.time/)
+ assert.match(src,/unavailableDayReason\(selectedDate, selectedDay, today\)/)
  assert.match(src,/aria-pressed=\{clinicFilter === value\}/)
 })
 test('booking prefill is revalidated with the available-slots endpoint',()=>{
