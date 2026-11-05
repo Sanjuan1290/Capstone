@@ -54,6 +54,7 @@ const migrationFiles = [
   '2026-11-02-inventory-excel-receipts.sql',
   '2026-11-02-branch-movement-reasons.sql',
   '2026-11-02-consultation-charge-adjustments.sql',
+  '2026-11-05-promotion-pricing.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -124,6 +125,14 @@ async function runRegisteredBranchMigrations(db) {
         await runTiDBMigration(connection, file, statements)
       } else {
         for (const statement of statements) {
+          if (file === '2026-11-05-promotion-pricing.sql') {
+            const match = /^ALTER TABLE (clinic_promotions|appointments|billing_records) ADD COLUMN ([a-z_]+) /i.exec(statement)
+            if (!match) throw new Error('Unexpected promotion pricing migration statement')
+            const [[existing]] = await connection.query(
+              'SELECT 1 AS found FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? LIMIT 1',
+              [match[1], match[2]])
+            if (existing) continue // Recover safely after partial TiDB DDL.
+          }
           if (file === '2026-11-02-audit-context.sql') {
             const column = /^ALTER TABLE audit_logs ADD COLUMN ([a-z_]+) /i.exec(statement)?.[1]
             if (!column) throw new Error('Unexpected audit context migration statement')
@@ -163,6 +172,7 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
+
 
 
 

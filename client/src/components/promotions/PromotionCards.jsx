@@ -16,6 +16,7 @@ const formatOfferEndDate = (value) => {
 
 export function PromotionCard({ promotion: p, directory = null }) {
   const endDate = formatOfferEndDate(p.ends_on)
+  const offerLabel=p.discount_type==='percentage' ? `${p.discount_value}% off eligible services` : p.discount_type==='fixed'?`₱${Number(p.discount_value||0).toFixed(2)} off eligible services`:null
   const serviceOffer = Array.isArray(p.service_ids) && p.service_ids.length > 0
   const bookingPath = promotionBookingPath(p, directory)
   return <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -25,6 +26,7 @@ export function PromotionCard({ promotion: p, directory = null }) {
     <div className="flex flex-1 flex-col gap-2 p-4">
       <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">{p.badge_text || 'Special offer'}</span>
       <h3 className="text-base font-black text-slate-900">{p.title}</h3>
+      {offerLabel && <p className="text-sm font-bold text-emerald-700">{offerLabel}</p>}
       <p className="line-clamp-4 text-sm text-slate-600">{p.description}</p>
       <p className="mt-auto pt-2 text-xs text-slate-500">{endDate ? `Valid until ${endDate} · ` : ''}{p.branch_name || 'Selected branch'}</p>
       <NavLink to={bookingPath} className="mt-2 inline-flex items-center gap-1 text-sm font-bold text-emerald-700 dark:text-emerald-300">{serviceOffer ? 'Book eligible service' : 'Book at this branch'} <MdArrowForward aria-hidden="true" /></NavLink>
@@ -73,4 +75,5 @@ export function FeaturedOffers({ promotions = [] }) {
     </div>
   </section>
 }
+
 

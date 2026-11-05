@@ -859,6 +859,8 @@ const rescheduleAppointment = async (req, res) => {
   const [rows] = await db.query(
     `SELECT a.id, a.doctor_id, a.status, a.clinic_type,
             a.reserved_duration_minutes_snapshot, a.requested_service_duration_minutes_snapshot,
+            DATE_FORMAT(a.promotion_starts_on_snapshot,'%Y-%m-%d') AS promo_starts_on,
+            DATE_FORMAT(a.promotion_ends_on_snapshot,'%Y-%m-%d') AS promo_ends_on,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.full_name AS doctor_name
      FROM appointments a
@@ -872,6 +874,10 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
   }
 
+  if (rows[0].promo_starts_on && rows[0].promo_ends_on &&
+      (normalizedDate < rows[0].promo_starts_on || normalizedDate > rows[0].promo_ends_on)) {
+    return res.status(409).json({code:'PROMOTION_DATE_MISMATCH',message:'The selected promotion does not cover this new date. Please contact the clinic to change this appointment without the offer, or choose a date within the promotion period.'})
+  }
   const settings = await loadBookingSettings(db, req.branchId || null)
   const durationMinutes = getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status, 'rescheduled')
@@ -4362,6 +4368,7 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

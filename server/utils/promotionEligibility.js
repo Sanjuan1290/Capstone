@@ -1,5 +1,6 @@
-// Patient-selected offers are booking intent, never an automatic discount.
+// Selected offers bind a date-validated discount rule to a booked service.
 const { getTodayDateOnly } = require('./date')
+const {priceFor}=require('./promotionPricing')
 
 const parsePromotionId = (value) => {
   if (value === undefined || value === null || value === '') return null
@@ -11,11 +12,11 @@ const parsePromotionId = (value) => {
   return id
 }
 
-const resolveSelectedPromotion = async (executor, { promotionId, branchId, serviceId, appointmentDate, today = getTodayDateOnly(), lock = false }) => {
+const resolveSelectedPromotion = async (executor, { promotionId, branchId, serviceId, appointmentDate, servicePrice = null, today = getTodayDateOnly(), lock = false }) => {
   const id = parsePromotionId(promotionId)
   if (id === null) return null
   const [[promo]] = await executor.query(`
-    SELECT id, branch_id, title, description, badge_text, is_active,
+    SELECT id, branch_id, title, description, badge_text, is_active,discount_type,discount_value,
            DATE_FORMAT(starts_on,'%Y-%m-%d') AS starts_on,
            DATE_FORMAT(ends_on,'%Y-%m-%d') AS ends_on
     FROM clinic_promotions WHERE id=? AND branch_id=? ${lock ? 'FOR UPDATE' : ''}`, [id, branchId])
@@ -28,8 +29,12 @@ const resolveSelectedPromotion = async (executor, { promotionId, branchId, servi
     INNER JOIN billing_service_catalog svc ON svc.id=ps.service_id AND svc.branch_id=? AND svc.is_active=1
     WHERE ps.promotion_id=? AND ps.service_id=? LIMIT 1`, [branchId, id, serviceId])
   if (!linked) throw Object.assign(new Error('This promotion is not available for the selected service.'), { status: 409, code: 'PROMOTION_SERVICE_MISMATCH' })
+  const quote=priceFor(servicePrice, promo.discount_type, promo.discount_value)
   return { id, title:promo.title, terms:promo.description, badge:promo.badge_text,
-    starts_on:promo.starts_on, ends_on:promo.ends_on, service_id:Number(serviceId) }
+    starts_on:promo.starts_on, ends_on:promo.ends_on, service_id:Number(serviceId),
+    discount_type:promo.discount_type,discount_value:Number(promo.discount_value||0),
+    discount_amount:quote?.discount||0 }
 }
 
 module.exports = { parsePromotionId, resolveSelectedPromotion }
+

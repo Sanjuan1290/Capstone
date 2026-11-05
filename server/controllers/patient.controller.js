@@ -647,12 +647,22 @@ const getBookingServices = async (req, res) => {
   }
   const branch=await validatePatientBranch(req,res);if(!branch)return
   const visibleRows = await listBillingCatalog({ clinicType: clinicType || undefined, branchId: branch.id })
+  const [offers]=await db.query(`SELECT ps.service_id,p.id,p.title,p.discount_type,p.discount_value
+    FROM clinic_promotion_services ps JOIN clinic_promotions p ON p.id=ps.promotion_id
+    WHERE p.branch_id=? AND p.is_active=1 AND p.starts_on<=CURDATE() AND p.ends_on>=CURDATE()
+      AND p.discount_type IN ('percentage','fixed') ORDER BY p.id ASC`,[branch.id])
+  const {priceFor}=require('../utils/promotionPricing')
   res.json(visibleRows.map((service) => ({
     id: service.id,
     category: service.category,
     service_name: service.service_name,
     clinic_type: service.clinic_type,
     default_price: service.default_price == null ? null : Number(service.default_price),
+    current_offer: offers.map(p=>({...p,discount_value:Number(p.discount_value)}))
+      .filter(p=>Number(p.service_id)===Number(service.id))
+      .map(p=>({...p,quote:priceFor(service.default_price,p.discount_type,p.discount_value)}))
+      .filter(p=>p.quote?.discount>0)
+      .sort((a,b)=>b.quote.discount-a.quote.discount||a.id-b.id)[0]||null,
     average_duration_minutes: Number(service.average_duration_minutes || 60),
     reserved_duration_minutes: roundReservedDurationMinutes(Number(service.average_duration_minutes || 60)),
   })))
@@ -760,7 +770,7 @@ const createAppointment = async (req, res) => {
       if (connection) await connection.beginTransaction()
       const selected = selectedPromotionId ? await resolveSelectedPromotion(executor, {
         promotionId:selectedPromotionId, branchId:branch.id, serviceId:requestedService.id,
-        appointmentDate:normalizedDate, lock:true,
+        appointmentDate:normalizedDate, servicePrice:requestedService.default_price, lock:true,
       }) : null
       const cols = `patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot,
         requested_service_price_snapshot, requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot,
@@ -770,11 +780,12 @@ const createAppointment = async (req, res) => {
         storedReason, normalizedDate, appointment_time, notes || null, branch.id]
       const sql = selected ? `INSERT INTO appointments (${cols}, promotion_id, promotion_title_snapshot,
         promotion_terms_snapshot, promotion_badge_snapshot, promotion_starts_on_snapshot, promotion_ends_on_snapshot,
-        promotion_selected_for_service_id, promotion_selected_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00'))`
+        promotion_selected_for_service_id, promotion_selected_at,
+        promotion_discount_type_snapshot,promotion_discount_value_snapshot,promotion_discount_amount_snapshot)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00'),?,?,?)`
         : `INSERT INTO appointments (${cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?)`
       const params = selected ? [...values, selected.id, selected.title, selected.terms, selected.badge,
-        selected.starts_on, selected.ends_on, selected.service_id] : values
+        selected.starts_on, selected.ends_on, selected.service_id,selected.discount_type,selected.discount_value,selected.discount_amount] : values
       const [inserted] = await executor.query(sql, params)
       if (connection) await connection.commit()
       return inserted
@@ -894,7 +905,9 @@ const rescheduleAppointment = async (req, res) => {
 
   const [rows] = await db.query(
     `SELECT id, doctor_id, status, clinic_type, branch_id, appointment_date, appointment_time,
-            requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot
+            requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot,
+            DATE_FORMAT(promotion_starts_on_snapshot,'%Y-%m-%d') AS promo_starts_on,
+            DATE_FORMAT(promotion_ends_on_snapshot,'%Y-%m-%d') AS promo_ends_on
      FROM appointments WHERE id = ? AND patient_id = ?`,
     [req.params.id, req.user.id]
   )
@@ -903,6 +916,10 @@ const rescheduleAppointment = async (req, res) => {
     return res.status(400).json({ message: 'Only pending or confirmed appointments can be rescheduled.' })
   }
 
+  if (rows[0].promo_starts_on && rows[0].promo_ends_on &&
+      (normalizedDate < rows[0].promo_starts_on || normalizedDate > rows[0].promo_ends_on)) {
+    return res.status(409).json({code:'PROMOTION_DATE_MISMATCH',message:'The selected promotion does not cover this new date. Please contact the clinic to change this appointment without the offer, or choose a date within the promotion period.'})
+  }
   const settings = await loadBookingSettings(db,rows[0].branch_id)
   const durationMinutes = getAppointmentReservedDuration(rows[0])
   const confirmationDeadline = buildConfirmationDeadlineSql({
@@ -1197,6 +1214,7 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 
 
 

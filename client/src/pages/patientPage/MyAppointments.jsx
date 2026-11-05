@@ -112,6 +112,14 @@ const DetailModal = ({ appt, onClose, onCancel }) => {
                 <MdPerson className="text-[11px]" /> Reason for Visit
               </p>
               {appt.requested_service_name_snapshot && <p className="mb-2 text-sm font-bold text-sky-700">{appt.requested_service_name_snapshot} <span className="font-semibold text-slate-400">· {formatDurationMinutes(getReservedDurationMinutes(appt))}</span></p>}
+              {appt.requested_service_price_snapshot != null && <div className="mb-3 rounded-xl border border-emerald-100 bg-white p-3 text-sm">
+                <p className="text-xs font-semibold text-slate-600">Service price at booking</p>
+                {Number(appt.promotion_discount_amount_snapshot || 0) > 0 ? <>
+                  <p className="mt-1"><span className="text-slate-500 line-through">₱{Number(appt.requested_service_price_snapshot).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</span> <strong className="ml-2 text-emerald-700">₱{Math.max(0,Number(appt.requested_service_price_snapshot)-Number(appt.promotion_discount_amount_snapshot)).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></p>
+                  <p className="mt-1 text-xs text-emerald-700">{appt.promotion_title_snapshot || 'Special offer'} · Savings ₱{Number(appt.promotion_discount_amount_snapshot).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                </> : <p className="mt-1 font-bold text-slate-700">₱{Number(appt.requested_service_price_snapshot).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>}
+                <p className="mt-1 text-xs text-slate-500">Other services and supplies may change your final bill.</p>
+              </div>}
               <p className="text-sm font-semibold text-slate-800">{appt.reason || '—'}</p>
             </div>
             <div>
@@ -424,3 +432,4 @@ const MyAppointments = () => {
 }
 
 export default MyAppointments
+

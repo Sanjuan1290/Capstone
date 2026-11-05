@@ -588,12 +588,18 @@ const rescheduleAppointment = async (req, res) => {
   if (normalizedDate < getTodayDateOnly()) return res.status(400).json({ message: 'Cannot reschedule to a past date.' })
   const [rows] = await db.query(
     `SELECT a.id,a.doctor_id,a.status,a.clinic_type,a.reserved_duration_minutes_snapshot,a.requested_service_duration_minutes_snapshot,
+            DATE_FORMAT(a.promotion_starts_on_snapshot,'%Y-%m-%d') AS promo_starts_on,
+            DATE_FORMAT(a.promotion_ends_on_snapshot,'%Y-%m-%d') AS promo_ends_on,
             p.id AS patient_id,p.email AS patient_email,p.phone AS patient_phone,p.full_name AS patient_name,d.full_name AS doctor_name
      FROM appointments a JOIN patients p ON a.patient_id=p.id JOIN doctors d ON a.doctor_id=d.id WHERE a.id=?`,
     [req.params.id]
   )
   if (!rows.length) return res.status(404).json({ message: 'Not found.' })
   if (!['pending','confirmed','rescheduled'].includes(rows[0].status)) return res.status(400).json({ message:'Only pending, confirmed, or rescheduled appointments can be rescheduled.' })
+  if (rows[0].promo_starts_on && rows[0].promo_ends_on &&
+      (normalizedDate < rows[0].promo_starts_on || normalizedDate > rows[0].promo_ends_on)) {
+    return res.status(409).json({code:'PROMOTION_DATE_MISMATCH',message:'The selected promotion does not cover this new date. Please contact the clinic to change this appointment without the offer, or choose a date within the promotion period.'})
+  }
   const settings=await loadBookingSettings(db,req.branchId)
   const durationMinutes=getAppointmentReservedDuration(rows[0])
   assertAppointmentTransition(rows[0].status,'rescheduled')
@@ -1244,7 +1250,12 @@ const updateBill = async (req, res) => {
       }
     }
 
-    const combinedDiscount=toMoney(discount.amount+courtesyTotal)
+    const eligibleService=Number(currentBill.selected_promotion?.service_id||0)
+    const qualifyingLines=allItems.filter(item=>item.item_type==='service' &&
+      item.source_type==='consultation' && Number(item.catalog_service_id)===eligibleService)
+    const qualifyingTotal=toMoney(qualifyingLines.reduce((sum,item)=>sum+Number(item.line_total||0),0))
+    const promotionDiscount=toMoney(Math.min(qualifyingTotal,Number(currentBill.selected_promotion?.discount_amount||0)))
+    const combinedDiscount=toMoney(discount.amount+courtesyTotal+promotionDiscount)
     if(combinedDiscount>subtotalOnly.subtotal){
       await conn.rollback()
       return res.status(409).json({code:'DISCOUNT_EXCEEDS_SUBTOTAL',message:'Approved courtesy reductions and other discounts exceed the current bill.'})
@@ -1261,7 +1272,7 @@ const updateBill = async (req, res) => {
         return res.status(400).json({ message:'There is no selected promotion for this appointment.' })
       }
       promoReview = String(req.body.promotion_review_outcome || '').trim() || null
-      if (promoReview && !['needs_review','reviewed_no_discount','manual_discount_applied'].includes(promoReview)) {
+      if (promoReview && !['needs_review','reviewed_no_discount','manual_discount_applied','automatic_discount_applied'].includes(promoReview)) {
         await conn.rollback()
         return res.status(400).json({ message:'Select a valid promotion review outcome.' })
       }
@@ -1270,19 +1281,23 @@ const updateBill = async (req, res) => {
         await conn.rollback()
         return res.status(400).json({ message:'Enter a short reason when you decide not to apply an offer (up to 255 characters).' })
       }
-      if (promoReview === 'manual_discount_applied' && (!discount.preset || totals.discount <= 0)) {
+      if (promoReview === 'manual_discount_applied' && (!discount.preset || discount.amount <= 0)) {
         await conn.rollback()
         return res.status(409).json({ message:'Save an authorized, positive manual discount to mark this selected promotion as applied.' })
       }
+    }
+    if(promotionDiscount>0 && promoReview==='reviewed_no_discount'){
+      await conn.rollback();return res.status(409).json({code:'PROMOTION_ALREADY_APPLIED',message:'An automatic promotion discount is already included in this bill.'})
     }
     const nextVersion = expectedVersion + 1
 
     await replaceStaffBillingItems(billingId, securedConsultationItems, normalizedStaffItems, conn)
     const [billUpdate] = await conn.query(
       `UPDATE billing_records
-       SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_reference = ?, discount_reference_image_url = ?, discount_amount = ?, total_amount = ?, payment_notes = ?, version = ?
+       SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_reference = ?, discount_reference_image_url = ?, discount_amount = ?,promotion_discount_amount=?,total_amount = ?, payment_notes = ?, version = ?
        WHERE id = ? AND version = ?`,
-      [totals.subtotal, courtesyTotal>0 && !discount.preset ? 'courtesy' : discount.type, courtesyTotal>0 ? [discount.label,'Approved charge reductions'].filter(Boolean).join(' + ') : discount.label, discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, discount.preset ? discountReferenceImageUrl : null, totals.discount_amount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
+      [totals.subtotal, courtesyTotal>0 && !discount.preset ? 'courtesy' : discount.amount>0 ? discount.type : promotionDiscount>0 ? 'promotion' : discount.type,
+       [promotionDiscount>0?currentBill.selected_promotion?.title_at_booking:null,discount.label,courtesyTotal>0?'Approved charge reductions':null].filter(Boolean).join(' + ')||null, discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, discount.preset ? discountReferenceImageUrl : null, totals.discount_amount,promotionDiscount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
     )
     if (Number(billUpdate.affectedRows || 0) !== 1) {
       const err = new Error('This bill changed while it was being saved. Reload the latest version and try again.')
@@ -2113,6 +2128,7 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 
 

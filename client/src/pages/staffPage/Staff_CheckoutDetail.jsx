@@ -170,7 +170,7 @@ const Staff_CheckoutDetail = () => {
       setDiscountReason(discountRequest.reason || '')
       if (discountRequest.requested_amount) {
         const courtesy = Number(current?.approved_courtesy_discount || 0)
-        setDraft((value) => value ? { ...value, discount_amount: Math.min(Number(current?.subtotal || 0), Number(discountRequest.requested_amount) + courtesy) } : value)
+        setDraft((value) => value ? { ...value, discount_amount: Math.min(Number(current?.subtotal || 0), Number(discountRequest.requested_amount) + courtesy + Number(current?.promotion_discount_amount||0)) } : value)
       }
       return
     }
@@ -320,11 +320,12 @@ const Staff_CheckoutDetail = () => {
     setDiscountReason('')
     markDraft((current) => {
       const courtesy = Number(bill?.approved_courtesy_discount || 0)
-      if (!preset) return { ...current, discount_amount: courtesy }
+      const promotion=Number(bill?.promotion_discount_amount || 0)
+      if (!preset) return { ...current, discount_amount: courtesy+promotion }
       const amount = preset.discount_type === 'percentage'
         ? roundMoney(totals.subtotal * Math.max(0, Number(preset.value || 0)) / 100)
         : Math.max(0, Number(preset.value || 0))
-      return { ...current, discount_amount: Math.min(totals.subtotal, roundMoney(amount + courtesy)) }
+      return { ...current, discount_amount: Math.min(totals.subtotal, roundMoney(amount + courtesy + promotion)) }
     })
   }
 
@@ -343,7 +344,7 @@ const Staff_CheckoutDetail = () => {
         discount_reference_image_url: discountProof.url || null,
         discount_reference_security_token: discountProof.security_token || null,
         discount_amount: workingDraft.discount_amount,
-        preset_discount_amount: roundMoney(Math.max(0, Number(workingDraft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0))),
+        preset_discount_amount: roundMoney(Math.max(0, Number(workingDraft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0))),
         payment_notes: workingDraft.payment_notes || null,
         ...(bill.selected_promotion ? {
           promotion_review_outcome: workingDraft.promotion_review_outcome || null,
@@ -384,7 +385,7 @@ const Staff_CheckoutDetail = () => {
       await requestBillingAdjustment(billingId, {
         request_type: 'discount',
         discount_preset_id: selectedDiscount.id,
-        requested_amount: roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0))),
+        requested_amount: roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0))),
         reference: null,
         reference_image_url: discountProof.url || null,
         reference_security_token: discountProof.security_token || null,
@@ -685,7 +686,7 @@ const Staff_CheckoutDetail = () => {
             <h2 className="font-black text-slate-900">Confirm Bill</h2>
             <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
             <SelectedPromotionNotice promotion={bill.selected_promotion} />
-            {bill.selected_promotion && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <label><span className="form-label">Promotion review outcome</span>
                 <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
                   onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
@@ -704,7 +705,7 @@ const Staff_CheckoutDetail = () => {
             </div>}
             <label className="mt-5 block"><span className="form-label">Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
             {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
-              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0))) }))} /></label>}
+              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
               {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
               {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
                 <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
@@ -785,4 +786,5 @@ const Staff_CheckoutDetail = () => {
 }
 
 export default Staff_CheckoutDetail
+
 

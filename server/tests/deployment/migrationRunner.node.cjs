@@ -127,7 +127,7 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
-  assert.equal(migrationFiles.at(-1), '2026-11-02-consultation-charge-adjustments.sql')
+  assert.equal(migrationFiles.at(-1), '2026-11-05-promotion-pricing.sql')
   for (const file of migrationFiles) assert.ok(fs.existsSync(path.join(migrationDir, file)), `Registered migration missing: ${file}`)
   for (const [file, expected] of Object.entries(expectedChecksums)) {
     const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -274,4 +274,5 @@ test('Batch 4 recovers manually applied complete columns while adding only the m
   assert.ok(ddl.every(sql => !/ADD COLUMN/i.test(sql)))
   assert.equal(db.applied.has(batch4MigrationFile), true)
 })
+
 

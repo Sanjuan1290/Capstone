@@ -9,6 +9,7 @@ import {
 import { useToast } from '../../components/ui/ToastProvider'
 import { AnnouncementBody } from '../../components/system/AnnouncementRichText'
 import QuillAnnouncementEditor from '../../components/system/QuillAnnouncementEditor'
+import Admin_Promotions from './Admin_Promotions'
 import { documentText } from '../../utils/announcementDocument.mjs'
 
 const blank = () => ({type:'news',title:'',caption:'',body:'',status:'draft',publish_at:'',expires_at:'',cover_image_url:'',cover_image_token:'',cta_label:'Book an Appointment',cta_url:'',promotion_id:null})
@@ -161,6 +162,18 @@ const Admin_Announcements = () => {
     setBusy(true);setError('')
     try{await setAnnouncementStatus(post.id,post.status==='published'?'archived':'published');toast.success('Post status updated.');await refresh()}catch(e){setError(e.message)}finally{setBusy(false)}
   }
+  const composePromotionPost = promo => {
+    const branch=Number(bookingOptions?.branch_id)
+    if(!Number.isSafeInteger(branch)||branch<1){setError('Select an active clinic branch and refresh its services before linking an offer to a booking.');return}
+    setWorkspaceTab('posts');setEditing('new');setMenuPost(null);setError('')
+    setForm({...blank(),type:'promotion',title:promo.title,caption:promo.description,
+      promotion_id:promo.id,cta_url:`/patient/book?branch_id=${branch}&promotion_id=${promo.id}`})
+  }
+  const emailPromotion = promo => {
+    const post=posts.find(p=>Number(p.promotion_id)===Number(promo.id) && p.type==='promotion' && p.status==='published')
+    if(!post){setError('Publish a Promotion post linked to this offer before sending promotional emails. Use Create Promo Post.');setWorkspaceTab('posts');return}
+    setCampaignPost(post);setWorkspaceTab('emails');setError('')
+  }
   const queue=async()=>{
     if(!campaignPost || !window.confirm(`Queue this email campaign for opted-in, verified patients of this branch? Sending may take multiple days and cannot be recalled once delivered.`))return
     setBusy(true);setError('')
@@ -183,7 +196,7 @@ const Admin_Announcements = () => {
         <div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={refresh}><MdRefresh/> Refresh</button><button type="button" className="button-primary" onClick={()=>edit(null)}><MdAdd/> Create Post</button></div>
       </div>
       <nav className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4" aria-label="Announcement sections">
-        {[['posts','Posts'],['emails','Email Campaigns']].map(([id,label])=><button type="button" key={id} aria-current={workspaceTab===id?'page':undefined} onClick={()=>{setWorkspaceTab(id);setMenuPost(null)}} className={`min-h-11 rounded-xl px-4 text-sm font-bold transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700 ${workspaceTab===id?'bg-slate-900 text-white':'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}>{label}</button>)}
+        {[['posts','Posts'],['offers','Special Offers'],['emails','Email Campaigns']].map(([id,label])=><button type="button" key={id} aria-current={workspaceTab===id?'page':undefined} onClick={()=>{setWorkspaceTab(id);setMenuPost(null)}} className={`min-h-11 rounded-xl px-4 text-sm font-bold transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700 ${workspaceTab===id?'bg-slate-900 text-white':'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}>{label}</button>)}
         <Link to="/news" target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-bold text-sky-800 hover:bg-sky-50">View Public News & Offers ↗</Link>
       </nav>
     </header>
@@ -235,7 +248,7 @@ const Admin_Announcements = () => {
     <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Manage Posts</h2><div className="flex flex-wrap gap-2">{[['all','All'],['published','Published'],['scheduled','Scheduled'],['draft','Drafts'],['archived','Unpublished']].map(([key,label])=><button key={key} type="button" onClick={()=>chooseFilter(key)} aria-pressed={postsTab===key} className={`min-h-10 rounded-xl px-3 text-xs font-bold transition-colors ${postsTab===key?'bg-slate-900 text-white':'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}</div></div>
       <div className="flex flex-wrap items-end gap-3"><label className="relative flex-1 min-w-[220px]"><span className="mb-1 block text-sm font-medium text-slate-700">Find a post</span><MdSearch className="absolute bottom-3 left-3 text-slate-400"/><input className="form-control pl-10" placeholder="Search by title or post type" value={postSearch} onChange={e=>{setPostSearch(e.target.value);setPostPage(1)}}/></label><label className="text-sm font-medium text-slate-700">Posts per page<select className="form-control mt-1" value={rowsPerPage} onChange={e=>{setRowsPerPage(Number(e.target.value));setPostPage(1)}}>{[5,10,20].map(n=><option key={n} value={n}>{n}</option>)}</select></label></div>
-      {loading?<p role="status" className="p-6 text-slate-500">Loading posts…</p>:!filteredPosts.length?<div className="rounded-xl bg-slate-50 p-8 text-center"><h3 className="font-bold text-slate-800">No matching posts</h3><p className="mt-1 text-sm text-slate-500">Try another filter or create a new post.</p><button type="button" className="button-secondary mt-4" onClick={()=>{setPostSearch('');chooseFilter('all')}}>Clear Filters</button></div>:<div className="grid gap-3">{pagePosts.map(post=><article key={post.id} className="carait-editor-card rounded-2xl border border-slate-200 p-4 sm:p-5"><div className="flex flex-wrap items-start gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-bold text-slate-900">{post.title}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${post.status==='published'?'bg-emerald-50 text-emerald-700':post.status==='draft'?'bg-slate-100 text-slate-600':post.status==='scheduled'?'bg-sky-50 text-sky-700':'bg-amber-50 text-amber-700'}`}>{post.status==='archived'?'Unpublished':post.status}</span></div><p className="mt-1 text-sm text-slate-600">{post.caption}</p><p className="mt-2 text-xs text-slate-500">{post.type==='promotion'?'Promotion':post.type==='article'?'Health Article':'Clinic News'} · {post.publish_at?`Publish: ${fmt(post.publish_at)}`:'Not scheduled'}{post.expires_at?` · Ends: ${fmt(post.expires_at)}`:''}</p></div><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>setPreviewPost(post)}>Preview</button><button type="button" className="button-secondary" onClick={()=>edit(post)}>Edit</button><button type="button" className="button-secondary" onClick={()=>setMenuPost(menuPost===post.id?null:post.id)} aria-expanded={menuPost===post.id} aria-label={`More actions for ${post.title}`}>More Actions</button></div></div>{menuPost===post.id&&<div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4"><button type="button" disabled={busy} className="button-secondary" onClick={()=>{togglePost(post);setMenuPost(null)}}>{post.status==='published'?'Unpublish':'Publish'}</button><button type="button" className="button-secondary" disabled={!audience?.provider_ready||!['published','scheduled'].includes(post.status)} onClick={()=>{setCampaignPost(post);setWorkspaceTab('emails');setMenuPost(null)}}><MdSend/> Send by Email</button><button type="button" disabled={busy} className="button-secondary text-rose-700" onClick={()=>{removePost(post);setMenuPost(null)}}>Delete</button></div>}</article>)}</div>}
+      {loading?<p role="status" className="p-6 text-slate-500">Loading posts…</p>:!filteredPosts.length?<div className="rounded-xl bg-slate-50 p-8 text-center"><h3 className="font-bold text-slate-800">No matching posts</h3><p className="mt-1 text-sm text-slate-500">Try another filter or create a new post.</p><button type="button" className="button-secondary mt-4" onClick={()=>{setPostSearch('');chooseFilter('all')}}>Clear Filters</button></div>:<div className="grid gap-3">{pagePosts.map(post=><article key={post.id} className="carait-editor-card rounded-2xl border border-slate-200 p-4 sm:p-5"><div className="flex flex-wrap items-start gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-bold text-slate-900">{post.title}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${post.status==='published'?'bg-emerald-50 text-emerald-700':post.status==='draft'?'bg-slate-100 text-slate-600':post.status==='scheduled'?'bg-sky-50 text-sky-700':'bg-amber-50 text-amber-700'}`}>{post.status==='archived'?'Unpublished':post.status}</span></div><p className="mt-1 text-sm text-slate-600">{post.caption}</p><p className="mt-2 text-xs text-slate-500">{post.type==='promotion'?'Promotion':post.type==='article'?'Health Article':'Clinic News'} · {post.publish_at?`Publish: ${fmt(post.publish_at)}`:'Not scheduled'}{post.expires_at?` · Ends: ${fmt(post.expires_at)}`:''}</p></div><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>setPreviewPost(post)}>Preview</button><button type="button" className="button-secondary" onClick={()=>edit(post)}>Edit</button>{post.status==='published'&&<button type="button" className="button-secondary" onClick={()=>{setCampaignPost(post);setWorkspaceTab('emails')}}><MdSend/> Email Patients</button>}<button type="button" className="button-secondary" onClick={()=>setMenuPost(menuPost===post.id?null:post.id)} aria-expanded={menuPost===post.id} aria-label={`More actions for ${post.title}`}>More Actions</button></div></div>{menuPost===post.id&&<div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4"><button type="button" disabled={busy} className="button-secondary" onClick={()=>{togglePost(post);setMenuPost(null)}}>{post.status==='published'?'Unpublish':'Publish'}</button><button type="button" className="button-secondary" disabled={!audience?.provider_ready||!['published','scheduled'].includes(post.status)} onClick={()=>{setCampaignPost(post);setWorkspaceTab('emails');setMenuPost(null)}}><MdSend/> Send by Email</button><button type="button" disabled={busy} className="button-secondary text-rose-700" onClick={()=>{removePost(post);setMenuPost(null)}}>Delete</button></div>}</article>)}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="text-sm text-slate-600">{filteredPosts.length?`Showing ${(currentPage-1)*rowsPerPage+1}–${Math.min(currentPage*rowsPerPage,filteredPosts.length)} of ${filteredPosts.length}`:'0 posts'} </p><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" disabled={currentPage===1} onClick={()=>setPostPage(currentPage-1)}>Previous</button>{Array.from({length:totalPages},(_,i)=>i+1).filter(i=>totalPages<=7||i===1||i===totalPages||Math.abs(i-currentPage)<=1).map(i=><button key={i} type="button" onClick={()=>setPostPage(i)} aria-current={i===currentPage?'page':undefined} className={`min-w-10 rounded-lg border px-3 text-sm font-bold ${i===currentPage?'border-slate-900 bg-slate-900 text-white':'border-slate-200 bg-white text-slate-700'}`}>{i}</button>)}<button type="button" className="button-secondary" disabled={currentPage===totalPages} onClick={()=>setPostPage(currentPage+1)}>Next</button></div></div>
     </div>
     {previewPost && <AnnouncementPreview
@@ -245,8 +258,19 @@ const Admin_Announcements = () => {
       onClose={() => setPreviewPost(null)}
     />}
     </>}
+    {workspaceTab==='offers'&&<Admin_Promotions onComposePost={composePromotionPost} onEmailOffer={emailPromotion} />}
     {workspaceTab==='emails'&&<>
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-bold text-slate-900">Email Campaigns</h2><p className="mt-1 text-sm text-slate-500">Only verified patients who agreed to receive marketing emails and visited this branch can be selected. Publishing a post does not send an email.</p><div className="mt-4 flex flex-wrap gap-2"><span className="rounded-xl bg-sky-50 px-3 py-2 text-sm text-sky-800">Patients eligible for email: {audience?.eligible??'Unavailable'}</span><span className={`rounded-xl px-3 py-2 text-sm ${audience?.provider_ready?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800'}`}>Email Service: {audience?.provider_ready?'Ready':'Unavailable'}</span></div></div>
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
+      <label className="form-label block">Choose a published post to email opted-in patients
+        <select className="form-control mt-2" value={campaignPost?.id||''} onChange={e=>setCampaignPost(posts.find(p=>String(p.id)===e.target.value)||null)}>
+          <option value="">Select a published announcement or promotion</option>
+          {posts.filter(p=>p.status==='published').map(p=><option key={p.id} value={p.id}>{p.type==='promotion'?'Offer: ':''}{p.title}</option>)}
+        </select>
+      </label>
+      {!audience?.provider_ready&&<p role="status" className="text-sm text-amber-800">Email sending is unavailable. Check the Resend API key, marketing sender address, unsubscribe secret and public client URL on the server.</p>}
+      {audience?.eligible===0&&<p role="status" className="text-sm text-slate-600">No eligible recipients at this branch. Patients must opt in and verify their email to receive offers.</p>}
+    </div>
     {campaignPost&&<div className="rounded-2xl border border-sky-200 bg-white p-5 space-y-3">
       <h2 className="font-bold">Send Email — {campaignPost.title}</h2>
       <p className="text-sm text-slate-500">Recipients are drawn only from email-verified, marketing-opted-in patients with appointment history in this branch. Selection is frozen for this campaign. Emails are queued and throttled, not sent in a single request.</p>
@@ -263,5 +287,6 @@ const Admin_Announcements = () => {
   </section>
 }
 export default Admin_Announcements
+
 
 

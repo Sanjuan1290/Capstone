@@ -214,7 +214,7 @@ const PatientPortalShell = () => {
               </select>
             </label>}
             <NotificationBell role="patient" />
-            <button onClick={toggleTheme} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
+            <button onClick={toggleTheme} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
               {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
             </button>
             <NavLink data-tour="patient-settings" to="/patient/settings" aria-label={settingsActionCount ? `Settings — ${settingsActionCount} action required` : 'Settings'} className="relative w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
@@ -289,5 +289,6 @@ const PatientLayout = () => {
 }
 
 export default PatientLayout
+
 
 

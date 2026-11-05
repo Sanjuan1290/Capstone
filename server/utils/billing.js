@@ -516,6 +516,7 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
        a.clinic_type,
        a.promotion_id, a.promotion_title_snapshot, a.promotion_terms_snapshot,
        a.promotion_badge_snapshot, a.promotion_selected_for_service_id,
+       a.promotion_discount_type_snapshot,a.promotion_discount_value_snapshot,a.promotion_discount_amount_snapshot,a.requested_service_price_snapshot,
        DATE_FORMAT(a.promotion_starts_on_snapshot,'%Y-%m-%d') AS promotion_starts_on_snapshot,
        DATE_FORMAT(a.promotion_ends_on_snapshot,'%Y-%m-%d') AS promotion_ends_on_snapshot,
        DATE_FORMAT(a.promotion_selected_at,'%Y-%m-%d %H:%i:%s') AS promotion_selected_at,
@@ -606,7 +607,12 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
       ends_on_at_booking: records[0].promotion_ends_on_snapshot,
       service_id: records[0].promotion_selected_for_service_id,
       selected_at: records[0].promotion_selected_at,
-      status: 'patient_selected_not_automatically_applied',
+      discount_type:records[0].promotion_discount_type_snapshot,
+      discount_value:Number(records[0].promotion_discount_value_snapshot||0),
+      discount_amount:Number(records[0].promotion_discount_amount_snapshot||0),
+      applied_discount_amount:Number(records[0].promotion_discount_amount||0),
+      base_price_at_booking:records[0].requested_service_price_snapshot==null?null:Number(records[0].requested_service_price_snapshot),
+      status:Number(records[0].promotion_discount_amount||0)>0?'applied':'informational',
     } : null,
     paid_amount: paidAmount,
     balance_amount: balanceAmount,
@@ -770,10 +776,19 @@ const upsertDraftBillingForAppointment = async ({
   const branchId = Number(appointment?.branch_id)
   if (!Number.isSafeInteger(branchId) || branchId <= 0) throw Object.assign(new Error('Appointment branch required to create a bill.'), { statusCode: 403, code: 'BRANCH_REQUIRED' })
   const normalizedItems = await normalizeBillingItems(consultationItems, executor, branchId)
-  const totals = computeBillingTotals({ items: normalizedItems, discount_amount: 0 })
+  const {money}=require('./promotionPricing')
+  const selectedService=Number(appointment?.promotion_selected_for_service_id||0)
+  // Only the selected, consultation-owned service can receive this promotion.
+  // Unrelated services, added supplies and custom charges retain their full price.
+  const eligibleLines=normalizedItems.filter(item=>item.item_type==='service' &&
+    item.source_type==='consultation' && Number(item.catalog_service_id)===selectedService)
+  const eligibleTotal=money(eligibleLines.reduce((sum,item)=>sum+Number(item.line_total||0),0))
+  const promotionDiscount=eligibleLines.length ? Math.min(eligibleTotal,
+    Math.max(0,Number(appointment?.promotion_discount_amount_snapshot||0))) : 0
+  const totals = computeBillingTotals({ items: normalizedItems, discount_amount:promotionDiscount })
 
   const [existingRows] = await executor.query(
-    'SELECT id, branch_id, status, discount_type, discount_label, discount_amount, payment_method, payment_notes, confirmed_by_staff_id, paid_at FROM billing_records WHERE appointment_id = ? AND branch_id = ? LIMIT 1',
+    'SELECT id, branch_id, status, discount_type, discount_label, discount_amount,promotion_discount_amount, payment_method, payment_notes, confirmed_by_staff_id, paid_at FROM billing_records WHERE appointment_id = ? AND branch_id = ? LIMIT 1',
     [appointment.id, branchId]
   )
 
@@ -785,14 +800,15 @@ const upsertDraftBillingForAppointment = async ({
 
     const computed = computeBillingTotals({
       items: normalizedItems,
-      discount_amount: existing.discount_amount,
+      // Preserve additional manual/courtesy discounts while keeping the saved promotion component in sync.
+      discount_amount: money(Math.max(0,Number(existing.discount_amount||0)-Number(existing.promotion_discount_amount||0))+promotionDiscount),
     })
 
     await executor.query(
       `UPDATE billing_records
-       SET consultation_id = ?, subtotal = ?, total_amount = ?
+       SET consultation_id = ?, subtotal = ?, discount_amount=?,promotion_discount_amount=?,total_amount = ?
        WHERE id = ? AND branch_id = ?`,
-      [consultationId, computed.subtotal, computed.total_amount, existing.id, branchId]
+      [consultationId, computed.subtotal,computed.discount_amount,promotionDiscount, computed.total_amount, existing.id, branchId]
     )
 
     await saveBillingItems(existing.id, normalizedItems, executor)
@@ -801,8 +817,8 @@ const upsertDraftBillingForAppointment = async ({
 
   const [result] = await executor.query(
     `INSERT INTO billing_records
-     (appointment_id, consultation_id, patient_id, doctor_id, branch_id, status, subtotal, discount_type, discount_amount, total_amount)
-     VALUES (?, ?, ?, ?, ?, 'draft', ?, 'none', 0.00, ?)`,
+     (appointment_id, consultation_id, patient_id, doctor_id, branch_id, status, subtotal, discount_type,discount_label, discount_amount,promotion_discount_amount,total_amount)
+     VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)`,
     [
       appointment.id,
       consultationId,
@@ -810,6 +826,9 @@ const upsertDraftBillingForAppointment = async ({
       appointment.doctor_id,
       branchId,
       totals.subtotal,
+      promotionDiscount>0?'promotion':'none',
+      promotionDiscount>0?String(appointment?.promotion_title_snapshot||'Promotion'):null,
+      promotionDiscount,promotionDiscount,
       totals.total_amount,
     ]
   )
@@ -864,4 +883,5 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
+
 

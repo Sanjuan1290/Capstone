@@ -33,7 +33,7 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(read('client/src/pages/auth/Patient/PatientRegister.jsx')).toContain('name="receive_promotions"')
     expect(read('server/controllers/patient.controller.js')).toContain('receive_promotions: normalizedProfile.receive_promotions ? 1 : 0')
   })
-  it('integrates the promo lifecycle without automatically discounting bills',async()=>{
+  it('integrates the promotion lifecycle, pricing snapshots and email opt-in',async()=>{
     const schema=read('server/utils/schema.js'), admin=read('server/routers/admin.router.js'), patient=read('server/routers/patient.router.js')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS clinic_promotions')
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS clinic_promotion_services')
@@ -43,7 +43,7 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(admin).toContain("router.post('/promotions'")
     expect(admin).toContain("router.put('/promotions/:id'")
     expect(patient).toContain("router.get('/promotions'")
-    expect(read('client/src/pages/adminPage/Admin_Promotions.jsx')).toContain("Offers do not automatically reduce a patient's bill.")
+    expect(read('client/src/pages/adminPage/Admin_Promotions.jsx')).toContain('Discount type')
     expect(read('client/src/pages/patientPage/BookAppointment.jsx')).toContain('eligibleBookingPromotions(promotions,')
     // Verify the current patient-facing promo contract, not the old section copy.
     const dashboard=read('client/src/pages/patientPage/PatientDashboard.jsx')
@@ -75,5 +75,6 @@ describe('October 2026 booking, no-show and promotions workflow',()=>{
     expect(read('client/src/index.css')).toContain('.form-control.pl-10 { padding-left: 2.5rem; }')
   })
 })
+
 
 

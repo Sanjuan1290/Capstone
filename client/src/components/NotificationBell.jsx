@@ -254,7 +254,7 @@ const NotificationBell = ({ role }) => {
   )
 
   return (
-    <div className="relative">
+    <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
       <button
         ref={triggerRef}
         type="button"
@@ -263,9 +263,9 @@ const NotificationBell = ({ role }) => {
         aria-expanded={open}
         aria-controls={panelId}
         aria-haspopup="dialog"
-        className="relative h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+        className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
       >
-        <MdNotifications aria-hidden="true" className="mx-auto text-[18px]" />
+        <MdNotifications aria-hidden="true" className="block shrink-0 text-[18px]" />
         {unread > 0 && (
           <span aria-hidden="true" className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
             {unread}
@@ -278,3 +278,4 @@ const NotificationBell = ({ role }) => {
 }
 
 export default NotificationBell
+

@@ -1,6 +1,7 @@
-// Service-targeted patient-facing promotions. These do not change billing totals.
+// Patient-facing, service-linked promotions with server-validated discount rules.
 const db = require('../db/connect')
 const { getTodayDateOnly } = require('../utils/date')
+const {validRule}=require('../utils/promotionPricing')
 const { writeAuditLog } = require('../utils/audit')
 const { createNotification } = require('../utils/notifications')
 
@@ -16,7 +17,7 @@ const grouped = (promotions, linked) => promotions.map(promo => ({
 }))
 
 const listAllPromotions = async (req, res) => {
-  const [promotions] = await db.query("SELECT id, title, description, badge_text, DATE_FORMAT(starts_on, '%Y-%m-%d') AS starts_on, DATE_FORMAT(ends_on, '%Y-%m-%d') AS ends_on, is_active, show_on_dashboard, created_at FROM clinic_promotions ORDER BY created_at DESC, id DESC")
+  const [promotions] = await db.query("SELECT id, title, description, badge_text, discount_type,discount_value, DATE_FORMAT(starts_on, '%Y-%m-%d') AS starts_on, DATE_FORMAT(ends_on, '%Y-%m-%d') AS ends_on, is_active, show_on_dashboard, created_at FROM clinic_promotions ORDER BY created_at DESC, id DESC")
   const [linked] = await db.query('SELECT promotion_id, service_id FROM clinic_promotion_services')
   res.json(grouped(promotions, linked))
 }
@@ -28,7 +29,7 @@ const readCurrentPromotions = async (branchId = null) => {
   const scope = branchId ? ' AND p.branch_id=?' : ''
   const params = branchId ? [branchId] : []
   const [rows] = await db.query(`
-    SELECT p.id,p.title,p.description,p.badge_text,p.branch_id,cb.name AS branch_name,
+    SELECT p.id,p.title,p.description,p.badge_text,p.discount_type,p.discount_value,p.branch_id,cb.name AS branch_name,
            DATE_FORMAT(p.starts_on,'%Y-%m-%d') AS starts_on,
            DATE_FORMAT(p.ends_on,'%Y-%m-%d') AS ends_on,
            p.show_on_dashboard,p.image_url,p.featured_order,ps.service_id
@@ -43,7 +44,7 @@ const readCurrentPromotions = async (branchId = null) => {
   const promos = new Map()
   for (const row of rows) {
     if (!promos.has(row.id)) promos.set(row.id, {
-      id:row.id, title:row.title, description:row.description, badge_text:row.badge_text,
+      id:row.id, title:row.title, description:row.description, badge_text:row.badge_text, discount_type:row.discount_type,discount_value:Number(row.discount_value||0),
       branch_id:row.branch_id, branch_name:row.branch_name, starts_on:row.starts_on,
       ends_on:row.ends_on, is_active:true, show_on_dashboard:Boolean(row.show_on_dashboard),
       image_url:row.image_url, featured_order:Number(row.featured_order||0), service_ids:[],
@@ -72,11 +73,14 @@ const validate = (body) => {
   if (!isDate(starts_on) || !isDate(ends_on) || starts_on > ends_on) throw Object.assign(new Error('Enter a valid start and end date.'), {status: 400})
   const ids = body.service_ids
   if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some(id => !Number.isSafeInteger(Number(id)) || Number(id) <= 0)) throw Object.assign(new Error('Select at least one valid service.'), {status: 400})
+  const discount_type=String(body.discount_type||'none')
+  const discount_value=Number(body.discount_value||0)
+  if(!validRule(discount_type,discount_value)) throw Object.assign(new Error('Enter a valid discount rule.'),{status:400})
   const service_ids = [...new Set(ids.map(Number))]
   return { title, description, badge_text: badge_text || null, starts_on, ends_on,
     is_active: body.is_active === true || body.is_active === 1,
     show_on_dashboard: body.show_on_dashboard !== false && body.show_on_dashboard !== 0,
-    service_ids }
+    discount_type,discount_value,service_ids }
 }
 
 const savePromotion = async (req, res) => {
@@ -97,12 +101,12 @@ const savePromotion = async (req, res) => {
     if (id) {
       const [[found]] = await conn.query('SELECT id FROM clinic_promotions WHERE id = ? FOR UPDATE', [id])
       if (!found) { await conn.rollback(); return res.status(404).json({message:'Promotion not found.'}) }
-      await conn.query(`UPDATE clinic_promotions SET title=?, description=?, badge_text=?, starts_on=?, ends_on=?, is_active=?, show_on_dashboard=? WHERE id=?`,
-        [input.title,input.description,input.badge_text,input.starts_on,input.ends_on,Number(input.is_active),Number(input.show_on_dashboard),id])
+      await conn.query(`UPDATE clinic_promotions SET title=?, description=?, badge_text=?, starts_on=?, ends_on=?, is_active=?, show_on_dashboard=?,discount_type=?,discount_value=? WHERE id=?`,
+        [input.title,input.description,input.badge_text,input.starts_on,input.ends_on,Number(input.is_active),Number(input.show_on_dashboard),input.discount_type,input.discount_value,id])
       await conn.query('DELETE FROM clinic_promotion_services WHERE promotion_id=?',[id])
     } else {
-      const [result] = await conn.query(`INSERT INTO clinic_promotions (title,description,badge_text,starts_on,ends_on,is_active,show_on_dashboard,created_by_admin_id) VALUES (?,?,?,?,?,?,?,?)`,
-        [input.title,input.description,input.badge_text,input.starts_on,input.ends_on,Number(input.is_active),Number(input.show_on_dashboard),req.user.id])
+      const [result] = await conn.query(`INSERT INTO clinic_promotions (title,description,badge_text,starts_on,ends_on,is_active,show_on_dashboard,created_by_admin_id,discount_type,discount_value) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [input.title,input.description,input.badge_text,input.starts_on,input.ends_on,Number(input.is_active),Number(input.show_on_dashboard),req.user.id,input.discount_type,input.discount_value])
       savedId = result.insertId
     }
     for (const serviceId of input.service_ids) await conn.query('INSERT INTO clinic_promotion_services (promotion_id,service_id) VALUES (?,?)', [savedId, serviceId])
@@ -166,3 +170,4 @@ const notifyOptedInPatients = async (req, res) => {
 }
 
 module.exports = { listAllPromotions, getActivePromotions, getPublicPromotions, savePromotion, deletePromotion, notifyOptedInPatients }
+

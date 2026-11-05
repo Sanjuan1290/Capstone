@@ -1,3 +1,4 @@
+import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'
 import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'
 import { usePatientBranch } from '../../context/PatientBranchContext'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
@@ -343,6 +344,8 @@ export const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadi
 // ── Step 4: Visit details, eligible offers, and final review ─────────────────
 const StepReview = ({ form, branchName, promotions, selectedPromotionId, onPromotionChange, reasonOptions, loadingReasons, onReasonChange, onReasonDetailsChange, onNotesChange, policyAccepted, onPolicyAcceptedChange }) => {
   const applicable = eligibleBookingPromotions(promotions, {branchId:form.branchId,serviceId:form.service?.id,date:form.date})
+  const chosen=applicable.find(p=>Number(p.id)===Number(selectedPromotionId))
+  const quote=promotionQuote(form.service?.default_price,chosen)
   const policyUrl = buildBookingPolicyUrl({
     branchId: form.branchId,
     clinicType: form.clinicType,
@@ -362,7 +365,8 @@ const StepReview = ({ form, branchName, promotions, selectedPromotionId, onPromo
     </div>
     {applicable.length > 0 && <fieldset className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
       <legend className="px-1 text-base font-bold text-amber-900">Available offers (optional)</legend>
-      <p className="mb-3 text-sm text-amber-900">The clinic checks offer eligibility at checkout. Selecting an offer does not automatically reduce your bill.</p>
+      <p className="mb-3 text-sm text-amber-900">Choose an offer for this appointment date. The service discount is applied automatically when the booked service is billed.</p>
+      {quote?.discount>0 && <p className="mb-3 rounded-xl bg-white p-3 text-sm"><span className="line-through text-slate-500">{peso(quote.original)}</span> <strong className="ml-2 text-emerald-700">{peso(quote.current)}</strong> · Save {peso(quote.discount)}</p>}
       {[null,...applicable].map(promo=><label key={promo?.id || 'none'} className="mb-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-white p-3 text-sm">
         <input type="radio" className="mt-1 h-4 w-4 accent-emerald-700" name="booking_promotion" checked={String(selectedPromotionId||'')===String(promo?.id||'')} onChange={()=>onPromotionChange(promo?.id || null)} />
         <span><strong className="block text-slate-900">{promo?.title || 'No offer'}</strong>{promo && <span className="mt-1 block text-slate-600">{promo.description} · Valid through {promo.ends_on}</span>}</span>
@@ -574,13 +578,13 @@ const BookAppointment = () => {
   useEffect(() => {setPromotions([]);setSelectedPromotionId(null);void loadPromotions();return ()=>{promotionsRequestId.current+=1}}, [branchId])
   useEffect(()=>{
     if(!form.service){setSelectedPromotionId(null);return}
-    const applicable=promotions.filter(p=>Number(p.branch_id)===Number(branchId) && Array.isArray(p.service_ids) && p.service_ids.includes(Number(form.service.id)))
+    const applicable=promotions.filter(p=>Number(p.branch_id)===Number(branchId) && Array.isArray(p.service_ids) && p.service_ids.includes(Number(form.service.id)) && (!form.date||(form.date>=p.starts_on && form.date<=p.ends_on)))
     setSelectedPromotionId(current=>{
       if(current && applicable.some(p=>Number(p.id)===Number(current)))return current
       if(!linkedPromotionConsumed.current && linkedPromotionId && applicable.some(p=>Number(p.id)===linkedPromotionId)){linkedPromotionConsumed.current=true;return linkedPromotionId}
-      return null
+      return applicable.find(p=>['percentage','fixed'].includes(p.discount_type))?.id||null
     })
-  },[form.service?.id,branchId,promotions])
+  },[form.service?.id,form.date,branchId,promotions])
   useEffect(()=>{
     if(!form.date || !selectedPromotionId)return
     const offer=promotions.find(p=>Number(p.id)===Number(selectedPromotionId))
@@ -909,6 +913,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 
