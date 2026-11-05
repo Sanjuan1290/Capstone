@@ -101,7 +101,7 @@ const buildDoctorAvailabilitySummary = async ({ clinicType = '', startDate, days
       for (const slot of slots) {
         if (slot.available && !nextAvailable) nextAvailable = { date, time: slot.time }
       }
-      availability.push({ date, unavailable_reason: block?.reason || null, slots })
+      availability.push({ date, is_blocked:Boolean(block), unavailable_reason: block ? (block.reason || 'Doctor is unavailable on this date.') : null, slots })
     }
 
     return {
@@ -135,6 +135,10 @@ const buildWalkInDoctorAvailability = async ({ clinicType = '', branchId } = {},
 
   const doctorIds = doctors.map((doctor) => Number(doctor.id))
   const placeholders = doctorIds.map(() => '?').join(',')
+  const [acceptanceRows] = await executor.query(
+    `SELECT doctor_id,accepting_walk_ins FROM doctor_branch_assignments
+     WHERE branch_id=? AND is_active=1 AND doctor_id IN (${placeholders})`,[branchId,...doctorIds])
+  const acceptingMap = new Map(acceptanceRows.map(row=>[Number(row.doctor_id), Number(row.accepting_walk_ins)===1]))
   const [queueRows] = await executor.query(
     `SELECT doctor_id, COUNT(*) AS active_queue_count
      FROM queue
@@ -153,9 +157,11 @@ const buildWalkInDoctorAvailability = async ({ clinicType = '', branchId } = {},
     const day = doctor.availability?.[0] || { slots: [] }
     const segments = getCalendarDateScheduleSegments(today, doctor.weekly_schedule || [])
     const currentSegment = segments.find((segment) => currentMinutes >= segment.start && currentMinutes < segment.end) || null
-    const onDutyNow = Boolean(currentSegment) && !day.unavailable_reason
+    const onDutyNow = Boolean(currentSegment) && !day.is_blocked
+    // Scheduled-booking slots are NOT a precondition for receiving a walk-in.
     const openSlots = (day.slots || []).filter((slot) => slot.available)
     const nextAvailable = openSlots[0]?.time || null
+    const acceptingWalkIns = acceptingMap.get(Number(doctor.id)) === true
     const is24Hours = Boolean(currentSegment && Number(currentSegment.schedule?.is_24_hours || 0) === 1)
     const scheduleLabel = currentSegment
       ? (is24Hours
@@ -164,9 +170,9 @@ const buildWalkInDoctorAvailability = async ({ clinicType = '', branchId } = {},
       : null
 
     let availabilityReason = null
-    if (day.unavailable_reason) availabilityReason = day.unavailable_reason
+    if (day.is_blocked) availabilityReason = day.unavailable_reason || 'Doctor is unavailable on this date.'
     else if (!onDutyNow) availabilityReason = 'Not currently on duty.'
-    else if (!nextAvailable) availabilityReason = 'No remaining open appointment slots today.'
+    else if (!acceptingWalkIns) availabilityReason = 'Doctor is not accepting walk-ins.'
 
     return {
       id: doctor.id,
@@ -175,7 +181,8 @@ const buildWalkInDoctorAvailability = async ({ clinicType = '', branchId } = {},
       specialty: doctor.specialty,
       clinic_type: doctor.clinic_type,
       on_duty_now: onDutyNow,
-      available_now: onDutyNow && Boolean(nextAvailable),
+      accepting_walk_ins: acceptingWalkIns,
+      available_now: onDutyNow && acceptingWalkIns,
       availability_reason: availabilityReason,
       current_schedule: scheduleLabel,
       next_available_slot: nextAvailable,
@@ -199,4 +206,5 @@ module.exports = {
   buildWalkInDoctorAvailability,
   formatSlotLabel,
 }
+
 

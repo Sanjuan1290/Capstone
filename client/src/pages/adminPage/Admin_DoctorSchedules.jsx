@@ -4,6 +4,8 @@ import {
   deleteDoctorUnavailableDate,
   getDoctors,
   getDoctorSchedules,
+  getDoctorWalkInAcceptance,
+  setDoctorWalkInAcceptance,
   getDoctorUnavailableDates,
   saveDaySchedule,
   saveDoctorUnavailableDate,
@@ -15,6 +17,7 @@ import {
 } from 'react-icons/md'
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 import ScheduleDayCard from '../../components/schedule/ScheduleDayCard'
+import WalkInAcceptanceToggle from '../../components/schedule/WalkInAcceptanceToggle'
 
 const isDermaDoctor = (doctor) => (doctor?.clinic_type || doctor?.type) === 'derma'
 
@@ -339,6 +342,8 @@ const Admin_DoctorSchedules = () => {
         )
       )}
 
+      {selected && !schedLoading && <WalkInAcceptanceToggle key={selected.id} doctorId={selected.id} load={()=>getDoctorWalkInAcceptance(selected.id)} save={accepting=>setDoctorWalkInAcceptance(selected.id,accepting)}/>}
+
       {selected && !schedLoading && (
         <UnavailableDatesPanel
           doctorId={selected.id}
@@ -359,4 +364,5 @@ const Admin_DoctorSchedules = () => {
 }
 
 export default Admin_DoctorSchedules
+
 

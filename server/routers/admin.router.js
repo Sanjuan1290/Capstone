@@ -37,11 +37,12 @@ router.post('/security/password/change', ...accountAuth, otpVerifyLimiter, commo
 router.post('/security/recovery-phone/request', ...accountAuth, otpRequestLimiter, commonCtrl.requestMyRecoveryPhoneCode)
 router.post('/security/recovery-phone/verify', ...accountAuth, otpVerifyLimiter, commonCtrl.verifyMyRecoveryPhoneCode)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
-router.get('/notifications/:id/destination', ...auth, commonCtrl.resolveNotificationDestination)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
 router.get('/settings', ...accountAuth, commonCtrl.getMySettings)
 router.put('/settings', ...accountAuth, commonCtrl.saveMySettings)
+router.put('/settings/profile-photo', ...accountAuth, commonCtrl.saveMyProfilePhoto)
+router.delete('/settings/profile-photo', ...accountAuth, commonCtrl.removeMyProfilePhoto)
 router.post('/settings/verification/request', ...accountAuth, otpRequestLimiter, commonCtrl.requestMySettingsVerification)
 router.post('/settings/verification/confirm', ...accountAuth, otpVerifyLimiter, commonCtrl.confirmMySettingsVerification)
 router.get('/landing-page', ...auth, commonCtrl.getAdminLandingPage)
@@ -133,7 +134,6 @@ router.post('/billing/payment-settings/upload-status', ...auth, adminCtrl.getPay
 router.post('/billing/discount-proof/upload', ...auth, express.raw({ type: ['image/png', 'image/jpeg'], limit: '5mb' }), adminCtrl.uploadDiscountProofImageAdmin)
 router.post('/billing/discount-proof/upload-status', ...auth, adminCtrl.getDiscountProofUploadScanStatusAdmin)
 router.put('/billing/payment-settings', ...auth, adminCtrl.updatePaymentSettingsAdmin)
-router.get('/billing/:id/history', ...auth, require('../controllers/billingHistory.controller').getHistory)
 router.get('/billing/:id', ...auth, staffCtrl.getBillById)
 router.put('/billing/:id', ...auth, staffCtrl.updateBill)
 router.get('/billing/:id/finalize-preview', ...auth, staffCtrl.getFinalizePreview)
@@ -197,6 +197,7 @@ router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
 
 
 module.exports = router
+
 
 
 

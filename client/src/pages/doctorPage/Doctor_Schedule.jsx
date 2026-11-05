@@ -12,6 +12,8 @@ import {
 } from 'react-icons/md'
 import { formatDateOnly, getLocalDateOnly } from '../../utils/date'
 import ScheduleDayCard from '../../components/schedule/ScheduleDayCard'
+import WalkInAcceptanceToggle from '../../components/schedule/WalkInAcceptanceToggle'
+import {getMyWalkInAcceptance,setMyWalkInAcceptance} from '../../services/doctor.service'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -228,6 +230,7 @@ const Doctor_Schedule = () => {
         )}
       </div>
 
+      <WalkInAcceptanceToggle doctorId="self" load={getMyWalkInAcceptance} save={setMyWalkInAcceptance}/>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {DAYS.map((day) => (
           <ScheduleDayCard
@@ -249,4 +252,5 @@ const Doctor_Schedule = () => {
 }
 
 export default Doctor_Schedule
+
 

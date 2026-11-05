@@ -1,6 +1,4 @@
-import DoctorChargeReductionPanel from '../../components/billing/DoctorChargeReductionPanel'
-import { supplyPrecision, supplyQuantityError } from '../../utils/supplyQuantity.mjs'
-import { consultationPriceBreakdown } from '../../utils/consultationPricing.mjs'
+import { estimateConsultationServicePrice } from '../../utils/consultationPricing.mjs'
 import { restoreConsultationServicesFromBilling, supplyReasonStatus } from '../../utils/consultationSupplyReason.mjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -254,6 +252,7 @@ const Doctor_Consultation = () => {
   const [inventoryItems, setInventoryItems] = useState([])
   const [billingCatalog, setBillingCatalog] = useState([])
   const [billableServices, setBillableServices] = useState([])
+  const [newConsultationServiceId,setNewConsultationServiceId] = useState('')
   const [clinicSettings, setClinicSettings] = useState(null)
   const [uploadingIndex, setUploadingIndex] = useState(null)
   const [imageUploadStatus, setImageUploadStatus] = useState({})
@@ -430,6 +429,7 @@ const Doctor_Consultation = () => {
     setPatientHistory([])
     setAmendments([])
     setBillableServices([])
+    setNewConsultationServiceId('')
     setConsultationStatus('draft')
     setLastSavedAt(null)
     setAutoSaveError('')
@@ -456,7 +456,6 @@ const Doctor_Consultation = () => {
             requested_service_id: consult.requested_service_id,
             requested_service_name_snapshot: consult.requested_service_name_snapshot,
             requested_service_price_snapshot: consult.requested_service_price_snapshot,
-            promotion_discount_amount_snapshot: Number(consult.billing?.promotion_discount_amount ?? consult.promotion_discount_amount_snapshot ?? 0),
             time: consult.time,
             type: consult.type,
             status: (consult.status || 'finalized') === 'finalized' ? 'completed' : 'in-progress',
@@ -783,10 +782,28 @@ const Doctor_Consultation = () => {
     setBillableServices(prev=>prev.map(service=>Number(service.catalog_service_id)===Number(serviceId)
       ? {...service,materials:(service.materials||[]).filter((_,i)=>i!==materialIndex)} : service))
   }
+  const addPerformedService = () => {
+    if (isEditMode || !newConsultationServiceId) return
+    const service = billingCatalog.find(row => Number(row.id)===Number(newConsultationServiceId))
+    if (!service || billableServices.some(row => Number(row.catalog_service_id)===Number(service.id))) return
+    setBillableServices(prev=>[...prev,{
+      catalog_service_id:service.id,service_name:service.service_name,quantity:1,
+      materials:(service.materials||[]).map(material=>({
+        inventory_id:material.inventory_id,material_name:material.material_name||material.inventory_name,
+        quantity:Number(material.quantity||0),unit_label:material.inventory_base_unit||material.unit_label||material.inventory_unit||'',
+      })),
+    }])
+    setNewConsultationServiceId('')
+  }
+  const removePerformedService = serviceId => {
+    if(isEditMode || Number(appt?.requested_service_id)===Number(serviceId))return
+    setBillableServices(prev=>prev.filter(row=>Number(row.catalog_service_id)!==Number(serviceId)))
+  }
+
   const updateServiceMaterial = (serviceId, materialIndex, quantity) => {
     if (isEditMode) return
     setBillableServices((prev) => prev.map((service) => Number(service.catalog_service_id) === Number(serviceId)
-      ? { ...service, materials: (service.materials || []).map((material, index) => index === materialIndex ? { ...material, quantity: quantity === '' ? '' : Number(quantity) } : material) }
+      ? { ...service, materials: (service.materials || []).map((material, index) => index === materialIndex ? { ...material, quantity: Math.max(0, Number(quantity) || 0) } : material) }
       : service))
   }
 
@@ -832,8 +849,8 @@ const Doctor_Consultation = () => {
   const addExtraConsumable = () => {
     if (isEditMode || !extraConsumableSelected || (!extraConsumableTarget && !replacementTarget)) return
     const quantity = Math.max(0, Number(extraConsumableQuantity) || 0)
-    if (supplyQuantityError(extraConsumableQuantity, extraConsumableSelected)) {
-      window.alert(supplyQuantityError(extraConsumableQuantity, extraConsumableSelected))
+    if (quantity <= 0) {
+      window.alert('Enter the additional quantity used for this extra consumable.')
       return
     }
     const reason = extraConsumableReason.trim()
@@ -933,6 +950,11 @@ const Doctor_Consultation = () => {
       window.alert('Add at least one medicine or choose No Prescription before completing the consultation.')
       return
     }
+    if (!billableServices.length) {
+      setTab('consultation')
+      window.alert('Select at least one service actually performed before completing the consultation. A no-charge visit must use an authorized zero-price service from the catalog.')
+      return
+    }
     if (appt?.requested_service_id && !billableServices.some((service) => Number(service.catalog_service_id) === Number(appt.requested_service_id))) {
       setTab('consultation')
       window.alert('The booked service is missing from this consultation. Reload the page before completing the consultation.')
@@ -949,8 +971,6 @@ const Doctor_Consultation = () => {
       })
       return
     }
-    const invalidSupply = billableServices.flatMap(s => s.materials || []).find(m => supplyQuantityError(m.quantity, inventoryItems.find(i => Number(i.id) === Number(m.inventory_id))))
-    if (invalidSupply) { setTab('consultation'); window.alert(`${invalidSupply.material_name}: ${supplyQuantityError(invalidSupply.quantity, inventoryItems.find(i => Number(i.id) === Number(invalidSupply.inventory_id)))}`); return }
     if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct the actual recorded consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
     const isCurrent = captureCurrentConsultation()
     if (!isCurrent()) return
@@ -1329,13 +1349,24 @@ const Doctor_Consultation = () => {
               <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                 <div>
                   <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Supplies Used</h2>
-                  <p className="mt-1 text-xs text-slate-500">Included supplies keep the fixed service price. Extra Supplies add a separate charge at the inventory selling price. Enter a reason for supply changes. No inventory is reserved when an appointment is confirmed. Actual service supplies and any Extra Consumables are stocked out only when you complete the consultation. Prescriptions do not affect inventory.</p>
+                  <p className="mt-1 text-xs text-slate-500">The service setup is your starting list. Replace, remove, or change actual supplies for this patient. Enter a reason for changes. Inventory is deducted only when consultation is completed.</p>
                 </div>
                 {isEditMode && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">Clinical usage locked after completion</span>}
               </div>
 
+              {!isEditMode && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+                <label htmlFor="performed-service-select" className="mb-1 block text-sm font-bold text-slate-800">Add a service performed</label>
+                <p className="mb-3 text-xs text-slate-600">For walk-ins, choose actual services after examining the patient. The bill is generated when this consultation is completed.</p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <select id="performed-service-select" className="form-control min-w-0 flex-1" value={newConsultationServiceId} onChange={event=>setNewConsultationServiceId(event.target.value)}>
+                    <option value="">Select a service from this branch</option>
+                    {billingCatalog.filter(service=>!billableServices.some(row=>Number(row.catalog_service_id)===Number(service.id))).map(service=><option key={service.id} value={service.id}>{service.service_name}</option>)}
+                  </select>
+                  <button type="button" className="button-primary" disabled={!newConsultationServiceId} onClick={addPerformedService}>Add Service</button>
+                </div>
+              </div>}
               {!billableServices.length ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">The booked service could not be loaded. Reload this consultation before completing it.</div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">{appt?.requested_service_id ? 'The booked service could not be loaded. Reload before completing.' : 'No services recorded yet. Select the service or procedure actually performed before completing this walk-in consultation.'}</div>
               ) : (
                 <div className="space-y-4">
                   {billableServices.map((service) => {
@@ -1350,14 +1381,10 @@ const Doctor_Consultation = () => {
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
                                 <p className="font-bold text-slate-800">{service.service_name}</p>
-                                {booked && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">Booked Service</span>}
+                                {booked && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">Booked Service</span>}{!booked && !isEditMode && <button type="button" className="rounded-lg border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-700" onClick={()=>removePerformedService(service.catalog_service_id)}>Remove Service</button>}
                               </div>
                               <p className="mt-0.5 text-xs text-slate-500">{catalogService?.category || 'Clinic service'} · Service quantity {Number(service.quantity || 1)}</p>
-                              {(() => {
-                                const pricing=consultationPriceBreakdown(service,catalogService,inventoryItems,booked?appt:null)
-                                const peso=n=>`₱${n.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`
-                                return pricing ? <div className="mt-1 space-y-1 text-xs text-emerald-900"><p>Service price (included supplies): {peso(pricing.service)}</p>{pricing.promotion>0&&<p>Booked promotion: −{peso(pricing.promotion)}</p>}<p>Separately billable Extra Supplies: {peso(pricing.supplies)}</p><p className="font-bold">Estimated patient charge: {peso(pricing.total)}</p></div> : <p className="mt-1 text-xs text-amber-800">Pricing unavailable</p>
-                              })()}
+                                <p className="mt-1 text-xs font-semibold text-emerald-800">Estimated patient charge: {(() => { const price=estimateConsultationServicePrice(service,catalogService,inventoryItems);return price===null?'Pricing unavailable':`₱${price.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}` })()}</p>
                             </div>
                           </div>
                         </div>
@@ -1365,7 +1392,7 @@ const Doctor_Consultation = () => {
                         <div className="mt-4 border-t border-violet-100 pt-4">
                           <div>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Supplies Actually Used</p>
-                            <p className="mt-1 text-xs text-slate-500">Quantity Used records inventory consumption. Included supplies and substitutions do not change the service price. Use Extra Supplies for separately billable items.</p>
+                            <p className="mt-1 text-xs text-slate-500">Changes here affect only this patient, not the standard service. Select a substitute when the default product was not used.</p>
                           </div>
                           {defaultMaterials.length ? (
                             <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -1387,8 +1414,8 @@ const Doctor_Consultation = () => {
                                     <div className="mt-3">
                                       <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Quantity Used</span>
                                       <div className="mt-1.5 flex items-center gap-2">
-                                        <input type="number" className="form-control h-9 w-24" aria-label={`Quantity Used for ${material.material_name}`} min={supplyPrecision(inv)?0.01:1} step={10**-supplyPrecision(inv)} aria-invalid={Boolean(supplyQuantityError(material.quantity,inv))} disabled={isEditMode} value={material.quantity} onChange={event=>updateServiceMaterial(service.catalog_service_id,materialIndex,event.target.value)}/>
-                                        <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>{supplyQuantityError(material.quantity,inv)&&<span role="alert" className="text-xs text-rose-700">{supplyQuantityError(material.quantity,inv)}</span>}
+                                        <input type="number" className="form-control h-9 w-24" min="0.01" step="0.01" disabled={isEditMode} value={material.quantity} onChange={event=>updateServiceMaterial(service.catalog_service_id,materialIndex,event.target.value)}/>
+                                        <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
                                       </div>
                                     </div>
                                   </div>
@@ -1424,7 +1451,7 @@ const Doctor_Consultation = () => {
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {extraConsumableRows.map(({ material, index: materialIndex }) => {
                           const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id))
-                          const precision = supplyPrecision(inv)
+                          const decimal = Number(inv?.uom_allow_decimal || 0) === 1
                           return (
                             <div key={`extra-${material.inventory_id || material.material_name}-${materialIndex}`} className="rounded-xl border border-amber-200 bg-white p-3">
                               <div className="flex items-start justify-between gap-2">
@@ -1437,8 +1464,8 @@ const Doctor_Consultation = () => {
                               <label className="mt-3 block">
                                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Additional Quantity Used</span>
                                 <div className="mt-1.5 flex items-center gap-2">
-                                  <input type="number" inputMode="decimal" aria-label={`Quantity Used for ${material.material_name}`} aria-invalid={Boolean(supplyQuantityError(material.quantity,inv))} min={precision?0.01:1} step={10**-precision} disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(extraConsumableTarget.catalog_service_id, materialIndex, e.target.value)} className="form-control h-9" />
-                                  <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>{supplyQuantityError(material.quantity,inv)&&<span role="alert" className="text-xs text-rose-700">{supplyQuantityError(material.quantity,inv)}</span>}
+                                  <input type="number" inputMode="decimal" min="0" step={decimal ? 0.01 : 1} disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(extraConsumableTarget.catalog_service_id, materialIndex, Math.max(0, Number(e.target.value) || 0))} className="form-control h-9" />
+                                  <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
                                 </div>
                               </label>
                             </div>
@@ -1746,7 +1773,6 @@ const Doctor_Consultation = () => {
         />
       )}
 
-      {appt?.id && <DoctorChargeReductionPanel key={appt.id} appointmentId={appt.id} services={billableServices} ensureSaved={()=>persistDraft({force:true})} revision={lastSavedAt} completed={consultationStatus==='finalized'} />}
       <Modal
         open={extraConsumableOpen}
         onClose={() => {
@@ -1800,7 +1826,7 @@ const Doctor_Consultation = () => {
                   type="number"
                   inputMode="decimal"
                   min="0"
-                  step={10**-supplyPrecision(extraConsumableSelected)}
+                  step={Number(extraConsumableSelected.uom_allow_decimal || 0) === 1 ? 0.01 : 1}
                   className="form-control"
                   value={extraConsumableQuantity}
                   onChange={(e) => setExtraConsumableQuantity(e.target.value)}
@@ -1865,6 +1891,7 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+
 
 
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MdBusiness, MdCloudUpload, MdEdit, MdPhoneAndroid, MdSave, MdVerifiedUser, MdWarningAmber } from 'react-icons/md'
+import { MdBusiness, MdCloudUpload, MdDeleteOutline, MdEdit, MdPhoneAndroid, MdSave, MdVerifiedUser, MdWarningAmber } from 'react-icons/md'
 import PhilippinePhoneInput, { formatPhilippinePhone } from '../../components/ui/PhilippinePhoneInput'
 import Modal from '../../components/ui/Modal'
 import {
@@ -11,6 +11,8 @@ import {
   requestPatientPhoneChangeCode,
   updateSettings,
   uploadToCloudinary,
+  saveProfilePhoto,
+  removeProfilePhoto,
 } from '../../services/portal.service'
 import { doctorClinicLabel } from '../../utils/doctor'
 import { getClinicSettings, updateClinicSettings } from '../../services/admin.service'
@@ -35,6 +37,9 @@ const SettingsPage = () => {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [pendingPhoto,setPendingPhoto] = useState(null)
+  const [removePhotoOpen,setRemovePhotoOpen] = useState(false)
+  const [photoMessage,setPhotoMessage] = useState('')
   const [error, setError] = useState('')
   const [birthdateError, setBirthdateError] = useState('')
   const [phoneModalOpen, setPhoneModalOpen] = useState(false)
@@ -102,17 +107,37 @@ const SettingsPage = () => {
     }
   }
 
-  const handleUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
+  useEffect(()=>()=>{if(pendingPhoto?.preview)URL.revokeObjectURL(pendingPhoto.preview)},[pendingPhoto])
+
+  const handleUpload = (e) => {
+    const file=e.target.files?.[0];e.target.value=''
+    if(!file)return
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size===0 || file.size>5*1024*1024) {
+      setError('Choose a JPG, PNG or WebP photo smaller than 5 MB.');return
+    }
+    setError('');setPhotoMessage('');setPendingPhoto({file,preview:URL.createObjectURL(file)})
+  }
+  const savePendingPhoto = async () => {
+    if(!pendingPhoto || uploading)return
+    setUploading(true);setError('');setPhotoMessage('')
     try {
-      const url = await uploadToCloudinary(file)
-      setForm((prev) => ({ ...prev, profile_image_url: url }))
-      const saved = await updateSettings(role, { ...form, profile_image_url: url })
-      setForm(saved); setOriginal(saved); setUser((prev) => prev ? { ...prev, ...saved, role } : prev)
-    } catch (err) { setError(err.message) }
-    finally { setUploading(false) }
+      const url=await uploadToCloudinary(pendingPhoto.file)
+      const saved=await saveProfilePhoto(role,url)
+      setForm(prev=>({...prev,profile_image_url:saved.profile_image_url}))
+      setOriginal(prev=>({...prev,profile_image_url:saved.profile_image_url}))
+      setUser(prev=>prev?{...prev,profile_image_url:saved.profile_image_url}:prev)
+      setPendingPhoto(null);setPhotoMessage('Profile photo updated.')
+    }catch(err){setError(err.message||'Profile photo could not be saved.')}finally{setUploading(false)}
+  }
+  const confirmRemovePhoto = async () => {
+    setUploading(true);setError('');setPhotoMessage('')
+    try {
+      const saved=await removeProfilePhoto(role)
+      setForm(prev=>({...prev,profile_image_url:saved.profile_image_url||null}))
+      setOriginal(prev=>({...prev,profile_image_url:saved.profile_image_url||null}))
+      setUser(prev=>prev?{...prev,profile_image_url:null}:prev)
+      setPendingPhoto(null);setRemovePhotoOpen(false);setPhotoMessage('Profile photo removed.')
+    }catch(err){setError(err.message||'Could not remove profile photo.')}finally{setUploading(false)}
   }
 
   const handleSave = async () => {
@@ -248,7 +273,7 @@ const SettingsPage = () => {
   const emailVerified = role === 'patient' && patientEmailIsVerified(form) && !emailChangedInEditor
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6">
+    <div className="mx-auto w-full max-w-4xl space-y-5 pb-8">
       <div><h1 className="text-2xl font-bold text-slate-800">Settings</h1><p className="mt-1 text-sm text-slate-500">Manage account information and security. Appearance is controlled from the header.</p></div>
       {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
       {emailVerifyFeedback && <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{emailVerifyFeedback}</p>}
@@ -267,13 +292,26 @@ const SettingsPage = () => {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        <aside className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6">
-          <div className="flex flex-col items-center gap-3 text-center"><ProfileAvatar user={form} size="lg"/><div><p className="text-lg font-bold text-slate-800">{form.full_name}</p><p className="text-sm text-slate-500">{form.email || formatPhilippinePhone(form.phone)}</p></div></div>
-          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"><MdCloudUpload/>{uploading ? 'Uploading...' : 'Upload Profile Photo'}<input type="file" accept="image/*" className="hidden" onChange={handleUpload}/></label>
-        </aside>
+      <div className="space-y-5">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+          <h2 className="mb-4 text-base font-bold text-slate-900">Profile Picture</h2>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            {pendingPhoto?.preview ? <img src={pendingPhoto.preview} alt="New profile picture preview" className="h-24 w-24 shrink-0 rounded-full border border-slate-200 object-cover"/> : <ProfileAvatar user={form} size="lg"/>}
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="truncate text-base font-bold text-slate-900">{form.full_name}</p>
+              <p className="truncate text-xs text-slate-500">{form.email || formatPhilippinePhone(form.phone)}</p>
+              <p className="text-xs text-slate-500">JPG, PNG or WebP · up to 5 MB. Preview before saving.</p>
+              <div className="flex flex-wrap gap-2">
+                <label className="button-secondary cursor-pointer"><MdCloudUpload/> {form.profile_image_url?'Change Photo':'Upload Photo'}<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={handleUpload} disabled={uploading}/></label>
+                {pendingPhoto && <><button type="button" className="button-primary" disabled={uploading} onClick={savePendingPhoto}>{uploading?'Saving…':'Save Photo'}</button><button type="button" className="button-secondary" disabled={uploading} onClick={()=>setPendingPhoto(null)}>Cancel</button></>}
+                {form.profile_image_url && !pendingPhoto && <button type="button" className="button-secondary text-rose-700" onClick={()=>setRemovePhotoOpen(true)} disabled={uploading}><MdDeleteOutline/> Remove Photo</button>}
+              </div>
+              {photoMessage&&<p role="status" className="text-xs font-medium text-emerald-700">{photoMessage}</p>}
+            </div>
+          </div>
+        </section>
 
-        <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6">
+        <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
           <div className="flex items-start justify-between gap-3"><div><h2 className="text-base font-bold text-slate-900">Personal Information</h2><p className="mt-1 text-xs text-slate-500">Review your information. Click Edit before making changes.</p></div>{!editing && <button className="button-secondary" onClick={() => setEditing(true)}><MdEdit/> Edit</button>}</div>
           {!editing ? (
             <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200">{displayRows.map(([label, value]) => <div key={label} className="grid gap-1 px-4 py-3 sm:grid-cols-[180px_1fr]"><span className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</span><span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-700">{value}{role === 'patient' && label === 'Email' && form.email && <span aria-label={emailVerified ? 'Email verified' : 'Email not verified'} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${emailVerified ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}><MdVerifiedUser aria-hidden="true" />{emailVerified ? 'Verified' : 'Not Verified'}</span>}</span></div>)}</div>
@@ -303,6 +341,9 @@ const SettingsPage = () => {
       <RecoveryPhoneCard role={role} phone={form?.phone} verified={Boolean(form?.phone_verified_at)} onVerified={loadSettings} />
       <section className="rounded-3xl border border-slate-200 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="font-bold text-slate-900">Account Security</h2><p className="mt-1 text-sm text-slate-500">Change your password using current-password verification followed by an email code.</p></div><button type="button" className="button-secondary" onClick={() => navigate(`/${accountRole}/change-password`)}>Change Password</button></div></section>
 
+      <Modal open={removePhotoOpen} onClose={()=>!uploading&&setRemovePhotoOpen(false)} title="Remove Profile Picture" description="Your default avatar will be shown instead. This does not change your personal information." size="sm">
+        <div className="flex justify-end gap-2"><button type="button" className="button-secondary" disabled={uploading} onClick={()=>setRemovePhotoOpen(false)}>Cancel</button><button type="button" className="button-primary" disabled={uploading} onClick={confirmRemovePhoto}>{uploading?'Removing…':'Remove Photo'}</button></div>
+      </Modal>
       <Modal open={adminVerifyOpen} onClose={() => !saving && setAdminVerifyOpen(false)} title="Verify Personal Information" description={adminVerifyStage === 'current_email' ? 'Enter the code sent to your current administrator email.' : 'Enter the second code sent to your new email address.'} size="md">
         <div className="space-y-4">
           <label className="block"><span className="form-label">6-Digit Verification Code</span><input value={adminVerifyCode} onChange={(e)=>setAdminVerifyCode(e.target.value.replace(/\D/g,'').slice(0,6))} inputMode="numeric" maxLength={6} className="form-control mt-1.5 text-center text-xl font-black tracking-[.35em]" /></label>
@@ -334,4 +375,5 @@ const SettingsPage = () => {
 }
 
 export default SettingsPage
+
 

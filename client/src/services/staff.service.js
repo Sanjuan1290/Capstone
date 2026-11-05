@@ -165,7 +165,6 @@ export const reopenBillForEditing = (id, expectedVersion) =>
 export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
-export const getStaffBillChargeAdjustments = (id) => requestJson(`${BASE}/billing/${id}/charge-adjustments`)
 export const requestBillingAdjustment = (id, payload) => requestJson(`${BASE}/billing/${id}/adjustment-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 export const uploadDiscountProofImage = (file, billingId, options = {}) => uploadDiscountProofViaApi({
   file, billingId, ...options,
@@ -228,6 +227,9 @@ export const deleteInventoryItem = (id) =>
 
 export const getDoctors = () =>
   requestJson(`${BASE}/doctors`)
+
+export const getDoctorWalkInAcceptance = (doctorId) => requestJson(`${BASE}/doctors/${doctorId}/walk-ins/acceptance`)
+export const setDoctorWalkInAcceptance = (doctorId, accepting) => requestJson(`${BASE}/doctors/${doctorId}/walk-ins/acceptance`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({accepting_walk_ins:accepting})})
 
 export const getDoctorSchedules = (doctorId) =>
   requestJson(`${BASE}/doctors/${doctorId}/schedules`)

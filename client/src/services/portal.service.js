@@ -21,14 +21,19 @@ const request = async (role, path = '', options = {}) => {
   return data
 }
 
-export const getNotificationDestination = (role, id) => request(role, `/notifications/${id}/destination`)
 export const getNotifications = (role) => request(role, '/notifications')
 export const markNotificationRead = (role, id) => request(role, `/notifications/${id}/read`, { method: 'PATCH' })
 export const readAllNotifications = (role) => request(role, '/notifications/read-all', { method: 'PATCH' })
 export const getSettings = (role) => request(role, '/settings', { headers: {} })
 export const updateSettings = (role, payload) => request(role, '/settings', { method: 'PUT', body: JSON.stringify(payload) })
 
+export const saveProfilePhoto = (role,url) => request(role,'/settings/profile-photo',{method:'PUT',body:JSON.stringify({profile_image_url:url})})
+export const removeProfilePhoto = (role) => request(role,'/settings/profile-photo',{method:'DELETE'})
+
 export const uploadToCloudinary = async (file) => {
+  if (!file || !['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 5*1024*1024 || file.size===0) {
+    throw new Error('Choose a JPG, PNG or WebP photo smaller than 5 MB.')
+  }
   const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
   const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
 
@@ -155,3 +160,4 @@ export const uploadClinicalImageSigned = async (file, appointmentId, { scanMode 
     throw error
   }
 }
+

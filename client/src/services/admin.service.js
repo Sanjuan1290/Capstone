@@ -324,6 +324,9 @@ export const updateDoctor = (id, payload) =>
 export const toggleDoctor = (id) =>
   requestJson(`${getAdminApiBase()}/doctors/${id}/toggle`, { method: 'PATCH' })
 
+export const getDoctorWalkInAcceptance = (doctorId) => requestJson(`${getAdminApiBase()}/doctors/${doctorId}/walk-ins/acceptance`)
+export const setDoctorWalkInAcceptance = (doctorId, accepting) => requestJson(`${getAdminApiBase()}/doctors/${doctorId}/walk-ins/acceptance`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({accepting_walk_ins:accepting})})
+
 export const getDoctorSchedules = (doctorId) =>
   requestJson(`${getAdminApiBase()}/doctors/${doctorId}/schedules`)
 
@@ -534,7 +537,6 @@ export const finalizeAdminCheckoutBill = (id,expectedVersion) => requestJson(`${
 export const reopenAdminCheckoutBill = (id, expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/reopen-for-editing`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
 export const payAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}/pay`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminBillAdjustmentRequests = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/adjustment-requests`)
-export const getAdminBillChargeAdjustments = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/charge-adjustments`)
 export const getAdminDiscountPresets = () => requestJson(`${getAdminApiBase()}/billing/discount-presets`)
 
 export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ clinicType })

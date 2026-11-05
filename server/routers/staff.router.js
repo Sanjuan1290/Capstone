@@ -45,6 +45,13 @@ const mustOwn = (table,field = 'id',param = 'id') => async (req,res,next) => {
 const ownAppointment=mustOwn('appointments')
 const ownBill=mustOwn('billing_records')
 const ownDoctor=mustOwn('doctors')
+const ownAssignedDoctor = async (req,res,next) => {
+  const doctorId=Number(req.params.id)
+  if(!Number.isSafeInteger(doctorId)||doctorId<1)return res.status(400).json({message:'Invalid doctor.'})
+  const [[row]]=await db.query('SELECT doctor_id FROM doctor_branch_assignments WHERE doctor_id=? AND branch_id=? AND is_active=1 LIMIT 1',[doctorId,req.branchId])
+  if(!row)return res.status(404).json({message:'Doctor not assigned to this branch.'})
+  next()
+}
 const readBranchServices=async(req,res)=>res.json(await listBillingCatalog({branchId:req.branchId,clinicType:String(req.query.clinic_type||'').trim()||undefined,includeInactive:String(req.query.include_inactive||'')==='1'}))
 const readBranchDiscounts=async(req,res)=>{const [rows]=await db.query('SELECT * FROM discount_presets WHERE branch_id=? ORDER BY created_at,id',[req.branchId]);res.json(rows)}
 const readBranchPaymentSettings=async(req,res)=>{const [[settings]]=await db.query('SELECT * FROM branch_payment_settings WHERE branch_id=?',[req.branchId]);res.json(settings||{})}
@@ -99,11 +106,12 @@ router.post('/security/password/change', ...auth, otpVerifyLimiter, commonCtrl.c
 router.post('/security/recovery-phone/request', ...auth, otpRequestLimiter, commonCtrl.requestMyRecoveryPhoneCode)
 router.post('/security/recovery-phone/verify', ...auth, otpVerifyLimiter, commonCtrl.verifyMyRecoveryPhoneCode)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
-router.get('/notifications/:id/destination', ...auth, commonCtrl.resolveNotificationDestination)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
 router.get('/settings', ...auth, commonCtrl.getMySettings)
 router.put('/settings', ...auth, commonCtrl.saveMySettings)
+router.put('/settings/profile-photo', ...auth, commonCtrl.saveMyProfilePhoto)
+router.delete('/settings/profile-photo', ...auth, commonCtrl.removeMyProfilePhoto)
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 router.get('/dashboard', ...auth, can('dashboard'), staffCtrl.getDashboard)
@@ -138,14 +146,12 @@ router.get('/billing/discount-presets', ...auth, can('checkout'), staffCtrl.getD
 router.get('/billing/cashier-closing', ...auth, can('checkout'), correctionsCtrl.getMyCashierClosing)
 router.post('/billing/cashier-closing', ...auth, can('checkout'), correctionsCtrl.closeMyCashier)
 const chargeFinance=require('../utils/chargeAdjustments')
-const doFinance=fn=>async(req,res,next)=>{let conn;try{conn=await db.getConnection();await conn.beginTransaction();const out=await fn(req,conn);await conn.commit();if(req.method!=='GET')require('../utils/sse').broadcast(['admin','staff'],'billing_updated',{billingId:Number(req.params.id)},{branchId:req.branchId});res.json(out)}catch(e){if(conn)await conn.rollback().catch(()=>{});if(e.statusCode)return res.status(e.statusCode).json({code:e.code,message:e.message});next(e)}finally{conn?.release()}}
-router.get('/billing/:id/charge-adjustments',...auth,can('checkout'),ownBill,doFinance(async(req,conn)=>({...await chargeFinance.list(conn,Number(req.params.id),req.branchId),actor:{role:'staff',id:req.user.id},can_adjust_directly:false})))
-router.delete('/billing/:id/charge-adjustments/:requestId',...auth,can('checkout'),ownBill,doFinance((req,conn)=>chargeFinance.cancel({billingId:Number(req.params.id),branchId:req.branchId,requestId:Number(req.params.requestId),actorRole:'staff',actorId:req.user.id},conn)))
+const doFinance=fn=>async(req,res,next)=>{let conn;try{conn=await db.getConnection();await conn.beginTransaction();const out=await fn(req,conn);await conn.commit();res.json(out)}catch(e){if(conn)await conn.rollback().catch(()=>{});if(e.statusCode)return res.status(e.statusCode).json({code:e.code,message:e.message});next(e)}finally{conn?.release()}}
+router.get('/billing/:id/charge-adjustments',...auth,can('checkout'),ownBill,doFinance((req,conn)=>chargeFinance.list(conn,Number(req.params.id),req.branchId)))
 router.post('/billing/:id/charge-adjustments',...auth,can('checkout'),ownBill,doFinance(async(req,conn)=>({id:await chargeFinance.request({billingId:Number(req.params.id),branchId:req.branchId,actorRole:'staff',actorId:req.user.id,targetType:req.body?.target_type,serviceId:Number(req.body?.catalog_service_id),inventoryId:Number(req.body?.inventory_id||0),amount:req.body?.amount,reason:req.body?.reason},conn),message:'Discount requested. Administrator approval is required.'})))
 router.get('/billing/:id/adjustment-requests', ...auth, canAny('checkout', 'billing'), ownBill, staffCtrl.getBillingAdjustmentRequests)
 router.post('/billing/:id/adjustment-requests', ...auth, can('checkout'), ownBill, staffCtrl.requestBillingAdjustment)
 router.patch('/billing/:id/adjustment-requests/:requestId/cancel', ...auth, can('checkout'), ownBill, staffCtrl.cancelBillingAdjustmentRequest)
-router.get('/billing/:id/history', ...auth, canAny('checkout','billing'), ownBill, require('../controllers/billingHistory.controller').getHistory)
 router.get('/billing/:id', ...auth, canAny('checkout', 'billing'), ownBill, staffCtrl.getBillById)
 router.put('/billing/:id', ...auth, can('checkout'), ownBill, staffCtrl.updateBill)
 router.get('/billing/:id/finalize-preview', ...auth, can('checkout'), ownBill, staffCtrl.getFinalizePreview)
@@ -173,6 +179,8 @@ router.delete('/inventory/:id',       ...auth, can('inventory'), staffCtrl.delet
 // Doctor availability is required by Appointments; the schedules page also uses it.
 router.get('/doctors', ...auth, canAny('appointments', 'doctor_schedules'), staffCtrl.getDoctors)
 router.get('/walk-in/doctors', ...auth, can('appointments'), staffCtrl.getWalkInDoctors)
+router.get('/doctors/:id/walk-ins/acceptance', ...auth, canAny('appointments','doctor_schedules'), ownAssignedDoctor, require('../utils/walkInAcceptance').handler())
+router.put('/doctors/:id/walk-ins/acceptance', ...auth, can('doctor_schedules'), ownAssignedDoctor, require('../utils/walkInAcceptance').handler({editable:true}))
 router.get('/doctors/:id/schedules', ...auth, canAny('appointments', 'doctor_schedules'), staffCtrl.getDoctorSchedules)
 router.get('/doctors/:id/availability', ...auth, canAny('appointments', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorAvailabilityForStaff)
 router.get('/doctors/:id/unavailable-dates', ...auth, canAny('appointments', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorUnavailableDatesForStaff)
@@ -249,5 +257,6 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), u
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
 
 module.exports = router
+
 
 

@@ -27,10 +27,13 @@ test('switching clinic isolates async service and doctor responses',()=>{
   assert.match(page,/let active = true/)
   assert.match(page,/return \(\) => \{ active = false \}/)
   assert.match(page,/normalizeBookingServiceResults/)
-  assert.match(page,/\.filter\(\(d\) => d\.available_now\)/)
+  assert.match(page,/setWalkInDoctors\(doctors\)/)
+  assert.match(page,/disabled=\{!d\.available_now/)
+  assert.match(page,/d\.availability_reason/)
 })
 test('newly created patient is reused after a failed queue attempt; receipt displays its queue number',()=>{
   assert.match(page,/setCreatedPatientId\(savedPatientId\)/)
   assert.match(page,/success\.receipt\?\.queue_number/)
 })
+
 

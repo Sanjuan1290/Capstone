@@ -57,11 +57,12 @@ router.post('/security/email/request-code', otpRequestLimiter, commonCtrl.reques
 router.post('/security/email/verify', otpVerifyLimiter, commonCtrl.confirmMyEmailVerification)
 router.patch('/onboarding/complete', commonCtrl.completePatientOnboarding)
 router.get('/notifications',                        commonCtrl.listNotifications)
-router.get('/notifications/:id/destination', commonCtrl.resolveNotificationDestination)
 router.patch('/notifications/read-all',             commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read',             commonCtrl.readNotification)
 router.get('/settings',                             commonCtrl.getMySettings)
 router.put('/settings',                             commonCtrl.saveMySettings)
+router.put('/settings/profile-photo', commonCtrl.saveMyProfilePhoto)
+router.delete('/settings/profile-photo', commonCtrl.removeMyProfilePhoto)
 router.get('/profile-status',                       getProfileStatus)
 router.put('/profile-status',                       updateProfile)
 router.get('/appointments',                        getAppointments)
@@ -84,4 +85,5 @@ router.get('/doctors/:id/available-slots',          getDoctorAvailableSlots)
 router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router
+
 

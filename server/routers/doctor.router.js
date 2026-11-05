@@ -17,6 +17,8 @@ const {
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 } = require('../controllers/doctor.controller')
 const commonCtrl = require('../controllers/common.controller')
+const {handler:walkInAcceptanceHandler}=require('../utils/walkInAcceptance')
+const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 
 // ── Public ────────────────────────────────────────────────────────────────────
 router.post('/login',     loginLimiter, login)
@@ -36,11 +38,12 @@ router.post('/security/recovery-phone/request', otpRequestLimiter, commonCtrl.re
 router.post('/security/recovery-phone/verify', otpVerifyLimiter, commonCtrl.verifyMyRecoveryPhoneCode)
 
 router.get('/notifications',                commonCtrl.listNotifications)
-router.get('/notifications/:id/destination', commonCtrl.resolveNotificationDestination)
 router.patch('/notifications/read-all',     commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read',    commonCtrl.readNotification)
 router.get('/settings',                     commonCtrl.getMySettings)
 router.put('/settings',                     commonCtrl.saveMySettings)
+router.put('/settings/profile-photo', commonCtrl.saveMyProfilePhoto)
+router.delete('/settings/profile-photo', commonCtrl.removeMyProfilePhoto)
 router.get('/dashboard',                     getDashboard)
 router.get('/appointments',                  getAppointments)
 router.get('/appointments/daily',            getDailyAppointments)
@@ -51,9 +54,6 @@ router.put('/consultations/:appointmentId/draft', saveConsultationDraft)
 router.post('/consultations/:appointmentId/finalize', finalizeConsultation)
 // Backward-compatible finalization endpoint for older clients.
 router.post('/consultations/:appointmentId', finalizeConsultation)
-router.delete('/consultations/:appointmentId/charge-adjustments/:requestId', require('../controllers/doctor.controller').requestClinicalChargeAdjustment)
-router.get('/consultations/:appointmentId/charge-adjustments', require('../controllers/doctor.controller').getClinicalChargeAdjustments)
-router.post('/consultations/:appointmentId/charge-adjustments', require('../controllers/doctor.controller').requestClinicalChargeAdjustment)
 router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
@@ -72,13 +72,16 @@ router.patch('/queue/call-next',  callNext)
 router.patch('/queue/:id/done',   markQueueDone)
 
 // ── Doctor's Own Schedule ─────────────────────────────────────────────────────
+router.get('/walk-ins/acceptance', walkInAcceptanceHandler({ownDoctor:true}))
+router.put('/walk-ins/acceptance', walkInAcceptanceHandler({ownDoctor:true,editable:true}))
 router.get('/schedule',     getMySchedule)
 router.get('/schedule/all', getMyScheduleAll)
-router.put('/schedule',     saveMyScheduleDay)
+router.put('/schedule', afterSuccessfulMutation('schedule.updated'), saveMyScheduleDay)
 router.get('/schedule/unavailable-dates',      getMyUnavailableDates)
-router.put('/schedule/unavailable-dates',      saveMyUnavailableDate)
-router.delete('/schedule/unavailable-dates/:date', deleteMyUnavailableDate)
+router.put('/schedule/unavailable-dates', afterSuccessfulMutation('schedule.updated'), saveMyUnavailableDate)
+router.delete('/schedule/unavailable-dates/:date', afterSuccessfulMutation('schedule.updated'), deleteMyUnavailableDate)
 
 module.exports = router
+
 
 

@@ -14,11 +14,6 @@ const listNotifications = async (req, res) => {
   res.json({ items: rows, unread })
 }
 
-const resolveNotificationDestination=async(req,res)=>{
- try {res.json(await require('../utils/notificationDestination').notificationDestination({id:req.params.id,role:req.user.role,userId:req.user.id,branchId:req.branchId,superadmin:notificationBranch(req)==='all',permissions:req.adminPermissions}))}
- catch(e){if(e.statusCode)return res.status(e.statusCode).json({message:e.message});throw e}
-}
-
 const readNotification = async (req, res) => {
   await markNotificationRead(req.params.id, req.user.role, req.user.id, notificationBranch(req))
   res.json({ message: 'Notification marked as read.' })
@@ -51,6 +46,24 @@ const saveMySettings = async (req, res) => {
   }
 }
 
+
+const saveMyProfilePhoto = async (req,res) => {
+  const cloud = String(process.env.CLOUDINARY_CLOUD_NAME||'').trim()
+  let uri
+  try {uri=new URL(String(req.body?.profile_image_url||''))}catch{return res.status(400).json({message:'Upload a valid profile photo first.'})}
+  if (!cloud || uri.protocol !== 'https:' || uri.hostname !== 'res.cloudinary.com' || !uri.pathname.startsWith(`/${cloud}/image/upload/`)) {
+    return res.status(400).json({message:'Profile photo must come from the configured clinic image service.'})
+  }
+  const settings=await updateSettings(req.user.role,req.user.id,{profile_image_url:uri.href})
+  await writeAuditLog({userId:req.user.id,userRole:req.user.role,action:'account.profile_photo_updated',entityType:req.user.role,entityId:req.user.id,ipAddress:req.ip||null}).catch(()=>{})
+  res.json(settings)
+}
+const removeMyProfilePhoto = async (req,res) => {
+  // Unlink only the signed-in account. Never accept an asset ID or target user from the browser.
+  const settings=await updateSettings(req.user.role,req.user.id,{profile_image_url:null})
+  await writeAuditLog({userId:req.user.id,userRole:req.user.role,action:'account.profile_photo_removed',entityType:req.user.role,entityId:req.user.id,ipAddress:req.ip||null}).catch(()=>{})
+  res.json(settings)
+}
 
 const requestMySettingsVerification = async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ message: 'Administrator account required.' })
@@ -296,12 +309,13 @@ const completePatientOnboarding = async (req, res) => {
 }
 
 module.exports = {
-  resolveNotificationDestination,
   listNotifications,
   readNotification,
   readAllNotifications,
   getMySettings,
   saveMySettings,
+  saveMyProfilePhoto,
+  removeMyProfilePhoto,
   requestMySettingsVerification,
   confirmMySettingsVerification,
   requestMyPasswordCode,
@@ -322,4 +336,5 @@ module.exports = {
   publishAdminLandingPage,
   restoreAdminLandingVersion,
 }
+
 

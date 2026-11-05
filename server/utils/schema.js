@@ -1447,6 +1447,8 @@ const ensureAppSchema = async () => {
     WHERE NOT EXISTS (SELECT 1 FROM staff_permissions sp WHERE sp.staff_id=s.id)
   `).catch(() => {})
 
+  await ensureColumn('doctor_branch_assignments', 'accepting_walk_ins', 'TINYINT(1) NOT NULL DEFAULT 1')
+
   await ensureColumn('doctors', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('doctors', 'profile_image_url', "TEXT NULL")
   await ensureColumn('doctors', 'must_change_password', "TINYINT(1) NOT NULL DEFAULT 0")
@@ -1711,5 +1713,6 @@ module.exports = {
   backfillUomDecimalPrecision,
   rebuildInventoryLocationStock,
 }
+
 
 

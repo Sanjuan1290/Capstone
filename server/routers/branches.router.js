@@ -333,12 +333,11 @@ router.put('/accounts/team/:role/:accountId/branch', requireSuper, async (req, r
 
 // Branch Admin notifications must never include global or another branch's events.
 router.get('/my/notifications',branchContext,async(req,res)=>{
-  const [rows]=await db.query(`SELECT id,branch_id,type,title,message,reference_type,reference_id,link,is_read,created_at
+  const [rows]=await db.query(`SELECT id,type,title,message,reference_type,reference_id,link,is_read,created_at
     FROM notifications WHERE branch_id=? AND target_role='admin' AND (target_user_id IS NULL OR target_user_id=?)
     ORDER BY created_at DESC,id DESC LIMIT 50`,[req.branchId,req.user.id])
   res.json({items:rows,unread:rows.filter(row=>!row.is_read).length})
 })
-router.get('/my/notifications/:id/destination',branchContext,require('../controllers/common.controller').resolveNotificationDestination)
 router.patch('/my/notifications/read-all',branchContext,async(req,res)=>{
   await db.query(`UPDATE notifications SET is_read=1 WHERE branch_id=? AND target_role='admin' AND (target_user_id IS NULL OR target_user_id=?)`,[req.branchId,req.user.id])
   res.json({success:true})
@@ -735,6 +734,8 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.post(`${prefix}/doctors/attach`,...middle,requirePermission('accounts'),afterSuccessfulMutation('accounts.updated'),(req,res,next)=>Promise.resolve(oldAdmin.attachExistingDoctor(req,res)).catch(next))
   router.put(`${prefix}/doctors/:id`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.updateDoctor))
   router.patch(`${prefix}/doctors/:id/toggle`,afterSuccessfulMutation('accounts.updated'),...ownedPerson('doctors','accounts',oldAdmin.toggleDoctor))
+  router.get(`${prefix}/doctors/:id/walk-ins/acceptance`,...ownedPerson('doctors','doctor_schedules',require('../utils/walkInAcceptance').handler()))
+  router.put(`${prefix}/doctors/:id/walk-ins/acceptance`,...ownedPerson('doctors','doctor_schedules',require('../utils/walkInAcceptance').handler({editable:true})))
   router.put(`${prefix}/doctors/:id/schedules`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDaySchedule))
   router.get(`${prefix}/doctors/:id/unavailable-dates`,...middle,allowAnyPermission('appointments','doctor_schedules'),async(req,res,next)=>{
     const id=Number(req.params.id)
@@ -825,6 +826,7 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 
 
 

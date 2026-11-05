@@ -1,4 +1,3 @@
-const { validateSupplyQuantity } = require('../utils/supplyQuantity')
 const {getAssignments,readSelectedBranch,setSelectedBranch,clearSelectedBranch} = require('../utils/doctorBranches')
 // server/controllers/doctor.controller.js
 
@@ -572,13 +571,10 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db, b
       if(seen.has(key))throw makeConsultationValidationError('Combine duplicate supplies into one quantity.', 'DUPLICATE_SUPPLY')
       seen.add(key)
       const [[inventory]] = await executor.query(
-        `SELECT id,name,category,unit,base_unit,uom,archived_at,
-          COALESCE((SELECT allow_decimal_quantity FROM inventory_uoms WHERE LOWER(name)=LOWER(COALESCE(inventory.uom,inventory.base_unit,inventory.unit)) LIMIT 1),0) AS uom_allow_decimal,
-          COALESCE((SELECT decimal_precision FROM inventory_uoms WHERE LOWER(name)=LOWER(COALESCE(inventory.uom,inventory.base_unit,inventory.unit)) LIMIT 1),0) AS uom_decimal_precision
+        `SELECT id,name,category,unit,base_unit,uom,archived_at
          FROM inventory WHERE id=? AND branch_id=? LIMIT 1`, [id,branchId]
       )
       if (!inventory || inventory.archived_at) throw Object.assign(new Error('Selected supply is archived or belongs to another branch.'), {statusCode:404,code:'INVENTORY_NOT_FOUND'})
-      validateSupplyQuantity(material.quantity, inventory)
       const availableUnits=[inventory.unit,inventory.base_unit,inventory.uom].filter(Boolean).map(v=>String(v).toLowerCase())
       const requestedUnit=String(material?.unit_label||'').trim().toLowerCase()
       if(requestedUnit && !availableUnits.includes(requestedUnit))throw makeConsultationValidationError('Supply unit does not match the inventory product. Refresh and select the supply again.', 'INVALID_SUPPLY_UNIT')
@@ -784,6 +780,9 @@ const finalizeConsultation = async (req, res) => {
       await syncConsultationImages(consultationId, authorizedImages, conn)
     }
     const fixedBillableServices = await enforceFixedCatalogConsumables(billableServices, conn, req.branchId)
+    if (!fixedBillableServices.length) {
+      throw makeConsultationValidationError('Record at least one performed service before completing the consultation.', 'SERVICE_REQUIRED')
+    }
     assertBookedServicePresent(appt, fixedBillableServices)
     // Never consume inventory against a bill that has already entered checkout.
     const [[existingBill]] = await conn.query('SELECT status FROM billing_records WHERE appointment_id=? AND branch_id=? FOR UPDATE', [appointmentId,req.branchId])
@@ -871,7 +870,7 @@ const finalizeConsultation = async (req, res) => {
         message: `Consultation completed. Billing #${billing.id} is ready for review and checkout.`,
         reference_type: 'billing_record',
         reference_id: billing.id,
-        link: `/admin/billing/checkout/${billing.id}`,
+        link: `/admin/checkout/${billing.id}`,
       }),
     ]).catch(() => {})
   }
@@ -879,45 +878,30 @@ const finalizeConsultation = async (req, res) => {
 }
 
 // ── NEW: Get a single consultation (for viewing/editing after completion) ─────
-const clinicalChargeAdjustments=async(req,res)=>{
- const conn=await db.getConnection()
- try{
-  await conn.beginTransaction()
-  const [[appointment]]=await conn.query('SELECT * FROM appointments WHERE id=? AND doctor_id=? AND branch_id=? FOR UPDATE',[req.params.appointmentId,req.user.id,req.branchId])
-  if(!appointment){await conn.rollback();return res.status(404).json({message:'Consultation not found in this branch.'})}
-  let [[bill]]=await conn.query('SELECT id FROM billing_records WHERE appointment_id=? AND branch_id=? FOR UPDATE',[appointment.id,req.branchId])
-  if(!bill&&req.method==='POST'){
-   if(!['confirmed','rescheduled','in-progress'].includes(appointment.status))throw Object.assign(new Error('This appointment cannot request charge changes.'),{statusCode:409})
-   const services=await enforceFixedCatalogConsumables(req.body?.billable_services,conn,req.branchId,{requireReason:false})
-   assertBookedServicePresent(appointment,services)
-   let [[consultation]]=await conn.query('SELECT id,status FROM consultations WHERE appointment_id=? AND branch_id=? FOR UPDATE',[appointment.id,req.branchId])
-   if(!consultation){const [created]=await conn.query("INSERT INTO consultations (appointment_id,doctor_id,patient_id,status,branch_id,updated_at) VALUES (?,?,?,'draft',?,NOW())",[appointment.id,req.user.id,appointment.patient_id,req.branchId]);consultation={id:created.insertId}}
-   bill=await upsertDraftBillingForAppointment({appointment,consultationId:consultation.id,items:services},conn)
-  }
-  const finance=require('../utils/chargeAdjustments')
-  if(req.method==='DELETE'){
-   if(!bill)throw Object.assign(new Error('Bill not found.'),{statusCode:404})
-   const result=await finance.cancel({billingId:bill.id,branchId:req.branchId,requestId:Number(req.params.requestId),actorRole:'doctor',actorId:req.user.id},conn)
-   await conn.commit();return res.json(result)
-  }
-  if(req.method==='GET'){
-   const data=bill?await finance.list(conn,bill.id,req.branchId):{bill:null,targets:[],requests:[]}
-   await conn.commit();return res.json({...data,actor:{role:'doctor',id:req.user.id}})
-  }
-  if(!bill)throw Object.assign(new Error('Save the consultation draft before requesting a reduction.'),{statusCode:409})
-  const id=await finance.request({billingId:bill.id,branchId:req.branchId,actorRole:'doctor',actorId:req.user.id,targetType:req.body?.target_type,serviceId:Number(req.body?.catalog_service_id),inventoryId:Number(req.body?.inventory_id||0),amount:req.body?.amount,reason:req.body?.reason,allowDraft:true},conn)
-  await conn.commit();return res.status(201).json({id,message:'Pending Billing Approval'})
- }catch(e){await conn.rollback().catch(()=>{});if(e.statusCode)return res.status(e.statusCode).json({code:e.code,message:e.message});throw e}finally{conn.release()}
+const requestClinicalChargeAdjustment=async(req,res)=>{
+  const conn=await db.getConnection()
+  try{
+    await conn.beginTransaction()
+    const [[bill]]=await conn.query(`SELECT b.id,b.branch_id FROM billing_records b
+      JOIN appointments a ON a.id=b.appointment_id
+      WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=? FOR UPDATE`,
+      [req.params.appointmentId,req.user.id,req.branchId,req.branchId])
+    if(!bill){await conn.rollback();return res.status(404).json({message:'No draft bill found for this consultation.'})}
+    const adjustmentId=await require('../utils/chargeAdjustments').request({
+      billingId:bill.id,branchId:req.branchId,actorRole:'doctor',actorId:req.user.id,
+      targetType:req.body?.target_type,serviceId:Number(req.body?.catalog_service_id),
+      inventoryId:Number(req.body?.inventory_id||0),amount:req.body?.amount,reason:req.body?.reason
+    },conn)
+    await conn.commit()
+    return res.status(201).json({id:adjustmentId,message:'Discount request sent to Admin. Supplies used will not change.'})
+  }catch(e){await conn.rollback().catch(()=>{});if(e.statusCode)return res.status(e.statusCode).json({code:e.code,message:e.message});throw e}finally{conn.release()}
 }
-const requestClinicalChargeAdjustment=clinicalChargeAdjustments
-const getClinicalChargeAdjustments=clinicalChargeAdjustments
 
 const getConsultation = async (req, res) => {
   const { appointmentId } = req.params
   const [rows] = await db.query(
     `SELECT c.*, a.clinic_type AS type, a.reason, a.appointment_time AS time,
             a.requested_service_id, a.requested_service_name_snapshot, a.requested_service_price_snapshot,
-            a.promotion_discount_amount_snapshot,
             p.full_name AS patient_name,
             TIMESTAMPDIFF(YEAR, p.birthdate, CURDATE()) AS patient_age,
             p.sex AS patient_sex, p.phone AS patient_phone
@@ -1306,7 +1290,6 @@ const getInventoryItems = async (req, res) => {
             COALESCE(i.uom, i.base_unit, i.unit, 'piece') AS unit,
             i.dosage_form, i.strength, i.measurement_value, i.measurement_unit, i.stock, i.stock_base, i.threshold, i.selling_price,
             COALESCE(u.allow_decimal_quantity,0) AS uom_allow_decimal,
-            COALESCE(u.decimal_precision,0) AS uom_decimal_precision,
             COALESCE((SELECT SUM(ils.quantity)
                       FROM inventory_location_stock ils
                       JOIN inventory_locations il ON il.id=ils.location_id
@@ -1738,7 +1721,6 @@ const deleteMyUnavailableDate = async (req, res) => {
 
 module.exports = {
   requestClinicalChargeAdjustment,
-  getClinicalChargeAdjustments,
   login, checkAuth, logout, listMyBranches, selectMyBranch,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
@@ -1748,6 +1730,7 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+
 
 
 
