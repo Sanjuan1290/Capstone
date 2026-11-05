@@ -87,8 +87,18 @@ export const makeInventoryOpeningWorkbook = () => makeInventoryWorkbook([
   {name:'Items',headers:INVENTORY_CREATE_HEADERS,rows:[]},
   {name:'Opening Batches',headers:INVENTORY_OPENING_BATCH_HEADERS,rows:[]},
 ])
-export const makeInventoryWorkbook = (sheets) => {
+// The report download is read-only aggregated data and may need several sheets.
+// Inventory's public API keeps its existing two-sheet validation.
+export const makeInventoryWorkbook = sheets => {
   if(!Array.isArray(sheets)||sheets.length<1||sheets.length>2)throw new Error('Use one or two inventory worksheets.')
+  return makeWorkbookSheets(sheets)
+}
+export const makeReportWorkbook = sheets => {
+  if(!Array.isArray(sheets)||sheets.length<1||sheets.length>12)throw new Error('Reports must have between 1 and 12 worksheets.')
+  if(sheets.some(sheet=>!sheet.name||sheet.name.length>31||!/^[A-Za-z0-9 -]+$/.test(sheet.name)))throw new Error('Invalid report worksheet title.')
+  return makeWorkbookSheets(sheets)
+}
+const makeWorkbookSheets = (sheets) => {
   if(sheets.some(x=>x.rows.length>MAX_ROWS))throw new Error('Too many rows in one worksheet.')
   const overrides=sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
   const sheetList=sheets.map((s,i)=>`<sheet name="${escapeXml(s.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')
@@ -270,5 +280,6 @@ export const asInventoryBulkEditRow = (item) => [
   item.id, item.barcode || '', item.name || '', Number(item.selling_price ?? item.price ?? 0), '',
   Number(item.threshold ?? 0), '',
 ]
+
 
 

@@ -1,9 +1,9 @@
 import InventoryPulse from '../InventoryPulse'
-import {useEffect,useMemo,useState} from 'react'
+import {useEffect,useState} from 'react'
 import {NavLink} from 'react-router-dom'
-import {MdBusiness,MdCalendarMonth,MdPendingActions,MdPayments,MdCheckCircle,MdPersonOff,MdRefresh,MdArrowForward,MdDownload,MdPeople,MdHistory} from 'react-icons/md'
+import {MdBusiness,MdCalendarMonth,MdPendingActions,MdPayments,MdCheckCircle,MdPersonOff,MdRefresh,MdArrowForward,MdPeople,MdHistory} from 'react-icons/md'
 import {fetchJson,Card,PageHead,StatCard,Pill,Banner,Loading,Empty,pesos,whole,todayISO,beforeISO,SecondaryButton} from './shared'
-import {isValidReportPeriod,sumBranchMetric,buildBranchReportCsv} from './reportFormat'
+import {isValidReportPeriod,sumBranchMetric} from './reportFormat'
 import {loadOverviewSections} from './overviewData.mjs'
 
 const sum=sumBranchMetric
@@ -56,46 +56,4 @@ export const SuperAdminDashboard = () => {
     </>}
   </div>
 }
-const Compare=({rows})=>{const max=Math.max(1,...rows.map(r=>Number(r.appointments)||0));return <div className="space-y-4">{rows.map(b=><div key={b.id}><div className="mb-1 flex items-center justify-between gap-2 text-sm"><span className="truncate font-semibold text-slate-800">{b.name}</span><span className="tabular-nums text-slate-600">{whole(b.appointments)} bookings</span></div><div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-600" style={{width:`${Math.max(0,Number(b.appointments)||0)/max*100}%`}}/></div></div>)}</div>}
-export const SuperAdminReports = () => {
-  const [range, setRange] = useState('30')
-  const [from, setFrom] = useState(beforeISO(30))
-  const [to, setTo] = useState(todayISO())
-  const [branch, setBranch] = useState('all')
-  const { rows, trends, errors, loading, loadedAt, reload } = useOverviewData({ from, to, branch })
-  const filtered = useMemo(() => branch === 'all' ? (rows || []) : (rows || []).filter(r => String(r.id) === String(branch)), [branch, rows])
-  const exportCsv = () => {
-    if (!rows || !filtered.length) return
-    const blob = new Blob(['\ufeff', buildBranchReportCsv(filtered)], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `carait-branch-report-${from}-to-${to}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-
-  return <div className="space-y-6">
-    <PageHead title="Reports & Analytics" description="Review clinic activity, financial totals and branch performance over time." action={<><SecondaryButton onClick={reload} disabled={loading}><MdRefresh /> Refresh</SecondaryButton><button className="button-primary inline-flex items-center gap-2" type="button" onClick={exportCsv} disabled={!rows || !filtered.length || loading}><MdDownload />Export CSV</button></>} />
-    <Card><Filters range={range} setRange={setRange} from={from} setFrom={setFrom} to={to} setTo={setTo} branch={branch} setBranch={setBranch} branches={rows || []} /></Card>
-    {errors.period && <Banner onRetry={reload}>{errors.period}</Banner>}
-    {loading ? <Loading cards={6} /> : <>
-      {loadedAt && <p className="text-xs text-slate-500">{branch === 'all' ? 'All Branches' : rows?.find(r => String(r.id) === branch)?.name || 'Selected Branch'} · {from} to {to} · Updated {loadedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</p>}
-      {rows === null ? <Banner onRetry={reload}>{errors.rows || errors.period || 'Branch report data is unavailable.'}</Banner> : <>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <StatCard label="Appointments" value={whole(sum(filtered, 'appointments'))} icon={MdCalendarMonth} />
-          <StatCard label="Completed Visits" value={whole(sum(filtered, 'completed'))} icon={MdCheckCircle} />
-          <StatCard label="Did Not Arrive" value={whole(sum(filtered, 'no_shows'))} icon={MdPersonOff} />
-          <StatCard label="Pending" value={whole(sum(filtered, 'pending'))} icon={MdPendingActions} />
-          <StatCard label="Billed Amount" value={pesos(sum(filtered, 'billed'))} icon={MdPayments} helper="Non-voided bills created in the period" />
-          <StatCard label="Collected Revenue" value={pesos(sum(filtered, 'collected'))} icon={MdPayments} helper="Payments less recorded refunds" />
-        </div>
-        <Card title="Branch Comparison" description="Appointments by clinic location">{filtered.length ? <Compare rows={filtered} /> : <Empty title="No branches" description="No branch data matches these filters." />}</Card>
-        <Card title="Branch Breakdown" description="All metrics use your selected reporting period.">{filtered.length ? <BranchPerformance rows={filtered} /> : <Empty title="No report data" description="Try a different branch or reporting period." />}</Card>
-        <Banner type="info" title="About financial totals">Billed Amount sums non-voided bill totals created in the period. Collected Revenue reflects completed payments, net of recorded refunds, by payment date. The two values represent different measures.</Banner>
-      </>}
-      <Card title="Appointment Volume" description="Recent activity in the selected range">{trends === null ? <Banner onRetry={reload}>{errors.trends || errors.period || 'Appointment trends are unavailable.'}</Banner> : <TrendBars values={trends} />}</Card>
-    </>}
-  </div>
-}
-
+export {default as SuperAdminReports} from './ReportsPage'

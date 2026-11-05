@@ -342,3 +342,17 @@ html { scroll-behavior: smooth; scroll-padding-top: 112px; }
 .carait-editor-card { transition:transform 180ms ease,box-shadow 180ms ease,border-color 180ms ease; }
 .carait-editor-card:hover { transform:translateY(-2px);box-shadow:0 10px 30px -20px #0f172a88; }
 @media(prefers-reduced-motion:reduce){.carait-editor-card { transition:none!important; } .carait-editor-card:hover { transform:none!important; }}
+
+
+/* Super Admin report: hide portal navigation and interactive controls in PDF/print. */
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  body:has(#super-admin-report) aside,
+  body:has(#super-admin-report) header.sticky,
+  #super-admin-report [data-report-controls],
+  #super-admin-report [data-report-actions] { display: none !important; }
+  body:has(#super-admin-report) main { width: 100% !important; max-width: 100% !important; padding: 0 !important; }
+  #super-admin-report { color: #111827; }
+  #super-admin-report section { break-inside: avoid; box-shadow: none !important; }
+  #super-admin-report .overflow-x-auto { overflow: visible !important; }
+}

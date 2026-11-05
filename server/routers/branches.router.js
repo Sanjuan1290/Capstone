@@ -2,6 +2,7 @@ const { listBranchPatients, getBranchPatientRecord } = require('../utils/patient
 const {afterSuccessfulMutation}=require('../utils/clinicEvents')
 const {attachBatchesToInventory}=require('../utils/inventoryBatches')
 const {hydrateBillingCatalogRows}=require('../utils/billing')
+const {loadSuperAdminReport,SECTIONS}=require('../utils/superAdminReports')
 // Physical-branch management. Unlike the legacy admin controller, every data
 // query here contains an explicit authorized physical-branch predicate.
 const express = require('express')
@@ -519,12 +520,26 @@ router.get('/analytics/all',requireSuper,async(req,res)=>{
   (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='completed') AS completed,
   (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='no_show') AS no_shows,
   (SELECT COUNT(*) FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=b.id AND a.is_active=1 WHERE d.is_active=1) AS doctors,
-  (SELECT COALESCE(SUM(r.total_amount),0) FROM billing_records r WHERE r.branch_id=b.id AND r.status<>'voided' AND DATE(r.created_at) BETWEEN ? AND ?) AS billed,
-  (SELECT COALESCE(SUM(GREATEST(p.amount-COALESCE(p.refund_amount,0),0)),0)
-   FROM billing_payments p JOIN billing_records br ON br.id=p.billing_id
-   WHERE br.branch_id=b.id AND p.status='completed' AND p.voided_at IS NULL AND DATE(p.paid_at) BETWEEN ? AND ?) AS collected
-  FROM clinic_branches b ORDER BY b.created_at,b.id`,[from,to,from,to,from,to,from,to,from,to,from,to])
- res.json(rows)
+  (SELECT COALESCE(SUM(r.total_amount),0) FROM billing_records r WHERE r.branch_id=b.id AND r.status NOT IN ('draft','voided') AND DATE(COALESCE(r.finalized_at,r.created_at)) BETWEEN ? AND ?) AS billed
+  FROM clinic_branches b ORDER BY b.created_at,b.id`,[from,to,from,to,from,to,from,to,from,to])
+ // Use event-dated entries so refunds/voids posted this month do not revise
+ // last month's collections. This matches Branch Admin financial reporting.
+ const [ledger]=await db.query(`SELECT branch_id,
+   COALESCE(SUM(CASE WHEN kind='payment' THEN amount ELSE -amount END),0) AS collected
+   FROM (
+    SELECT br.branch_id,p.amount,DATE(p.paid_at) AS event_date,'payment' AS kind
+      FROM billing_payments p JOIN billing_records br ON br.id=p.billing_id
+      WHERE p.status IN ('completed','voided')
+    UNION ALL
+    SELECT br.branch_id,p.amount,DATE(COALESCE(p.voided_at,p.paid_at)) AS event_date,'void' AS kind
+      FROM billing_payments p JOIN billing_records br ON br.id=p.billing_id
+      WHERE p.status='voided'
+    UNION ALL
+    SELECT br.branch_id,r.amount,DATE(r.refunded_at) AS event_date,'refund' AS kind
+      FROM billing_payment_refunds r JOIN billing_records br ON br.id=r.billing_id
+   ) events WHERE event_date BETWEEN ? AND ? GROUP BY branch_id`,[from,to])
+ const byBranch=new Map(ledger.map(row=>[Number(row.branch_id),Number(row.collected||0)]))
+ res.json(rows.map(row=>({...row,collected:byBranch.get(Number(row.id))||0})))
 })
 router.get('/analytics/trends',requireSuper,async(req,res)=>{
  const {from,to}=reportRange(req)
@@ -534,6 +549,21 @@ router.get('/analytics/trends',requireSuper,async(req,res)=>{
  if(branchId){clause=' AND branch_id=?';args.push(branchId)}
  const [appointments]=await db.query(`SELECT DATE_FORMAT(appointment_date,'%Y-%m-%d') AS date,COUNT(*) AS appointments,SUM(status='completed') AS completed FROM appointments WHERE appointment_date BETWEEN ? AND ? ${clause} GROUP BY appointment_date ORDER BY appointment_date`,args)
  res.json({from,to,appointments})
+})
+// Detailed reports use the same organization-wide/branch selection for every tab.
+// They return aggregates only; no patient contact or clinical note data is exposed.
+router.get('/analytics/report-details',requireSuper,async(req,res)=>{
+ const {from,to}=reportRange(req)
+ const section=String(req.query.section||'overview')
+ if(!SECTIONS.includes(section))return res.status(400).json({message:'Select a valid report section.'})
+ const raw=String(req.query.branch_id||'all')
+ const branchId=raw==='all'?null:Number(raw)
+ if(raw!=='all' && (!/^\d+$/.test(raw)||!validId(branchId)))return res.status(400).json({message:'Select a valid clinic branch.'})
+ if(branchId!==null){
+  const [[branch]]=await db.query('SELECT id FROM clinic_branches WHERE id=? LIMIT 1',[branchId])
+  if(!branch)return res.status(404).json({message:'Clinic branch not found.'})
+ }
+ res.json(await loadSuperAdminReport(db,{section,from,to,branchId}))
 })
 router.get('/analytics/readiness',requireSuper,async(req,res)=>{
  const [rows]=await db.query(`SELECT b.id,b.name,b.is_active,b.offers_medical,b.offers_derma,
@@ -794,5 +824,6 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 
 
