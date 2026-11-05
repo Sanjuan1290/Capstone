@@ -13,9 +13,11 @@ test('availability slot builds branch-scoped doctor/date/time link',()=>{
 })
 test('doctor availability shows selectable only for available slots',()=>{
  const src=read('pages/patientPage/DoctorAvailability.jsx')
- assert.match(src,/slot\.available \? \(/)
- assert.match(src,/buildSlotBookingPath\(\{branchId,doctorId:doctor.id,clinicType,date:day.date,time:slot.time\}\)/)
- assert.match(src,/aria-pressed=\{clinicFilter===value\}/)
+ assert.match(src,/displayState === 'available' \? <NavLink/)
+ assert.match(src,/slotDisplayState\(slot\)/)
+ assert.match(src,/slotDisplayLabel\(slot\)/)
+ assert.match(src,/buildSlotBookingPath\(\{\s*branchId,\s*doctorId:\s*doctor\.id,\s*clinicType,\s*date:\s*day\.date,\s*time:\s*slot\.time\s*\}\)/)
+ assert.match(src,/aria-pressed=\{clinicFilter === value\}/)
 })
 test('booking prefill is revalidated with the available-slots endpoint',()=>{
  const src=read('pages/patientPage/BookAppointment.jsx')
@@ -30,3 +32,4 @@ test('rescheduling passes branch context and shows failed availability as error'
  assert.match(src,/setSlotsError\('Unable to check available times/)
  assert.match(src,/slotsError &&/)
 })
+
