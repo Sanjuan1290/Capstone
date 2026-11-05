@@ -42,10 +42,16 @@ const Admin_BillingReceiptSettings = () => {
   const preview = () => printBillingReceipt({
     clinicSettings: form,
     bill: {
-      id: 'PREVIEW', patient_name: 'Sample Patient', doctor_name: 'Sample Doctor', total_amount: 1200, paid_amount: 1200, balance_amount: 0,
-      items: [{ id: 1, service_name: 'Sample Clinic Service', quantity: 1, unit_price: 1200, line_total: 1200 }],
+      id: 'PREVIEW', patient_name: 'Sample Patient', doctor_name: 'Sample Doctor',
+      subtotal: 627, discount_amount: 155, promotion_discount_amount: 135,
+      promotion_title_snapshot: 'Christmas Promo', approved_courtesy_discount: 20,
+      total_amount: 472, paid_amount: 472, balance_amount: 0,
+      items: [
+        { id: 1, service_name: 'Minor Wound Cleaning and Dressing', quantity: 1, unit_price: 625, line_total: 625 },
+        { id: 2, service_name: 'Alcohol Prep Pad 70%', quantity: 1, unit_price: 2, line_total: 2 },
+      ],
     },
-    payment: { receipt_number: 'PREVIEW-0001', payment_method: 'cash', amount: 1200, refund_amount: 0, status: 'completed', paid_at: new Date().toISOString() },
+    payment: { receipt_number: 'PREVIEW-LAG-000001', payment_method: 'cash', amount: 472, refund_amount: 0, status: 'completed', paid_at: new Date().toISOString() },
     onPopupBlocked: () => toast.warning('Allow pop-ups to open the receipt preview.'),
   })
 
@@ -58,10 +64,11 @@ const Admin_BillingReceiptSettings = () => {
         <div className="border-t border-slate-100 pt-5"><h2 className="font-black text-slate-900">Receipt Content</h2><p className="mt-1 text-sm text-slate-500">These settings belong specifically to Billing receipts.</p></div>
         <label className="block"><span className="form-label">Receipt Title *</span><input className="form-control mt-1.5" value={form.receipt_title || ''} onChange={(e) => update('receipt_title', e.target.value)} placeholder="PAYMENT RECEIPT" /><p className="mt-1.5 text-xs text-slate-500">Use the document name your clinic intends. The system no longer hardcodes “Official Payment Receipt.”</p></label>
         <label className="block"><span className="form-label">Receipt Footer</span><textarea rows={3} className="form-control mt-1.5 resize-none" value={form.receipt_footer || ''} onChange={(e) => update('receipt_footer', e.target.value)} placeholder="Thank you for choosing our clinic." /></label>
-        <div className="flex flex-wrap justify-end gap-2"><button className="button-secondary" onClick={preview}><MdPrint /> Open Exact Receipt Preview</button><button className="button-primary" disabled={saving || !dirty || !String(form.receipt_title || '').trim()} onClick={save}>{saving ? 'Saving…' : 'Save Receipt Settings'}</button></div>
+        <div className="flex flex-wrap justify-end gap-2"><button className="button-secondary" onClick={preview}><MdPrint /> Preview A5 Receipt</button><button className="button-primary" disabled={saving || !dirty || !String(form.receipt_title || '').trim()} onClick={save}>{saving ? 'Saving…' : 'Save Receipt Settings'}</button></div>
       </section>
-      <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex items-center justify-between"><h2 className="font-black text-slate-900">Preview Notes</h2><MdPrint className="text-slate-400" /></div><p className="mt-4 text-sm leading-relaxed text-slate-600">The preview button uses the <strong>same receipt renderer</strong> used for real receipt printing, with sample patient/payment data. This prevents the setup preview and actual printed receipt from drifting apart.</p><div className="mt-4 rounded-xl bg-violet-50 p-3 text-sm text-violet-800">Refunded or voided payments automatically print a visible <strong>REFUNDED</strong>, <strong>PARTIALLY REFUNDED</strong>, or <strong>VOIDED</strong> status on the receipt.</div>{dirty && <div className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">● Unsaved receipt changes</div>}</div></aside>
+      <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex items-center justify-between"><h2 className="font-black text-slate-900">Preview Notes</h2><MdPrint className="text-slate-400" /></div><p className="mt-4 text-sm leading-relaxed text-slate-600">The preview button uses the <strong>same A5 receipt renderer</strong> used for real receipt printing, with sample services, a promotion, an approved reduction and a payment. This prevents the setup preview and actual printed receipt from drifting apart.</p><div className="mt-4 rounded-xl bg-violet-50 p-3 text-sm text-violet-800">Refunded or voided payments automatically print a visible <strong>REFUNDED</strong>, <strong>PARTIALLY REFUNDED</strong>, or <strong>VOIDED</strong> status on the receipt.</div>{dirty && <div className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">● Unsaved receipt changes</div>}</div></aside>
     </div>}
   </div>
 }
 export default Admin_BillingReceiptSettings
+
