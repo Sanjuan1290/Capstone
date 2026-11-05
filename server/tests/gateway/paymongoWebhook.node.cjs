@@ -8,7 +8,7 @@ function setup({amount=12500,actualAmount=12500,providerStatus='succeeded',mode=
  const live = mode === 'live'
  const attempt={id:101,branch_id:3,billing_id:500,amount_centavos:amount,payment_intent_id:intentId,status:'pending',mode:attemptMode,age_seconds:240,is_expired:0}
  const eventRows=new Map(), transactions=[]
- let paymentCount=0, receiptCount=0, inventoryMovementCount=0
+ let paymentCount=0, receiptCount=0, inventoryMovementCount=0;const failures=[]
  const idempotencyKeys=new Set()
  const db={ query:async (sql,params=[])=>{
   const q=String(sql)
@@ -16,6 +16,7 @@ function setup({amount=12500,actualAmount=12500,providerStatus='succeeded',mode=
   if(q.includes('TIMESTAMPDIFF(SECOND,a.created_at,NOW())'))return [[attempt]]
   if(q.startsWith('INSERT IGNORE INTO payment_gateway_webhook_events')) {if(!eventRows.has(params[0]))eventRows.set(params[0],'received');return [{affectedRows:1}]}
   if(q.includes('FROM payment_gateway_webhook_events WHERE event_id='))return [[{status:eventRows.get(params[0])}]]
+  if(q.startsWith('UPDATE payment_gateway_webhook_events SET error_code=')){failures.push({code:params[0],message:params[1],eventId:params[2]});return [{affectedRows:1}]}
   if(q.includes('UPDATE payment_gateway_webhook_events SET status=')){eventRows.set(params[0],'processed');return [{affectedRows:1}]}
   if(q.startsWith("UPDATE payment_gateway_attempts SET status='expired'")){attempt.status='expired';attempt.active_bill_id=null;return [{affectedRows:1}]}
   if(q.startsWith('UPDATE payment_gateway_attempts')){attempt.status='succeeded';attempt.provider_payment_id=params[0];return [{affectedRows:1}]}
@@ -52,7 +53,7 @@ function setup({amount=12500,actualAmount=12500,providerStatus='succeeded',mode=
     payment_intent_id:intentId,amount:paymentAmount,livemode:paymentLive,status:paymentStatus,currency,source:{type:sourceType}
  }}}}})
  return {handle:module.exports.handleWebhookEvent,reconcile:module.exports.reconcileAttempt,event,attempt,getPaymentCount:()=>paymentCount,
-  getReceiptCount:()=>receiptCount,getInventoryMovementCount:()=>inventoryMovementCount,eventRows}
+  getReceiptCount:()=>receiptCount,getInventoryMovementCount:()=>inventoryMovementCount,eventRows,failures}
 }
 test('verified paid event posts a single QR Ph payment and duplicate event is ignored',async()=>{
  const {handle,event,attempt,getPaymentCount,eventRows}=setup()
@@ -145,4 +146,15 @@ test('reconciliation settles a succeeded provider intent when no webhook was rec
  assert.equal(getPaymentCount(),1)
  assert.equal(getReceiptCount(),1)
  assert.equal(getInventoryMovementCount(),1)
+})
+
+test('failed QR event retains actual provider reason and can later succeed without losing failure history',async()=>{
+ const f=setup()
+ const event=f.event('evt_FAILED_REASON',{type:'payment.failed',paymentStatus:'failed'})
+ Object.assign(event.data.attributes.data.attributes,{failed_code:'insufficient_funds',failed_message:'The payment method has insufficient funds.'})
+ await f.handle(event)
+ assert.deepEqual(f.failures,[{code:'insufficient_funds',message:'The payment method has insufficient funds.',eventId:'evt_FAILED_REASON'}])
+ assert.equal(f.attempt.status,'pending');assert.equal(f.getReceiptCount(),0)
+ await f.handle(f.event('evt_RETRY_SUCCEEDED'))
+ assert.equal(f.attempt.status,'succeeded');assert.equal(f.getReceiptCount(),1);assert.equal(f.failures.length,1)
 })

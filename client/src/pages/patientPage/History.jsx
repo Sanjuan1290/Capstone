@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import useClientPagination from '../../hooks/useClientPagination'
@@ -155,6 +156,7 @@ const BillDetails = ({ billId, detail, loading, error, onClose, onViewVisit, onR
 }
 
 const History = () => {
+  const location = useLocation()
   const [activeTab, setActiveTab] = useState('visits')
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(true)
@@ -182,6 +184,12 @@ const History = () => {
   const [billDetailError, setBillDetailError] = useState('')
   const [detailRequest, setDetailRequest] = useState(0)
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const billId = Number(params.get('bill_id')), appointmentId = Number(params.get('appointment_id'))
+    if (billId > 0) { setActiveTab('bills'); setBillDetail(null); setSelectedBillId(billId) }
+    if (appointmentId > 0) { setActiveTab('visits'); setExpandedVisitId(appointmentId); setRequestedVisitJump(appointmentId) }
+  }, [location.search, location.key])
   useEffect(() => {
     let current = true
     setHistoryLoading(true)

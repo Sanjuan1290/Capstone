@@ -1,3 +1,4 @@
+const {paymentViewPredicate,gatewayJoin,paymentViewColumns}=require('../utils/billingViews')
 // server/controllers/staff.controller.js
 // FIX 1: getDoctors now returns the 'type' field so Walk-in Queue doctor filter works
 // FIX 2: Added updateInventoryItem and deleteInventoryItem
@@ -835,7 +836,9 @@ const getBills = async (req, res) => {
   const offset = (page - 1) * limit
 
   const buildFilters = ({ includeStatus = true } = {}) => {
-    const conditions = ['b.branch_id = ?', 'a.branch_id = b.branch_id', 'd.branch_id = b.branch_id']
+    const conditions = ['b.branch_id = ?', 'a.branch_id = b.branch_id']
+    const paymentView=paymentViewPredicate(req.query.payment_view)
+    if(includeStatus&&paymentView)conditions.push(paymentView)
     const params = [req.branchId]
     if (includeStatus) {
       if (statuses.length === 1) { conditions.push('b.status = ?'); params.push(statuses[0]) }
@@ -880,12 +883,12 @@ const getBills = async (req, res) => {
              MAX(CASE WHEN status='completed' THEN paid_at END) AS latest_payment_at
       FROM billing_payments
       GROUP BY billing_id
-    ) pay ON pay.billing_id = b.id
+    ) pay ON pay.billing_id = b.id ${gatewayJoin}
   `
 
   const [[countRow]] = await db.query(`SELECT COUNT(*) AS total ${baseJoin} ${whereClause}`, params)
   const [rows] = await db.query(
-    `SELECT b.id, b.appointment_id, b.status, b.subtotal, b.discount_type, b.discount_label, b.discount_amount,
+    `SELECT ${paymentViewColumns},b.id, b.appointment_id, b.status, b.subtotal, b.discount_type, b.discount_label, b.discount_amount,
             b.total_amount, b.payment_method, b.payment_notes, b.paid_at, b.finalized_at, b.created_at, b.updated_at, b.version,
             COALESCE(pay.paid_amount, 0) AS paid_amount,
             GREATEST(0, b.total_amount - COALESCE(pay.paid_amount, 0)) AS balance_amount,
@@ -1200,7 +1203,7 @@ const updateBill = async (req, res) => {
     // Discount presets are branch-owned even though the shared pricing helper
     // can load them by globally unique ID. Check ownership before using it.
     if (req.body.discount_preset_id) {
-      const [[preset]] = await conn.query('SELECT id FROM discount_presets WHERE id=? AND branch_id=? AND is_active=1', [req.body.discount_preset_id, req.branchId])
+      const [[preset]] = await conn.query('SELECT id FROM discount_presets WHERE id=? AND branch_id=?', [req.body.discount_preset_id, req.branchId])
       if (!preset) { await conn.rollback(); return res.status(404).json({ message: 'Discount not found in this branch.' }) }
     }
     const subtotalOnly = computeBillingTotals({ items: allItems, discount_amount: 0 })
@@ -1208,17 +1211,22 @@ const updateBill = async (req, res) => {
     // Resolve the preset independently, then combine exactly once.
     const {approvedTotal, money: toMoney, requestedPresetDiscount}=require('../utils/chargeAdjustments')
     const courtesyTotal=await approvedTotal(conn,billingId)
-    const requestedPresetAmount = requestedPresetDiscount(req.body,courtesyTotal)
+    const eligibleService=Number(currentBill.selected_promotion?.service_id||0)
+    const qualifyingLines=allItems.filter(item=>item.item_type==='service' &&
+      item.source_type==='consultation' && Number(item.catalog_service_id)===eligibleService)
+    const qualifyingTotal=toMoney(qualifyingLines.reduce((sum,item)=>sum+Number(item.line_total||0),0))
+    const promotionDiscount=toMoney(Math.min(qualifyingTotal,Number(currentBill.selected_promotion?.discount_amount||0)))
+    const requestedPresetAmount = requestedPresetDiscount(req.body,courtesyTotal,promotionDiscount)
     const discount = await resolveDiscountForDraft({
       billingId,
       billVersion: expectedVersion,
-      subtotal: subtotalOnly.subtotal,
+      subtotal: toMoney(Math.max(0,subtotalOnly.subtotal-promotionDiscount-courtesyTotal)),
       presetId: req.body.discount_preset_id,
       reference: req.body.discount_reference,
       referenceImageUrl: req.body.discount_reference_image_url,
       requestedAmount: requestedPresetAmount,
-    }, conn, { allowDirectAdmin: isAdminActor })
-    let discountReferenceImageUrl = null
+    }, conn, { allowDirectAdmin: isAdminActor, savedBill: currentBill })
+    let discountReferenceImageUrl = discount.preserved ? currentBill.discount_reference_image_url : null
     if (discount.preset && Number(discount.preset.requires_reference) === 1) {
       discountReferenceImageUrl = normalizeOptionalText(req.body.discount_reference_image_url, { field: 'Discount Proof Image', max: 500 })
       if (!discountReferenceImageUrl) {
@@ -1250,11 +1258,6 @@ const updateBill = async (req, res) => {
       }
     }
 
-    const eligibleService=Number(currentBill.selected_promotion?.service_id||0)
-    const qualifyingLines=allItems.filter(item=>item.item_type==='service' &&
-      item.source_type==='consultation' && Number(item.catalog_service_id)===eligibleService)
-    const qualifyingTotal=toMoney(qualifyingLines.reduce((sum,item)=>sum+Number(item.line_total||0),0))
-    const promotionDiscount=toMoney(Math.min(qualifyingTotal,Number(currentBill.selected_promotion?.discount_amount||0)))
     const combinedDiscount=toMoney(discount.amount+courtesyTotal+promotionDiscount)
     if(combinedDiscount>subtotalOnly.subtotal){
       await conn.rollback()
@@ -1296,8 +1299,8 @@ const updateBill = async (req, res) => {
       `UPDATE billing_records
        SET status = 'draft', subtotal = ?, discount_type = ?, discount_label = ?, discount_reference = ?, discount_reference_image_url = ?, discount_amount = ?,promotion_discount_amount=?,total_amount = ?, payment_notes = ?, version = ?
        WHERE id = ? AND version = ?`,
-      [totals.subtotal, courtesyTotal>0 && !discount.preset ? 'courtesy' : discount.amount>0 ? discount.type : promotionDiscount>0 ? 'promotion' : discount.type,
-       [promotionDiscount>0?currentBill.selected_promotion?.title_at_booking:null,discount.label,courtesyTotal>0?'Approved charge reductions':null].filter(Boolean).join(' + ')||null, discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, discount.preset ? discountReferenceImageUrl : null, totals.discount_amount,promotionDiscount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
+      [totals.subtotal, courtesyTotal>0 && discount.amount===0 ? 'courtesy' : discount.amount>0 ? discount.type : promotionDiscount>0 ? 'promotion' : discount.type,
+       [promotionDiscount>0?currentBill.selected_promotion?.title_at_booking:null,discount.label,courtesyTotal>0?'Approved charge reductions':null].filter(Boolean).join(' + ')||null, discount.preserved ? currentBill.discount_reference : discount.preset ? (String(req.body.discount_reference || '').trim() || null) : null, (discount.preset || discount.preserved) ? discountReferenceImageUrl : null, totals.discount_amount,promotionDiscount, totals.total_amount, paymentNotes, nextVersion, billingId, expectedVersion]
     )
     if (Number(billUpdate.affectedRows || 0) !== 1) {
       const err = new Error('This bill changed while it was being saved. Reload the latest version and try again.')
@@ -1435,6 +1438,7 @@ const getFinalizePreview = async (req, res) => {
   if (!['draft','pending'].includes(bill.status)) return res.status(400).json({ message: 'Only a draft bill can be reviewed for confirmation.' })
   const directSupplies = (bill.items || []).filter((row) => row.item_type === 'supply' && row.source_type === 'staff_supply' && Number(row.source_inventory_id) > 0)
   const supplies = await validateStaffSupplyAvailability(directSupplies, db, req.branchId)
+  const [[pending]]=await db.query(`SELECT (SELECT COUNT(*) FROM billing_charge_adjustments WHERE billing_id=? AND branch_id=? AND status='pending')+(SELECT COUNT(*) FROM billing_adjustment_requests WHERE billing_id=? AND status='pending') AS count`,[billingId,req.branchId,billingId])
   res.json({
     billing_id: billingId,
     version: Number(bill.version || 1),
@@ -1442,7 +1446,9 @@ const getFinalizePreview = async (req, res) => {
     charge_count: (bill.items || []).length,
     supply_count: directSupplies.length,
     supplies,
-    can_finalize: supplies.every((item) => item.sufficient),
+    pending_requests:Number(pending?.count||0),
+    consultation_completed:bill.consultation_status==='finalized',
+    can_finalize: bill.consultation_status==='finalized' && Number(pending?.count||0)===0 && supplies.every((item) => item.sufficient),
   })
 }
 
@@ -1461,8 +1467,11 @@ const finalizeBill = async (req, res) => {
     const locked = lockedRows[0]
     if (!['draft','pending'].includes(locked.status)) { await conn.rollback(); return res.status(400).json({ message: 'Only draft bills can be confirmed.' }) }
     if (Number(locked.version || 1) !== expectedVersion) { await conn.rollback(); return res.status(409).json({ message: 'This bill changed before it could be confirmed. Review the latest version.', code: 'BILL_VERSION_CONFLICT', current_version:Number(locked.version||1) }) }
-    const [[pendingApproval]] = await conn.query("SELECT COUNT(*) AS count FROM billing_adjustment_requests WHERE billing_id=? AND bill_version=? AND status='pending'", [billingId, expectedVersion])
-    if (!isAdminActor && Number(pendingApproval?.count || 0) > 0) { await conn.rollback(); return res.status(409).json({ message: 'This bill still has a pending administrator approval. Resolve or cancel it before confirming the bill.', code: 'PENDING_BILLING_APPROVAL' }) }
+    const [[completedConsultation]]=await conn.query('SELECT status FROM consultations WHERE id=? AND branch_id=?',[locked.consultation_id,req.branchId])
+    if(completedConsultation?.status!=='finalized'){await conn.rollback();return res.status(409).json({message:'Complete the consultation before confirming the bill.',code:'CONSULTATION_NOT_COMPLETED'})}
+    const [[pendingApproval]] = await conn.query("SELECT COUNT(*) AS count FROM billing_adjustment_requests WHERE billing_id=? AND status='pending'", [billingId])
+    const [[pendingCharge]]=await conn.query("SELECT COUNT(*) AS count FROM billing_charge_adjustments WHERE billing_id=? AND branch_id=? AND status='pending'",[billingId,req.branchId])
+    if (Number(pendingApproval?.count || 0) > 0 || Number(pendingCharge?.count || 0)>0) { await conn.rollback(); return res.status(409).json({ message: 'This bill still has a pending administrator approval. Resolve or cancel it before confirming the bill.', code: 'PENDING_BILLING_APPROVAL' }) }
 
     const bill = await getBillingRecordWithItems(billingId, conn)
     if (!Array.isArray(bill.items) || bill.items.length === 0) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item before confirming.' }) }

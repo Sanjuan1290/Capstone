@@ -1,9 +1,10 @@
+import { useLocation } from 'react-router-dom'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 // client/src/pages/patientPage/MyAppointments.jsx
 // FIX: Completed and cancelled appointments no longer show here — they live in History.
 //      Only pending / confirmed / rescheduled appointments are shown.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import useClientPagination from '../../hooks/useClientPagination'
 import { getMyAppointments, cancelAppointment, getAppointmentCancellationReasons } from '../../services/patient.service'
@@ -271,6 +272,17 @@ const MyAppointments = () => {
   const [modal,        setModal]        = useState(null)
   const [cancelTarget, setCancelTarget] = useState(null)
 
+  const location = useLocation()
+  const [notificationError,setNotificationError]=useState('')
+  const notificationOpened = useRef(null)
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('appointment_id')
+    if (!id || loadingData || notificationOpened.current === location.key) return
+    notificationOpened.current = location.key
+    const appointment = appointments.find(row => Number(row.id) === Number(id))
+    if (appointment) {setNotificationError('');setModal(appointment)}
+    else setNotificationError('This appointment is no longer available here. Check your history or refresh.')
+  }, [appointments, loadingData, location.search, location.key])
   useEffect(() => {
     getMyAppointments()
       .then(data => {
@@ -339,6 +351,7 @@ const MyAppointments = () => {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
+      {notificationError&&<p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{notificationError}</p>}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">My Appointments</h1>

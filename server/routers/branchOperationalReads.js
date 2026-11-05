@@ -1,3 +1,4 @@
+const {paymentViewPredicate,gatewayJoin,paymentViewColumns}=require('../utils/billingViews')
 // Real, explicitly branch-scoped read models for the original Admin UI.
 // Do not forward these requests to unfiltered single-clinic controllers.
 const db = require('../db/connect')
@@ -25,6 +26,8 @@ async function readBills(req,res) {
   // status. List rows and pagination still honor the status tab.
   const buildFilters=(includeStatus)=>{
     const conditions=['b.branch_id=?'];const args=[req.branchId]
+    const paymentView=paymentViewPredicate(req.query.payment_view)
+    if(includeStatus&&paymentView)conditions.push(paymentView)
     if(includeStatus && statuses.length){conditions.push(`b.status IN (${statuses.map(()=>'?').join(',')})`);args.push(...statuses)}
     if(search){conditions.push('(p.full_name LIKE ? OR d.full_name LIKE ? OR CAST(b.id AS CHAR) LIKE ?)');args.push(...Array(3).fill(`%${search}%`))}
     if(dateBasis==='payment' && (paymentMethod||from||to)) {
@@ -46,12 +49,12 @@ async function readBills(req,res) {
   const joins=`FROM billing_records b
      JOIN appointments a ON a.id=b.appointment_id AND a.branch_id=b.branch_id
      JOIN patients p ON p.id=b.patient_id
-     JOIN doctors d ON d.id=b.doctor_id AND d.branch_id=b.branch_id
+     JOIN doctors d ON d.id=b.doctor_id
      LEFT JOIN (SELECT billing_id,COALESCE(SUM(CASE WHEN status='completed' THEN amount-COALESCE(refund_amount,0) ELSE 0 END),0) AS paid_amount,
          GROUP_CONCAT(DISTINCT CASE WHEN status='completed' THEN payment_method END SEPARATOR ',') AS payment_methods
-       FROM billing_payments GROUP BY billing_id) pay ON pay.billing_id=b.id`
+       FROM billing_payments GROUP BY billing_id) pay ON pay.billing_id=b.id ${gatewayJoin}`
   const [[count]]=await db.query(`SELECT COUNT(*) AS total ${joins} ${where}`,args)
-  const [rows]=await db.query(`SELECT b.id,b.appointment_id,b.status,b.version,b.subtotal,b.total_amount,b.discount_amount,b.discount_type,b.discount_label,b.payment_method,b.created_at,b.updated_at,b.finalized_at,
+  const [rows]=await db.query(`SELECT ${paymentViewColumns},b.id,b.appointment_id,b.status,b.version,b.subtotal,b.total_amount,b.discount_amount,b.discount_type,b.discount_label,b.payment_method,b.created_at,b.updated_at,b.finalized_at,
      COALESCE(pay.paid_amount,0) AS paid_amount,GREATEST(0,b.total_amount-COALESCE(pay.paid_amount,0)) AS balance_amount,COALESCE(pay.payment_methods,'') AS payment_methods,
      DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,a.appointment_time,a.reason AS appointment_reason,a.clinic_type,a.appointment_source,
      p.full_name AS patient_name,p.phone AS patient_phone,d.full_name AS doctor_name,d.specialty AS doctor_specialty
@@ -230,6 +233,7 @@ const registerBranchOperationalReads = (router, { requireSuper, branchContext, r
     reg('/inventory/batches/:batchId/history','inventory',readBatchHistory)
     reg('/billing/:id/stock-usage','billing',readBillStockUsage)
     // Explicit routes must precede the parameterized bill detail path.
+    reg('/billing/:id/history','billing',require('../controllers/billingHistory.controller').getHistory)
     reg('/billing/:id','billing',readBill)
   }
 }

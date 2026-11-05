@@ -14,39 +14,35 @@ test('ordinary Branch Admin navigation is unchanged',()=>{
  assert.equal(branchPortalPath('/admin/billing/approvals','/admin/billing'),'/admin/billing/approvals')
  assert.equal(branchPortalPath('/news','/superadmin/branches/1'),' /news'.trim())
 })
-test('Billing navigation and related action links resolve using the selected branch',()=>{
- const nav=read('components/billing/AdminBillingNav.jsx')
- const overview=read('pages/adminPage/Admin_Billing.jsx')
- assert.match(nav,/to=\{branchPortalPath\(item.path, location.pathname\)\}/)
- assert.match(overview,/to=\{portalPath\(item.to\)\}/)
- assert.match(overview,/to=\{portalPath\(issue.to\)\}/)
+test('shared Billing navigation and action links retain the selected physical branch',async()=>{
+ const {billingPortal}=await import('../src/utils/billingPortal.mjs')
+ const portal=billingPortal('/superadmin/branches/2/billing/transactions/6')
+ assert.equal(portal.base,'/superadmin/branches/2');assert.equal(portal.api,'/api/branches/workspace/2/legacy')
+ assert.match(read('components/billing/BillingNav.jsx'),/billingPortal\(location.pathname\)/)
+ assert.match(read('components/billing/BillingWorkspace.jsx'),/api.portal.base/)
+ assert.match(read('components/billing/BillHistory.jsx'),/api.portal.base/)
+ assert.equal((read('App.jsx').match(/path='billing\/transactions\/:billingId'/g)||[]).length,2)
 })
 
-
-
-test('billing transaction and checkout action links preserve selected superadmin branch',()=>{
+test('billing transaction and checkout action links preserve selected superadmin branch',async()=>{
  const app=read('App.jsx')
- assert.equal((app.match(/path='billing\/transactions\/:billingId'/g)||[]).length,2)
  assert.doesNotMatch(app,/path='billing\/transactions\/:id'/)
- for(const file of ['pages/adminPage/Admin_BillingTransactions.jsx','pages/adminPage/Admin_BillingTransactionDetail.jsx','pages/adminPage/Admin_Checkout.jsx']){
-   const contents=read(file)
-   assert.match(contents,/branchPortalPath\(path, location\.pathname\)/)
-   assert.doesNotMatch(contents,/to=[{]?`?\/admin\/billing\/(?:checkout|transactions)/)
- }
  for(const current of ['/admin/billing/transactions','/superadmin/branches/2/billing/transactions']){
-   const prefix=current.startsWith('/admin')?'/admin':'/superadmin/branches/2'
-   assert.equal(branchPortalPath('/admin/billing/transactions/12',current),`${prefix}/billing/transactions/12`)
-   assert.equal(branchPortalPath('/admin/billing/checkout/12',current),`${prefix}/billing/checkout/12`)
+  const prefix=current.startsWith('/admin')?'/admin':'/superadmin/branches/2'
+  assert.equal(branchPortalPath('/admin/billing/transactions/12',current),`${prefix}/billing/transactions/12`)
+  assert.equal(branchPortalPath('/admin/billing/checkout/12',current),`${prefix}/billing/checkout/12`)
  }
+ for(const file of ['components/billing/BillingWorkspace.jsx','components/billing/BillHistory.jsx'])assert.doesNotMatch(read(file),/to=[{]?`?\/admin\/billing\/(?:checkout|transactions)/)
+ assert.match(read('components/billing/BillCheckout.jsx'),/const billingHome=`\$\{targetBase\}/)
 })
-test('transaction details reject invalid billing ids without network retry',()=>{
- const content=read('pages/adminPage/Admin_BillingTransactionDetail.jsx')
- assert.match(content,/Number\.isSafeInteger\(parsedBillingId\)/)
- assert.match(content,/if \(!validBillingId\) return/)
- assert.match(content,/if \(!validBillingId\) return <div/)
- assert.match(content,/message="Transaction not found\."/)
- assert.match(content,/Back to Transactions/)
+
+test('transaction details reject invalid billing identifiers before issuing network requests',()=>{
+ const content=read('components/billing/BillHistory.jsx')
+ assert.match(content,/Number.isSafeInteger\(parsedBillingId\)/)
+ assert.match(content,/if\(!validBillingId\)\{setLoading\(false\);return\}/)
+ assert.match(content,/if\(!validBillingId\)return <ErrorState/)
 })
+
 test('doctor Today and Upcoming indicators use independent dashboard totals',()=>{
  const content=read('pages/doctorPage/Doctor_Appointments.jsx')
  assert.match(content,/Number\(summary\.remainingToday \?\? 0\)/)

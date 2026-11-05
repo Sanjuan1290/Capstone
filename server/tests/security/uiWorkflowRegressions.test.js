@@ -24,7 +24,7 @@ describe('September 25 UI/workflow regressions', () => {
 
   it('requires password plus email OTP for refund/void actions', () => {
     const server = read('server', 'controllers', 'admin.controller.js')
-    const client = read('client', 'src', 'pages', 'adminPage', 'Admin_BillingTransactionDetail.jsx')
+    const client = read('client', 'src', 'components', 'billing', 'BillFinancialTools.jsx')
     expect(server).toContain("BILLING_PAYMENT_ACTION_PURPOSE = 'billing_payment_action'")
     expect(server).toContain("bcrypt.compare(password, admin.password)")
     expect(server).toContain('confirmBillingPaymentAction')
@@ -46,7 +46,7 @@ describe('September 25 UI/workflow regressions', () => {
   it('moves Services & Pricing Setup into System Setup and unifies Admin Checkout under Billing', () => {
     const app = read('client', 'src', 'App.jsx')
     const adminLayout = read('client', 'src', 'components', 'layouts', 'AdminLayout.jsx')
-    const billingNav = read('client', 'src', 'components', 'billing', 'AdminBillingNav.jsx')
+    const billingNav = read('client', 'src', 'components', 'billing', 'BillingNav.jsx')
     const setupTabs = read('client', 'src', 'components', 'system', 'SystemSetupTabs.jsx')
     const checkout = read('client', 'src', 'pages', 'adminPage', 'Admin_Checkout.jsx')
 
@@ -67,10 +67,10 @@ describe('September 25 UI/workflow regressions', () => {
     expect(adminLayout).not.toContain("name: 'Checkout'")
     // The billing redesign kept the checkout and overview routes, but renamed
     // their navigation labels for non-technical clinic staff.
-    expect(billingNav).toContain("label: 'Take Payment'")
-    expect(billingNav).toContain("path: '/admin/billing?tab=checkout'")
-    expect(billingNav).toContain("label: 'Summary & Reports'")
-    expect(billingNav).toContain("path: '/admin/billing?tab=overview'")
+    expect(billingNav).toContain('Payments')
+    expect(billingNav).toContain('Receipts & History')
+    expect(billingNav).toContain('Admin Tools')
+    expect(billingNav).toContain('billing/reconciliation')
     expect(billingNav).not.toContain("label: 'Setup'")
     expect(checkout).toContain("/admin/billing/checkout/${bill.id}")
   })

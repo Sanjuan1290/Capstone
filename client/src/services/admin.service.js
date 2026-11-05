@@ -1,3 +1,4 @@
+import { manualAppointmentPayload } from '../utils/manualAppointment.mjs'
 import { makeSecurityScanError, waitForSecurityScan } from './cloudinaryScan'
 import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/admin.service.js
@@ -92,7 +93,7 @@ export const createAppointment = (payload) =>
   requestJson(`${getAdminApiBase()}/appointments`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(manualAppointmentPayload(payload)),
   })
 
 

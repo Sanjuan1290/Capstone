@@ -1,0 +1,815 @@
+import {useAuth} from '../../context/AuthContext'
+import {paymentRequestKey} from '../../utils/paymentRequest.mjs'
+import ChargeAdjustmentsPanel from '../../components/billing/ChargeAdjustmentsPanel'
+import { CheckoutProgress, CheckoutStatus, CheckoutOverview } from '../../components/billing/CheckoutExperience'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import {
+  MdAdd, MdArrowBack, MdCheck, MdDeleteOutline,
+  MdLocalPharmacy, MdLock, MdPayments, MdPrint, MdRefresh, MdWarning,
+} from 'react-icons/md'
+
+import { getClinicSettings } from '../../services/clinic.service'
+import { useToast } from '../../components/ui/ToastProvider'
+import Modal from '../../components/ui/Modal'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
+import { LoadingState, ErrorState } from '../../components/ui/PageState'
+import BillingStatusBadge from '../../components/billing/BillingStatusBadge'
+import QrPhPaymentPanel from '../../components/billing/QrPhPaymentPanel'
+import SelectedPromotionNotice from '../../components/billing/SelectedPromotionNotice'
+import PaymentPreview from '../../components/billing/PaymentPreview'
+
+import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
+import DiscountProofField from '../../components/billing/DiscountProofField'
+import { enabledPaymentMethods, formatMoney, paymentMethodLabel, roundMoney } from '../../utils/billingUi'
+import { printBillingReceipt } from '../../utils/billingReceipt'
+
+const makeBlankItem = (itemType = 'custom') => ({
+  id: null,
+  item_type: itemType,
+  source_type: itemType === 'supply' ? 'staff_supply' : 'staff_custom',
+  catalog_service_id: null,
+  source_inventory_id: '',
+  category: itemType === 'supply' ? 'Medicine / Supply' : 'Custom Charge',
+  service_name: '',
+  quantity: 1,
+  base_amount: 0,
+  markup_percentage: 0,
+  unit_price: '',
+  notes: '',
+  details: null,
+})
+
+const normalizeBill = (bill) => ({
+  ...bill,
+  payment_method: '',
+  payment_notes: '',
+  reference_number: '',
+  payment_amount: Number(bill?.balance_amount ?? bill?.total_amount) || 0,
+  amount_received: Number(bill?.balance_amount ?? bill?.total_amount) || 0,
+  discount_amount: Number(bill?.discount_amount || 0),
+  items: Array.isArray(bill?.items) ? bill.items.map((item) => ({
+    id: item.id,
+    item_type: item.item_type || 'custom',
+    source_type: item.source_type || (item.item_type === 'service' ? 'consultation' : item.item_type === 'supply' ? 'staff_supply' : 'staff_custom'),
+    source_reference_id: item.source_reference_id || null,
+    catalog_service_id: item.catalog_service_id || null,
+    source_inventory_id: item.source_inventory_id || '',
+    category: item.category || '',
+    service_name: item.service_name || '',
+    quantity: Number(item.quantity || 1),
+    base_amount: Number(item.base_amount || 0),
+    markup_percentage: Number(item.markup_percentage || 0),
+    unit_price: Number(item.unit_price || 0),
+        notes: item.notes || '',
+    details: item.details || null,
+  })) : [],
+})
+
+const isProtectedConsultationLine = (item) => ['consultation', 'consultation_extra'].includes(String(item?.source_type || ''))
+
+const serializeItems = (items = []) => items.filter((item) => !isProtectedConsultationLine(item)).map((item, index) => ({
+  id: item.id || null,
+  item_type: item.item_type,
+  source_type: item.source_type,
+  source_reference_id: item.source_reference_id || null,
+  catalog_service_id: item.catalog_service_id || null,
+  source_inventory_id: item.source_inventory_id || null,
+  category: item.category || '',
+  service_name: item.service_name || '',
+  quantity: Number(item.quantity || 0),
+  base_amount: Number(item.base_amount || 0),
+  markup_percentage: Number(item.markup_percentage || 0),
+  unit_price: Number(item.unit_price || 0),
+  notes: item.notes || '',
+  sort_order: index,
+  details: item.details || null,
+}))
+
+const totalsFor = (draft) => {
+  const subtotal = roundMoney((draft?.items || []).reduce((sum, item) => (
+    sum + Math.max(0, Number(item.quantity || 0)) * Math.max(0, Number(item.unit_price || 0))
+  ), 0))
+  const discount = Math.min(subtotal, Math.max(0, Number(draft?.discount_amount || 0)))
+  return { subtotal, discount, total: Math.max(0, roundMoney(subtotal - discount)) }
+}
+
+
+const BillCheckout = ({services,admin=false}) => {
+  const {
+  cancelBillingAdjustmentRequest,
+  finalizeBill,
+  getBillById,
+  getBillingAdjustmentRequests,
+  getBillingPaymentSettings,
+  getDiscountPresets,
+  getFinalizePreview,
+  getInventory,
+  payBill,
+  reopenBill,
+  requestBillingAdjustment,
+  updateBill,
+  uploadDiscountProofImage,
+createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+  const {user}=useAuth()
+  const paymentSubmitting=useRef(false)
+  const paymentIntent=useRef(null)
+  const location=useLocation()
+  const targetBase=location.pathname.match(/^\/superadmin\/branches\/\d+/)?.[0] || (admin?'/admin':'/staff')
+  const billingHome=`${targetBase}/${admin?'billing':'checkout'}`
+
+  const { billingId } = useParams()
+  const navigate = useNavigate()
+  const toast = useToast()
+  const [bill, setBill] = useState(null)
+  const [draft, setDraft] = useState(null)
+  const [inventory, setInventory] = useState([])
+  const [paymentSettings, setPaymentSettings] = useState({})
+  const [discounts, setDiscounts] = useState([])
+  const [adjustments, setAdjustments] = useState([])
+  const [clinicSettings, setClinicSettings] = useState({})
+  const [selectedDiscountId, setSelectedDiscountId] = useState('')
+  const [discountProof, setDiscountProof] = useState({ url: '', security_token: '' })
+  const [discountReason, setDiscountReason] = useState('')
+  const [step, setStep] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
+  const [paying, setPaying] = useState(false)
+  const [qrPending, setQrPending] = useState(false)
+  const [reopening, setReopening] = useState(false)
+  const [adjusting, setAdjusting] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const [paymentConfirm, setPaymentConfirm] = useState(false)
+  const [finalizePreview, setFinalizePreview] = useState(null)
+  const [paymentSuccess, setPaymentSuccess] = useState(false)
+  const [lastPayment, setLastPayment] = useState(null)
+  const [dirty, setDirty] = useState(false)
+  const [externalUpdate, setExternalUpdate] = useState(false)
+  const [versionConflict, setVersionConflict] = useState(false)
+  const initialLoadRef = useRef(true)
+
+  const inventoryMap = useMemo(() => new Map(inventory.map((item) => [Number(item.id), item])), [inventory])
+  const totals = totalsFor(draft)
+  const zeroPriceItems = (draft?.items || []).filter((item) => Number(item.unit_price || 0) <= 0)
+  const directCheckoutSupplyCount = (draft?.items || []).filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id || 0) > 0).length
+  const paymentMethods = enabledPaymentMethods(paymentSettings)
+  const selectedDiscount = discounts.find((item) => Number(item.id) === Number(selectedDiscountId)) || null
+  const isDraft = ['draft', 'pending'].includes(bill?.status)
+  const isPayable = ['ready', 'partially_paid'].includes(bill?.status)
+  const isPaid = bill?.status === 'paid'
+  const canReopenForEditing = bill?.status === 'ready' && Number(bill?.paid_amount || 0) === 0 && (bill?.payments?.length || 0) === 0
+  const complete = isPaid ? 3 : isPayable ? 2 : step > 1 ? 1 : 0
+  const currentVersion = Number(bill?.version || 1)
+  const currentAdjustments = adjustments.filter((item) => Number(item.bill_version || 1) === currentVersion)
+
+  const latestAdjustment = (type, matcher = () => true, status = null) => currentAdjustments.find((item) => (
+    item.request_type === type && matcher(item) && (!status || item.status === status)
+  ))
+
+  const restoreAdjustmentState = (current, requests, presets) => {
+    const version = Number(current?.version || 1)
+    const sameVersion = (Array.isArray(requests) ? requests : []).filter((row) => Number(row.bill_version || 1) === version)
+    const approvedDiscount = sameVersion.find((row) => row.request_type === 'discount' && row.status === 'approved')
+    const pendingDiscount = sameVersion.find((row) => row.request_type === 'discount' && row.status === 'pending')
+    const discountRequest = approvedDiscount || pendingDiscount
+    if (discountRequest?.discount_preset_id) {
+      setSelectedDiscountId(String(discountRequest.discount_preset_id))
+      setDiscountProof({ url: discountRequest.reference_image_url || current.discount_reference_image_url || '', security_token: '' })
+      setDiscountReason(discountRequest.reason || '')
+      if (discountRequest.requested_amount) {
+        const courtesy = Number(current?.approved_courtesy_discount || 0)
+        setDraft((value) => value ? { ...value, discount_amount: Math.min(Number(current?.subtotal || 0), Number(discountRequest.requested_amount) + courtesy + Number(current?.promotion_discount_amount||0)) } : value)
+      }
+      return
+    }
+    const preset = (Array.isArray(presets) ? presets : []).find((p) => (
+      String(current.discount_label || '').toLowerCase().split(' + ').map(label=>label.trim()).includes(String(p.label || '').toLowerCase())
+      && p.discount_type === current.discount_type
+    ))
+    setSelectedDiscountId(preset ? String(preset.id) : Number(current.discount_amount||0)>Number(current.approved_courtesy_discount||0)+Number(current.promotion_discount_amount||0)?'saved':'')
+    setDiscountProof({ url: current.discount_reference_image_url || '', security_token: '' })
+    setDiscountReason('')
+  }
+
+  const load = async ({ preserveStep = false } = {}) => {
+    setLoading(true)
+    setError('')
+    try {
+      const current = await getBillById(billingId)
+      const [items, settings, presets, requests, clinic] = await Promise.all([
+        getInventory(),
+        getBillingPaymentSettings(),
+        getDiscountPresets(),
+        getBillingAdjustmentRequests(billingId),
+        getClinicSettings(),
+      ])
+      setBill(current)
+      setDraft(normalizeBill(current))
+      setInventory(Array.isArray(items) ? items : [])
+      setPaymentSettings(settings || {})
+      setDiscounts(Array.isArray(presets) ? presets : [])
+      setAdjustments(Array.isArray(requests) ? requests : [])
+      setClinicSettings(clinic || {})
+      restoreAdjustmentState(current, requests, presets)
+      if (!preserveStep || initialLoadRef.current) {
+        setStep(['ready', 'partially_paid'].includes(current.status) ? 3 : current.status === 'paid' ? 3 : 1)
+      }
+      setDirty(false)
+      setExternalUpdate(false)
+      setVersionConflict(false)
+      initialLoadRef.current = false
+    } catch (err) {
+      setError(err.message || 'Checkout could not be loaded.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [billingId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const refresh = () => {
+      if (dirty) setExternalUpdate(true)
+      else load({ preserveStep: true })
+    }
+    window.addEventListener('clinic:refresh', refresh)
+    return () => window.removeEventListener('clinic:refresh', refresh)
+  }, [dirty, billingId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const beforeUnload = (event) => {
+      if (!dirty) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => window.removeEventListener('beforeunload', beforeUnload)
+  }, [dirty])
+
+  const markDraft = (updater) => {
+    setDraft((current) => typeof updater === 'function' ? updater(current) : updater)
+    setDirty(true)
+  }
+
+  const handleBack = () => {
+    if (dirty && !window.confirm('You have unsaved changes. Leave Checkout and discard them?')) return
+    navigate(billingHome)
+  }
+
+  const updateItem = (index, key, value) => markDraft((current) => ({
+    ...current,
+    items: current.items.map((item, i) => i === index ? { ...item, [key]: value } : item),
+  }))
+
+  const addType = (type) => {
+    markDraft((current) => ({ ...current, items: [...current.items, makeBlankItem(type)] }))
+    setAddOpen(false)
+  }
+
+  const removeItem = (index) => {
+    const item = draft.items[index]
+    if (isProtectedConsultationLine(item)) return
+    markDraft((current) => ({ ...current, items: current.items.filter((_, i) => i !== index) }))
+  }
+
+  const selectSupply = (index, value) => {
+    const item = inventoryMap.get(Number(value))
+    if (!item) return
+    if (item.selling_price === null || item.selling_price === undefined || item.selling_price === '' || Number(item.selling_price) <= 0) {
+      toast.warning('This inventory item has a missing or ₱0.00 Selling Price. Configure a valid price first.')
+      return
+    }
+    markDraft((current) => ({
+      ...current,
+      items: current.items.map((row, i) => i === index ? {
+        ...row,
+        source_inventory_id: item.id,
+        service_name: item.name || '',
+        category: item.category || 'Medicine / Supply',
+        unit_price: Number(item.selling_price || 0),
+        details: { unit: item.base_unit || item.unit || '', batch_id: null, batch_code: null, source_location_id: null, source_location: null },
+      } : row),
+    }))
+  }
+
+  const selectSupplyBatch = (index, batch) => {
+    markDraft((current) => ({
+      ...current,
+      items: current.items.map((row, i) => i === index ? {
+        ...row,
+        details: {
+          ...(row.details || {}),
+          batch_id: batch?.id || null,
+          batch_code: batch?.batch_code || null,
+          source_location_id: batch?.source_location_id || null,
+          source_location: batch?.source_location || null,
+        },
+      } : row),
+    }))
+  }
+
+
+  const discountNeedsApproval = Boolean(!admin && selectedDiscount && (
+    Number(selectedDiscount.requires_admin_approval) === 1
+    || (selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0)
+  ))
+  const discountPersistedApproval = Boolean(discountNeedsApproval && selectedDiscount
+    && String(bill?.discount_label || '').toLowerCase() === String(selectedDiscount.label || '').toLowerCase()
+    && Number(bill?.discount_amount || 0) >= 0
+    && !dirty)
+  const discountPending = selectedDiscount ? latestAdjustment('discount', (item) => Number(item.discount_preset_id) === Number(selectedDiscount.id), 'pending') : null
+  const discountApproval = selectedDiscount ? latestAdjustment('discount', (item) => Number(item.discount_preset_id) === Number(selectedDiscount.id), 'approved') : null
+  const discountRejected = selectedDiscount ? latestAdjustment('discount', (item) => Number(item.discount_preset_id) === Number(selectedDiscount.id), 'rejected') : null
+
+  const selectDiscount = (value) => {
+    const preset = discounts.find((item) => Number(item.id) === Number(value)) || null
+    setSelectedDiscountId(value)
+    setDiscountProof({ url: '', security_token: '' })
+    setDiscountReason('')
+    markDraft((current) => {
+      const courtesy = Number(bill?.approved_courtesy_discount || 0)
+      const promotion=Number(bill?.promotion_discount_amount || 0)
+      if (!preset) return { ...current, discount_amount: courtesy+promotion }
+      const amount = preset.discount_type === 'percentage'
+        ? roundMoney(Math.max(0,totals.subtotal-courtesy-promotion) * Math.max(0, Number(preset.value || 0)) / 100)
+        : Math.max(0, Number(preset.value || 0))
+      return { ...current, discount_amount: Math.min(totals.subtotal, roundMoney(amount + courtesy + promotion)) }
+    })
+  }
+
+  const saveDraft = async ({ quiet = false, draftOverride = null } = {}) => {
+    const workingDraft = draftOverride || draft
+    if (!workingDraft || !isDraft) return bill
+    const validationError = validateReviewCharges(workingDraft)
+    if (validationError) { toast.error(validationError); return null }
+    setSaving(true)
+    try {
+      const updated = await updateBill(billingId, {
+        expected_version: currentVersion,
+        items: serializeItems(workingDraft.items),
+        discount_preset_id: selectedDiscount?.id || null,
+        discount_reference: null,
+        discount_reference_image_url: discountProof.url || null,
+        discount_reference_security_token: discountProof.security_token || null,
+        discount_amount: workingDraft.discount_amount,
+        preset_discount_amount: roundMoney(Math.max(0, Number(workingDraft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0))),
+        payment_notes: workingDraft.payment_notes || null,
+        ...(bill.selected_promotion ? {
+          promotion_review_outcome: workingDraft.promotion_review_outcome || null,
+          promotion_review_note: workingDraft.promotion_review_note || '',
+        } : {}),
+      })
+      setBill(updated)
+      setDraft(normalizeBill(updated))
+      setDirty(false)
+      setVersionConflict(false)
+      const requests = await getBillingAdjustmentRequests(billingId)
+      setAdjustments(Array.isArray(requests) ? requests : [])
+      if (!quiet) toast.success('Billing review saved.')
+      return updated
+    } catch (err) {
+      if (err.code === 'BILL_VERSION_CONFLICT' || /updated by another user|changed while/i.test(err.message || '')) {
+        setVersionConflict(true)
+      }
+      toast.error(err.message || 'Billing review could not be saved.')
+      return null
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const requestDiscount = async () => {
+    if (!selectedDiscount) return
+    if (Number(selectedDiscount.requires_reference) === 1 && !discountProof.url) {
+      toast.error('Upload the required reference / ID proof image.')
+      return
+    }
+    if (!discountReason.trim()) {
+      toast.error('Enter a reason for administrator approval.')
+      return
+    }
+    setAdjusting(true)
+    try {
+      await requestBillingAdjustment(billingId, {
+        request_type: 'discount',
+        discount_preset_id: selectedDiscount.id,
+        requested_amount: roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0))),
+        reference: null,
+        reference_image_url: discountProof.url || null,
+        reference_security_token: discountProof.security_token || null,
+        reason: discountReason.trim(),
+      })
+      setAdjustments(await getBillingAdjustmentRequests(billingId))
+      toast.success('Administrator approval requested.')
+    } catch (err) {
+      toast.error(err.message || 'Approval request could not be sent.')
+    } finally {
+      setAdjusting(false)
+    }
+  }
+
+  const cancelAdjustment = async (request) => {
+    if (!request?.id) return
+    setAdjusting(true)
+    try {
+      await cancelBillingAdjustmentRequest(billingId, request.id)
+      setAdjustments(await getBillingAdjustmentRequests(billingId))
+      toast.success('Approval request cancelled.')
+    } catch (err) {
+      toast.error(err.message || 'Approval request could not be cancelled.')
+    } finally {
+      setAdjusting(false)
+    }
+  }
+
+  const applyApprovedOverridesToDraft = () => draft
+
+  const validateReviewCharges = (workingDraft = draft) => {
+    if (!workingDraft) return 'Bill is not ready.'
+    const invalidName = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && !String(item.service_name || '').trim())
+    if (invalidName) return 'Enter a description for every added charge.'
+    const invalidQuantity = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && !(Number(item.quantity) > 0))
+    if (invalidQuantity) return 'Every added charge must have a quantity greater than zero.'
+    const invalidCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !String(item.notes || '').trim())
+    if (invalidCustom) return 'Every custom charge needs a reason or note before continuing.'
+    const zeroPriceCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !(Number(item.unit_price) > 0))
+    if (zeroPriceCustom) return 'Every custom charge must have a price greater than ₱0.00.'
+    const longDescription = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && String(item.service_name || '').trim().length > 180)
+    if (longDescription) return 'Charge descriptions must be 180 characters or fewer.'
+    const longNote = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && String(item.notes || '').trim().length > 500)
+    if (longNote) return 'Charge notes must be 500 characters or fewer.'
+    const invalidSupply = workingDraft.items.find((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && !item.source_inventory_id)
+    if (invalidSupply) return 'Select an inventory item for every Medicine / Supply charge.'
+    for (const item of workingDraft.items.filter((row) => row.item_type === 'supply' && row.source_type === 'staff_supply' && row.source_inventory_id)) {
+      const inv = inventoryMap.get(Number(item.source_inventory_id))
+      const batches = getCheckoutBatchOptions(inv)
+      const selectedBatch = batches.find((batch) => batch.id === Number(item?.details?.batch_id || 0) && batch.source_location_id === Number(item?.details?.source_location_id || 0))
+      if (!selectedBatch || !item?.details?.source_location_id) return `Select the exact batch to dispense for ${inv?.name || item.service_name || 'this Medicine / Supply charge'}.`
+      const qty = Math.max(0, Number(item.quantity || 0))
+      if (qty > Number(selectedBatch.available || 0) + 0.0001) return `${inv?.name || 'Inventory item'} batch ${selectedBatch.batch_code} only has ${selectedBatch.available} available at ${selectedBatch.source_location}.`
+    }
+    return ''
+  }
+
+  const proceedToReview = () => {
+    const validationError = validateReviewCharges()
+    if (validationError) { toast.error(validationError); return }
+    setDraft(applyApprovedOverridesToDraft())
+    setStep(2)
+  }
+
+  const prepareFinalize = async () => {
+    const discountAuthorized = !discountNeedsApproval || Boolean(discountApproval) || discountPersistedApproval
+    if (!discountAuthorized) {
+      toast.error('This discount still needs administrator approval for the current bill version.')
+      return
+    }
+    const withApproved = applyApprovedOverridesToDraft()
+    setDraft(withApproved)
+    const hasCurrentApprovedAdjustment = currentAdjustments.some((request) => request.status === 'approved')
+    if (dirty || hasCurrentApprovedAdjustment) {
+      const current = await saveDraft({ quiet: true, draftOverride: withApproved })
+      if (!current) return
+    }
+    setFinalizing(true)
+    try {
+      const preview = await getFinalizePreview(billingId)
+      if(Number(preview.pending_requests)>0)toast.warning('Resolve or cancel all pending charge and discount requests before confirming this bill.')
+      if(preview.consultation_completed===false)toast.warning('Complete the consultation before confirming this bill.')
+      setFinalizePreview(preview)
+    } catch (err) {
+      toast.error(err.message || 'Bill confirmation could not be reviewed.')
+    } finally {
+      setFinalizing(false)
+    }
+  }
+
+  const confirmFinalize = async () => {
+    if (!finalizePreview) return
+    if (!finalizePreview.can_finalize) return
+    setFinalizing(true)
+    try {
+      const updated = await finalizeBill(billingId, finalizePreview.version)
+      setBill(updated)
+      setDraft(normalizeBill(updated))
+      setDirty(false)
+      setFinalizePreview(null)
+      setStep(3)
+      toast.success('Bill confirmed and ready for payment.')
+    } catch (err) {
+      if (err.code === 'BILL_VERSION_CONFLICT' || /changed/i.test(err.message || '')) setVersionConflict(true)
+      toast.error(err.message || 'Bill could not be confirmed.')
+    } finally {
+      setFinalizing(false)
+    }
+  }
+
+  const reopenForEditing = async () => {
+    if (!canReopenForEditing) return
+    if (!window.confirm('Go back and edit this confirmed bill? This is allowed only before any payment is recorded. You will need to confirm the bill again after making corrections.')) return
+
+    setReopening(true)
+    try {
+      const updated = await reopenBill(billingId, currentVersion)
+      setBill(updated)
+      setDraft(normalizeBill(updated))
+      setDirty(false)
+      setVersionConflict(false)
+      setPaymentConfirm(false)
+      setStep(2)
+      toast.success('Bill reopened for editing. Make the correction, then confirm the bill again.')
+    } catch (err) {
+      if (err.code === 'BILL_VERSION_CONFLICT' || /changed/i.test(err.message || '')) setVersionConflict(true)
+      toast.error(err.message || 'Bill could not be reopened for editing.')
+    } finally {
+      setReopening(false)
+    }
+  }
+
+  const requestPay = () => {
+    const amount = Number(draft.payment_amount || 0)
+    if (!draft.payment_method) return toast.error('Select a payment method.')
+    if (amount <= 0 || amount > Number(bill.balance_amount || 0) + 0.001) return toast.error('Enter a valid payment amount.')
+    if (draft.payment_method !== 'cash' && !String(draft.reference_number || '').trim()) return toast.error('Enter the payment reference number.')
+    if (draft.payment_method === 'cash' && Number(draft.amount_received || 0) < amount) return toast.error('Cash received cannot be lower than the payment amount.')
+    setPaymentConfirm(true)
+  }
+
+  const recordPayment = async () => {
+    if(paymentSubmitting.current)return
+    paymentSubmitting.current=true
+    setPaying(true)
+    try {
+      const signature=JSON.stringify([billingId,bill.version,bill.balance_amount,draft.payment_method,Number(draft.payment_amount),Number(draft.amount_received),String(draft.reference_number||'').trim()])
+      const storageKey=`carait:payment:${targetBase}:${user?.id}:${billingId}`
+      if(paymentIntent.current?.signature!==signature){
+        const key=paymentRequestKey(window.sessionStorage,storageKey,signature,()=>`checkout-${billingId}-${globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`}`)
+        paymentIntent.current={signature,key,storageKey}
+      }
+      const updated = await payBill(billingId, {
+        payment_method: draft.payment_method,
+        payment_amount: Number(draft.payment_amount || 0),
+        amount_received: Number(draft.amount_received || 0),
+        reference_number: String(draft.reference_number || '').trim() || null,
+        payment_notes: String(draft.payment_notes || '').trim() || null,
+        idempotency_key: paymentIntent.current.key,
+      })
+      const payments = Array.isArray(updated.payments) ? updated.payments : []
+      const payment = payments[0] || null
+      setBill(updated)
+      setDraft(normalizeBill(updated))
+      setLastPayment(payment)
+      setPaymentSuccess(true)
+      setPaymentConfirm(false)
+      setDirty(false)
+      try{window.sessionStorage.removeItem(paymentIntent.current.storageKey)}catch{ /* A confirmed receipt is valid when browser storage is unavailable. */ }
+      paymentIntent.current=null
+      toast.success('Payment recorded.')
+    } catch (err) {
+      toast.error(err.message || 'Payment could not be recorded.')
+    } finally {
+      paymentSubmitting.current=false
+      setPaying(false)
+    }
+  }
+
+  const printReceipt = (payment) => printBillingReceipt({
+    bill,
+    payment,
+    clinicSettings,
+    onPopupBlocked: () => toast.error('Receipt window was blocked by the browser.'),
+  })
+
+  if (loading) return <div className="mx-auto max-w-6xl"><LoadingState label="Loading checkout..." /></div>
+  if (error || !bill || !draft) return <div className="mx-auto max-w-6xl"><ErrorState message={error || 'Billing record not found.'} onRetry={() => load()} /></div>
+
+  if (paymentSuccess && lastPayment) {
+    return (
+      <div className="mx-auto max-w-2xl py-8">
+        <div className="rounded-3xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-3xl text-emerald-700"><MdCheck /></div>
+          <h1 className="mt-5 text-xl font-black text-slate-900">Payment recorded successfully</h1>
+          <p className="mt-2 text-slate-500">Payment saved for {bill.patient_name}. You can print the receipt or continue checkout.</p>
+          <p className="mt-5 text-3xl font-black text-slate-900">{formatMoney(lastPayment.amount)}</p>
+          <p className="mt-1 font-bold text-slate-500">{paymentMethodLabel(lastPayment.payment_method)}</p>
+          <div className="mx-auto mt-5 max-w-sm rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+            <p><strong>Receipt:</strong> {lastPayment.receipt_number || '—'}</p>
+            <p className="mt-1"><strong>Remaining Balance:</strong> {formatMoney(bill.balance_amount)}</p>
+          </div>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <button className="button-secondary" onClick={() => printReceipt(lastPayment)}><MdPrint /> Print Receipt</button>
+            {Number(bill.balance_amount || 0) > 0 && <button className="button-secondary" onClick={() => setPaymentSuccess(false)}>Collect Another Payment</button>}
+            <button className="button-primary" onClick={() => navigate(billingHome)}>Next Patient →</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <main aria-busy={saving || finalizing || paying || reopening} className="mx-auto w-full max-w-6xl space-y-5 pb-12">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <button className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-900" onClick={handleBack}><MdArrowBack /> Back to Checkout</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-0"><p className="text-[11px] font-bold uppercase tracking-widest text-sky-700">Bill Checkout</p><h1 className="mt-0.5 text-2xl font-black text-slate-900">{bill.patient_name}</h1></div>
+            <BillingStatusBadge status={bill.status} audience="staff" />
+            {dirty && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">● Unsaved changes</span>}
+          </div>
+          <p className="mt-1 text-sm text-slate-500">{bill.doctor_name} · {bill.appointment_reason || 'Consultation'} · Bill #{bill.id} · Version {bill.version || 1}</p>
+        </div>
+        <button className="button-secondary transition-colors duration-200" disabled={saving || finalizing || paying || reopening} onClick={() => dirty ? setExternalUpdate(true) : load({ preserveStep: true })}><MdRefresh /> Refresh</button>
+      </div>
+
+      {externalUpdate && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><div><strong>Refresh requires confirmation.</strong><p className="mt-1">Your unsaved changes are still on this page. Reloading will replace them with the saved bill.</p></div><button className="button-secondary" onClick={() => { if (!dirty || window.confirm('Discard your unsaved changes and load the latest bill?')) load({ preserveStep: true }) }}>Review Latest Version</button></div>}
+      {versionConflict && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><div><strong>This bill changed while you were working on it.</strong><p className="mt-1">The system blocked the stale save so another Staff member's changes were not overwritten.</p></div><button className="button-secondary" onClick={() => load({ preserveStep: true })}>Review Latest Bill</button></div>}
+
+      <CheckoutStatus bill={bill} dirty={dirty} saving={saving} finalizing={finalizing} paying={paying} qrPending={qrPending} reopening={reopening} versionConflict={versionConflict} />
+      <CheckoutOverview bill={bill} totals={totals} dirty={dirty} formatMoney={formatMoney} />
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4"><h2 className="font-bold text-slate-900">1. Patient &amp; Consultation Details</h2><p className="mt-2 text-sm">{bill.patient_name} · {bill.doctor_name} · {bill.branch_name || clinicSettings.clinic_name}</p><p className="mt-1 text-xs text-slate-500">Appointment #{bill.appointment_id} · {String(bill.appointment_date || '').slice(0,10)} · {bill.consultation_status==='finalized'?'Consultation completed':'Consultation in progress'}</p></section>
+      <CheckoutProgress active={isPaid ? 3 : isPayable ? 3 : step} complete={complete} />
+
+      {isDraft && step === 1 && (
+        <div className="checkout-stage-enter grid gap-4 lg:grid-cols-[1fr_320px]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="font-black text-slate-900">2. Bill Charges</h2><p className="mt-1 text-sm text-slate-500">Doctor-recorded clinical services are locked. Staff can add medicines/supplies or a traceable custom charge.</p></div>
+              <button className="button-secondary" onClick={() => setAddOpen(true)}><MdAdd /> Add Charge</button>
+            </div>
+
+            <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount} />
+            {zeroPriceItems.length > 0 && <div className="mt-4 flex gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900"><MdWarning /> {zeroPriceItems.length} charge{zeroPriceItems.length === 1 ? '' : 's'} currently {zeroPriceItems.length === 1 ? 'has' : 'have'} a missing/₱0.00 price. Fix the price before continuing.</div>}
+
+            <div className="mt-5 space-y-3">
+              {draft.items.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">No charges yet.</div>}
+              {draft.items.map((item, index) => {
+                const protectedLine = isProtectedConsultationLine(item)
+                return (
+                  <div key={item.id || `new-${index}`} className={`rounded-2xl border p-4 transition-colors duration-200 motion-reduce:transition-none ${protectedLine ? 'border-sky-100 bg-sky-50/50' : 'border-slate-200'}`}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-black text-slate-900">{item.service_name || (item.item_type === 'supply' ? 'Medicine / Supply' : 'Custom Charge')}</p>
+                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Consumable · From Consultation' : 'From Consultation'}</span>}
+                        </div>
+                        {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
+                      </div>
+                      {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
+                    </div>
+
+                    {protectedLine ? (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px_140px]">
+                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Consumable' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
+                        <div><span className="form-label">Qty</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.quantity}</div></div>
+                        <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
+                      </div>
+                    ) : item.item_type === 'supply' ? (
+                      <CheckoutSupplyEditor
+                        item={item}
+                        inventory={inventory}
+                        onSelectInventory={(value) => selectSupply(index, value)}
+                        onSelectBatch={(batch) => selectSupplyBatch(index, batch)}
+                        onQuantity={(value) => updateItem(index, 'quantity', Math.max(0, Number(value) || 0))}
+                      />
+                    ) : (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_110px_140px]">
+                        <label><span className="form-label">Description *</span><input maxLength={180} className="form-control mt-1.5" value={item.service_name} onChange={(e) => updateItem(index, 'service_name', e.target.value)} placeholder="e.g. Medical Certificate" /></label>
+                        <label><span className="form-label">Qty *</span><input type="number" inputMode="numeric" min="1" step="1" className="form-control mt-1.5" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', Math.max(0, Number(e.target.value) || 0))} /></label>
+                        <label><span className="form-label">Amount *</span><input type="number" inputMode="decimal" min="0.01" step="0.01" className={`form-control mt-1.5 ${Number(item.unit_price || 0) <= 0 ? 'border-rose-400 bg-rose-50' : ''}`} value={item.unit_price} onChange={(e) => updateItem(index, 'unit_price', e.target.value)} />{Number(item.unit_price || 0) <= 0 && <span className="mt-1 block text-[10px] font-bold text-amber-700">Price is required and must be greater than ₱0.00.</span>}</label>
+                        <label className="sm:col-span-3"><span className="form-label">Reason / Notes *</span><textarea maxLength={500} rows={2} className="form-control mt-1.5 resize-none" value={item.notes} onChange={(e) => updateItem(index, 'notes', e.target.value)} placeholder="Required for the billing audit trail" /></label>
+                      </div>
+                    )}
+
+
+
+                    <div className="mt-4 flex justify-end border-t border-slate-100 pt-3 text-sm"><span className="mr-3 text-slate-500">Line Total</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>
+                  </div>
+                )
+              })}
+            </div>
+            
+          </section>
+
+          <aside className="lg:sticky lg:top-24 lg:self-start">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
+              <h2 className="font-black text-slate-900">Charge Summary</h2>
+              <div className="mt-4 space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Current Total</span><strong>{formatMoney(totals.total)}</strong></div></div>
+              <button className="button-primary mt-5 w-full justify-center" disabled={draft.items.length === 0} onClick={proceedToReview}>Continue to Confirm Bill →</button>
+              <button className="button-secondary mt-2 w-full justify-center" disabled={saving || !dirty} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {isDraft && step === 2 && (
+        <div className="checkout-stage-enter grid gap-4 lg:grid-cols-[1fr_340px]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
+            <h2 className="font-black text-slate-900">3. Adjustments &amp; Discounts</h2>
+            <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
+            <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount} />
+            <ChargeAdjustmentsPanel billingId={billingId} staffOnly={!admin} onUpdated={()=>{if(dirty){setExternalUpdate(true);setVersionConflict(true)}else void load({preserveStep:true})}} />
+            {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <label><span className="form-label">Promotion review outcome</span>
+                <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
+                  onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
+                  <option value="">Not reviewed yet</option>
+                  <option value="needs_review">Needs clinic review</option>
+                  <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
+                  <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
+                </select>
+              </label>
+              <label><span className="form-label">Review notes</span>
+                <textarea className="form-control mt-1.5" maxLength={255} rows={2}
+                  value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
+                  placeholder="Reason for review decision (required when no promotional discount is applied)" />
+              </label>
+              <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
+            </div>}
+            <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{selectedDiscountId==='saved'&&<option value="saved">Saved authorized additional discount</option>}{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
+            {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
+              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
+              {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
+              {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
+                <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
+                {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
+              </>}
+              {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
+              {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
+              {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
+            </div>}
+            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Charges</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
+            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button></div>
+          </section>
+          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges. Additional Medicine / Supply inventory is deducted from the selected batch only when the bill becomes fully paid.</p></div></aside>
+        </div>
+      )}
+
+      {isPayable && step === 3 && (
+        <div className="space-y-4">
+          {canReopenForEditing && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <div>
+                <strong>Found a billing mistake before payment?</strong>
+                <p className="mt-1">Reopen the bill to correct charges or discounts. The bill must be confirmed again before collecting payment.</p>
+              </div>
+              <button className="button-secondary" disabled={reopening || paying || qrPending} onClick={reopenForEditing}>
+                <MdArrowBack /> {reopening ? 'Reopening…' : 'Edit Bill'}
+              </button>
+            </div>
+          )}
+          <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
+            <h2 className="font-black text-slate-900">4. Payment</h2><p className="mt-1 text-sm text-slate-500">Only payment methods enabled by Admin are shown here.</p>
+            <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-center"><p className="text-xs font-black uppercase tracking-wide text-sky-700">Amount Due</p><p className="mt-2 text-3xl font-black text-sky-950">{formatMoney(bill.balance_amount)}</p></div>
+            <details className="mt-5 rounded-2xl border border-sky-200 bg-sky-50/30 p-3" open={qrPending ? true : undefined}>
+              <summary className="min-h-11 cursor-pointer px-2 py-2 text-sm font-semibold text-slate-800">Pay with QR Ph (optional) — open QR payment</summary>
+            <QrPhPaymentPanel billId={billingId} remainingBalance={bill.balance_amount} getStatus={getStaffQrStatus} createQr={createStaffQrPayment} cancelQr={cancelStaffQrPayment} onPaid={() => load({ preserveStep: true })} onPendingChange={(locked) => {
+              setQrPending(locked)
+              if (locked) setDraft(current => current?.payment_method ? { ...current, payment_method: '', reference_number: '' } : current)
+            }} onSwitchToCash={async () => {
+              await load({ preserveStep: true })
+              setDraft(current => current ? { ...current, payment_method: 'cash', reference_number: '', payment_amount: Number(current.balance_amount || bill.balance_amount), amount_received: Number(current.balance_amount || bill.balance_amount) } : current)
+              toast.success('QR cancelled. Ready for cash payment.')
+            }} />
+            </details>
+            {qrPending ? <div role="status" className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-bold">QR status is being checked or payment is active — Cash is not available yet.</p>
+              <p className="mt-2">To take cash instead, select <strong>Cancel QR & Switch to Cash</strong> above. Wait for the clinic server to confirm cancellation before collecting money.</p>
+            </div> : <div className="mt-5"><p className="form-label">How will the patient pay?</p><p className="mt-1 text-xs text-slate-500">Choose a payment method. This selection does not record payment.</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{paymentMethods.map((method) => <button key={method.value} disabled={qrPending} aria-pressed={draft.payment_method === method.value} onClick={() => setDraft((current) => ({ ...current, payment_method: current.payment_method === method.value ? '' : method.value, reference_number: '', amount_received: current.payment_amount || bill.balance_amount }))} className={`rounded-2xl border p-4 text-left font-black transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 motion-reduce:transition-none ${draft.payment_method === method.value ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 hover:bg-slate-50'}`}>{method.label}</button>)}</div>{draft.payment_method && <button type="button" className="mt-3 min-h-11 text-sm font-semibold text-sky-700 underline underline-offset-2" onClick={() => setDraft(current => ({ ...current, payment_method: '', reference_number: '' }))}>Clear selected payment method</button>}{paymentMethods.length === 0 && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">No payment methods are enabled. Ask an administrator to update Billing → Setup → Payment Methods.</div>}</div>}
+            {!qrPending && draft.payment_method && <div className="mt-5 space-y-4"><p className="text-xs font-semibold text-amber-800">Only enter a payment after you have received the money. Choosing Cash does not mark a bill paid.</p><label><span className="form-label">Payment Amount</span><input type="number" min="0.01" max={bill.balance_amount} step="0.01" className="form-control mt-1.5" value={draft.payment_amount} onChange={(e) => setDraft((current) => ({ ...current, payment_amount: e.target.value, amount_received: current.payment_method === 'cash' ? e.target.value : current.amount_received }))} /></label>
+              {draft.payment_method === 'cash' ? <label><span className="form-label">Cash Received</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={draft.amount_received} onChange={(e) => setDraft((current) => ({ ...current, amount_received: e.target.value }))} />{Number(draft.amount_received || 0) >= Number(draft.payment_amount || 0) && Number(draft.payment_amount || 0) > 0 && <span className="mt-2 block rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">Change: {formatMoney(Number(draft.amount_received || 0) - Number(draft.payment_amount || 0))}</span>}</label> : <>
+                <label><span className="form-label">Reference Number *</span><input maxLength={120} className="form-control mt-1.5" value={draft.reference_number} onChange={(e) => setDraft((current) => ({ ...current, reference_number: e.target.value }))} /></label>
+                {['gcash', 'maya'].includes(draft.payment_method) && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center">{paymentSettings[`${draft.payment_method}_qr_mode`] === 'external' ? <p className="text-sm font-bold text-slate-700">Use the clinic's {paymentMethodLabel(draft.payment_method)} QR available at the front desk.</p> : paymentSettings[`${draft.payment_method}_qr_url`] ? <><img src={paymentSettings[`${draft.payment_method}_qr_url`]} alt={`${paymentMethodLabel(draft.payment_method)} QR`} className="mx-auto max-h-64 rounded-xl object-contain" /><p className="mt-3 text-sm font-bold">Scan to pay {formatMoney(draft.payment_amount)}</p></> : <p className="text-sm font-bold text-rose-700">This digital payment method is enabled but its QR instructions are incomplete. Ask an administrator to correct Services & Pricing Setup.</p>}</div>}
+                {draft.payment_method === 'bank_transfer' && <div className="rounded-2xl bg-slate-50 p-4 text-sm"><p><strong>Bank:</strong> {paymentSettings.bank_name || 'Not configured'}</p><p className="mt-1"><strong>Account Name:</strong> {paymentSettings.bank_account_name || '—'}</p><p className="mt-1"><strong>Account Number:</strong> {paymentSettings.bank_account_number || '—'}</p></div>}
+              </>}
+              <label><span className="form-label">Payment Notes</span><textarea maxLength={500} rows={2} className="form-control mt-1.5 resize-none" value={draft.payment_notes || ''} onChange={(e) => setDraft((current) => ({ ...current, payment_notes: e.target.value }))} /></label>
+            </div>}
+          </section>
+          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div><PaymentPreview bill={bill} draft={draft} formatMoney={formatMoney} /></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || qrPending || !draft.payment_method} onClick={requestPay}>Confirm Payment {formatMoney(draft.payment_amount)}</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
+          </div>
+        </div>
+      )}
+
+      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate(billingHome)}>Next Patient →</button></div>}
+
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Charge" description="Clinical services come from the Doctor consultation. Staff may add only a medicine/supply or a traceable custom charge." size="md"><div className="grid gap-3 sm:grid-cols-2"><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-emerald-300 hover:bg-emerald-50" onClick={() => addType('supply')}><MdLocalPharmacy className="mx-auto text-3xl text-emerald-600" /><p className="mt-3 font-black">Medicine / Supply</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-violet-300 hover:bg-violet-50" onClick={() => addType('custom')}><MdAdd className="mx-auto text-3xl text-violet-600" /><p className="mt-3 font-black">Custom Charge</p></button></div><div className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800"><MdLock className="mr-1 inline" /> Missing a clinical service? Ask the Doctor to correct or amend the consultation rather than adding it at Checkout.</div></Modal>
+
+      <Modal open={Boolean(finalizePreview)} onClose={() => !finalizing && setFinalizePreview(null)} title="Confirm this bill?" description="Review the total and resolve pending requests before locking charges." size="lg">
+        {finalizePreview && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Total</p><p className="mt-1 text-xl font-black">{formatMoney(finalizePreview.total_amount)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Charges</p><p className="mt-1 text-xl font-black">{finalizePreview.charge_count}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Supply Items</p><p className="mt-1 text-xl font-black">{finalizePreview.supply_count}</p></div></div>
+          {finalizePreview.supplies?.length > 0 && <div className="rounded-2xl border border-slate-200"><div className="border-b border-slate-100 px-4 py-3 font-black">Inventory Preflight</div><div className="divide-y divide-slate-100">{finalizePreview.supplies.map((supply) => <div key={`${supply.inventory_id}-${supply.batch_id || 'batch'}-${supply.source_location || 'location'}`} className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm"><div><strong>{supply.name}</strong><p className="mt-1 text-slate-500">Batch {supply.batch_code || `#${supply.batch_id || '—'}`} · {supply.source_location || 'Location not selected'} · Requested {supply.requested} {supply.unit || ''} · Available {supply.available} {supply.unit || ''}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-black ${supply.sufficient ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{supply.sufficient ? 'Available' : 'Insufficient Stock'}</span></div>)}</div></div>}
+          <div className={`rounded-2xl p-4 text-sm ${finalizePreview.can_finalize ? 'bg-amber-50 text-amber-900' : 'bg-rose-50 text-rose-900'}`}>{finalizePreview.can_finalize ? <><MdWarning className="mr-1 inline" /><strong>After confirmation:</strong> charges are locked. Medicine / Supply items manually added at Checkout are stocked out only when the bill becomes fully paid.</> : <><MdWarning className="mr-1 inline" /><strong>Cannot confirm this bill.</strong> {Number(finalizePreview.pending_requests)>0?'Resolve or cancel pending requests in Adjustments & Discounts first.':finalizePreview.consultation_completed===false?'Complete the consultation first.':'Correct the insufficient inventory quantity or replenish stock first.'}</>}</div>
+          <div className="flex justify-end gap-2"><button className="button-secondary" disabled={finalizing} onClick={() => setFinalizePreview(null)}>Go Back</button><button className="button-primary" disabled={finalizing || !finalizePreview.can_finalize} onClick={confirmFinalize}>{finalizing ? 'Confirming…' : `Confirm Bill — ${formatMoney(finalizePreview.total_amount)}`}</button></div>
+        </div>}
+      </Modal>
+
+      <ConfirmDialog open={paymentConfirm} title={Number(draft.payment_amount || 0) < Number(bill.balance_amount || 0) ? 'Record Partial Payment?' : 'Record Payment?'} message={`${paymentMethodLabel(draft.payment_method)} payment: ${formatMoney(draft.payment_amount)}. ${Number(draft.payment_amount || 0) < Number(bill.balance_amount || 0) ? `Remaining balance after payment: ${formatMoney(Number(bill.balance_amount || 0) - Number(draft.payment_amount || 0))}. ` : ''}${draft.payment_method === 'cash' ? `Cash received: ${formatMoney(draft.amount_received)}; change: ${formatMoney(Math.max(0, Number(draft.amount_received || 0) - Number(draft.payment_amount || 0)))}.` : `Reference: ${draft.reference_number || '—'}.`}${Number(draft.payment_amount || 0) >= Number(bill.balance_amount || 0) && directCheckoutSupplyCount > 0 ? ` This final payment will automatically stock out ${directCheckoutSupplyCount} added Medicine / Supply item${directCheckoutSupplyCount === 1 ? '' : 's'} from the selected batch${directCheckoutSupplyCount === 1 ? '' : 'es'}.` : ''} Confirm that the payment was actually received before recording it.`} confirmLabel={paying ? 'Recording…' : `Confirm Payment ${formatMoney(draft.payment_amount)}`} tone="primary" loading={paying} onCancel={() => !paying && setPaymentConfirm(false)} onConfirm={recordPayment} />
+    </main>
+  )
+}
+
+export default BillCheckout
+
+

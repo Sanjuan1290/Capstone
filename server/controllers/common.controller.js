@@ -14,6 +14,11 @@ const listNotifications = async (req, res) => {
   res.json({ items: rows, unread })
 }
 
+const resolveNotificationDestination=async(req,res)=>{
+ try {res.json(await require('../utils/notificationDestination').notificationDestination({id:req.params.id,role:req.user.role,userId:req.user.id,branchId:req.branchId,superadmin:notificationBranch(req)==='all',permissions:req.adminPermissions}))}
+ catch(e){if(e.statusCode)return res.status(e.statusCode).json({message:e.message});throw e}
+}
+
 const readNotification = async (req, res) => {
   await markNotificationRead(req.params.id, req.user.role, req.user.id, notificationBranch(req))
   res.json({ message: 'Notification marked as read.' })
@@ -291,6 +296,7 @@ const completePatientOnboarding = async (req, res) => {
 }
 
 module.exports = {
+  resolveNotificationDestination,
   listNotifications,
   readNotification,
   readAllNotifications,

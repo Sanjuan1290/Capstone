@@ -6,9 +6,10 @@ test('cash remains blocked while a PayMongo attempt retains its active bill lock
   assert.match(source, /attempt\?\.can_collect_alternate === false/)
   assert.match(source, /onPendingChange\?\.\(alternatePaymentBlocked\)/)
 })
-test('switch to cash requests verified cancellation; no direct forced unlocking', () => {
-  assert.match(source, /Cancel QR to switch to cash/)
-  assert.match(source, /await cancelQr\(billId,attempt\.id\)/)
-  assert.match(source, /if \(result\?\.status !== 'cancelled'\)/)
-  assert.match(source, /contact an administrator for verified reconciliation/)
+test('switching to cash requires both verified cancellation and alternate-payment permission',()=>{
+ assert.match(source,/await cancelQr\(billId,attempt\.id\)/)
+ assert.match(source,/result\?\.status === 'cancelled' && result\?\.can_collect_alternate === true/)
+ assert.match(source,/onSwitchToCash\?\.\(\)/)
+ assert.doesNotMatch(source,/setQrPending\(false\)/)
+ assert.match(source,/Cash remains locked/)
 })

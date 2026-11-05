@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   MdAdd,
@@ -267,6 +267,16 @@ const Appointments = ({ services }) => {
   const [cancelAppointmentTarget, setCancelAppointmentTarget] = useState(null)
   const navigate = useNavigate()
   const location = useLocation()
+
+  const notificationOpened = useRef(null)
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('appointment_id')
+    if (!id || loading || notificationOpened.current === location.key) return
+    notificationOpened.current = location.key
+    const appointment = appointments.find(row => Number(row.id) === Number(id))
+    if (appointment) setViewAppointment(appointment)
+    else setLoadError('This appointment is no longer available in this branch. Refresh to try again.')
+  }, [appointments, loading, location.search, location.key])
 
   const loadAppointments = useCallback(async () => {
     setLoading(true)

@@ -333,11 +333,12 @@ router.put('/accounts/team/:role/:accountId/branch', requireSuper, async (req, r
 
 // Branch Admin notifications must never include global or another branch's events.
 router.get('/my/notifications',branchContext,async(req,res)=>{
-  const [rows]=await db.query(`SELECT id,type,title,message,reference_type,reference_id,link,is_read,created_at
+  const [rows]=await db.query(`SELECT id,branch_id,type,title,message,reference_type,reference_id,link,is_read,created_at
     FROM notifications WHERE branch_id=? AND target_role='admin' AND (target_user_id IS NULL OR target_user_id=?)
     ORDER BY created_at DESC,id DESC LIMIT 50`,[req.branchId,req.user.id])
   res.json({items:rows,unread:rows.filter(row=>!row.is_read).length})
 })
+router.get('/my/notifications/:id/destination',branchContext,require('../controllers/common.controller').resolveNotificationDestination)
 router.patch('/my/notifications/read-all',branchContext,async(req,res)=>{
   await db.query(`UPDATE notifications SET is_read=1 WHERE branch_id=? AND target_role='admin' AND (target_user_id IS NULL OR target_user_id=?)`,[req.branchId,req.user.id])
   res.json({success:true})

@@ -2,12 +2,12 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { hasStaffPermission } from '../config/staffPermissions'
 
-const StaffPermissionRoute = ({ permission, children }) => {
+const StaffPermissionRoute = ({ permission, permissions, children }) => {
   const { user, role, ready } = useAuth()
   const location = useLocation()
   if (!ready) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" /></div>
   if (!user || role !== 'staff') return <Navigate to="/staff/login" replace />
-  if (!hasStaffPermission(user, permission)) {
+  if (!(permissions?.length ? permissions.some(key=>hasStaffPermission(user,key)) : hasStaffPermission(user, permission))) {
     return (
       <div className="mx-auto max-w-2xl rounded-3xl border border-amber-200 bg-amber-50 p-8 text-center shadow-sm">
         <p className="text-xs font-black uppercase tracking-widest text-amber-600">Access Restricted</p>

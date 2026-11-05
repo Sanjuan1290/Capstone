@@ -7,23 +7,23 @@ import { resolveStaffBillingTab, staffBillingVisibleTabs, staffBillingBasePath }
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src')
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8')
 
-test('staff with Checkout and Billing sees the same four billing tasks as Admin', () => {
-  assert.deepEqual(staffBillingVisibleTabs({ checkout:true, billing:true }), ['checkout','transactions','payment-issues','cash'])
-  assert.equal(resolveStaffBillingTab(null, { checkout:true, billing:true }), 'checkout')
+test('staff with Checkout and Billing sees the same two billing tabs as Admin', () => {
+  assert.deepEqual(staffBillingVisibleTabs({ checkout:true, billing:true }), ['payments','history'])
+  assert.equal(resolveStaffBillingTab(null, { checkout:true, billing:true }), 'payments')
   assert.equal(staffBillingBasePath({ checkout:true }), '/staff/checkout')
 })
 test('billing-only staff cannot reach payment or cashier tools via query parameter', () => {
   for (const badTab of ['checkout','payment-issues','cash','admin','']) {
-    assert.equal(resolveStaffBillingTab(badTab, { checkout:false, billing:true }), 'transactions')
+    assert.equal(resolveStaffBillingTab(badTab, { checkout:false, billing:true }), 'payments')
   }
-  assert.deepEqual(staffBillingVisibleTabs({ checkout:false, billing:true }), ['transactions'])
+  assert.deepEqual(staffBillingVisibleTabs({ checkout:false, billing:true }), ['payments','history'])
   assert.equal(staffBillingBasePath({ checkout:false }), '/staff/billing')
 })
 test('checkout-only staff can still read branch-owned bills but does not gain Admin approvals', () => {
-  assert.deepEqual(staffBillingVisibleTabs({ checkout:true, billing:false }), ['checkout','transactions','payment-issues','cash'])
+  assert.deepEqual(staffBillingVisibleTabs({ checkout:true, billing:false }), ['payments','history'])
   const hub=read('pages/staffPage/Staff_Billing.jsx')
   assert.doesNotMatch(hub, /Approve Requests|Admin_Billing|from ['"]\.\.\/\.\.\/services\/admin/)
-  assert.match(hub, /getMyCashierClosing|StaffCashDrawer/)
+  assert.match(hub, /BillingWorkspace canCheckout=\{canCheckout\}/)
 })
 test('no permission means no billing tab is available', () => {
   assert.deepEqual(staffBillingVisibleTabs({}), [])
@@ -67,7 +67,7 @@ test('Staff QR status tab is a branch-checked read-only lookup, not a payment/re
   assert.doesNotMatch(qr,/createStaffQrPayment|cancelStaffQrPayment|payBill|refundPayment/)
 })
 
-test('legacy Staff Billing URL stays on bills and receipts, while Checkout URL starts at Take Payment', () => {
+test('legacy Staff URLs render one shared Billing workspace', () => {
   const src=read('pages/staffPage/Staff_Billing.jsx')
-  assert.match(src, /location\.pathname === '\/staff\/billing' \? 'transactions' : null/)
+  assert.match(src, /<BillingWorkspace canCheckout=\{canCheckout\}/)
 })

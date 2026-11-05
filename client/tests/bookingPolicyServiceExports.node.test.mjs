@@ -11,6 +11,7 @@ const loadStandalone = async () => {
   // Remove ONLY the two unrelated imports to test these service exports in isolation.
   // The production file retains its actual imports.
   const standalone = source.replace(/^import \{ makeSecurityScanError, waitForSecurityScan \} from '\.\/cloudinaryScan'\s*$/m, '')
+    .replace("from '../utils/manualAppointment.mjs'", `from '${new URL('../src/utils/manualAppointment.mjs', import.meta.url).href}'`)
     .replace(/^import \{ uploadDiscountProofViaApi \} from '\.\/discountProofUpload'\s*$/m, '')
   return import('data:text/javascript;charset=utf-8,' + encodeURIComponent(standalone))
 }

@@ -55,6 +55,7 @@ const migrationFiles = [
   '2026-11-02-branch-movement-reasons.sql',
   '2026-11-02-consultation-charge-adjustments.sql',
   '2026-11-05-promotion-pricing.sql',
+  '2026-11-05-billing-failure-history.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -132,6 +133,12 @@ async function runRegisteredBranchMigrations(db) {
               'SELECT 1 AS found FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? LIMIT 1',
               [match[1], match[2]])
             if (existing) continue // Recover safely after partial TiDB DDL.
+          }
+          if (file === '2026-11-05-billing-failure-history.sql') {
+            const column=/^ALTER TABLE payment_gateway_webhook_events ADD COLUMN (failure_message) /i.exec(statement)?.[1]
+            if(!column)throw new Error('Unexpected billing failure history migration statement')
+            const [[existing]]=await connection.query('SELECT 1 AS found FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? LIMIT 1',['payment_gateway_webhook_events',column])
+            if(existing)continue
           }
           if (file === '2026-11-02-audit-context.sql') {
             const column = /^ALTER TABLE audit_logs ADD COLUMN ([a-z_]+) /i.exec(statement)?.[1]

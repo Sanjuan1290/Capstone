@@ -1,5 +1,6 @@
+import {useLocation} from 'react-router-dom'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MdAdd, MdCampaign, MdEdit, MdRefresh, MdCloudUpload, MdMap } from 'react-icons/md'
 import { getAdminPromotions, saveAdminPromotion, getBillingCatalog, uploadPromotionImage, checkPromotionImage, } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -40,13 +41,23 @@ export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useClinicRefresh(load, ['promotion.updated', 'service.updated'], { fallbackMs: 90000, skip: () => editing !== null })
 
-  const open = (promo = null) => {
+  const open = useCallback((promo = null) => {
     setEditing(promo?.id || 'new')
     setError('')
     setImageScan(null)
     setFilter('')
     setForm(promo ? { ...newPromotion(), ...promo, image_token: '', clear_image: false, service_ids: promo.service_ids || [] } : newPromotion())
-  }
+  },[])
+  const notificationLocation=useLocation()
+  const openedNotification=useRef(null)
+  useEffect(()=>{
+    const id=new URLSearchParams(notificationLocation.search).get('promotion_id')
+    if(!id||loading||openedNotification.current===notificationLocation.key)return
+    openedNotification.current=notificationLocation.key
+    const promotion=promotions.find(p=>Number(p.id)===Number(id))
+    if(promotion)open(promotion)
+    else setError('This offer is no longer available in this branch.')
+  },[loading,promotions,notificationLocation.search,notificationLocation.key,open])
   const update = (key, value) => setForm(current => ({ ...current, [key]: value }))
   const toggleService = (id, checked) => setForm(current => ({
     ...current, service_ids: checked ? [...current.service_ids, Number(id)] : current.service_ids.filter(value => Number(value) !== Number(id)),

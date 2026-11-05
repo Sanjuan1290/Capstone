@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 // client/src/pages/doctorPage/Doctor_Appointments.jsx
 // IMPROVEMENTS:
 // 1. Enhanced appointment cards — age, gender, reason, appointment type badge
@@ -397,6 +398,10 @@ const formatAppointmentDate = (dateValue, includeYear = true) => {
 
 const Doctor_Appointments = () => {
   const navigate = useNavigate()
+  const location = useLocation()
+  const notificationParams = new URLSearchParams(location.search)
+  const notificationId = notificationParams.get('appointment_id')
+  const notificationDate = notificationParams.get('date')
   const [appointments, setAppointments] = useState([])
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -404,11 +409,16 @@ const Doctor_Appointments = () => {
   const [calling, setCalling] = useState(false)
   const [prescModal, setPrescModal] = useState(null)
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
-  const [viewMode, setViewMode] = useState('today')
+  const [viewMode, setViewMode] = useState(notificationDate ? 'date' : 'today')
   const [query, setQuery] = useState('')
   const [summary, setSummary] = useState({ remainingToday: 0, completed: 0, upcomingCount: 0, totalToday: 0 })
   const today = getLocalDateOnly()
-  const [dateFilter, setDateFilter] = useState(today)
+  const [dateFilter, setDateFilter] = useState(notificationDate || today)
+  const [notificationError,setNotificationError]=useState('')
+  const clearNotification=()=>{if(notificationId)navigate(location.pathname,{replace:true})}
+  const changeView=mode=>{clearNotification();setViewMode(mode)}
+  useEffect(()=>{if(notificationId&&notificationDate){setDateFilter(notificationDate);setViewMode('date')}},[notificationId,notificationDate])
+
 
   const loadSummary = useCallback(() => {
     getDashboard().then((data) => setSummary({
@@ -421,7 +431,7 @@ const Doctor_Appointments = () => {
 
   const loadAppointments = useCallback(async () => {
     try {
-      const params = viewMode === 'upcoming'
+      const params = notificationId && notificationDate ? { scope: 'date', date: notificationDate } : viewMode === 'upcoming'
         ? { scope: 'upcoming' }
         : viewMode === 'date'
           ? { scope: 'date', date: dateFilter }
@@ -429,7 +439,10 @@ const Doctor_Appointments = () => {
       const data = await getAppointments(params)
       const arr = Array.isArray(data) ? data : []
       setAppointments(arr)
-      setSelected(prev => prev ? (arr.find(a => a.id === prev.id) || arr[0] || null) : (arr[0] || null))
+      const target=notificationId?arr.find(a=>Number(a.id)===Number(notificationId)):null
+      setNotificationError(notificationId&&!target?'This appointment is no longer available in this view. Select another date or refresh.':'')
+      setSelected(prev => notificationId ? (target||null) : (prev && arr.find(a => a.id === prev.id)) || arr[0] || null)
+      if (notificationId) setMobileDetailOpen(true)
     } catch (err) {
       console.error('Fetch error:', err)
       setAppointments([])
@@ -437,7 +450,7 @@ const Doctor_Appointments = () => {
     } finally {
       setLoading(false)
     }
-  }, [dateFilter, viewMode])
+  }, [dateFilter, viewMode, notificationId, notificationDate])
 
   const loadQueue = useCallback(() => {
     getMyQueue()
@@ -494,6 +507,7 @@ const Doctor_Appointments = () => {
   }
 
   const handleSelectAppointment = (appt) => {
+    clearNotification()
     setSelected(appt)
     setMobileDetailOpen(true)
   }
@@ -571,17 +585,17 @@ const Doctor_Appointments = () => {
     <>
       <div className="mx-auto max-w-6xl space-y-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Appointments</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Appointments</h1>{notificationError&&<p role="alert" className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{notificationError}</p>}
           <p className="mt-1 text-sm text-slate-500">Manage today's patients and review your upcoming schedule.</p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <button type="button" onClick={() => setViewMode('today')} className={`rounded-2xl border p-4 text-left transition ${viewMode === 'today' ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+          <button type="button" onClick={() => changeView('today')} className={`rounded-2xl border p-4 text-left transition ${viewMode === 'today' ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">Today</p>
             <p className="mt-2 text-2xl font-black text-slate-900">{remainingToday} remaining</p>
             <p className="mt-1 text-xs text-slate-500">Appointments still requiring your attention today</p>
           </button>
-          <button type="button" onClick={() => setViewMode('upcoming')} className={`rounded-2xl border p-4 text-left transition ${viewMode === 'upcoming' ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+          <button type="button" onClick={() => changeView('upcoming')} className={`rounded-2xl border p-4 text-left transition ${viewMode === 'upcoming' ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">Upcoming</p>
             <p className="mt-2 text-2xl font-black text-slate-900">{upcomingCount} scheduled</p>
             <p className="mt-1 text-xs text-slate-500">Future confirmed / rescheduled visits</p>
@@ -590,11 +604,11 @@ const Doctor_Appointments = () => {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-end gap-3">
-            <button type="button" onClick={() => setViewMode('today')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${viewMode === 'today' ? 'bg-violet-600 text-white' : 'border border-slate-200 text-slate-600'}`}>Today {remainingToday > 0 ? remainingToday : ''}</button>
-            <button type="button" onClick={() => setViewMode('upcoming')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${viewMode === 'upcoming' ? 'bg-violet-600 text-white' : 'border border-slate-200 text-slate-600'}`}>Upcoming {upcomingCount > 0 ? upcomingCount : ''}</button>
+            <button type="button" onClick={() => changeView('today')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${viewMode === 'today' ? 'bg-violet-600 text-white' : 'border border-slate-200 text-slate-600'}`}>Today {remainingToday > 0 ? remainingToday : ''}</button>
+            <button type="button" onClick={() => changeView('upcoming')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${viewMode === 'upcoming' ? 'bg-violet-600 text-white' : 'border border-slate-200 text-slate-600'}`}>Upcoming {upcomingCount > 0 ? upcomingCount : ''}</button>
             <label className="block min-w-[190px]">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">View a Date</span>
-              <input type="date" value={dateFilter} onFocus={() => setViewMode('date')} onChange={(event) => { setDateFilter(event.target.value || today); setViewMode('date') }} className={`form-control ${viewMode === 'date' ? 'border-violet-400 bg-violet-50' : ''}`} />
+              <input type="date" value={dateFilter} onFocus={() => changeView('date')} onChange={(event) => { setDateFilter(event.target.value || today); setViewMode('date') }} className={`form-control ${viewMode === 'date' ? 'border-violet-400 bg-violet-50' : ''}`} />
             </label>
           </div>
           <div className="mt-4 border-t border-slate-100 pt-4">

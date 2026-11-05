@@ -1,22 +1,25 @@
-// Read-only estimate. The backend resolves the final price from branch-owned
-// inventory and service records and applies approved discounts later in Billing.
-export function estimateConsultationServicePrice(service, catalog, inventory = []) {
+import { supplyQuantityError } from './supplyQuantity.mjs'
+// Display estimate only. Included supplies are covered by the fixed service
+// price; only explicitly added Extra Supplies change the patient charge.
+export function consultationPriceBreakdown(service, catalog, inventory = [], promotion = null) {
   if (!catalog) return null
-  const materials = Array.isArray(service?.materials) ? service.materials : []
-  const defaults = (catalog.materials || []).filter(m=>Number(m.inventory_id)>0&&Number(m.quantity)>0)
-  const actual = materials.filter(m=>!(m.consultation_extra===true||Number(m.consultation_extra||0)===1))
-  const extras = materials.filter(m=>m.consultation_extra===true||Number(m.consultation_extra||0)===1)
-  const configured = new Map(defaults.map(m=>[Number(m.inventory_id),Number(m.quantity)]))
-  const included = new Map(actual.map(m=>[Number(m.inventory_id),Number(m.quantity)]))
-  const changed = configured.size!==included.size || [...configured].some(([id,qty])=>included.get(id)!==qty)
-  const inv=new Map(inventory.map(m=>[Number(m.id),m]))
-  const suppliesPrice = values=>values.reduce((sum,m)=>{
-    const i=inv.get(Number(m.inventory_id))
-    const price=Number(i?.selling_price??i?.price)
-    return (!i||!Number.isFinite(price)||price<=0||!Number.isFinite(sum))?NaN:sum+Number(m.quantity||0)*price
-  },0)
-  const extraTotal=suppliesPrice(extras)
-  const servicePrice=changed?Number(catalog.consultation_fee)+suppliesPrice(actual):Number(catalog.default_price)
-  const amount=servicePrice+extraTotal
-  return Number.isFinite(amount)&&amount>=0 ? Math.round(amount*100)/100 : null
+  const money = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100
+  const servicePrice = Number(catalog.default_price)
+  if (!Number.isFinite(servicePrice) || servicePrice < 0) return null
+  const inv = new Map(inventory.map(item => [Number(item.id), item]))
+  let supplies = 0
+  for (const material of service?.materials || []) {
+    const product = inv.get(Number(material.inventory_id))
+    if (!product || supplyQuantityError(material.quantity,product)) return null
+    if (!(material.consultation_extra === true || Number(material.consultation_extra || 0) === 1)) continue
+    const price = Number(inv.get(Number(material.inventory_id))?.selling_price)
+    const qty = Number(material.quantity)
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(qty) || qty <= 0) return null
+    supplies += money(price * qty)
+  }
+  const savings = Math.min(servicePrice, Math.max(0, Number(promotion?.discount_amount ?? promotion?.promotion_discount_amount_snapshot ?? 0)))
+  return { service: money(servicePrice), promotion: money(savings), supplies: money(supplies), total: money(servicePrice - savings + supplies) }
+}
+export function estimateConsultationServicePrice(service, catalog, inventory = [], promotion = null) {
+  return consultationPriceBreakdown(service, catalog, inventory, promotion)?.total ?? null
 }

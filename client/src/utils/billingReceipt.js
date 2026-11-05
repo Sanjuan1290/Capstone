@@ -17,6 +17,11 @@ const paymentState = (payment) => {
 
 export const printBillingReceipt = ({ bill, payment, clinicSettings = {}, onPopupBlocked }) => {
   if (!bill || !payment) return false
+  clinicSettings = { ...clinicSettings, ...(bill.receipt_clinic || {}),
+    ...(bill.branch_name ? { clinic_name: bill.branch_name } : {}),
+    ...(bill.branch_address !== undefined ? { address: bill.branch_address } : {}),
+    ...(bill.branch_phone !== undefined ? { phone: bill.branch_phone } : {}),
+  }
   const popup = window.open('', '_blank', 'width=760,height=900')
   if (!popup) {
     onPopupBlocked?.()

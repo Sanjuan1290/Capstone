@@ -7,17 +7,18 @@ import { checkoutNotice, checkoutOverviewValues } from '../src/utils/checkoutPre
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const read = file => fs.readFileSync(path.resolve(dir, `../src/${file}`), 'utf8')
 
-test('doctor consultation and API no longer offer service fee reduction requests', () => {
- const doctor = read('pages/doctorPage/Doctor_Consultation.jsx')
- for (const text of ['Request a Service Fee Reduction','requestConsultationChargeAdjustment','discountRequestAmount','discountRequestSaving']) assert.ok(!doctor.includes(text), text)
- assert.ok(!read('services/doctor.service.js').includes('requestConsultationChargeAdjustment'))
+test('doctor requests reductions without approving or rejecting financial changes',()=>{
+ assert.match(read('pages/doctorPage/Doctor_Consultation.jsx'),/<DoctorChargeReductionPanel/)
+ const panel=read('components/billing/DoctorChargeReductionPanel.jsx')
+ assert.match(panel,/requestClinicalChargeAdjustment/);assert.match(panel,/Pending Billing Approval/)
+ assert.doesNotMatch(panel,/>Approve<|>Reject<|method:'PATCH'/)
  const route=fs.readFileSync(path.resolve(dir,'../../server/routers/doctor.router.js'),'utf8')
- assert.ok(!route.includes('requestClinicalChargeAdjustment'))
- assert.ok(!route.includes('/consultations/:appointmentId/charge-adjustments'))
+ assert.match(route,/router.post\('\/consultations\/:appointmentId\/charge-adjustments'/)
+ assert.doesNotMatch(route,/router.patch\('\/consultations\/:appointmentId\/charge-adjustments/)
 })
 
 test('cashier and admin checkout use shared status and workflow presentation', () => {
- for (const file of ['pages/adminPage/Admin_CheckoutDetail.jsx','pages/staffPage/Staff_CheckoutDetail.jsx']) {
+ for (const file of ['components/billing/BillCheckout.jsx','components/billing/BillCheckout.jsx']) {
   const content=read(file)
   for (const key of ['<CheckoutProgress','<CheckoutStatus','<CheckoutOverview','checkout-stage-enter','<ChargeAdjustmentsPanel','requestPay','recordPayment']) assert.ok(content.includes(key), `${file}: ${key}`)
   assert.ok(!content.includes('const Stepper ='), `${file}: old stepper still present`)
@@ -47,7 +48,7 @@ test('draft totals are preview only; confirmed totals come from saved bill', () 
 
 test('charge adjustment UI preserves approval, reason and stock separation notices', () => {
  const panel=read('components/billing/ChargeAdjustmentsPanel.jsx')
- for(const text of ['Request Charge Reduction','Approve','Reject','actual inventory usage remain unchanged','onUpdated','busy']) assert.ok(panel.includes(text),text)
+ for(const text of ['Request Charge Reduction','Approve','Reject','approved reductions','onUpdated','busy']) assert.ok(panel.includes(text),text)
 })
 
 test('animations honor reduced motion settings', () => {

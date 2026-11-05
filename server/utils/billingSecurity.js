@@ -27,8 +27,17 @@ const getApprovedAdjustment = async ({ billingId, billVersion = null, requestTyp
 }
 
 const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal, presetId, reference, referenceImageUrl, requestedAmount }, executor = db, options = {}) => {
-  if (!presetId) return { type: 'none', label: null, amount: 0, preset: null }
+  const saved=options.savedBill
+  const savedAmount=saved?roundMoney(Math.max(0,Number(saved.discount_amount||0)-Number(saved.approved_courtesy_discount||0)-Number(saved.promotion_discount_amount||0))):0
+  const sameSavedAmount=savedAmount>0&&roundMoney(Number(requestedAmount))===savedAmount
+  const savedLabels=String(saved?.discount_label||'').split(' + ').map(s=>s.trim())
+  const additionalLabel=savedLabels.filter(label=>label!==saved?.selected_promotion?.title_at_booking&&!/^Approved charge reductions?$/i.test(label)).join(' + ')
+  if (!presetId) return sameSavedAmount
+    ? {type:saved.discount_type,label:additionalLabel||'Saved additional discount',amount:savedAmount,preset:null,preserved:true}
+    : { type: 'none', label: null, amount: 0, preset: null }
+
   const preset = await loadDiscountPreset(presetId, executor)
+  if(preset&&sameSavedAmount&&savedLabels.some(label=>label.toLowerCase()===String(preset.label).toLowerCase())&&saved.discount_type===preset.discount_type)return {type:preset.discount_type,label:preset.label,amount:savedAmount,preset,preserved:true}
   if (!preset || Number(preset.is_active) === 0) throw Object.assign(new Error('Selected discount is unavailable.'), { statusCode: 400 })
   if (Number(preset.requires_reference) && !String(referenceImageUrl || reference || '').trim()) {
     throw Object.assign(new Error(`${preset.label} discount requires an uploaded reference / ID proof image.`), { statusCode: 400, code: 'DISCOUNT_PROOF_REQUIRED' })

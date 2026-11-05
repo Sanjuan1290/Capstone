@@ -11,7 +11,7 @@ const stop = source.indexOf('\nconst buildConsultationPayload =',start)
 assert.ok(start >= 0 && stop > start,'Controller supply validator must exist')
 const code = source.slice(start,stop)
 const db = {query: async()=> {throw new Error('Unexpected default DB connection')}}
-const context = { db,
+const context = { db, validateSupplyQuantity:require('../utils/supplyQuantity').validateSupplyQuantity,
   getBillingCatalogServiceById: async(id, executor, branchId)=>branchId===1&&id===77?{
     id:77,service_name:'Wound Dressing',materials:[{inventory_id:7,quantity:1,unit_label:'unit'}]
   }:null,

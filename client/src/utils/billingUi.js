@@ -3,7 +3,7 @@ export const formatMoney = (value) => new Intl.NumberFormat('en-PH', {
   currency: 'PHP',
 }).format(Number(value) || 0)
 
-export const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100
+export const roundMoney = (value) => Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100
 
 export const ADMIN_BILL_STATUS = {
   draft: { label: 'Needs Review', tone: 'bg-slate-100 text-slate-700' },

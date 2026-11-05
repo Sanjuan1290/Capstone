@@ -1,5 +1,6 @@
+import {useLocation} from 'react-router-dom'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MdCampaign, MdAdd, MdRefresh, MdCloudUpload, MdSend, MdPause, MdPlayArrow, MdCancel, MdSearch, MdArrowBack, MdClose } from 'react-icons/md'
 import {
@@ -85,7 +86,9 @@ const Admin_Announcements = () => {
   const [details,setDetails]=useState(null)
   const [previewPost,setPreviewPost]=useState(null)
   const [postsTab,setPostsTab]=useState('all')
-  const [workspaceTab,setWorkspaceTab]=useState('posts')
+  const notificationLocation=useLocation()
+  const [workspaceTab,setWorkspaceTab]=useState(new URLSearchParams(window.location.search).has('promotion_id')?'offers':'posts')
+  useEffect(()=>{if(new URLSearchParams(notificationLocation.search).has('promotion_id'))setWorkspaceTab('offers')},[notificationLocation.search,notificationLocation.key])
   const [postSearch,setPostSearch]=useState('')
   const [postPage,setPostPage]=useState(1)
   const [rowsPerPage,setRowsPerPage]=useState(10)
@@ -115,7 +118,16 @@ const Admin_Announcements = () => {
   },[])
   useEffect(()=>{void refresh()},[refresh])
   useClinicRefresh(refresh,['promotion.updated'],{fallbackMs:120000,skip:()=>editing!==null||busy})
-  const edit = post => {setWorkspaceTab('posts');setEditing(post?.id||'new');setScan(null);setMenuPost(null);setError('');setForm(post?{...post,publish_at:fmt(post.publish_at),expires_at:fmt(post.expires_at),cover_image_token:''}:blank())}
+  const edit = useCallback(post => {setWorkspaceTab('posts');setEditing(post?.id||'new');setScan(null);setMenuPost(null);setError('');setForm(post?{...post,publish_at:fmt(post.publish_at),expires_at:fmt(post.expires_at),cover_image_token:''}:blank())},[])
+  const openedAnnouncement=useRef(null)
+  useEffect(()=>{
+    const id=new URLSearchParams(notificationLocation.search).get('announcement_id')
+    if(!id||loading||openedAnnouncement.current===notificationLocation.key)return
+    openedAnnouncement.current=notificationLocation.key
+    const post=posts.find(row=>Number(row.id)===Number(id))
+    if(post)edit(post)
+    else setError('This post is no longer available in this branch.')
+  },[posts,loading,notificationLocation.search,notificationLocation.key,edit])
   const update=(key,value)=>setForm(s=>({...s,[key]:value,...(key==='type'&&value!=='promotion'?{promotion_id:null}:{})}))
   const selectBooking=(choice)=>setForm(current=>{
     if(choice==='none')return {...current,cta_url:'',promotion_id:null}

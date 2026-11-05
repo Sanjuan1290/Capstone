@@ -34,7 +34,8 @@ test('billing list and summary strictly include requested physical branch',async
   assert.equal(x.queries.length,3)
   for(const [i,q] of x.queries.entries()){
     assert.match(q.sql,/b\.branch_id=\?/)
-    assert.match(q.sql,/d\.branch_id=b\.branch_id/)
+    assert.match(q.sql,/a\.branch_id=b\.branch_id/)
+    assert.match(q.sql,/d\.id=b\.doctor_id/) // Historical bills survive a doctor's branch transfer.
     assert.equal(q.args[0],2)
     if(i < 2){assert.match(q.sql,/b\.status IN/);assert.equal(q.args[1],'paid')}
     else {assert.doesNotMatch(q.sql,/b\.status IN \([^)]*\)\s*(?:AND|$)/);assert.deepEqual(q.args,[2])}

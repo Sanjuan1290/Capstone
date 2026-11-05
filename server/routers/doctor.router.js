@@ -36,6 +36,7 @@ router.post('/security/recovery-phone/request', otpRequestLimiter, commonCtrl.re
 router.post('/security/recovery-phone/verify', otpVerifyLimiter, commonCtrl.verifyMyRecoveryPhoneCode)
 
 router.get('/notifications',                commonCtrl.listNotifications)
+router.get('/notifications/:id/destination', commonCtrl.resolveNotificationDestination)
 router.patch('/notifications/read-all',     commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read',    commonCtrl.readNotification)
 router.get('/settings',                     commonCtrl.getMySettings)
@@ -50,6 +51,9 @@ router.put('/consultations/:appointmentId/draft', saveConsultationDraft)
 router.post('/consultations/:appointmentId/finalize', finalizeConsultation)
 // Backward-compatible finalization endpoint for older clients.
 router.post('/consultations/:appointmentId', finalizeConsultation)
+router.delete('/consultations/:appointmentId/charge-adjustments/:requestId', require('../controllers/doctor.controller').requestClinicalChargeAdjustment)
+router.get('/consultations/:appointmentId/charge-adjustments', require('../controllers/doctor.controller').getClinicalChargeAdjustments)
+router.post('/consultations/:appointmentId/charge-adjustments', require('../controllers/doctor.controller').requestClinicalChargeAdjustment)
 router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)

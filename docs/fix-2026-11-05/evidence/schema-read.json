@@ -1,0 +1,712 @@
+[
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "patient_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "doctor_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "clinic_type",
+    "COLUMN_TYPE": "enum('medical','derma')"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "reason",
+    "COLUMN_TYPE": "varchar(255)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "appointment_date",
+    "COLUMN_TYPE": "date"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "appointment_time",
+    "COLUMN_TYPE": "varchar(20)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "appointment_source",
+    "COLUMN_TYPE": "varchar(30)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "status",
+    "COLUMN_TYPE": "varchar(32)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "checked_in_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "notes",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "created_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "updated_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "requested_service_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "requested_service_name_snapshot",
+    "COLUMN_TYPE": "varchar(180)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "requested_service_price_snapshot",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "requested_service_duration_minutes_snapshot",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "reserved_duration_minutes_snapshot",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "confirmation_deadline_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "rejected_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "rejected_by_role",
+    "COLUMN_TYPE": "varchar(20)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "rejection_reason",
+    "COLUMN_TYPE": "varchar(120)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "cancellation_reason_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "cancellation_reason_snapshot",
+    "COLUMN_TYPE": "varchar(120)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "cancellation_details",
+    "COLUMN_TYPE": "varchar(500)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "cancelled_by_role",
+    "COLUMN_TYPE": "varchar(20)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "cancelled_by_user_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "cancelled_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "branch_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_title_snapshot",
+    "COLUMN_TYPE": "varchar(120)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_terms_snapshot",
+    "COLUMN_TYPE": "varchar(1000)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_badge_snapshot",
+    "COLUMN_TYPE": "varchar(48)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_starts_on_snapshot",
+    "COLUMN_TYPE": "date"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_ends_on_snapshot",
+    "COLUMN_TYPE": "date"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_selected_for_service_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_selected_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "reschedule_requested_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "reschedule_reason",
+    "COLUMN_TYPE": "varchar(120)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "reschedule_details",
+    "COLUMN_TYPE": "varchar(500)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "reschedule_previous_date",
+    "COLUMN_TYPE": "date"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "reschedule_previous_time",
+    "COLUMN_TYPE": "varchar(20)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_discount_type_snapshot",
+    "COLUMN_TYPE": "varchar(12)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_discount_value_snapshot",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "appointments",
+    "COLUMN_NAME": "promotion_discount_amount_snapshot",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "branch_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "billing_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "bill_version",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "target_type",
+    "COLUMN_TYPE": "varchar(24)"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "catalog_service_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "inventory_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "requested_amount",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "original_charge_snapshot",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "reason",
+    "COLUMN_TYPE": "varchar(255)"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "status",
+    "COLUMN_TYPE": "varchar(20)"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "requester_role",
+    "COLUMN_TYPE": "varchar(20)"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "requester_user_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "approved_by_admin_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "admin_note",
+    "COLUMN_TYPE": "varchar(255)"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "created_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "billing_charge_adjustments",
+    "COLUMN_NAME": "resolved_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "appointment_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "consultation_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "patient_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "doctor_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "status",
+    "COLUMN_TYPE": "varchar(20)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "version",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "subtotal",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "discount_type",
+    "COLUMN_TYPE": "varchar(30)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "discount_label",
+    "COLUMN_TYPE": "varchar(80)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "discount_reference",
+    "COLUMN_TYPE": "varchar(160)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "discount_reference_image_url",
+    "COLUMN_TYPE": "varchar(500)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "discount_amount",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "total_amount",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "payment_method",
+    "COLUMN_TYPE": "varchar(30)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "payment_notes",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "confirmed_by_staff_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "finalized_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "finalized_by_staff_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "clinical_inventory_consumed_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "paid_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "voided_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "void_reason",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "refunded_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "refund_reason",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "created_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "updated_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "finalized_by_admin_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "confirmed_by_admin_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "voided_by_admin_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "reopened_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "reopened_by_admin_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "reopen_reason",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "reopen_count",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "branch_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "promotion_review_outcome",
+    "COLUMN_TYPE": "varchar(40)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "promotion_review_note",
+    "COLUMN_TYPE": "varchar(255)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "promotion_review_by_role",
+    "COLUMN_TYPE": "varchar(20)"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "promotion_review_by_user_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "promotion_reviewed_bill_version",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "promotion_reviewed_at",
+    "COLUMN_TYPE": "datetime"
+  },
+  {
+    "TABLE_NAME": "billing_records",
+    "COLUMN_NAME": "promotion_discount_amount",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "title",
+    "COLUMN_TYPE": "varchar(120)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "description",
+    "COLUMN_TYPE": "varchar(1000)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "badge_text",
+    "COLUMN_TYPE": "varchar(48)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "starts_on",
+    "COLUMN_TYPE": "date"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "ends_on",
+    "COLUMN_TYPE": "date"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "is_active",
+    "COLUMN_TYPE": "tinyint(1)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "show_on_dashboard",
+    "COLUMN_TYPE": "tinyint(1)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "created_by_admin_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "created_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "updated_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "branch_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "image_url",
+    "COLUMN_TYPE": "varchar(500)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "image_asset_id",
+    "COLUMN_TYPE": "varchar(200)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "featured_order",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "discount_type",
+    "COLUMN_TYPE": "varchar(12)"
+  },
+  {
+    "TABLE_NAME": "clinic_promotions",
+    "COLUMN_NAME": "discount_value",
+    "COLUMN_TYPE": "decimal(10,2)"
+  },
+  {
+    "TABLE_NAME": "inventory_uoms",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "inventory_uoms",
+    "COLUMN_NAME": "name",
+    "COLUMN_TYPE": "varchar(80)"
+  },
+  {
+    "TABLE_NAME": "inventory_uoms",
+    "COLUMN_NAME": "allow_decimal_quantity",
+    "COLUMN_TYPE": "tinyint(1)"
+  },
+  {
+    "TABLE_NAME": "inventory_uoms",
+    "COLUMN_NAME": "decimal_precision",
+    "COLUMN_TYPE": "tinyint"
+  },
+  {
+    "TABLE_NAME": "inventory_uoms",
+    "COLUMN_NAME": "is_active",
+    "COLUMN_TYPE": "tinyint(1)"
+  },
+  {
+    "TABLE_NAME": "inventory_uoms",
+    "COLUMN_NAME": "sort_order",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "inventory_uoms",
+    "COLUMN_NAME": "created_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "inventory_uoms",
+    "COLUMN_NAME": "updated_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "type",
+    "COLUMN_TYPE": "varchar(60)"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "title",
+    "COLUMN_TYPE": "varchar(200)"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "message",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "reference_type",
+    "COLUMN_TYPE": "varchar(50)"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "reference_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "body",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "link",
+    "COLUMN_TYPE": "varchar(255)"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "target_role",
+    "COLUMN_TYPE": "enum('admin','staff','doctor','patient')"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "target_user_id",
+    "COLUMN_TYPE": "int"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "is_read",
+    "COLUMN_TYPE": "tinyint(1)"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "created_at",
+    "COLUMN_TYPE": "timestamp"
+  },
+  {
+    "TABLE_NAME": "notifications",
+    "COLUMN_NAME": "branch_id",
+    "COLUMN_TYPE": "int"
+  }
+]

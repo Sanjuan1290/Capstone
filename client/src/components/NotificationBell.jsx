@@ -1,9 +1,11 @@
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MdDone, MdNotifications } from 'react-icons/md'
 import {
   getNotifications,
+  getNotificationDestination,
   markNotificationRead,
   readAllNotifications,
 } from '../services/portal.service'
@@ -30,7 +32,12 @@ const NotificationBell = ({ role }) => {
   const triggerRef = useRef(null)
   const panelRef = useRef(null)
   const panelId = useId()
-  const queryKey = useMemo(() => ['notifications', role], [role])
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [navigationError, setNavigationError] = useState('')
+  const [openingId, setOpeningId] = useState(null)
+  const opening = useRef(false)
+  const queryKey = useMemo(() => ['notifications', role, location.pathname.match(/^\/superadmin\/branches\/(\d+)/)?.[1] || 'current'], [role, location.pathname])
 
   const { data, isPending, isError } = useQuery({
     queryKey,
@@ -127,7 +134,7 @@ const NotificationBell = ({ role }) => {
       if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
       console.error('Failed to mark notification as read', error)
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['notifications', role] }),
   })
 
   const readAllMutation = useMutation({
@@ -146,8 +153,22 @@ const NotificationBell = ({ role }) => {
       if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
       console.error('Failed to mark all notifications as read', error)
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['notifications', role] }),
   })
+
+  const openNotification = async item => {
+    if (opening.current) return
+    opening.current = true; setOpeningId(item.id); setNavigationError('')
+    try {
+      const { path } = await getNotificationDestination(role, item.id)
+      // A destination always comes from the server's authenticated route map.
+      if (!path || !/^\/(?:admin|superadmin|staff|doctor|patient|news)\//.test(path)) throw new Error('This destination is unavailable.')
+      if (!item.is_read) await markReadMutation.mutateAsync(item.id)
+      setOpen(false)
+      navigate(path)
+    } catch (error) { setNavigationError(error.message || 'This notification could not be opened.') }
+    finally { opening.current = false; setOpeningId(null) }
+  }
 
   const items = data?.items || []
   const unread = Number(data?.unread || 0)
@@ -192,6 +213,7 @@ const NotificationBell = ({ role }) => {
         )}
       </div>
 
+      {navigationError && <p role="alert" className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800">{navigationError}</p>}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain dark:text-slate-100" role="list" aria-label="Recent notifications">
         {isPending ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400">Loading notifications...</p>
@@ -217,15 +239,13 @@ const NotificationBell = ({ role }) => {
                 role="listitem"
                 className={`flex min-w-0 items-start gap-2 border-b border-slate-100 px-4 py-3 last:border-0 ${item.is_read ? 'bg-white dark:bg-slate-900' : 'bg-sky-50/60 dark:bg-sky-950/50'}`}
               >
-                {item.link ? (
+                {(item.link || item.reference_id) ? (
                   <button
                     type="button"
                     data-notification-item
                     aria-label={`${item.title}: ${item.message}`}
-                    onClick={() => {
-                      if (!item.is_read) markReadMutation.mutate(item.id)
-                      window.location.assign(item.link)
-                    }}
+                    disabled={openingId !== null}
+                    onClick={() => { void openNotification(item) }}
                     className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                   >
                     {content}

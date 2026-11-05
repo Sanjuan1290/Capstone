@@ -42,7 +42,8 @@ test('All patient promotion surfaces require the selected branch',()=>{
  const offers=read('client/src/pages/patientPage/PatientOffers.jsx')
  const book=read('client/src/pages/patientPage/BookAppointment.jsx')
  assert.match(dash,/getCurrentPromotions\(branchId\)/)
- assert.match(offers,/getCurrentPromotions\(branchId\)/)
+ assert.match(offers,/getCurrentPromotions\(requestedBranch \|\| branchId\)/)
+ assert.match(offers,/branches.some\(b=>String\(b.id\)===requestedBranch\)/)
  assert.match(book,/usePatientBranch\(\)/)
 })
 test('Patient promotion API rejects absent branch and cannot return other branch offers',async()=>{

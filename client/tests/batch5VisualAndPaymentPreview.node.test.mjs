@@ -31,7 +31,7 @@ test('invalid, over-balance and insufficient cash amounts are rejected', () => {
   }
 })
 test('both Staff and Admin render the same isolated estimated preview', () => {
-  for(const page of ['pages/adminPage/Admin_CheckoutDetail.jsx','pages/staffPage/Staff_CheckoutDetail.jsx']){
+  for(const page of ['components/billing/BillCheckout.jsx','components/billing/BillCheckout.jsx']){
     const source=read(page)
     assert.match(source,/import PaymentPreview from/)
     assert.match(source,/<PaymentPreview bill=\{bill\} draft=\{draft\} formatMoney=\{formatMoney\}/)

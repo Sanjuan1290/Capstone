@@ -280,6 +280,18 @@ async function handleWebhookEvent(event) {
   if (type !== 'payment.paid') {
     // Failure/expiry must not override a succeeded payment. A failed method can
     // have another attempt pending; do not assume the whole intent is terminal.
+    if(type==='payment.failed'){
+      // Persist the failed method's explanation without releasing the intent's
+      // lock. A later verified payment can still settle the same intent.
+      let failure=paymentAttrs
+      if(!failure.failed_message&&!failure.failed_code){
+        try{const intent=await retrieveIntent(intentId);assertMatchingIntent(attempt,intent);failure=intent.attributes?.last_payment_error||failure}
+        catch(error){console.warn('[paymongo-failure-details]',{attemptId:attempt.id,code:error.code})}
+      }
+      const code=typeof failure.failed_code==='string'?failure.failed_code.slice(0,100):null
+      const message=typeof failure.failed_message==='string'?failure.failed_message.replace(/[\u0000-\u001f]/g,' ').slice(0,255):null
+      await db.query('UPDATE payment_gateway_webhook_events SET error_code=?,failure_message=? WHERE event_id=?',[code,message,eid])
+    }
     if (type === 'qrph.expired') {
       // A signed expiry event does not by itself prove that the intent cannot
       // settle; keep the lock until an independent terminal-status check.

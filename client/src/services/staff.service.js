@@ -1,3 +1,4 @@
+import { manualAppointmentPayload } from '../utils/manualAppointment.mjs'
 import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/staff.service.js
 const BASE = '/api/staff'
@@ -51,7 +52,7 @@ export const createAppointment = (payload) =>
   requestJson(`${BASE}/appointments`, {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(manualAppointmentPayload(payload)),
   })
 
 export const getAppointmentAvailableSlots = (doctorId, { date = '', serviceId = '', appointmentId = '', clinicType = '' } = {}) => {

@@ -140,3 +140,8 @@ export const markQueueEntryDone = (id) =>
 
 
 
+
+export const getClinicalChargeAdjustments = id => requestJson(`${BASE}/consultations/${id}/charge-adjustments`)
+export const requestClinicalChargeAdjustment = (id,payload) => requestJson(`${BASE}/consultations/${id}/charge-adjustments`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+
+export const cancelClinicalChargeAdjustment = (id,requestId) => requestJson(`${BASE}/consultations/${id}/charge-adjustments/${requestId}`,{method:'DELETE'})

@@ -11,20 +11,24 @@
     "preview": "vite preview",
     "test:design": "node --test tests/superAdminDesign.node.test.mjs",
     "test:hosting": "node --test tests/cloudflareProxy.node.test.mjs",
-    "test:autosave": "node --test tests/consultationAutosave.node.test.mjs tests/consultationSupplyReason.node.test.mjs"
+    "test:autosave": "node --test tests/consultationAutosave.node.test.mjs tests/consultationSupplyReason.node.test.mjs",
+    "pretest:browser": "npm run build",
+    "test:browser": "playwright test",
+    "test:billing": "node --test tests/billingRedesign20261105.node.test.mjs tests/consultationPricing.node.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.3",
+    "quill": "^2.0.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-icons": "^5.6.0",
-    "react-router-dom": "^7.13.1",
-    "quill": "^2.0.3"
+    "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.64.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.0",

@@ -44,7 +44,7 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, getStatus, 
       setAttempt(result)
       if (result?.status === 'cancelled' && result?.can_collect_alternate === true) {
         try { await onSwitchToCash?.() }
-        catch (reloadError) { setError('The QR was cancelled, but the bill could not reload. Refresh checkout before recording cash.') }
+        catch { setError('The QR was cancelled, but the bill could not reload. Refresh checkout before recording cash.') }
       } else setError('The QR payment could not be safely cancelled. Ask an administrator to check it before accepting cash.')
     } catch (err) {
       setError(err.message || 'PayMongo cancellation is not verified. Cash remains locked.')

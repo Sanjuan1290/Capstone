@@ -57,6 +57,7 @@ router.post('/security/email/request-code', otpRequestLimiter, commonCtrl.reques
 router.post('/security/email/verify', otpVerifyLimiter, commonCtrl.confirmMyEmailVerification)
 router.patch('/onboarding/complete', commonCtrl.completePatientOnboarding)
 router.get('/notifications',                        commonCtrl.listNotifications)
+router.get('/notifications/:id/destination', commonCtrl.resolveNotificationDestination)
 router.patch('/notifications/read-all',             commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read',             commonCtrl.readNotification)
 router.get('/settings',                             commonCtrl.getMySettings)

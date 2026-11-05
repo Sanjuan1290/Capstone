@@ -3,8 +3,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url),'utf8')
 test('both checkout portals supply branch scoped cancellation to the shared QR panel',()=>{
- const a=src('pages/adminPage/Admin_CheckoutDetail.jsx'),s=src('pages/staffPage/Staff_CheckoutDetail.jsx')
- assert.match(a,/cancelQr=\{cancelAdminQrPayment\}/)
+ const a=src('components/billing/BillCheckout.jsx'),s=src('components/billing/BillCheckout.jsx')
+ assert.match(a,/cancelQr=\{cancelStaffQrPayment\}/)
+ assert.match(src('pages/adminPage/Admin_CheckoutDetail.jsx'),/cancelStaffQrPayment:api.cancelAdminQrPayment/)
  assert.match(s,/cancelQr=\{cancelStaffQrPayment\}/)
  assert.match(src('services/admin.service.js'),/getAdminApiBase\(\).*qr-payment\/\$\{attemptId\}\/cancel/)
  assert.match(src('services/staff.service.js'),/qr-payment\/\$\{attemptId\}\/cancel/)

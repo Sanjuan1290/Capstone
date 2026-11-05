@@ -1,7 +1,8 @@
 const db = require('../db/connect')
+const { validateSupplyQuantity } = require('./supplyQuantity')
 const { normalizeText, normalizeOptionalText, normalizeNumber, makeValidationError } = require('./inputValidation')
 
-const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100
+const roundMoney = (value) => Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100
 
 const getInventoryBaseUnitCost = () => 0
 
@@ -289,7 +290,9 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
   const inventoryMap = new Map()
   if (requestedInventoryIds.length > 0) {
     const [inventoryRows] = await executor.query(
-      `SELECT id, name, category, unit, base_unit, unit_size, uom, price, selling_price
+      `SELECT id, name, category, unit, base_unit, unit_size, uom, price, selling_price,
+         COALESCE((SELECT allow_decimal_quantity FROM inventory_uoms WHERE LOWER(name)=LOWER(COALESCE(inventory.uom,inventory.base_unit,inventory.unit)) LIMIT 1),0) AS uom_allow_decimal,
+         COALESCE((SELECT decimal_precision FROM inventory_uoms WHERE LOWER(name)=LOWER(COALESCE(inventory.uom,inventory.base_unit,inventory.unit)) LIMIT 1),0) AS uom_decimal_precision
        FROM inventory
        WHERE id IN (${requestedInventoryIds.map(() => '?').join(', ')})${branchId != null ? " AND branch_id=?" : ""}`,
       branchId != null ? [...requestedInventoryIds, branchId] : requestedInventoryIds
@@ -325,7 +328,8 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
           const inventoryId = Number(material?.inventory_id || 0) || null
           const inventoryItem = inventoryMap.get(inventoryId)
           if (inventoryId && branchId != null && !inventoryItem) throw Object.assign(new Error('Service material does not belong to this branch.'), { statusCode: 404, code: 'INVENTORY_NOT_FOUND' })
-          const quantityUsed = Math.max(0, Number(material?.quantity) || 0)
+          const quantityUsed = validateSupplyQuantity(material?.quantity, inventoryItem)
+          const billedQuantity = Number((service?.materials || []).find(m => Number(m.inventory_id) === inventoryId)?.quantity || 0)
           const unitLabel = String(
             material?.unit_label
             || inventoryItem?.uom
@@ -346,7 +350,8 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
             unit_cost: roundMoney(unitCost),
             line_total: roundMoney(quantityUsed * unitCost),
             charge_unit_price: roundMoney(Number(inventoryItem?.selling_price) || 0),
-            charge_total: roundMoney(quantityUsed * (Number(inventoryItem?.selling_price) || 0)),
+            charge_quantity: billedQuantity,
+            charge_total: roundMoney(billedQuantity * (Number(inventoryItem?.selling_price) || 0)),
             notes: String(material?.notes || '').trim() || null,
             ...(material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
               ? { consultation_extra: true }
@@ -358,21 +363,12 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
         const consultationFee = roundMoney(Math.max(0, Number(service?.consultation_fee) || 0))
         const markupPercentage = 0
         if (catalogPatientPrice <= 0) { const err = new Error(`${service?.service_name || fallbackName || 'Service'} does not have a valid patient price.`); err.statusCode = 400; err.code = 'SERVICE_PRICE_REQUIRED'; throw err }
-        // The saved catalog price already includes the default supplies. A substituted
-        // product changes only this patient's price; never rewrite the catalog or
-        // add the same consumables twice. Extra supplies remain separate charge lines.
+        // Included supplies are a fixed service package. Actual usage (including
+        // substitutions) changes inventory only. Explicit Extra Supplies are billed
+        // separately at the configured selling price, once.
         const usageOverridden = item?.usage_overridden === true
-        const actualIncluded = normalizedMaterials.filter(m=>!m.consultation_extra)
-        const actualSuppliesPrice = roundMoney((usageOverridden ? actualIncluded : []).reduce((sum,material)=>{
-          const inv=inventoryMap.get(Number(material.inventory_id))
-          const sellingPrice=Number(inv?.selling_price)
-          if (!Number.isFinite(sellingPrice) || sellingPrice<=0) {
-            throw Object.assign(new Error(`${material.material_name} needs a valid Inventory Selling Price before finalizing.`),{statusCode:400,code:'SELLING_PRICE_REQUIRED'})
-          }
-          return sum+sellingPrice*Number(material.quantity)
-        },0))
-        if (usageOverridden && consultationFee<=0) throw Object.assign(new Error('This service needs a valid base service fee before changing included supplies.'),{statusCode:409,code:'SERVICE_BASE_FEE_REQUIRED'})
-        const unitPrice = usageOverridden ? roundMoney(consultationFee+actualSuppliesPrice) : catalogPatientPrice
+        const actualSuppliesPrice = 0
+        const unitPrice = catalogPatientPrice
         const baseAmount = unitPrice
         const serviceDetails = {
           pricing: {
@@ -381,7 +377,8 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
             markup_percentage: markupPercentage,
             suggested_price: catalogPatientPrice,
             patient_price: unitPrice,
-            price_overridden: usageOverridden,
+            price_overridden: false,
+            supply_billing_rule: 'included_fixed_extras_separate',
             original_price: catalogPatientPrice,
             override_reason: usageOverridden ? String(item.usage_change_reason || '').slice(0,255) : null,
           },
@@ -420,14 +417,7 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
           err.statusCode = 400
           throw err
         }
-        // Inventory is tracked in whole dispensing units (unit size is fixed at 1), so a
-        // fractional medicine quantity would leave fractional stock behind in the batch.
-        if (Math.abs(quantity - Math.round(quantity)) > 0.0000001) {
-          const err = new Error(`${inventoryItem.name} must be dispensed in whole ${inventoryItem.uom || inventoryItem.unit || 'unit'}s.`)
-          err.statusCode = 400
-          err.code = 'WHOLE_UNIT_QUANTITY_REQUIRED'
-          throw err
-        }
+        validateSupplyQuantity(quantity, inventoryItem)
         if (inventoryItem.selling_price === null || inventoryItem.selling_price === undefined || inventoryItem.selling_price === '' || Number(inventoryItem.selling_price) <= 0) {
           const err = new Error(`${inventoryItem.name} does not have a valid Selling Price. Set a price greater than ₱0.00 in Inventory before adding it to Checkout.`)
           err.statusCode = 400
@@ -507,6 +497,10 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
   const [records] = await executor.query(
     `SELECT
        b.*,
+       (SELECT name FROM clinic_branches WHERE id=b.branch_id) AS branch_name,
+       (SELECT address FROM clinic_branches WHERE id=b.branch_id) AS branch_address,
+       (SELECT phone FROM clinic_branches WHERE id=b.branch_id) AS branch_phone,
+       (SELECT status FROM consultations WHERE id=b.consultation_id AND branch_id=b.branch_id) AS consultation_status,
        (SELECT COALESCE(SUM(ca.requested_amount), 0)
         FROM billing_charge_adjustments ca
         WHERE ca.billing_id=b.id AND ca.status='approved') AS approved_courtesy_discount,

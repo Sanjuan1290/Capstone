@@ -1,3 +1,5 @@
+import BillHistory from './components/billing/BillHistory'
+import BillFinancialTools from './components/billing/BillFinancialTools'
 import PatientOffers from './pages/patientPage/PatientOffers.jsx'
 // client/src/App.jsx
 // ADDED: /terms route → TermsOfService page
@@ -164,6 +166,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='checkout' element={<StaffPermissionRoute permission="checkout"><Staff_Billing /></StaffPermissionRoute>} />
         <Route path='checkout/:billingId' element={<StaffPermissionRoute permission="checkout"><Staff_CheckoutDetail /></StaffPermissionRoute>} />
         <Route path='billing' element={<StaffPermissionRoute permission="billing"><Staff_Billing /></StaffPermissionRoute>} />
+        <Route path='billing/history/:billingId' element={<StaffPermissionRoute permissions={['checkout','billing']}><BillHistory /></StaffPermissionRoute>} />
         <Route path='inventory' element={<StaffPermissionRoute permission="inventory"><Staff_Inventory /></StaffPermissionRoute>} />
         <Route path='accounts' element={<StaffPermissionRoute permission="accounts"><Staff_AccountsView /></StaffPermissionRoute>} />
         <Route path='system-setup' element={<StaffPermissionRoute permission="system_setup"><Admin_SystemSetup /></StaffPermissionRoute>} />
@@ -236,6 +239,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing/checkout/:billingId' element={<Admin_CheckoutDetail />} />
         <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
         <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
+        <Route path='billing/admin-tools/:billingId' element={<BillFinancialTools />} />
         <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
         <Route path='billing/payment-issues' element={<Admin_PaymentIssues />} />
         <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
@@ -272,6 +276,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='billing/checkout/:billingId' element={<Admin_CheckoutDetail />} />
         <Route path='billing/transactions' element={<Admin_BillingTransactions />} />
         <Route path='billing/transactions/:billingId' element={<Admin_BillingTransactionDetail />} />
+        <Route path='billing/admin-tools/:billingId' element={<BillFinancialTools />} />
         <Route path='billing/approvals' element={<Admin_BillingApprovals />} />
         <Route path='billing/payment-issues' element={<Admin_PaymentIssues />} />
         <Route path='billing/reconciliation' element={<Admin_BillingReconciliation />} />
