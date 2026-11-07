@@ -12,19 +12,25 @@ const fetchJson=async(url,options={})=>{
  const response=await fetch(url,{credentials:'include',...options,headers:{...(window.location.pathname.startsWith('/superadmin')?{'X-Admin-Portal':'superadmin'}:{}),...(options.headers||{})}})
  const data=await response.json().catch(()=>({}))
  if(!response.ok){
-  // Server-side failures include a non-sensitive reference ID in the JSON body.
-  // Show it so the clinic can locate the exact exception in Render logs.
-  const requestId=typeof data.request_id==='string' && /^[a-z0-9-]{1,80}$/i.test(data.request_id)?data.request_id:''
-  throw new Error(`${data.message || 'Unable to update adjustment.'}${requestId?` (Reference: ${requestId})`:''}`)
+   const message=typeof data.message==='string' && data.message.trim()?data.message:'Unable to load or update charge reductions.'
+   const requestId=typeof data.request_id==='string' && /^[a-z0-9-]{1,80}$/i.test(data.request_id)?data.request_id:''
+   const code=typeof data.code==='string' && /^[A-Z0-9_]{1,64}$/.test(data.code)?data.code:''
+   const reference=requestId?` Reference: ${requestId}.`:''
+   const detail=code?` (${code})`:response.status>=500?` (HTTP ${response.status})`:''
+   throw new Error(`${message}${detail}${reference}`)
  }
  return data
 }
 export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=false}){
- const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false)
+ const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false)
  const [target,setTarget]=useState(''),[amount,setAmount]=useState(''),[reason,setReason]=useState(''),[success,setSuccess]=useState('')
  const load=useCallback(async()=>{
-   try{const response=await fetchJson(`${base()}/billing/${billingId}/charge-adjustments`);setData(response);setError('')}
-   catch(e){setError(e.message)}
+   setLoading(true)
+   try{
+     const response=await fetchJson(`${base()}/billing/${billingId}/charge-adjustments`)
+     setData(response);setError('')
+   }catch(e){setData(null);setError(e.message)}
+   finally{setLoading(false)}
  },[billingId])
  useEffect(()=>{void load()},[load])
  const targets=data?.targets||[],requests=data?.requests||[]
@@ -52,7 +58,11 @@ export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=fa
    <p className="mt-1 text-xs leading-relaxed text-slate-600">Apply a patient-specific service fee or consumable reduction through the existing approval workflow. The original charge and actual inventory usage remain unchanged.</p></div></div>
    <div className="mt-3 flex items-start gap-2 rounded-xl border border-sky-100 bg-white px-3 py-2 text-xs text-sky-800"><MdInfoOutline className="mt-0.5 shrink-0"/><span>{staffOnly?'An Admin must approve your request during Bill Checkout.':'Review each Doctor or Staff charge reduction here. Decisions are recorded on this bill.'}</span></div>
    {success && <p role="status" className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800"><MdCheckCircle />{success}</p>}
-   {error&&<p role="alert" className="mt-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
+   {loading&&!data&&!error&&<p role="status" className="mt-2 text-xs text-slate-600">Loading charge reductions…</p>}
+   {error&&<div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-700" role="alert">
+     <span>{error}</span>
+     <button type="button" className="button-secondary" disabled={loading} onClick={()=>{void load()}}>{loading?'Retrying…':'Retry charge reductions'}</button>
+   </div>}
    {editable && staffOnly && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-2">
     <label className="sm:col-span-2 text-xs font-semibold">Charge to reduce
       <select className="form-control mt-1" value={target} onChange={e=>setTarget(e.target.value)}>

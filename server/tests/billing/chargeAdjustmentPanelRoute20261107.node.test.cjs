@@ -125,3 +125,22 @@ test('null legacy materials records are skipped safely', async () => {
     assert.equal(response.targets.length, 1)
   } finally { items = previous }
 })
+
+
+test('GET does not depend on finance helper existing in runtime', async () => {
+  const previous = finance.canAdjustDirectly
+  finance.canAdjustDirectly = undefined
+  try {
+    const { code, response } = await getAdjustmentList('superadmin')
+    assert.equal(code, 200)
+    assert.equal(response.can_adjust_directly, true)
+  } finally { finance.canAdjustDirectly = previous }
+})
+
+test('client error display includes server request reference and retry', () => {
+  const fs = require('node:fs')
+  const frontend = fs.readFileSync(path.resolve(__dirname, '../../../client/src/components/billing/ChargeAdjustmentsPanel.jsx'), 'utf8')
+  assert.match(frontend, /request_id/)
+  assert.match(frontend, /Reference:/)
+  assert.match(frontend, /Retry charge reductions/)
+})

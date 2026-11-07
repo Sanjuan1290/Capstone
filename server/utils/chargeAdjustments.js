@@ -5,8 +5,7 @@ const fail=(status,code,message)=>Object.assign(new Error(message),{statusCode:s
 const money=n=>Math.round((Number(n)||0)*100)/100
 const parse=v=>{try{return typeof v==='string'?JSON.parse(v||'{}'):(v||{})}catch{return {}}}
 const isId=v=>Number.isSafeInteger(Number(v))&&Number(v)>0
-// Preserve the existing branch API permission flag. Requests still follow the
-// normal approval workflow; this does not grant approval to a requester.
+// Metadata only. API access is still enforced by the branch route middleware.
 const canAdjustDirectly=role=>['admin','superadmin'].includes(String(role||'').toLowerCase())
 async function getTargets(conn,billingId,branchId){
   const [lines]=await conn.query(`SELECT bi.*,br.status AS bill_status FROM billing_items bi JOIN billing_records br ON br.id=bi.billing_id WHERE br.id=? AND br.branch_id=? AND bi.source_type IN ('consultation','consultation_extra')`,[billingId,branchId])

@@ -43,3 +43,15 @@ if (routeResult.status !== 0) {
   process.exit(1)
 }
 console.log('Staff route registration validation passed.')
+
+
+// Catch billing route/export mismatches during deployment, before live checkout.
+const billingRouteTest = path.join(root, 'tests/billing/chargeAdjustmentPanelRoute20261107.node.test.cjs')
+const billingRouteResult = spawnSync(process.execPath, ['--test', billingRouteTest], { encoding: 'utf8' })
+if (billingRouteResult.status !== 0) {
+  console.error('Charge reduction route smoke test failed.')
+  console.error(billingRouteResult.stdout || '')
+  console.error(billingRouteResult.stderr || billingRouteResult.error?.message || '')
+  process.exit(1)
+}
+console.log('Charge reduction route smoke test passed.')
