@@ -5,6 +5,9 @@ const fail=(status,code,message)=>Object.assign(new Error(message),{statusCode:s
 const money=n=>Math.round((Number(n)||0)*100)/100
 const parse=v=>{try{return typeof v==='string'?JSON.parse(v||'{}'):(v||{})}catch{return {}}}
 const isId=v=>Number.isSafeInteger(Number(v))&&Number(v)>0
+// Preserve the existing branch API permission flag. Requests still follow the
+// normal approval workflow; this does not grant approval to a requester.
+const canAdjustDirectly=role=>['admin','superadmin'].includes(String(role||'').toLowerCase())
 async function getTargets(conn,billingId,branchId){
   const [lines]=await conn.query(`SELECT bi.*,br.status AS bill_status FROM billing_items bi JOIN billing_records br ON br.id=bi.billing_id WHERE br.id=? AND br.branch_id=? AND bi.source_type IN ('consultation','consultation_extra')`,[billingId,branchId])
   const targets=[]
@@ -15,7 +18,8 @@ async function getTargets(conn,billingId,branchId){
       const details=parse(line.details_json)
       const fee=money(details?.pricing?.consultation_fee)
       if(fee>0)targets.push({target_type:'service_fee',catalog_service_id:sid,inventory_id:null,label:`${line.service_name} — Service Fee`,original_charge:money(fee*Number(line.quantity||1))})
-      for(const m of details.materials||[]){
+      for(const m of Array.isArray(details?.materials)?details.materials:[]){
+        if(!m||typeof m!=='object')continue
         const id=Number(m.inventory_id||0),value=money(Number(m.charge_total||0)*Number(line.quantity||1))
         if(id>0&&value>0){
           const existing=targets.find(t=>t.target_type==='consumable'&&t.catalog_service_id===sid&&t.inventory_id===id)
@@ -104,5 +108,6 @@ const requestedPresetDiscount=(body={},courtesy=0)=>{
     : Number(body.discount_amount||0)-Number(courtesy||0)
   return money(Math.max(0,Number.isFinite(amount)?amount:0))
 }
-module.exports={getTargets,approvedTotal,list,request,resolve,money,requestedPresetDiscount}
+module.exports={getTargets,approvedTotal,list,request,resolve,money,requestedPresetDiscount,canAdjustDirectly}
+
 

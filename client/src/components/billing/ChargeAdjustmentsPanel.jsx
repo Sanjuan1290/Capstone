@@ -11,7 +11,12 @@ const base=()=>{
 const fetchJson=async(url,options={})=>{
  const response=await fetch(url,{credentials:'include',...options,headers:{...(window.location.pathname.startsWith('/superadmin')?{'X-Admin-Portal':'superadmin'}:{}),...(options.headers||{})}})
  const data=await response.json().catch(()=>({}))
- if(!response.ok)throw new Error(data.message || 'Unable to update adjustment.')
+ if(!response.ok){
+  // Server-side failures include a non-sensitive reference ID in the JSON body.
+  // Show it so the clinic can locate the exact exception in Render logs.
+  const requestId=typeof data.request_id==='string' && /^[a-z0-9-]{1,80}$/i.test(data.request_id)?data.request_id:''
+  throw new Error(`${data.message || 'Unable to update adjustment.'}${requestId?` (Reference: ${requestId})`:''}`)
+ }
  return data
 }
 export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=false}){
@@ -70,4 +75,5 @@ export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=fa
    {data && targets.length===0 && <p className="mt-3 text-xs text-slate-500">This bill has no eligible itemized charges yet. Complete the consultation first.</p>}
  </section>
 }
+
 
