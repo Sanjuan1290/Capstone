@@ -25,6 +25,10 @@ const authenticate = (cookieName) => async (req, res, next) => {
     }
     next()
   } catch (err) {
+    if (err.code === 'PATIENT_ACCOUNT_BANNED') {
+      res.clearCookie(cookieName, { path: '/' })
+      return res.status(403).json({ code: err.code, message: err.message })
+    }
     if (!['JsonWebTokenError','TokenExpiredError','NotBeforeError'].includes(err.name) && err.statusCode !== 401) return next(err)
     res.clearCookie(cookieName)
     console.warn('[security] rejected session', { cookieName, path: req.originalUrl, ip: req.ip, reason: err.message })
@@ -51,3 +55,4 @@ authenticate.adminContext = (superAdminOnly = false) => (req, res, next) => {
 }
 authenticate.any = authenticateAny
 module.exports = authenticate
+

@@ -34,6 +34,7 @@ export const AuthProvider = ({ children }) => {
   const [role, setRole] = useState(null)
   const [ready, setReady] = useState(false)
   const [authCheckError, setAuthCheckError] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
   const authCheckRequestId = useRef(0)
   const lastFocusCheckAt = useRef(0)
 
@@ -71,6 +72,11 @@ export const AuthProvider = ({ children }) => {
         const data = await res.json()
         if (requestId !== authCheckRequestId.current) return
         const outcome = authCheckOutcome(res, data)
+        if (candidateRole === 'patient' && data?.code === 'PATIENT_ACCOUNT_BANNED') {
+          setAuthNotice(data.message || 'Your Carait Clinic account has been banned. Please contact the clinic for assistance.')
+        } else if (outcome === 'authenticated' || (candidateRole === 'patient' && outcome === 'unauthenticated')) {
+          setAuthNotice('')
+        }
 
         if (outcome === 'authenticated') {
           setUser(data.user)
@@ -140,6 +146,7 @@ export const AuthProvider = ({ children }) => {
     setUser(userData)
     setRole(userRole)
     setAuthCheckError('')
+    setAuthNotice('')
     sessionStorage.setItem('auth_role', userRole)
   }
 
@@ -149,14 +156,16 @@ export const AuthProvider = ({ children }) => {
     setUser(null)
     setRole(null)
     setAuthCheckError('')
+    setAuthNotice('')
     sessionStorage.removeItem('auth_role')
   }
 
   return (
-    <AuthContext.Provider value={{ user, role, ready, authCheckError, login, logout, setUser, setRole, checkAuth }}>
+    <AuthContext.Provider value={{ user, role, ready, authCheckError, authNotice, login, logout, setUser, setRole, checkAuth }}>
       {children}
     </AuthContext.Provider>
   )
 }
 
 export const useAuth = () => useContext(AuthContext)
+

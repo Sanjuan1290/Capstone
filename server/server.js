@@ -24,6 +24,7 @@ const staffRouter = require('./routers/staff.router')
 const doctorRouter = require('./routers/doctor.router')
 const queueRouter = require('./routers/queue.router')
 const authRouter = require('./routers/auth.router')
+const superAdminPatientsRouter = require('./routers/superadminPatients.router')
 
 const PORT = process.env.PORT || 3000
 const allowedOrigins = getAllowedOrigins()
@@ -111,6 +112,7 @@ app.use('/api/branches', branchesRouter)
 app.use('/api/staff', staffRouter)
 app.use('/api/doctor', doctorRouter)
 app.use('/api/auth', authRouter)
+app.use('/api/superadmin/patients', superAdminPatientsRouter)
 app.use('/api/queue', queueRouter)
 
 // Unknown API paths must answer in JSON so the client never parses an HTML error page.
@@ -190,4 +192,5 @@ const start = async () => {
 if (require.main === module) start()
 
 module.exports = { app, start, broadcast }
+
 

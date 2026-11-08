@@ -12,7 +12,7 @@ const PatientLogin = () => {
   const navigate = useNavigate()
   const [query] = useSearchParams()
   const nextPath = patientReturnPath(query.get('next'))
-  const { login } = useAuth()
+  const { login, authNotice } = useAuth()
 
   const handleChange = (event) => {
     const { name, value } = event.target
@@ -71,9 +71,9 @@ const PatientLogin = () => {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4 px-6 py-6">
-            {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                {error}
+            {(error || authNotice) && (
+              <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error || authNotice}
               </div>
             )}
 
@@ -159,4 +159,5 @@ const PatientLogin = () => {
 }
 
 export default PatientLogin
+
 

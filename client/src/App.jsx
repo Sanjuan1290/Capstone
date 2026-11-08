@@ -88,7 +88,7 @@ import DoctorRoute from './components/DoctorRoute'
 import AdminRoute  from './components/AdminRoute'
 import SuperAdminRoute from './components/SuperAdminRoute'
 import { SuperAdminLandingPage, SuperAdminSettings } from './pages/superAdminPage/redesign/SiteAndSettings'
-import { SuperAdminLayout, BranchAdminLayout, SuperAdminDashboard, SuperAdminBranches, SuperAdminAccounts, SuperAdminReports, SuperAdminAuditLogs } from './pages/superAdminPage/BranchPortals'
+import { SuperAdminLayout, BranchAdminLayout, SuperAdminDashboard, SuperAdminBranches, SuperAdminAccounts, SuperAdminPatients, SuperAdminReports, SuperAdminAuditLogs } from './pages/superAdminPage/BranchPortals'
 
 import ForgotPassword from './pages/auth/ForgotPassword'
 import SettingsPage   from './pages/shared/SettingsPage'
@@ -220,6 +220,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='branches' element={<SuperAdminBranches />} />
         <Route path='inventory' element={<SuperAdminAllInventory />} />
         <Route path='accounts' element={<SuperAdminAccounts />} />
+        <Route path='patients' element={<SuperAdminPatients />} />
         <Route path='reports' element={<SuperAdminReports />} />
         <Route path='audit-logs' element={<SuperAdminAuditLogs />} />
         <Route path='landingpage' element={<SuperAdminLandingPage />} />
@@ -320,5 +321,6 @@ const App = () => (
 )
 
 export default App
+
 
 

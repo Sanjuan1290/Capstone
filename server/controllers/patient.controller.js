@@ -403,14 +403,24 @@ const login = async (req, res) => {
   }
 
   const patient = rows[0]
-  if (phone && !patient.phone_verified_at) {
-    await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'unverified_phone_login' }, ipAddress: req.ip || null }).catch(() => {})
-    return res.status(401).json({ message: 'This mobile number has not been verified for sign-in. Use your verified email address instead.' })
-  }
   const match = await bcrypt.compare(password, patient.password)
   if (!match) {
     await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email/mobile number or password.' })
+  }
+
+  // Reveal the account restriction only after the password is verified.
+  if (Number(patient.is_banned) === 1) {
+    await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_blocked', entityType: 'patient_account', entityId: patient.id, newValues: { reason: 'account_banned' }, ipAddress: req.ip || null }).catch(() => {})
+    return res.status(403).json({
+      code: 'PATIENT_ACCOUNT_BANNED',
+      message: 'Your Carait Clinic account has been banned. You cannot sign in. Please contact the clinic for assistance.',
+    })
+  }
+
+  if (phone && !patient.phone_verified_at) {
+    await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'unverified_phone_login' }, ipAddress: req.ip || null }).catch(() => {})
+    return res.status(401).json({ message: 'This mobile number has not been verified for sign-in. Use your verified email address instead.' })
   }
 
   await issuePatientSession(res, patient.id)
@@ -438,8 +448,12 @@ const checkAuth = async (req, res) => {
       authenticated: true,
       user: buildPatientAuthUser(syncedPatient),
     })
-  } catch {
-    res.status(200).json({ authenticated: false })
+  } catch (error) {
+    res.clearCookie('patient_token', { path: '/' })
+    if (error?.code === 'PATIENT_ACCOUNT_BANNED') {
+      return res.status(200).json({ authenticated: false, code: error.code, message: error.message })
+    }
+    return res.status(200).json({ authenticated: false })
   }
 }
 
@@ -1214,6 +1228,7 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+
 
 
 

@@ -56,6 +56,7 @@ const migrationFiles = [
   '2026-11-02-consultation-charge-adjustments.sql',
   '2026-11-05-promotion-pricing.sql',
   '2026-11-05-billing-failure-history.sql',
+  '2026-11-09-superadmin-patient-directory-ban.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -179,6 +180,7 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
+
 
 
 

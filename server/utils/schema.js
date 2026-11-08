@@ -1402,6 +1402,10 @@ const ensureAppSchema = async () => {
   await ensureColumn('patients', 'theme_preference', "VARCHAR(10) NOT NULL DEFAULT 'light'")
   await ensureColumn('patients', 'profile_image_url', "TEXT NULL")
   await ensureColumn('patients', 'is_walk_in', "TINYINT(1) NOT NULL DEFAULT 0")
+  await ensureColumn('patients', 'is_banned', "TINYINT(1) NOT NULL DEFAULT 0")
+  await ensureColumn('patients', 'banned_at', 'DATETIME NULL')
+  await ensureColumn('patients', 'banned_by_admin_id', 'INT NULL')
+  await ensureIndex('patients', 'idx_patients_directory_status', 'is_walk_in, is_banned, created_at').catch(() => {})
   await ensureColumn('patients', 'consent_given', "TINYINT(1) NOT NULL DEFAULT 0")
   await ensureColumn('patients', 'consent_given_at', "TIMESTAMP NULL")
   await ensureColumn('patients', 'gender', "ENUM('Male','Female','Other') NULL")
@@ -1713,6 +1717,7 @@ module.exports = {
   backfillUomDecimalPrecision,
   rebuildInventoryLocationStock,
 }
+
 
 
 

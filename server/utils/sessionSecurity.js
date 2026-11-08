@@ -12,14 +12,24 @@ const ROLE_CONFIG = {
 const loadSessionAccount = async (role, id, executor = db) => {
   const config = ROLE_CONFIG[role]
   if (!config || !Number(id)) return null
+  const extraColumns = role === 'admin'
+    ? ', account_role, branch_id'
+    : role === 'patient' ? ', COALESCE(is_banned, 0) AS is_banned' : ''
   const [rows] = await executor.query(
-    `SELECT id, COALESCE(session_version, 1) AS session_version${role === 'admin' ? ', account_role, branch_id' : ''}
+    `SELECT id, COALESCE(session_version, 1) AS session_version${extraColumns}
      FROM ${config.table}
      WHERE id = ? AND ${config.activeSql}
      LIMIT 1`,
     [id]
   )
-  return rows[0] || null
+  const account = rows[0] || null
+  if (role === 'patient' && account && Number(account.is_banned) === 1) {
+    throw Object.assign(new Error('Your Carait Clinic account has been banned. You cannot sign in. Please contact the clinic for assistance.'), {
+      statusCode: 401,
+      code: 'PATIENT_ACCOUNT_BANNED',
+    })
+  }
+  return account
 }
 
 const makeSessionToken = async (role, id, executor = db) => {
@@ -101,3 +111,4 @@ const findAuthenticatedRequestSession = async (req) => {
 }
 
 module.exports = { ROLE_CONFIG, loadSessionAccount, makeSessionToken, issueSession, verifySessionToken, revokeSessions, invalidateRequestSession, findAuthenticatedRequestSession }
+
