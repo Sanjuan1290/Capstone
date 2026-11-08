@@ -16,6 +16,7 @@ const { sendTempPassword } = require('../utils/emailService')
 const { validateBookingSettings, normalizeBookingSettings, withBookingTestingCapability } = require('../utils/bookingPolicy')
 const { cloneDefaultBookingPolicyDocument, normalizeBookingPolicyDocument, parseStoredBookingPolicyDocument } = require('../utils/bookingPolicyDocument')
 const { provisionBranch } = require('../utils/branchProvisioning')
+const { validateBranchContact } = require('../utils/philippinePhone')
 const router = express.Router()
 const PERMISSIONS = ['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','accounts','system_setup','reports','audit_logs']
 const forbidden = (res) => res.status(403).json({ code: 'BRANCH_ACCESS_DENIED', message: 'You do not have access to this branch or feature.' })
@@ -65,10 +66,18 @@ router.get('/', requireSuper, async(req,res)=>{
   res.json(rows)
 })
 router.post('/',requireSuper,async(req,res)=>{
-  const name=String(req.body?.name||'').trim(),code=`BR-${randomBytes(8).toString('hex').toUpperCase()}`
-  if(!name||name.length>180)return res.status(400).json({message:'Enter a branch name (up to 180 characters).'})
-  const rawCopyFrom=req.body?.copy_setup_from_branch_id
-  const requestedMode=String(req.body?.setup_mode || (rawCopyFrom ? 'copy' : 'standard'))
+  const body=req.body||{}
+  const name=String(body.name||'').trim(),code=`BR-${randomBytes(8).toString('hex').toUpperCase()}`
+  if(!name||name.length>180)return res.status(400).json({code:'INVALID_BRANCH_NAME',field:'name',message:'Enter a branch name (up to 180 characters).'} )
+  let contact
+  try { contact=validateBranchContact(body) } catch(error) { return res.status(error.statusCode||400).json({code:error.code||'INVALID_BRANCH_DETAILS',field:error.field,message:error.message}) }
+  for (const key of ['offers_medical','offers_derma','is_active']) {
+    if (body[key]!==undefined && typeof body[key]!=='boolean') return res.status(400).json({code:'INVALID_BRANCH_FLAG',field:key,message:`${key} must be true or false.`})
+  }
+  const [[duplicate]]=await db.query('SELECT id FROM clinic_branches WHERE LOWER(TRIM(name))=LOWER(?) LIMIT 1',[name])
+  if(duplicate)return res.status(409).json({code:'BRANCH_NAME_IN_USE',field:'name',message:'A branch with this name already exists.'})
+  const rawCopyFrom=body.copy_setup_from_branch_id
+  const requestedMode=String(body.setup_mode || (rawCopyFrom ? 'copy' : 'standard'))
   if(!['blank','standard','copy'].includes(requestedMode))return res.status(400).json({code:'INVALID_SETUP_MODE',message:'Select a valid branch setup mode.'})
   const copyFrom=rawCopyFrom==null||String(rawCopyFrom).trim()===''?null:Number(rawCopyFrom)
   if(requestedMode==='copy' && copyFrom===null)return res.status(400).json({code:'SOURCE_BRANCH_REQUIRED',message:'Select a source branch to copy setup.'})
@@ -82,13 +91,13 @@ router.post('/',requireSuper,async(req,res)=>{
   let id
   try {
     await conn.beginTransaction()
-    const [result]=await conn.query('INSERT INTO clinic_branches (name,code,address,phone,email,offers_medical,offers_derma,is_active) VALUES (?,?,?,?,?,?,?,?)',[name,code,String(req.body.address||'').slice(0,255)||null,String(req.body.phone||'').slice(0,80)||null,String(req.body.email||'').slice(0,160)||null,req.body.offers_medical===false?0:1,req.body.offers_derma===false?0:1,req.body.is_active===false?0:1])
+    const [result]=await conn.query('INSERT INTO clinic_branches (name,code,address,phone,email,offers_medical,offers_derma,is_active) VALUES (?,?,?,?,?,?,?,?)',[name,code,contact.address,contact.phone,contact.email,body.offers_medical===false?0:1,body.offers_derma===false?0:1,body.is_active===false?0:1])
     id=result.insertId
     await provisionBranch(conn,id,copyFrom,requestedMode)
     await conn.commit()
   }catch(e){await conn.rollback();throw e}finally{conn.release()}
   await audit(req,'branch.created','clinic_branch',id,null,{name,code,setup_mode:requestedMode,copy_setup_from_branch_id:copyFrom},id)
-  res.status(201).json({id,name,code,setup_mode:requestedMode})
+  res.status(201).json({id,name,code,setup_mode:requestedMode,message:'Clinic branch created successfully.'})
 })
 
 // Independent Superadmin-only state transition: inactive branches must be
@@ -174,15 +183,27 @@ router.patch('/:branchId/status', requireSuper, async (req, res) => {
 })
 
 router.put('/:branchId',requireSuper,branchContext,async(req,res)=>{
-  const current=req.branch
-  const name=String(req.body?.name??current.name).trim(),code=current.code
-  if(!name||name.length>180) return res.status(400).json({message:'Enter a valid branch name.'})
-  const next={name,code,address:String(req.body.address??current.address??'').trim().slice(0,255)||null,phone:String(req.body.phone??current.phone??'').trim().slice(0,80)||null,email:String(req.body.email??current.email??'').trim().slice(0,160)||null,offers_medical:req.body.offers_medical===undefined?Number(current.offers_medical):Number(Boolean(req.body.offers_medical)),offers_derma:req.body.offers_derma===undefined?Number(current.offers_derma):Number(Boolean(req.body.offers_derma)),is_active:req.body.is_active===undefined?Number(current.is_active):Number(Boolean(req.body.is_active))}
-  if(Number(current.is_active)===1 && next.is_active===0){const [[pending]]=await db.query("SELECT COUNT(*) AS total FROM appointments WHERE branch_id=? AND appointment_date>=CURRENT_DATE() AND status IN ('pending','confirmed','rescheduled','in-progress')",[req.branchId]);if(Number(pending.total)>0)return res.status(409).json({message:`This branch has ${pending.total} active or upcoming appointments. Resolve them before deactivation.`})}
+  const current=req.branch,body=req.body||{}
+  const name=String(body.name??current.name).trim(),code=current.code
+  if(!name||name.length>180)return res.status(400).json({code:'INVALID_BRANCH_NAME',field:'name',message:'Enter a valid branch name (up to 180 characters).'})
+  let contact
+  try { contact=validateBranchContact({
+    phone:body.phone===undefined?current.phone:body.phone,
+    email:body.email===undefined?current.email:body.email,
+    address:body.address===undefined?current.address:body.address,
+  }) } catch(error) { return res.status(error.statusCode||400).json({code:error.code||'INVALID_BRANCH_DETAILS',field:error.field,message:error.message}) }
+  for (const key of ['offers_medical','offers_derma','is_active']) {
+    if (body[key]!==undefined && typeof body[key]!=='boolean') return res.status(400).json({code:'INVALID_BRANCH_FLAG',field:key,message:`${key} must be true or false.`})
+  }
+  const [[duplicate]]=await db.query('SELECT id FROM clinic_branches WHERE LOWER(TRIM(name))=LOWER(?) AND id<>? LIMIT 1',[name,req.branchId])
+  if(duplicate)return res.status(409).json({code:'BRANCH_NAME_IN_USE',field:'name',message:'A branch with this name already exists.'})
+  const next={name,code,address:contact.address,phone:contact.phone,email:contact.email,offers_medical:body.offers_medical===undefined?Number(current.offers_medical):(body.offers_medical?1:0),offers_derma:body.offers_derma===undefined?Number(current.offers_derma):(body.offers_derma?1:0),is_active:body.is_active===undefined?Number(current.is_active):(body.is_active?1:0)}
+  if(Number(current.is_active)===1 && next.is_active===0){const [[pending]]=await db.query("SELECT COUNT(*) AS total FROM appointments WHERE branch_id=? AND appointment_date>=CURRENT_DATE() AND status IN ('pending','confirmed','rescheduled','in-progress')",[req.branchId]);if(Number(pending.total)>0)return res.status(409).json({code:'BRANCH_HAS_ACTIVE_APPOINTMENTS',message:`This branch has ${pending.total} active or upcoming appointments. Resolve them before deactivation.`})}
   await db.query('UPDATE clinic_branches SET name=?,code=?,address=?,phone=?,email=?,offers_medical=?,offers_derma=?,is_active=? WHERE id=?',[...Object.values(next),req.branchId])
   await audit(req,'branch.updated','clinic_branch',req.branchId,current,next,req.branchId)
-  res.json({id:req.branchId,...next})
+  res.json({id:req.branchId,...next,message:'Branch details updated successfully.'})
 })
+
 router.delete('/:branchId',requireSuper,branchContext,async(req,res)=>{
   // Do not deactivate a branch while it has live future patient bookings.
   const [[pending]]=await db.query("SELECT COUNT(*) AS total FROM appointments WHERE branch_id=? AND appointment_date>=CURRENT_DATE() AND status IN ('pending','confirmed','rescheduled','in-progress')",[req.branchId])
