@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node --test tests/bookingPolicyServiceExports.node.test.mjs tests/bookingPolicyServiceContract20261102.node.test.mjs tests/inventoryExcelDiagnostics.node.test.mjs tests/inventoryBulkEndpointWiring.node.test.mjs tests/consultationSupplyReason.node.test.mjs",
+    "prebuild": "node --test tests/bookingPolicyServiceExports.node.test.mjs tests/bookingPolicyServiceContract20261102.node.test.mjs tests/inventoryExcelDiagnostics.node.test.mjs tests/inventoryBulkEndpointWiring.node.test.mjs tests/consultationSupplyReason.node.test.mjs tests/billingHistoryServiceContracts.node.test.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

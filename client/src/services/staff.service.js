@@ -9,6 +9,10 @@ const requestJson = async (url, options = {}) => {
     const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
     const err = new Error(`${data.message || 'Request failed.'}${reference}`)
     Object.assign(err, data)
+    // Object.assign copies data.message over Error.message; keep the safe
+    // request reference so Render logs can be matched to the UI failure.
+    err.message = `${data.message || 'Request failed.'}${reference}`
+    err.status = res.status
     throw err
   }
   return data
@@ -165,6 +169,8 @@ export const reopenBillForEditing = (id, expectedVersion) =>
 export const getDiscountPresets = () => requestJson(`${BASE}/billing/discount-presets`)
 
 export const getBillingAdjustmentRequests = (id) => requestJson(`${BASE}/billing/${id}/adjustment-requests`)
+// Read-only charge-reduction history; Staff can view their assigned branch's bills.
+export const getStaffBillChargeAdjustments = (id) => requestJson(`${BASE}/billing/${id}/charge-adjustments`)
 export const requestBillingAdjustment = (id, payload) => requestJson(`${BASE}/billing/${id}/adjustment-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 export const uploadDiscountProofImage = (file, billingId, options = {}) => uploadDiscountProofViaApi({
   file, billingId, ...options,
@@ -285,5 +291,6 @@ export const cancelStaffQrPayment = (id, attemptId) => requestJson(`${BASE}/bill
 
 
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${BASE}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
+
 
 

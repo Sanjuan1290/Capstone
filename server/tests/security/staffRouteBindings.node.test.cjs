@@ -57,7 +57,7 @@ function loadSetupHandlers() {
   return loadCommonJs(filename, moduleName => mockControllerDependency(moduleName, filename))
 }
 
-function registerRoutes(handlers) {
+function registerRoutes(handlers, { walkInAcceptanceOverride } = {}) {
   const registered = []
   const router = {}
   for (const method of ['get', 'post', 'put', 'delete', 'patch', 'all', 'options', 'head', 'use']) {
@@ -75,6 +75,15 @@ function registerRoutes(handlers) {
   const fakeRequire = moduleName => {
     if (moduleName === 'express') return express
     if (moduleName === './branchSystemWrites') return handlers
+    if (moduleName === '../utils/walkInAcceptance') {
+      // This module exports a factory: handler(options) -> Express callback.
+      // A generic callable stub returns undefined when invoked with no arguments,
+      // producing a false route-binding failure before later routes are checked.
+      // Load its real factory using inert dependencies to catch actual regressions.
+      if (walkInAcceptanceOverride !== undefined) return walkInAcceptanceOverride
+      const filename = path.resolve(routers, '../utils/walkInAcceptance.js')
+      return loadCommonJs(filename, name => mockControllerDependency(name, filename))
+    }
     if (moduleName.endsWith('staffPermission.middleware')) return {
       requireStaffPermission: () => callback,
       requireAnyStaffPermission: () => callback,
@@ -91,6 +100,22 @@ test('Staff router registers only callable Express handlers', () => {
   const handlers = loadSetupHandlers()
   const routes = registerRoutes(handlers)
   assert.ok(routes.length >= 80, `Expected all Staff routes to be checked, got ${routes.length}`)
+})
+
+test('walk-in GET/PUT routes use real handler-factory results', () => {
+  const routes = registerRoutes(loadSetupHandlers())
+  for (const method of ['get', 'put']) {
+    const route = routes.find(r => r.method === method && r.url === '/doctors/:id/walk-ins/acceptance')
+    assert.ok(route, `Missing walk-in acceptance ${method.toUpperCase()} route`)
+    assert.equal(typeof route.callbacks.at(-1), 'function')
+  }
+})
+
+test('regression: broken walk-in handler factory is detected at registration', () => {
+  assert.throws(
+    () => registerRoutes(loadSetupHandlers(), { walkInAcceptanceOverride: { handler: () => undefined } }),
+    /GET \/doctors\/:id\/walk-ins\/acceptance callback .* undefined/
+  )
 })
 
 test('Staff Service Category DELETE uses actual category-deletion handler', () => {
@@ -128,3 +153,4 @@ test('regression: missing controller dependencies still fail verification', () =
     /Missing controller dependency/
   )
 })
+

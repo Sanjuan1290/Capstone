@@ -25,6 +25,10 @@ const requestJson = async (url, options = {}) => {
     const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
     const err = new Error(`${data.message || 'Request failed.'}${reference}`)
     Object.assign(err, data)
+    // Object.assign copies data.message over Error.message; keep the safe
+    // request reference so Render logs can be matched to the UI failure.
+    err.message = `${data.message || 'Request failed.'}${reference}`
+    err.status = res.status
     throw err
   }
   return data
@@ -537,6 +541,8 @@ export const finalizeAdminCheckoutBill = (id,expectedVersion) => requestJson(`${
 export const reopenAdminCheckoutBill = (id, expectedVersion) => requestJson(`${getAdminApiBase()}/billing/${id}/reopen-for-editing`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_version:expectedVersion}) })
 export const payAdminCheckoutBill = (id,payload) => requestJson(`${getAdminApiBase()}/billing/${id}/pay`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 export const getAdminBillAdjustmentRequests = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/adjustment-requests`)
+// Used by read-only bill history for branch admins and Super Admin workspaces.
+export const getAdminBillChargeAdjustments = (id) => requestJson(`${getAdminApiBase()}/billing/${id}/charge-adjustments`)
 export const getAdminDiscountPresets = () => requestJson(`${getAdminApiBase()}/billing/discount-presets`)
 
 export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ clinicType })
@@ -591,6 +597,7 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
+
 
 
 
