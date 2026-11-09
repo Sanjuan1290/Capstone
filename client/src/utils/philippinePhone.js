@@ -35,9 +35,29 @@ export function validateBranchForm(form = {}) {
   if (!name) errors.name = 'Branch name is required.'
   else if (name.length > 180) errors.name = 'Branch name must be 180 characters or fewer.'
   if (address.length > 255) errors.address = 'Address must be 255 characters or fewer.'
+  try { normalizeGoogleMapsUrl(form.google_maps_url) } catch (error) { errors.google_maps_url = error.message }
   try { normalizePhilippinePhone(form.phone) } catch (error) { errors.phone = error.message }
   if (email && (email.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     errors.email = email.length > 160 ? 'Email address must be 160 characters or fewer.' : 'Enter a valid email address.'
   }
   return errors
+}
+
+
+/** Accept only HTTPS Google Maps links (including shortened sharing links). */
+export function normalizeGoogleMapsUrl(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  if (raw.length > 2048) throw new Error('Google Maps link must be 2,048 characters or fewer.')
+  let parsed
+  try { parsed = new URL(raw) } catch { throw new Error('Paste a valid Google Maps link.') }
+  const host = parsed.hostname.toLowerCase()
+  const isGoogleMapsHost = host === 'maps.app.goo.gl' ||
+    (host === 'goo.gl' && parsed.pathname.toLowerCase().startsWith('/maps')) ||
+    host === 'maps.google.com' ||
+    ((host === 'google.com' || host === 'www.google.com') && parsed.pathname.toLowerCase().startsWith('/maps'))
+  if (parsed.protocol !== 'https:' || !isGoogleMapsHost || parsed.username || parsed.password) {
+    throw new Error('Use a Google Maps sharing link from maps.app.goo.gl or google.com/maps.')
+  }
+  return parsed.toString()
 }

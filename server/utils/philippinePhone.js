@@ -31,7 +31,20 @@ function normalizePhilippinePhone(value) {
   return normalized
 }
 
-function validateBranchContact({ phone, email, address } = {}) {
+function normalizeGoogleMapsUrl(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const fail = () => { const error = new Error('Use a Google Maps sharing link from maps.app.goo.gl or google.com/maps.'); error.code='INVALID_BRANCH_MAPS_URL'; error.statusCode=400; error.field='google_maps_url'; throw error }
+  if (raw.length > 2048) { const error = new Error('Google Maps link must be 2,048 characters or fewer.'); error.code='INVALID_BRANCH_MAPS_URL'; error.statusCode=400; error.field='google_maps_url'; throw error }
+  let parsed
+  try { parsed = new URL(raw) } catch { fail() }
+  const host = parsed.hostname.toLowerCase()
+  const isGoogleMapsHost = host === 'maps.app.goo.gl' || (host === 'goo.gl' && parsed.pathname.toLowerCase().startsWith('/maps')) || host === 'maps.google.com' || ((host === 'google.com' || host === 'www.google.com') && parsed.pathname.toLowerCase().startsWith('/maps'))
+  if (parsed.protocol !== 'https:' || !isGoogleMapsHost || parsed.username || parsed.password) fail()
+  return parsed.toString()
+}
+
+function validateBranchContact({ phone, email, address, google_maps_url } = {}) {
   const cleanPhone = normalizePhilippinePhone(phone)
   const cleanEmail = String(email ?? '').trim().toLowerCase()
   const cleanAddress = String(address ?? '').trim()
@@ -49,7 +62,8 @@ function validateBranchContact({ phone, email, address } = {}) {
     error.field = 'email'
     throw error
   }
-  return { phone: cleanPhone, email: cleanEmail || null, address: cleanAddress || null }
+  return { phone: cleanPhone, email: cleanEmail || null, address: cleanAddress || null, google_maps_url: normalizeGoogleMapsUrl(google_maps_url) }
 }
 
-module.exports = { normalizePhilippinePhone, validateBranchContact }
+module.exports = { normalizePhilippinePhone, normalizeGoogleMapsUrl, validateBranchContact }
+

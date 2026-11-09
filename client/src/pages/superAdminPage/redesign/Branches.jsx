@@ -1,13 +1,14 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {NavLink} from 'react-router-dom'
-import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices} from 'react-icons/md'
+import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'
 import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'
 import {useToast} from '../../../components/ui/ToastProvider'
-import {normalizePhilippinePhone,validateBranchForm} from '../../../utils/philippinePhone'
+import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'
 
-const initial=()=>({name:'',address:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})
+const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})
 const messageOf=(error,fallback)=>error?.message||fallback
 const countLabel=(value)=>Number(value||0).toLocaleString('en-PH')
+const previewMapsUrl=(value)=>{try{return normalizeGoogleMapsUrl(value)}catch{return null}}
 
 export const SuperAdminBranches=()=>{
  const toast=useToast()
@@ -42,7 +43,7 @@ export const SuperAdminBranches=()=>{
  const counts=useMemo(()=>({total:rows.length,active:rows.filter(b=>Number(b.is_active)===1).length,inactive:rows.filter(b=>Number(b.is_active)!==1).length,needs:ready.filter(b=>Number(b.is_active)===1&&!b.ready).length,bookable:ready.filter(b=>Number(b.is_active)===1&&b.ready).length}),[rows,ready])
 
  const open=(branch=null)=>{
-  setForm(branch?{...branch,name:branch.name||'',address:branch.address||'',phone:branch.phone||'',email:branch.email||'',offers_medical:Boolean(Number(branch.offers_medical)),offers_derma:Boolean(Number(branch.offers_derma)),is_active:Boolean(Number(branch.is_active))}:initial())
+  setForm(branch?{...branch,name:branch.name||'',address:branch.address||'',google_maps_url:branch.google_maps_url||'',phone:branch.phone||'',email:branch.email||'',offers_medical:Boolean(Number(branch.offers_medical)),offers_derma:Boolean(Number(branch.offers_derma)),is_active:Boolean(Number(branch.is_active))}:initial())
   setFieldErrors({});setError('');setModal(branch?.id||'new')
  }
  const closeForm=()=>{if(!saving){setModal(null);setFieldErrors({});setError('')}}
@@ -56,7 +57,7 @@ export const SuperAdminBranches=()=>{
   try{normalizedPhone=normalizePhilippinePhone(form.phone)}catch(e){setFieldErrors(prev=>({...prev,phone:e.message}));return}
   savingRef.current=true;setSaving(true);setError('')
   const editing=modal!=='new'
-  const payload={...form,name:String(form.name||'').trim(),address:String(form.address||'').trim()||null,phone:normalizedPhone,email:String(form.email||'').trim().toLowerCase()||null}
+  const payload={...form,name:String(form.name||'').trim(),address:String(form.address||'').trim()||null,google_maps_url:normalizeGoogleMapsUrl(form.google_maps_url),phone:normalizedPhone,email:String(form.email||'').trim().toLowerCase()||null}
   try{
    const result=await fetchJson(editing?`/${modal}`:'/',{method:editing?'PUT':'POST',body:JSON.stringify(payload)})
    if(!editing&&result?.id)setCreatedBranch({id:result.id,name:payload.name,is_active:payload.is_active})
@@ -113,6 +114,7 @@ export const SuperAdminBranches=()=>{
      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-black text-slate-900 break-words">{branch.name}</h2><Pill tone={active?'success':'neutral'}>{active?'Active':'Inactive'}</Pill></div>
       <div className="mt-2 space-y-1.5 text-sm text-slate-600">
        <p className="flex items-start gap-2"><MdLocationOn className="mt-0.5 shrink-0 text-slate-400"/><span>{branch.address||'Address not provided'}</span></p>
+       {branch.google_maps_url&&<a href={branch.google_maps_url} target="_blank" rel="noopener noreferrer" className="ml-6 inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:text-sky-900 hover:underline"><MdMap/> Get Directions</a>}
        <p className="flex items-center gap-2"><MdPhone className="shrink-0 text-slate-400"/><span>{branch.phone||'Contact number not provided'}</span></p>
        <p className="flex items-center gap-2 min-w-0"><MdEmail className="shrink-0 text-slate-400"/><span className="break-all">{branch.email||'Email not provided'}</span></p>
       </div>
@@ -134,6 +136,7 @@ export const SuperAdminBranches=()=>{
     <section className="space-y-3"><div><h3 className="text-sm font-bold text-slate-900">01. Branch Information</h3><p className="text-xs text-slate-500">Enter the official name and physical location of this clinic.</p></div>
      <Field label="Branch Name" required><input id="branch-name" className="form-control mt-1" maxLength={180} required value={form.name} aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name?'branch-name-error':undefined} onChange={e=>{setForm(f=>({...f,name:e.target.value}));setFieldErrors(v=>({...v,name:''}))}}/>{fieldErrors.name&&<span id="branch-name-error" className="mt-1 block text-xs text-rose-700" role="alert">{fieldErrors.name}</span>}</Field>
      <Field label="Complete Address" help="Building, street, barangay, city or municipality, province and postal code."><textarea id="branch-address" className="form-control mt-1 min-h-24 resize-y" maxLength={255} value={form.address||''} aria-invalid={Boolean(fieldErrors.address)} aria-describedby={fieldErrors.address?'branch-address-error':undefined} placeholder="Enter the complete branch address" onChange={e=>{setForm(f=>({...f,address:e.target.value}));setFieldErrors(v=>({...v,address:''}))}}/>{fieldErrors.address&&<span id="branch-address-error" className="mt-1 block text-xs text-rose-700" role="alert">{fieldErrors.address}</span>}</Field>
+     <Field label="Google Maps Link" help="Optional. In Google Maps, open the clinic location, select Share, then Copy link and paste it here."><input id="branch-google-maps-url" type="url" inputMode="url" autoComplete="url" className="form-control mt-1" maxLength={2048} value={form.google_maps_url||''} aria-invalid={Boolean(fieldErrors.google_maps_url)} aria-describedby={fieldErrors.google_maps_url?'branch-google-maps-error':'branch-google-maps-help'} placeholder="https://maps.app.goo.gl/... or https://www.google.com/maps/..." onChange={e=>{setForm(f=>({...f,google_maps_url:e.target.value}));setFieldErrors(v=>({...v,google_maps_url:''}))}}/>{fieldErrors.google_maps_url&&<span id="branch-google-maps-error" className="mt-1 block text-xs text-rose-700" role="alert">{fieldErrors.google_maps_url}</span>}<span id="branch-google-maps-help" className="mt-1 block text-xs text-slate-500">Paste the exact branch pin. Patients can use the saved link to open directions in Google Maps.</span>{previewMapsUrl(form.google_maps_url)&&<a href={previewMapsUrl(form.google_maps_url)} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline"><MdMap/> Test Google Maps Link</a>}</Field>
     </section>
     <section className="space-y-3 border-t border-slate-100 pt-4"><div><h3 className="text-sm font-bold text-slate-900">02. Contact Information</h3><p className="text-xs text-slate-500">Use contact details patients can use to reach this branch.</p></div>
      <div className="grid gap-4 sm:grid-cols-2">
@@ -167,3 +170,4 @@ export const SuperAdminBranches=()=>{
   <Modal open={Boolean(confirm)} onClose={()=>setConfirm(null)} title={`${Number(confirm?.is_active)?'Deactivate':'Reactivate'} Branch?`} description={confirm?.name}><div className="space-y-4">{Number(confirm?.is_active)?<Banner type="warning" title="Operational impact">New bookings will be blocked for this branch. Historical appointments, medical records, billing and stock history remain intact. Branches with upcoming appointments must resolve them before deactivation.</Banner>:<Banner type="info">This branch will be enabled. Online booking remains unavailable until doctors, schedules and services are configured.</Banner>}<div className="flex justify-end gap-2"><SecondaryButton onClick={()=>setConfirm(null)}>Cancel</SecondaryButton><button className={`button-secondary ${Number(confirm?.is_active)?'!bg-rose-600 !text-white':''}`} disabled={saving} onClick={()=>setActive(confirm)}>{saving?'Working…':Number(confirm?.is_active)?'Deactivate Branch':'Reactivate Branch'}</button></div></div></Modal>
  </div>
 }
+

@@ -92,7 +92,7 @@ router.post('/',requireSuper,async(req,res)=>{
   let id
   try {
     await conn.beginTransaction()
-    const [result]=await conn.query('INSERT INTO clinic_branches (name,code,address,phone,email,offers_medical,offers_derma,is_active) VALUES (?,?,?,?,?,?,?,?)',[name,code,contact.address,contact.phone,contact.email,body.offers_medical===false?0:1,body.offers_derma===false?0:1,body.is_active===false?0:1])
+    const [result]=await conn.query('INSERT INTO clinic_branches (name,code,address,phone,email,google_maps_url,offers_medical,offers_derma,is_active) VALUES (?,?,?,?,?,?,?,?,?)',[name,code,contact.address,contact.phone,contact.email,contact.google_maps_url,body.offers_medical===false?0:1,body.offers_derma===false?0:1,body.is_active===false?0:1])
     id=result.insertId
     await provisionBranch(conn,id,copyFrom,requestedMode)
     await conn.commit()
@@ -192,15 +192,16 @@ router.put('/:branchId',requireSuper,branchContext,async(req,res)=>{
     phone:body.phone===undefined?current.phone:body.phone,
     email:body.email===undefined?current.email:body.email,
     address:body.address===undefined?current.address:body.address,
+    google_maps_url:body.google_maps_url===undefined?current.google_maps_url:body.google_maps_url,
   }) } catch(error) { return res.status(error.statusCode||400).json({code:error.code||'INVALID_BRANCH_DETAILS',field:error.field,message:error.message}) }
   for (const key of ['offers_medical','offers_derma','is_active']) {
     if (body[key]!==undefined && typeof body[key]!=='boolean') return res.status(400).json({code:'INVALID_BRANCH_FLAG',field:key,message:`${key} must be true or false.`})
   }
   const [[duplicate]]=await db.query('SELECT id FROM clinic_branches WHERE LOWER(TRIM(name))=LOWER(?) AND id<>? LIMIT 1',[name,req.branchId])
   if(duplicate)return res.status(409).json({code:'BRANCH_NAME_IN_USE',field:'name',message:'A branch with this name already exists.'})
-  const next={name,code,address:contact.address,phone:contact.phone,email:contact.email,offers_medical:body.offers_medical===undefined?Number(current.offers_medical):(body.offers_medical?1:0),offers_derma:body.offers_derma===undefined?Number(current.offers_derma):(body.offers_derma?1:0),is_active:body.is_active===undefined?Number(current.is_active):(body.is_active?1:0)}
+  const next={name,code,address:contact.address,phone:contact.phone,email:contact.email,google_maps_url:contact.google_maps_url,offers_medical:body.offers_medical===undefined?Number(current.offers_medical):(body.offers_medical?1:0),offers_derma:body.offers_derma===undefined?Number(current.offers_derma):(body.offers_derma?1:0),is_active:body.is_active===undefined?Number(current.is_active):(body.is_active?1:0)}
   if(Number(current.is_active)===1 && next.is_active===0){const [[pending]]=await db.query("SELECT COUNT(*) AS total FROM appointments WHERE branch_id=? AND appointment_date>=CURRENT_DATE() AND status IN ('pending','confirmed','rescheduled','in-progress')",[req.branchId]);if(Number(pending.total)>0)return res.status(409).json({code:'BRANCH_HAS_ACTIVE_APPOINTMENTS',message:`This branch has ${pending.total} active or upcoming appointments. Resolve them before deactivation.`})}
-  await db.query('UPDATE clinic_branches SET name=?,code=?,address=?,phone=?,email=?,offers_medical=?,offers_derma=?,is_active=? WHERE id=?',[...Object.values(next),req.branchId])
+  await db.query('UPDATE clinic_branches SET name=?,code=?,address=?,phone=?,email=?,google_maps_url=?,offers_medical=?,offers_derma=?,is_active=? WHERE id=?',[...Object.values(next),req.branchId])
   await audit(req,'branch.updated','clinic_branch',req.branchId,current,next,req.branchId)
   res.json({id:req.branchId,...next,message:'Branch details updated successfully.'})
 })
@@ -849,6 +850,7 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+
 
 
 
