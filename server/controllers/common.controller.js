@@ -1,4 +1,5 @@
 const { getNotifications, markNotificationRead } = require('../utils/notifications')
+const { notificationDestination } = require('../utils/notificationDestination')
 const { getSettings, updateSettings } = require('../utils/accountSettings')
 const { getLandingPageContent, getEditorLandingPageContent, updateLandingPageContent, saveLandingPageDraft, publishLandingPageDraft, restoreLandingPageVersion } = require('../utils/landingPageContent')
 const db = require('../db/connect')
@@ -17,6 +18,18 @@ const listNotifications = async (req, res) => {
 const readNotification = async (req, res) => {
   await markNotificationRead(req.params.id, req.user.role, req.user.id, notificationBranch(req))
   res.json({ message: 'Notification marked as read.' })
+}
+
+const getNotificationDestination = async (req, res) => {
+  const destination = await notificationDestination({
+    id: req.params.id,
+    role: req.user.role,
+    userId: req.user.id,
+    branchId: req.branchId,
+    superadmin: req.authCookieName === 'superadmin_token',
+    permissions: req.adminPermissions,
+  })
+  res.json(destination)
 }
 
 const readAllNotifications = async (req, res) => {
@@ -310,6 +323,7 @@ const completePatientOnboarding = async (req, res) => {
 
 module.exports = {
   listNotifications,
+  getNotificationDestination,
   readNotification,
   readAllNotifications,
   getMySettings,

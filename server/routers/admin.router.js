@@ -37,6 +37,7 @@ router.post('/security/password/change', ...accountAuth, otpVerifyLimiter, commo
 router.post('/security/recovery-phone/request', ...accountAuth, otpRequestLimiter, commonCtrl.requestMyRecoveryPhoneCode)
 router.post('/security/recovery-phone/verify', ...accountAuth, otpVerifyLimiter, commonCtrl.verifyMyRecoveryPhoneCode)
 router.get('/notifications', ...auth, commonCtrl.listNotifications)
+router.get('/notifications/:id/destination', ...auth, commonCtrl.getNotificationDestination)
 router.patch('/notifications/read-all', ...auth, commonCtrl.readAllNotifications)
 router.patch('/notifications/:id/read', ...auth, commonCtrl.readNotification)
 router.get('/settings', ...accountAuth, commonCtrl.getMySettings)

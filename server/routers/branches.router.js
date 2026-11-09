@@ -10,6 +10,7 @@ const bcrypt = require('bcrypt')
 const {randomBytes} = require('crypto')
 const db = require('../db/connect')
 const authenticate = require('../middlewares/auth.middleware')
+const commonCtrl = require('../controllers/common.controller')
 const { writeAuditLog } = require('../utils/audit')
 const { makeTemporaryPassword } = require('../utils/securityCrypto')
 const { sendTempPassword } = require('../utils/emailService')
@@ -353,6 +354,7 @@ router.put('/accounts/team/:role/:accountId/branch', requireSuper, async (req, r
 })
 
 // Branch Admin notifications must never include global or another branch's events.
+router.get('/my/notifications/:id/destination',branchContext,commonCtrl.getNotificationDestination)
 router.get('/my/notifications',branchContext,async(req,res)=>{
   const [rows]=await db.query(`SELECT id,type,title,message,reference_type,reference_id,link,is_read,created_at
     FROM notifications WHERE branch_id=? AND target_role='admin' AND (target_user_id IS NULL OR target_user_id=?)
