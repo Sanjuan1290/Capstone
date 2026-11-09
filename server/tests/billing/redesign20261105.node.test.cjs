@@ -26,7 +26,7 @@ test('Doctor and Staff cannot approve, including their own request',async()=>{
 })
 test('legacy admin self-approval is denied, while an explicit rejection is allowed',async()=>{
  const {conn,state}=billingFixture();const id=await request(conn);Object.assign(state.requests[0],{requester_role:'superadmin',requester_user_id:8})
- await assert.rejects(()=>resolve(conn,id),{code:'SELF_APPROVAL_FORBIDDEN'});await resolve(conn,id,'rejected');assert.equal(state.bill.total_amount,455)
+ await assert.rejects(()=>resolve(conn,id),{code:'SELF_APPROVAL_DENIED'});await resolve(conn,id,'rejected');assert.equal(state.bill.total_amount,455)
 })
 test('one approved target cannot be reduced twice beyond its charge',async()=>{
  const {conn,state}=billingFixture();const id=await request(conn,{targetType:'consumable',inventoryId:7,amount:35});await resolve(conn,id)

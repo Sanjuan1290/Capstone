@@ -1,0 +1,9 @@
+{
+  "name": "client-lint",
+  "command": "npm run lint -- --format=json --output-file=../QA_REPORT/evidence/client-lint-results.json",
+  "cwd": "client",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 44453,
+  "status": "FAIL"
+}

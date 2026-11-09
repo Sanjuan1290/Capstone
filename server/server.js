@@ -42,7 +42,7 @@ app.use(express.urlencoded({ extended: false, limit: process.env.FORM_BODY_LIMIT
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.has(origin)) return callback(null, true)
-    return callback(new Error('Origin not allowed by CORS policy.'))
+    return callback(Object.assign(new Error('Origin not allowed by CORS policy.'), { statusCode: 403, code: 'ORIGIN_REJECTED' }))
   },
   credentials: true,
 }))

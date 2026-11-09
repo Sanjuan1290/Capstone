@@ -72,7 +72,7 @@ export const SuperAdminBranches=()=>{
   if(!branch||savingRef.current)return
   savingRef.current=true;setSaving(true);setError('')
   try{
-   const active=!Boolean(Number(branch.is_active))
+   const active=!Number(branch.is_active)
    await fetchJson(`/${branch.id}/status`,{method:'PATCH',body:JSON.stringify({is_active:active})})
    toast.success(active?'Branch reactivated successfully.':'Branch deactivated. Historical records were preserved.')
    setConfirm(null);await load()

@@ -1,0 +1,9 @@
+{
+  "name": "api-smoke",
+  "command": "node QA_REPORT/scripts/api-smoke.cjs",
+  "cwd": ".",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 3548,
+  "status": "FAIL"
+}

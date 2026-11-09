@@ -846,6 +846,8 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       setItems(Array.isArray(data) ? data : data?.items || [])
       setStockLocations(Array.isArray(rooms) ? rooms : [])
       if (masters) setMasterData({ suppliers: masters?.suppliers || [], location_types: masters?.location_types || [], movement_reasons: masters?.movement_reasons || [] })
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Unable to load inventory. Please retry.' })
     } finally {
       setLoading(false)
       setInitialLoadComplete(true)
@@ -854,16 +856,6 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 
   useEffect(() => { load() }, [load])
   useClinicRefresh(load,['inventory.updated','service.updated','settings.updated'],{fallbackMs:60000,skip:()=>excelWorkflowActive||showAdd||Boolean(editItem)||Boolean(stockItem)||Boolean(moveItem)||Boolean(batchManagerItem)})
-
-  const openMoveStock = async (item) => {
-    try {
-      const rows = await getInventoryLocations()
-      setStockLocations(Array.isArray(rows) ? rows : [])
-      setMoveItem(item)
-    } catch (err) {
-      toast.error(err.message || 'Could not load Stock Rooms.')
-    }
-  }
 
   const submitMoveStock = async (item, payload) => {
     const result = await moveInventoryStock(item.id, payload)
@@ -994,7 +986,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6" aria-busy={loading}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>

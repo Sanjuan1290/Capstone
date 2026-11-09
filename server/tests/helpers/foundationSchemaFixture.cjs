@@ -97,10 +97,10 @@ function createFoundationSchemaFixture(options = {}) {
         return rowsResult(tableRows.filter((row) => params.includes(row.TABLE_NAME)))
       }
       if (/information_schema\.COLUMNS/i.test(text)) {
-        return rowsResult(columnRows.filter((row) => params.includes(row.TABLE_NAME)))
+        return rowsResult(columnRows.filter((row) => params.includes(row.TABLE_NAME) && (!/COLUMN_NAME\s*=\s*\?/i.test(text) || row.COLUMN_NAME === params[1])))
       }
       if (/information_schema\.STATISTICS/i.test(text)) {
-        return rowsResult(indexRows.filter((row) => params.includes(row.TABLE_NAME)))
+        return rowsResult(indexRows.filter((row) => params.includes(row.TABLE_NAME) && (!/INDEX_NAME\s*=\s*\?/i.test(text) || row.INDEX_NAME === params[1])))
       }
       if (/information_schema\.KEY_COLUMN_USAGE/i.test(text)) {
         return rowsResult(foreignKeyRows.filter((row) => params.includes(row.TABLE_NAME)))

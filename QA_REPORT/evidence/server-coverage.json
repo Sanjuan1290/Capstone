@@ -1,0 +1,9 @@
+{
+  "name": "server-coverage",
+  "command": "npm run test:coverage -- --coverage.reportOnFailure --coverage.include=controllers/** --coverage.include=routers/** --coverage.include=utils/** --coverage.include=middlewares/** --coverage.include=db/*.js --coverage.include=server.js --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=text-summary --coverage.reportsDirectory=../QA_REPORT/evidence/coverage",
+  "cwd": "server",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 7133,
+  "status": "FAIL"
+}

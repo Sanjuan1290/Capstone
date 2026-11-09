@@ -1,0 +1,9 @@
+{
+  "name": "clinical-workflow",
+  "command": "node QA_REPORT/scripts/clinical-workflow.cjs",
+  "cwd": ".",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 1077,
+  "status": "PASS"
+}

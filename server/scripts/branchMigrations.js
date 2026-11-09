@@ -3,9 +3,10 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
-const { runTiDBMigration, PROCEDURAL_FILES } = require('./tidbMigrationAdapter')
+const { runTiDBMigration, PROCEDURAL_FILES, normalizeHistoricalStatement } = require('./tidbMigrationAdapter')
 const { requiredFoundationColumns, verifyFoundationSchema, ensureFoundationRekeys } = require('./foundationSchema')
 const { MIGRATION_FILE: promotionMigrationFile, runSelectedPromotionMigration, verifyPromotionSchema } = require('./promotionMigration')
+const { runDoctorBranchMigration, runGuardedAdditiveMigration } = require('./resumableBranchMigrations')
 
 // Handle mysql CLI DELIMITER directives (including stored-procedure bodies).
 // Statements execute serially on a single connection. A migration is recorded
@@ -57,6 +58,7 @@ const migrationFiles = [
   '2026-11-05-promotion-pricing.sql',
   '2026-11-05-billing-failure-history.sql',
   '2026-11-09-superadmin-patient-directory-ban.sql',
+  '2026-11-09-branch-google-maps-url.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -121,12 +123,17 @@ async function runRegisteredBranchMigrations(db) {
       if (file === promotionMigrationFile) {
         // Metadata-checked, resumable per-table DDL. Never mark an incomplete schema as applied.
         await runSelectedPromotionMigration(connection, statements)
+      } else if (file === '2026-10-31-doctor-multi-branch.sql') {
+        await runDoctorBranchMigration(connection, statements)
+      } else if (['2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-02-branch-movement-reasons.sql', '2026-11-09-branch-google-maps-url.sql'].includes(file)) {
+        await runGuardedAdditiveMigration(connection, statements)
       } else if (String(process.env.DB_PROVIDER || '').toLowerCase() === 'tidb' && PROCEDURAL_FILES.has(file)) {
         // Convert MySQL stored-procedure calls to equivalent schema guards in JS.
         // The archived SQL and SHA-256 stay unchanged for existing databases.
         await runTiDBMigration(connection, file, statements)
       } else {
         for (const statement of statements) {
+          const executable = normalizeHistoricalStatement(statement)
           if (file === '2026-11-05-promotion-pricing.sql') {
             const match = /^ALTER TABLE (clinic_promotions|appointments|billing_records) ADD COLUMN ([a-z_]+) /i.exec(statement)
             if (!match) throw new Error('Unexpected promotion pricing migration statement')
@@ -152,7 +159,7 @@ async function runRegisteredBranchMigrations(db) {
           }
           if (/^USE\s+/i.test(statement)) continue // connection already selects DB_NAME
           if (/^DROP\s+TABLE\b/i.test(statement)) throw new Error('Destructive migration blocked')
-          await connection.query(statement)
+          await connection.query(executable)
         }
       }
       if (file === migrationFiles[0]) {

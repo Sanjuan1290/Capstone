@@ -172,7 +172,6 @@ const sendPatientAppointmentReminderSms = async ({patientPhone,appointment_date,
 module.exports = {
   isSmsConfigured,
   sendPatientAppointmentReminderSms,
-  isSmsConfigured,
   sendPatientRegistrationOtp,
   sendPatientPasswordResetOtp,
   sendPatientPhoneChangeOtp,

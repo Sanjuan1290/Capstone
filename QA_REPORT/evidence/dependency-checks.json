@@ -1,0 +1,50 @@
+{
+  "results": [
+    {
+      "project": "client",
+      "check": "npm ci --ignore-scripts",
+      "status": "PASS",
+      "exitCode": 0,
+      "durationMs": 21888,
+      "scope": "Disposable directory; lifecycle hooks verified separately in the working repository."
+    },
+    {
+      "project": "client",
+      "check": "npm audit",
+      "status": "FAIL",
+      "vulnerabilities": {
+        "info": 0,
+        "low": 1,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 1
+      },
+      "exitCode": 1
+    },
+    {
+      "project": "server",
+      "check": "npm ci --ignore-scripts",
+      "status": "PASS",
+      "exitCode": 0,
+      "durationMs": 7488,
+      "scope": "Disposable directory; lifecycle hooks verified separately in the working repository."
+    },
+    {
+      "project": "server",
+      "check": "npm audit",
+      "status": "FAIL",
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 2,
+        "high": 0,
+        "critical": 0,
+        "total": 2
+      },
+      "exitCode": 1
+    }
+  ],
+  "tempDirectory": "C:\\Users\\Robert\\AppData\\Local\\Temp\\carait-qa-dependencies-Tjf9Gw",
+  "productionChanges": 0
+}

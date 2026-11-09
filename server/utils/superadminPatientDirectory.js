@@ -24,7 +24,11 @@ const buildPatientDirectoryWhere = ({ search = '', status = 'all' } = {}) => {
     ]
     params.push(like, like, like)
 
-    const digits = term.replace(/\D/g, '')
+    // Only add phone matching for phone-shaped searches. Digits inside an
+    // email/name must not match every unrelated patient with that phone digit.
+    const digits = /^[+\d().\s-]+$/.test(term)
+      ? term.replace(/\D/g, '').replace(/^0(?=[2-9]\d{7,9}$)/, '63')
+      : ''
     if (digits) {
       searchParts.push("REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p.phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '') LIKE ?")
       params.push(`%${digits}%`)

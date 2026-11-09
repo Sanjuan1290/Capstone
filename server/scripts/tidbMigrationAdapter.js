@@ -103,6 +103,12 @@ async function translateCall(conn, statement) {
     default: throw new Error(`Unrecognized procedure in TiDB migration: ${name}`)
   }
 }
+// Qualify the no-op assignment in the archived INSERT ... SELECT. MySQL 8
+// otherwise resolves id against both the source and destination tables.
+const normalizeHistoricalStatement = statement => /^INSERT INTO clinic_branches\b/i.test(statement)
+  ? statement.replace(/ON DUPLICATE KEY UPDATE id\s*=\s*id\s*$/i, 'ON DUPLICATE KEY UPDATE id = clinic_branches.id')
+  : statement
+
 async function runTiDBMigration(conn, file, statements) {
   if (!PROCEDURAL_FILES.has(file)) throw new Error(`No TiDB migration adapter for ${file}`)
   for (const statement of statements) {
@@ -110,7 +116,7 @@ async function runTiDBMigration(conn, file, statements) {
     if (/^\s*USE\s+/i.test(statement)) continue
     if (/^\s*CALL\s+/i.test(statement)) { await translateCall(conn, statement); continue }
     if (/^\s*DROP\s+TABLE\b/i.test(statement)) throw new Error('Destructive migration blocked')
-    await conn.query(statement)
+    await conn.query(normalizeHistoricalStatement(statement))
   }
 }
-module.exports = { runTiDBMigration, PROCEDURAL_FILES, argumentsOf, translateCall }
+module.exports = { runTiDBMigration, PROCEDURAL_FILES, argumentsOf, translateCall, normalizeHistoricalStatement }

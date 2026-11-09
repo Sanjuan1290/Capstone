@@ -1,0 +1,3452 @@
+[
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 29,
+    "method": "POST",
+    "path": "/login"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 30,
+    "method": "POST",
+    "path": "/login/mfa"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 31,
+    "method": "GET",
+    "path": "/check-auth"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 32,
+    "method": "POST",
+    "path": "/logout"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 34,
+    "method": "POST",
+    "path": "/security/password/required"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 35,
+    "method": "POST",
+    "path": "/security/password/request-code"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 36,
+    "method": "POST",
+    "path": "/security/password/change"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 37,
+    "method": "POST",
+    "path": "/security/recovery-phone/request"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 38,
+    "method": "POST",
+    "path": "/security/recovery-phone/verify"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 39,
+    "method": "GET",
+    "path": "/notifications"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 40,
+    "method": "GET",
+    "path": "/notifications/:id/destination"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 41,
+    "method": "PATCH",
+    "path": "/notifications/read-all"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 42,
+    "method": "PATCH",
+    "path": "/notifications/:id/read"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 43,
+    "method": "GET",
+    "path": "/settings"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 44,
+    "method": "PUT",
+    "path": "/settings"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 45,
+    "method": "PUT",
+    "path": "/settings/profile-photo"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 46,
+    "method": "DELETE",
+    "path": "/settings/profile-photo"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 47,
+    "method": "POST",
+    "path": "/settings/verification/request"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 48,
+    "method": "POST",
+    "path": "/settings/verification/confirm"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 49,
+    "method": "GET",
+    "path": "/landing-page"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 50,
+    "method": "PUT",
+    "path": "/landing-page"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 51,
+    "method": "POST",
+    "path": "/landing-page/draft"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 52,
+    "method": "POST",
+    "path": "/landing-page/publish"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 53,
+    "method": "POST",
+    "path": "/landing-page/restore"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 56,
+    "method": "GET",
+    "path": "/promotions"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 57,
+    "method": "POST",
+    "path": "/promotions"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 58,
+    "method": "PUT",
+    "path": "/promotions/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 59,
+    "method": "DELETE",
+    "path": "/promotions/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 60,
+    "method": "POST",
+    "path": "/promotions/:id/notify"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 63,
+    "method": "GET",
+    "path": "/dashboard"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 66,
+    "method": "GET",
+    "path": "/appointments"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 67,
+    "method": "POST",
+    "path": "/appointments"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 68,
+    "method": "GET",
+    "path": "/appointment-reasons"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 69,
+    "method": "GET",
+    "path": "/appointment-cancellation-reasons"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 70,
+    "method": "POST",
+    "path": "/appointment-reasons"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 71,
+    "method": "PUT",
+    "path": "/appointment-reasons/:reasonId"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 72,
+    "method": "DELETE",
+    "path": "/appointment-reasons/:reasonId"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 73,
+    "method": "GET",
+    "path": "/appointments/:id/inventory-readiness"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 74,
+    "method": "PATCH",
+    "path": "/appointments/:id/confirm"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 75,
+    "method": "PATCH",
+    "path": "/appointments/:id/cancel"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 76,
+    "method": "PATCH",
+    "path": "/appointments/:id/no-show"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 77,
+    "method": "PATCH",
+    "path": "/appointments/:id/reschedule"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 80,
+    "method": "GET",
+    "path": "/queue"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 81,
+    "method": "GET",
+    "path": "/queue/precheck/:patientId"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 82,
+    "method": "POST",
+    "path": "/queue"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 83,
+    "method": "PATCH",
+    "path": "/queue/:id/status"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 86,
+    "method": "GET",
+    "path": "/patients"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 87,
+    "method": "POST",
+    "path": "/patients/walk-in"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 88,
+    "method": "GET",
+    "path": "/patients/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 91,
+    "method": "GET",
+    "path": "/staff"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 92,
+    "method": "POST",
+    "path": "/staff"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 93,
+    "method": "PATCH",
+    "path": "/staff/:id/toggle"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 94,
+    "method": "PUT",
+    "path": "/staff/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 97,
+    "method": "GET",
+    "path": "/doctors"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 98,
+    "method": "POST",
+    "path": "/doctors"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 99,
+    "method": "PATCH",
+    "path": "/doctors/:id/toggle"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 100,
+    "method": "PUT",
+    "path": "/doctors/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 101,
+    "method": "GET",
+    "path": "/doctors/:id/schedules"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 102,
+    "method": "PUT",
+    "path": "/doctors/:id/schedules"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 103,
+    "method": "GET",
+    "path": "/doctors/:id/unavailable-dates"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 104,
+    "method": "GET",
+    "path": "/doctors/:id/available-slots"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 105,
+    "method": "PUT",
+    "path": "/doctors/:id/unavailable-dates"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 106,
+    "method": "DELETE",
+    "path": "/doctors/:id/unavailable-dates/:date"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 109,
+    "method": "GET",
+    "path": "/billing"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 110,
+    "method": "GET",
+    "path": "/billing/reconciliation"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 111,
+    "method": "GET",
+    "path": "/billing/cashier-closing"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 112,
+    "method": "POST",
+    "path": "/billing/cashier-closing"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 113,
+    "method": "POST",
+    "path": "/billing/cashier-closings/:closingId/reopen"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 114,
+    "method": "GET",
+    "path": "/billing/:id/stock-usage"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 115,
+    "method": "POST",
+    "path": "/billing/:id/void"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 116,
+    "method": "POST",
+    "path": "/billing/:id/reopen"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 118,
+    "method": "POST",
+    "path": "/billing/:id/reopen-for-editing"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 119,
+    "method": "POST",
+    "path": "/billing/:id/consumables/:usageBatchId/return"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 120,
+    "method": "GET",
+    "path": "/billing/adjustment-requests"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 121,
+    "method": "PATCH",
+    "path": "/billing/adjustment-requests/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 122,
+    "method": "GET",
+    "path": "/billing/discount-presets"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 123,
+    "method": "POST",
+    "path": "/billing/discount-presets"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 124,
+    "method": "PUT",
+    "path": "/billing/discount-presets/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 125,
+    "method": "POST",
+    "path": "/billing/payments/:paymentId/void"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 126,
+    "method": "POST",
+    "path": "/billing/payments/:paymentId/refund"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 127,
+    "method": "POST",
+    "path": "/billing/payments/:paymentId/action/confirm"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 128,
+    "method": "GET",
+    "path": "/billing/catalog"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 129,
+    "method": "POST",
+    "path": "/billing/catalog"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 130,
+    "method": "PUT",
+    "path": "/billing/catalog/:serviceId"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 131,
+    "method": "DELETE",
+    "path": "/billing/catalog/:serviceId"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 132,
+    "method": "GET",
+    "path": "/billing/payment-settings"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 133,
+    "method": "POST",
+    "path": "/billing/payment-settings/upload"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 134,
+    "method": "POST",
+    "path": "/billing/payment-settings/upload-status"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 135,
+    "method": "POST",
+    "path": "/billing/discount-proof/upload"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 136,
+    "method": "POST",
+    "path": "/billing/discount-proof/upload-status"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 137,
+    "method": "PUT",
+    "path": "/billing/payment-settings"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 138,
+    "method": "GET",
+    "path": "/billing/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 139,
+    "method": "PUT",
+    "path": "/billing/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 140,
+    "method": "GET",
+    "path": "/billing/:id/finalize-preview"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 141,
+    "method": "POST",
+    "path": "/billing/:id/finalize"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 142,
+    "method": "POST",
+    "path": "/billing/:id/pay"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 143,
+    "method": "POST",
+    "path": "/billing/:id/confirm-payment"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 144,
+    "method": "GET",
+    "path": "/billing/:id/adjustment-requests"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 145,
+    "method": "GET",
+    "path": "/reports"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 146,
+    "method": "POST",
+    "path": "/reports/export-audit"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 147,
+    "method": "GET",
+    "path": "/audit-logs/export"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 148,
+    "method": "GET",
+    "path": "/audit-logs"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 149,
+    "method": "GET",
+    "path": "/audit-logs/archive"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 150,
+    "method": "POST",
+    "path": "/audit-logs/archive"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 151,
+    "method": "GET",
+    "path": "/audit-logs/archive/:archiveId"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 152,
+    "method": "DELETE",
+    "path": "/audit-logs/archive/:archiveId"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 153,
+    "method": "GET",
+    "path": "/system-setup"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 154,
+    "method": "GET",
+    "path": "/reminder-settings"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 155,
+    "method": "PUT",
+    "path": "/reminder-settings"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 156,
+    "method": "POST",
+    "path": "/appointments/:id/remind"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 157,
+    "method": "GET",
+    "path": "/system-setup/booking-policy"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 158,
+    "method": "PUT",
+    "path": "/system-setup/booking-policy"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 159,
+    "method": "POST",
+    "path": "/system-setup/cancellation-reasons"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 160,
+    "method": "PUT",
+    "path": "/system-setup/cancellation-reasons/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 161,
+    "method": "DELETE",
+    "path": "/system-setup/cancellation-reasons/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 162,
+    "method": "POST",
+    "path": "/system-setup/service-categories"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 163,
+    "method": "PUT",
+    "path": "/system-setup/service-categories/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 164,
+    "method": "DELETE",
+    "path": "/system-setup/service-categories/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 165,
+    "method": "POST",
+    "path": "/system-setup/uoms"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 166,
+    "method": "PUT",
+    "path": "/system-setup/uoms/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 167,
+    "method": "DELETE",
+    "path": "/system-setup/uoms/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 168,
+    "method": "POST",
+    "path": "/system-setup/suppliers"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 169,
+    "method": "PUT",
+    "path": "/system-setup/suppliers/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 170,
+    "method": "DELETE",
+    "path": "/system-setup/suppliers/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 171,
+    "method": "POST",
+    "path": "/system-setup/location-types"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 172,
+    "method": "PUT",
+    "path": "/system-setup/location-types/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 173,
+    "method": "DELETE",
+    "path": "/system-setup/location-types/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 174,
+    "method": "POST",
+    "path": "/system-setup/movement-reasons"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 175,
+    "method": "PUT",
+    "path": "/system-setup/movement-reasons/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 176,
+    "method": "DELETE",
+    "path": "/system-setup/movement-reasons/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 177,
+    "method": "GET",
+    "path": "/clinic-settings"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 178,
+    "method": "PUT",
+    "path": "/clinic-settings"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 181,
+    "method": "GET",
+    "path": "/inventory"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 182,
+    "method": "GET",
+    "path": "/inventory/master-data"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 183,
+    "method": "POST",
+    "path": "/inventory/locations"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 184,
+    "method": "GET",
+    "path": "/inventory/locations"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 185,
+    "method": "PUT",
+    "path": "/inventory/locations/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 186,
+    "method": "DELETE",
+    "path": "/inventory/locations/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 187,
+    "method": "POST",
+    "path": "/inventory/suppliers"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 188,
+    "method": "GET",
+    "path": "/inventory/logs"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 189,
+    "method": "POST",
+    "path": "/inventory"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 190,
+    "method": "PATCH",
+    "path": "/inventory/:id/stock"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 191,
+    "method": "POST",
+    "path": "/inventory/:id/move-location"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 192,
+    "method": "GET",
+    "path": "/inventory/batches/:batchId/history"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 193,
+    "method": "POST",
+    "path": "/inventory/batches/:batchId/action/request-code"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 194,
+    "method": "POST",
+    "path": "/inventory/batches/:batchId/action/confirm"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 196,
+    "method": "PUT",
+    "path": "/inventory/:id"
+  },
+  {
+    "file": "server/routers/admin.router.js",
+    "line": 197,
+    "method": "DELETE",
+    "path": "/inventory/:id"
+  },
+  {
+    "file": "server/routers/auth.router.js",
+    "line": 12,
+    "method": "POST",
+    "path": "/forgot-password"
+  },
+  {
+    "file": "server/routers/auth.router.js",
+    "line": 13,
+    "method": "POST",
+    "path": "/verify-otp"
+  },
+  {
+    "file": "server/routers/auth.router.js",
+    "line": 14,
+    "method": "POST",
+    "path": "/reset-password"
+  },
+  {
+    "file": "server/routers/auth.router.js",
+    "line": 15,
+    "method": "GET",
+    "path": "/promotions"
+  },
+  {
+    "file": "server/routers/auth.router.js",
+    "line": 16,
+    "method": "GET",
+    "path": "/landing-page"
+  },
+  {
+    "file": "server/routers/auth.router.js",
+    "line": 17,
+    "method": "GET",
+    "path": "/public-directory"
+  },
+  {
+    "file": "server/routers/auth.router.js",
+    "line": 21,
+    "method": "GET",
+    "path": "/clinic-settings"
+  },
+  {
+    "file": "server/routers/branchAllInventory.js",
+    "line": 13,
+    "method": "GET",
+    "path": "/inventory/all"
+  },
+  {
+    "file": "server/routers/branchAllInventory.js",
+    "line": 107,
+    "method": "GET",
+    "path": "/inventory/all/batches"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 239,
+    "method": "GET",
+    "path": "${prefix}/announcements"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 240,
+    "method": "GET",
+    "path": "${prefix}/announcements/booking-options"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 241,
+    "method": "POST",
+    "path": "${prefix}/announcements"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 242,
+    "method": "PUT",
+    "path": "${prefix}/announcements/:id"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 243,
+    "method": "DELETE",
+    "path": "${prefix}/announcements/:id"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 244,
+    "method": "PATCH",
+    "path": "${prefix}/announcements/:id/status"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 245,
+    "method": "POST",
+    "path": "${prefix}/announcements/image"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 246,
+    "method": "POST",
+    "path": "${prefix}/announcements/image/status"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 247,
+    "method": "GET",
+    "path": "${prefix}/announcements/audience"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 248,
+    "method": "GET",
+    "path": "${prefix}/announcements/campaigns"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 249,
+    "method": "GET",
+    "path": "${prefix}/announcements/campaigns/:id/recipients"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 250,
+    "method": "POST",
+    "path": "${prefix}/announcements/:id/campaigns"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 251,
+    "method": "POST",
+    "path": "${prefix}/announcements/campaigns/:id/control"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 269,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 278,
+    "method": "GET",
+    "path": "/:branchId/:slug"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 291,
+    "method": "POST",
+    "path": "/unsubscribe"
+  },
+  {
+    "file": "server/routers/branchAnnouncements.js",
+    "line": 293,
+    "method": "POST",
+    "path": "/unsubscribe-one-click"
+  },
+  {
+    "file": "server/routers/branchAppointmentWrites.js",
+    "line": 57,
+    "method": "POST",
+    "path": "${prefix}/appointments"
+  },
+  {
+    "file": "server/routers/branchAudit.js",
+    "line": 103,
+    "method": "GET",
+    "path": "${prefix}/audit-logs/export"
+  },
+  {
+    "file": "server/routers/branchAudit.js",
+    "line": 104,
+    "method": "GET",
+    "path": "${prefix}/audit-logs"
+  },
+  {
+    "file": "server/routers/branchAudit.js",
+    "line": 105,
+    "method": "GET",
+    "path": "${prefix}/audit-logs/archive"
+  },
+  {
+    "file": "server/routers/branchAudit.js",
+    "line": 106,
+    "method": "POST",
+    "path": "${prefix}/audit-logs/archive"
+  },
+  {
+    "file": "server/routers/branchAudit.js",
+    "line": 107,
+    "method": "GET",
+    "path": "${prefix}/audit-logs/archive/:id"
+  },
+  {
+    "file": "server/routers/branchBatchActions.js",
+    "line": 9,
+    "method": "POST",
+    "path": "${prefix}/inventory/batches/:batchId/action/request-code"
+  },
+  {
+    "file": "server/routers/branchBatchActions.js",
+    "line": 10,
+    "method": "POST",
+    "path": "${prefix}/inventory/batches/:batchId/action/confirm"
+  },
+  {
+    "file": "server/routers/branchBillCorrections.js",
+    "line": 9,
+    "method": "POST",
+    "path": "${prefix}/billing/:id/void"
+  },
+  {
+    "file": "server/routers/branchBillCorrections.js",
+    "line": 10,
+    "method": "POST",
+    "path": "${prefix}/billing/:id/reopen"
+  },
+  {
+    "file": "server/routers/branchBillCorrections.js",
+    "line": 11,
+    "method": "POST",
+    "path": "${prefix}/billing/:id/consumables/:usageBatchId/return"
+  },
+  {
+    "file": "server/routers/branchBillPreviewReads.js",
+    "line": 20,
+    "method": "GET",
+    "path": "${prefix}/billing/:id/finalize-preview"
+  },
+  {
+    "file": "server/routers/branchBillPreviewReads.js",
+    "line": 21,
+    "method": "GET",
+    "path": "${prefix}/billing/:id/adjustment-requests"
+  },
+  {
+    "file": "server/routers/branchCashierAndPayment.js",
+    "line": 10,
+    "method": "POST",
+    "path": "${prefix}/billing/:id/pay"
+  },
+  {
+    "file": "server/routers/branchCashierAndPayment.js",
+    "line": 11,
+    "method": "POST",
+    "path": "${prefix}/billing/cashier-closing"
+  },
+  {
+    "file": "server/routers/branchCashierAndPayment.js",
+    "line": 12,
+    "method": "POST",
+    "path": "${prefix}/billing/cashier-closings/:closingId/reopen"
+  },
+  {
+    "file": "server/routers/branchCatalogWrites.js",
+    "line": 119,
+    "method": "POST",
+    "path": "${prefix}/billing/catalog"
+  },
+  {
+    "file": "server/routers/branchCatalogWrites.js",
+    "line": 120,
+    "method": "PUT",
+    "path": "${prefix}/billing/catalog/:serviceId"
+  },
+  {
+    "file": "server/routers/branchCatalogWrites.js",
+    "line": 121,
+    "method": "DELETE",
+    "path": "${prefix}/billing/catalog/:serviceId"
+  },
+  {
+    "file": "server/routers/branchCatalogWrites.js",
+    "line": 122,
+    "method": "POST",
+    "path": "${prefix}/billing/discount-presets"
+  },
+  {
+    "file": "server/routers/branchCatalogWrites.js",
+    "line": 123,
+    "method": "PUT",
+    "path": "${prefix}/billing/discount-presets/:id"
+  },
+  {
+    "file": "server/routers/branchChargeAdjustments.js",
+    "line": 11,
+    "method": "GET",
+    "path": "${prefix}/billing/:id/charge-adjustments"
+  },
+  {
+    "file": "server/routers/branchChargeAdjustments.js",
+    "line": 12,
+    "method": "POST",
+    "path": "${prefix}/billing/:id/charge-adjustments"
+  },
+  {
+    "file": "server/routers/branchChargeAdjustments.js",
+    "line": 13,
+    "method": "PATCH",
+    "path": "${prefix}/billing/:id/charge-adjustments/:requestId"
+  },
+  {
+    "file": "server/routers/branchCheckoutDraftWrites.js",
+    "line": 10,
+    "method": "PUT",
+    "path": "${prefix}/billing/:id"
+  },
+  {
+    "file": "server/routers/branchCheckoutDraftWrites.js",
+    "line": 11,
+    "method": "POST",
+    "path": "${prefix}/billing/:id/finalize"
+  },
+  {
+    "file": "server/routers/branchCheckoutDraftWrites.js",
+    "line": 12,
+    "method": "POST",
+    "path": "${prefix}/billing/:id/reopen-for-editing"
+  },
+  {
+    "file": "server/routers/branchGlobalReferenceWrites.js",
+    "line": 9,
+    "method": "POST",
+    "path": "${prefix}/system-setup/uoms"
+  },
+  {
+    "file": "server/routers/branchGlobalReferenceWrites.js",
+    "line": 10,
+    "method": "PUT",
+    "path": "${prefix}/system-setup/uoms/:id"
+  },
+  {
+    "file": "server/routers/branchGlobalReferenceWrites.js",
+    "line": 11,
+    "method": "DELETE",
+    "path": "${prefix}/system-setup/uoms/:id"
+  },
+  {
+    "file": "server/routers/branchGlobalReferenceWrites.js",
+    "line": 12,
+    "method": "POST",
+    "path": "${prefix}/system-setup/movement-reasons"
+  },
+  {
+    "file": "server/routers/branchGlobalReferenceWrites.js",
+    "line": 13,
+    "method": "PUT",
+    "path": "${prefix}/system-setup/movement-reasons/:id"
+  },
+  {
+    "file": "server/routers/branchInventoryItems.js",
+    "line": 312,
+    "method": "POST",
+    "path": "${prefix}/inventory"
+  },
+  {
+    "file": "server/routers/branchInventoryItems.js",
+    "line": 313,
+    "method": "POST",
+    "path": "${prefix}/inventory/import-new"
+  },
+  {
+    "file": "server/routers/branchInventoryItems.js",
+    "line": 314,
+    "method": "POST",
+    "path": "${prefix}/inventory/bulk-update"
+  },
+  {
+    "file": "server/routers/branchInventoryItems.js",
+    "line": 315,
+    "method": "POST",
+    "path": "${prefix}/inventory/bulk-receive"
+  },
+  {
+    "file": "server/routers/branchInventoryItems.js",
+    "line": 316,
+    "method": "PUT",
+    "path": "${prefix}/inventory/:id"
+  },
+  {
+    "file": "server/routers/branchInventoryItems.js",
+    "line": 317,
+    "method": "DELETE",
+    "path": "${prefix}/inventory/:id"
+  },
+  {
+    "file": "server/routers/branchLocationStock.js",
+    "line": 57,
+    "method": "GET",
+    "path": "${prefix}/inventory/location-stock"
+  },
+  {
+    "file": "server/routers/branchLocationStock.js",
+    "line": 58,
+    "method": "POST",
+    "path": "${prefix}/inventory/:id/location-movement"
+  },
+  {
+    "file": "server/routers/branchOperationalReads.js",
+    "line": 224,
+    "method": "GET",
+    "path": "${prefix}${path}"
+  },
+  {
+    "file": "server/routers/branchOperationalReads.js",
+    "line": 232,
+    "method": "GET",
+    "path": "${prefix}/billing/payment-settings"
+  },
+  {
+    "file": "server/routers/branchOperationalReads.js",
+    "line": 233,
+    "method": "GET",
+    "path": "${prefix}/clinic-settings"
+  },
+  {
+    "file": "server/routers/branchOperationalReads.js",
+    "line": 234,
+    "method": "GET",
+    "path": "${prefix}/inventory/locations"
+  },
+  {
+    "file": "server/routers/branchPaymentActions.js",
+    "line": 10,
+    "method": "POST",
+    "path": "${prefix}/billing/payments/:paymentId/void"
+  },
+  {
+    "file": "server/routers/branchPaymentActions.js",
+    "line": 11,
+    "method": "POST",
+    "path": "${prefix}/billing/payments/:paymentId/refund"
+  },
+  {
+    "file": "server/routers/branchPaymentActions.js",
+    "line": 12,
+    "method": "POST",
+    "path": "${prefix}/billing/payments/:paymentId/action/confirm"
+  },
+  {
+    "file": "server/routers/branchPaymentSettingsWrites.js",
+    "line": 85,
+    "method": "PUT",
+    "path": "${prefix}/billing/payment-settings"
+  },
+  {
+    "file": "server/routers/branchPaymentSettingsWrites.js",
+    "line": 86,
+    "method": "POST",
+    "path": "${prefix}/billing/payment-settings/upload"
+  },
+  {
+    "file": "server/routers/branchPaymentSettingsWrites.js",
+    "line": 87,
+    "method": "POST",
+    "path": "${prefix}/billing/payment-settings/upload-status"
+  },
+  {
+    "file": "server/routers/branchPaymentSettingsWrites.js",
+    "line": 88,
+    "method": "POST",
+    "path": "${prefix}/billing/discount-proof/upload"
+  },
+  {
+    "file": "server/routers/branchPaymentSettingsWrites.js",
+    "line": 89,
+    "method": "POST",
+    "path": "${prefix}/billing/discount-proof/upload-status"
+  },
+  {
+    "file": "server/routers/branchPromotions.js",
+    "line": 95,
+    "method": "POST",
+    "path": "${prefix}/promotions/image"
+  },
+  {
+    "file": "server/routers/branchPromotions.js",
+    "line": 96,
+    "method": "POST",
+    "path": "${prefix}/promotions/image/status"
+  },
+  {
+    "file": "server/routers/branchPromotions.js",
+    "line": 97,
+    "method": "GET",
+    "path": "${prefix}/promotions"
+  },
+  {
+    "file": "server/routers/branchPromotions.js",
+    "line": 98,
+    "method": "POST",
+    "path": "${prefix}/promotions"
+  },
+  {
+    "file": "server/routers/branchPromotions.js",
+    "line": 99,
+    "method": "PUT",
+    "path": "${prefix}/promotions/:id"
+  },
+  {
+    "file": "server/routers/branchPromotions.js",
+    "line": 100,
+    "method": "DELETE",
+    "path": "${prefix}/promotions/:id"
+  },
+  {
+    "file": "server/routers/branchPromotions.js",
+    "line": 101,
+    "method": "POST",
+    "path": "${prefix}/promotions/:id/notify"
+  },
+  {
+    "file": "server/routers/branchQueueInventoryWrites.js",
+    "line": 150,
+    "method": "POST",
+    "path": "${prefix}/inventory/locations"
+  },
+  {
+    "file": "server/routers/branchQueueInventoryWrites.js",
+    "line": 151,
+    "method": "PUT",
+    "path": "${prefix}/inventory/locations/:id"
+  },
+  {
+    "file": "server/routers/branchQueueInventoryWrites.js",
+    "line": 152,
+    "method": "DELETE",
+    "path": "${prefix}/inventory/locations/:id"
+  },
+  {
+    "file": "server/routers/branchQueueInventoryWrites.js",
+    "line": 183,
+    "method": "POST",
+    "path": "${prefix}/inventory/:id/move-location"
+  },
+  {
+    "file": "server/routers/branchReports.js",
+    "line": 65,
+    "method": "GET",
+    "path": "${prefix}/reports"
+  },
+  {
+    "file": "server/routers/branchReports.js",
+    "line": 66,
+    "method": "POST",
+    "path": "${prefix}/reports/export-audit"
+  },
+  {
+    "file": "server/routers/branchSensitiveWrites.js",
+    "line": 99,
+    "method": "PATCH",
+    "path": "${prefix}/billing/adjustment-requests/:id"
+  },
+  {
+    "file": "server/routers/branchSensitiveWrites.js",
+    "line": 100,
+    "method": "DELETE",
+    "path": "${prefix}/audit-logs/archive/:archiveId"
+  },
+  {
+    "file": "server/routers/branchSystemWrites.js",
+    "line": 229,
+    "method": "POST",
+    "path": "${prefix}/system-setup/suppliers"
+  },
+  {
+    "file": "server/routers/branchSystemWrites.js",
+    "line": 230,
+    "method": "PUT",
+    "path": "${prefix}/system-setup/suppliers/:id"
+  },
+  {
+    "file": "server/routers/branchSystemWrites.js",
+    "line": 231,
+    "method": "POST",
+    "path": "${prefix}/system-setup/location-types"
+  },
+  {
+    "file": "server/routers/branchSystemWrites.js",
+    "line": 232,
+    "method": "PUT",
+    "path": "${prefix}/system-setup/location-types/:id"
+  },
+  {
+    "file": "server/routers/branchSystemWrites.js",
+    "line": 233,
+    "method": "PUT",
+    "path": "${prefix}/clinic-settings"
+  },
+  {
+    "file": "server/routers/branchSystemWrites.js",
+    "line": 234,
+    "method": "POST",
+    "path": "${prefix}/system-setup/movement-reasons"
+  },
+  {
+    "file": "server/routers/branchSystemWrites.js",
+    "line": 235,
+    "method": "PUT",
+    "path": "${prefix}/system-setup/movement-reasons/:id"
+  },
+  {
+    "file": "server/routers/branchSystemWrites.js",
+    "line": 236,
+    "method": "DELETE",
+    "path": "${prefix}/system-setup/movement-reasons/:id"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 65,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 69,
+    "method": "POST",
+    "path": "/"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 107,
+    "method": "PATCH",
+    "path": "/:branchId/status"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 148,
+    "method": "PATCH",
+    "path": "/:branchId/status"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 186,
+    "method": "PUT",
+    "path": "/:branchId"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 209,
+    "method": "DELETE",
+    "path": "/:branchId"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 218,
+    "method": "GET",
+    "path": "/accounts/admins"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 225,
+    "method": "POST",
+    "path": "/accounts/admins"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 271,
+    "method": "PUT",
+    "path": "/accounts/admins/:adminId"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 286,
+    "method": "GET",
+    "path": "/accounts/team"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 312,
+    "method": "PUT",
+    "path": "/accounts/team/:role/:accountId/branch"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 358,
+    "method": "GET",
+    "path": "/my/notifications/:id/destination"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 359,
+    "method": "GET",
+    "path": "/my/notifications"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 365,
+    "method": "PATCH",
+    "path": "/my/notifications/read-all"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 369,
+    "method": "PATCH",
+    "path": "/my/notifications/:notificationId/read"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 373,
+    "method": "GET",
+    "path": "/me"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 427,
+    "method": "GET",
+    "path": "${prefix}/dashboard"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 428,
+    "method": "GET",
+    "path": "${prefix}/${resource}"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 429,
+    "method": "GET",
+    "path": "${prefix}/reminder-settings"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 430,
+    "method": "PUT",
+    "path": "${prefix}/reminder-settings"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 431,
+    "method": "POST",
+    "path": "${prefix}/appointments/:id/remind"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 432,
+    "method": "GET",
+    "path": "${prefix}/booking-policy"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 433,
+    "method": "PUT",
+    "path": "${prefix}/booking-policy"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 439,
+    "method": "GET",
+    "path": "/workspace/:branchId/${resource}"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 441,
+    "method": "GET",
+    "path": "/workspace/:branchId/booking-policy"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 442,
+    "method": "PUT",
+    "path": "/workspace/:branchId/booking-policy"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 467,
+    "method": "GET",
+    "path": "${prefix}/categories"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 468,
+    "method": "POST",
+    "path": "${prefix}/categories"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 473,
+    "method": "POST",
+    "path": "${prefix}/services"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 474,
+    "method": "PUT",
+    "path": "${prefix}/services/:serviceId"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 481,
+    "method": "GET",
+    "path": "${prefix}/cancellation-reasons"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 485,
+    "method": "POST",
+    "path": "${prefix}/cancellation-reasons"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 492,
+    "method": "PUT",
+    "path": "${prefix}/cancellation-reasons/:id"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 500,
+    "method": "DELETE",
+    "path": "${prefix}/cancellation-reasons/:id"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 521,
+    "method": "PATCH",
+    "path": "/my/appointments/:appointmentId/${action}"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 522,
+    "method": "PATCH",
+    "path": "/workspace/:branchId/appointments/:appointmentId/${action}"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 539,
+    "method": "GET",
+    "path": "/analytics/all"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 568,
+    "method": "GET",
+    "path": "/analytics/trends"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 579,
+    "method": "GET",
+    "path": "/analytics/report-details"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 592,
+    "method": "GET",
+    "path": "/analytics/readiness"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 602,
+    "method": "GET",
+    "path": "/audit/all"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 723,
+    "method": "GET",
+    "path": "${prefix}/dashboard"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 724,
+    "method": "GET",
+    "path": "${prefix}/appointments"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 725,
+    "method": "GET",
+    "path": "${prefix}/patients"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 726,
+    "method": "GET",
+    "path": "${prefix}/patients/directory"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 727,
+    "method": "GET",
+    "path": "${prefix}/patients/:id"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 728,
+    "method": "GET",
+    "path": "${prefix}/walk-in/doctors"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 734,
+    "method": "GET",
+    "path": "${prefix}/doctors"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 735,
+    "method": "GET",
+    "path": "${prefix}/doctors/:id/schedules"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 736,
+    "method": "GET",
+    "path": "${prefix}/staff"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 754,
+    "method": "POST",
+    "path": "${prefix}/staff"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 755,
+    "method": "PUT",
+    "path": "${prefix}/staff/:id"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 756,
+    "method": "PATCH",
+    "path": "${prefix}/staff/:id/toggle"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 757,
+    "method": "POST",
+    "path": "${prefix}/doctors"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 758,
+    "method": "POST",
+    "path": "${prefix}/doctors/attach"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 759,
+    "method": "PUT",
+    "path": "${prefix}/doctors/:id"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 760,
+    "method": "PATCH",
+    "path": "${prefix}/doctors/:id/toggle"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 761,
+    "method": "GET",
+    "path": "${prefix}/doctors/:id/walk-ins/acceptance"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 762,
+    "method": "PUT",
+    "path": "${prefix}/doctors/:id/walk-ins/acceptance"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 763,
+    "method": "PUT",
+    "path": "${prefix}/doctors/:id/schedules"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 764,
+    "method": "GET",
+    "path": "${prefix}/doctors/:id/unavailable-dates"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 773,
+    "method": "GET",
+    "path": "${prefix}/doctors/:id/available-slots"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 782,
+    "method": "PUT",
+    "path": "${prefix}/doctors/:id/unavailable-dates"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 783,
+    "method": "DELETE",
+    "path": "${prefix}/doctors/:id/unavailable-dates/:date"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 784,
+    "method": "GET",
+    "path": "${prefix}/appointment-reasons"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 790,
+    "method": "GET",
+    "path": "${prefix}/appointment-cancellation-reasons"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 794,
+    "method": "GET",
+    "path": "${prefix}/billing/catalog"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 795,
+    "method": "GET",
+    "path": "${prefix}/inventory"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 796,
+    "method": "GET",
+    "path": "${prefix}/reminder-settings"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 797,
+    "method": "PUT",
+    "path": "${prefix}/reminder-settings"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 798,
+    "method": "POST",
+    "path": "${prefix}/appointments/:id/remind"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 799,
+    "method": "GET",
+    "path": "${prefix}/system-setup/booking-policy"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 800,
+    "method": "PUT",
+    "path": "${prefix}/system-setup/booking-policy"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 801,
+    "method": "GET",
+    "path": "${prefix}/system-setup/booking-policy/content"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 802,
+    "method": "PUT",
+    "path": "${prefix}/system-setup/booking-policy/content"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 805,
+    "method": "PATCH",
+    "path": "${prefix}/appointments/:appointmentId/${action}"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 838,
+    "method": "USE",
+    "path": "${prefix}/billing"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 843,
+    "method": "ALL",
+    "path": "/my/legacy/*"
+  },
+  {
+    "file": "server/routers/branches.router.js",
+    "line": 847,
+    "method": "ALL",
+    "path": "/workspace/:branchId/legacy/*"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 25,
+    "method": "POST",
+    "path": "/login"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 26,
+    "method": "GET",
+    "path": "/check-auth"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 27,
+    "method": "POST",
+    "path": "/logout"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 31,
+    "method": "GET",
+    "path": "/branches"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 32,
+    "method": "POST",
+    "path": "/branches/select"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 34,
+    "method": "POST",
+    "path": "/security/password/required"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 36,
+    "method": "POST",
+    "path": "/security/password/request-code"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 37,
+    "method": "POST",
+    "path": "/security/password/change"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 38,
+    "method": "POST",
+    "path": "/security/recovery-phone/request"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 39,
+    "method": "POST",
+    "path": "/security/recovery-phone/verify"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 41,
+    "method": "GET",
+    "path": "/notifications"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 42,
+    "method": "GET",
+    "path": "/notifications/:id/destination"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 43,
+    "method": "PATCH",
+    "path": "/notifications/read-all"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 44,
+    "method": "PATCH",
+    "path": "/notifications/:id/read"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 45,
+    "method": "GET",
+    "path": "/settings"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 46,
+    "method": "PUT",
+    "path": "/settings"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 47,
+    "method": "PUT",
+    "path": "/settings/profile-photo"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 48,
+    "method": "DELETE",
+    "path": "/settings/profile-photo"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 49,
+    "method": "GET",
+    "path": "/dashboard"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 50,
+    "method": "GET",
+    "path": "/appointments"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 51,
+    "method": "GET",
+    "path": "/appointments/daily"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 52,
+    "method": "PATCH",
+    "path": "/appointments/:id/start"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 55,
+    "method": "PUT",
+    "path": "/consultations/:appointmentId/draft"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 56,
+    "method": "POST",
+    "path": "/consultations/:appointmentId/finalize"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 58,
+    "method": "POST",
+    "path": "/consultations/:appointmentId"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 59,
+    "method": "GET",
+    "path": "/consultations/:appointmentId"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 60,
+    "method": "PATCH",
+    "path": "/consultations/:appointmentId"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 61,
+    "method": "POST",
+    "path": "/consultations/:appointmentId/amendments"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 62,
+    "method": "GET",
+    "path": "/billing/catalog"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 63,
+    "method": "GET",
+    "path": "/consultations/:appointmentId/charge-adjustments"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 64,
+    "method": "POST",
+    "path": "/consultations/:appointmentId/charge-adjustments"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 65,
+    "method": "DELETE",
+    "path": "/consultations/:appointmentId/charge-adjustments/:requestId"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 66,
+    "method": "POST",
+    "path": "/uploads/clinical"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 67,
+    "method": "POST",
+    "path": "/uploads/clinical/status"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 69,
+    "method": "GET",
+    "path": "/patients/:id/history"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 70,
+    "method": "GET",
+    "path": "/inventory"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 75,
+    "method": "GET",
+    "path": "/queue"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 76,
+    "method": "PATCH",
+    "path": "/queue/call-next"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 77,
+    "method": "PATCH",
+    "path": "/queue/:id/done"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 80,
+    "method": "GET",
+    "path": "/walk-ins/acceptance"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 81,
+    "method": "PUT",
+    "path": "/walk-ins/acceptance"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 82,
+    "method": "GET",
+    "path": "/schedule"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 83,
+    "method": "GET",
+    "path": "/schedule/all"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 84,
+    "method": "PUT",
+    "path": "/schedule"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 85,
+    "method": "GET",
+    "path": "/schedule/unavailable-dates"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 86,
+    "method": "PUT",
+    "path": "/schedule/unavailable-dates"
+  },
+  {
+    "file": "server/routers/doctor.router.js",
+    "line": 87,
+    "method": "DELETE",
+    "path": "/schedule/unavailable-dates/:date"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 22,
+    "method": "GET",
+    "path": "/branches"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 27,
+    "method": "GET",
+    "path": "/booking-policy"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 43,
+    "method": "POST",
+    "path": "/register"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 44,
+    "method": "POST",
+    "path": "/register/verify"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 45,
+    "method": "POST",
+    "path": "/register/resend"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 46,
+    "method": "POST",
+    "path": "/login"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 47,
+    "method": "GET",
+    "path": "/check-auth"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 48,
+    "method": "POST",
+    "path": "/logout"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 52,
+    "method": "POST",
+    "path": "/security/password/request-code"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 53,
+    "method": "POST",
+    "path": "/security/password/change"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 54,
+    "method": "POST",
+    "path": "/security/phone/request-code"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 55,
+    "method": "POST",
+    "path": "/security/phone/change"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 56,
+    "method": "POST",
+    "path": "/security/email/request-code"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 57,
+    "method": "POST",
+    "path": "/security/email/verify"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 58,
+    "method": "PATCH",
+    "path": "/onboarding/complete"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 59,
+    "method": "GET",
+    "path": "/notifications"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 60,
+    "method": "GET",
+    "path": "/notifications/:id/destination"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 61,
+    "method": "PATCH",
+    "path": "/notifications/read-all"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 62,
+    "method": "PATCH",
+    "path": "/notifications/:id/read"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 63,
+    "method": "GET",
+    "path": "/settings"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 64,
+    "method": "PUT",
+    "path": "/settings"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 65,
+    "method": "PUT",
+    "path": "/settings/profile-photo"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 66,
+    "method": "DELETE",
+    "path": "/settings/profile-photo"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 67,
+    "method": "GET",
+    "path": "/profile-status"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 68,
+    "method": "PUT",
+    "path": "/profile-status"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 69,
+    "method": "GET",
+    "path": "/appointments"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 70,
+    "method": "POST",
+    "path": "/appointments"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 71,
+    "method": "GET",
+    "path": "/appointments/history"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 72,
+    "method": "GET",
+    "path": "/billing/history"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 73,
+    "method": "GET",
+    "path": "/billing/history/:id"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 74,
+    "method": "GET",
+    "path": "/appointment-reasons"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 75,
+    "method": "GET",
+    "path": "/appointment-cancellation-reasons"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 76,
+    "method": "GET",
+    "path": "/booking-readiness"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 77,
+    "method": "GET",
+    "path": "/booking-services"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 78,
+    "method": "GET",
+    "path": "/promotions"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 79,
+    "method": "PATCH",
+    "path": "/appointments/:id/cancel"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 80,
+    "method": "PATCH",
+    "path": "/appointments/:id/reschedule"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 81,
+    "method": "GET",
+    "path": "/doctors"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 82,
+    "method": "GET",
+    "path": "/doctors/availability"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 83,
+    "method": "GET",
+    "path": "/doctors/:id/schedule"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 84,
+    "method": "GET",
+    "path": "/doctors/:id/unavailable-dates"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 85,
+    "method": "GET",
+    "path": "/doctors/:id/available-slots"
+  },
+  {
+    "file": "server/routers/patient.router.js",
+    "line": 86,
+    "method": "GET",
+    "path": "/doctors/:id/taken-slots"
+  },
+  {
+    "file": "server/routers/queue.router.js",
+    "line": 72,
+    "method": "GET",
+    "path": "/display/branches"
+  },
+  {
+    "file": "server/routers/queue.router.js",
+    "line": 78,
+    "method": "POST",
+    "path": "/display/unlock"
+  },
+  {
+    "file": "server/routers/queue.router.js",
+    "line": 94,
+    "method": "POST",
+    "path": "/display/lock"
+  },
+  {
+    "file": "server/routers/queue.router.js",
+    "line": 99,
+    "method": "GET",
+    "path": "/live"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 100,
+    "method": "POST",
+    "path": "/login"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 101,
+    "method": "GET",
+    "path": "/check-auth"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 102,
+    "method": "POST",
+    "path": "/logout"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 103,
+    "method": "POST",
+    "path": "/security/password/required"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 104,
+    "method": "POST",
+    "path": "/security/password/request-code"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 105,
+    "method": "POST",
+    "path": "/security/password/change"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 106,
+    "method": "POST",
+    "path": "/security/recovery-phone/request"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 107,
+    "method": "POST",
+    "path": "/security/recovery-phone/verify"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 108,
+    "method": "GET",
+    "path": "/notifications"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 109,
+    "method": "GET",
+    "path": "/notifications/:id/destination"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 110,
+    "method": "PATCH",
+    "path": "/notifications/read-all"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 111,
+    "method": "PATCH",
+    "path": "/notifications/:id/read"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 112,
+    "method": "GET",
+    "path": "/settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 113,
+    "method": "PUT",
+    "path": "/settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 114,
+    "method": "PUT",
+    "path": "/settings/profile-photo"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 115,
+    "method": "DELETE",
+    "path": "/settings/profile-photo"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 118,
+    "method": "GET",
+    "path": "/dashboard"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 121,
+    "method": "GET",
+    "path": "/appointments"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 122,
+    "method": "POST",
+    "path": "/appointments"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 123,
+    "method": "GET",
+    "path": "/appointments/booking-services"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 124,
+    "method": "GET",
+    "path": "/appointments/:id/inventory-readiness"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 125,
+    "method": "PATCH",
+    "path": "/appointments/:id/confirm"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 126,
+    "method": "PATCH",
+    "path": "/appointments/:id/cancel"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 127,
+    "method": "PATCH",
+    "path": "/appointments/:id/no-show"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 128,
+    "method": "PATCH",
+    "path": "/appointments/:id/reschedule"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 129,
+    "method": "GET",
+    "path": "/appointment-reasons"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 130,
+    "method": "GET",
+    "path": "/appointment-cancellation-reasons"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 131,
+    "method": "GET",
+    "path": "/queue"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 132,
+    "method": "GET",
+    "path": "/queue/precheck/:patientId"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 133,
+    "method": "POST",
+    "path": "/queue"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 134,
+    "method": "PATCH",
+    "path": "/queue/:id/status"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 137,
+    "method": "GET",
+    "path": "/patients"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 138,
+    "method": "GET",
+    "path": "/patients/walk-in-lookup"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 139,
+    "method": "POST",
+    "path": "/patients/walk-in"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 140,
+    "method": "GET",
+    "path": "/patients/directory"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 141,
+    "method": "GET",
+    "path": "/patients/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 144,
+    "method": "GET",
+    "path": "/billing"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 145,
+    "method": "GET",
+    "path": "/billing/catalog"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 146,
+    "method": "GET",
+    "path": "/billing/discount-presets"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 147,
+    "method": "GET",
+    "path": "/billing/cashier-closing"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 148,
+    "method": "POST",
+    "path": "/billing/cashier-closing"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 151,
+    "method": "GET",
+    "path": "/billing/:id/charge-adjustments"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 152,
+    "method": "POST",
+    "path": "/billing/:id/charge-adjustments"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 153,
+    "method": "GET",
+    "path": "/billing/:id/adjustment-requests"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 154,
+    "method": "POST",
+    "path": "/billing/:id/adjustment-requests"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 155,
+    "method": "PATCH",
+    "path": "/billing/:id/adjustment-requests/:requestId/cancel"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 156,
+    "method": "GET",
+    "path": "/billing/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 157,
+    "method": "PUT",
+    "path": "/billing/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 158,
+    "method": "GET",
+    "path": "/billing/:id/finalize-preview"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 159,
+    "method": "POST",
+    "path": "/billing/:id/finalize"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 160,
+    "method": "POST",
+    "path": "/billing/:id/reopen"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 161,
+    "method": "POST",
+    "path": "/billing/:id/pay"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 162,
+    "method": "USE",
+    "path": "/billing"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 163,
+    "method": "POST",
+    "path": "/billing/:id/confirm-payment"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 164,
+    "method": "POST",
+    "path": "/billing/discount-proof/upload"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 165,
+    "method": "POST",
+    "path": "/billing/discount-proof/upload-status"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 166,
+    "method": "GET",
+    "path": "/billing-payment-settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 169,
+    "method": "GET",
+    "path": "/inventory"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 170,
+    "method": "GET",
+    "path": "/inventory/master-data"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 171,
+    "method": "GET",
+    "path": "/inventory/locations"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 172,
+    "method": "POST",
+    "path": "/inventory/locations"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 173,
+    "method": "PUT",
+    "path": "/inventory/locations/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 174,
+    "method": "POST",
+    "path": "/inventory"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 175,
+    "method": "PATCH",
+    "path": "/inventory/:id/stock"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 176,
+    "method": "POST",
+    "path": "/inventory/:id/move-location"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 177,
+    "method": "PUT",
+    "path": "/inventory/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 178,
+    "method": "DELETE",
+    "path": "/inventory/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 181,
+    "method": "GET",
+    "path": "/doctors"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 182,
+    "method": "GET",
+    "path": "/walk-in/doctors"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 183,
+    "method": "GET",
+    "path": "/doctors/:id/walk-ins/acceptance"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 184,
+    "method": "PUT",
+    "path": "/doctors/:id/walk-ins/acceptance"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 185,
+    "method": "GET",
+    "path": "/doctors/:id/schedules"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 186,
+    "method": "GET",
+    "path": "/doctors/:id/availability"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 187,
+    "method": "GET",
+    "path": "/doctors/:id/unavailable-dates"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 188,
+    "method": "GET",
+    "path": "/doctors/:id/available-slots"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 192,
+    "method": "GET",
+    "path": "/admin-access/accounts"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 195,
+    "method": "GET",
+    "path": "/admin-access/reports"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 196,
+    "method": "POST",
+    "path": "/admin-access/reports/export-audit"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 199,
+    "method": "GET",
+    "path": "/admin-access/audit-logs"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 200,
+    "method": "GET",
+    "path": "/admin-access/audit-logs/archive"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 201,
+    "method": "GET",
+    "path": "/admin-access/audit-logs/archive/:archiveId"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 205,
+    "method": "GET",
+    "path": "/admin-access/promotions"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 206,
+    "method": "POST",
+    "path": "/admin-access/promotions"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 207,
+    "method": "PUT",
+    "path": "/admin-access/promotions/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 208,
+    "method": "DELETE",
+    "path": "/admin-access/promotions/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 209,
+    "method": "POST",
+    "path": "/admin-access/promotions/image"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 210,
+    "method": "POST",
+    "path": "/admin-access/promotions/image/status"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 213,
+    "method": "GET",
+    "path": "/admin-access/system-setup"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 214,
+    "method": "GET",
+    "path": "/admin-access/reminder-settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 215,
+    "method": "PUT",
+    "path": "/admin-access/reminder-settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 216,
+    "method": "POST",
+    "path": "/appointments/:id/remind"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 217,
+    "method": "GET",
+    "path": "/admin-access/system-setup/booking-policy"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 218,
+    "method": "PUT",
+    "path": "/admin-access/system-setup/booking-policy"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 219,
+    "method": "GET",
+    "path": "/admin-access/system-setup/booking-policy/content"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 220,
+    "method": "PUT",
+    "path": "/admin-access/system-setup/booking-policy/content"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 221,
+    "method": "POST",
+    "path": "/admin-access/system-setup/cancellation-reasons"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 222,
+    "method": "PUT",
+    "path": "/admin-access/system-setup/cancellation-reasons/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 223,
+    "method": "DELETE",
+    "path": "/admin-access/system-setup/cancellation-reasons/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 224,
+    "method": "POST",
+    "path": "/admin-access/system-setup/service-categories"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 225,
+    "method": "PUT",
+    "path": "/admin-access/system-setup/service-categories/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 226,
+    "method": "DELETE",
+    "path": "/admin-access/system-setup/service-categories/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 227,
+    "method": "POST",
+    "path": "/admin-access/system-setup/uoms"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 228,
+    "method": "PUT",
+    "path": "/admin-access/system-setup/uoms/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 229,
+    "method": "DELETE",
+    "path": "/admin-access/system-setup/uoms/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 230,
+    "method": "POST",
+    "path": "/admin-access/system-setup/suppliers"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 231,
+    "method": "PUT",
+    "path": "/admin-access/system-setup/suppliers/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 232,
+    "method": "POST",
+    "path": "/admin-access/system-setup/location-types"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 233,
+    "method": "PUT",
+    "path": "/admin-access/system-setup/location-types/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 234,
+    "method": "POST",
+    "path": "/admin-access/system-setup/movement-reasons"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 235,
+    "method": "PUT",
+    "path": "/admin-access/system-setup/movement-reasons/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 237,
+    "method": "GET",
+    "path": "/admin-access/appointment-reasons"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 238,
+    "method": "POST",
+    "path": "/admin-access/appointment-reasons"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 239,
+    "method": "PUT",
+    "path": "/admin-access/appointment-reasons/:reasonId"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 240,
+    "method": "DELETE",
+    "path": "/admin-access/appointment-reasons/:reasonId"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 242,
+    "method": "GET",
+    "path": "/admin-access/billing/catalog"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 243,
+    "method": "POST",
+    "path": "/admin-access/billing/catalog"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 244,
+    "method": "PUT",
+    "path": "/admin-access/billing/catalog/:serviceId"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 245,
+    "method": "DELETE",
+    "path": "/admin-access/billing/catalog/:serviceId"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 246,
+    "method": "GET",
+    "path": "/admin-access/billing/discount-presets"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 247,
+    "method": "POST",
+    "path": "/admin-access/billing/discount-presets"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 248,
+    "method": "PUT",
+    "path": "/admin-access/billing/discount-presets/:id"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 249,
+    "method": "GET",
+    "path": "/admin-access/billing/payment-settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 250,
+    "method": "POST",
+    "path": "/admin-access/billing/payment-settings/upload"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 251,
+    "method": "POST",
+    "path": "/admin-access/billing/payment-settings/upload-status"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 252,
+    "method": "PUT",
+    "path": "/admin-access/billing/payment-settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 253,
+    "method": "GET",
+    "path": "/admin-access/clinic-settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 254,
+    "method": "PUT",
+    "path": "/admin-access/clinic-settings"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 255,
+    "method": "GET",
+    "path": "/admin-access/inventory"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 256,
+    "method": "GET",
+    "path": "/admin-access/inventory/locations"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 257,
+    "method": "POST",
+    "path": "/admin-access/inventory/locations"
+  },
+  {
+    "file": "server/routers/staff.router.js",
+    "line": 258,
+    "method": "PUT",
+    "path": "/admin-access/inventory/locations/:id"
+  },
+  {
+    "file": "server/routers/superadminPatients.router.js",
+    "line": 21,
+    "method": "GET",
+    "path": "/"
+  },
+  {
+    "file": "server/routers/superadminPatients.router.js",
+    "line": 77,
+    "method": "GET",
+    "path": "/:patientId"
+  },
+  {
+    "file": "server/routers/superadminPatients.router.js",
+    "line": 137,
+    "method": "PATCH",
+    "path": "/:patientId/ban"
+  },
+  {
+    "file": "server/server.js",
+    "line": 38,
+    "method": "POST",
+    "path": "/api/webhooks/paymongo"
+  },
+  {
+    "file": "server/server.js",
+    "line": 39,
+    "method": "ALL",
+    "path": "/api/webhooks/paymongo"
+  },
+  {
+    "file": "server/server.js",
+    "line": 52,
+    "method": "GET",
+    "path": "/api/health"
+  },
+  {
+    "file": "server/server.js",
+    "line": 57,
+    "method": "GET",
+    "path": "/api/ready"
+  },
+  {
+    "file": "server/server.js",
+    "line": 96,
+    "method": "GET",
+    "path": "/api/events/${role}"
+  },
+  {
+    "file": "server/server.js",
+    "line": 99,
+    "method": "GET",
+    "path": "/api/events/superadmin"
+  },
+  {
+    "file": "server/server.js",
+    "line": 103,
+    "method": "GET",
+    "path": "/api/events"
+  },
+  {
+    "file": "server/server.js",
+    "line": 108,
+    "method": "USE",
+    "path": "/api/news"
+  },
+  {
+    "file": "server/server.js",
+    "line": 109,
+    "method": "USE",
+    "path": "/api/patient"
+  },
+  {
+    "file": "server/server.js",
+    "line": 110,
+    "method": "USE",
+    "path": "/api/admin"
+  },
+  {
+    "file": "server/server.js",
+    "line": 111,
+    "method": "USE",
+    "path": "/api/branches"
+  },
+  {
+    "file": "server/server.js",
+    "line": 112,
+    "method": "USE",
+    "path": "/api/staff"
+  },
+  {
+    "file": "server/server.js",
+    "line": 113,
+    "method": "USE",
+    "path": "/api/doctor"
+  },
+  {
+    "file": "server/server.js",
+    "line": 114,
+    "method": "USE",
+    "path": "/api/auth"
+  },
+  {
+    "file": "server/server.js",
+    "line": 115,
+    "method": "USE",
+    "path": "/api/superadmin/patients"
+  },
+  {
+    "file": "server/server.js",
+    "line": 116,
+    "method": "USE",
+    "path": "/api/queue"
+  },
+  {
+    "file": "server/server.js",
+    "line": 119,
+    "method": "USE",
+    "path": "/api"
+  },
+  {
+    "file": "server/tests/hosting/cloudflareLocalIntegration.node.cjs",
+    "line": 52,
+    "method": "ALL",
+    "path": "/api/integration"
+  },
+  {
+    "file": "server/tests/hosting/cloudflareLocalIntegration.node.cjs",
+    "line": 64,
+    "method": "GET",
+    "path": "/api/events"
+  }
+]

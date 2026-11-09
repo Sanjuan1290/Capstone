@@ -1,0 +1,9 @@
+{
+  "name": "dependencies",
+  "command": "node QA_REPORT/scripts/dependencies.cjs",
+  "cwd": ".",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 38033,
+  "status": "FAIL"
+}

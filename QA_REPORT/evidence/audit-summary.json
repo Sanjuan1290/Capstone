@@ -1,0 +1,79 @@
+{
+  "generatedAt": "2026-11-09T06:07:56.659Z",
+  "acceptance": "FAIL / NOT TESTED",
+  "files": 783,
+  "lines": 87941,
+  "node": {
+    "server": {
+      "tests": 684,
+      "pass": 657,
+      "fail": 27,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 370,
+      "pass": 349,
+      "fail": 21,
+      "cancelled": 0,
+      "skipped": 0
+    }
+  },
+  "vitest": {
+    "passed": 259,
+    "failed": 4,
+    "total": 263
+  },
+  "browser": {
+    "passed": 10,
+    "failed": 17,
+    "total": 27
+  },
+  "livePages": {
+    "PASS": 288
+  },
+  "api": {
+    "passed": 41,
+    "failed": 0,
+    "endpoints": 827,
+    "anonymous": 736,
+    "expired": 736
+  },
+  "workflow": {
+    "passed": 15,
+    "total": 15
+  },
+  "coverage": {
+    "lines": {
+      "total": 13221,
+      "covered": 3050,
+      "skipped": 0,
+      "pct": 23.06
+    },
+    "statements": {
+      "total": 16227,
+      "covered": 3293,
+      "skipped": 0,
+      "pct": 20.29
+    },
+    "functions": {
+      "total": 2078,
+      "covered": 340,
+      "skipped": 0,
+      "pct": 16.36
+    },
+    "branches": {
+      "total": 14838,
+      "covered": 1640,
+      "skipped": 0,
+      "pct": 11.05
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": 100
+    }
+  },
+  "productionMutations": 0
+}

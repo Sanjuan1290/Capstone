@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   MdAdd, MdArrowForward, MdCalendarToday, MdEventAvailable, MdHistory,
@@ -40,7 +40,10 @@ export default function PatientDashboard() {
   const { user } = useAuth()
   const { branchId, selectedBranch } = usePatientBranch()
   const requestedBranch = useRef(String(branchId))
-  requestedBranch.current = String(branchId)
+  useLayoutEffect(() => {
+    requestedBranch.current = String(branchId)
+    return () => { requestedBranch.current = null }
+  }, [branchId])
   const [summary, setSummary] = useState({ upcoming: null, upcomingCount: 0, completedCount: 0, recentVisits: [] })
   const [appointmentsLoading, setAppointmentsLoading] = useState(true)
   const [appointmentsError, setAppointmentsError] = useState('')

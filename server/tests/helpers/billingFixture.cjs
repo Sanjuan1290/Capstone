@@ -13,7 +13,8 @@ function billingFixture(){
   if(sql.startsWith('SELECT * FROM billing_charge_adjustments WHERE branch_id='))return [clone(state.requests.filter(r=>r.branch_id===args[0]&&r.billing_id===args[1]))]
   if(sql.startsWith('INSERT INTO billing_charge_adjustments')){
    const id=5+state.requests.length
-   state.requests.push({id,branch_id:args[0],billing_id:args[1],bill_version:args[2],target_type:args[3],catalog_service_id:args[4],inventory_id:args[5],requested_amount:args[6],original_charge_snapshot:args[7],reason:args[8],status:args[9],requester_role:args[10],requester_user_id:args[11],approved_by_admin_id:args[12],admin_note:args[14]})
+   const literalPending=sql.includes("'pending'")
+   state.requests.push({id,branch_id:args[0],billing_id:args[1],bill_version:args[2],target_type:args[3],catalog_service_id:args[4],inventory_id:args[5],requested_amount:args[6],original_charge_snapshot:args[7],reason:args[8],status:literalPending?'pending':args[9],requester_role:args[literalPending?9:10],requester_user_id:args[literalPending?10:11],approved_by_admin_id:args[12],admin_note:args[14]})
    return [{insertId:id,affectedRows:1}]
   }
   if(sql.startsWith('UPDATE billing_records SET discount_amount=')){
@@ -21,7 +22,7 @@ function billingFixture(){
    state.bill.discount_amount=args[0];state.bill.total_amount=args[1];state.bill.version++;return [{affectedRows:1}]
   }
   if(sql.startsWith('UPDATE billing_charge_adjustments SET bill_version=')){
-   state.requests.filter(r=>r.billing_id===args[1]&&r.bill_version===args[2]&&r.status==='pending').forEach(r=>r.bill_version=args[0]);return [{affectedRows:1}]
+   state.requests.filter(r=>r.billing_id===args[1]&&(sql.includes('id<>?')?r.id!==args[2]:r.bill_version===args[2])&&r.status==='pending').forEach(r=>r.bill_version=args[0]);return [{affectedRows:1}]
   }
   if(sql.startsWith('UPDATE billing_adjustment_requests SET bill_version=')){state.legacy.filter(r=>r.billing_id===args[1]&&r.bill_version===args[2]&&['pending','approved'].includes(r.status)).forEach(r=>r.bill_version=args[0]);return [{affectedRows:1}]}
   if(sql.startsWith('UPDATE billing_charge_adjustments SET status=')){

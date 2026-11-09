@@ -1,0 +1,9 @@
+{
+  "name": "walk-in-lock",
+  "command": "node --test tests/queue/walkInLockIsolation20261109.node.test.cjs",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 273,
+  "status": "PASS"
+}

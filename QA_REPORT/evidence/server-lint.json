@@ -1,0 +1,9 @@
+{
+  "name": "server-lint",
+  "command": "node client/node_modules/eslint/bin/eslint.js server scripts --no-config-lookup --config QA_REPORT/eslint-server.mjs --format=json --output-file=QA_REPORT/evidence/server-lint-results.json",
+  "cwd": ".",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 2625,
+  "status": "PASS"
+}

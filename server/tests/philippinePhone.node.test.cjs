@@ -28,7 +28,7 @@ test('rejects alphabetic, short, malformed and overlong phone values', () => {
 test('validates email and address and returns normalized contact fields', () => {
   assert.deepEqual(validateBranchContact({
     phone: '0917 123 4567', email: '  BRANCH@EXAMPLE.COM ', address: ' Main Road, Barangay One '
-  }), { phone: '+639171234567', email: 'branch@example.com', address: 'Main Road, Barangay One' })
+  }), { phone: '+639171234567', email: 'branch@example.com', address: 'Main Road, Barangay One', google_maps_url: null })
 })
 
 test('rejects invalid email and oversized address with field-specific errors', () => {

@@ -1,0 +1,9 @@
+{
+  "name": "client-browser",
+  "command": "node QA_REPORT/scripts/browser-suite.cjs",
+  "cwd": ".",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 175143,
+  "status": "FAIL"
+}

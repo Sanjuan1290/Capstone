@@ -1,0 +1,41 @@
+{
+  "results": [
+    {
+      "url": "/api/health",
+      "status": 200,
+      "expected": 200,
+      "result": "PASS"
+    },
+    {
+      "url": "/api/ready",
+      "status": 200,
+      "expected": 200,
+      "result": "PASS"
+    },
+    {
+      "url": "/api/news",
+      "status": 200,
+      "expected": 200,
+      "result": "PASS"
+    },
+    {
+      "url": "/api/webhooks/paymongo",
+      "status": 405,
+      "expected": 405,
+      "result": "PASS"
+    },
+    {
+      "url": "/api/_qa_missing_",
+      "status": 404,
+      "expected": 404,
+      "result": "PASS"
+    }
+  ],
+  "productionMode": true,
+  "isolatedDatabase": true,
+  "syntheticProviderConfiguration": true,
+  "providerDeliveryTested": false,
+  "externalNetworkBlocked": true,
+  "remoteDeployment": false,
+  "processStopped": true
+}

@@ -1,0 +1,9 @@
+{
+  "name": "deployment-schema",
+  "command": "npm run verify:deploy",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 497,
+  "status": "PASS"
+}

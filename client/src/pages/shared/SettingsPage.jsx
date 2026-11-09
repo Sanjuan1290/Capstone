@@ -93,6 +93,8 @@ const SettingsPage = () => {
     return rows
   }, [form, role])
 
+  useEffect(()=>()=>{if(pendingPhoto?.preview)URL.revokeObjectURL(pendingPhoto.preview)},[pendingPhoto])
+
   if (!form) return <div className="p-10"><div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500">{error || 'Loading settings...'}</div></div>
 
   const onChange = (key) => (e) => {
@@ -106,8 +108,6 @@ const SettingsPage = () => {
       else setBirthdateError('')
     }
   }
-
-  useEffect(()=>()=>{if(pendingPhoto?.preview)URL.revokeObjectURL(pendingPhoto.preview)},[pendingPhoto])
 
   const handleUpload = (e) => {
     const file=e.target.files?.[0];e.target.value=''

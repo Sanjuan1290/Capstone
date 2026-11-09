@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {NavLink} from 'react-router-dom'
 import {
   MdInventory2, MdRefresh, MdFileDownload, MdSearch, MdClose, MdChevronLeft,
@@ -52,6 +52,7 @@ export default function SuperAdminAllInventory() {
   const [batchesError, setBatchesError] = useState('')
   const requestCounter = useRef(0)
   const resultsRef = useRef(null)
+  const closeDetails = useCallback(() => { requestCounter.current += 1; setSelected(null) }, [])
 
   useEffect(() => {
     const timer = setTimeout(() => setFilters(old => old.search === searchInput ? old : {...old, search: searchInput, page: 1}), 300)
@@ -79,7 +80,7 @@ export default function SuperAdminAllInventory() {
     const closeOnEscape = event => { if (event.key === 'Escape') closeDetails() }
     document.addEventListener('keydown', closeOnEscape)
     return () => { document.body.style.overflow = prior; document.removeEventListener('keydown', closeOnEscape) }
-  }, [selected])
+  }, [selected, closeDetails])
 
   const update = (field, value) => setFilters(old => ({...old, [field]: value, page: 1}))
   const clearFilters = () => { setFilters(initialFilters); setSearchInput('') }
@@ -99,7 +100,6 @@ export default function SuperAdminAllInventory() {
       if (current === requestCounter.current) setBatchesLoading(false)
     }
   }
-  const closeDetails = () => { requestCounter.current += 1; setSelected(null) }
   const pageTo = page => {
     setFilters(old => ({...old, page}))
     resultsRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'})

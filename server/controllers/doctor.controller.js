@@ -353,9 +353,9 @@ const startConsultation = async (req, res) => {
     const [rows] = await conn.query(
       `SELECT id, patient_id, doctor_id, status, DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointment_date
        FROM appointments
-       WHERE id = ? AND doctor_id = ?
+       WHERE id = ? AND doctor_id = ? AND branch_id = ?
        FOR UPDATE`,
-      [req.params.id, req.user.id]
+      [req.params.id, req.user.id, req.branchId]
     )
     if (rows.length === 0) {
       await conn.rollback()
@@ -373,12 +373,12 @@ const startConsultation = async (req, res) => {
     const [queueRows] = await conn.query(
       `SELECT id, status, patient_id, doctor_id, queue_number, appointment_id
        FROM queue
-       WHERE appointment_id = ? AND doctor_id = ? AND queue_date = ?
+       WHERE appointment_id = ? AND doctor_id = ? AND queue_date = ? AND branch_id = ?
          AND status IN ('waiting','called','in-progress','in_consultation')
        ORDER BY id DESC
        LIMIT 1
        FOR UPDATE`,
-      [req.params.id, req.user.id, getTodayDateOnly()]
+      [req.params.id, req.user.id, getTodayDateOnly(), req.branchId]
     )
 
     if (queueRows[0]) {
@@ -878,6 +878,23 @@ const finalizeConsultation = async (req, res) => {
 }
 
 // ── NEW: Get a single consultation (for viewing/editing after completion) ─────
+const clinicalChargeAdjustments=async(req,res)=>{
+  const [[bill]]=await db.query(`SELECT b.id FROM billing_records b JOIN appointments a ON a.id=b.appointment_id
+    WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=?`,[req.params.appointmentId,req.user.id,req.branchId,req.branchId])
+  if(!bill)return res.status(404).json({message:'No bill found for this consultation.'})
+  res.json({...await require('../utils/chargeAdjustments').list(db,bill.id,req.branchId),actor:{role:'doctor',id:req.user.id}})
+}
+const cancelClinicalChargeAdjustment=async(req,res)=>{
+  const conn=await db.getConnection()
+  try{
+    await conn.beginTransaction()
+    const [[bill]]=await conn.query(`SELECT b.id FROM billing_records b JOIN appointments a ON a.id=b.appointment_id
+      WHERE a.id=? AND a.doctor_id=? AND a.branch_id=? AND b.branch_id=? FOR UPDATE`,[req.params.appointmentId,req.user.id,req.branchId,req.branchId])
+    if(!bill){await conn.rollback();return res.status(404).json({message:'No bill found for this consultation.'})}
+    const result=await require('../utils/chargeAdjustments').cancel({billingId:bill.id,branchId:req.branchId,requestId:Number(req.params.requestId),actorRole:'doctor',actorId:req.user.id},conn)
+    await conn.commit();return res.json(result)
+  }catch(error){await conn.rollback().catch(()=>{});if(error.statusCode)return res.status(error.statusCode).json({code:error.code,message:error.message});throw error}finally{conn.release()}
+}
 const requestClinicalChargeAdjustment=async(req,res)=>{
   const conn=await db.getConnection()
   try{
@@ -890,7 +907,7 @@ const requestClinicalChargeAdjustment=async(req,res)=>{
     const adjustmentId=await require('../utils/chargeAdjustments').request({
       billingId:bill.id,branchId:req.branchId,actorRole:'doctor',actorId:req.user.id,
       targetType:req.body?.target_type,serviceId:Number(req.body?.catalog_service_id),
-      inventoryId:Number(req.body?.inventory_id||0),amount:req.body?.amount,reason:req.body?.reason
+      inventoryId:Number(req.body?.inventory_id||0),amount:req.body?.amount,reason:req.body?.reason,allowDraft:true
     },conn)
     await conn.commit()
     return res.status(201).json({id:adjustmentId,message:'Discount request sent to Admin. Supplies used will not change.'})
@@ -1721,6 +1738,8 @@ const deleteMyUnavailableDate = async (req, res) => {
 
 module.exports = {
   requestClinicalChargeAdjustment,
+  clinicalChargeAdjustments,
+  cancelClinicalChargeAdjustment,
   login, checkAuth, logout, listMyBranches, selectMyBranch,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,

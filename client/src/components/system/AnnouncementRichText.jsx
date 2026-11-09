@@ -86,15 +86,27 @@ export default function AnnouncementRichText({value,onChange}) {
   }
   const block=t=>{const el=area.current;const start=el?.selectionStart??value.length;const prefix=start&&value[start-1]!=='\n'?'\n':'';onChange(value.slice(0,start)+prefix+t+value.slice(start));requestAnimationFrame(()=>el?.focus())}
   const actions=[
-    ['Heading','heading',()=>block('## Heading\n')],['Bold','bold',()=>modify('**','**')],['Italic','italic',()=>modify('*','*')],
-    ['Link','link',()=>modify('[','](https://example.com)','link text')],['Highlight','highlight',()=>modify('==','==')],
-    ['List','list',()=>block('- Item one\n- Item two\n')],['Table','table',()=>block('| Column 1 | Column 2 |\n| --- | --- |\n| Value 1 | Value 2 |\n')],
-    ['Blue text','color',()=>modify('{{color:blue|','}}')],['Red text','color-red',()=>modify('{{color:red|','}}')],
-    ['Serif font','font',()=>modify('{{font:serif|','}}')],
+    ['Heading','heading'],['Bold','bold'],['Italic','italic'],
+    ['Link','link'],['Highlight','highlight'],['List','list'],['Table','table'],
+    ['Blue text','color'],['Red text','color-red'],['Serif font','font'],
   ]
+  const format=id=>{
+    switch(id){
+      case 'heading':return block('## Heading\n')
+      case 'bold':return modify('**','**')
+      case 'italic':return modify('*','*')
+      case 'link':return modify('[','](https://example.com)','link text')
+      case 'highlight':return modify('==','==')
+      case 'list':return block('- Item one\n- Item two\n')
+      case 'table':return block('| Column 1 | Column 2 |\n| --- | --- |\n| Value 1 | Value 2 |\n')
+      case 'color':return modify('{{color:blue|','}}')
+      case 'color-red':return modify('{{color:red|','}}')
+      case 'font':return modify('{{font:serif|','}}')
+    }
+  }
   return <div className="space-y-3">
     <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 p-2" role="toolbar" aria-label="Announcement text formatting">
-      {actions.map(([label,id,fn])=><button key={id} type="button" onClick={fn} className="rounded-md border border-slate-200 px-2 py-1.5 text-xs font-semibold hover:bg-slate-50" title={label}>{label}</button>)}
+      {actions.map(([label,id])=><button key={id} type="button" onClick={()=>format(id)} className="rounded-md border border-slate-200 px-2 py-1.5 text-xs font-semibold hover:bg-slate-50" title={label}>{label}</button>)}
     </div>
     <textarea ref={area} className="form-control min-h-52 w-full font-mono text-sm" required maxLength={12000} value={value} onChange={e=>onChange(e.target.value)} placeholder="Write the details of your post" />
     <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="mb-2 text-xs font-bold uppercase text-slate-500">Live preview</p><AnnouncementBody body={value}/></div>

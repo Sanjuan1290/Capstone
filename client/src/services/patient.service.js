@@ -1,19 +1,21 @@
 const BASE = '/api/patient'
 
 const parseJson = async (res) => {
-  const data = await res.json()
+  let data
+  try { data = await res.json() } catch {
+    throw Object.assign(new Error('The clinic server returned an unreadable response. Please retry.'), { status: res.status })
+  }
   if (!res.ok) {
-    const err = new Error(data.message || 'Request failed')
-    Object.assign(err, data)
-    throw err
+    const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
+    const message = `${data.message || 'Request failed'}${reference}`
+    throw Object.assign(new Error(message), data, { message, status: res.status })
   }
   return data
 }
 
 export const getMyAppointments = async () => {
   const res = await fetch(`${BASE}/appointments`, { credentials: 'include' })
-  if (!res.ok) throw new Error('Failed to fetch appointments')
-  return res.json()
+  return parseJson(res)
 }
 
 export const getMyHistory = async () => {

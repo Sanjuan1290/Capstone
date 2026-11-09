@@ -1215,7 +1215,7 @@ const updateBill = async (req, res) => {
     // Resolve the preset independently, then combine exactly once.
     const {approvedTotal, money: toMoney, requestedPresetDiscount}=require('../utils/chargeAdjustments')
     const courtesyTotal=await approvedTotal(conn,billingId)
-    const requestedPresetAmount = requestedPresetDiscount(req.body,courtesyTotal)
+    const requestedPresetAmount = requestedPresetDiscount(req.body,courtesyTotal,currentBill.promotion_discount_amount)
     const discount = await resolveDiscountForDraft({
       billingId,
       billVersion: expectedVersion,
@@ -1224,7 +1224,7 @@ const updateBill = async (req, res) => {
       reference: req.body.discount_reference,
       referenceImageUrl: req.body.discount_reference_image_url,
       requestedAmount: requestedPresetAmount,
-    }, conn, { allowDirectAdmin: isAdminActor })
+    }, conn, { allowDirectAdmin: isAdminActor, savedBill: currentBill })
     let discountReferenceImageUrl = null
     if (discount.preset && Number(discount.preset.requires_reference) === 1) {
       discountReferenceImageUrl = normalizeOptionalText(req.body.discount_reference_image_url, { field: 'Discount Proof Image', max: 500 })
@@ -1468,8 +1468,13 @@ const finalizeBill = async (req, res) => {
     const locked = lockedRows[0]
     if (!['draft','pending'].includes(locked.status)) { await conn.rollback(); return res.status(400).json({ message: 'Only draft bills can be confirmed.' }) }
     if (Number(locked.version || 1) !== expectedVersion) { await conn.rollback(); return res.status(409).json({ message: 'This bill changed before it could be confirmed. Review the latest version.', code: 'BILL_VERSION_CONFLICT', current_version:Number(locked.version||1) }) }
+    if (locked.consultation_id) {
+      const [[clinical]] = await conn.query('SELECT status FROM consultations WHERE id=? AND branch_id=?', [locked.consultation_id, req.branchId])
+      if (!clinical || clinical.status !== 'finalized') { await conn.rollback(); return res.status(409).json({ message: 'Complete the consultation before confirming its bill.', code: 'CONSULTATION_NOT_COMPLETED' }) }
+    }
     const [[pendingApproval]] = await conn.query("SELECT COUNT(*) AS count FROM billing_adjustment_requests WHERE billing_id=? AND bill_version=? AND status='pending'", [billingId, expectedVersion])
-    if (!isAdminActor && Number(pendingApproval?.count || 0) > 0) { await conn.rollback(); return res.status(409).json({ message: 'This bill still has a pending administrator approval. Resolve or cancel it before confirming the bill.', code: 'PENDING_BILLING_APPROVAL' }) }
+    const [[pendingCharges]] = await conn.query("SELECT COUNT(*) AS count FROM billing_charge_adjustments WHERE billing_id=? AND branch_id=? AND status='pending'", [billingId, req.branchId])
+    if (Number(pendingApproval?.count || 0) > 0 || Number(pendingCharges?.count || 0) > 0) { await conn.rollback(); return res.status(409).json({ message: 'This bill still has a pending administrator approval. Resolve or cancel it before confirming the bill.', code: 'PENDING_BILLING_APPROVAL' }) }
 
     const bill = await getBillingRecordWithItems(billingId, conn)
     if (!Array.isArray(bill.items) || bill.items.length === 0) { await conn.rollback(); return res.status(400).json({ message: 'Add at least one bill item before confirming.' }) }
@@ -2117,7 +2122,6 @@ const resolveSupplyRequest = async (req, res) => {
     status: req.body.status,
     actorRole: 'staff',
     actorId: req.user.id,
-    branchId: req.branchId,
     ipAddress: req.ip || null,
     note: req.body.note,
   })

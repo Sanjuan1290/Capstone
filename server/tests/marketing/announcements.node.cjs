@@ -3,7 +3,8 @@ const root=path.resolve(__dirname,'../..'), read=p=>fs.readFileSync(path.join(ro
 const makeModule=(filename, stubs={},env={})=>{
   const source=read(filename)
   const context={module:{exports:{}},exports:{},process:{env},console,Date,Number,String,Boolean,Buffer,AbortSignal,setInterval,clearInterval}
-  context.require=name=>stubs[name]??require(name)
+  const localRequire=require('node:module').createRequire(path.join(root,filename))
+  context.require=name=>stubs[name]??localRequire(name)
   vm.runInNewContext(source,context,{filename})
   return context.module.exports
 }

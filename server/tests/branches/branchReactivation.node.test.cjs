@@ -52,7 +52,7 @@ function buildRouter({active=0,exists=true,pending=0}={}) {
   if(moduleName==='../controllers/admin.controller')return oldAdmin
   if(moduleName.startsWith('./'))return registerOnly
   if(moduleName==='bcrypt')return {}
-  return require(moduleName)
+  return require('node:module').createRequire(path.resolve(__dirname,'../../routers/branches.router.js'))(moduleName)
  }
  const mod={exports:routeExports}
  vm.runInNewContext('(function(require,module,exports){\n'+src+'\n})',{console,process,Buffer,setTimeout,clearTimeout},{filename:'branches.router.js'})(fakeRequire,mod,routeExports)

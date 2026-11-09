@@ -1,4 +1,6 @@
 import { estimateConsultationServicePrice } from '../../utils/consultationPricing.mjs'
+import { supplyPrecision, supplyQuantityError } from '../../utils/supplyQuantity.mjs'
+import DoctorChargeReductionPanel from '../../components/billing/DoctorChargeReductionPanel'
 import { restoreConsultationServicesFromBilling, supplyReasonStatus } from '../../utils/consultationSupplyReason.mjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -383,6 +385,12 @@ const Doctor_Consultation = () => {
     }
     // Extras are saved as their own billing lines; restore them to the
     // consultation's editable supply list when reopening an autosaved draft.
+    const promotion = consult?.billing?.selected_promotion
+    if (promotion) setAppt(current => current ? {
+      ...current,
+      promotion_selected_for_service_id: promotion.service_id,
+      promotion_discount_amount_snapshot: promotion.applied_discount_amount ?? promotion.discount_amount ?? 0,
+    } : current)
     setBillableServices(restoreConsultationServicesFromBilling(consult?.billing?.items))
   }
 
@@ -1187,6 +1195,8 @@ const Doctor_Consultation = () => {
           ))}
         </div>
 
+        {tab === 'consultation' && appointmentId && <DoctorChargeReductionPanel appointmentId={appointmentId} services={billableServices} ensureSaved={persistDraft} revision={lastSavedAt?.getTime()} completed={consultationStatus === 'finalized'} />}
+
         {tab === 'consultation' && (
           <div className="space-y-5">
             {consultationStatus === 'finalized' && (
@@ -1384,7 +1394,7 @@ const Doctor_Consultation = () => {
                                 {booked && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">Booked Service</span>}{!booked && !isEditMode && <button type="button" className="rounded-lg border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-700" onClick={()=>removePerformedService(service.catalog_service_id)}>Remove Service</button>}
                               </div>
                               <p className="mt-0.5 text-xs text-slate-500">{catalogService?.category || 'Clinic service'} · Service quantity {Number(service.quantity || 1)}</p>
-                                <p className="mt-1 text-xs font-semibold text-emerald-800">Estimated patient charge: {(() => { const price=estimateConsultationServicePrice(service,catalogService,inventoryItems);return price===null?'Pricing unavailable':`₱${price.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}` })()}</p>
+                                <p className="mt-1 text-xs font-semibold text-emerald-800">Estimated patient charge: {(() => { const promotion=Number(appt?.promotion_selected_for_service_id)===Number(service.catalog_service_id)?appt:null;const price=estimateConsultationServicePrice(service,catalogService,inventoryItems,promotion);return price===null?'Pricing unavailable':`₱${price.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}` })()}</p>
                             </div>
                           </div>
                         </div>
@@ -1399,6 +1409,8 @@ const Doctor_Consultation = () => {
                               {defaultMaterials.map((material) => {
                                 const materialIndex = (service.materials || []).indexOf(material)
                                 const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id))
+                                const precision = supplyPrecision(inv)
+                                const quantityError = supplyQuantityError(material.quantity, inv)
                                 return (
                                   <div key={`${material.inventory_id || material.material_name}-${materialIndex}`} className="rounded-xl border border-slate-200 bg-white p-3">
                                     <div className="flex items-start justify-between gap-2">
@@ -1414,9 +1426,10 @@ const Doctor_Consultation = () => {
                                     <div className="mt-3">
                                       <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Quantity Used</span>
                                       <div className="mt-1.5 flex items-center gap-2">
-                                        <input type="number" className="form-control h-9 w-24" min="0.01" step="0.01" disabled={isEditMode} value={material.quantity} onChange={event=>updateServiceMaterial(service.catalog_service_id,materialIndex,event.target.value)}/>
+                                        <input type="number" aria-label={`Quantity Used for ${material.material_name}`} aria-invalid={Boolean(quantityError)} className="form-control h-9 w-24" min={precision ? 10 ** -precision : 1} step={precision ? 10 ** -precision : 1} disabled={isEditMode} value={material.quantity} onChange={event=>updateServiceMaterial(service.catalog_service_id,materialIndex,event.target.value)}/>
                                         <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
                                       </div>
+                                      {quantityError && <p role="alert" className="mt-1 text-xs text-rose-700">{quantityError}</p>}
                                     </div>
                                   </div>
                                 )

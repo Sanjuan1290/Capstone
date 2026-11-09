@@ -149,7 +149,7 @@ export default function SuperAdminPatients() {
 
   const updateBanStatus = async () => {
     if (!detail?.patient || banSaving) return
-    const nextBanned = !Boolean(Number(detail.patient.is_banned))
+    const nextBanned = !Number(detail.patient.is_banned)
     setBanSaving(true)
     setDetailError('')
     setNotice('')

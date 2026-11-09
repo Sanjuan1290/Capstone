@@ -1,0 +1,9 @@
+{
+  "name": "branch-routes",
+  "command": "node scripts/verifyBranchRouteCoverage.js",
+  "cwd": "server",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 164,
+  "status": "FAIL"
+}

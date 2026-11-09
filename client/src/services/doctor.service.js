@@ -1,6 +1,10 @@
 // client/src/services/doctor.service.js
 const BASE = '/api/doctor'
 
+export const getClinicalChargeAdjustments = appointmentId => requestJson(`${BASE}/consultations/${appointmentId}/charge-adjustments`)
+export const requestClinicalChargeAdjustment = (appointmentId, payload) => requestJson(`${BASE}/consultations/${appointmentId}/charge-adjustments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const cancelClinicalChargeAdjustment = (appointmentId, requestId) => requestJson(`${BASE}/consultations/${appointmentId}/charge-adjustments/${requestId}`, { method: 'DELETE' })
+
 const requestJson = async (url, options = {}) => {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30000)

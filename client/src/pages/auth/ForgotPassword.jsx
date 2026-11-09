@@ -138,7 +138,6 @@ const ForgotPassword = ({ role }) => {
   const phone = effectiveMethod === 'sms' ? identifier.trim() : ''
   const stepNum = { request: 0, otp: 1, reset: 2, done: 3 }[step]
   const loginPath = `/${role}/login`
-  const recoveryLabel = effectiveMethod === 'sms' ? 'mobile number' : 'email address'
   const recoveryValue = effectiveMethod === 'sms' ? phone : email
 
   const inpClass = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 placeholder-slate-300 outline-none transition-all ${cfg.border} ${cfg.ring} focus:bg-white focus:ring-2`
