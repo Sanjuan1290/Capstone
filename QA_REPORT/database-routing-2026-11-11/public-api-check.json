@@ -1,0 +1,30 @@
+{
+  "results": [
+    {
+      "label": "configuredRender",
+      "origin": "https://capstone-rx93.onrender.com",
+      "httpStatus": 200,
+      "json": true,
+      "publicBranchCount": 1,
+      "publicBranchIds": [
+        1
+      ],
+      "cacheControl": null,
+      "cacheStatus": "DYNAMIC"
+    },
+    {
+      "label": "configuredWebsite",
+      "origin": "https://caraitclinic.com",
+      "httpStatus": 200,
+      "json": true,
+      "publicBranchCount": 1,
+      "publicBranchIds": [
+        1
+      ],
+      "cacheControl": "no-store",
+      "cacheStatus": "DYNAMIC"
+    }
+  ],
+  "requests": "Unauthenticated read-only public branch GETs",
+  "writes": 0
+}

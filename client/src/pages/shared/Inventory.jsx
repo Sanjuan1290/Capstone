@@ -10,6 +10,7 @@ import {
 import { useToast } from '../../components/ui/ToastProvider'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import InventoryExcelTools from '../../components/system/InventoryExcelTools'
+import { inventoryStockCount as getPackageCount, matchesInventoryStatus } from '../../utils/inventoryStatus.mjs'
 
 const CATEGORIES = [{ value: 'medical', label: 'General Medicine' }, { value: 'derma', label: 'Dermatology' }]
 const ITEM_TYPES = [{ value: 'medicine', label: 'Medicine' }, { value: 'supplies', label: 'Supplies' }]
@@ -50,6 +51,7 @@ const buildCode39 = (rawValue) => {
 
 const BarcodePreview = ({ value, title = 'Barcode', compact = false }) => {
   const encoded = buildCode39(value)
+  const height = compact ? 36 : 54
   if (!String(value || '').trim()) return null
   if (!encoded) {
     return <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700">Barcode preview is unavailable for characters outside Code 39, but the entered code can still be saved and scanned by supported product scanners.</div>
@@ -60,34 +62,24 @@ const BarcodePreview = ({ value, title = 'Barcode', compact = false }) => {
       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Scannable</span>
     </div>
     <div className="overflow-hidden rounded-lg bg-white px-2 py-1">
-      <svg viewBox={`0 0 ${encoded.width} 54`} className={`${compact ? 'h-10' : 'h-16'} w-full`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${title}: ${encoded.value}`} shapeRendering="crispEdges">
-        <rect width={encoded.width} height="54" fill="white" />
-        {encoded.bars.map((bar, index) => <rect key={`${bar.x}-${index}`} x={bar.x} y="3" width={bar.width} height="46" fill="black" />)}
+      <svg viewBox={`0 0 ${encoded.width} ${height}`} width={encoded.width * 2} height={height * 2} className="mx-auto h-auto max-w-full" preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${title}: ${encoded.value}`} shapeRendering="crispEdges">
+        <rect width={encoded.width} height={height} fill="white" />
+        {encoded.bars.map((bar, index) => <rect key={`${bar.x}-${index}`} x={bar.x} y="3" width={bar.width} height={height - 8} fill="black" />)}
       </svg>
     </div>
     <p className={`mt-1 text-center font-mono font-bold tracking-[0.16em] text-slate-800 ${compact ? 'text-[9px]' : 'text-xs'}`}>{encoded.value}</p>
   </div>
 }
 
-const getNextGeneratedItemCode = (category, items = []) => {
-  const prefix = category === 'derma' ? 'DRM' : 'GMED'
-  let max = 0
-  for (const item of items) {
-    const match = String(item?.barcode || '').match(new RegExp(`^${prefix}-(\\d+)$`, 'i'))
-    if (match) max = Math.max(max, Number(match[1]) || 0)
-  }
-  return `${prefix}-${String(max + 1).padStart(5, '0')}`
-}
-
 const getNextBatchCodePreview = (item) => {
-  const prefix = String(item?.barcode || `ITEM-${item?.id || 'NEW'}`).trim()
+  const prefix = `B${Number(item.id).toString(36).toUpperCase()}`
   let max = 0
   for (const batch of Array.isArray(item?.batches) ? item.batches : []) {
     const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const match = String(batch?.batch_code || '').match(new RegExp(`^${escaped}-B(\\d+)$`, 'i'))
+    const match = String(batch?.batch_code || '').match(new RegExp(`^${escaped}-(\\d+)$`, 'i'))
     if (match) max = Math.max(max, Number(match[1]) || 0)
   }
-  return `${prefix}-B${String(max + 1).padStart(3, '0')}`
+  return `${prefix}-${String(max + 1).padStart(3, '0')}`
 }
 
 const DEFAULT_STOCK_IN_REASONS = [
@@ -105,12 +97,6 @@ const DEFAULT_STOCK_OUT_REASONS = [
 ]
 
 
-
-const getPackageCount = (item) => {
-  const unitSize = Number(item.unit_size || 1)
-  const stockBase = item.available_stock != null ? Number(item.available_stock) * unitSize : Number(item.stock_base ?? Number(item.stock || 0) * unitSize)
-  return Math.floor(stockBase / unitSize)
-}
 
 const getStockBadge = (item) => {
   const count = getPackageCount(item)
@@ -434,8 +420,6 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
   const duplicateBarcode = normalizedBarcode
     ? existingItems.find((item) => Number(item.id) !== Number(initialItem?.id) && String(item.barcode || '').trim().toLowerCase() === normalizedBarcode.toLowerCase())
     : null
-  const generatedItemPreview = getNextGeneratedItemCode(form.category, existingItems)
-  const barcodePreview = normalizedBarcode || generatedItemPreview
   const sellingPrice = Number(form.selling_price)
   const thresholdValid = form.threshold !== '' && Number.isFinite(Number(form.threshold)) && Number(form.threshold) >= 0 && Number.isInteger(Number(form.threshold))
   const sellingPriceValid = Number.isFinite(sellingPrice) && sellingPrice > 0
@@ -488,14 +472,12 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     setSubmitting(true)
     try {
       const payload = {
-        ...form,
+        barcode: normalizedBarcode,
+        name: form.name,
+        category: form.category,
+        default_location_id: Number(form.default_location_id),
         // Existing Supply products retain their historical type when edited.
         item_type: isEditing ? form.item_type : 'medicine',
-        batch_code: '',
-        batch_lot_code: '',
-        supplier_lot_number: '',
-        supplier_lot_missing: true,
-        no_expiry: noExpiry,
         supplier_id: supplierId,
         supplier: supplierName,
         uom: 'unit',
@@ -506,7 +488,7 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
         measurement_value: form.measurement_value === '' ? null : Number(form.measurement_value),
         measurement_unit: String(form.measurement_unit || '').trim() || null,
         strength: String(form.strength || '').trim() || null,
-        ...(isEditing ? {} : { stock: openingQuantity }),
+        ...(isEditing ? {} : { stock: openingQuantity, expiration_date: form.expiration_date, no_expiry: noExpiry }),
         threshold: Math.max(0, parseFloat(form.threshold) || 0),
       }
       // Editing master data never sends stock; only the batch-based Stock In /
@@ -542,11 +524,11 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
           {isEditing && form.item_type === 'supplies' ? <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">Existing supply item — type preserved for compatibility.</div> : null}
           <div className="md:col-span-2">
             <Field label="Product Barcode"><div className="flex flex-col gap-2 sm:flex-row">
-              <input maxLength={50} value={form.barcode} onChange={update('barcode')} className={`${inputClass} flex-1`} placeholder={`Leave blank to auto-generate ${form.category==='derma'?'DRM':'GMED'} code`} />
+              <input aria-label="Product barcode" maxLength={50} value={form.barcode} onChange={update('barcode')} className={`${inputClass} flex-1`} placeholder="Leave blank to generate a short barcode" />
               <button type="button" onClick={() => setBarcodeScannerOpen(true)} className="button-secondary shrink-0"><MdQrCodeScanner /> Scan Barcode</button>
             </div></Field>
             {duplicateBarcode ? <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">This barcode is already registered to <strong>{duplicateBarcode.name}</strong>. Use the existing inventory item instead.</div> : <p className="mt-2 text-xs text-slate-400">The product barcode identifies the product. Batch barcodes are generated automatically for each receipt.</p>}
-            <div className="mt-3"><BarcodePreview value={barcodePreview} title={normalizedBarcode ? 'Product Barcode Preview' : 'Auto-generated Barcode Preview'} /></div>
+            <div className="mt-3">{normalizedBarcode ? <BarcodePreview value={normalizedBarcode} title="Product Barcode Preview" /> : <p className="text-xs text-slate-500">A short barcode is assigned when you save the item.</p>}</div>
           </div>
           <Field label="Stock Room *"><select value={form.default_location_id} onChange={update('default_location_id')} className={inputClass} disabled={!activeStockRooms.length}><option value="">{activeStockRooms.length ? 'Select stock room' : 'No active stock rooms configured'}</option>{activeStockRooms.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></Field>
           <Field label="Supplier *"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={`${inputClass} ${!supplierChoice ? 'border-amber-300 bg-amber-50' : ''}`} disabled={!categorySuppliers.length}><option value="">{categorySuppliers.length ? 'Select supplier' : 'No suppliers configured for this category'}</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>{!supplierChoice && categorySuppliers.length > 0 && <p className="mt-1 text-xs font-semibold text-amber-700">Select a supplier.</p>}</Field>
@@ -822,6 +804,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
   const [locationTypeFilter, setLocationTypeFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('All')
   const [showAdd, setShowAdd] = useState(false)
   const [newItemBarcode, setNewItemBarcode] = useState('')
   const [masterData, setMasterData] = useState({ suppliers: [], location_types: [], movement_reasons: [] })
@@ -872,7 +855,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 
   useEffect(() => {
     setPage(1)
-  }, [search, category, locationTypeFilter])
+  }, [search, category, locationTypeFilter, statusFilter])
 
   const filtered = useMemo(() => items.filter(item => {
     const matchesCategory = category === 'All' || item.category === category
@@ -883,8 +866,8 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       item.barcode?.toLowerCase().includes(needle) ||
       item.supplier?.toLowerCase().includes(needle) ||
       item.location_type_name?.toLowerCase().includes(needle)
-    return matchesCategory && matchesLocationType && matchesSearch
-  }), [items, category, locationTypeFilter, search])
+    return matchesCategory && matchesLocationType && matchesSearch && matchesInventoryStatus(item, statusFilter)
+  }), [items, category, locationTypeFilter, search, statusFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE))
   const currentPage = Math.min(page, totalPages)
@@ -969,20 +952,9 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 
   const summary = {
     total: items.length,
-    low: items.filter(item => {
-      const count = getPackageCount(item)
-      return count > 0 && count <= Number(item.threshold || 0)
-    }).length,
-    out: items.filter(item => getPackageCount(item) === 0).length,
-    expiring: items.filter(item => {
-      if (!item.expiration_date) return false
-      const expiry = parseDateOnly(item.expiration_date)
-      if (!expiry) return false
-      const today = new Date()
-      expiry.setHours(0, 0, 0, 0)
-      today.setHours(0, 0, 0, 0)
-      return expiry >= today && expiry <= new Date(today.getTime() + 30 * 86400000)
-    }).length,
+    low: items.filter(item => matchesInventoryStatus(item, 'low')).length,
+    out: items.filter(item => matchesInventoryStatus(item, 'out')).length,
+    expiring: items.filter(item => matchesInventoryStatus(item, 'expiring')).length,
   }
 
   return (
@@ -1016,24 +988,24 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: 'Tracked Items', value: summary.total, tone: 'text-slate-800' },
-          { label: 'Low Stock', value: summary.low, tone: 'text-amber-600' },
-          { label: 'Out of Stock', value: summary.out, tone: 'text-red-600' },
-          { label: 'Expiring in 30 Days', value: summary.expiring, tone: 'text-violet-600' },
+          { label: 'Tracked Items', filter: 'All', value: summary.total, tone: 'text-slate-800' },
+          { label: 'Low Stock', filter: 'low', value: summary.low, tone: 'text-amber-600' },
+          { label: 'Out of Stock', filter: 'out', value: summary.out, tone: 'text-red-600' },
+          { label: 'Expiring in 30 Days', filter: 'expiring', value: summary.expiring, tone: 'text-violet-600' },
         ].map((card) => (
-          <div key={card.label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <button type="button" key={card.label} aria-label={`${card.label}: ${card.value}`} aria-pressed={statusFilter === card.filter} onClick={() => setStatusFilter(card.filter)} className={`rounded-3xl border bg-white p-5 text-left shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500 ${statusFilter === card.filter ? 'border-sky-400 ring-1 ring-sky-400' : 'border-slate-200 hover:border-sky-300'}`}>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{card.label}</p>
             <p className={`mt-3 text-3xl font-black ${card.tone}`}>{card.value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_auto_240px]">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_auto_200px_220px]">
         <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3">
           <MdSearch className="text-slate-400 text-[18px]" />
           <input aria-label="Search inventory" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Search item, barcode, or supplier" />
         </div>
-        <div className="flex gap-2 overflow-x-auto">
+        <div role="group" aria-label="Filter by clinic category" className="flex gap-2 overflow-x-auto">
           {['All', ...CATEGORIES.map(x => x.value)].map(option => (
             <button key={option} onClick={() => setCategory(option)} className={`rounded-2xl px-4 py-3 text-sm font-semibold ${category === option ? 'bg-[#0b1a2c] text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>
               {option === 'All' ? 'All' : (CATEGORIES.find(x => x.value === option)?.label || option)}
@@ -1043,6 +1015,12 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         <select aria-label="Filter by stock room" value={locationTypeFilter} onChange={(e)=>setLocationTypeFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 outline-none focus:border-sky-400">
           <option value="All">All Stock Rooms</option>
           {stockLocations.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
+        </select>
+        <select aria-label="Filter by stock status" value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 outline-none focus:border-sky-400">
+          <option value="All">All Stock Statuses</option>
+          <option value="low">Low Stock</option>
+          <option value="out">Out of Stock</option>
+          <option value="expiring">Expiring in 30 Days</option>
         </select>
       </div>
 

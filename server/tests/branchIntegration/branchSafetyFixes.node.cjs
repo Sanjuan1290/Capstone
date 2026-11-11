@@ -87,7 +87,7 @@ test('barcode sequencing is separated by both branch and category', async () => 
   const a=await nextInventoryBarcode('medical',1,exec)
   const b=await nextInventoryBarcode('medical',2,exec)
   const c=await nextInventoryBarcode('derma',1,exec)
-  assert.deepEqual([a,b,c],['GMED-LAG-00001','GMED-MNL-00001','DRM-LAG-00001'])
+  assert.deepEqual([a,b,c],['M1-00001','M2-00001','D1-00001'])
   assert.ok(calls.filter(x=>x.sql.includes('UPDATE inventory_barcode_sequences')).every(x=>x.sql.includes('branch_id=?')))
 })
 

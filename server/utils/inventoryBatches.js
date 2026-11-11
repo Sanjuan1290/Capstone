@@ -207,19 +207,20 @@ const generateNextBatchCode = async (inventoryId, executor = db) => {
   )
   if (!item) throw Object.assign(new Error('Inventory item not found.'), { statusCode: 404 })
 
-  const prefix = String(item.barcode || `ITEM-${item.id}`).trim()
+  // Batch identity stays short and independent of editable product barcodes.
+  const prefix = `B${Number(item.id).toString(36).toUpperCase()}`
   const [rows] = await executor.query(
     'SELECT batch_code FROM inventory_batches WHERE inventory_id = ? AND batch_code IS NOT NULL',
     [inventoryId]
   )
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(`^${escapedPrefix}-B(\\d+)$`, 'i')
+  const pattern = new RegExp(`^${escapedPrefix}-(\\d+)$`, 'i')
   let maxSequence = 0
   for (const row of rows) {
     const match = String(row.batch_code || '').match(pattern)
     if (match) maxSequence = Math.max(maxSequence, Number(match[1]) || 0)
   }
-  return `${prefix}-B${String(maxSequence + 1).padStart(3, '0')}`
+  return `${prefix}-${String(maxSequence + 1).padStart(3, '0')}`
 }
 
 const receiveInventoryBatch = async (

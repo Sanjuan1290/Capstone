@@ -1,0 +1,35 @@
+{
+  "status": "PASS",
+  "checkedAt": "2026-11-11T14:03:12.291Z",
+  "configurationSource": "Local server/.env; hosted Render environment is not accessible through this check",
+  "provider": "tidb",
+  "database": "carait_clinic_system",
+  "version": "8.0.11-TiDB-v8.5.3-serverless",
+  "hostFingerprint": "cce2d5f7dfcd",
+  "recognizedBaseTables": 81,
+  "missingBaseTables": [],
+  "unknownTables": [],
+  "matchingSuperadmins": 1,
+  "committedRowCounts": {
+    "branches": 1,
+    "patients": 6,
+    "doctors": 2,
+    "staff": 1,
+    "inventory_items": 20,
+    "appointments": 20,
+    "bills": 16,
+    "payments": 11
+  },
+  "pastedScript": {
+    "backupSwitch": "NO",
+    "confirmationSwitch": "NOT_CONFIRMED",
+    "executableCommitPresent": false
+  },
+  "restrictiveDeleteOrderProblems": [],
+  "userReportedExecution": {
+    "resetApproved": 1,
+    "commitSucceeded": true
+  },
+  "readOnlyStatements": 5,
+  "writes": 0
+}
