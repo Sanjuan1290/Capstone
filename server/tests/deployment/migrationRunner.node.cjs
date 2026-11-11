@@ -127,7 +127,11 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
+<<<<<<< HEAD
   assert.deepEqual(migrationFiles.slice(-5), ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql'])
+=======
+  assert.deepEqual(migrationFiles.slice(-4), ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql'])
+>>>>>>> b192e962dc7fcb600de8cbcb2bac79aa6477d805
   const failureSql = fs.readFileSync(path.join(migrationDir, '2026-11-05-billing-failure-history.sql'), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   assert.equal(crypto.createHash('sha256').update(failureSql).digest('hex'), 'ca694239471fcc47f20c1ad93b96216e0eb1d0fe825cb3c61fe4e65568abe675')
   for (const file of migrationFiles) assert.ok(fs.existsSync(path.join(migrationDir, file)), `Registered migration missing: ${file}`)

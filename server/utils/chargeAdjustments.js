@@ -133,6 +133,7 @@ async function cancel({billingId,branchId,requestId,actorRole,actorId},conn=db){
   await writeAuditLog({userId:actorId,userRole:actorRole,branchId,action:'billing.charge_adjustment_cancelled',entityType:'billing_charge_adjustment',entityId:requestId,oldValues:{status:'pending'},newValues:{status:'rejected',billing_id:billingId,reason:'Cancelled by requester'}},conn)
   return {status:'rejected',message:'Charge reduction request cancelled.'}
 }
+<<<<<<< HEAD
 async function reverse({billingId,branchId,requestId,adminId,actorRole,reason},conn=db){
   if(!canAdjustDirectly(actorRole))throw fail(403,'ADJUSTMENT_FORBIDDEN','Only an authorized administrator may reverse a reduction.')
   if(![billingId,branchId,requestId,adminId].every(isId))throw fail(400,'INVALID_TARGET','Select a valid charge reduction.')
@@ -158,5 +159,8 @@ async function reverse({billingId,branchId,requestId,adminId,actorRole,reason},c
   return {status:'reversed',discount_amount:discount,total_amount:total,version:Number(bill.version)+1,message:'Charge reduction reversed.'}
 }
 module.exports={getTargets,approvedTotal,list,request,resolve,reverse,money,requestedPresetDiscount,canAdjustDirectly,cancel}
+=======
+module.exports={getTargets,approvedTotal,list,request,resolve,money,requestedPresetDiscount,canAdjustDirectly,cancel}
+>>>>>>> b192e962dc7fcb600de8cbcb2bac79aa6477d805
 
 

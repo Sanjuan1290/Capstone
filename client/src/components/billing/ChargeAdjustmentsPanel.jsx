@@ -26,7 +26,10 @@ export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=fa
  const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false)
  const [target,setTarget]=useState(''),[amount,setAmount]=useState(''),[reason,setReason]=useState(''),[success,setSuccess]=useState('')
  const submitting=useRef(false)
+<<<<<<< HEAD
  const [reversing,setReversing]=useState(null),[reversalReason,setReversalReason]=useState('')
+=======
+>>>>>>> b192e962dc7fcb600de8cbcb2bac79aa6477d805
  const load=useCallback(async()=>{
    setLoading(true)
    try{
@@ -38,7 +41,11 @@ export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=fa
  useEffect(()=>{void load()},[load])
  const targets=data?.targets||[],requests=data?.requests||[]
  const selected=targets.find(t=>`${t.target_type}:${t.catalog_service_id}:${t.inventory_id||0}`===target)
+<<<<<<< HEAD
  const editable=['draft','pending'].includes(data?.bill?.status)&&!data?.bill?.paid_at&&Number(data?.bill?.payment_count||0)===0
+=======
+ const editable=['draft','pending'].includes(data?.bill?.status)
+>>>>>>> b192e962dc7fcb600de8cbcb2bac79aa6477d805
  const direct=!staffOnly&&data?.can_adjust_directly===true
  const submit=async()=>{
   if(!selected||submitting.current)return
