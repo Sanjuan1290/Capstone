@@ -1,0 +1,436 @@
+{
+  "results": [
+    {
+      "name": "admin password login with local-only MFA override",
+      "status": "PASS"
+    },
+    {
+      "name": "superadmin password login with local-only MFA override",
+      "status": "PASS"
+    },
+    {
+      "name": "staff password login with local-only MFA override",
+      "status": "PASS"
+    },
+    {
+      "name": "patient actual password login returns HttpOnly session cookie",
+      "status": "PASS"
+    },
+    {
+      "name": "doctor actual password login returns HttpOnly session cookie",
+      "status": "PASS"
+    },
+    {
+      "name": "Patient books a same-day synthetic appointment through actual slot validation",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff confirms the booked appointment",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff checks in the actual appointment; duplicate check-in cannot create a second queue row",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff calls the patient and Doctor starts consultation",
+      "status": "PASS"
+    },
+    {
+      "name": "Doctor saves a versioned draft without inventory deduction",
+      "status": "PASS"
+    },
+    {
+      "name": "Insufficient stock rolls back finalization and clinical state",
+      "status": "PASS"
+    },
+    {
+      "name": "Doctor finalizes once, deducting exactly one unit and retaining prescription",
+      "status": "PASS"
+    },
+    {
+      "name": "Doctor request and Admin approval preserve the 100 peso booking promotion",
+      "status": "PASS"
+    },
+    {
+      "name": "Reversal rejects invalid reasons, unauthorized roles and another branch",
+      "status": "PASS"
+    },
+    {
+      "name": "Simultaneous Admin and Super Admin reversals restore once and create one audit event",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff request approval then real Admin browser reversal immediately refreshes checkout totals",
+      "status": "PASS"
+    },
+    {
+      "name": "Super Admin directly applies and successfully reverses a separate reduction in the selected branch",
+      "status": "PASS"
+    },
+    {
+      "name": "Both real medical-history screens display the saved prescription without JSON",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff partial and final payments remain idempotent and block reversal after partial collection",
+      "status": "PASS"
+    },
+    {
+      "name": "Patient history contains the same paid bill; another patient cannot read it",
+      "status": "PASS"
+    },
+    {
+      "name": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "status": "PASS"
+    },
+    {
+      "name": "Patient logout invalidates the current session",
+      "status": "PASS"
+    }
+  ],
+  "executions": [
+    {
+      "case": "admin password login with local-only MFA override",
+      "method": "POST",
+      "path": "/api/admin/login",
+      "status": 200
+    },
+    {
+      "case": "superadmin password login with local-only MFA override",
+      "method": "POST",
+      "path": "/api/admin/login",
+      "status": 200
+    },
+    {
+      "case": "staff password login with local-only MFA override",
+      "method": "POST",
+      "path": "/api/staff/login",
+      "status": 200
+    },
+    {
+      "case": "patient actual password login returns HttpOnly session cookie",
+      "method": "POST",
+      "path": "/api/patient/login",
+      "status": 200
+    },
+    {
+      "case": "doctor actual password login returns HttpOnly session cookie",
+      "method": "POST",
+      "path": "/api/doctor/login",
+      "status": 200
+    },
+    {
+      "case": "Patient books a same-day synthetic appointment through actual slot validation",
+      "method": "POST",
+      "path": "/api/patient/appointments",
+      "status": 201,
+      "role": "patient"
+    },
+    {
+      "case": "Staff confirms the booked appointment",
+      "method": "PATCH",
+      "path": "/api/staff/appointments/3/confirm",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff checks in the actual appointment; duplicate check-in cannot create a second queue row",
+      "method": "POST",
+      "path": "/api/staff/queue",
+      "status": 201,
+      "role": "staff"
+    },
+    {
+      "case": "Staff checks in the actual appointment; duplicate check-in cannot create a second queue row",
+      "method": "POST",
+      "path": "/api/staff/queue",
+      "status": 409,
+      "role": "staff"
+    },
+    {
+      "case": "Staff calls the patient and Doctor starts consultation",
+      "method": "PATCH",
+      "path": "/api/staff/queue/1/status",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff calls the patient and Doctor starts consultation",
+      "method": "PATCH",
+      "path": "/api/doctor/appointments/3/start",
+      "status": 200,
+      "role": "doctor"
+    },
+    {
+      "case": "Doctor saves a versioned draft without inventory deduction",
+      "method": "PUT",
+      "path": "/api/doctor/consultations/3/draft",
+      "status": 200,
+      "role": "doctor"
+    },
+    {
+      "case": "Insufficient stock rolls back finalization and clinical state",
+      "method": "POST",
+      "path": "/api/doctor/consultations/3/finalize",
+      "status": 409,
+      "role": "doctor"
+    },
+    {
+      "case": "Doctor finalizes once, deducting exactly one unit and retaining prescription",
+      "method": "POST",
+      "path": "/api/doctor/consultations/3/finalize",
+      "status": 200,
+      "role": "doctor"
+    },
+    {
+      "case": "Doctor finalizes once, deducting exactly one unit and retaining prescription",
+      "method": "POST",
+      "path": "/api/doctor/consultations/3/finalize",
+      "status": 409,
+      "role": "doctor"
+    },
+    {
+      "case": "Doctor request and Admin approval preserve the 100 peso booking promotion",
+      "method": "POST",
+      "path": "/api/doctor/consultations/3/charge-adjustments",
+      "status": 201,
+      "role": "doctor"
+    },
+    {
+      "case": "Doctor request and Admin approval preserve the 100 peso booking promotion",
+      "method": "PATCH",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments/6",
+      "status": 200,
+      "role": "admin"
+    },
+    {
+      "case": "Reversal rejects invalid reasons, unauthorized roles and another branch",
+      "method": "POST",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments/6/reverse",
+      "status": 400,
+      "role": "admin"
+    },
+    {
+      "case": "Reversal rejects invalid reasons, unauthorized roles and another branch",
+      "method": "POST",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments/6/reverse",
+      "status": 401,
+      "role": "staff"
+    },
+    {
+      "case": "Reversal rejects invalid reasons, unauthorized roles and another branch",
+      "method": "POST",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments/6/reverse",
+      "status": 401,
+      "role": "doctor"
+    },
+    {
+      "case": "Reversal rejects invalid reasons, unauthorized roles and another branch",
+      "method": "POST",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments/6/reverse",
+      "status": 401,
+      "role": "patient"
+    },
+    {
+      "case": "Reversal rejects invalid reasons, unauthorized roles and another branch",
+      "method": "POST",
+      "path": "/api/branches/workspace/2/legacy/billing/2/charge-adjustments/6/reverse",
+      "status": 404,
+      "role": "superadmin"
+    },
+    {
+      "case": "Simultaneous Admin and Super Admin reversals restore once and create one audit event",
+      "method": "POST",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments/6/reverse",
+      "status": 200,
+      "role": "admin"
+    },
+    {
+      "case": "Simultaneous Admin and Super Admin reversals restore once and create one audit event",
+      "method": "POST",
+      "path": "/api/branches/workspace/1/legacy/billing/2/charge-adjustments/6/reverse",
+      "status": 409,
+      "role": "superadmin"
+    },
+    {
+      "case": "Staff request approval then real Admin browser reversal immediately refreshes checkout totals",
+      "method": "POST",
+      "path": "/api/staff/billing/2/charge-adjustments",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff request approval then real Admin browser reversal immediately refreshes checkout totals",
+      "method": "PATCH",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments/7",
+      "status": 200,
+      "role": "admin"
+    },
+    {
+      "case": "Super Admin directly applies and successfully reverses a separate reduction in the selected branch",
+      "method": "POST",
+      "path": "/api/branches/workspace/1/legacy/billing/2/charge-adjustments",
+      "status": 200,
+      "role": "superadmin"
+    },
+    {
+      "case": "Super Admin directly applies and successfully reverses a separate reduction in the selected branch",
+      "method": "POST",
+      "path": "/api/branches/workspace/1/legacy/billing/2/charge-adjustments/8/reverse",
+      "status": 200,
+      "role": "superadmin"
+    },
+    {
+      "case": "Staff partial and final payments remain idempotent and block reversal after partial collection",
+      "method": "POST",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments",
+      "status": 200,
+      "role": "admin"
+    },
+    {
+      "case": "Staff partial and final payments remain idempotent and block reversal after partial collection",
+      "method": "POST",
+      "path": "/api/staff/billing/2/finalize",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff partial and final payments remain idempotent and block reversal after partial collection",
+      "method": "POST",
+      "path": "/api/staff/billing/2/pay",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff partial and final payments remain idempotent and block reversal after partial collection",
+      "method": "POST",
+      "path": "/api/branches/my/legacy/billing/2/charge-adjustments/9/reverse",
+      "status": 409,
+      "role": "admin"
+    },
+    {
+      "case": "Staff partial and final payments remain idempotent and block reversal after partial collection",
+      "method": "POST",
+      "path": "/api/staff/billing/2/pay",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff partial and final payments remain idempotent and block reversal after partial collection",
+      "method": "POST",
+      "path": "/api/staff/billing/2/pay",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff partial and final payments remain idempotent and block reversal after partial collection",
+      "method": "POST",
+      "path": "/api/staff/billing/2/pay",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Patient history contains the same paid bill; another patient cannot read it",
+      "method": "GET",
+      "path": "/api/patient/billing/history/2",
+      "status": 200,
+      "role": "patient"
+    },
+    {
+      "case": "Patient history contains the same paid bill; another patient cannot read it",
+      "method": "GET",
+      "path": "/api/patient/billing/history/2",
+      "status": 404,
+      "role": "patient"
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/admin/landing-page",
+      "status": 200,
+      "role": "superadmin"
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/auth/landing-page",
+      "status": 200
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/auth/landing-page",
+      "status": 200
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/auth/landing-page",
+      "status": 200
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/auth/landing-page",
+      "status": 200
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/auth/landing-page",
+      "status": 200
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/admin/landing-page",
+      "status": 200,
+      "role": "superadmin"
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/auth/landing-page",
+      "status": 200
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/auth/landing-page",
+      "status": 200
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "GET",
+      "path": "/api/auth/landing-page",
+      "status": 200
+    },
+    {
+      "case": "Real Super Admin editor previews, saves, publishes and restores without changing the public draft prematurely",
+      "method": "POST",
+      "path": "/api/admin/landing-page/draft",
+      "status": 409,
+      "role": "superadmin"
+    },
+    {
+      "case": "Patient logout invalidates the current session",
+      "method": "POST",
+      "path": "/api/patient/logout",
+      "status": 200,
+      "role": "patient"
+    },
+    {
+      "case": "Patient logout invalidates the current session",
+      "method": "GET",
+      "path": "/api/patient/appointments",
+      "status": 401,
+      "role": "patient"
+    }
+  ],
+  "isolatedDatabase": true,
+  "providerDeliveryTested": false,
+  "adminMfaDeliveryTested": false,
+  "sameDayPolicyOverride": "Local process and synthetic branch 1 only",
+  "productionMutations": 0
+}

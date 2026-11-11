@@ -1,0 +1,7 @@
+{
+  "name": "server-postinstall",
+  "command": "npm run postinstall",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 16121
+}

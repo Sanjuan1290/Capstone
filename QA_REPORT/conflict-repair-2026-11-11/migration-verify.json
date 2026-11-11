@@ -1,0 +1,7 @@
+{
+  "name": "migration-verify",
+  "command": "node QA_REPORT/conflict-repair-2026-11-11/verify-local-migration.cjs",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 1041
+}

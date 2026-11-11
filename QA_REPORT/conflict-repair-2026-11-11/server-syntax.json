@@ -1,0 +1,7 @@
+{
+  "name": "server-syntax",
+  "command": "npm run check:syntax",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 16903
+}

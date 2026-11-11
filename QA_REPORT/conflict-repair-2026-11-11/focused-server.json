@@ -1,0 +1,7 @@
+{
+  "name": "focused-server",
+  "command": "node --test tests/billing/chargeReversal20261111.node.test.cjs",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 223
+}

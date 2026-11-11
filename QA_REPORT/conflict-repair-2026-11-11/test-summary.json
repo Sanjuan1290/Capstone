@@ -1,0 +1,102 @@
+{
+  "date": "2026-11-11",
+  "timezone": "Asia/Manila",
+  "reviewedCommit": "a2733865bf9a30d2f40b89cc808201cf67119f5b",
+  "conflictsResolved": 6,
+  "applicationFilesChanged": 4,
+  "node": {
+    "server": {
+      "tests": 702,
+      "pass": 675,
+      "fail": 27,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 373,
+      "pass": 352,
+      "fail": 21,
+      "skipped": 0
+    },
+    "migration": {
+      "tests": 18,
+      "pass": 18,
+      "fail": 0,
+      "skipped": 0
+    },
+    "reversal": {
+      "tests": 15,
+      "pass": 15,
+      "fail": 0,
+      "skipped": 0
+    },
+    "formatting": {
+      "tests": 12,
+      "pass": 12,
+      "fail": 0,
+      "skipped": 0
+    }
+  },
+  "priorNode": {
+    "server": {
+      "tests": 699,
+      "pass": 672,
+      "fail": 27,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 373,
+      "pass": 352,
+      "fail": 21,
+      "skipped": 0
+    }
+  },
+  "vitest": {
+    "pass": 259,
+    "fail": 4,
+    "total": 263
+  },
+  "browser": {
+    "pass": 23,
+    "fail": 16,
+    "total": 39
+  },
+  "native": {
+    "pass": 22,
+    "fail": 0
+  },
+  "receiptPdf": {
+    "pass": 32,
+    "fail": 0
+  },
+  "api": {
+    "pass": 41,
+    "fail": 0,
+    "anonymousPassed": 738,
+    "expiredPassed": 738,
+    "sql": {
+      "pass": 678,
+      "fail": 5
+    }
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 23
+  },
+  "introducedFailures": {
+    "server": [],
+    "client": [],
+    "vitest": [],
+    "browser": []
+  },
+  "productionWrites": 0,
+  "productionFinancialRowsRead": 0,
+  "reversalColumnsAddedAgain": 0,
+  "migrationHistoryRowsDeleted": 0,
+  "liveMigrationLedgerRecorded": false,
+  "backendBuildScriptDefined": false,
+  "deployment": "Staging rehearsal ready; production conditional; not deployed",
+  "cleanup": {
+    "status": "PASS",
+    "portClosed": true
+  }
+}

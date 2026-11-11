@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "syntheticOnly": true,
+  "columnsAlreadyPresent": 3,
+  "reversalColumnAlterStatements": 0,
+  "firstLedgerRows": 16,
+  "repeatLedgerRows": 16,
+  "historyRowsDeleted": 0,
+  "historyPreserved": true,
+  "columnDefinitionsUnchanged": true,
+  "initialAndRepeatedRunsPassed": true,
+  "queriesInRepeat": 58,
+  "productionWrites": 0
+}

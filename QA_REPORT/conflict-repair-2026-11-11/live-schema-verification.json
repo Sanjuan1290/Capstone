@@ -1,0 +1,30 @@
+{
+  "status": "PASS",
+  "checkedAt": "2026-11-11T02:21:21.190Z",
+  "columns": [
+    {
+      "COLUMN_NAME": "reversal_reason",
+      "COLUMN_TYPE": "varchar(255)",
+      "IS_NULLABLE": "YES",
+      "COLUMN_DEFAULT": null
+    },
+    {
+      "COLUMN_NAME": "reversed_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "YES",
+      "COLUMN_DEFAULT": null
+    },
+    {
+      "COLUMN_NAME": "reversed_by_admin_id",
+      "COLUMN_TYPE": "int",
+      "IS_NULLABLE": "YES",
+      "COLUMN_DEFAULT": null
+    }
+  ],
+  "history": [],
+  "readOnlyQueries": 2,
+  "writes": 0,
+  "financialRowsRead": 0,
+  "applicationImported": false,
+  "migrationsExecuted": false
+}

@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "syntheticOnly": true,
+  "database": "carait_merge_qa_20261111",
+  "mysqlVersion": "8.0.41",
+  "port": 33411,
+  "portClosed": true,
+  "migrationLedgerVerified": true,
+  "generatedReferenceCopiesRemoved": [],
+  "originalUserFilesModified": false,
+  "productionMutations": 0,
+  "syntheticDatadirRetained": true
+}

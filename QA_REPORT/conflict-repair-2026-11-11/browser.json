@@ -1,0 +1,7 @@
+{
+  "name": "browser",
+  "command": "node QA_REPORT/conflict-repair-2026-11-11/browser-suite.cjs",
+  "exitCode": 1,
+  "status": "FAIL",
+  "durationMs": 219904
+}

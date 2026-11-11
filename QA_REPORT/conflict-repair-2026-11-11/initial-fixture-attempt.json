@@ -1,0 +1,11 @@
+{
+  "status": "CORRECTED_QA_FIXTURE",
+  "reason": "The schema-only clone correctly copied no source accounts; the first migration rehearsal lacked the required synthetic admins.id=1 Super Admin seed.",
+  "initialMigrationResult": "Missing foundation invariant: admins.id=1 must remain the unscoped superadmin account.",
+  "initialApiCasesExecuted": 0,
+  "initialClinicalCasesPassed": 1,
+  "correction": "Seed the required synthetic Super Admin and clinic settings before local schema verification. No product code or production records were changed for this fixture correction.",
+  "additionalHarnessCorrection": "The copied API harness needed its SQL inventory input. Regenerated it from the corrected runtime source before repeating the SQL-plan sweep; the initial 41 API cases had passed before the missing-input error.",
+  "migrationHistoryDeleted": false,
+  "productionWrites": 0
+}

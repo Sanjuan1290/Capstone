@@ -1,0 +1,7 @@
+{
+  "name": "migration-unit",
+  "command": "node --test tests/deployment/migrationRunner.node.cjs",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 366
+}

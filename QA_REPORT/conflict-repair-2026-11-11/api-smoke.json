@@ -1,0 +1,7 @@
+{
+  "name": "api-smoke",
+  "command": "node QA_REPORT/conflict-repair-2026-11-11/api-smoke.cjs",
+  "exitCode": 1,
+  "status": "FAIL",
+  "durationMs": 2904
+}

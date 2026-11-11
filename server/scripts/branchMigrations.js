@@ -59,10 +59,7 @@ const migrationFiles = [
   '2026-11-05-billing-failure-history.sql',
   '2026-11-09-superadmin-patient-directory-ban.sql',
   '2026-11-09-branch-google-maps-url.sql',
-<<<<<<< HEAD
   '2026-11-11-charge-reduction-reversal.sql',
-=======
->>>>>>> b192e962dc7fcb600de8cbcb2bac79aa6477d805
 ]
 
 const schemaMigrationsSql = [
@@ -138,7 +135,6 @@ async function runRegisteredBranchMigrations(db) {
       } else {
         for (const statement of statements) {
           const executable = normalizeHistoricalStatement(statement)
-<<<<<<< HEAD
           if(file==='2026-11-11-charge-reduction-reversal.sql'){
             const match=/^ALTER TABLE billing_charge_adjustments ADD COLUMN (reversed_at|reversed_by_admin_id|reversal_reason) (DATETIME|INT|VARCHAR\(255\)) NULL$/i.exec(statement)
             if(!match)throw new Error('Unexpected charge reduction reversal migration statement')
@@ -148,8 +144,6 @@ async function runRegisteredBranchMigrations(db) {
               continue
             }
           }
-=======
->>>>>>> b192e962dc7fcb600de8cbcb2bac79aa6477d805
           if (file === '2026-11-05-promotion-pricing.sql') {
             const match = /^ALTER TABLE (clinic_promotions|appointments|billing_records) ADD COLUMN ([a-z_]+) /i.exec(statement)
             if (!match) throw new Error('Unexpected promotion pricing migration statement')

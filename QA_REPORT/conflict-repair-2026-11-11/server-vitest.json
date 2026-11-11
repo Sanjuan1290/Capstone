@@ -1,0 +1,7 @@
+{
+  "name": "server-vitest",
+  "command": "npm test -- --reporter=json --outputFile=D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\conflict-repair-2026-11-11\\server-vitest-results.json",
+  "exitCode": 1,
+  "status": "FAIL",
+  "durationMs": 5812
+}

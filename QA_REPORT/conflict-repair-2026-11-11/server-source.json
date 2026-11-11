@@ -1,0 +1,7 @@
+{
+  "name": "server-source",
+  "command": "npm run verify:source",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 631
+}

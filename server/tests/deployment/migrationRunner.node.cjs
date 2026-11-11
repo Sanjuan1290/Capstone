@@ -32,10 +32,16 @@ const promotionColumns = {
   ],
 }
 
-function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, initialPromotionIndex, initialPromotionFk } = {}) {
+function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, initialPromotionIndex, initialPromotionFk, initialReversalColumns } = {}) {
   const foundation = createFoundationSchemaFixture(foundationOptions)
   const applied = new Map()
   const commands = []
+  const reversalColumns = new Map(Object.entries(initialReversalColumns || {}))
+  const reversalMetadata = (sql, params) => {
+    if (!/information_schema\.COLUMNS/i.test(sql) || params?.[0] !== 'billing_charge_adjustments') return null
+    const existing = reversalColumns.get(params[1])
+    return [existing ? [existing] : []]
+  }
   const promotionState = {
     appointments: false,
     billing_records: false,
@@ -79,7 +85,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
       async beginTransaction() {},
       async query(sql, params = []) {
         commands.push(String(sql))
-        const fixtureResult = promotionMetadata(sql, params) || await foundation.db.query(sql, params)
+        const fixtureResult = reversalMetadata(sql, params) || promotionMetadata(sql, params) || await foundation.db.query(sql, params)
         if (/SELECT\s+lock_name.+FOR UPDATE/i.test(sql)) {
           await acquireLock()
           holdsLock = true
@@ -96,6 +102,11 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
           if (/ADD CONSTRAINT/i.test(sql)) { assert.equal(promotionState.appointments, true); promotionFk = true }
         }
         if (/^ALTER TABLE billing_records\s/i.test(String(sql))) promotionState.billing_records = true
+        const reversalColumn = /^ALTER TABLE billing_charge_adjustments ADD COLUMN (reversed_at|reversed_by_admin_id|reversal_reason) (DATETIME|INT|VARCHAR\(255\)) NULL$/i.exec(String(sql))
+        if (reversalColumn) {
+          assert.equal(reversalColumns.has(reversalColumn[1]), false, 'An existing reversal column must never be added again')
+          reversalColumns.set(reversalColumn[1], { COLUMN_TYPE: reversalColumn[2].toLowerCase(), IS_NULLABLE: 'YES' })
+        }
         if (/^INSERT INTO schema_migrations/i.test(String(sql))) {
           applied.set(params[0], params[1])
           return [{ affectedRows: 1 }]
@@ -117,7 +128,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
         const hash = applied.get(params[0])
         return hash ? [[{ content_sha256: hash }]] : [[]]
       }
-      return promotionMetadata(sql, params) || foundation.db.query(sql, params)
+      return reversalMetadata(sql, params) || promotionMetadata(sql, params) || foundation.db.query(sql, params)
     },
     async getConnection() { return connection() },
   }
@@ -127,17 +138,51 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
-<<<<<<< HEAD
   assert.deepEqual(migrationFiles.slice(-5), ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql'])
-=======
-  assert.deepEqual(migrationFiles.slice(-4), ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql'])
->>>>>>> b192e962dc7fcb600de8cbcb2bac79aa6477d805
   const failureSql = fs.readFileSync(path.join(migrationDir, '2026-11-05-billing-failure-history.sql'), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   assert.equal(crypto.createHash('sha256').update(failureSql).digest('hex'), 'ca694239471fcc47f20c1ad93b96216e0eb1d0fe825cb3c61fe4e65568abe675')
   for (const file of migrationFiles) assert.ok(fs.existsSync(path.join(migrationDir, file)), `Registered migration missing: ${file}`)
   for (const [file, expected] of Object.entries(expectedChecksums)) {
     const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     assert.ok(acceptedContentHashes(sql).has(expected), `${file} changed; create a new migration instead of editing history`)
+  }
+})
+
+test('manually added reversal columns are verified without repeated ALTER or migration-history deletion', async () => {
+  const db = createMockDb({ initialReversalColumns: {
+    reversed_at: { COLUMN_TYPE: 'datetime', IS_NULLABLE: 'YES' },
+    reversed_by_admin_id: { COLUMN_TYPE: 'int(11)', IS_NULLABLE: 'YES' },
+    reversal_reason: { COLUMN_TYPE: 'varchar(255)', IS_NULLABLE: 'YES' },
+  } })
+  await runBranchMigrations(db)
+  assert.ok(db.applied.has('2026-11-11-charge-reduction-reversal.sql'))
+  assert.equal(db.commands.filter(sql => /^ALTER TABLE billing_charge_adjustments ADD COLUMN (reversed_at|reversed_by_admin_id|reversal_reason)\b/i.test(sql)).length, 0)
+  const history = [...db.applied]
+  await runBranchMigrations(db)
+  assert.deepEqual([...db.applied], history)
+  assert.equal(db.commands.filter(sql => /(?:DELETE\s+FROM|TRUNCATE\s+TABLE|DROP\s+TABLE)\s+schema_migrations\b/i.test(sql)).length, 0)
+})
+
+test('reversal migration resumes missing fields while retaining manually added fields', async () => {
+  const db = createMockDb({ initialReversalColumns: { reversed_at: { COLUMN_TYPE: 'datetime', IS_NULLABLE: 'YES' } } })
+  await runBranchMigrations(db)
+  const statements = db.commands.filter(sql => /^ALTER TABLE billing_charge_adjustments ADD COLUMN (reversed_at|reversed_by_admin_id|reversal_reason)\b/i.test(sql))
+  assert.equal(statements.length, 2)
+  assert.ok(statements.every(sql => !/ADD COLUMN reversed_at\b/i.test(sql)))
+  assert.ok(db.applied.has('2026-11-11-charge-reduction-reversal.sql'))
+})
+
+test('incompatible manually added reversal fields stop verification without rewriting the schema', async () => {
+  for (const incompatible of [{ COLUMN_TYPE: 'varchar(128)', IS_NULLABLE: 'YES' }, { COLUMN_TYPE: 'varchar(255)', IS_NULLABLE: 'NO' }]) {
+    const db = createMockDb({ initialReversalColumns: {
+      reversed_at: { COLUMN_TYPE: 'datetime', IS_NULLABLE: 'YES' },
+      reversed_by_admin_id: { COLUMN_TYPE: 'int', IS_NULLABLE: 'YES' },
+      reversal_reason: incompatible,
+    } })
+    await assert.rejects(runBranchMigrations(db), /Incompatible reversal column: reversal_reason/)
+    assert.equal(db.applied.has('2026-11-11-charge-reduction-reversal.sql'), false)
+    assert.ok(db.applied.has('2026-11-09-branch-google-maps-url.sql'))
+    assert.equal(db.commands.filter(sql => /^ALTER TABLE billing_charge_adjustments\b/i.test(sql)).length, 0)
   }
 })
 

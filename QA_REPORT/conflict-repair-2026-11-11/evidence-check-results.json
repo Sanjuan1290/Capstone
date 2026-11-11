@@ -1,0 +1,57 @@
+{
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "Manually added live fields have the exact nullable contract and no live migration/write occurred",
+      "status": "PASS"
+    },
+    {
+      "name": "All original conflict blocks were reviewed against the matching export",
+      "status": "PASS"
+    },
+    {
+      "name": "Complete source scan has no remaining conflict markers",
+      "status": "PASS"
+    },
+    {
+      "name": "Migration rehearsal skips all manually added fields and retains history",
+      "status": "PASS"
+    },
+    {
+      "name": "Financial, clinical, stock, audit and migration snapshots survive replay",
+      "status": "PASS"
+    },
+    {
+      "name": "Targeted migration/reversal and native workflow cases pass",
+      "status": "PASS"
+    },
+    {
+      "name": "No new regression failure names or skipped tests",
+      "status": "PASS"
+    },
+    {
+      "name": "Receipt and existing failure counts are reported honestly",
+      "status": "PASS"
+    },
+    {
+      "name": "Disposable database is stopped and no production/history mutation is claimed",
+      "status": "PASS"
+    },
+    {
+      "name": "Only the four requested tracked files changed; historical SQL remains unchanged",
+      "status": "PASS"
+    },
+    {
+      "name": "Required report sections, artifact files and evidence inventory exist",
+      "status": "PASS"
+    },
+    {
+      "name": "New QA text contains no detected private configuration values",
+      "status": "PASS"
+    }
+  ],
+  "scannedTextFiles": 73,
+  "privateConfigurationFindings": 0,
+  "productionWrites": 0,
+  "migrationHistoryRowsDeleted": 0
+}

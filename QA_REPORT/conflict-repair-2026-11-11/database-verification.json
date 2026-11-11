@@ -1,0 +1,63 @@
+{
+  "status": "PASS",
+  "syntheticOnly": true,
+  "registeredReplayCompleted": true,
+  "finalMigrationLedgerRows": 1,
+  "allSnapshotHashesUnchanged": true,
+  "snapshots": {
+    "billing_records": {
+      "rows": 3,
+      "sha256": "63ca95ef47c19396023cbffebb89b6aee0226d9c6a9ee445093eff4dbe6555b5"
+    },
+    "billing_items": {
+      "rows": 3,
+      "sha256": "7da0f293c125e69674376a7764547749903ce0e668f18381100c9e08c37895bf"
+    },
+    "billing_payments": {
+      "rows": 4,
+      "sha256": "8ee95489575c1a8f8c6373a1bfa8d1eba39586e5cdf5da831c820fb41c3b89e1"
+    },
+    "billing_charge_adjustments": {
+      "rows": 14,
+      "sha256": "de10695a004b2368e54187aa97d6a95cd59e8cd08d2b3835245b4cd21bc20357"
+    },
+    "billing_adjustment_requests": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "consultations": {
+      "rows": 3,
+      "sha256": "c23c4500b3a378ea4899b7d16efb512cbe039951a74d274e65f1f1f213857dde"
+    },
+    "consultation_inventory_usage": {
+      "rows": 1,
+      "sha256": "7afffbed17ddc3ac9d36ad9f19307cfb892bb686d3a31b6d4109c9c77fb5eb1b"
+    },
+    "inventory": {
+      "rows": 2,
+      "sha256": "15c8638d14f050333b2959845e2960ca1510cc3ad5cef1490d0f795c490e3289"
+    },
+    "inventory_batches": {
+      "rows": 2,
+      "sha256": "b9654338881a966fa87317f7814ac872b8bf05891635343b6c1c4cf92f86c156"
+    },
+    "inventory_location_stock": {
+      "rows": 2,
+      "sha256": "3333a2620c190867370377c76ae8da77bee17176a311bc03e14e101d68784c67"
+    },
+    "audit_logs": {
+      "rows": 58,
+      "sha256": "d381e040d39e328380ff3ba257153752d56b3fe5de4ec4fe5af6a56b15a7b42a"
+    },
+    "schema_migrations": {
+      "rows": 16,
+      "sha256": "218d2c76ff145803ce8887579a8f67cba5a2ee6977e0b1d0c22a61231b736496"
+    }
+  },
+  "reversalColumnAlterStatements": 0,
+  "historyRowsDeleted": 0,
+  "negativeOrInconsistentBills": 0,
+  "reversedHistoryMissingFields": 0,
+  "sourceWrites": 0,
+  "guardedMigrationReentryCompleted": true
+}

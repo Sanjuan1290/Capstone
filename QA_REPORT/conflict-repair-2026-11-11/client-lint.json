@@ -1,0 +1,7 @@
+{
+  "name": "client-lint",
+  "command": "npm run lint -- --format=json --output-file=D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\conflict-repair-2026-11-11\\client-lint-results.json",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 33918
+}

@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "enumeratedFiles": 1400,
+  "findings": [],
+  "exclusions": [
+    "!.git/**",
+    "!**/node_modules/**",
+    "!**/.baseline/**",
+    "!**/.tools/**",
+    "!**/dist/**",
+    "!**/browser-artifacts/**",
+    "!**/.cache/**"
+  ],
+  "binaryFiles": "Ripgrep skips binary contents; generated dependency/build/cache trees are excluded.",
+  "includesHiddenAndIgnoredSource": true
+}
