@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../context/ThemeContext'
 import { hasStaffPermission, STAFF_PERMISSION_MAP } from '../../config/staffPermissions'
 import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
@@ -10,7 +9,7 @@ import { playNotificationSound } from '../../utils/notificationSound'
 import { getDashboard } from '../../services/staff.service'
 import {
   MdDashboard, MdEventAvailable, MdQueuePlayNext, MdPeople, MdInventory2, MdChevronLeft,
-  MdLogout, MdPerson, MdMenu, MdClose, MdSettings, MdDarkMode, MdLightMode, MdPayments,
+  MdLogout, MdPerson, MdMenu, MdClose, MdSettings, MdPayments,
   MdCalendarToday, MdBarChart, MdHistory, MdTune,
 } from 'react-icons/md'
 
@@ -41,7 +40,7 @@ const NAV_GROUPS = [
 
 const StaffLayout = () => {
   const { user, logout: clearAuth } = useAuth()
-  const { theme, toggleTheme } = useTheme()
+
   const navigate = useNavigate()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
@@ -128,7 +127,7 @@ const StaffLayout = () => {
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4 lg:h-16 lg:px-6">
           <button onClick={() => setMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 lg:hidden"><MdMenu /></button>
           <div className="hidden lg:block" />
-          <div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center" aria-label="Staff notifications"><NotificationBell role="staff" /></div><button onClick={toggleTheme} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500">{theme === 'dark' ? <MdLightMode /> : <MdDarkMode />}</button><NavLink to="/staff/settings" title="Account Settings" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><MdSettings /></NavLink><div className="hidden items-center gap-2.5 border-l pl-3 lg:flex"><ProfileAvatar user={user} size="sm" /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-700">{user?.full_name || 'Staff'}</p><p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-500">Staff</p></div></div></div>
+          <div className="flex items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center" aria-label="Staff notifications"><NotificationBell role="staff" /></div><NavLink to="/staff/settings" title="Account Settings" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><MdSettings /></NavLink><div className="hidden items-center gap-2.5 border-l pl-3 lg:flex"><ProfileAvatar user={user} size="sm" /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-700">{user?.full_name || 'Staff'}</p><p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-500">Staff</p></div></div></div>
         </header>
         <main className="portal-mobile-content min-w-0 flex-1 overflow-y-auto p-4 lg:p-6"><div className="mx-auto w-full max-w-[1600px]"><Outlet /></div></main>
         {mobileNav.length > 0 && <nav className="portal-mobile-nav fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around border-t bg-white lg:hidden">{mobileNav.map((item) => { const Icon = item.icon; const badge = badgeFor(item); return <NavLink key={item.path} to={item.path} end={item.path === '/staff'} title={descriptionFor(item)} className={({ isActive }) => `relative flex min-w-[50px] flex-col items-center gap-0.5 text-[9px] font-bold ${isActive ? 'text-sky-600' : 'text-slate-400'}`}><Icon className="text-xl" />{badge > 0 && <span className="absolute right-0 top-0 rounded-full bg-sky-500 px-1 text-[9px] text-white">{badge}</span>}<span>{item.short}</span></NavLink> })}</nav>}
@@ -137,6 +136,3 @@ const StaffLayout = () => {
   )
 }
 export default StaffLayout
-
-
-

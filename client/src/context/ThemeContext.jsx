@@ -1,24 +1,15 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect } from 'react'
 
-const ThemeContext = createContext(null)
+const ThemeContext = createContext({theme: 'light'})
 
-export const ThemeProvider = ({ children }) => {
-  const [theme, setThemeState] = useState(() => localStorage.getItem('app_theme') || 'light')
-
+export const ThemeProvider = ({children}) => {
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.toggle('dark', theme === 'dark')
-    document.body.dataset.theme = theme
-    localStorage.setItem('app_theme', theme)
-  }, [theme])
-
-  const value = useMemo(() => ({
-    theme,
-    setTheme: setThemeState,
-    toggleTheme: () => setThemeState(prev => prev === 'dark' ? 'light' : 'dark'),
-  }), [theme])
-
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+    document.documentElement.classList.remove('dark')
+    document.body.dataset.theme = 'light'
+    // Remove old dark-mode selection from browsers that previously enabled it.
+    try { localStorage.removeItem('app_theme') } catch { /* storage disabled */ }
+  }, [])
+  return <ThemeContext.Provider value={{theme:'light'}}>{children}</ThemeContext.Provider>
 }
 
 export const useTheme = () => useContext(ThemeContext)

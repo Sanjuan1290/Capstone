@@ -1,3 +1,5 @@
+const { notifyDoctorOnConfirmation } = require('../utils/doctorConfirmationNotifications')
+const { isUnifiedBillingStockOut, postClinicalReservations, assertNoUnpostedStockWithFeatureOff } = require('../utils/clinicalInventoryReservations')
 // server/controllers/staff.controller.js
 // FIX 1: getDoctors now returns the 'type' field so Walk-in Queue doctor filter works
 // FIX 2: Added updateInventoryItem and deleteInventoryItem
@@ -417,7 +419,7 @@ const getAppointmentInventoryReadinessForPortal = async (req, res) => {
 const confirmAppointment = async (req, res) => {
   await expirePendingAppointments({ appointmentId: req.params.id }).catch(() => {})
   const [rows] = await db.query(
-    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type, a.branch_id,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.id AS doctor_id, d.full_name AS doctor_name
      FROM appointments a
@@ -434,6 +436,12 @@ const confirmAppointment = async (req, res) => {
   assertAppointmentTransition(rows[0].status, 'confirmed')
   const [updated] = await db.query("UPDATE appointments SET status = 'confirmed', confirmation_deadline_at = NULL WHERE id = ? AND status = ?", [req.params.id, rows[0].status])
   await assertAppointmentMutationApplied(updated, req.params.id)
+  // Dispatch after a real status transition without delaying the clinic confirmation response.
+  void notifyDoctorOnConfirmation({
+    appointmentId: Number(req.params.id), doctorId: rows[0].doctor_id,
+    appointmentDate: rows[0].appointment_date, appointmentTime: rows[0].appointment_time,
+    clinicType: rows[0].clinic_type, branchId: rows[0].branch_id,
+  }).catch(error => console.error('[doctor-confirmation] notification failed', {appointmentId: req.params.id, message:error.message}))
   await writeAuditLog({userId:req.user.id,userRole:'staff',action:'appointment.confirmed',entityType:'appointment',entityId:req.params.id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null}).catch(() => {})
   await createNotification({
     target_role: 'patient',
@@ -1698,12 +1706,17 @@ const payBill = async (req, res) => {
     const nextStatus = balanceAfter <= 0 ? 'paid' : 'partially_paid'
     const paidAt = getClinicDateTimeSql()
 
-    // Direct Medicine / Supply charges are physically dispensed only when the bill
-    // becomes fully paid. Consultation service consumables were already deducted by
-    // the Doctor workflow when the consultation was finalized, so they are never
-    // deducted a second time here.
+    // One final stock-out for consultation items and checkout items, inside
+    // the same transaction as the payment and receipt. Partial payment never posts.
     let checkoutDispensed = []
     if (nextStatus === 'paid') {
+      await assertNoUnpostedStockWithFeatureOff(billingId, conn)
+      if (isUnifiedBillingStockOut()) {
+        await postClinicalReservations({
+          billId: billingId, branchId: req.branchId, actorRole,
+          actorId: gatewayVerified ? null : req.user.id, executor: conn,
+        })
+      }
       const billForDispense = await getBillingRecordWithItems(billingId, conn)
       checkoutDispensed = await dispenseCheckoutSupplies({
         bill: billForDispense,
@@ -2139,10 +2152,3 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
-
-
-
-
-
-
-

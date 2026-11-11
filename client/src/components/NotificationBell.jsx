@@ -189,7 +189,7 @@ const NotificationBell = ({ role }) => {
       aria-modal="false"
       tabIndex={-1}
       data-notification-popover
-      className="fixed z-[70] flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl outline-none dark:border-slate-700 dark:bg-slate-900"
+      className="fixed z-[70] flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl outline-none"
       style={{
         left: panelPosition.left,
         top: panelPosition.top,
@@ -214,7 +214,7 @@ const NotificationBell = ({ role }) => {
       </div>
 
       {navigationError && <p role="alert" className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800">{navigationError}</p>}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain dark:text-slate-100" role="list" aria-label="Recent notifications">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" role="list" aria-label="Recent notifications">
         {isPending ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400">Loading notifications...</p>
         ) : isError ? (
@@ -237,7 +237,7 @@ const NotificationBell = ({ role }) => {
               <div
                 key={item.id}
                 role="listitem"
-                className={`flex min-w-0 items-start gap-2 border-b border-slate-100 px-4 py-3 last:border-0 ${item.is_read ? 'bg-white dark:bg-slate-900' : 'bg-sky-50/60 dark:bg-sky-950/50'}`}
+                className={`flex min-w-0 items-start gap-2 border-b border-slate-100 px-4 py-3 last:border-0 ${item.is_read ? 'bg-white' : 'bg-sky-50/60'}`}
               >
                 {(item.link || item.reference_id) ? (
                   <button
@@ -259,7 +259,7 @@ const NotificationBell = ({ role }) => {
                     data-notification-item
                     onClick={() => markReadMutation.mutate(item.id)}
                     aria-label={`Mark ${item.title || 'notification'} as read`}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:border-sky-200 hover:text-sky-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:border-sky-200 hover:text-sky-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                   >
                     <MdDone aria-hidden="true" className="text-[16px]" />
                   </button>
@@ -299,4 +299,3 @@ const NotificationBell = ({ role }) => {
 }
 
 export default NotificationBell
-

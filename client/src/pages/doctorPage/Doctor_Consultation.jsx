@@ -776,6 +776,11 @@ const Doctor_Consultation = () => {
     setBillableServices(prev=>prev.map(s=>Number(s.catalog_service_id)===Number(serviceId)
       ? {...s,usage_change_reason:reason} : s))
   }
+  const updatePartialService = (serviceId, note) => {
+    if (isEditMode) return
+    setBillableServices(prev => prev.map(service => Number(service.catalog_service_id) === Number(serviceId)
+      ? { ...service, partial_service_note: note } : service))
+  }
   const replaceIncludedMaterial = (serviceId, materialIndex) => {
     if (isEditMode) return
     setReplacementTarget({serviceId,materialIndex})
@@ -979,7 +984,12 @@ const Doctor_Consultation = () => {
       })
       return
     }
-    if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct the actual recorded consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
+    if (billableServices.some(service => { const note = String(service.partial_service_note || '').trim(); return note.length > 0 && note.length < 5 })) {
+      setTab('consultation')
+      window.alert('Describe the skipped part of the service in at least 5 characters.')
+      return
+    }
+    if (!window.confirm('Complete consultation? This will finalize the clinical record, record the items actually used, update the bill, and mark the appointment completed. Stock handling follows the clinic billing settings. Further changes must be recorded as an amendment.')) return
     const isCurrent = captureCurrentConsultation()
     if (!isCurrent()) return
     finalizingRef.current = true
@@ -1358,8 +1368,8 @@ const Doctor_Consultation = () => {
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
               <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                 <div>
-                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Supplies Used</h2>
-                  <p className="mt-1 text-xs text-slate-500">The service setup is your starting list. Replace, remove, or change actual supplies for this patient. Enter a reason for changes. Inventory is deducted only when consultation is completed.</p>
+                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Inventory Items Used</h2>
+                  <p className="mt-1 text-xs text-slate-500">The service setup is your starting list. Replace, remove, or change the items used for this patient. Enter a reason for changes. The inventory page shows which items are available.</p>
                 </div>
                 {isEditMode && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">Clinical usage locked after completion</span>}
               </div>
@@ -1401,7 +1411,7 @@ const Doctor_Consultation = () => {
 
                         <div className="mt-4 border-t border-violet-100 pt-4">
                           <div>
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Supplies Actually Used</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Inventory Items Actually Used</p>
                             <p className="mt-1 text-xs text-slate-500">Changes here affect only this patient, not the standard service. Select a substitute when the default product was not used.</p>
                           </div>
                           {defaultMaterials.length ? (
@@ -1416,7 +1426,7 @@ const Doctor_Consultation = () => {
                                     <div className="flex items-start justify-between gap-2">
                                       <div>
                                         <p className="text-xs font-semibold text-slate-700">{material.material_name}</p>
-                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Actual consultation supply</p>
+                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Inventory item used</p>
                                       </div>
                                       {!isEditMode && <div className="flex flex-wrap gap-1">
                                          <button type="button" className="rounded-lg border px-2 py-1 text-xs text-violet-700 hover:bg-violet-50" onClick={()=>replaceIncludedMaterial(service.catalog_service_id,materialIndex)}>Replace</button>
@@ -1430,16 +1440,23 @@ const Doctor_Consultation = () => {
                                         <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
                                       </div>
                                       {quantityError && <p role="alert" className="mt-1 text-xs text-rose-700">{quantityError}</p>}
+                                      {inv && Number(inv.available_stock ?? inv.stock ?? 0) <= 0 && !isEditMode && (
+                                        <p role="alert" className="mt-2 text-xs font-semibold text-amber-800">No available stock for this item. Replace it or ask staff to restock before completing the consultation.</p>
+                                      )}
                                     </div>
                                   </div>
                                 )
                               })}
                             </div>
                           ) : (
-                            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-4 text-xs text-slate-400">This service has no configured consumables.</div>
+                            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-4 text-xs text-slate-400">This service has no default inventory items.</div>
                           )}
-                          {!isEditMode && Number(service.catalog_service_id) !== Number(extraConsumableTarget?.catalog_service_id) && <label className="mt-4 block text-xs font-semibold text-slate-700">Reason for supply changes
-                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Required before completing when supplies change" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
+                          <label className="mt-4 block text-xs font-semibold text-slate-700">Part of the service not performed (optional)
+                            <input className="form-control mt-1" maxLength={255} disabled={isEditMode} value={service.partial_service_note || ''} placeholder="Example: Extraction not performed because of skin irritation" onChange={event=>updatePartialService(service.catalog_service_id,event.target.value)} />
+                            <span className="mt-1 block font-normal text-slate-500">Billing can review this note and decide if the service fee should be reduced. This does not change the price automatically.</span>
+                          </label>
+                          {!isEditMode && Number(service.catalog_service_id) !== Number(extraConsumableTarget?.catalog_service_id) && <label className="mt-4 block text-xs font-semibold text-slate-700">Reason for item changes
+                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Required before completing when items change" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
                             {!supplyReasonStatus(service, catalogService).valid && <span className="mt-1 block text-amber-700">Add a reason of at least 5 characters before completing the consultation. Your draft can still save.</span>}
                           </label>}
                         </div>
@@ -1450,12 +1467,12 @@ const Doctor_Consultation = () => {
                   <div className="rounded-2xl border border-amber-200 bg-amber-50/30 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-bold text-slate-800">Extra Supplies</p>
+                        <p className="text-sm font-bold text-slate-800">Extra Inventory Items</p>
                         <p className="mt-1 text-xs text-slate-500">Record the quantity used in addition to the fixed Service Consumables. You may add a different item or add more of the same consumable already included in the fixed service setup.</p>
                       </div>
                       {consultationStatus !== 'finalized' && extraConsumableTarget && (
                         <button type="button" onClick={() => { setReplacementTarget(null); setExtraConsumableReason(extraConsumableTarget?.usage_change_reason || ''); setExtraConsumableOpen(true) }} className="button-secondary">
-                          <MdAdd /> Add Extra Consumable
+                          <MdAdd /> Add Extra Item
                         </button>
                       )}
                     </div>
@@ -1535,7 +1552,7 @@ const Doctor_Consultation = () => {
                       {autoSaveState === 'saving' && <span className="font-semibold text-sky-700">Saving consultation progress…</span>}
                       {autoSaveState === 'pending' && <span className="font-semibold text-slate-600">Changes detected — saving automatically…</span>}
                       {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Save failed temporarily — your latest changes have not been saved. Retrying. {autoSaveError}</span>}
-                      {autoSaveState === 'blocked' && <div role="alert" className="flex flex-wrap items-center gap-2 text-rose-700 dark:text-rose-300"><span className="font-semibold">Not saved — automatic retries stopped because the server rejected this request. Keep this page open. {autoSaveError}</span><button type="button" className="rounded-md border border-rose-500 px-2 py-1 text-xs font-bold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></div>}
+                      {autoSaveState === 'blocked' && <div role="alert" className="flex flex-wrap items-center gap-2 text-rose-700"><span className="font-semibold">Not saved — automatic retries stopped because the server rejected this request. Keep this page open. {autoSaveError}</span><button type="button" className="rounded-md border border-rose-500 px-2 py-1 text-xs font-bold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></div>}
                       {!['saving','pending','error','blocked'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ Draft saved{missingSupplyReasons.length ? ' · Supply reason needed before completion' : ''} · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
                       {!['saving','pending','error','blocked'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
                     </div>
@@ -1680,7 +1697,7 @@ const Doctor_Consultation = () => {
                       {autoSaveState === 'saving' && <span className="font-semibold text-sky-700">Saving consultation progress…</span>}
                       {autoSaveState === 'pending' && <span className="font-semibold text-slate-600">Changes detected — saving automatically…</span>}
                       {autoSaveState === 'error' && <span className="font-semibold text-rose-600">Save failed temporarily — your latest changes have not been saved. Retrying. {autoSaveError}</span>}
-                      {autoSaveState === 'blocked' && <div role="alert" className="flex flex-wrap items-center gap-2 text-rose-700 dark:text-rose-300"><span className="font-semibold">Not saved — automatic retries stopped because the server rejected this request. Keep this page open. {autoSaveError}</span><button type="button" className="rounded-md border border-rose-500 px-2 py-1 text-xs font-bold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></div>}
+                      {autoSaveState === 'blocked' && <div role="alert" className="flex flex-wrap items-center gap-2 text-rose-700"><span className="font-semibold">Not saved — automatic retries stopped because the server rejected this request. Keep this page open. {autoSaveError}</span><button type="button" className="rounded-md border border-rose-500 px-2 py-1 text-xs font-bold" onClick={() => { updateAutoSaveState('pending'); void autosaveQueueRef.current.retryBlocked() }}>Retry after fixing</button></div>}
                       {!['saving','pending','error','blocked'].includes(autoSaveState) && lastSavedAt && <span className="font-semibold text-emerald-700">✓ Draft saved{missingSupplyReasons.length ? ' · Supply reason needed before completion' : ''} · Last saved {lastSavedAt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</span>}
                       {!['saving','pending','error','blocked'].includes(autoSaveState) && !lastSavedAt && <span className="font-semibold text-slate-600">Consultation progress saves automatically as you work.</span>}
                     </div>
@@ -1794,7 +1811,7 @@ const Doctor_Consultation = () => {
           setExtraConsumableId('')
           setExtraConsumableQuantity(1)
         }}
-        title="Add Extra Consumable"
+        title="Add Extra Item"
         description="Record additional consumable quantity used during this consultation. The extra item may be different from, or the same as, a consumable already included in the booked service."
         size="lg"
       >
@@ -1904,7 +1921,3 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
-
-
-
-

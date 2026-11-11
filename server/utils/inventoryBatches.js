@@ -3,6 +3,9 @@ const db = require('../db/connect')
 const { resolveMainStockroom } = require('./inventoryLocations')
 
 const MAIN_LOCATION = 'Main Stockroom'
+// Enables deferred clinical stock-out only after the new schema is applied and verified.
+const unifiedBillingStockOut = () => process.env.UNIFIED_BILLING_STOCKOUT === '1'
+
 
 // All stock movement helpers derive ownership from the locked parent item.
 // This avoids resolving a same-named Main Stockroom in another physical branch.
@@ -323,6 +326,26 @@ const loadLocationBatches = async (inventoryId, locationName, executor = db) => 
      FOR UPDATE`,
     [locationId, inventoryId]
   )
+  if (unifiedBillingStockOut() && rows.length) {
+    const [held] = await executor.query(
+      `SELECT batch_id,location_id,package_quantity AS qty
+       FROM clinical_inventory_reservations
+       WHERE inventory_id=? AND status='pending' FOR UPDATE`, [inventoryId]
+    )
+    const byLocation = new Map()
+    const byBatch = new Map()
+    for (const h of held) {
+      const key = `${h.batch_id}:${h.location_id}`
+      byLocation.set(key,(byLocation.get(key) || 0) + Number(h.qty))
+      byBatch.set(Number(h.batch_id),(byBatch.get(Number(h.batch_id)) || 0) + Number(h.qty))
+    }
+    // Physical stock stays unchanged until payment; held quantities are unavailable.
+    for (const row of rows) {
+      row.physical_location_quantity = Number(row.location_quantity)
+      row.location_quantity = Math.max(0, row.physical_location_quantity - (byLocation.get(`${row.id}:${locationId}`) || 0))
+      row.clinic_quantity = Math.max(0, Number(row.clinic_quantity) - (byBatch.get(Number(row.id)) || 0))
+    }
+  }
   return { locationId, locationName: location.name, rows }
 }
 
@@ -432,6 +455,18 @@ const consumeInventoryFromLocationByBatches = async (
      FOR UPDATE`,
     [locationId, inventoryId, ...batchIds]
   )
+  if (unifiedBillingStockOut() && rows.length) {
+    const [held] = await executor.query(
+      `SELECT batch_id,location_id,package_quantity AS qty
+       FROM clinical_inventory_reservations
+       WHERE inventory_id=? AND status='pending' FOR UPDATE`, [inventoryId]
+    )
+    for (const row of rows) {
+      const batchHolds = held.filter(h => Number(h.batch_id) === Number(row.id))
+      row.location_quantity = Math.max(0, Number(row.location_quantity) - batchHolds.filter(h => Number(h.location_id) === Number(locationId)).reduce((a,h)=>a+Number(h.qty),0))
+      row.clinic_quantity = Math.max(0, Number(row.clinic_quantity) - batchHolds.reduce((a,h)=>a+Number(h.qty),0))
+    }
+  }
   const batchMap = new Map(rows.map((row) => [Number(row.id), row]))
   const consumed = []
 
@@ -562,7 +597,14 @@ const moveBatchBetweenLocations = async (inventoryId, batchId, fromLocationId, t
      FOR UPDATE`,
     [from.id, batchId, inventoryId, branchId]
   )
-  const available = Number(row?.quantity || 0)
+  let available = Number(row?.quantity || 0)
+  if (unifiedBillingStockOut() && row) {
+    const [held] = await executor.query(
+      `SELECT package_quantity AS qty FROM clinical_inventory_reservations
+       WHERE batch_id=? AND location_id=? AND status='pending' FOR UPDATE`, [batchId, from.id]
+    )
+    available = Math.max(0, available - held.reduce((sum,h)=>sum+Number(h.qty||0),0))
+  }
   if (available + 0.0001 < qty) {
     throw Object.assign(new Error(`Only ${available} available in ${from.name} for this batch.`), { statusCode: 409, code: 'INSUFFICIENT_LOCATION_STOCK', available })
   }
@@ -640,6 +682,31 @@ const attachBatchesToInventory = async (items, executor = db) => {
     }
   }
 
+  // Separate recorded stock from items used in an unpaid consultation.
+  const pendingByItem = new Map()
+  const pendingByBatch = new Map()
+  const pendingByLocation = new Map()
+  if (unifiedBillingStockOut()) {
+    const [pending] = await executor.query(
+      `SELECT inventory_id,batch_id,location_id,COALESCE(SUM(package_quantity),0) AS held
+       FROM clinical_inventory_reservations
+       WHERE inventory_id IN (${placeholders}) AND status='pending'
+       GROUP BY inventory_id,batch_id,location_id`, ids
+    )
+    for (const row of pending) {
+      const qty = Number(row.held || 0)
+      pendingByItem.set(Number(row.inventory_id),(pendingByItem.get(Number(row.inventory_id)) || 0) + qty)
+      pendingByBatch.set(Number(row.batch_id),(pendingByBatch.get(Number(row.batch_id)) || 0) + qty)
+      const key = `${row.batch_id}:${row.location_id}`
+      pendingByLocation.set(key,(pendingByLocation.get(key) || 0) + qty)
+    }
+    for (const batch of batchMap.values()) {
+      batch.available_quantity = Math.max(0, batch.quantity - (pendingByBatch.get(Number(batch.id)) || 0))
+      for (const location of batch.locations) {
+        location.available_quantity = Math.max(0,location.quantity-(pendingByLocation.get(`${batch.id}:${location.id}`)||0))
+      }
+    }
+  }
   const grouped = {}
   for (const batch of batchMap.values()) {
     const inventoryId = Number(batch.inventory_id)
@@ -649,6 +716,7 @@ const attachBatchesToInventory = async (items, executor = db) => {
 
   return items.map((item) => ({
     ...item,
+    ...(unifiedBillingStockOut() ? { pending_usage: Number((pendingByItem.get(Number(item.id)) || 0).toFixed(4)), available_stock: Math.max(0, Number(item.stock || 0) - (pendingByItem.get(Number(item.id)) || 0)) } : {}),
     batches: grouped[item.id] || [],
     batch_count: (grouped[item.id] || []).length,
   }))
@@ -673,6 +741,7 @@ module.exports = {
   consumeInventoryFEFO,
   consumeInventoryByBatches,
   consumeInventoryFromLocationFEFO,
+  loadLocationBatches,
   consumeInventoryFromLocationByBatches,
   transferInventoryBatchesFEFO,
   attachBatchesToInventory,

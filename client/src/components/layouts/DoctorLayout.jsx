@@ -7,10 +7,9 @@ import {
   MdDashboard, MdCalendarToday, MdMedicalServices,
   MdInventory2, MdChevronLeft, MdLogout, MdPerson,
   MdSchedule, MdMenu, MdClose,
-  MdSettings, MdDarkMode, MdLightMode, MdHistory,
+  MdSettings, MdHistory,
 } from "react-icons/md"
 import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../context/ThemeContext'
 import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
 import { doctorClinicLabel } from '../../utils/doctor'
@@ -29,7 +28,7 @@ const DoctorLayout = () => {
   const { user, logout: clearAuth, checkAuth } = useAuth()
   const [switchBusy,setSwitchBusy]=useState(false)
   const [switchError,setSwitchError]=useState('')
-  const { theme, toggleTheme } = useTheme()
+
   const [collapsed,   setCollapsed]   = useState(false)
   const [mobileOpen,  setMobileOpen]  = useState(false)
   const [loggingOut,  setLoggingOut]  = useState(false)
@@ -235,9 +234,6 @@ const DoctorLayout = () => {
 
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center" aria-label="Doctor notifications"><NotificationBell role="doctor" /></div>
-            <button onClick={toggleTheme} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
-              {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
-            </button>
             <NavLink to="/doctor/settings" className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
               <MdSettings className="text-[18px]" />
             </NavLink>
@@ -300,6 +296,3 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
-
-
-

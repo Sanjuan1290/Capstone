@@ -156,6 +156,7 @@ export const getBills = (params = {}) => {
 }
 
 export const getBillById = (id) => requestJson(`${getAdminApiBase()}/billing/${id}`)
+export const closeUnpaidClinicalStock = (id, reason) => requestJson(`${getAdminApiBase()}/billing/${id}/clinical-stock/close-unpaid`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})})
 export const getBillingCollectionsPeriod = (startDate, endDate) => {
   const params = new URLSearchParams({ start_date: startDate, end_date: endDate })
   return requestJson(`${getAdminApiBase()}/billing/collections-period?${params}`)
@@ -597,10 +598,3 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
-
-
-
-
-
-
-

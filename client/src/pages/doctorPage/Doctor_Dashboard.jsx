@@ -1,3 +1,4 @@
+import { formatQueueLabel } from '../../utils/queueLabel.mjs'
 // client/src/pages/doctorPage/Doctor_Dashboard.jsx
 // REDESIGNED: Mobile-first, hero banner, live polling, improved appointment + queue display
 
@@ -221,10 +222,10 @@ const Doctor_Dashboard = () => {
                   <p className="text-xs text-slate-400">No walk-ins assigned.</p>
                 </div>
               ) : walkInQueue.map(q => (
-                <div key={q.queueNo || q.queue_number}
+                <div key={formatQueueLabel(q)}
                   className="flex items-center gap-3 p-3 rounded-xl bg-amber-50/60 border border-amber-100">
                   <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center font-black text-sm text-amber-700 shrink-0">
-                    {q.queueNo || q.queue_number}
+                    {formatQueueLabel(q)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-slate-800 truncate">{q.patient || q.patient_name}</p>
@@ -265,4 +266,3 @@ const Doctor_Dashboard = () => {
 }
 
 export default Doctor_Dashboard
-

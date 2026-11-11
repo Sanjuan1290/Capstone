@@ -138,8 +138,7 @@ const PrivacyPolicys = () => {
           <p>
             The portal uses browser cookies for session management (authentication tokens). These
             are HTTP-only cookies that cannot be accessed by JavaScript, providing an added layer of
-            security. We also use browser localStorage solely for non-sensitive preferences such as
-            theme selection (light/dark mode).
+            security. Browser settings may be used for basic, non-sensitive preferences.
           </p>
           <p>
             We do not use tracking cookies or third-party advertising cookies.

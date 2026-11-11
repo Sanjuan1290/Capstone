@@ -1,0 +1,1338 @@
+diff --git a/client/src/components/billing/BillCheckout.jsx b/client/src/components/billing/BillCheckout.jsx
+--- a/client/src/components/billing/BillCheckout.jsx
++++ b/client/src/components/billing/BillCheckout.jsx
+@@ -653,16 +653,17 @@
+                       <div className="min-w-0 flex-1">
+                         <div className="flex flex-wrap items-center gap-2">
+                           <p className="font-black text-slate-900">{item.service_name || (item.item_type === 'supply' ? 'Medicine / Supply' : 'Custom Charge')}</p>
+-                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Consumable · From Consultation' : 'From Consultation'}</span>}
++                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Item · From Consultation' : 'From Consultation'}</span>}
+                         </div>
+                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
++                        {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
+                       </div>
+                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
+                     </div>
+ 
+                     {protectedLine ? (
+                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px_140px]">
+-                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Consumable' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
++                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Item' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
+                         <div><span className="form-label">Qty</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.quantity}</div></div>
+                         <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
+                       </div>
+diff --git a/client/src/components/billing/CheckoutSupplyEditor.jsx b/client/src/components/billing/CheckoutSupplyEditor.jsx
+--- a/client/src/components/billing/CheckoutSupplyEditor.jsx
++++ b/client/src/components/billing/CheckoutSupplyEditor.jsx
+@@ -16,7 +16,7 @@
+     .filter((batch) => !batch.archived_at && Number(batch.quantity || 0) > 0)
+     .filter((batch) => !batch.expiration_date || String(batch.expiration_date).slice(0, 10) >= today)
+     .flatMap((batch) => (Array.isArray(batch.locations) ? batch.locations : [])
+-      .filter((loc) => Number(loc?.quantity || 0) > 0 && Number(loc?.id || 0) > 0)
++      .filter((loc) => Number(loc?.available_quantity ?? loc?.quantity ?? 0) > 0 && Number(loc?.id || 0) > 0)
+       .map((loc) => ({
+         selection_key: `${Number(batch.id)}:${Number(loc.id)}`,
+         id: Number(batch.id),
+@@ -27,7 +27,7 @@
+         expiration_date: batch.expiration_date || null,
+         source_location_id: Number(loc.id),
+         source_location: loc.name,
+-        available: Math.min(Number(batch.quantity || 0), Number(loc.quantity || 0)),
++        available: Math.min(Number(batch.available_quantity ?? batch.quantity ?? 0), Number(loc.available_quantity ?? loc.quantity ?? 0)),
+       })))
+ }
+ 
+@@ -61,13 +61,13 @@
+               className="form-control pl-10"
+               value={search}
+               onChange={(e) => setSearch(e.target.value)}
+-              placeholder="Search medicine, supply, barcode or supplier..."
++              placeholder="Search item, barcode or supplier..."
+             />
+           </div>
+         </label>
+ 
+         <label className="block">
+-          <span className="form-label">Medicine / Supply *</span>
++          <span className="form-label">Inventory Item *</span>
+           <select className="form-control mt-1.5" value={item.source_inventory_id || ''} onChange={(e) => onSelectInventory(e.target.value)}>
+             <option value="">Select inventory item</option>
+             {filteredInventory.map((inv) => {
+diff --git a/client/src/hooks/usePolling.js b/client/src/hooks/usePolling.js
+--- a/client/src/hooks/usePolling.js
++++ b/client/src/hooks/usePolling.js
+@@ -1,58 +1,40 @@
+-// client/src/hooks/usePolling.js
+-// Reusable polling hook.  Calls `fn` immediately on mount, then every `intervalMs`.
+-// Pauses when the browser tab is hidden (document.visibilityState === 'hidden')
+-// so we don't spam the server for a tab the user isn't looking at.
+-// Stops automatically on unmount.
+-//
+-// Usage:
+-//   usePolling(loadData, 30_000)          // refresh every 30 s
+-//   usePolling(loadData, 15_000, !ready)  // skip until `ready` is true
+-
++// Refresh data without refreshing the entire browser page.
++// Prevent overlapping requests, rapid duplicate refreshes and hidden-tab traffic.
+ import { useEffect, useRef, useCallback } from 'react'
+ 
+ const usePolling = (fn, intervalMs = 30_000, skip = false) => {
+-  const savedFn  = useRef(fn)
+-  const timerId  = useRef(null)
+-
+-  // Keep ref in sync with latest fn so the interval always calls the newest closure
++  const savedFn = useRef(fn)
++  const busy = useRef(false)
++  const lastCall = useRef(0)
++  const timer = useRef(null)
+   useEffect(() => { savedFn.current = fn }, [fn])
+ 
+   const run = useCallback(() => {
+-    if (skip) return
+-    if (document.visibilityState === 'hidden') return
+-    savedFn.current()
++    if (skip || document.visibilityState === 'hidden' || busy.current) return
++    const now = Date.now()
++    if (now - lastCall.current < 1500) return // SSE events may arrive together.
++    lastCall.current = now
++    busy.current = true
++    try {
++      // Catch failures here only to release the lock. Existing loaders handle UI errors.
++      Promise.resolve(savedFn.current()).catch(() => {}).finally(() => { busy.current = false })
++    } catch {
++      busy.current = false
++    }
+   }, [skip])
+ 
+   useEffect(() => {
+-    if (skip) return
+-
+-    // Immediate first call
+-    savedFn.current()
+-
+-    // Schedule repeating calls
+-    timerId.current = setInterval(run, intervalMs)
+-
+-    // Pause / resume on tab visibility change
+-    const onVisibilityChange = () => {
+-      if (document.visibilityState === 'visible') {
+-        // Tab became visible — run immediately then keep interval
+-        savedFn.current()
+-      }
++    if (skip) return undefined
++    run()
++    timer.current = window.setInterval(run, Math.max(5000, Number(intervalMs) || 30000))
++    const onVisibility = () => { if (document.visibilityState === 'visible') run() }
++    document.addEventListener('visibilitychange', onVisibility)
++    window.addEventListener('clinic:refresh', run)
++    return () => {
++      window.clearInterval(timer.current)
++      document.removeEventListener('visibilitychange', onVisibility)
++      window.removeEventListener('clinic:refresh', run)
+     }
+-    document.addEventListener('visibilitychange', onVisibilityChange)
+-
+-    // SSE/layout components dispatch this event after workflow mutations. Pages
+-    // using polling therefore refresh immediately, while the interval remains a
+-    // resilience fallback if a live event is missed.
+-    const onClinicRefresh = () => run()
+-    window.addEventListener('clinic:refresh', onClinicRefresh)
+-
+-    return () => {
+-      clearInterval(timerId.current)
+-      document.removeEventListener('visibilitychange', onVisibilityChange)
+-      window.removeEventListener('clinic:refresh', onClinicRefresh)
+-    }
+-  }, [run, intervalMs, skip])
++  }, [intervalMs, run, skip])
+ }
+-
+ export default usePolling
+diff --git a/client/src/pages/adminPage/Admin_BillingServiceForm.jsx b/client/src/pages/adminPage/Admin_BillingServiceForm.jsx
+--- a/client/src/pages/adminPage/Admin_BillingServiceForm.jsx
++++ b/client/src/pages/adminPage/Admin_BillingServiceForm.jsx
+@@ -99,7 +99,7 @@
+     setForm((current) => ({ ...current, clinic_type: clinicType, category_id: '', category: '', materials: [] }))
+     setErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith('material_') && !key.startsWith('qty_') && !key.startsWith('price_'))))
+     setDirty(true)
+-    toast.info('Clinic changed. Consumables were cleared so only inventory for the selected clinic can be added.')
++    toast.info('Clinic changed. Added items were cleared. Choose items from the selected clinic.')
+   }
+   const changeCategory = (categoryId) => { const category = serviceCategories.find((item) => Number(item.id) === Number(categoryId)); setForm((current) => ({ ...current, category_id: categoryId, category: category?.name || '' })); setDirty(true) }
+   const updateMaterial = (index, key, value) => { setForm((current) => ({ ...current, materials: current.materials.map((m, i) => i === index ? { ...m, [key]: value } : m) })); setDirty(true) }
+@@ -159,12 +159,12 @@
+ 
+   return <div className="mx-auto max-w-5xl space-y-5">
+     <div className="flex flex-wrap items-start justify-between gap-3">
+-      <div><button className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-900" onClick={leaveEditor}><MdArrowBack /> Services & Pricing Setup</button><h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdPayments className="text-amber-500" /> {editing ? 'Edit Service' : 'Add Service'}</h1><p className="mt-1 text-sm text-slate-500">Set the Service Price and the inventory consumables normally used. Consumable Selling Prices are added automatically to the patient price.</p></div>
++      <div><button className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-900" onClick={leaveEditor}><MdArrowBack /> Services & Pricing Setup</button><h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdPayments className="text-amber-500" /> {editing ? 'Edit Service' : 'Add Service'}</h1><p className="mt-1 text-sm text-slate-500">Set the service fee and inventory items normally used. Item selling prices are added to the patient total.</p></div>
+       {editing && (Number(form.is_active)===1 || serviceUsageCount===0) && <button className="button-danger" onClick={() => setRemoveOpen(true)}><MdDelete /> {serviceUsageCount>0?'Deactivate Service':'Delete Service'}</button>}
+     </div>
+ 
+     <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1 text-sm font-bold">
+-      {['Service Details','Supplies','Review'].map((label,index)=><div key={label} className={`rounded-xl px-3 py-2 text-center ${step===index+1?'bg-white text-slate-900 shadow-sm':'text-slate-500'}`}>{index+1}. {label}</div>)}
++      {['Service Details','Items','Review'].map((label,index)=><div key={label} className={`rounded-xl px-3 py-2 text-center ${step===index+1?'bg-white text-slate-900 shadow-sm':'text-slate-500'}`}>{index+1}. {label}</div>)}
+     </div>
+ 
+     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+@@ -181,12 +181,12 @@
+       </div>}
+ 
+       {step === 2 && <div className="space-y-4">
+-        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-black">Default Supplies</h2><p className="mt-1 text-sm text-slate-500">Choose inventory items normally used when this service is performed. Quantity Used is deducted from treatment-room stock only when the consultation is completed. Inventory quantities are tracked as whole units.</p></div><button className="button-secondary" onClick={()=>update('materials',[...form.materials,blankMaterial()])}><MdAdd /> Add Supply</button></div>
+-        {!form.materials.length ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">No default consumables.</div> : <div className="space-y-3">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id)); const stepValue=1; const unitPrice=Number(item?.selling_price||0); const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0)); return <div key={index} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><strong className="text-xs uppercase tracking-wide text-slate-400">Consumable {index+1}</strong><button className="text-slate-400 hover:text-rose-600" onClick={()=>update('materials',form.materials.filter((_,i)=>i!==index))}><MdClose /></button></div><div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_.7fr_.9fr]"><label><span className="form-label">Inventory Item *</span><select className="form-control mt-1.5" value={m.inventory_id} onChange={(e)=>chooseInventory(index,e.target.value)}><option value="">Select item</option>{inventory.filter((inv)=>!inv.category||inv.category===form.clinic_type).map((inv)=><option key={inv.id} value={inv.id}>{inv.name} — {Number(inv.selling_price||0)>0?formatMoney(inv.selling_price):'Price not set'}</option>)}</select>{errors[`material_${index}`]&&<p className="form-error">{errors[`material_${index}`]}</p>}{errors[`price_${index}`]&&<p className="form-error">{errors[`price_${index}`]}</p>}</label><div><span className="form-label">Quantity Used *</span><input aria-label={`Quantity used for consumable ${index+1}`} type="number" min={stepValue} step={stepValue} className="form-control mt-1.5" value={m.quantity} onChange={(e)=>updateMaterial(index,'quantity',e.target.value)} /><p className="mt-1 text-[11px] text-slate-400">Whole units only.</p>{errors[`qty_${index}`]&&<p className="form-error">{errors[`qty_${index}`]}</p>}</div><div><span className="form-label">Consumable Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"><p className="font-bold text-slate-800">{unitPrice>0?formatMoney(unitPrice):'Not set'}</p><p className="mt-0.5 text-[11px] text-slate-400">{Number(m.quantity||0)>0&&unitPrice>0?`${formatMoney(lineTotal)} total`:'Inventory Selling Price'}</p></div></div><label className="sm:col-span-3"><span className="form-label">Notes</span><input maxLength={255} className="form-control mt-1.5" value={m.notes} onChange={(e)=>updateMaterial(index,'notes',e.target.value)} placeholder="Optional usage note" /></label></div></div>})}</div>}
+-        <div className="grid gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Service Price</p><p className="mt-1 font-black text-amber-950">{formatMoney(servicePrice)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Supplies Used</p><p className="mt-1 font-black text-amber-950">{formatMoney(consumablesTotal)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Total Patient Price</p><p className="mt-1 text-lg font-black text-amber-950">{formatMoney(patientPrice)}</p></div></div>
++        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-black">Default Items</h2><p className="mt-1 text-sm text-slate-500">Choose items normally used for this service. The doctor records actual usage, and billing handles the final stock-out in the new workflow. Existing systems retain their current stock rules until the new workflow is enabled.</p></div><button className="button-secondary" onClick={()=>update('materials',[...form.materials,blankMaterial()])}><MdAdd /> Add Item</button></div>
++        {!form.materials.length ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">No default items.</div> : <div className="space-y-3">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id)); const stepValue=1; const unitPrice=Number(item?.selling_price||0); const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0)); return <div key={index} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><strong className="text-xs uppercase tracking-wide text-slate-400">Item {index+1}</strong><button className="text-slate-400 hover:text-rose-600" onClick={()=>update('materials',form.materials.filter((_,i)=>i!==index))}><MdClose /></button></div><div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_.7fr_.9fr]"><label><span className="form-label">Inventory Item *</span><select className="form-control mt-1.5" value={m.inventory_id} onChange={(e)=>chooseInventory(index,e.target.value)}><option value="">Select item</option>{inventory.filter((inv)=>!inv.category||inv.category===form.clinic_type).map((inv)=><option key={inv.id} value={inv.id}>{inv.name} — {Number(inv.selling_price||0)>0?formatMoney(inv.selling_price):'Price not set'}</option>)}</select>{errors[`material_${index}`]&&<p className="form-error">{errors[`material_${index}`]}</p>}{errors[`price_${index}`]&&<p className="form-error">{errors[`price_${index}`]}</p>}</label><div><span className="form-label">Quantity Used *</span><input aria-label={`Quantity used for item ${index+1}`} type="number" min={stepValue} step={stepValue} className="form-control mt-1.5" value={m.quantity} onChange={(e)=>updateMaterial(index,'quantity',e.target.value)} /><p className="mt-1 text-[11px] text-slate-400">Whole units only.</p>{errors[`qty_${index}`]&&<p className="form-error">{errors[`qty_${index}`]}</p>}</div><div><span className="form-label">Item Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"><p className="font-bold text-slate-800">{unitPrice>0?formatMoney(unitPrice):'Not set'}</p><p className="mt-0.5 text-[11px] text-slate-400">{Number(m.quantity||0)>0&&unitPrice>0?`${formatMoney(lineTotal)} total`:'Inventory Selling Price'}</p></div></div><label className="sm:col-span-3"><span className="form-label">Notes</span><input maxLength={255} className="form-control mt-1.5" value={m.notes} onChange={(e)=>updateMaterial(index,'notes',e.target.value)} placeholder="Optional usage note" /></label></div></div>})}</div>}
++        <div className="grid gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Service Price</p><p className="mt-1 font-black text-amber-950">{formatMoney(servicePrice)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Items Used</p><p className="mt-1 font-black text-amber-950">{formatMoney(consumablesTotal)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Total Patient Price</p><p className="mt-1 text-lg font-black text-amber-950">{formatMoney(patientPrice)}</p></div></div>
+       </div>}
+ 
+-      {step === 3 && <div className="space-y-4"><div><h2 className="text-lg font-black">Review Service</h2><p className="mt-1 text-sm text-slate-500">Confirm the Service Price, consumable prices, and final patient price.</p></div><div className="rounded-2xl border border-slate-200 p-5"><h3 className="text-xl font-black">{form.service_name||'Unnamed Service'}</h3><p className="mt-1 text-sm text-slate-500">{form.category||'No category'} · {clinicLabel(form.clinic_type)} · {formatDuration(Number(form.average_duration_minutes || 60))} appointment length · {formatDuration(reservedDuration(form.average_duration_minutes))} reserved for booking · {Number(form.is_active)===1?'Active':'Inactive'}</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">Service Price</p><p className="mt-2 text-xl font-black text-slate-900">{formatMoney(servicePrice)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">Supplies Used</p><p className="mt-2 text-xl font-black text-slate-900">{formatMoney(consumablesTotal)}</p></div><div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs font-bold uppercase text-amber-700">Total Patient Price</p><p className="mt-2 text-2xl font-black text-amber-900">{formatMoney(patientPrice)}</p></div></div></div><div className="rounded-2xl border border-slate-200 p-5"><div className="flex items-center justify-between"><strong>Default Supplies</strong><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold">{form.materials.length}</span></div>{form.materials.length?<div className="mt-3 divide-y divide-slate-100">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id));const validItem=isInventoryCompatible(item);const unitPrice=validItem?Number(item?.selling_price||0):0;const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0));return <div key={index} className="grid gap-1 py-3 text-sm sm:grid-cols-[1fr_auto]"><div><p className="font-semibold text-slate-800">{m.material_name||item?.name}</p><p className="text-xs text-slate-400">{m.quantity} unit{Number(m.quantity)===1?'':'s'} × {formatMoney(unitPrice)}</p></div><span className="font-bold text-slate-700">{formatMoney(lineTotal)}</span></div>})}</div>:<p className="mt-3 text-sm text-slate-500">No default consumables.</p>}</div><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><MdCheck className="mr-1 inline" /> Total Patient Price = Service Price + Consumable Prices. Consumable stock is deducted when the consultation is completed.</div></div>}
++      {step === 3 && <div className="space-y-4"><div><h2 className="text-lg font-black">Review Service</h2><p className="mt-1 text-sm text-slate-500">Confirm the service fee, item prices, and patient total.</p></div><div className="rounded-2xl border border-slate-200 p-5"><h3 className="text-xl font-black">{form.service_name||'Unnamed Service'}</h3><p className="mt-1 text-sm text-slate-500">{form.category||'No category'} · {clinicLabel(form.clinic_type)} · {formatDuration(Number(form.average_duration_minutes || 60))} appointment length · {formatDuration(reservedDuration(form.average_duration_minutes))} reserved for booking · {Number(form.is_active)===1?'Active':'Inactive'}</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">Service Price</p><p className="mt-2 text-xl font-black text-slate-900">{formatMoney(servicePrice)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">Items Used</p><p className="mt-2 text-xl font-black text-slate-900">{formatMoney(consumablesTotal)}</p></div><div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs font-bold uppercase text-amber-700">Total Patient Price</p><p className="mt-2 text-2xl font-black text-amber-900">{formatMoney(patientPrice)}</p></div></div></div><div className="rounded-2xl border border-slate-200 p-5"><div className="flex items-center justify-between"><strong>Default Items</strong><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold">{form.materials.length}</span></div>{form.materials.length?<div className="mt-3 divide-y divide-slate-100">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id));const validItem=isInventoryCompatible(item);const unitPrice=validItem?Number(item?.selling_price||0):0;const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0));return <div key={index} className="grid gap-1 py-3 text-sm sm:grid-cols-[1fr_auto]"><div><p className="font-semibold text-slate-800">{m.material_name||item?.name}</p><p className="text-xs text-slate-400">{m.quantity} unit{Number(m.quantity)===1?'':'s'} × {formatMoney(unitPrice)}</p></div><span className="font-bold text-slate-700">{formatMoney(lineTotal)}</span></div>})}</div>:<p className="mt-3 text-sm text-slate-500">No default items.</p>}</div><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><MdCheck className="mr-1 inline" /> Patient Total = Service Fee + Item Prices. Final stock changes follow the clinic billing workflow.</div></div>}
+     </section>
+ 
+     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between"><div>{step===1?<button className="button-secondary" onClick={leaveEditor}><MdArrowBack /> Cancel</button>:<button className="button-secondary" disabled={saving} onClick={()=>move(step-1)}>Back</button>}</div><div>{step<3?<button className="button-primary min-w-32" onClick={()=>move(step+1)}>Continue</button>:<button className="button-primary min-w-40" disabled={saving} onClick={save}>{saving?'Saving…':editing?'Save Changes':'Add Service'}</button>}</div></div>
+diff --git a/client/src/pages/adminPage/Admin_CheckoutDetail.jsx b/client/src/pages/adminPage/Admin_CheckoutDetail.jsx
+--- a/client/src/pages/adminPage/Admin_CheckoutDetail.jsx
++++ b/client/src/pages/adminPage/Admin_CheckoutDetail.jsx
+@@ -21,6 +21,7 @@
+   updateAdminCheckoutBill as updateBill,
+   uploadAdminDiscountProofImage as uploadDiscountProofImage,
+ } from '../../services/admin.service'
++import { closeUnpaidClinicalStock } from '../../services/admin.service'
+ import { getClinicSettings } from '../../services/clinic.service'
+ import { useToast } from '../../components/ui/ToastProvider'
+ import Modal from '../../components/ui/Modal'
+@@ -589,6 +590,19 @@
+         </div>
+       </section>
+ 
++      {Number(bill.pending_clinical_items || 0) > 0 && !['paid','refunded'].includes(bill.status) && !bill.paid_at && (
++        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
++          <p className="font-bold text-amber-900">{bill.pending_clinical_items} item batch(es) used in consultation are waiting for billing.</p>
++          <p className="mt-1 text-amber-800">If this patient leaves without full payment, you may record that stock use without marking the bill paid.</p>
++          <button type="button" className="button-secondary mt-3" disabled={saving || paying || finalizing || qrPending} onClick={async () => {
++            const reason = window.prompt('Why are you closing the used items without full payment? (5–255 characters)')
++            if (!reason || reason.trim().length < 5 || reason.trim().length > 255) return
++            if (!window.confirm('This will remove already used items from recorded stock. It will NOT record a payment. Continue?')) return
++            try { await closeUnpaidClinicalStock(bill.id, reason.trim()); await load({ preserveStep: true }) }
++            catch (error) { window.alert(error.message || 'Could not close unpaid stock usage.') }
++          }}>Record used items without payment</button>
++        </div>
++      )}
+       <CheckoutStatus bill={bill} dirty={dirty} saving={saving} finalizing={finalizing} paying={paying} qrPending={qrPending} reopening={reopening} versionConflict={versionConflict} />
+       <CheckoutOverview bill={bill} totals={totals} dirty={dirty} formatMoney={formatMoney} />
+ 
+@@ -615,16 +629,17 @@
+                       <div className="min-w-0 flex-1">
+                         <div className="flex flex-wrap items-center gap-2">
+                           <p className="font-black text-slate-900">{item.service_name || (item.item_type === 'supply' ? 'Medicine / Supply' : 'Custom Charge')}</p>
+-                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Consumable · From Consultation' : 'From Consultation'}</span>}
++                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Item · From Consultation' : 'From Consultation'}</span>}
+                         </div>
+                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
++                        {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
+                       </div>
+                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
+                     </div>
+ 
+                     {protectedLine ? (
+                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px_140px]">
+-                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Consumable' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
++                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Item' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
+                         <div><span className="form-label">Qty</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.quantity}</div></div>
+                         <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
+                       </div>
+diff --git a/client/src/pages/displayPage/QueueDisplay.jsx b/client/src/pages/displayPage/QueueDisplay.jsx
+--- a/client/src/pages/displayPage/QueueDisplay.jsx
++++ b/client/src/pages/displayPage/QueueDisplay.jsx
+@@ -1,5 +1,6 @@
+ import { useCallback, useEffect, useRef, useState } from 'react'
+ import { MdLock, MdLockOpen, MdVolumeUp, MdWifi, MdWifiOff } from 'react-icons/md'
++import { formatQueueLabel } from '../../utils/queueLabel.mjs'
+ 
+ const useCurrentTime = () => {
+   const [time, setTime] = useState(new Date())
+@@ -275,7 +276,7 @@
+           {queue.serving ? (
+             <div className="py-4 text-center">
+               <div className="mx-auto mb-5 flex h-32 w-32 items-center justify-center rounded-[32px] bg-sky-500/15 text-5xl font-black text-sky-300">
+-                {queue.serving.queueNo}
++                {formatQueueLabel(queue.serving)}
+               </div>
+               <p className="text-xl font-black">{typeLabel(queue.serving.type)}</p>
+               <p className="mt-2 text-sm text-slate-300">{queue.serving.doctor}</p>
+@@ -299,14 +300,14 @@
+ 
+           <div className="space-y-3">
+             {queue.waiting?.length ? queue.waiting.map((entry, index) => (
+-              <div key={`${entry.queueNo}-${entry.arrivedAt || index}`} className={`rounded-2xl border px-4 py-3 ${index === 0 ? 'border-amber-400/30 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
++              <div key={`${formatQueueLabel(entry)}-${entry.arrivedAt || index}`} className={`rounded-2xl border px-4 py-3 ${index === 0 ? 'border-amber-400/30 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
+                 <div className="flex items-center justify-between gap-3">
+                   <div>
+                     <p className="text-sm font-bold text-slate-200">{typeLabel(entry.type)}</p>
+                     <p className="mt-1 text-xs text-slate-500">Arrived {entry.arrivedAt || '—'}</p>
+                   </div>
+                   <div className="text-right">
+-                    <p className="text-3xl font-black text-sky-300">{entry.queueNo}</p>
++                    <p className="text-3xl font-black text-sky-300">{formatQueueLabel(entry)}</p>
+                     {index === 0 && <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Up next</p>}
+                   </div>
+                 </div>
+diff --git a/client/src/pages/doctorPage/Doctor_Appointments.jsx b/client/src/pages/doctorPage/Doctor_Appointments.jsx
+--- a/client/src/pages/doctorPage/Doctor_Appointments.jsx
++++ b/client/src/pages/doctorPage/Doctor_Appointments.jsx
+@@ -1,3 +1,4 @@
++import { formatQueueLabel } from '../../utils/queueLabel.mjs'
+ import { useLocation } from 'react-router-dom'
+ // client/src/pages/doctorPage/Doctor_Appointments.jsx
+ // IMPROVEMENTS:
+@@ -356,7 +357,7 @@
+           <div key={q.id} className={`flex items-center gap-3 px-4 py-3 ${q.status === 'called' ? 'bg-sky-50/50' : q.status === 'in_consultation' ? 'bg-violet-50/50' : ''}`}>
+             <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0
+               ${q.status === 'called' ? 'bg-sky-100 text-sky-700' : q.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'}`}>
+-              {q.queue_number}
++              {formatQueueLabel(q)}
+             </div>
+             <div className="flex-1 min-w-0">
+               <p className="text-sm font-semibold text-slate-800 truncate">{q.patient_name}</p>
+diff --git a/client/src/pages/doctorPage/Doctor_Consultation.jsx b/client/src/pages/doctorPage/Doctor_Consultation.jsx
+--- a/client/src/pages/doctorPage/Doctor_Consultation.jsx
++++ b/client/src/pages/doctorPage/Doctor_Consultation.jsx
+@@ -776,6 +776,11 @@
+     setBillableServices(prev=>prev.map(s=>Number(s.catalog_service_id)===Number(serviceId)
+       ? {...s,usage_change_reason:reason} : s))
+   }
++  const updatePartialService = (serviceId, note) => {
++    if (isEditMode) return
++    setBillableServices(prev => prev.map(service => Number(service.catalog_service_id) === Number(serviceId)
++      ? { ...service, partial_service_note: note } : service))
++  }
+   const replaceIncludedMaterial = (serviceId, materialIndex) => {
+     if (isEditMode) return
+     setReplacementTarget({serviceId,materialIndex})
+@@ -979,7 +984,12 @@
+       })
+       return
+     }
+-    if (!window.confirm('Complete consultation? This will finalize the clinical record, update the bill, deduct the actual recorded consumables, and mark the appointment completed. Further corrections must be recorded as an amendment.')) return
++    if (billableServices.some(service => { const note = String(service.partial_service_note || '').trim(); return note.length > 0 && note.length < 5 })) {
++      setTab('consultation')
++      window.alert('Describe the skipped part of the service in at least 5 characters.')
++      return
++    }
++    if (!window.confirm('Complete consultation? This will finalize the clinical record, record the items actually used, update the bill, and mark the appointment completed. Stock handling follows the clinic billing settings. Further changes must be recorded as an amendment.')) return
+     const isCurrent = captureCurrentConsultation()
+     if (!isCurrent()) return
+     finalizingRef.current = true
+@@ -1358,8 +1368,8 @@
+             <div className="bg-white border border-slate-200 rounded-2xl p-6">
+               <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                 <div>
+-                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Supplies Used</h2>
+-                  <p className="mt-1 text-xs text-slate-500">The service setup is your starting list. Replace, remove, or change actual supplies for this patient. Enter a reason for changes. Inventory is deducted only when consultation is completed.</p>
++                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2"><MdMedicalServices className="text-violet-500 text-[16px]" /> Services Performed & Inventory Items Used</h2>
++                  <p className="mt-1 text-xs text-slate-500">The service setup is your starting list. Replace, remove, or change the items used for this patient. Enter a reason for changes. The inventory page shows which items are available.</p>
+                 </div>
+                 {isEditMode && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">Clinical usage locked after completion</span>}
+               </div>
+@@ -1401,7 +1411,7 @@
+ 
+                         <div className="mt-4 border-t border-violet-100 pt-4">
+                           <div>
+-                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Supplies Actually Used</p>
++                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Inventory Items Actually Used</p>
+                             <p className="mt-1 text-xs text-slate-500">Changes here affect only this patient, not the standard service. Select a substitute when the default product was not used.</p>
+                           </div>
+                           {defaultMaterials.length ? (
+@@ -1416,7 +1426,7 @@
+                                     <div className="flex items-start justify-between gap-2">
+                                       <div>
+                                         <p className="text-xs font-semibold text-slate-700">{material.material_name}</p>
+-                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Actual consultation supply</p>
++                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Inventory item used</p>
+                                       </div>
+                                       {!isEditMode && <div className="flex flex-wrap gap-1">
+                                          <button type="button" className="rounded-lg border px-2 py-1 text-xs text-violet-700 hover:bg-violet-50" onClick={()=>replaceIncludedMaterial(service.catalog_service_id,materialIndex)}>Replace</button>
+@@ -1430,16 +1440,23 @@
+                                         <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
+                                       </div>
+                                       {quantityError && <p role="alert" className="mt-1 text-xs text-rose-700">{quantityError}</p>}
++                                      {inv && Number(inv.available_stock ?? inv.stock ?? 0) <= 0 && !isEditMode && (
++                                        <p role="alert" className="mt-2 text-xs font-semibold text-amber-800">No available stock for this item. Replace it or ask staff to restock before completing the consultation.</p>
++                                      )}
+                                     </div>
+                                   </div>
+                                 )
+                               })}
+                             </div>
+                           ) : (
+-                            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-4 text-xs text-slate-400">This service has no configured consumables.</div>
++                            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-4 text-xs text-slate-400">This service has no default inventory items.</div>
+                           )}
+-                          {!isEditMode && Number(service.catalog_service_id) !== Number(extraConsumableTarget?.catalog_service_id) && <label className="mt-4 block text-xs font-semibold text-slate-700">Reason for supply changes
+-                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Required before completing when supplies change" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
++                          <label className="mt-4 block text-xs font-semibold text-slate-700">Part of the service not performed (optional)
++                            <input className="form-control mt-1" maxLength={255} disabled={isEditMode} value={service.partial_service_note || ''} placeholder="Example: Extraction not performed because of skin irritation" onChange={event=>updatePartialService(service.catalog_service_id,event.target.value)} />
++                            <span className="mt-1 block font-normal text-slate-500">Billing can review this note and decide if the service fee should be reduced. This does not change the price automatically.</span>
++                          </label>
++                          {!isEditMode && Number(service.catalog_service_id) !== Number(extraConsumableTarget?.catalog_service_id) && <label className="mt-4 block text-xs font-semibold text-slate-700">Reason for item changes
++                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Required before completing when items change" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
+                             {!supplyReasonStatus(service, catalogService).valid && <span className="mt-1 block text-amber-700">Add a reason of at least 5 characters before completing the consultation. Your draft can still save.</span>}
+                           </label>}
+                         </div>
+@@ -1450,12 +1467,12 @@
+                   <div className="rounded-2xl border border-amber-200 bg-amber-50/30 p-4">
+                     <div className="flex flex-wrap items-start justify-between gap-3">
+                       <div>
+-                        <p className="text-sm font-bold text-slate-800">Extra Supplies</p>
++                        <p className="text-sm font-bold text-slate-800">Extra Inventory Items</p>
+                         <p className="mt-1 text-xs text-slate-500">Record the quantity used in addition to the fixed Service Consumables. You may add a different item or add more of the same consumable already included in the fixed service setup.</p>
+                       </div>
+                       {consultationStatus !== 'finalized' && extraConsumableTarget && (
+                         <button type="button" onClick={() => { setReplacementTarget(null); setExtraConsumableReason(extraConsumableTarget?.usage_change_reason || ''); setExtraConsumableOpen(true) }} className="button-secondary">
+-                          <MdAdd /> Add Extra Consumable
++                          <MdAdd /> Add Extra Item
+                         </button>
+                       )}
+                     </div>
+@@ -1794,7 +1811,7 @@
+           setExtraConsumableId('')
+           setExtraConsumableQuantity(1)
+         }}
+-        title="Add Extra Consumable"
++        title="Add Extra Item"
+         description="Record additional consumable quantity used during this consultation. The extra item may be different from, or the same as, a consumable already included in the booked service."
+         size="lg"
+       >
+diff --git a/client/src/pages/doctorPage/Doctor_Dashboard.jsx b/client/src/pages/doctorPage/Doctor_Dashboard.jsx
+--- a/client/src/pages/doctorPage/Doctor_Dashboard.jsx
++++ b/client/src/pages/doctorPage/Doctor_Dashboard.jsx
+@@ -1,3 +1,4 @@
++import { formatQueueLabel } from '../../utils/queueLabel.mjs'
+ // client/src/pages/doctorPage/Doctor_Dashboard.jsx
+ // REDESIGNED: Mobile-first, hero banner, live polling, improved appointment + queue display
+ 
+@@ -221,10 +222,10 @@
+                   <p className="text-xs text-slate-400">No walk-ins assigned.</p>
+                 </div>
+               ) : walkInQueue.map(q => (
+-                <div key={q.queueNo || q.queue_number}
++                <div key={formatQueueLabel(q)}
+                   className="flex items-center gap-3 p-3 rounded-xl bg-amber-50/60 border border-amber-100">
+                   <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center font-black text-sm text-amber-700 shrink-0">
+-                    {q.queueNo || q.queue_number}
++                    {formatQueueLabel(q)}
+                   </div>
+                   <div className="flex-1 min-w-0">
+                     <p className="text-sm font-semibold text-slate-800 truncate">{q.patient || q.patient_name}</p>
+diff --git a/client/src/pages/shared/Inventory.jsx b/client/src/pages/shared/Inventory.jsx
+--- a/client/src/pages/shared/Inventory.jsx
++++ b/client/src/pages/shared/Inventory.jsx
+@@ -108,7 +108,7 @@
+ 
+ const getPackageCount = (item) => {
+   const unitSize = Number(item.unit_size || 1)
+-  const stockBase = Number(item.stock_base ?? Number(item.stock || 0) * unitSize)
++  const stockBase = item.available_stock != null ? Number(item.available_stock) * unitSize : Number(item.stock_base ?? Number(item.stock || 0) * unitSize)
+   return Math.floor(stockBase / unitSize)
+ }
+ 
+@@ -801,7 +801,7 @@
+ 
+   return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 px-4"><div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+     <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="text-lg font-bold text-slate-900">Manage Batches</h3><p className="mt-1 text-xs text-slate-500">{item.name} · batch quantity, expiry and supplier lot are managed here. Selling Price is managed on the item.</p></div><button onClick={onClose}><MdClose/></button></div>
+-    <div className="border-b border-slate-100 bg-slate-50 px-6 py-4"><div className="grid gap-3 sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Product Barcode</p><p className="mt-1 font-mono text-sm font-bold text-slate-800">{item.barcode||'—'}</p></div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Clinic-wide Stock</p><p className="mt-1 text-sm font-black text-slate-800">{formatUnits(item.stock)}</p></div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Selling Price</p><p className={`mt-1 text-sm font-black ${Number(item.selling_price || 0) > 0 ? 'text-slate-800' : 'text-red-600'}`}>{Number(item.selling_price || 0) > 0 ? `PHP ${Number(item.selling_price).toFixed(2)}` : 'Not set'}</p></div></div><label className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><input type="checkbox" checked={showHistorical} onChange={e=>setShowHistorical(e.target.checked)}/> Show depleted / archived</label></div>
++    <div className="border-b border-slate-100 bg-slate-50 px-6 py-4"><div className="grid gap-3 sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Product Barcode</p><p className="mt-1 font-mono text-sm font-bold text-slate-800">{item.barcode||'—'}</p></div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Clinic-wide Stock</p><p className="mt-1 text-sm font-black text-slate-800">{formatUnits(item.available_stock ?? item.stock)}</p>{item.pending_usage != null && <p className="text-xs text-slate-500">Recorded: {formatUnits(item.stock)} · Pending: {formatUnits(item.pending_usage)}</p>}</div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Selling Price</p><p className={`mt-1 text-sm font-black ${Number(item.selling_price || 0) > 0 ? 'text-slate-800' : 'text-red-600'}`}>{Number(item.selling_price || 0) > 0 ? `PHP ${Number(item.selling_price).toFixed(2)}` : 'Not set'}</p></div></div><label className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><input type="checkbox" checked={showHistorical} onChange={e=>setShowHistorical(e.target.checked)}/> Show depleted / archived</label></div>
+     <div className="flex-1 overflow-y-auto p-6 space-y-4">{visible.length?visible.map((batch)=>{const status=getBatchStatusMeta(batch);const locations=(Array.isArray(batch.locations)?batch.locations:[]).filter((location)=>Number(location.quantity||0)>0);return <div key={batch.id} className="rounded-3xl border border-slate-200 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-mono text-sm font-black text-slate-900">{batch.batch_code||`Batch #${batch.id}`}</p><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${status.tone}`}>{status.label}</span></div><div className="mt-3 grid gap-3 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Supplier</p><p className="mt-1 font-semibold text-slate-700">{batch.supplier_name||'Not recorded'}</p><p className="mt-1 text-xs text-slate-400">Lot: {batch.supplier_lot_number||'Not provided'}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Quantity</p><p className="mt-1 font-semibold text-slate-700">{formatUnits(batch.quantity)}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Expiry</p><p className="mt-1 font-semibold text-slate-700">{batch.expiration_date?formatDate(batch.expiration_date):'No expiry'}</p></div></div>{locations.length>0&&<div className="mt-4"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Location Balance</p><div className="mt-2 flex flex-wrap gap-2">{locations.map((location)=><span key={`${batch.id}-${location.id||location.name}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>{location.name||'Location'}</strong> · {formatUnits(location.quantity)}</span>)}</div></div>}{batch.archive_reason&&<p className="mt-3 text-xs text-slate-400">Archive reason: {batch.archive_reason}</p>}</div><div className="flex flex-wrap gap-2"><button className="button-secondary" onClick={()=>openHistory(batch)}>View History</button>{!batch.archived_at&&<><button className="button-secondary" onClick={()=>setSelected({action:'correct_details',batch})}><MdEdit/> Edit Batch</button><button className="button-secondary" onClick={()=>setSelected({action:'correct_quantity',batch})}>Correct Quantity</button></>}{!batch.archived_at&&Number(batch.quantity||0)<=0&&<button className="button-secondary" onClick={()=>setSelected({action:'archive',batch})}>Archive</button>}{batch.archived_at&&<button className="button-secondary" onClick={()=>setSelected({action:'restore',batch})}>Restore</button>}{Number(batch.quantity||0)<=0&&<button className="button-danger" onClick={()=>setSelected({action:'delete',batch})}>Delete</button>}</div></div></div>}) : <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-400">No batches in this view.</div>}</div>
+     <div className="border-t border-slate-100 p-5 flex justify-end"><button className="button-secondary" onClick={onClose}>Close</button></div>
+     {selected&&<ProtectedBatchActionModal item={item} batch={selected.batch} action={selected.action} onClose={()=>setSelected(null)} onRequest={onRequestAction} onConfirm={onConfirmAction} onSuccess={(message)=>{setSelected(null);onChanged(message)}}/>}
+@@ -1058,7 +1058,8 @@
+                 </div>
+                 <p className="text-sm text-slate-500">{CATEGORIES.find(x=>x.value===item.category)?.label || item.category} · {(ITEM_TYPES.find(x=>x.value===item.item_type)?.label || item.item_type || 'Supplies')} · {item.supplier || 'No supplier'}</p>
+                 <p className="text-sm text-slate-600">
+-                  <strong>{formatUnits(item.stock ?? item.stock_base ?? 0)}</strong> in stock
++                  <strong>{formatUnits(item.available_stock ?? item.stock ?? item.stock_base ?? 0)}</strong> available
++                  {item.pending_usage != null && <span className="ml-2 text-xs text-slate-500">(Recorded {formatUnits(item.stock)}, used / pending {formatUnits(item.pending_usage)})</span>}
+                 </p>
+                 <p className="text-xs text-slate-400">Low stock threshold: {formatUnits(item.threshold)} · Selling Price: {Number(item.selling_price || 0) > 0 ? `PHP ${Number(item.selling_price).toFixed(2)}` : 'Not set'}</p>{Number(item.selling_price || 0) <= 0 && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Selling Price is missing. {canManageSellingPrice ? 'Edit this item and set a price greater than ₱0.00 before it can be used for direct Checkout billing.' : 'Ask an Admin to set the Selling Price before this item can be used for patient billing.'}</div>}
+                 <div className="flex flex-wrap gap-3 pt-1 text-xs">
+diff --git a/client/src/pages/staffPage/Staff_CheckoutDetail.jsx b/client/src/pages/staffPage/Staff_CheckoutDetail.jsx
+--- a/client/src/pages/staffPage/Staff_CheckoutDetail.jsx
++++ b/client/src/pages/staffPage/Staff_CheckoutDetail.jsx
+@@ -653,16 +653,17 @@
+                       <div className="min-w-0 flex-1">
+                         <div className="flex flex-wrap items-center gap-2">
+                           <p className="font-black text-slate-900">{item.service_name || (item.item_type === 'supply' ? 'Medicine / Supply' : 'Custom Charge')}</p>
+-                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Consumable · From Consultation' : 'From Consultation'}</span>}
++                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Item · From Consultation' : 'From Consultation'}</span>}
+                         </div>
+                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
++                        {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
+                       </div>
+                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
+                     </div>
+ 
+                     {protectedLine ? (
+                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px_140px]">
+-                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Consumable' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
++                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Item' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
+                         <div><span className="form-label">Qty</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.quantity}</div></div>
+                         <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
+                       </div>
+diff --git a/client/src/pages/staffPage/Staff_WalkInQueue.jsx b/client/src/pages/staffPage/Staff_WalkInQueue.jsx
+--- a/client/src/pages/staffPage/Staff_WalkInQueue.jsx
++++ b/client/src/pages/staffPage/Staff_WalkInQueue.jsx
+@@ -31,6 +31,7 @@
+ import { printWalkInIntakeForm } from '../../utils/printWalkInIntakeForm'
+ import { getLocalDateOnly } from '../../utils/date'
+ import { getClinicToday, getMinPatientBirthdate } from '../../utils/patientBirthdate.mjs'
++import { formatQueueLabel } from '../../utils/queueLabel.mjs'
+ 
+ const maxPatientBirthdate = getClinicToday
+ const minPatientBirthdate = getMinPatientBirthdate
+@@ -40,7 +41,7 @@
+   const active = ['called', 'in_consultation'].includes(entry.status)
+   return <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+     <div className="mb-3 flex items-start justify-between gap-3"><div><p className="text-base font-bold text-slate-900">{entry.patient_name || entry.patient}</p><p className="text-sm text-slate-500">{entry.doctor_name || entry.doctor}</p></div><span className={`rounded-full px-3 py-1 text-xs font-bold capitalize ${active ? 'bg-sky-50 text-sky-700' : entry.status === 'done' ? 'bg-emerald-50 text-emerald-700' : entry.status === 'removed' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-700'}`}>{String(entry.status || '').replace('_', ' ')}</span></div>
+-    <div className="mb-4 text-sm text-slate-600">Queue #{entry.queue_number || entry.queueNo} • {entry.type === 'derma' ? 'Dermatology' : 'General Medicine'}</div>
++    <div className="mb-4 text-sm text-slate-600">Queue {formatQueueLabel(entry)} • {entry.type === 'derma' ? 'Dermatology' : 'General Medicine'}</div>
+     {(entry.status === 'waiting' || entry.status === 'called') && <div className="flex gap-2">{entry.status === 'waiting' && <button onClick={() => onCall(entry)} className="flex-1 rounded-2xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white">Call Patient</button>}{entry.status === 'called' && <button onClick={() => onReturn(entry)} className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">Return to Waiting</button>}<button onClick={() => onRemove(entry)} className="rounded-2xl border border-red-200 px-4 py-3 text-sm font-semibold text-red-600">Remove</button></div>}
+     {entry.status === 'called' && <p className="mt-3 rounded-xl bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">Patient called{entry.called_at ? ` · ${new Date(entry.called_at).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}` : ''}. Waiting for the doctor to start consultation.</p>}
+     {entry.status === 'in_consultation' && <p className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700">In consultation. This entry will complete automatically when the doctor finalizes the visit.</p>}
+@@ -272,7 +273,7 @@
+       onSuccess({ ...queued, patient_name: target.full_name || target.name, doctor_name: queued.doctor_name || selectedDoctor?.full_name || precheck?.today_appointment?.doctor_name || 'Assigned doctor' })
+     } catch (err) {
+       setReviewing(false)
+-      if (err.code === 'ALREADY_IN_QUEUE' && err.queue_entry) setError(`This patient is already in the active queue (Queue #${err.queue_entry.queue_number}).`)
++      if (err.code === 'ALREADY_IN_QUEUE' && err.queue_entry) setError(`This patient is already in the active queue (Queue ${formatQueueLabel(err.queue_entry)}).`)
+       else if (err.code === 'TODAY_APPOINTMENT' || err.today_appointment) setPrecheck((prev) => ({ ...(prev || {}), today_appointment: err.today_appointment || err.active_appointment }))
+       else setError(err.message || 'Could not add the walk-in visit.')
+       loadVisitOptions(form.clinic_type)
+@@ -317,7 +318,7 @@
+   </>
+ }
+ 
+-const SuccessModal = ({ entry, onClose }) => <><div className="fixed inset-0 z-40 bg-black/40" /><div className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-3xl bg-white p-6 text-center shadow-2xl"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-2xl text-emerald-600"><MdCheck /></div><h2 className="mt-4 text-xl font-bold text-slate-900">Added to Walk-in Queue</h2><p className="mt-1 text-sm text-slate-500">{entry.patient_name}</p><div className="mt-5 rounded-2xl bg-slate-50 p-5"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Queue Position</p><p className="mt-1 text-4xl font-black text-slate-900">#{entry.queue_number}</p><p className="mt-2 text-sm text-slate-600">{entry.doctor_name}</p></div><button onClick={onClose} className="button-primary mt-5 w-full">Done</button></div></>
++const SuccessModal = ({ entry, onClose }) => <><div className="fixed inset-0 z-40 bg-black/40" /><div className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-3xl bg-white p-6 text-center shadow-2xl"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-2xl text-emerald-600"><MdCheck /></div><h2 className="mt-4 text-xl font-bold text-slate-900">Added to Walk-in Queue</h2><p className="mt-1 text-sm text-slate-500">{entry.patient_name}</p><div className="mt-5 rounded-2xl bg-slate-50 p-5"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Queue Position</p><p className="mt-1 text-4xl font-black text-slate-900">{formatQueueLabel(entry)}</p><p className="mt-2 text-sm text-slate-600">{entry.doctor_name}</p></div><button onClick={onClose} className="button-primary mt-5 w-full">Done</button></div></>
+ 
+ const StaffWalkInQueue = () => {
+   const [queue, setQueue] = useState([])
+@@ -339,7 +340,7 @@
+ 
+   return <div className="mx-auto w-full max-w-7xl space-y-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdQueuePlayNext className="text-sky-500" /> Walk-in Queue</h1><p className="mt-1 text-sm text-slate-500">Find an existing patient, choose the visit reason, select a currently available doctor, and manage today&apos;s queues.</p></div><div className="flex flex-wrap gap-2"><button onClick={printWalkInIntakeForm} className="button-secondary"><MdPrint /> Print Intake Form</button><button onClick={loadData} className="button-secondary"><MdRefresh /> Refresh</button><button onClick={() => setShowModal(true)} className="button-primary"><MdAdd /> Add Walk-in Visit</button></div></div>
+     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[['Waiting', active.filter((i) => i.status === 'waiting').length, 'bg-amber-50 text-amber-700'], ['Called', active.filter((i) => i.status === 'called').length, 'bg-sky-50 text-sky-700'], ['In Consultation', active.filter((i) => i.status === 'in_consultation').length, 'bg-violet-50 text-violet-700'], ['Completed', completed.filter((i) => i.status === 'done').length, 'bg-emerald-50 text-emerald-700']].map(([label, value, tone]) => <div key={label} className={`rounded-3xl border border-slate-200 p-5 ${tone}`}><p className="text-3xl font-black">{value}</p><p className="mt-1 text-sm font-semibold">{label}</p></div>)}</div>
+-    {loading ? <div className="flex h-64 items-center justify-center rounded-3xl border bg-white"><div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" /></div> : <><section className="space-y-3"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400"><MdMedicalServices /> Active Queue</div><div className="grid gap-4 lg:grid-cols-2">{active.length ? activePg.pageItems.map((entry) => <QueueCard key={entry.id} entry={entry} onCall={call} onReturn={returnToWaiting} onRemove={remove} />) : <div className="rounded-3xl border bg-white p-8 text-center text-sm text-slate-400">No active walk-ins yet.</div>}</div>{active.length > 0 && <Pagination {...activePg} total={active.length} pageSizeOptions={[6, 12, 24]} />}</section><section className="space-y-3"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400"><MdCheck /> Completed / Removed</div><div className="grid gap-4 lg:grid-cols-2">{completed.length ? donePg.pageItems.map((entry) => <div key={entry.id} className="rounded-3xl border bg-white p-4 shadow-sm"><div className="flex justify-between gap-3"><div><p className="font-bold text-slate-900">{entry.patient_name}</p><p className="text-sm text-slate-500">{entry.doctor_name}</p></div><span className="text-xs font-bold capitalize text-slate-500">{entry.status}</span></div><p className="mt-2 text-sm text-slate-500">Queue #{entry.queue_number} • {entry.type}</p></div>) : <div className="rounded-3xl border bg-white p-8 text-center text-sm text-slate-400">No completed entries yet.</div>}</div>{completed.length > 0 && <Pagination {...donePg} total={completed.length} pageSizeOptions={[6, 12, 24]} />}</section></>}
++    {loading ? <div className="flex h-64 items-center justify-center rounded-3xl border bg-white"><div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" /></div> : <><section className="space-y-3"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400"><MdMedicalServices /> Active Queue</div><div className="grid gap-4 lg:grid-cols-2">{active.length ? activePg.pageItems.map((entry) => <QueueCard key={entry.id} entry={entry} onCall={call} onReturn={returnToWaiting} onRemove={remove} />) : <div className="rounded-3xl border bg-white p-8 text-center text-sm text-slate-400">No active walk-ins yet.</div>}</div>{active.length > 0 && <Pagination {...activePg} total={active.length} pageSizeOptions={[6, 12, 24]} />}</section><section className="space-y-3"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400"><MdCheck /> Completed / Removed</div><div className="grid gap-4 lg:grid-cols-2">{completed.length ? donePg.pageItems.map((entry) => <div key={entry.id} className="rounded-3xl border bg-white p-4 shadow-sm"><div className="flex justify-between gap-3"><div><p className="font-bold text-slate-900">{entry.patient_name}</p><p className="text-sm text-slate-500">{entry.doctor_name}</p></div><span className="text-xs font-bold capitalize text-slate-500">{entry.status}</span></div><p className="mt-2 text-sm text-slate-500">Queue {formatQueueLabel(entry)} • {entry.type}</p></div>) : <div className="rounded-3xl border bg-white p-8 text-center text-sm text-slate-400">No completed entries yet.</div>}</div>{completed.length > 0 && <Pagination {...donePg} total={completed.length} pageSizeOptions={[6, 12, 24]} />}</section></>}
+     {showModal && <WalkInModal onClose={() => setShowModal(false)} onSuccess={onSuccess} />}
+     {success && <SuccessModal entry={success} onClose={() => setSuccess(null)} />}
+   </div>
+diff --git a/client/src/services/admin.service.js b/client/src/services/admin.service.js
+--- a/client/src/services/admin.service.js
++++ b/client/src/services/admin.service.js
+@@ -156,6 +156,7 @@
+ }
+ 
+ export const getBillById = (id) => requestJson(`${getAdminApiBase()}/billing/${id}`)
++export const closeUnpaidClinicalStock = (id, reason) => requestJson(`${getAdminApiBase()}/billing/${id}/clinical-stock/close-unpaid`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})})
+ export const getBillingCollectionsPeriod = (startDate, endDate) => {
+   const params = new URLSearchParams({ start_date: startDate, end_date: endDate })
+   return requestJson(`${getAdminApiBase()}/billing/collections-period?${params}`)
+diff --git a/client/src/utils/consultationSupplyReason.mjs b/client/src/utils/consultationSupplyReason.mjs
+--- a/client/src/utils/consultationSupplyReason.mjs
++++ b/client/src/utils/consultationSupplyReason.mjs
+@@ -37,6 +37,7 @@
+       quantity: Number(item.quantity || 1),
+       materials: Array.isArray(details.materials) ? [...details.materials] : [],
+       usage_change_reason: details.usage_change_reason || '',
++      partial_service_note: details.partial_service_note || '',
+       usage_overridden: Boolean(details.usage_overridden),
+     }
+   })
+diff --git a/client/src/utils/queueLabel.mjs b/client/src/utils/queueLabel.mjs
+new file mode 100644
+--- /dev/null
++++ b/client/src/utils/queueLabel.mjs
+@@ -0,0 +1,9 @@
++// Display-only queue labels; database queue_number remains numeric.
++export const formatQueueLabel = ({ queueNo, queue_number, type, doctorId, doctor_id } = {}) => {
++  const numeric = Number(queueNo ?? queue_number)
++  if (!Number.isSafeInteger(numeric) || numeric < 1) return '—'
++  const prefix = type === 'derma' ? 'DER' : 'MED'
++  const doctor = Number(doctorId ?? doctor_id)
++  const doctorPart = Number.isSafeInteger(doctor) && doctor > 0 ? `-D${doctor}` : ''
++  return `${prefix}${doctorPart}-${String(numeric).padStart(3, '0')}`
++}
+diff --git a/client/tests/queueLabels20261111.node.test.mjs b/client/tests/queueLabels20261111.node.test.mjs
+new file mode 100644
+--- /dev/null
++++ b/client/tests/queueLabels20261111.node.test.mjs
+@@ -0,0 +1,13 @@
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import { formatQueueLabel } from '../src/utils/queueLabel.mjs'
++
++test('queue labels show doctor + clinic without changing stored queue number', () => {
++ assert.equal(formatQueueLabel({ queueNo:1,type:'medical',doctorId:11 }),'MED-D11-001')
++ assert.equal(formatQueueLabel({ queue_number:1,type:'derma',doctor_id:22 }),'DER-D22-001')
++ assert.notEqual(formatQueueLabel({queueNo:1,type:'medical',doctorId:11}),formatQueueLabel({queueNo:1,type:'medical',doctorId:22}))
++})
++test('invalid queue number does not show a fake patient', () => {
++ assert.equal(formatQueueLabel({queue_number:-1,type:'derma'}),'—')
++ assert.equal(formatQueueLabel({queue_number:'x'}),'—')
++})
+diff --git a/server/controllers/admin.controller.js b/server/controllers/admin.controller.js
+--- a/server/controllers/admin.controller.js
++++ b/server/controllers/admin.controller.js
+@@ -3268,6 +3268,19 @@
+         throw Object.assign(new Error('Batch location balances do not match the batch total. Repair the inventory allocation before applying a correction.'), { statusCode:409, code:'BATCH_LOCATION_MISMATCH' })
+       }
+ 
++      const pendingByLocation = new Map()
++      if (process.env.UNIFIED_BILLING_STOCKOUT === '1' && delta < 0) {
++        const [held] = await conn.query(
++          `SELECT location_id,package_quantity AS qty
++           FROM clinical_inventory_reservations
++           WHERE batch_id=? AND status='pending' FOR UPDATE`, [batch.id]
++        )
++        for (const row of held) pendingByLocation.set(Number(row.location_id),(pendingByLocation.get(Number(row.location_id))||0)+Number(row.qty||0))
++        const heldTotal = [...pendingByLocation.values()].reduce((a,b)=>a+b,0)
++        if (target + 0.0001 < heldTotal) {
++          throw Object.assign(new Error('This correction would remove stock already used in pending consultations. Close those visits first.'),{statusCode:409,code:'PENDING_CLINICAL_STOCK'})
++        }
++      }
+       if (delta > 0) {
+         let targetLocation = allocationRows[0] || null
+         if (!targetLocation) {
+@@ -3288,7 +3301,7 @@
+         let remaining = Math.abs(delta)
+         for (const allocation of allocationRows) {
+           if (remaining <= 0.0001) break
+-          const available = Number(allocation.quantity || 0)
++          const available = Math.max(0,Number(allocation.quantity || 0)-(pendingByLocation.get(Number(allocation.location_id))||0))
+           if (available <= 0) continue
+           const take = Math.min(available, remaining)
+           await conn.query('UPDATE inventory_location_batches SET quantity=quantity-? WHERE location_id=? AND batch_id=? AND quantity>=?', [take,allocation.location_id,batch.id,take])
+diff --git a/server/controllers/doctor.controller.js b/server/controllers/doctor.controller.js
+--- a/server/controllers/doctor.controller.js
++++ b/server/controllers/doctor.controller.js
+@@ -21,6 +21,7 @@
+ const { loadImagesForConsultationIds, authorizeConsultationImages, syncConsultationImages } = require('../utils/consultationImages')
+ const { listBillingCatalog, getBillingCatalogServiceById, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
+ const { consumeInventoryFromLocationFEFO, getInventoryLocationById, attachBatchesToInventory, MAIN_LOCATION } = require('../utils/inventoryBatches')
++const { isUnifiedBillingStockOut, planClinicalInventoryReservation } = require('../utils/clinicalInventoryReservations')
+ const { writeAuditLog } = require('../utils/audit')
+ const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
+ const { callNextQueuePatient, setQueueState, normalizeQueueStatus, assertQueueTransition } = require('../utils/queueWorkflow')
+@@ -143,10 +144,19 @@
+     if (packageQuantity <= 0) continue
+ 
+     // Inventory is never reserved or pre-validated when an appointment is confirmed.
+-    // Actual recorded usage is deducted only when the consultation is finalized.
++    // In unified billing mode, actual usage is held now and deducted after payment.
+     // Prefer treatment-room stock for location accuracy, then use Main Stockroom as
+     // a fallback so a separate pre-consultation transfer is not required.
+-    const consumption = await consumeInventoryFromLocationFEFO(
++    const deferred = isUnifiedBillingStockOut()
++    const consumption = deferred ? {
++      ok: true, consumed: await planClinicalInventoryReservation({
++        inventoryId: entry.inventory_id,
++        packageQuantity,
++        preferredLocation,
++        fallbackLocation: assignedRoom && Number(assignedRoom.id)!==Number(mainStockroom.id) ? mainStockroom.name : null,
++        itemName: inventory.name,
++      }, conn),
++    } : await consumeInventoryFromLocationFEFO(
+       entry.inventory_id,
+       packageQuantity,
+       preferredLocation,
+@@ -187,6 +197,15 @@
+       remainingUsageQty = Math.max(0, remainingUsageQty - allocatedUsage)
+       const batchLabel = batch.batch_code || `Batch #${batch.batch_id}`
+ 
++      if (deferred) {
++        await conn.query(
++          `INSERT INTO clinical_inventory_reservations
++           (consultation_usage_id,billing_id,inventory_id,batch_id,location_id,package_quantity,usage_quantity)
++           VALUES (?,?,?,?,?,?,?)`,
++          [usageId,billing.id,entry.inventory_id,batch.batch_id,batch.location_id,Number(batch.quantity || 0),allocatedUsage]
++        )
++        continue
++      }
+       await conn.query(
+         `INSERT INTO consultation_inventory_usage_batches
+          (consultation_usage_id, batch_id, package_quantity, usage_quantity, usage_unit_label, source_location, source_location_id)
+@@ -211,8 +230,10 @@
+     }
+   }
+ 
+-  await conn.query('UPDATE billing_records SET clinical_inventory_consumed_at = NOW() WHERE id = ?', [billing.id])
+-  billing.clinical_inventory_consumed_at = new Date()
++  if (!isUnifiedBillingStockOut()) {
++    await conn.query('UPDATE billing_records SET clinical_inventory_consumed_at = NOW() WHERE id = ?', [billing.id])
++    billing.clinical_inventory_consumed_at = new Date()
++  }
+ }
+ 
+ // ── Dashboard ─────────────────────────────────────────────────────────────────
+@@ -587,6 +608,10 @@
+     const configured = new Map(defaults.map(m=>[Number(m.inventory_id),Number(m.quantity)]))
+     const actual = new Map(normalizedMaterials.filter(m=>!m.consultation_extra).map(m=>[m.inventory_id,m.quantity]))
+     const changed = configured.size !== actual.size || [...configured].some(([id,qty])=>actual.get(id)!==qty)
++    const partialNote = String(raw?.partial_service_note || '').trim()
++    if (partialNote.length > 255 || (partialNote.length > 0 && partialNote.length < 5)) {
++      throw makeConsultationValidationError('Explain which service step was not performed (5–255 characters).', 'PARTIAL_SERVICE_REASON_REQUIRED')
++    }
+     const reason=String(raw?.usage_change_reason || '').trim()
+     if (reason.length > 255 || (requireReason && (changed || normalizedMaterials.some(m=>m.consultation_extra)) && reason.length < 5)) {
+       throw makeConsultationValidationError('Enter a reason (5–255 characters) when changing or adding supplies.', 'SUPPLY_CHANGE_REASON_REQUIRED')
+@@ -597,6 +622,7 @@
+       service_name:catalogService.service_name, quantity:1,
+       materials:normalizedMaterials, usage_overridden:changed,
+       usage_change_reason:reason || null,
++      partial_service_note:partialNote || null,
+     })
+   }
+   return normalized
+@@ -1328,14 +1354,14 @@
+   res.json(withBatches.map((item) => ({
+     ...item,
+     treatment_room_batches: (Array.isArray(item.batches) ? item.batches : [])
+-      .filter((batch) => !batch.archived_at && Number(batch.quantity || 0) > 0 && (!batch.expiration_date || String(batch.expiration_date).slice(0, 10) >= today))
++      .filter((batch) => !batch.archived_at && Number(batch.available_quantity ?? batch.quantity ?? 0) > 0 && (!batch.expiration_date || String(batch.expiration_date).slice(0, 10) >= today))
+       .flatMap((batch) => (Array.isArray(batch.locations) ? batch.locations : [])
+-        .filter((location) => location.name === item.treatment_room_name && Number(location.quantity || 0) > 0)
++        .filter((location) => location.name === item.treatment_room_name && Number(location.available_quantity ?? location.quantity ?? 0) > 0)
+         .map((location) => ({
+           batch_id: Number(batch.id),
+           batch_code: batch.batch_code || `Batch #${batch.id}`,
+           expiration_date: batch.expiration_date || null,
+-          available: Math.min(Number(batch.quantity || 0), Number(location.quantity || 0)),
++          available: Math.min(Number(batch.available_quantity ?? batch.quantity ?? 0), Number(location.available_quantity ?? location.quantity ?? 0)),
+           location_id: Number(location.id || 0) || null,
+           location: location.name,
+         }))),
+diff --git a/server/controllers/patient.controller.js b/server/controllers/patient.controller.js
+--- a/server/controllers/patient.controller.js
++++ b/server/controllers/patient.controller.js
+@@ -34,6 +34,7 @@
+ const { isOtherVisitReason, withSystemOtherVisitReason } = require('../utils/appointmentReasons')
+ const { listMyBillingHistory, getMyBillDetails } = require('../utils/patientBillingHistory')
+ 
++const { claimRegistrationSms } = require('../utils/registrationSmsLimits')
+ const OTP_EXPIRY_MS = 10 * 60 * 1000
+ const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
+ 
+@@ -198,6 +199,7 @@
+   )
+   if (emailRows.length) return res.status(409).json({ message: 'An account with that email address already exists.' })
+ 
++  await claimRegistrationSms(normalizedPhone)
+   const hashedPassword = await bcrypt.hash(password, 10)
+   const code = makeNumericCode()
+   const payload = JSON.stringify({
+@@ -264,6 +266,7 @@
+   const pending = rows[0]
+   let payload
+   try { payload = parseVerificationPayload(pending.payload) } catch { return res.status(400).json({ message: 'Registration data is no longer valid. Please register again.' }) }
++  await claimRegistrationSms(normalizedPhone)
+   const code = makeNumericCode()
+   payload.verification_method = method
+   await db.query(
+diff --git a/server/controllers/staff.controller.js b/server/controllers/staff.controller.js
+--- a/server/controllers/staff.controller.js
++++ b/server/controllers/staff.controller.js
+@@ -1,3 +1,4 @@
++const { isUnifiedBillingStockOut, postClinicalReservations, assertNoUnpostedStockWithFeatureOff } = require('../utils/clinicalInventoryReservations')
+ // server/controllers/staff.controller.js
+ // FIX 1: getDoctors now returns the 'type' field so Walk-in Queue doctor filter works
+ // FIX 2: Added updateInventoryItem and deleteInventoryItem
+@@ -1698,12 +1699,17 @@
+     const nextStatus = balanceAfter <= 0 ? 'paid' : 'partially_paid'
+     const paidAt = getClinicDateTimeSql()
+ 
+-    // Direct Medicine / Supply charges are physically dispensed only when the bill
+-    // becomes fully paid. Consultation service consumables were already deducted by
+-    // the Doctor workflow when the consultation was finalized, so they are never
+-    // deducted a second time here.
++    // One final stock-out for consultation items and checkout items, inside
++    // the same transaction as the payment and receipt. Partial payment never posts.
+     let checkoutDispensed = []
+     if (nextStatus === 'paid') {
++      await assertNoUnpostedStockWithFeatureOff(billingId, conn)
++      if (isUnifiedBillingStockOut()) {
++        await postClinicalReservations({
++          billId: billingId, branchId: req.branchId, actorRole,
++          actorId: gatewayVerified ? null : req.user.id, executor: conn,
++        })
++      }
+       const billForDispense = await getBillingRecordWithItems(billingId, conn)
+       checkoutDispensed = await dispenseCheckoutSupplies({
+         bill: billForDispense,
+diff --git a/server/db/migrations/2026-11-11-billing-stock-reservations.sql b/server/db/migrations/2026-11-11-billing-stock-reservations.sql
+new file mode 100644
+--- /dev/null
++++ b/server/db/migrations/2026-11-11-billing-stock-reservations.sql
+@@ -0,0 +1,24 @@
++-- Added for the unified billing stock-out workflow. Never delete old movements.
++-- Pending rows mark stock used in consultation until the bill is settled.
++CREATE TABLE IF NOT EXISTS clinical_inventory_reservations (
++ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
++ consultation_usage_id BIGINT NOT NULL,
++ billing_id INT NOT NULL,
++ inventory_id INT NOT NULL,
++ batch_id INT NOT NULL,
++ location_id INT NOT NULL,
++ package_quantity DECIMAL(12,4) NOT NULL,
++ usage_quantity DECIMAL(12,4) NOT NULL,
++ status VARCHAR(20) NOT NULL DEFAULT 'pending',
++ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
++ posted_at DATETIME NULL,
++ posted_by_role VARCHAR(20) NULL,
++ posted_by_user_id INT NULL,
++ UNIQUE KEY uq_clinical_reservation_batch (consultation_usage_id,batch_id,location_id),
++ KEY idx_clinical_reservation_available (batch_id,location_id,status),
++ KEY idx_clinical_reservation_bill (billing_id,status),
++ CONSTRAINT fk_clinical_reservation_usage FOREIGN KEY(consultation_usage_id) REFERENCES consultation_inventory_usage(id) ON DELETE RESTRICT,
++ CONSTRAINT fk_clinical_reservation_bill FOREIGN KEY(billing_id) REFERENCES billing_records(id) ON DELETE RESTRICT,
++ CONSTRAINT fk_clinical_reservation_batch FOREIGN KEY(batch_id) REFERENCES inventory_batches(id) ON DELETE RESTRICT,
++ CONSTRAINT fk_clinical_reservation_location FOREIGN KEY(location_id) REFERENCES inventory_locations(id) ON DELETE RESTRICT
++) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+diff --git a/server/db/migrations/2026-11-11-registration-sms-limits.sql b/server/db/migrations/2026-11-11-registration-sms-limits.sql
+new file mode 100644
+--- /dev/null
++++ b/server/db/migrations/2026-11-11-registration-sms-limits.sql
+@@ -0,0 +1,9 @@
++-- One shared per-number limit for patient registration and resend.
++-- Only a keyed hash is stored, not the telephone number.
++CREATE TABLE IF NOT EXISTS registration_sms_limits (
++  phone_hash CHAR(64) NOT NULL PRIMARY KEY,
++  window_start DATETIME NOT NULL,
++  send_count INT NOT NULL DEFAULT 0,
++  last_sent_at DATETIME NULL,
++  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
++) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+diff --git a/server/routers/branchClinicalStock.js b/server/routers/branchClinicalStock.js
+new file mode 100644
+--- /dev/null
++++ b/server/routers/branchClinicalStock.js
+@@ -0,0 +1,40 @@
++// Admin-only closure for used items when the patient leaves without full payment.
++// This records physical stock use but does NOT record a payment or mark the bill paid.
++const db = require('../db/connect')
++const { isUnifiedBillingStockOut, postClinicalReservations } = require('../utils/clinicalInventoryReservations')
++const { writeAuditLog } = require('../utils/audit')
++const { broadcast } = require('../utils/sse')
++
++const closeUnpaidStock = async (req, res, next) => {
++  const billingId = Number(req.params.id)
++  const branchId = Number(req.branchId)
++  const reason = String(req.body?.reason || '').trim()
++  if (!isUnifiedBillingStockOut()) return res.status(409).json({code:'UNIFIED_STOCKOUT_DISABLED',message:'Unified billing stock-out is not enabled.'})
++  if (!Number.isSafeInteger(billingId) || billingId < 1) return res.status(400).json({message:'Choose a valid bill.'})
++  if (reason.length < 5 || reason.length > 255) return res.status(400).json({message:'Explain why the used items must be closed without full payment (5–255 characters).'})
++  const role = String(req.adminContext?.account_role || '')
++  if (!['admin','superadmin'].includes(role)) return res.status(403).json({message:'An administrator must approve this action.'})
++  const conn = await db.getConnection()
++  try {
++    await conn.beginTransaction()
++    const [[bill]] = await conn.query('SELECT id,status,paid_at,consultation_id FROM billing_records WHERE id=? AND branch_id=? FOR UPDATE',[billingId,branchId])
++    if (!bill) { await conn.rollback(); return res.status(404).json({message:'Bill not found in this clinic.'}) }
++    if (bill.status === 'paid' || bill.paid_at) { await conn.rollback(); return res.status(409).json({message:'This bill is paid. Use the normal stock and refund history.'}) }
++    const [pending] = await conn.query("SELECT id FROM clinical_inventory_reservations WHERE billing_id=? AND status='pending' LIMIT 1 FOR UPDATE",[billingId])
++    if (!pending.length) { await conn.rollback(); return res.status(409).json({message:'There are no pending used items on this bill.'}) }
++    const count = await postClinicalReservations({billId:billingId,branchId,actorRole:'admin',actorId:req.user.id,executor:conn,status:'unpaid_posted'})
++    await writeAuditLog({userId:req.user.id,userRole:role,action:'inventory.clinical_use_closed_unpaid',entityType:'billing_record',entityId:billingId,branchId,
++      newValues:{count,reason,bill_status:bill.status},ipAddress:req.ip||null},conn)
++    await conn.commit()
++    broadcast(['admin','staff'],'inventory_updated',{billingId},{branchId})
++    return res.json({message:'Used items were removed from recorded stock. The bill remains unpaid.',count})
++  } catch(error) { await conn.rollback().catch(()=>{}); return next(error) }
++  finally { conn.release() }
++}
++
++function registerBranchClinicalStock(router,{requireSuper,branchContext,requirePermission}) {
++  for (const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]) {
++    router.post(`${prefix}/billing/:id/clinical-stock/close-unpaid`,...middle,requirePermission('billing'),closeUnpaidStock)
++  }
++}
++module.exports={registerBranchClinicalStock}
+diff --git a/server/routers/branches.router.js b/server/routers/branches.router.js
+--- a/server/routers/branches.router.js
++++ b/server/routers/branches.router.js
+@@ -829,6 +829,7 @@
+ require('./branchPaymentSettingsWrites').registerBranchPaymentSettingsWrites(router,{requireSuper,branchContext,requirePermission})
+ require('./branchSensitiveWrites').registerBranchSensitiveWrites(router,{requireSuper,branchContext,requirePermission})
+ require('./branchChargeAdjustments').registerBranchChargeAdjustments(router,{requireSuper,branchContext,requirePermission})
++require('./branchClinicalStock').registerBranchClinicalStock(router,{requireSuper,branchContext,requirePermission})
+ require('./branchPaymentActions').registerBranchPaymentActions(router,{requireSuper,branchContext,requirePermission})
+ require('./branchCheckoutDraftWrites').registerBranchCheckoutDraftWrites(router,{requireSuper,branchContext,requirePermission})
+ require('./branchBillCorrections').registerBranchBillCorrections(router,{requireSuper,branchContext,requirePermission})
+diff --git a/server/routers/queue.router.js b/server/routers/queue.router.js
+--- a/server/routers/queue.router.js
++++ b/server/routers/queue.router.js
+@@ -105,6 +105,7 @@
+   // Public-facing data intentionally excludes patient names and contact details.
+   const [servingRows] = await db.query(
+     `SELECT q.queue_number AS queueNo,
++            q.doctor_id AS doctorId,
+             q.type,
+             d.full_name AS doctor,
+             TIME_FORMAT(q.called_at, '%h:%i %p') AS calledAt,
+@@ -119,6 +120,7 @@
+ 
+   const [waitingRows] = await db.query(
+     `SELECT q.queue_number AS queueNo,
++            q.doctor_id AS doctorId,
+             q.type,
+             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt
+      FROM queue q
+diff --git a/server/scripts/branchMigrations.js b/server/scripts/branchMigrations.js
+--- a/server/scripts/branchMigrations.js
++++ b/server/scripts/branchMigrations.js
+@@ -60,6 +60,8 @@
+   '2026-11-09-superadmin-patient-directory-ban.sql',
+   '2026-11-09-branch-google-maps-url.sql',
+   '2026-11-11-charge-reduction-reversal.sql',
++  '2026-11-11-registration-sms-limits.sql',
++  '2026-11-11-billing-stock-reservations.sql',
+ ]
+ 
+ const schemaMigrationsSql = [
+diff --git a/server/tests/clinicalReservations20261111.node.cjs b/server/tests/clinicalReservations20261111.node.cjs
+new file mode 100644
+--- /dev/null
++++ b/server/tests/clinicalReservations20261111.node.cjs
+@@ -0,0 +1,36 @@
++const test = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const vm = require('node:vm')
++const path = require('node:path')
++const file = path.join(__dirname,'..','utils','clinicalInventoryReservations.js')
++const load = (data)=>{
++ const source=fs.readFileSync(file,'utf8')
++ const mock={
++  loadLocationBatches:async(id,loc)=>({locationId:loc==='Treatment Room'?5:6,locationName:loc,rows:data[loc]||[]}),
++  syncInventorySnapshot:async()=>{},syncLocationSnapshot:async()=>{}
++ }
++ const sandbox={module:{exports:{}},require:(name)=>name==='./inventoryBatches'?mock:null,process:{env:{UNIFIED_BILLING_STOCKOUT:'1'}},Number,Math,Error,String,Set}
++ vm.runInNewContext(source,sandbox,{filename:file})
++ return sandbox.module.exports
++}
++test('pending usage checks available stock and picks the next stockroom if needed',async()=>{
++ const {planClinicalInventoryReservation}=load({
++  'Treatment Room':[{id:11,location_quantity:1,clinic_quantity:7}],
++  'Main Stockroom':[{id:12,location_quantity:4,clinic_quantity:4}]
++ })
++ const reserved=await planClinicalInventoryReservation({inventoryId:1,packageQuantity:3,preferredLocation:'Treatment Room',fallbackLocation:'Main Stockroom',itemName:'Test Medicine'},{} )
++ assert.equal(reserved.length,2)
++ assert.equal(reserved[0].quantity,1)
++ assert.equal(reserved[1].quantity,2)
++})
++test('pending usage refuses an item without enough stock',async()=>{
++ const {planClinicalInventoryReservation}=load({'Treatment Room':[{id:11,location_quantity:1,clinic_quantity:1}]})
++ await assert.rejects(planClinicalInventoryReservation({inventoryId:1,packageQuantity:3,preferredLocation:'Treatment Room',itemName:'Test Medicine'},{}),{code:'INVENTORY_INSUFFICIENT'})
++})
++test('deferred stock-out is disabled unless explicitly enabled',()=>{
++ const source=fs.readFileSync(file,'utf8')
++ const sandbox={module:{exports:{}},require:()=>({}),process:{env:{}},Number,Math,Error,String,Set}
++ vm.runInNewContext(source,sandbox,{filename:file})
++ assert.equal(sandbox.module.exports.isUnifiedBillingStockOut(),false)
++})
+diff --git a/server/tests/registrationSmsLimits20261111.node.cjs b/server/tests/registrationSmsLimits20261111.node.cjs
+new file mode 100644
+--- /dev/null
++++ b/server/tests/registrationSmsLimits20261111.node.cjs
+@@ -0,0 +1,51 @@
++const test = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const vm = require('node:vm')
++const path = require('node:path')
++const Module = require('node:module')
++const file = path.join(__dirname, '..', 'utils', 'registrationSmsLimits.js')
++const createService = (conn) => {
++  const source = fs.readFileSync(file, 'utf8')
++  const sandbox = {
++    module: { exports: {} },
++    exports: {},
++    process: { env: { SMS_RATE_LIMIT_SECRET: 'test-secret-of-32-characters-long-for-sms' } },
++    Date, Number, String, Error, Math, console,
++    require: (name) => name === '../db/connect' ? {getConnection: async () => conn} : Module.createRequire(file)(name)
++  }
++  vm.runInNewContext(source,sandbox,{filename:file})
++  return sandbox.module.exports
++}
++const mockDb = () => {
++  const rows = new Map()
++  return {
++    async beginTransaction(){}, async commit(){}, async rollback(){}, release(){},
++    async query(sql,args){
++      if(sql.includes('INSERT IGNORE INTO registration_sms_limits')){
++        const [hash,now] = args
++        if(!rows.has(hash)) rows.set(hash,{window_start:now,send_count:0,last_sent_at:null})
++        return [{affectedRows:1}]
++      }
++      if(sql.startsWith('SELECT window_start')) return [[rows.get(args[0])]]
++      if(sql.startsWith('UPDATE registration_sms_limits')){
++        const [start,count,last,hash] = args
++        rows.set(hash,{window_start:start,send_count:count,last_sent_at:last})
++        return [{affectedRows:1}]
++      }
++      throw new Error('Unexpected SQL: '+sql)
++    }
++  }
++}
++test('SMS registration and resend share a 3/hour limit with a 60-second pause',async()=>{
++  const conn=mockDb()
++  const {claimRegistrationSms}=createService(conn)
++  const phone='+639171234567'
++  const at=(ms)=>new Date(Date.UTC(2026,10,11,1,0,0)+ms)
++  await claimRegistrationSms(phone,{now:at(0)})
++  await assert.rejects(claimRegistrationSms(phone,{now:at(1000)}), {code:'SMS_LIMIT_REACHED'})
++  await claimRegistrationSms(phone,{now:at(61_000)})
++  await claimRegistrationSms(phone,{now:at(122_000)})
++  await assert.rejects(claimRegistrationSms(phone,{now:at(183_000)}), {code:'SMS_LIMIT_REACHED'})
++  await claimRegistrationSms(phone,{now:at(3_601_000)})
++})
+diff --git a/server/utils/billing.js b/server/utils/billing.js
+--- a/server/utils/billing.js
++++ b/server/utils/billing.js
+@@ -384,6 +384,7 @@
+           },
+           materials: normalizedMaterials,
+           usage_change_reason: String(item?.usage_change_reason || '').slice(0,255) || null,
++          partial_service_note: String(item?.partial_service_note || '').slice(0,255) || null,
+           usage_overridden: usageOverridden,
+         }
+ 
+@@ -530,6 +531,14 @@
+   )
+ 
+   if (records.length === 0) return null
++  if (process.env.UNIFIED_BILLING_STOCKOUT === '1') {
++    const [[pending]] = await executor.query(
++      `SELECT COUNT(*) AS count,COALESCE(SUM(package_quantity),0) AS quantity
++       FROM clinical_inventory_reservations WHERE billing_id=? AND status='pending'`, [billingId]
++    )
++    records[0].pending_clinical_items = Number(pending?.count || 0)
++    records[0].pending_clinical_quantity = Number(pending?.quantity || 0)
++  }
+ 
+   const [items] = await executor.query(
+     `SELECT
+diff --git a/server/utils/clinicalInventoryReservations.js b/server/utils/clinicalInventoryReservations.js
+new file mode 100644
+--- /dev/null
++++ b/server/utils/clinicalInventoryReservations.js
+@@ -0,0 +1,127 @@
++// Deferred clinical stock-out.  No live data is changed by importing this file.
++// Requires the 2026-11-11-billing-stock-reservations.sql migration and feature flag.
++const {
++  loadLocationBatches,
++  syncInventorySnapshot,
++  syncLocationSnapshot,
++} = require('./inventoryBatches')
++
++const isUnifiedBillingStockOut = () => process.env.UNIFIED_BILLING_STOCKOUT === '1'
++
++const insufficientStock = (itemName) => Object.assign(
++  new Error(`Not enough available stock for ${itemName}. Choose another item or restock before finishing this consultation.`),
++  { statusCode: 409, code: 'INVENTORY_INSUFFICIENT' }
++)
++
++// Read/lock physical stock rows and select an exact receipt/stockroom for the pending usage.
++// The reservation is inserted by the caller in the SAME transaction before locks release.
++const planClinicalInventoryReservation = async ({ inventoryId, packageQuantity, preferredLocation, fallbackLocation, itemName }, conn) => {
++  let remaining = Number(packageQuantity)
++  if (!Number.isFinite(remaining) || remaining <= 0) return []
++  const chosen = []
++  for (const locationName of [preferredLocation, fallbackLocation].filter(Boolean)) {
++    if (remaining <= 0.000001) break
++    const { locationId, locationName: resolvedName, rows } = await loadLocationBatches(inventoryId, locationName, conn)
++    if (!locationId) continue
++    for (const batch of rows) {
++      if (remaining <= 0.000001) break
++      const available = Math.min(Number(batch.location_quantity || 0), Number(batch.clinic_quantity || 0))
++      if (available <= 0) continue
++      const picked = Math.min(available, remaining)
++      chosen.push({
++        batch_id: Number(batch.id), batch_code: batch.batch_code || null,
++        location_id: Number(locationId), location: resolvedName,
++        quantity: Math.round(picked * 10000) / 10000,
++      })
++      remaining = Math.round((remaining - picked) * 10000) / 10000
++    }
++  }
++  if (remaining > 0.000001) throw insufficientStock(itemName)
++  return chosen
++}
++
++// This function is shared by manual cash, QR Ph webhook reconciliation and other
++// payments routed through payBill. All movements and payment rows commit together.
++const postClinicalReservations = async ({ billId, branchId, actorRole, actorId, executor, status = 'posted' }) => {
++  if (!['posted', 'unpaid_posted'].includes(status)) throw new Error('Invalid clinical inventory completion status.')
++  const [rows] = await executor.query(
++    `SELECT r.id,r.inventory_id,r.batch_id,r.location_id,r.package_quantity,r.usage_quantity,
++            r.consultation_usage_id,u.unit_label,u.recorded_by_doctor_id,ib.batch_code,
++            il.name AS source_location
++     FROM clinical_inventory_reservations r
++     JOIN consultation_inventory_usage u ON u.id=r.consultation_usage_id AND u.billing_id=r.billing_id
++     JOIN inventory i ON i.id=r.inventory_id AND i.branch_id=?
++     JOIN inventory_batches ib ON ib.id=r.batch_id AND ib.inventory_id=r.inventory_id
++     JOIN inventory_locations il ON il.id=r.location_id AND il.branch_id=?
++     WHERE r.billing_id=? AND r.status='pending'
++     ORDER BY r.inventory_id,r.location_id,r.batch_id,r.id FOR UPDATE`,
++    [branchId, branchId, billId]
++  )
++  const inventoryIds = new Set()
++  for (const entry of rows) {
++    const quantity = Number(entry.package_quantity)
++    if (!Number.isFinite(quantity) || quantity <= 0) throw Object.assign(new Error('Stored pending usage is invalid.'), {statusCode:409,code:'CLINICAL_USAGE_INVALID'})
++    // The posted quantities are already held. They must be removed once from
++    // physical stock, even if another available-stock check excludes the hold.
++    const [locationResult] = await executor.query(
++      `UPDATE inventory_location_batches SET quantity=quantity-?
++       WHERE location_id=? AND inventory_id=? AND batch_id=? AND quantity>=?`,
++      [quantity,entry.location_id,entry.inventory_id,entry.batch_id,quantity]
++    )
++    if (Number(locationResult.affectedRows) !== 1) throw Object.assign(new Error('Pending stock changed. Payment was not recorded; review the inventory.'), {statusCode:409,code:'CLINICAL_RESERVED_STOCK_CHANGED'})
++    const [batchResult] = await executor.query(
++      'UPDATE inventory_batches SET quantity=quantity-? WHERE id=? AND inventory_id=? AND quantity>=?',
++      [quantity,entry.batch_id,entry.inventory_id,quantity]
++    )
++    if (Number(batchResult.affectedRows) !== 1) throw Object.assign(new Error('Pending batch stock changed. Payment was not recorded; review the inventory.'), {statusCode:409,code:'CLINICAL_RESERVED_STOCK_CHANGED'})
++    await executor.query(
++      `INSERT INTO consultation_inventory_usage_batches
++       (consultation_usage_id,batch_id,package_quantity,usage_quantity,usage_unit_label,source_location,source_location_id)
++       VALUES (?,?,?,?,?,?,?)`,
++      [entry.consultation_usage_id,entry.batch_id,quantity,entry.usage_quantity,entry.unit_label,entry.source_location,entry.location_id]
++    )
++    await executor.query(
++      `INSERT INTO inventory_logs
++       (inventory_id,doctor_id,staff_id,admin_id,type,qty,note,movement_type,reference_type,reference_id,batch_id,from_location,branch_id)
++       VALUES (?,?,?,?, 'out',?,?,'clinical_use','billing_record',?,?,?,?)`,
++      [entry.inventory_id,entry.recorded_by_doctor_id || null,actorRole === 'staff' ? actorId : null,actorRole === 'admin' ? actorId : null,quantity,
++        `${entry.batch_code || `Batch #${entry.batch_id}`} clinic use settled ${status === 'unpaid_posted' ? 'without payment' : 'after full payment'}`,
++        billId,entry.batch_id,entry.source_location,branchId]
++    )
++    await executor.query(
++      `UPDATE clinical_inventory_reservations
++       SET status=?,posted_at=NOW(),posted_by_role=?,posted_by_user_id=?
++       WHERE id=? AND status='pending'`,
++      [status,actorRole,actorId || null,entry.id]
++    )
++    inventoryIds.add(entry.inventory_id)
++  }
++  for (const inventoryId of inventoryIds) {
++    await syncInventorySnapshot(inventoryId, executor)
++    await syncLocationSnapshot(inventoryId, executor)
++  }
++  if (rows.length) await executor.query('UPDATE billing_records SET clinical_inventory_consumed_at=COALESCE(clinical_inventory_consumed_at,NOW()) WHERE id=? AND branch_id=?', [billId,branchId])
++  return rows.length
++}
++
++// If this feature was previously enabled, disabling the flag must never allow
++// payment to bypass outstanding reservations. Missing table is tolerated only
++// for older installations where no reservation could have been created.
++const assertNoUnpostedStockWithFeatureOff = async (billId, executor) => {
++  if (isUnifiedBillingStockOut()) return
++  let rows
++  try {
++    ;[rows] = await executor.query("SELECT id FROM clinical_inventory_reservations WHERE billing_id=? AND status='pending' LIMIT 1", [billId])
++  } catch (error) {
++    if (error.code === 'ER_NO_SUCH_TABLE') return
++    throw error
++  }
++  if (rows.length) throw Object.assign(new Error('This bill has pending clinical stock. Re-enable the unified billing stock workflow before payment.'),{statusCode:409,code:'PENDING_STOCK_NEEDS_SETTLEMENT'})
++}
++
++module.exports = {
++  isUnifiedBillingStockOut,
++  planClinicalInventoryReservation,
++  postClinicalReservations,
++  assertNoUnpostedStockWithFeatureOff,
++}
+diff --git a/server/utils/inventoryBatches.js b/server/utils/inventoryBatches.js
+--- a/server/utils/inventoryBatches.js
++++ b/server/utils/inventoryBatches.js
+@@ -3,6 +3,9 @@
+ const { resolveMainStockroom } = require('./inventoryLocations')
+ 
+ const MAIN_LOCATION = 'Main Stockroom'
++// Enables deferred clinical stock-out only after the new schema is applied and verified.
++const unifiedBillingStockOut = () => process.env.UNIFIED_BILLING_STOCKOUT === '1'
++
+ 
+ // All stock movement helpers derive ownership from the locked parent item.
+ // This avoids resolving a same-named Main Stockroom in another physical branch.
+@@ -323,6 +326,26 @@
+      FOR UPDATE`,
+     [locationId, inventoryId]
+   )
++  if (unifiedBillingStockOut() && rows.length) {
++    const [held] = await executor.query(
++      `SELECT batch_id,location_id,package_quantity AS qty
++       FROM clinical_inventory_reservations
++       WHERE inventory_id=? AND status='pending' FOR UPDATE`, [inventoryId]
++    )
++    const byLocation = new Map()
++    const byBatch = new Map()
++    for (const h of held) {
++      const key = `${h.batch_id}:${h.location_id}`
++      byLocation.set(key,(byLocation.get(key) || 0) + Number(h.qty))
++      byBatch.set(Number(h.batch_id),(byBatch.get(Number(h.batch_id)) || 0) + Number(h.qty))
++    }
++    // Physical stock stays unchanged until payment; held quantities are unavailable.
++    for (const row of rows) {
++      row.physical_location_quantity = Number(row.location_quantity)
++      row.location_quantity = Math.max(0, row.physical_location_quantity - (byLocation.get(`${row.id}:${locationId}`) || 0))
++      row.clinic_quantity = Math.max(0, Number(row.clinic_quantity) - (byBatch.get(Number(row.id)) || 0))
++    }
++  }
+   return { locationId, locationName: location.name, rows }
+ }
+ 
+@@ -432,6 +455,18 @@
+      FOR UPDATE`,
+     [locationId, inventoryId, ...batchIds]
+   )
++  if (unifiedBillingStockOut() && rows.length) {
++    const [held] = await executor.query(
++      `SELECT batch_id,location_id,package_quantity AS qty
++       FROM clinical_inventory_reservations
++       WHERE inventory_id=? AND status='pending' FOR UPDATE`, [inventoryId]
++    )
++    for (const row of rows) {
++      const batchHolds = held.filter(h => Number(h.batch_id) === Number(row.id))
++      row.location_quantity = Math.max(0, Number(row.location_quantity) - batchHolds.filter(h => Number(h.location_id) === Number(locationId)).reduce((a,h)=>a+Number(h.qty),0))
++      row.clinic_quantity = Math.max(0, Number(row.clinic_quantity) - batchHolds.reduce((a,h)=>a+Number(h.qty),0))
++    }
++  }
+   const batchMap = new Map(rows.map((row) => [Number(row.id), row]))
+   const consumed = []
+ 
+@@ -562,7 +597,14 @@
+      FOR UPDATE`,
+     [from.id, batchId, inventoryId, branchId]
+   )
+-  const available = Number(row?.quantity || 0)
++  let available = Number(row?.quantity || 0)
++  if (unifiedBillingStockOut() && row) {
++    const [held] = await executor.query(
++      `SELECT package_quantity AS qty FROM clinical_inventory_reservations
++       WHERE batch_id=? AND location_id=? AND status='pending' FOR UPDATE`, [batchId, from.id]
++    )
++    available = Math.max(0, available - held.reduce((sum,h)=>sum+Number(h.qty||0),0))
++  }
+   if (available + 0.0001 < qty) {
+     throw Object.assign(new Error(`Only ${available} available in ${from.name} for this batch.`), { statusCode: 409, code: 'INSUFFICIENT_LOCATION_STOCK', available })
+   }
+@@ -640,6 +682,31 @@
+     }
+   }
+ 
++  // Separate recorded stock from items used in an unpaid consultation.
++  const pendingByItem = new Map()
++  const pendingByBatch = new Map()
++  const pendingByLocation = new Map()
++  if (unifiedBillingStockOut()) {
++    const [pending] = await executor.query(
++      `SELECT inventory_id,batch_id,location_id,COALESCE(SUM(package_quantity),0) AS held
++       FROM clinical_inventory_reservations
++       WHERE inventory_id IN (${placeholders}) AND status='pending'
++       GROUP BY inventory_id,batch_id,location_id`, ids
++    )
++    for (const row of pending) {
++      const qty = Number(row.held || 0)
++      pendingByItem.set(Number(row.inventory_id),(pendingByItem.get(Number(row.inventory_id)) || 0) + qty)
++      pendingByBatch.set(Number(row.batch_id),(pendingByBatch.get(Number(row.batch_id)) || 0) + qty)
++      const key = `${row.batch_id}:${row.location_id}`
++      pendingByLocation.set(key,(pendingByLocation.get(key) || 0) + qty)
++    }
++    for (const batch of batchMap.values()) {
++      batch.available_quantity = Math.max(0, batch.quantity - (pendingByBatch.get(Number(batch.id)) || 0))
++      for (const location of batch.locations) {
++        location.available_quantity = Math.max(0,location.quantity-(pendingByLocation.get(`${batch.id}:${location.id}`)||0))
++      }
++    }
++  }
+   const grouped = {}
+   for (const batch of batchMap.values()) {
+     const inventoryId = Number(batch.inventory_id)
+@@ -649,6 +716,7 @@
+ 
+   return items.map((item) => ({
+     ...item,
++    ...(unifiedBillingStockOut() ? { pending_usage: Number((pendingByItem.get(Number(item.id)) || 0).toFixed(4)), available_stock: Math.max(0, Number(item.stock || 0) - (pendingByItem.get(Number(item.id)) || 0)) } : {}),
+     batches: grouped[item.id] || [],
+     batch_count: (grouped[item.id] || []).length,
+   }))
+@@ -673,6 +741,7 @@
+   consumeInventoryFEFO,
+   consumeInventoryByBatches,
+   consumeInventoryFromLocationFEFO,
++  loadLocationBatches,
+   consumeInventoryFromLocationByBatches,
+   transferInventoryBatchesFEFO,
+   attachBatchesToInventory,
+diff --git a/server/utils/registrationSmsLimits.js b/server/utils/registrationSmsLimits.js
+new file mode 100644
+--- /dev/null
++++ b/server/utils/registrationSmsLimits.js
+@@ -0,0 +1,54 @@
++// Shared database-backed registration SMS quota (across /register and /register/resend).
++// Invoke only after the request is valid, immediately before generating a new OTP.
++const { createHmac } = require('node:crypto')
++const db = require('../db/connect')
++
++const HOUR_MS = 60 * 60 * 1000
++const COOLDOWN_MS = 60 * 1000
++const MAX_SENDS_PER_HOUR = 3
++
++const makeLimitError = (seconds) => Object.assign(
++  new Error(`Please wait ${seconds} seconds before asking for another SMS code.`),
++  { statusCode: 429, code: 'SMS_LIMIT_REACHED', retryAfterSeconds: seconds }
++)
++
++const claimRegistrationSms = async (phone, { connection = null, now = new Date() } = {}) => {
++  const secret = process.env.SMS_RATE_LIMIT_SECRET || process.env.JWT_SECRET
++  if (!secret || secret.length < 16) {
++    throw Object.assign(new Error('SMS verification is temporarily unavailable.'), { statusCode: 503, code: 'SMS_LIMIT_NOT_CONFIGURED' })
++  }
++  const hashed = createHmac('sha256', secret).update(String(phone)).digest('hex')
++  const conn = connection || await db.getConnection()
++  const ownsConnection = !connection
++  try {
++    if (ownsConnection) await conn.beginTransaction()
++    // Idempotent row insert; the following FOR UPDATE serializes requests.
++    await conn.query('INSERT IGNORE INTO registration_sms_limits (phone_hash, window_start, send_count) VALUES (?, ?, 0)', [hashed, now])
++    const [[row]] = await conn.query(
++      'SELECT window_start, send_count, last_sent_at FROM registration_sms_limits WHERE phone_hash = ? FOR UPDATE',
++      [hashed]
++    )
++    const start = new Date(row.window_start).getTime()
++    const last = row.last_sent_at ? new Date(row.last_sent_at).getTime() : 0
++    const currentMs = new Date(now).getTime()
++    const windowExpired = !Number.isFinite(start) || currentMs - start >= HOUR_MS
++    const sends = windowExpired ? 0 : Number(row.send_count || 0)
++    const cooldown = last && currentMs >= last ? COOLDOWN_MS - (currentMs - last) : 0
++    const hourly = !windowExpired && sends >= MAX_SENDS_PER_HOUR ? HOUR_MS - (currentMs - start) : 0
++    const remaining = Math.max(cooldown, hourly)
++    if (remaining > 0) throw makeLimitError(Math.max(1, Math.ceil(remaining / 1000)))
++    await conn.query(
++      'UPDATE registration_sms_limits SET window_start = ?, send_count = ?, last_sent_at = ? WHERE phone_hash = ?',
++      [windowExpired ? now : row.window_start, sends + 1, now, hashed]
++    )
++    if (ownsConnection) await conn.commit()
++    return { allowed: true, remaining: Math.max(0, MAX_SENDS_PER_HOUR - sends - 1) }
++  } catch (error) {
++    if (ownsConnection) await conn.rollback()
++    throw error
++  } finally {
++    if (ownsConnection) conn.release()
++  }
++}
++
++module.exports = { claimRegistrationSms, MAX_SENDS_PER_HOUR, COOLDOWN_MS }

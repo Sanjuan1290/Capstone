@@ -169,6 +169,7 @@ const sendAdminMfaOtp = (email, full_name, otp) => sendSecurityOtp(email, full_n
 const sendAccountSecurityOtp = (email, full_name, otp) => sendSecurityOtp(email, full_name, 'Account Security Code', otp)
 
 module.exports = {
+  formatAppointmentDate,
   sendTempPassword,
   sendVerificationCode,
   sendAppointmentReminder,
@@ -177,4 +178,3 @@ module.exports = {
   sendAdminMfaOtp,
   sendAccountSecurityOtp,
 }
-

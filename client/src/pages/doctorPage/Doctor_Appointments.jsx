@@ -1,3 +1,4 @@
+import { formatQueueLabel } from '../../utils/queueLabel.mjs'
 import { useLocation } from 'react-router-dom'
 // client/src/pages/doctorPage/Doctor_Appointments.jsx
 // IMPROVEMENTS:
@@ -356,7 +357,7 @@ const WalkInPanel = ({ queue, onCallNext, onConsultWalkIn, calling }) => (
           <div key={q.id} className={`flex items-center gap-3 px-4 py-3 ${q.status === 'called' ? 'bg-sky-50/50' : q.status === 'in_consultation' ? 'bg-violet-50/50' : ''}`}>
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0
               ${q.status === 'called' ? 'bg-sky-100 text-sky-700' : q.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'}`}>
-              {q.queue_number}
+              {formatQueueLabel(q)}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-800 truncate">{q.patient_name}</p>

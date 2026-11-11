@@ -1,58 +1,40 @@
-// client/src/hooks/usePolling.js
-// Reusable polling hook.  Calls `fn` immediately on mount, then every `intervalMs`.
-// Pauses when the browser tab is hidden (document.visibilityState === 'hidden')
-// so we don't spam the server for a tab the user isn't looking at.
-// Stops automatically on unmount.
-//
-// Usage:
-//   usePolling(loadData, 30_000)          // refresh every 30 s
-//   usePolling(loadData, 15_000, !ready)  // skip until `ready` is true
-
+// Refresh data without refreshing the entire browser page.
+// Prevent overlapping requests, rapid duplicate refreshes and hidden-tab traffic.
 import { useEffect, useRef, useCallback } from 'react'
 
 const usePolling = (fn, intervalMs = 30_000, skip = false) => {
-  const savedFn  = useRef(fn)
-  const timerId  = useRef(null)
-
-  // Keep ref in sync with latest fn so the interval always calls the newest closure
+  const savedFn = useRef(fn)
+  const busy = useRef(false)
+  const lastCall = useRef(0)
+  const timer = useRef(null)
   useEffect(() => { savedFn.current = fn }, [fn])
 
   const run = useCallback(() => {
-    if (skip) return
-    if (document.visibilityState === 'hidden') return
-    savedFn.current()
+    if (skip || document.visibilityState === 'hidden' || busy.current) return
+    const now = Date.now()
+    if (now - lastCall.current < 1500) return // SSE events may arrive together.
+    lastCall.current = now
+    busy.current = true
+    try {
+      // Catch failures here only to release the lock. Existing loaders handle UI errors.
+      Promise.resolve(savedFn.current()).catch(() => {}).finally(() => { busy.current = false })
+    } catch {
+      busy.current = false
+    }
   }, [skip])
 
   useEffect(() => {
-    if (skip) return
-
-    // Immediate first call
-    savedFn.current()
-
-    // Schedule repeating calls
-    timerId.current = setInterval(run, intervalMs)
-
-    // Pause / resume on tab visibility change
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        // Tab became visible — run immediately then keep interval
-        savedFn.current()
-      }
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-
-    // SSE/layout components dispatch this event after workflow mutations. Pages
-    // using polling therefore refresh immediately, while the interval remains a
-    // resilience fallback if a live event is missed.
-    const onClinicRefresh = () => run()
-    window.addEventListener('clinic:refresh', onClinicRefresh)
-
+    if (skip) return undefined
+    run()
+    timer.current = window.setInterval(run, Math.max(5000, Number(intervalMs) || 30000))
+    const onVisibility = () => { if (document.visibilityState === 'visible') run() }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('clinic:refresh', run)
     return () => {
-      clearInterval(timerId.current)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.removeEventListener('clinic:refresh', onClinicRefresh)
+      window.clearInterval(timer.current)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('clinic:refresh', run)
     }
-  }, [run, intervalMs, skip])
+  }, [intervalMs, run, skip])
 }
-
 export default usePolling

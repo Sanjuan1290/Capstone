@@ -60,6 +60,9 @@ const migrationFiles = [
   '2026-11-09-superadmin-patient-directory-ban.sql',
   '2026-11-09-branch-google-maps-url.sql',
   '2026-11-11-charge-reduction-reversal.sql',
+  '2026-11-11-registration-sms-limits.sql',
+  '2026-11-11-billing-stock-reservations.sql',
+  '2026-11-11-doctor-confirmation-notifications.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -197,10 +200,3 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
-
-
-
-
-
-
-

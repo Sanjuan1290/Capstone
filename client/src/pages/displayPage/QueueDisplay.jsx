@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { MdLock, MdLockOpen, MdVolumeUp, MdWifi, MdWifiOff } from 'react-icons/md'
+import { formatQueueLabel } from '../../utils/queueLabel.mjs'
 
 const useCurrentTime = () => {
   const [time, setTime] = useState(new Date())
@@ -275,7 +276,7 @@ const QueueDisplay = () => {
           {queue.serving ? (
             <div className="py-4 text-center">
               <div className="mx-auto mb-5 flex h-32 w-32 items-center justify-center rounded-[32px] bg-sky-500/15 text-5xl font-black text-sky-300">
-                {queue.serving.queueNo}
+                {formatQueueLabel(queue.serving)}
               </div>
               <p className="text-xl font-black">{typeLabel(queue.serving.type)}</p>
               <p className="mt-2 text-sm text-slate-300">{queue.serving.doctor}</p>
@@ -299,14 +300,14 @@ const QueueDisplay = () => {
 
           <div className="space-y-3">
             {queue.waiting?.length ? queue.waiting.map((entry, index) => (
-              <div key={`${entry.queueNo}-${entry.arrivedAt || index}`} className={`rounded-2xl border px-4 py-3 ${index === 0 ? 'border-amber-400/30 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
+              <div key={`${formatQueueLabel(entry)}-${entry.arrivedAt || index}`} className={`rounded-2xl border px-4 py-3 ${index === 0 ? 'border-amber-400/30 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-bold text-slate-200">{typeLabel(entry.type)}</p>
                     <p className="mt-1 text-xs text-slate-500">Arrived {entry.arrivedAt || '—'}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-3xl font-black text-sky-300">{entry.queueNo}</p>
+                    <p className="text-3xl font-black text-sky-300">{formatQueueLabel(entry)}</p>
                     {index === 0 && <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Up next</p>}
                   </div>
                 </div>

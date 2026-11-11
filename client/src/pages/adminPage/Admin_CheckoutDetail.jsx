@@ -21,6 +21,7 @@ import {
   updateAdminCheckoutBill as updateBill,
   uploadAdminDiscountProofImage as uploadDiscountProofImage,
 } from '../../services/admin.service'
+import { closeUnpaidClinicalStock } from '../../services/admin.service'
 import { getClinicSettings } from '../../services/clinic.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import Modal from '../../components/ui/Modal'
@@ -589,6 +590,19 @@ const Admin_CheckoutDetail = () => {
         </div>
       </section>
 
+      {Number(bill.pending_clinical_items || 0) > 0 && !['paid','refunded'].includes(bill.status) && !bill.paid_at && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+          <p className="font-bold text-amber-900">{bill.pending_clinical_items} item batch(es) used in consultation are waiting for billing.</p>
+          <p className="mt-1 text-amber-800">If this patient leaves without full payment, you may record that stock use without marking the bill paid.</p>
+          <button type="button" className="button-secondary mt-3" disabled={saving || paying || finalizing || qrPending} onClick={async () => {
+            const reason = window.prompt('Why are you closing the used items without full payment? (5–255 characters)')
+            if (!reason || reason.trim().length < 5 || reason.trim().length > 255) return
+            if (!window.confirm('This will remove already used items from recorded stock. It will NOT record a payment. Continue?')) return
+            try { await closeUnpaidClinicalStock(bill.id, reason.trim()); await load({ preserveStep: true }) }
+            catch (error) { window.alert(error.message || 'Could not close unpaid stock usage.') }
+          }}>Record used items without payment</button>
+        </div>
+      )}
       <CheckoutStatus bill={bill} dirty={dirty} saving={saving} finalizing={finalizing} paying={paying} qrPending={qrPending} reopening={reopening} versionConflict={versionConflict} />
       <CheckoutOverview bill={bill} totals={totals} dirty={dirty} formatMoney={formatMoney} />
 
@@ -615,16 +629,17 @@ const Admin_CheckoutDetail = () => {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-black text-slate-900">{item.service_name || (item.item_type === 'supply' ? 'Medicine / Supply' : 'Custom Charge')}</p>
-                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Consumable · From Consultation' : 'From Consultation'}</span>}
+                          {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Item · From Consultation' : 'From Consultation'}</span>}
                         </div>
                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
+                        {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
                       </div>
                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
                     </div>
 
                     {protectedLine ? (
                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px_140px]">
-                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Consumable' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
+                        <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Item' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
                         <div><span className="form-label">Qty</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.quantity}</div></div>
                         <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
                       </div>
@@ -750,6 +765,3 @@ const Admin_CheckoutDetail = () => {
 }
 
 export default Admin_CheckoutDetail
-
-
-

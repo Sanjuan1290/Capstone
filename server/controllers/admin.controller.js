@@ -1,3 +1,4 @@
+const { notifyDoctorOnConfirmation } = require('../utils/doctorConfirmationNotifications')
 // server/controllers/admin.controller.js
 // FIXES:
 // 1. getDashboard → now returns doctorStatus (Doctors Today was always empty)
@@ -687,7 +688,7 @@ const confirmAppointment = async (req, res) => {
   const { id } = req.params
   await expirePendingAppointments({ appointmentId: id }).catch(() => {})
   const [rows] = await db.query(
-    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type,
+    `SELECT a.id, a.status, a.appointment_date, a.appointment_time, a.clinic_type, a.branch_id,
             p.id AS patient_id, p.email AS patient_email, p.phone AS patient_phone, p.full_name AS patient_name,
             d.id AS doctor_id, d.full_name AS doctor_name
      FROM appointments a
@@ -704,6 +705,12 @@ const confirmAppointment = async (req, res) => {
   assertAppointmentTransition(rows[0].status, 'confirmed')
   const [updated] = await db.query("UPDATE appointments SET status = 'confirmed', confirmation_deadline_at = NULL WHERE id = ? AND status = ?", [id, rows[0].status])
   await assertAppointmentMutationApplied(updated, id)
+  // Dispatch after a real status transition without delaying the clinic confirmation response.
+  void notifyDoctorOnConfirmation({
+    appointmentId: Number(id), doctorId: rows[0].doctor_id,
+    appointmentDate: rows[0].appointment_date, appointmentTime: rows[0].appointment_time,
+    clinicType: rows[0].clinic_type, branchId: rows[0].branch_id,
+  }).catch(error => console.error('[doctor-confirmation] notification failed', {appointmentId: id, message:error.message}))
   await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.confirmed',entityType:'appointment',entityId:id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
@@ -3268,6 +3275,19 @@ const confirmInventoryBatchAction = async (req, res) => {
         throw Object.assign(new Error('Batch location balances do not match the batch total. Repair the inventory allocation before applying a correction.'), { statusCode:409, code:'BATCH_LOCATION_MISMATCH' })
       }
 
+      const pendingByLocation = new Map()
+      if (process.env.UNIFIED_BILLING_STOCKOUT === '1' && delta < 0) {
+        const [held] = await conn.query(
+          `SELECT location_id,package_quantity AS qty
+           FROM clinical_inventory_reservations
+           WHERE batch_id=? AND status='pending' FOR UPDATE`, [batch.id]
+        )
+        for (const row of held) pendingByLocation.set(Number(row.location_id),(pendingByLocation.get(Number(row.location_id))||0)+Number(row.qty||0))
+        const heldTotal = [...pendingByLocation.values()].reduce((a,b)=>a+b,0)
+        if (target + 0.0001 < heldTotal) {
+          throw Object.assign(new Error('This correction would remove stock already used in pending consultations. Close those visits first.'),{statusCode:409,code:'PENDING_CLINICAL_STOCK'})
+        }
+      }
       if (delta > 0) {
         let targetLocation = allocationRows[0] || null
         if (!targetLocation) {
@@ -3288,7 +3308,7 @@ const confirmInventoryBatchAction = async (req, res) => {
         let remaining = Math.abs(delta)
         for (const allocation of allocationRows) {
           if (remaining <= 0.0001) break
-          const available = Number(allocation.quantity || 0)
+          const available = Math.max(0,Number(allocation.quantity || 0)-(pendingByLocation.get(Number(allocation.location_id))||0))
           if (available <= 0) continue
           const take = Math.min(available, remaining)
           await conn.query('UPDATE inventory_location_batches SET quantity=quantity-? WHERE location_id=? AND batch_id=? AND quantity>=?', [take,allocation.location_id,batch.id,take])
@@ -4368,7 +4388,3 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
-
-
-
-

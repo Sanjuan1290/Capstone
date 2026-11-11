@@ -384,6 +384,7 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
           },
           materials: normalizedMaterials,
           usage_change_reason: String(item?.usage_change_reason || '').slice(0,255) || null,
+          partial_service_note: String(item?.partial_service_note || '').slice(0,255) || null,
           usage_overridden: usageOverridden,
         }
 
@@ -530,6 +531,14 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
   )
 
   if (records.length === 0) return null
+  if (process.env.UNIFIED_BILLING_STOCKOUT === '1') {
+    const [[pending]] = await executor.query(
+      `SELECT COUNT(*) AS count,COALESCE(SUM(package_quantity),0) AS quantity
+       FROM clinical_inventory_reservations WHERE billing_id=? AND status='pending'`, [billingId]
+    )
+    records[0].pending_clinical_items = Number(pending?.count || 0)
+    records[0].pending_clinical_quantity = Number(pending?.quantity || 0)
+  }
 
   const [items] = await executor.query(
     `SELECT
@@ -877,5 +886,3 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
-
-

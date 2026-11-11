@@ -19,20 +19,6 @@
   color-scheme: light;
 }
 
-.dark {
-  --app-page: #080d17;
-  --app-surface: #101826;
-  --app-surface-muted: #151f30;
-  --app-surface-raised: #1a2639;
-  --app-border: #2a3850;
-  --app-border-strong: #3b4c67;
-  --app-text: #f1f5f9;
-  --app-text-soft: #d7e0ec;
-  --app-text-muted: #9aa9bd;
-  --app-overlay: rgba(0, 0, 0, 0.72);
-  --app-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
-  color-scheme: dark;
-}
 
 * {
   box-sizing: border-box;
@@ -257,31 +243,8 @@ a:focus-visible {
 }
 
 
-/* Existing pages still use Tailwind utility colours. These fallbacks keep hierarchy while they move to semantic components. */
-.dark .bg-white { background-color: var(--app-surface) !important; }
-.dark .bg-slate-50 { background-color: var(--app-surface-muted) !important; }
-.dark .bg-slate-100 { background-color: #1c293c !important; }
-.dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.11) !important; }
-.dark .bg-sky-50 { background-color: rgba(14, 165, 233, 0.11) !important; }
-.dark .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.11) !important; }
-.dark .bg-violet-50 { background-color: rgba(139, 92, 246, 0.12) !important; }
-.dark .bg-red-50, .dark .bg-rose-50 { background-color: rgba(239, 68, 68, 0.11) !important; }
-.dark .text-slate-900, .dark .text-slate-800 { color: var(--app-text) !important; }
-.dark .text-slate-700, .dark .text-slate-600 { color: var(--app-text-soft) !important; }
-.dark .text-slate-500, .dark .text-slate-400 { color: var(--app-text-muted) !important; }
-.dark .border-slate-100, .dark .border-slate-200, .dark .border-slate-300 { border-color: var(--app-border) !important; }
-.dark .hover\:bg-slate-50:hover { background-color: var(--app-surface-muted) !important; }
-.dark .hover\:bg-slate-100:hover { background-color: #1c293c !important; }
-.dark input:not([type='checkbox']):not([type='radio']),
-.dark select,
-.dark textarea { background-color: var(--app-surface-muted) !important; border-color: var(--app-border) !important; color: var(--app-text) !important; }
-.dark option { background: var(--app-surface-raised); color: var(--app-text); }
-.dark ::placeholder { color: #718198; opacity: 1; }
-.dark table tbody tr:hover { background-color: rgba(148, 163, 184, 0.06); }
-.dark .shadow-sm, .dark .shadow-md, .dark .shadow-lg, .dark .shadow-xl, .dark .shadow-2xl { box-shadow: 0 16px 45px rgba(0, 0, 0, 0.28) !important; }
-
 @media print {
-  :root, .dark { color-scheme: light; --app-page: #fff; --app-surface: #fff; --app-surface-muted: #fff; --app-text: #000; --app-text-soft: #222; --app-text-muted: #555; --app-border: #d1d5db; }
+  :root { color-scheme: light; --app-page: #fff; --app-surface: #fff; --app-surface-muted: #fff; --app-text: #000; --app-text-soft: #222; --app-text-muted: #555; --app-border: #d1d5db; }
   body { background: #fff !important; color: #000 !important; }
   .toast-viewport, nav, aside, header button { display: none !important; }
 }

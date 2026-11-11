@@ -105,6 +105,7 @@ router.get('/live', requireDisplaySession, async (req, res) => {
   // Public-facing data intentionally excludes patient names and contact details.
   const [servingRows] = await db.query(
     `SELECT q.queue_number AS queueNo,
+            q.doctor_id AS doctorId,
             q.type,
             d.full_name AS doctor,
             TIME_FORMAT(q.called_at, '%h:%i %p') AS calledAt,
@@ -119,6 +120,7 @@ router.get('/live', requireDisplaySession, async (req, res) => {
 
   const [waitingRows] = await db.query(
     `SELECT q.queue_number AS queueNo,
+            q.doctor_id AS doctorId,
             q.type,
             TIME_FORMAT(q.arrived_at, '%h:%i %p') AS arrivedAt
      FROM queue q

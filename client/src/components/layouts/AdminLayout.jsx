@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../context/ThemeContext'
 import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
 import { useSSE } from '../../hooks/useSSE'
@@ -10,7 +9,7 @@ import { getDashboard } from '../../services/admin.service'
 import {
   MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
   MdBarChart, MdChevronLeft, MdLogout, MdAdminPanelSettings, MdMenu, MdClose, MdSettings,
-  MdDarkMode, MdLightMode, MdLanguage, MdEdit, MdPayments, MdHistory, MdTune, MdCampaign,
+  MdLanguage, MdEdit, MdPayments, MdHistory, MdTune, MdCampaign,
 } from 'react-icons/md'
 
 const GROUPS = [
@@ -38,7 +37,7 @@ const GROUPS = [
 
 const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, permissions = null }) => {
   const { user, logout: clearAuth } = useAuth()
-  const { theme, toggleTheme } = useTheme()
+
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
@@ -118,7 +117,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
       <div className="shrink-0 border-t border-white/5 px-3 py-4">{logoutError && !collapsed && <p className="px-3 pb-2 text-[10px] text-red-400">{logoutError}</p>}<button onClick={handleLogout} disabled={loggingOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300"><MdLogout className="text-lg" /><span className={collapsed ? 'hidden' : ''}>{loggingOut ? 'Logging out…' : 'Logout'}</span></button></div>
       <button onClick={() => setCollapsed((v) => !v)} aria-label="Toggle sidebar" className="absolute -right-3 top-[72px] hidden h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#0b1a2c] text-slate-400 shadow-md lg:flex"><MdChevronLeft className={`text-sm transition-transform ${collapsed ? 'rotate-180' : ''}`} /></button>
     </aside>
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col"><header className="z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4 lg:h-16 lg:px-6"><button onClick={() => setMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 lg:hidden"><MdMenu className="text-xl" /></button><div className="hidden lg:block" /><div className="flex items-center gap-3"><NotificationBell role={superBranch ? "superadmin" : "admin"} /><button onClick={toggleTheme} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500">{theme === 'dark' ? <MdLightMode /> : <MdDarkMode />}</button><NavLink to={`${base}/settings`} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><MdSettings /></NavLink><div className="hidden items-center gap-2.5 border-l border-slate-100 pl-3 lg:flex"><ProfileAvatar user={user} size="sm" /><div><p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Admin'}</p><p className="text-[10px] text-slate-400">{branch?.name || 'Administrator'}</p></div></div></div></header>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col"><header className="z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4 lg:h-16 lg:px-6"><button onClick={() => setMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 lg:hidden"><MdMenu className="text-xl" /></button><div className="hidden lg:block" /><div className="flex items-center gap-3"><NotificationBell role={superBranch ? "superadmin" : "admin"} /><NavLink to={`${base}/settings`} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><MdSettings /></NavLink><div className="hidden items-center gap-2.5 border-l border-slate-100 pl-3 lg:flex"><ProfileAvatar user={user} size="sm" /><div><p className="text-xs font-semibold text-slate-700">{user?.full_name || 'Admin'}</p><p className="text-[10px] text-slate-400">{branch?.name || 'Administrator'}</p></div></div></div></header>
       <main onClickCapture={interceptOriginalLink} className="min-w-0 flex-1 overflow-y-auto p-4 portal-mobile-content lg:p-6"><div className="mx-auto w-full max-w-[1600px]"><Outlet context={{ branch, admin: !superBranch, base, permissions }} /></div></main>
       <nav className="fixed bottom-0 left-0 right-0 z-30 flex portal-mobile-nav items-center justify-around border-t border-slate-100 bg-white px-1 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] lg:hidden">{mobileNav.map((item) => { const Icon=item.icon; const badge=badgeFor(item); return <NavLink key={item.path} to={portalPath(item.path)} end={item.path==='/admin'} className={({isActive})=>`relative flex min-w-[50px] flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 ${isActive?'text-amber-600':'text-slate-400'}`}><Icon className="text-xl" />{badge>0&&<span className="absolute right-0 top-0 min-w-4 rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white">{badge>99?'99+':badge}</span>}<span className="text-[9px] font-bold">{item.short}</span></NavLink>})}</nav>
     </div>
@@ -126,5 +125,3 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
 }
 
 export default AdminLayout
-
-

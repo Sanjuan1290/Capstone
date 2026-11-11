@@ -162,7 +162,8 @@ const SettingsPage = () => {
     setSaving(true); setError('')
     try {
       const payload = { ...form }
-      if (role === 'patient') { delete payload.phone; delete payload.civil_status; delete payload.theme_preference }
+      delete payload.theme_preference
+      if (role === 'patient') { delete payload.phone; delete payload.civil_status }
       const saved = await updateSettings(role, payload)
       setForm(saved); setOriginal(saved); setEditing(false)
       setUser((prev) => prev ? { ...prev, ...saved, role } : prev)
@@ -375,5 +376,3 @@ const SettingsPage = () => {
 }
 
 export default SettingsPage
-
-

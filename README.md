@@ -1,28 +1,31 @@
-# CARAIT Clinic SEO patch — 20 October 2026
+# Carait Clinic — Doctor appointment confirmation alerts + light-only UI
 
-Scope: **frontend SEO only**. Source basis: `AllCodes(20261020-083053).txt`.
+Based on `AllCodes(20261111-024447).txt` and the preceding generated inventory/SMS/queue patch. No live database, GitHub repository, Render deployment or Cloudflare site was changed.
 
-## Apply
+## What changed
 
-Copy the contents of this package **over the matching relative paths** in the `Sanjuan1290/Capstone` repository root. This includes one existing file `client/index.html`, one existing file `client/src/components/layouts/Layout.jsx`, and four new files. Review changes, then commit and push to `main` to trigger the Cloudflare Pages deployment (root directory `client`). Nothing needs changing in Render, TiDB, Resend, or Cloudflare environment variables.
+- Doctor gets existing **in-app notification** when an appointment is confirmed. Admin or Staff confirming a pending appointment now also triggers email and/or SMS according to the shared Super Admin settings.
+- **Super Admin → System Setup → Doctor Appointment Notifications** has separate switches for Email and SMS. Settings apply to all branches. Defaults: email **ON**, SMS **OFF** (SMS incurs provider charges).
+- Email uses your existing Resend service (`RESEND_API_KEY`, `EMAIL_FROM`, optional `CLIENT_URL`), and SMS uses your existing Semaphore configuration (`SEMAPHORE_API_KEY`, optional `SEMAPHORE_SENDER_NAME`). Valid doctor email/phone must be present. The message includes date, time, branch and clinic type. Private patient details are not sent externally.
+- Sending begins only after an appointment actually changes to **confirmed**, so repeating a confirm request does not normally resend. Confirmation is not rolled back when a provider fails. Provider failures are logged; **automatic retry/delivery history is not implemented**.
+- The email/SMS dispatch runs without delaying the response. The existing in-app notification remains independent of the Email/SMS switches.
+- All Patient, Doctor, Staff and Admin/branch-workspace theme toggles are removed. Old browser dark selection is cleared; light mode stays active. Dark CSS and Tailwind dark classes were removed. Database `theme_preference` columns remain for safe backwards compatibility but no longer control the UI.
+- New additive MySQL/TiDB migration: `server/db/migrations/2026-11-11-doctor-confirmation-notifications.sql`. It creates/initializes the global settings table. It is registered in `server/scripts/branchMigrations.js`.
 
-## Public pages
+## Before deploying
 
-- The homepage title and description now describe the real clinic, not the internal management system.
-- The homepage includes Google-readable `MedicalClinic` structured data sourced from the public clinic contact/office-hours data in the user's landing page response. Verify the street address, phone, hours, and Facebook URL remain current.
-- Canonical URLs and appropriate metadata update when React Router navigates between `/`, `/news`, `/privacy-policy`, and `/terms`.
-- Published news *detail* pages have a generic article title initially; consider separate per-article metadata when needed later.
-- Internal routes receive `noindex` via rendered meta tags and Pages static `_headers` rules. These rules are NOT access control; keep authentication enforced in your backend.
-- `client/public/sitemap.xml` lists homepage and News & Offers (detailed dynamic article URLs are not generated).
-- `client/public/robots.txt` permits the public pages and references the sitemap. Do NOT disallow protected routes in robots.txt if relying on `noindex` headers; crawlers must be able to fetch the URL to see noindex.
-- `carait-clinic.pages.dev` responses get `noindex` where Pages static header rules apply, preventing duplicate canonical hosting. If redirecting the pages.dev alias later, verify it separately.
+1. Back up the current repository and database. Compare the patch against your current `main` branch before applying.
+2. If you already applied **the previous inventory/SMS/queue patch**, use `carait_doctor_notifications_light_only_20261111.patch` (incremental). If not, use `carait_all_updates_20261111.patch` (cumulative). **Do not apply both.**
+3. Run `git apply --check <chosen-patch>`, review `git diff`, then run `git apply <chosen-patch>`.
+4. Run the registered database migrations on a test database first. Existing data is not deleted. The new settings endpoint returns an error until the table exists.
+5. Check `RESEND_API_KEY`, `EMAIL_FROM`, `CLIENT_URL`, and your Semaphore credentials before switching SMS on. Doctor accounts need valid email/phone details.
+6. Verify one confirmed appointment in each branch through Admin and Staff portals. Test Email-only, SMS-only, both ON, both OFF, missing contact details and provider outages. Check the Doctor's in-app bell independently.
+7. Run frontend build, backend tests, and browser checks against the current repository. Do not deploy from this exported file alone.
 
-## After deploying
+## Test results in this environment
 
-1. Confirm `https://caraitclinic.com/robots.txt` and `https://caraitclinic.com/sitemap.xml` return their actual text/XML, not HTML.
-2. On homepage, check page title, description, canonical, `application/ld+json` using browser DevTools. Confirm `/news` sets its own canonical and title.
-3. Open `https://search.google.com/search-console` → Sitemaps → enter `sitemap.xml` → Submit.
-4. Test the homepage in Google URL Inspection and request indexing again after this update. Inspect an internal login page to verify `noindex` header; do not rely on robots.txt alone.
-5. Validate the homepage's structured data using Google's Rich Results Test: https://search.google.com/test/rich-results.
-
-Notes: The website is a React SPA and Google's live URL Inspection shows its content renders successfully. New build files are not guaranteed to rank or appear in search immediately. No backend API, database, or private data changes are included.
+- **17 focused tests passed**: doctor setting validation and dispatch, provider failure handling, auth route wiring, all portal light-mode checks, previous registration quota, queue labels, and pending stock tests.
+- **178 JSX files parse without errors**, and the backend source passes Node syntax checks.
+- **No real MySQL/TiDB migration**, Resend email, Semaphore SMS, complete frontend build, or browser-based end-to-end test was run here.
+- The new notification dispatch is *best effort*: if the server crashes or providers fail after an appointment is confirmed, there is no automatic resend. Production-grade delivery tracking/retries would require a separate durable notification queue.
+- The earlier optional stock-out workflow from the previous patch is **still off by default** and still requires database/payment testing.

@@ -34,6 +34,7 @@ const { getOnlineBookingReadiness, applyBranchBookingOfferings } = require('../u
 const { isOtherVisitReason, withSystemOtherVisitReason } = require('../utils/appointmentReasons')
 const { listMyBillingHistory, getMyBillDetails } = require('../utils/patientBillingHistory')
 
+const { claimRegistrationSms } = require('../utils/registrationSmsLimits')
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
@@ -198,6 +199,7 @@ const register = async (req, res) => {
   )
   if (emailRows.length) return res.status(409).json({ message: 'An account with that email address already exists.' })
 
+  await claimRegistrationSms(normalizedPhone)
   const hashedPassword = await bcrypt.hash(password, 10)
   const code = makeNumericCode()
   const payload = JSON.stringify({
@@ -264,6 +266,7 @@ const resendRegistrationVerification = async (req, res) => {
   const pending = rows[0]
   let payload
   try { payload = parseVerificationPayload(pending.payload) } catch { return res.status(400).json({ message: 'Registration data is no longer valid. Please register again.' }) }
+  await claimRegistrationSms(normalizedPhone)
   const code = makeNumericCode()
   payload.verification_method = method
   await db.query(
@@ -1229,10 +1232,3 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
-
-
-
-
-
-
-

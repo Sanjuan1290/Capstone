@@ -829,6 +829,7 @@ require('./branchGlobalReferenceWrites').registerBranchGlobalReferenceWrites(rou
 require('./branchPaymentSettingsWrites').registerBranchPaymentSettingsWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchSensitiveWrites').registerBranchSensitiveWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchChargeAdjustments').registerBranchChargeAdjustments(router,{requireSuper,branchContext,requirePermission})
+require('./branchClinicalStock').registerBranchClinicalStock(router,{requireSuper,branchContext,requirePermission})
 require('./branchPaymentActions').registerBranchPaymentActions(router,{requireSuper,branchContext,requirePermission})
 require('./branchCheckoutDraftWrites').registerBranchCheckoutDraftWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchBillCorrections').registerBranchBillCorrections(router,{requireSuper,branchContext,requirePermission})
@@ -850,8 +851,3 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
-
-
-
-
-

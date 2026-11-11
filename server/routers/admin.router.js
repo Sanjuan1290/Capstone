@@ -24,6 +24,7 @@ const requireLegacySuperAdmin = async (req,res,next) => {
 const accountAuth = [authenticate.adminContext(), requireRole('admin')]
 const auth = [authenticate.adminContext(true), requireRole('admin'), requireLegacySuperAdmin]
 const promotionsCtrl = require('../controllers/promotions.controller')
+const doctorNotificationSettings = require('./doctorNotificationSettings')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 router.post('/login',      loginLimiter, adminCtrl.login)
@@ -151,6 +152,8 @@ router.post('/audit-logs/archive', ...auth, adminCtrl.archiveAuditLogs)
 router.get('/audit-logs/archive/:archiveId', ...auth, adminCtrl.getAuditArchiveDetail)
 router.delete('/audit-logs/archive/:archiveId', ...auth, adminCtrl.deleteAuditArchive)
 router.get('/system-setup', ...auth, adminCtrl.getSystemSetup)
+router.get('/system-setup/doctor-notifications', ...auth, doctorNotificationSettings.getDoctorNotificationSettings)
+router.put('/system-setup/doctor-notifications', ...auth, doctorNotificationSettings.updateDoctorNotificationSettings)
 router.get('/reminder-settings', ...auth, reminderRoutes.ensureBranch, reminderRoutes.get)
 router.put('/reminder-settings', ...auth, reminderRoutes.ensureBranch, reminderRoutes.put)
 router.post('/appointments/:id/remind', ...auth, reminderRoutes.ensureBranch, reminderRoutes.manual)
@@ -198,7 +201,3 @@ router.delete('/inventory/:id',       ...auth, adminCtrl.deleteInventoryItem)
 
 
 module.exports = router
-
-
-
-

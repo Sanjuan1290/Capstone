@@ -4,7 +4,6 @@
 import { useCallback, useState } from "react"
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "../../context/AuthContext"
-import { useTheme } from "../../context/ThemeContext"
 import NotificationBell from "../NotificationBell"
 import ProfileAvatar from "../ProfileAvatar"
 import PatientOnboardingTour from "../PatientOnboardingTour"
@@ -13,7 +12,7 @@ import { useSSE } from "../../hooks/useSSE"
 import {
   MdDashboard, MdCalendarToday, MdEventAvailable, MdHistory,
   MdChevronLeft, MdLogout, MdPerson, MdMenu, MdClose,
-  MdSettings, MdDarkMode, MdLightMode, MdMedicalServices,
+  MdSettings, MdMedicalServices,
 } from "react-icons/md"
 
 const sideNav = [
@@ -33,7 +32,7 @@ const PatientPortalShell = () => {
   const { pathname } = useLocation()
   const { user, logout: clearAuth } = useAuth()
   const { branches, branchId, selectedBranch, selectBranch, clearBranch, loading: branchLoading, error: branchError, refreshBranches } = usePatientBranch()
-  const { theme, toggleTheme } = useTheme()
+
   const settingsActionCount = user?.email && !user?.email_verified_at ? 1 : 0
   const handleSSEMessage = useCallback((eventName) => {
     if (['appointment_updated', 'queue_updated', 'consultation_saved', 'supply_request_resolved'].includes(eventName)) {
@@ -214,9 +213,6 @@ const PatientPortalShell = () => {
               </select>
             </label>}
             <NotificationBell role="patient" />
-            <button onClick={toggleTheme} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50">
-              {theme === 'dark' ? <MdLightMode className="text-[18px] mx-auto" /> : <MdDarkMode className="text-[18px] mx-auto" />}
-            </button>
             <NavLink data-tour="patient-settings" to="/patient/settings" aria-label={settingsActionCount ? `Settings — ${settingsActionCount} action required` : 'Settings'} className="relative w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center">
               <MdSettings className="text-[18px]" />
               {settingsActionCount > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-black leading-none text-white ring-2 ring-white">{settingsActionCount > 9 ? '9+' : settingsActionCount}</span>}
@@ -289,6 +285,3 @@ const PatientLayout = () => {
 }
 
 export default PatientLayout
-
-
-

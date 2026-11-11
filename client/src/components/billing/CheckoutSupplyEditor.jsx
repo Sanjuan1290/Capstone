@@ -16,7 +16,7 @@ export const getCheckoutBatchOptions = (inventoryItem) => {
     .filter((batch) => !batch.archived_at && Number(batch.quantity || 0) > 0)
     .filter((batch) => !batch.expiration_date || String(batch.expiration_date).slice(0, 10) >= today)
     .flatMap((batch) => (Array.isArray(batch.locations) ? batch.locations : [])
-      .filter((loc) => Number(loc?.quantity || 0) > 0 && Number(loc?.id || 0) > 0)
+      .filter((loc) => Number(loc?.available_quantity ?? loc?.quantity ?? 0) > 0 && Number(loc?.id || 0) > 0)
       .map((loc) => ({
         selection_key: `${Number(batch.id)}:${Number(loc.id)}`,
         id: Number(batch.id),
@@ -27,7 +27,7 @@ export const getCheckoutBatchOptions = (inventoryItem) => {
         expiration_date: batch.expiration_date || null,
         source_location_id: Number(loc.id),
         source_location: loc.name,
-        available: Math.min(Number(batch.quantity || 0), Number(loc.quantity || 0)),
+        available: Math.min(Number(batch.available_quantity ?? batch.quantity ?? 0), Number(loc.available_quantity ?? loc.quantity ?? 0)),
       })))
 }
 
@@ -61,13 +61,13 @@ const CheckoutSupplyEditor = ({ item, inventory, onSelectInventory, onSelectBatc
               className="form-control pl-10"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search medicine, supply, barcode or supplier..."
+              placeholder="Search item, barcode or supplier..."
             />
           </div>
         </label>
 
         <label className="block">
-          <span className="form-label">Medicine / Supply *</span>
+          <span className="form-label">Inventory Item *</span>
           <select className="form-control mt-1.5" value={item.source_inventory_id || ''} onChange={(e) => onSelectInventory(e.target.value)}>
             <option value="">Select inventory item</option>
             {filteredInventory.map((inv) => {

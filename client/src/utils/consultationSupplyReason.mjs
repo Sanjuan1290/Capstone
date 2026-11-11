@@ -37,6 +37,7 @@ export function restoreConsultationServicesFromBilling(items = []) {
       quantity: Number(item.quantity || 1),
       materials: Array.isArray(details.materials) ? [...details.materials] : [],
       usage_change_reason: details.usage_change_reason || '',
+      partial_service_note: details.partial_service_note || '',
       usage_overridden: Boolean(details.usage_overridden),
     }
   })

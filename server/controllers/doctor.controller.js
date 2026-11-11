@@ -21,6 +21,7 @@ const {
 const { loadImagesForConsultationIds, authorizeConsultationImages, syncConsultationImages } = require('../utils/consultationImages')
 const { listBillingCatalog, getBillingCatalogServiceById, getBillingByAppointmentId, upsertDraftBillingForAppointment, collectInventoryUsageFromBillingItems } = require('../utils/billing')
 const { consumeInventoryFromLocationFEFO, getInventoryLocationById, attachBatchesToInventory, MAIN_LOCATION } = require('../utils/inventoryBatches')
+const { isUnifiedBillingStockOut, planClinicalInventoryReservation } = require('../utils/clinicalInventoryReservations')
 const { writeAuditLog } = require('../utils/audit')
 const { saveDoctorScheduleDay } = require('../utils/doctorSchedule')
 const { callNextQueuePatient, setQueueState, normalizeQueueStatus, assertQueueTransition } = require('../utils/queueWorkflow')
@@ -143,10 +144,19 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
     if (packageQuantity <= 0) continue
 
     // Inventory is never reserved or pre-validated when an appointment is confirmed.
-    // Actual recorded usage is deducted only when the consultation is finalized.
+    // In unified billing mode, actual usage is held now and deducted after payment.
     // Prefer treatment-room stock for location accuracy, then use Main Stockroom as
     // a fallback so a separate pre-consultation transfer is not required.
-    const consumption = await consumeInventoryFromLocationFEFO(
+    const deferred = isUnifiedBillingStockOut()
+    const consumption = deferred ? {
+      ok: true, consumed: await planClinicalInventoryReservation({
+        inventoryId: entry.inventory_id,
+        packageQuantity,
+        preferredLocation,
+        fallbackLocation: assignedRoom && Number(assignedRoom.id)!==Number(mainStockroom.id) ? mainStockroom.name : null,
+        itemName: inventory.name,
+      }, conn),
+    } : await consumeInventoryFromLocationFEFO(
       entry.inventory_id,
       packageQuantity,
       preferredLocation,
@@ -187,6 +197,15 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
       remainingUsageQty = Math.max(0, remainingUsageQty - allocatedUsage)
       const batchLabel = batch.batch_code || `Batch #${batch.batch_id}`
 
+      if (deferred) {
+        await conn.query(
+          `INSERT INTO clinical_inventory_reservations
+           (consultation_usage_id,billing_id,inventory_id,batch_id,location_id,package_quantity,usage_quantity)
+           VALUES (?,?,?,?,?,?,?)`,
+          [usageId,billing.id,entry.inventory_id,batch.batch_id,batch.location_id,Number(batch.quantity || 0),allocatedUsage]
+        )
+        continue
+      }
       await conn.query(
         `INSERT INTO consultation_inventory_usage_batches
          (consultation_usage_id, batch_id, package_quantity, usage_quantity, usage_unit_label, source_location, source_location_id)
@@ -211,8 +230,10 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
     }
   }
 
-  await conn.query('UPDATE billing_records SET clinical_inventory_consumed_at = NOW() WHERE id = ?', [billing.id])
-  billing.clinical_inventory_consumed_at = new Date()
+  if (!isUnifiedBillingStockOut()) {
+    await conn.query('UPDATE billing_records SET clinical_inventory_consumed_at = NOW() WHERE id = ?', [billing.id])
+    billing.clinical_inventory_consumed_at = new Date()
+  }
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -587,6 +608,10 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db, b
     const configured = new Map(defaults.map(m=>[Number(m.inventory_id),Number(m.quantity)]))
     const actual = new Map(normalizedMaterials.filter(m=>!m.consultation_extra).map(m=>[m.inventory_id,m.quantity]))
     const changed = configured.size !== actual.size || [...configured].some(([id,qty])=>actual.get(id)!==qty)
+    const partialNote = String(raw?.partial_service_note || '').trim()
+    if (partialNote.length > 255 || (partialNote.length > 0 && partialNote.length < 5)) {
+      throw makeConsultationValidationError('Explain which service step was not performed (5–255 characters).', 'PARTIAL_SERVICE_REASON_REQUIRED')
+    }
     const reason=String(raw?.usage_change_reason || '').trim()
     if (reason.length > 255 || (requireReason && (changed || normalizedMaterials.some(m=>m.consultation_extra)) && reason.length < 5)) {
       throw makeConsultationValidationError('Enter a reason (5–255 characters) when changing or adding supplies.', 'SUPPLY_CHANGE_REASON_REQUIRED')
@@ -597,6 +622,7 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db, b
       service_name:catalogService.service_name, quantity:1,
       materials:normalizedMaterials, usage_overridden:changed,
       usage_change_reason:reason || null,
+      partial_service_note:partialNote || null,
     })
   }
   return normalized
@@ -1328,14 +1354,14 @@ const getInventoryItems = async (req, res) => {
   res.json(withBatches.map((item) => ({
     ...item,
     treatment_room_batches: (Array.isArray(item.batches) ? item.batches : [])
-      .filter((batch) => !batch.archived_at && Number(batch.quantity || 0) > 0 && (!batch.expiration_date || String(batch.expiration_date).slice(0, 10) >= today))
+      .filter((batch) => !batch.archived_at && Number(batch.available_quantity ?? batch.quantity ?? 0) > 0 && (!batch.expiration_date || String(batch.expiration_date).slice(0, 10) >= today))
       .flatMap((batch) => (Array.isArray(batch.locations) ? batch.locations : [])
-        .filter((location) => location.name === item.treatment_room_name && Number(location.quantity || 0) > 0)
+        .filter((location) => location.name === item.treatment_room_name && Number(location.available_quantity ?? location.quantity ?? 0) > 0)
         .map((location) => ({
           batch_id: Number(batch.id),
           batch_code: batch.batch_code || `Batch #${batch.id}`,
           expiration_date: batch.expiration_date || null,
-          available: Math.min(Number(batch.quantity || 0), Number(location.quantity || 0)),
+          available: Math.min(Number(batch.available_quantity ?? batch.quantity ?? 0), Number(location.available_quantity ?? location.quantity ?? 0)),
           location_id: Number(location.id || 0) || null,
           location: location.name,
         }))),
@@ -1749,9 +1775,3 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
-
-
-
-
-
-

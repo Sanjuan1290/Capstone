@@ -58,6 +58,7 @@ const requestSemaphore = (path, payload) => new Promise((resolve, reject) => {
     })
   })
 
+  req.setTimeout(15000, () => req.destroy(new Error('SMS provider did not respond in time.')))
   req.on('error', reject)
   req.write(body)
   req.end()
@@ -111,12 +112,15 @@ const sendDoctorAppointmentSms = async ({
   clinicType,
   appointmentDate,
   appointmentTime,
+  branchName,
 }) => {
   const normalized = normalizePhilippinePhone(doctorPhone)
   if (!normalized) return { skipped: true }
 
   const clinicLabel = clinicType === 'derma' ? 'Dermatology' : 'General Medicine'
-  const message = `Dr. ${String(doctorName || '').replace(/^Dr\.?\s*/i, '').trim() || 'Doctor'}, new ${clinicLabel} booking: ${patientName} on ${appointmentDate} at ${appointmentTime}.`
+  const dateValue = new Date(appointmentDate)
+  const dateLabel = Number.isNaN(dateValue.getTime()) ? String(appointmentDate).slice(0,10) : new Intl.DateTimeFormat('en-PH', {timeZone:'Asia/Manila',month:'short',day:'numeric',year:'numeric'}).format(dateValue)
+  const message = `Carait Clinic: Dr. ${String(doctorName || '').replace(/^Dr\.?\s*/i, '').trim() || 'Doctor'}, a ${clinicLabel} appointment is confirmed for ${dateLabel} at ${appointmentTime}, ${String(branchName || 'clinic').slice(0, 50)}. Open your Doctor Portal for details.`
 
   return sendSemaphore('/messages', {
     number: normalized,
@@ -178,4 +182,3 @@ module.exports = {
   sendDoctorAppointmentSms,
   sendPatientAppointmentStatusSms,
 }
-
