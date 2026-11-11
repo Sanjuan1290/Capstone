@@ -15,7 +15,6 @@ const { normalizePhilippinePhone } = require('../utils/phone')
 const { sendPatientRegistrationOtp } = require('../utils/smsService')
 const { buildDoctorAvailabilitySummary } = require('../utils/doctorAvailabilitySummary')
 const { getDoctorUnavailableDates, getDoctorUnavailableDate } = require('../utils/doctorAvailability')
-const { loadImagesForConsultationIds } = require('../utils/consultationImages')
 const {
   normalizePatientProfileInput,
   getPatientProfileStatus,
@@ -602,7 +601,6 @@ const getHistory = async (req, res) => {
        c.diagnosis,
        c.prescription,
        c.prescription_status,
-       c.notes AS consultation_notes,
        br.id AS billing_id, br.status AS billing_status,
        br.total_amount AS billing_total,
        COALESCE(bp.paid_amount,0) AS billing_paid_amount
@@ -618,11 +616,9 @@ const getHistory = async (req, res) => {
      ORDER BY a.appointment_date DESC`,
     [req.user.id]
   )
-  const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
-  res.json(rows.map((row) => ({
-    ...row,
-    progress_images: imagesByConsultationId[row.consultation_id] || [],
-  })))
+  // Patient history must not expose private clinical notes or uploaded images.
+  // This endpoint includes appointment details, diagnosis and prescriptions only.
+  res.json(rows)
 }
 
 const getMyBillingHistory = async (req, res) => {

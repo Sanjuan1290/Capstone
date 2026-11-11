@@ -25,6 +25,7 @@ const accountAuth = [authenticate.adminContext(), requireRole('admin')]
 const auth = [authenticate.adminContext(true), requireRole('admin'), requireLegacySuperAdmin]
 const promotionsCtrl = require('../controllers/promotions.controller')
 const doctorNotificationSettings = require('./doctorNotificationSettings')
+const semaphoreBalance = require('./semaphoreBalance')
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 router.post('/login',      loginLimiter, adminCtrl.login)
@@ -154,6 +155,7 @@ router.get('/audit-logs/archive/:archiveId', ...auth, adminCtrl.getAuditArchiveD
 router.delete('/audit-logs/archive/:archiveId', ...auth, adminCtrl.deleteAuditArchive)
 router.get('/system-setup', ...auth, adminCtrl.getSystemSetup)
 router.get('/system-setup/doctor-notifications', ...auth, doctorNotificationSettings.getDoctorNotificationSettings)
+router.get('/system-setup/sms-credits', ...auth, semaphoreBalance.getCredits)
 router.put('/system-setup/doctor-notifications', ...auth, doctorNotificationSettings.updateDoctorNotificationSettings)
 router.get('/reminder-settings', ...auth, reminderRoutes.ensureBranch, reminderRoutes.get)
 router.put('/reminder-settings', ...auth, reminderRoutes.ensureBranch, reminderRoutes.put)

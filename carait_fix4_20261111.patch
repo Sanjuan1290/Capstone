@@ -1,0 +1,983 @@
+diff --git a/client/src/components/accounts/StaffPermissionPicker.jsx b/client/src/components/accounts/StaffPermissionPicker.jsx
+index dfa92f3..5dfd517 100644
+--- a/client/src/components/accounts/StaffPermissionPicker.jsx
++++ b/client/src/components/accounts/StaffPermissionPicker.jsx
+@@ -5,6 +5,11 @@ import { STAFF_PERMISSION_GROUPS, STAFF_PERMISSION_KEYS, normalizeStaffPermissio
+ const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
+   const selected = useMemo(() => normalizeStaffPermissions(value), [value])
+   const [openHelp, setOpenHelp] = useState(null)
++  const [search, setSearch] = useState('')
++  const filteredGroups = useMemo(() => STAFF_PERMISSION_GROUPS.map(group => ({
++    ...group,
++    permissions: group.permissions.filter(p => `${p.label} ${p.short} ${p.description} ${group.label}`.toLowerCase().includes(search.trim().toLowerCase())),
++  })).filter(group => group.permissions.length), [search])
+   const selectedSet = new Set(selected)
+ 
+   const setPermissions = (next) => onChange?.(normalizeStaffPermissions(next))
+@@ -28,7 +33,14 @@ const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
+         </div>
+       </div>
+ 
+-      {STAFF_PERMISSION_GROUPS.map((group) => {
++      <label className="block">
++        <span className="text-xs font-bold text-slate-600">Find a permission</span>
++        <input type="search" value={search} onChange={event => setSearch(event.target.value)}
++          placeholder="Search checkout, billing, appointments..." aria-label="Search staff permissions"
++          className="form-control mt-1.5" />
++      </label>
++      {filteredGroups.length === 0 && <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">No permissions match your search.</p>}
++      {filteredGroups.map((group) => {
+         const keys = group.permissions.map((item) => item.key)
+         const count = keys.filter((key) => selectedSet.has(key)).length
+         const allSelected = count === keys.length
+diff --git a/client/src/components/billing/BillCheckout.jsx b/client/src/components/billing/BillCheckout.jsx
+index ebd1c23..af57a44 100644
+--- a/client/src/components/billing/BillCheckout.jsx
++++ b/client/src/components/billing/BillCheckout.jsx
+@@ -230,8 +230,12 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+   useEffect(() => { load() }, [billingId]) // eslint-disable-line react-hooks/exhaustive-deps
+ 
+   useEffect(() => {
+-    const refresh = () => {
+-      if (dirty) setExternalUpdate(true)
++    const refresh = event => {
++      const topic = event?.detail?.eventName
++      const updatedBillId = Number(event?.detail?.data?.billingId || 0)
++      if (topic && !['billing.updated','stream.reconnected'].includes(topic)) return
++      if (updatedBillId && updatedBillId !== Number(billingId)) return
++      if (dirty) { setExternalUpdate(true); setVersionConflict(true) }
+       else load({ preserveStep: true })
+     }
+     window.addEventListener('clinic:refresh', refresh)
+@@ -364,6 +368,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+       setBill(updated)
+       setDraft(normalizeBill(updated))
+       setDirty(false)
++      setExternalUpdate(false)
+       setVersionConflict(false)
+       const requests = await getBillingAdjustmentRequests(billingId)
+       setAdjustments(Array.isArray(requests) ? requests : [])
+@@ -453,10 +458,20 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+     return ''
+   }
+ 
+-  const proceedToReview = () => {
++  const proceedToReview = async () => {
++    if (externalUpdate || versionConflict) {
++      toast.error('Another user changed this bill. Reload the latest bill before confirming.')
++      return
++    }
+     const validationError = validateReviewCharges()
+     if (validationError) { toast.error(validationError); return }
+-    setDraft(applyApprovedOverridesToDraft())
++    const reviewed = applyApprovedOverridesToDraft()
++    setDraft(reviewed)
++    const approved = currentAdjustments.some(item => item.status === 'approved')
++    if (dirty || approved) {
++      const saved = await saveDraft({ quiet: true, draftOverride: reviewed })
++      if (!saved) return
++    }
+     setStep(2)
+   }
+ 
+@@ -518,7 +533,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+       setDirty(false)
+       setVersionConflict(false)
+       setPaymentConfirm(false)
+-      setStep(2)
++      setStep(1)
+       toast.success('Bill reopened for editing. Make the correction, then confirm the bill again.')
+     } catch (err) {
+       if (err.code === 'BILL_VERSION_CONFLICT' || /changed/i.test(err.message || '')) setVersionConflict(true)
+@@ -657,6 +672,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+                         </div>
+                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
+                         {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
++                        {protectedLine && <button type="button" className="mt-2 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-50" onClick={() => document.getElementById('charge-adjustments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Request a price correction</button>}
+                       </div>
+                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
+                     </div>
+@@ -692,6 +708,41 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+               })}
+             </div>
+             
++            <div id="charge-adjustments" className="mt-6 border-t border-slate-200 pt-5">
++              <h3 className="text-base font-black text-slate-900">Discounts and Charge Corrections</h3>
++              <p className="mt-1 text-xs text-slate-600">Correct the price before confirming. Doctor-recorded treatment and item usage stay in the medical record. If an item was never used, ask the doctor to correct the usage record as well.</p>
++              {dirty && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">Save your current charge changes before applying a separate charge reduction.</p>}
++              <ChargeAdjustmentsPanel billingId={billingId} staffOnly={!admin} onUpdated={()=>{if(dirty){setExternalUpdate(true);setVersionConflict(true)}else void load({preserveStep:true})}} />
++              {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
++                <label><span className="form-label">Promotion review outcome</span>
++                  <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
++                    onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
++                    <option value="">Not reviewed yet</option>
++                    <option value="needs_review">Needs clinic review</option>
++                    <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
++                    <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
++                  </select>
++                </label>
++                <label><span className="form-label">Review notes</span>
++                  <textarea className="form-control mt-1.5" maxLength={255} rows={2}
++                    value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
++                    placeholder="Reason for review decision (required when no promotional discount is applied)" />
++                </label>
++                <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
++              </div>}
++              <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{selectedDiscountId==='saved'&&<option value="saved">Saved authorized additional discount</option>}{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
++              {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
++                {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
++                {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
++                {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
++                  <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
++                  {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
++                </>}
++                {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
++                {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
++                {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
++              </div>}
++            </div>
+           </section>
+ 
+           <aside className="lg:sticky lg:top-24 lg:self-start">
+@@ -708,41 +759,10 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+       {isDraft && step === 2 && (
+         <div className="checkout-stage-enter grid gap-4 lg:grid-cols-[1fr_340px]">
+           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
+-            <h2 className="font-black text-slate-900">3. Adjustments &amp; Discounts</h2>
+-            <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
+-            <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount} />
+-            <ChargeAdjustmentsPanel billingId={billingId} staffOnly={!admin} onUpdated={()=>{if(dirty){setExternalUpdate(true);setVersionConflict(true)}else void load({preserveStep:true})}} />
+-            {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+-              <label><span className="form-label">Promotion review outcome</span>
+-                <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
+-                  onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
+-                  <option value="">Not reviewed yet</option>
+-                  <option value="needs_review">Needs clinic review</option>
+-                  <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
+-                  <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
+-                </select>
+-              </label>
+-              <label><span className="form-label">Review notes</span>
+-                <textarea className="form-control mt-1.5" maxLength={255} rows={2}
+-                  value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
+-                  placeholder="Reason for review decision (required when no promotional discount is applied)" />
+-              </label>
+-              <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
+-            </div>}
+-            <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{selectedDiscountId==='saved'&&<option value="saved">Saved authorized additional discount</option>}{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
+-            {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
+-              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
+-              {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
+-              {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
+-                <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
+-                {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
+-              </>}
+-              {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
+-              {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
+-              {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
+-            </div>}
+-            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Charges</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
+-            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button></div>
++            <h2 className="font-black text-slate-900">3. Confirm Bill (Read Only)</h2>
++            <p className="mt-1 text-sm text-slate-500">Review the final charges below. To change a price or discount, go back to Review Charges.</p>
++            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Final Charge List</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
++            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button></div>
+           </section>
+           <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges. Additional Medicine / Supply inventory is deducted from the selected batch only when the bill becomes fully paid.</p></div></aside>
+         </div>
+@@ -772,7 +792,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
+         </div>
+       )}
+ 
+-      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate(billingHome)}>Next Patient →</button></div>}
++      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-2 text-sm text-emerald-800">Need a refund? Use payment history. Paid bills cannot be edited directly.</p>{admin ? <button type="button" className="button-secondary mt-3" onClick={()=>navigate(`${targetBase}/billing/transactions/${billingId}`)}>View Payment History &amp; Refunds</button> : <p className="mt-2 text-sm text-emerald-900">Ask a Billing Admin to handle any refund or correction.</p>}<p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate(billingHome)}>Next Patient →</button></div>}
+ 
+       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Charge" description="Clinical services come from the Doctor consultation. Staff may add only a medicine/supply or a traceable custom charge." size="md"><div className="grid gap-3 sm:grid-cols-2"><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-emerald-300 hover:bg-emerald-50" onClick={() => addType('supply')}><MdLocalPharmacy className="mx-auto text-3xl text-emerald-600" /><p className="mt-3 font-black">Medicine / Supply</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-violet-300 hover:bg-violet-50" onClick={() => addType('custom')}><MdAdd className="mx-auto text-3xl text-violet-600" /><p className="mt-3 font-black">Custom Charge</p></button></div><div className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800"><MdLock className="mr-1 inline" /> Missing a clinical service? Ask the Doctor to correct or amend the consultation rather than adding it at Checkout.</div></Modal>
+ 
+diff --git a/client/src/components/billing/BillHistoryDetail.jsx b/client/src/components/billing/BillHistoryDetail.jsx
+index 26ee8ce..718d1ba 100644
+--- a/client/src/components/billing/BillHistoryDetail.jsx
++++ b/client/src/components/billing/BillHistoryDetail.jsx
+@@ -8,6 +8,7 @@ import { branchPortalPath } from '../../utils/branchPortalPath.mjs'
+ import { formatMoney, paymentMethodLabel } from '../../utils/billingUi'
+ import { printBillingReceipt } from '../../utils/billingReceipt'
+ import BillingStatusBadge from './BillingStatusBadge'
++import BillingPaymentRefundControl from './BillingPaymentRefundControl'
+ import { ErrorState, LoadingState } from '../ui/PageState'
+ 
+ const formatWhen = value => value ? new Date(value).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
+@@ -26,7 +27,7 @@ const chronological = (bill, requests) => [
+   ]),
+ ].filter(item => item.at).sort((a,b)=>new Date(a.at)-new Date(b.at))
+ 
+-/** Read-only history for all three billing portals; protected actions stay in checkout. */
++/** Bill history is read-only for Staff. Admin refund actions require password and email verification. */
+ export default function BillHistoryDetail({ role = 'admin' }) {
+   const { billingId } = useParams()
+   const staff = role === 'staff'
+@@ -67,7 +68,7 @@ export default function BillHistoryDetail({ role = 'admin' }) {
+     <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 sm:grid-cols-3"><div><p className="text-xs font-semibold text-slate-500">Patient</p><p className="font-bold">{bill.patient_name}</p></div><div><p className="text-xs font-semibold text-slate-500">Doctor</p><p className="font-bold">{bill.doctor_name}</p></div><div><p className="text-xs font-semibold text-slate-500">Visit</p><p className="font-bold">{bill.appointment_date || '—'} {bill.appointment_time || ''}</p></div></section>
+     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><h2 className="border-b border-slate-100 p-4 font-bold">Bill Charges</h2><div className="divide-y divide-slate-100">{(bill.items||[]).map(line=><div className="flex justify-between gap-3 px-4 py-3 text-sm" key={line.id}><span>{line.service_name} <span className="text-slate-500">× {line.quantity}</span></span><span className="font-semibold tabular-nums">{formatMoney(line.line_total)}</span></div>)}</div><div className="space-y-2 bg-slate-50 p-4 text-sm"><div className="flex justify-between"><span>Subtotal</span><span>{formatMoney(bill.subtotal)}</span></div>{num(bill.discount_amount)>0&&<div className="flex justify-between text-emerald-700"><span>{bill.discount_label || 'Discounts & adjustments'}</span><span>−{formatMoney(bill.discount_amount)}</span></div>}{num(bill.promotion_discount_amount_snapshot)>0&&<p className="text-xs text-slate-600">Saved promotion: {bill.promotion_title_snapshot || 'Promotion'} · {formatMoney(bill.promotion_discount_amount_snapshot)} in booked service savings (included in final bill calculations)</p>}<div className="flex justify-between border-t border-slate-200 pt-2 font-bold"><span>Bill Total</span><span>{formatMoney(bill.total_amount)}</span></div><div className="flex justify-between"><span>Net paid</span><span>{formatMoney(bill.paid_amount)}</span></div><div className="flex justify-between font-bold"><span>Remaining Balance</span><span>{formatMoney(bill.balance_amount)}</span></div></div></section>
+     <section className="rounded-2xl border border-slate-200 bg-white p-4"><h2 className="mb-3 font-bold">Adjustment Requests</h2>{historyPartial && <p className="mb-3 text-xs text-amber-800">Some adjustment details could not be loaded for this account.</p>}{!requests.length?<p className="text-sm text-slate-500">No additional discount requests were recorded.</p>:<div className="space-y-2">{requests.map(r=><div key={r.id} className="rounded-xl bg-slate-50 p-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><strong>{r.discount_label || 'Charge reduction'} · {formatMoney(r.requested_amount)}</strong><span className="font-semibold capitalize">{r.status}</span></div><p className="mt-1 text-slate-600">{r.reason || 'No reason supplied.'}</p>{r.admin_note&&<p className="text-xs text-slate-500">Reviewer note: {r.admin_note}</p>}</div>)}</div>}</section>
+-    <section className="rounded-2xl border border-slate-200 bg-white p-4"><h2 className="mb-3 font-bold">Payments & Receipts</h2>{!(bill.payments||[]).length?<p className="text-sm text-slate-500">No payments recorded.</p>:(bill.payments||[]).map(payment=><article key={payment.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><div><strong>{payment.receipt_number || 'Payment'}</strong><p className="text-slate-500">{paymentMethodLabel(payment.payment_method)} · {formatWhen(payment.paid_at)}</p><p className="text-slate-500">{payment.status}{num(payment.refund_amount)>0 ? ` · Refunded ${formatMoney(payment.refund_amount)}` : ''}</p></div><div className="flex items-center gap-2"><strong>{formatMoney(payment.amount)}</strong><button type="button" className="button-secondary" onClick={()=>printBillingReceipt({bill,payment,clinicSettings:clinic,onPopupBlocked:()=>window.alert('Allow pop-ups to print the receipt.')})}><MdPrint/> Receipt</button></div></article>)}</section>
++    <section className="rounded-2xl border border-slate-200 bg-white p-4"><h2 className="mb-3 font-bold">Payments & Receipts</h2>{!(bill.payments||[]).length?<p className="text-sm text-slate-500">No payments recorded.</p>:(bill.payments||[]).map(payment=><article key={payment.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><div><strong>{payment.receipt_number || 'Payment'}</strong><p className="text-slate-500">{paymentMethodLabel(payment.payment_method)} · {formatWhen(payment.paid_at)}</p><p className="text-slate-500">{payment.status}{num(payment.refund_amount)>0 ? ` · Refunded ${formatMoney(payment.refund_amount)}` : ''}</p></div><div className="flex items-center gap-2"><strong>{formatMoney(payment.amount)}</strong><button type="button" className="button-secondary" onClick={()=>printBillingReceipt({bill,payment,clinicSettings:clinic,onPopupBlocked:()=>window.alert('Allow pop-ups to print the receipt.')})}><MdPrint/> Receipt</button>{!staff && <BillingPaymentRefundControl payment={payment} onUpdated={load} />}</div></article>)}</section>
+     <section className="rounded-2xl border border-slate-200 bg-white p-4"><h2 className="mb-3 font-bold">Bill Activity</h2>{!timeline.length?<p className="text-sm text-slate-500">No activity recorded.</p>:<ol className="space-y-3 border-l-2 border-slate-200 pl-4">{timeline.map((entry,index)=><li key={`${entry.title}:${index}`} className="text-sm"><p className="font-semibold">{entry.title}</p><p className="text-xs text-slate-500">{formatWhen(entry.at)} · {entry.detail}</p></li>)}</ol>}</section>
+   </main>
+ }
+diff --git a/client/src/components/billing/BillingPaymentRefundControl.jsx b/client/src/components/billing/BillingPaymentRefundControl.jsx
+new file mode 100644
+index 0000000..ad6fddf
+--- /dev/null
++++ b/client/src/components/billing/BillingPaymentRefundControl.jsx
+@@ -0,0 +1,67 @@
++import { useState } from 'react'
++import { refundBillingPayment, confirmBillingPaymentAction } from '../../services/admin.service'
++import { formatMoney } from '../../utils/billingUi'
++
++// Uses the existing Admin password + email-code protected refund endpoints.
++// Recording a refund is NOT a payment-provider transfer and does not restock items.
++export default function BillingPaymentRefundControl({ payment, onUpdated }) {
++  const refundable = Math.max(0, Math.round((Number(payment?.amount || 0) - Number(payment?.refund_amount || 0)) * 100) / 100)
++  const [open, setOpen] = useState(false)
++  const [reason, setReason] = useState('')
++  const [amount, setAmount] = useState(String(refundable))
++  const [password, setPassword] = useState('')
++  const [code, setCode] = useState('')
++  const [sent, setSent] = useState(false)
++  const [destination, setDestination] = useState('')
++  const [moneyReturned, setMoneyReturned] = useState(false)
++  const [busy, setBusy] = useState(false)
++  const [error, setError] = useState('')
++  if (payment?.status !== 'completed' || refundable <= 0) return null
++  const start = async () => {
++    const requested = Number(amount)
++    if (!Number.isFinite(requested) || requested <= 0 || requested > refundable || Math.abs(Math.round(requested * 100) - requested * 100) > 0.000001) {
++      setError(`Enter a valid refund amount up to ${formatMoney(refundable)}.`); return
++    }
++    if (reason.trim().length < 5) { setError('Enter a reason with at least 5 characters.'); return }
++    if (!password) { setError('Enter your Admin password.'); return }
++    if (!moneyReturned) { setError('Confirm that the refund has been processed outside the system first.'); return }
++    setBusy(true); setError('')
++    try {
++      const result = await refundBillingPayment(payment.id, { amount: requested, reason: reason.trim(), password })
++      setPassword('')
++      setDestination(result?.destination || 'your Admin email')
++      setSent(true)
++    } catch (e) { setError(e.message || 'Could not send refund verification.') }
++    finally { setBusy(false) }
++  }
++  const confirm = async () => {
++    if (!/^\d{6}$/.test(code)) { setError('Enter the 6-digit email code.'); return }
++    setBusy(true); setError('')
++    try {
++      await confirmBillingPaymentAction(payment.id, code)
++      setOpen(false); setSent(false); setCode(''); setReason(''); setMoneyReturned(false)
++      await onUpdated?.()
++    } catch (e) { setError(e.message || 'Refund could not be recorded.') }
++    finally { setBusy(false) }
++  }
++  return <div className="mt-2 w-full sm:w-auto">
++    <button type="button" className="button-secondary" disabled={busy} onClick={() => {setOpen(value => !value);setError('')}} aria-expanded={open}>Record Refund</button>
++    {open && <div className="mt-3 w-full space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:min-w-[330px]" role="region" aria-label={`Refund payment ${payment.id}`}>
++      <p className="text-sm font-bold text-amber-950">Refund {payment.receipt_number || `Payment #${payment.id}`}</p>
++      <p className="text-xs text-amber-900">Record a refund only after returning the money to the patient. This action does not send money through PayMongo or add medicines back to stock.</p>
++      {!sent ? <>
++        <label className="block text-xs font-bold">Refund amount (max {formatMoney(refundable)})<input className="form-control mt-1" type="number" min="0.01" step="0.01" max={refundable} value={amount} onChange={e=>setAmount(e.target.value)}/></label>
++        <label className="block text-xs font-bold">Reason<input className="form-control mt-1" maxLength={500} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Medicine not dispensed" /></label>
++        <label className="block text-xs font-bold">Admin password<input className="form-control mt-1" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} /></label>
++        <label className="flex items-start gap-2 text-xs text-amber-950"><input type="checkbox" className="mt-0.5" checked={moneyReturned} onChange={e=>setMoneyReturned(e.target.checked)}/><span>I confirm that the patient has already received this refund using the correct payment method.</span></label>
++        <button type="button" className="button-primary" disabled={busy} onClick={start}>{busy ? 'Sending code…' : 'Send Admin Verification Code'}</button>
++      </> : <>
++        <p className="text-xs text-amber-900">Verification code sent to {destination}. Check the amount and reason before confirming.</p>
++        <label className="block text-xs font-bold">6-digit email code<input className="form-control mt-1" inputMode="numeric" maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,''))} /></label>
++        <button type="button" className="button-primary" disabled={busy || code.length !== 6} onClick={confirm}>{busy ? 'Recording…' : 'Confirm Refund Record'}</button>
++      </>}
++      {error && <p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs text-rose-800">{error}</p>}
++      <button type="button" className="button-secondary" disabled={busy} onClick={()=>{setOpen(false);setSent(false);setPassword('');setCode('');setError('')}}>Cancel</button>
++    </div>}
++  </div>
++}
+diff --git a/client/src/components/system/InventoryExcelTools.jsx b/client/src/components/system/InventoryExcelTools.jsx
+index 8b65dc1..75d8308 100644
+--- a/client/src/components/system/InventoryExcelTools.jsx
++++ b/client/src/components/system/InventoryExcelTools.jsx
+@@ -1,4 +1,5 @@
+ import { useRef, useState } from 'react'
++import { Link, useLocation } from 'react-router-dom'
+ import { MdClose, MdDownload, MdFileDownload, MdFileUpload, MdEditNote } from 'react-icons/md'
+ import {
+   INVENTORY_HEADERS, INVENTORY_BULK_EDIT_HEADERS,
+@@ -31,6 +32,10 @@ const diagnosticsCSV = (rows) => {
+ // import path for the two redesigned flows: the server commits each file atomically.
+ export default function InventoryExcelTools({ items, stockRooms, masterData, services, onUpdated, onWorkflowChange }) {
+   const fileRef = useRef(null)
++  const location = useLocation()
++  const pricingPath = `${location.pathname.replace(/\/inventory(?:\/.*)?$/, '')}/system-setup/billing/services`
++  const [reviewSearch, setReviewSearch] = useState('')
++  const [reviewStatus, setReviewStatus] = useState('all')
+   const [preview, setPreview] = useState(null)
+   const [busy, setBusy] = useState(false)
+   const [error, setError] = useState('')
+@@ -46,6 +51,8 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
+     setPreview(null)
+     setConfirmed(false)
+     setServerIssue(null)
++    setReviewSearch('')
++    setReviewStatus('all')
+     setError('')
+     onWorkflowChange?.(false)
+   }
+@@ -79,7 +86,7 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
+   }
+   const handleFile = async (file) => {
+     if(!file||busy){onWorkflowChange?.(false);return}
+-    setPreview(null);setResults(null);setConfirmed(false);setError('')
++    setPreview(null);setResults(null);setConfirmed(false);setError('');setReviewSearch('');setReviewStatus('all')
+     try{
+       const parsed=await readInventoryImportFile(file)
+       if(!parsed.rows.length)throw new Error('The Excel file has no inventory rows.')
+@@ -105,6 +112,14 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
+   const changes = preview?.rows.filter(r => r.changed && !r.errors.length) || []
+   const appliedEarlier = preview?.mode==='edit' ? preview.rows.filter(r=>r.alreadyApplied?.length).length : 0
+   const unchanged = preview ? preview.rows.length - changes.length - invalid.length - appliedEarlier : 0
++  const visibleRows = (preview?.rows || []).filter(row => {
++    const matched = `${row.name || ''} ${row.row || ''} ${row.sheet || ''}`.toLowerCase().includes(reviewSearch.trim().toLowerCase())
++    if (!matched) return false
++    if (reviewStatus === 'errors') return Boolean(row.errors?.length)
++    if (reviewStatus === 'changed') return Boolean(row.changed && !row.errors?.length)
++    if (reviewStatus === 'unchanged') return !row.changed && !row.errors?.length
++    return true
++  })
+ 
+   const downloadErrors = () => {
+     if (!preview || !invalid.length) return
+@@ -177,10 +192,25 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
+         <div className="min-h-0 flex-1 space-y-3 overflow-auto p-4 sm:p-5">
+           <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{preview.mode==='new'?'Initial Stock on each new-item row becomes one opening batch. Repeated item names create one product with separate batches.':'Only New Selling Price and New Low Stock Alert can change. Existing stock and previous bills stay unchanged.'} <strong>Nothing is saved until you confirm below.</strong></div>
+           {preview.mode==='new' && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Opening Stock Summary</strong><p className="mt-1">{changes.length} new item(s) · {changes.reduce((n,r)=>n+(r.openingBatches||0),0)} opening batch(es) · {changes.reduce((n,r)=>n+(r.openingQuantity||0),0)} units total. Opening stock is calculated from the single Inventory sheet.</p></div>}
+-          {serverIssue && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-900"><strong>Could not save these changes</strong><p className="mt-2">{serverIssue.message}</p><p className="mt-1">No items in this upload were saved. Your preview is still available. Correct the issue or download a new Excel file.</p></div>}
++          {serverIssue && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-900"><strong>Could not save these changes</strong><p className="mt-2">{serverIssue.message}</p><p className="mt-1">No items in this upload were saved. Your preview is still available. Correct the issue or download a new Excel file.</p>{/linked to billable services|Services & Pricing/i.test(serverIssue.message) && <p className="mt-2">This item's price is used by a service. Update the service setup instead. <Link to={pricingPath} className="font-bold underline">Open Services & Pricing</Link></p>}</div>}
+           {invalid.length>0 && <section className="rounded-xl border border-red-300 bg-red-50 p-3" aria-label="Excel errors"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold text-red-900">Review {invalid.length} Excel row(s) before saving</h3><button type="button" className="button-secondary" onClick={downloadErrors}><MdDownload/> Download Error Report</button></div><div className="mt-2 max-h-44 overflow-auto space-y-1 text-sm text-red-900">{invalid.map((r,i)=><p key={`${r.row}-${i}`}><strong>{r.sheet||'Inventory'} row {r.row} — {r.name||'Unnamed item'}:</strong> {r.errors.join(' ')}</p>)}</div></section>}
+-          <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-100 text-xs font-bold text-slate-600"><tr>{['Excel Row','Item','Details / Quantity','Result'].map(h=><th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody>{preview.rows.slice(0,100).map((r,i)=><tr key={`${r.row}-${i}`} className="border-t border-slate-100"><td className="px-3 py-2">{r.row}</td><td className="px-3 py-2 font-semibold">{r.name}</td><td className="px-3 py-2 text-xs text-slate-600">{preview.mode==='new'?`New item · ${r.openingQuantity||0} opening units · ${r.openingBatches||0} batches`:r.fieldChanges?.length ? r.fieldChanges.map(c=>`${c.label}: ${c.label==='Selling Price'?'₱'+Number(c.before).toFixed(2):c.before} → ${c.label==='Selling Price'?'₱'+Number(c.after).toFixed(2):c.after}`).join(' · ') : r.alreadyApplied?.length ? `Already updated: ${r.alreadyApplied.join(', ')}` : 'No fields requested'}</td><td className={`px-3 py-2 text-xs ${r.errors.length?'text-red-700':r.changed?'text-emerald-700':'text-slate-500'}`}>{r.errors.length?r.errors.join('; '):r.changed?'Ready to save':r.alreadyApplied?.length?'Already applied':'No change'}</td></tr>)}</tbody></table></div>
+-          {preview.rows.length>100&&<p className="text-xs text-slate-500">Showing the first 100 rows. Every row was checked; download the error report for all issues.</p>}
++          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
++            <label className="min-w-[200px] flex-1 text-xs font-bold text-slate-600">Find an item or row
++              <input type="search" className="form-control mt-1" value={reviewSearch} onChange={e=>setReviewSearch(e.target.value)} placeholder="Item name or Excel row" />
++            </label>
++            <label className="text-xs font-bold text-slate-600">Show
++              <select className="form-control mt-1" value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>
++                <option value="all">All ({preview.rows.length})</option>
++                <option value="changed">Changed ({changes.length})</option>
++                <option value="errors">Needs review ({invalid.length})</option>
++                <option value="unchanged">Unchanged ({unchanged + appliedEarlier})</option>
++              </select>
++            </label>
++            <span className="text-xs text-slate-500">Showing {Math.min(visibleRows.length,100)} of {visibleRows.length} matching rows</span>
++          </div>
++          <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-100 text-xs font-bold text-slate-600"><tr>{['Excel Row','Item','Details / Quantity','Result'].map(h=><th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody>{visibleRows.slice(0,100).map((r,i)=><tr key={`${r.row}-${i}`} className="border-t border-slate-100"><td className="px-3 py-2">{r.row}</td><td className="px-3 py-2 font-semibold">{r.name}</td><td className="px-3 py-2 text-xs text-slate-600">{preview.mode==='new'?`New item · ${r.openingQuantity||0} opening units · ${r.openingBatches||0} batches`:r.fieldChanges?.length ? r.fieldChanges.map(c=>`${c.label}: ${c.label==='Selling Price'?'₱'+Number(c.before).toFixed(2):c.before} → ${c.label==='Selling Price'?'₱'+Number(c.after).toFixed(2):c.after}`).join(' · ') : r.alreadyApplied?.length ? `Already updated: ${r.alreadyApplied.join(', ')}` : 'No fields requested'}</td><td className={`px-3 py-2 text-xs ${r.errors.length?'text-red-700':r.changed?'text-emerald-700':'text-slate-500'}`}>{r.errors.length?r.errors.join('; '):r.changed?'Ready to save':r.alreadyApplied?.length?'Already applied':'No change'}</td></tr>)}</tbody></table></div>
++          {!visibleRows.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No items match this search or filter.</p>}
++          {visibleRows.length>100&&<p className="text-xs text-slate-500">Showing the first 100 matching rows. All Excel rows were still checked; download the error report for issues outside this page.</p>}
+           {!invalid.length && !!changes.length && <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} className="mt-1 h-4 w-4"/><span>I reviewed this upload. New-item opening stock creates batch movements, while existing-item edits never change stock or previous transactions.</span></label>}
+           {busy&&<p role="status" className="rounded-xl bg-sky-50 p-3 text-sm text-sky-900">Saving all changes together. Please don't close this window.</p>}
+         </div>
+diff --git a/client/src/config/staffPermissions.js b/client/src/config/staffPermissions.js
+index 038921e..39c313b 100644
+--- a/client/src/config/staffPermissions.js
++++ b/client/src/config/staffPermissions.js
+@@ -22,8 +22,8 @@ export const STAFF_PERMISSION_GROUPS = [
+     label: 'Billing & Stock',
+     description: 'Control payment collection, billing visibility, inventory, and transfers.',
+     permissions: [
+-      { key: 'checkout', label: 'Checkout', short: 'Collect patient payments', description: 'Open bills that are ready for payment and process patient checkout and payment collection.' },
+-      { key: 'billing', label: 'Billing', short: 'View billing records', description: 'View billing records, transactions, payment history, balances, and permitted billing information. Checkout actions still require Checkout access.' },
++      { key: 'checkout', label: 'Manage Payments (Checkout)', short: 'Confirm bills and collect payments', description: 'Open bills that are ready for payment and process patient checkout and payment collection.' },
++      { key: 'billing', label: 'View Billing Records', short: 'Read bills, balances and receipts', description: 'View billing records, transactions, payment history, balances, and permitted billing information. Checkout actions still require Checkout access.' },
+       { key: 'inventory', label: 'Inventory', short: 'Stock and batches', description: 'View and manage clinic inventory, stock levels, batches, and permitted stock movements.' },
+     ],
+   },
+diff --git a/client/src/pages/adminPage/Admin_BillingServiceForm.jsx b/client/src/pages/adminPage/Admin_BillingServiceForm.jsx
+index 1064be8..f295113 100644
+--- a/client/src/pages/adminPage/Admin_BillingServiceForm.jsx
++++ b/client/src/pages/adminPage/Admin_BillingServiceForm.jsx
+@@ -32,6 +32,7 @@ const Admin_BillingServiceForm = () => {
+   const navigate = useNavigate()
+   const location = useLocation()
+   const [searchParams] = useSearchParams()
++  const [itemSearch, setItemSearch] = useState({})
+   const portalBase = portalBaseForPath(location.pathname)
+   const canEditPricing = canManageServicePricingAtPath(location.pathname)
+   const requestedClinic = ['medical', 'derma'].includes(searchParams.get('clinic')) ? searchParams.get('clinic') : 'medical'
+@@ -182,7 +183,7 @@ const Admin_BillingServiceForm = () => {
+ 
+       {step === 2 && <div className="space-y-4">
+         <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-black">Default Items</h2><p className="mt-1 text-sm text-slate-500">Choose items normally used for this service. The doctor records actual usage, and billing handles the final stock-out in the new workflow. Existing systems retain their current stock rules until the new workflow is enabled.</p></div><button className="button-secondary" onClick={()=>update('materials',[...form.materials,blankMaterial()])}><MdAdd /> Add Item</button></div>
+-        {!form.materials.length ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">No default items.</div> : <div className="space-y-3">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id)); const stepValue=1; const unitPrice=Number(item?.selling_price||0); const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0)); return <div key={index} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><strong className="text-xs uppercase tracking-wide text-slate-400">Item {index+1}</strong><button className="text-slate-400 hover:text-rose-600" onClick={()=>update('materials',form.materials.filter((_,i)=>i!==index))}><MdClose /></button></div><div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_.7fr_.9fr]"><label><span className="form-label">Inventory Item *</span><select className="form-control mt-1.5" value={m.inventory_id} onChange={(e)=>chooseInventory(index,e.target.value)}><option value="">Select item</option>{inventory.filter((inv)=>!inv.category||inv.category===form.clinic_type).map((inv)=><option key={inv.id} value={inv.id}>{inv.name} — {Number(inv.selling_price||0)>0?formatMoney(inv.selling_price):'Price not set'}</option>)}</select>{errors[`material_${index}`]&&<p className="form-error">{errors[`material_${index}`]}</p>}{errors[`price_${index}`]&&<p className="form-error">{errors[`price_${index}`]}</p>}</label><div><span className="form-label">Quantity Used *</span><input aria-label={`Quantity used for item ${index+1}`} type="number" min={stepValue} step={stepValue} className="form-control mt-1.5" value={m.quantity} onChange={(e)=>updateMaterial(index,'quantity',e.target.value)} /><p className="mt-1 text-[11px] text-slate-400">Whole units only.</p>{errors[`qty_${index}`]&&<p className="form-error">{errors[`qty_${index}`]}</p>}</div><div><span className="form-label">Item Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"><p className="font-bold text-slate-800">{unitPrice>0?formatMoney(unitPrice):'Not set'}</p><p className="mt-0.5 text-[11px] text-slate-400">{Number(m.quantity||0)>0&&unitPrice>0?`${formatMoney(lineTotal)} total`:'Inventory Selling Price'}</p></div></div><label className="sm:col-span-3"><span className="form-label">Notes</span><input maxLength={255} className="form-control mt-1.5" value={m.notes} onChange={(e)=>updateMaterial(index,'notes',e.target.value)} placeholder="Optional usage note" /></label></div></div>})}</div>}
++        {!form.materials.length ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">No default items.</div> : <div className="space-y-3">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id)); const stepValue=1; const unitPrice=Number(item?.selling_price||0); const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0)); return <div key={index} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><strong className="text-xs uppercase tracking-wide text-slate-400">Item {index+1}</strong><button className="text-slate-400 hover:text-rose-600" onClick={()=>update('materials',form.materials.filter((_,i)=>i!==index))}><MdClose /></button></div><div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_.7fr_.9fr]"><label><span className="form-label">Inventory Item *</span><input type="search" value={itemSearch[index] || ''} onChange={event=>setItemSearch(current=>({...current,[index]:event.target.value}))} className="form-control mt-1.5" placeholder="Search by item or barcode" aria-label={`Search inventory item ${index+1}`} /><select className="form-control mt-1.5" value={m.inventory_id} onChange={(e)=>chooseInventory(index,e.target.value)}><option value="">Select item</option>{inventory.filter((inv)=>(!inv.category||inv.category===form.clinic_type)&&(!itemSearch[index]||String(inv.name||'').toLowerCase().includes(itemSearch[index].toLowerCase())||String(inv.barcode||'').toLowerCase().includes(itemSearch[index].toLowerCase())||String(inv.id)===String(m.inventory_id))).map((inv)=><option key={inv.id} value={inv.id}>{inv.name} — {Number(inv.selling_price||0)>0?formatMoney(inv.selling_price):'Price not set'}</option>)}</select>{errors[`material_${index}`]&&<p className="form-error">{errors[`material_${index}`]}</p>}{errors[`price_${index}`]&&<p className="form-error">{errors[`price_${index}`]}</p>}</label><div><span className="form-label">Quantity Used *</span><input aria-label={`Quantity used for item ${index+1}`} type="number" min={stepValue} step={stepValue} className="form-control mt-1.5" value={m.quantity} onChange={(e)=>updateMaterial(index,'quantity',e.target.value)} /><p className="mt-1 text-[11px] text-slate-400">Whole units only.</p>{errors[`qty_${index}`]&&<p className="form-error">{errors[`qty_${index}`]}</p>}</div><div><span className="form-label">Item Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"><p className="font-bold text-slate-800">{unitPrice>0?formatMoney(unitPrice):'Not set'}</p><p className="mt-0.5 text-[11px] text-slate-400">{Number(m.quantity||0)>0&&unitPrice>0?`${formatMoney(lineTotal)} total`:'Inventory Selling Price'}</p></div></div><label className="sm:col-span-3"><span className="form-label">Notes</span><input maxLength={255} className="form-control mt-1.5" value={m.notes} onChange={(e)=>updateMaterial(index,'notes',e.target.value)} placeholder="Optional usage note" /></label></div></div>})}</div>}
+         <div className="grid gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Service Price</p><p className="mt-1 font-black text-amber-950">{formatMoney(servicePrice)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Items Used</p><p className="mt-1 font-black text-amber-950">{formatMoney(consumablesTotal)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Total Patient Price</p><p className="mt-1 text-lg font-black text-amber-950">{formatMoney(patientPrice)}</p></div></div>
+       </div>}
+ 
+diff --git a/client/src/pages/adminPage/Admin_CheckoutDetail.jsx b/client/src/pages/adminPage/Admin_CheckoutDetail.jsx
+index 985d96d..474c200 100644
+--- a/client/src/pages/adminPage/Admin_CheckoutDetail.jsx
++++ b/client/src/pages/adminPage/Admin_CheckoutDetail.jsx
+@@ -233,8 +233,12 @@ const Admin_CheckoutDetail = () => {
+   useEffect(() => { load() }, [billingId]) // eslint-disable-line react-hooks/exhaustive-deps
+ 
+   useEffect(() => {
+-    const refresh = () => {
+-      if (dirty) setExternalUpdate(true)
++    const refresh = event => {
++      const topic = event?.detail?.eventName
++      const updatedBillId = Number(event?.detail?.data?.billingId || 0)
++      if (topic && !['billing.updated','stream.reconnected'].includes(topic)) return
++      if (updatedBillId && updatedBillId !== Number(billingId)) return
++      if (dirty) { setExternalUpdate(true); setVersionConflict(true) }
+       else load({ preserveStep: true })
+     }
+     window.addEventListener('clinic:refresh', refresh)
+@@ -403,6 +407,7 @@ const Admin_CheckoutDetail = () => {
+       setBill(updated)
+       setDraft(normalizeBill(updated))
+       setDirty(false)
++      setExternalUpdate(false)
+       setVersionConflict(false)
+       const requests = await getBillingAdjustmentRequests(billingId)
+       setAdjustments(Array.isArray(requests) ? requests : [])
+@@ -429,10 +434,20 @@ const Admin_CheckoutDetail = () => {
+ 
+   const applyApprovedOverridesToDraft = () => draft
+ 
+-  const proceedToReview = () => {
++  const proceedToReview = async () => {
++    if (externalUpdate || versionConflict) {
++      toast.error('Another user changed this bill. Reload the latest bill before confirming.')
++      return
++    }
+     const validationError = validateReviewCharges()
+     if (validationError) { toast.error(validationError); return }
+-    setDraft(applyApprovedOverridesToDraft())
++    const reviewed = applyApprovedOverridesToDraft()
++    setDraft(reviewed)
++    const approved = currentAdjustments.some(item => item.status === 'approved')
++    if (dirty || approved) {
++      const saved = await saveDraft({ quiet: true, draftOverride: reviewed })
++      if (!saved) return
++    }
+     setStep(2)
+   }
+ 
+@@ -492,7 +507,7 @@ const Admin_CheckoutDetail = () => {
+       setDirty(false)
+       setVersionConflict(false)
+       setPaymentConfirm(false)
+-      setStep(2)
++      setStep(1)
+       toast.success('Bill reopened for editing. Make the correction, then confirm the bill again.')
+     } catch (err) {
+       if (err.code === 'BILL_VERSION_CONFLICT' || /changed/i.test(err.message || '')) setVersionConflict(true)
+@@ -652,6 +667,7 @@ const Admin_CheckoutDetail = () => {
+                         </div>
+                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
+                         {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
++                        {protectedLine && <button type="button" className="mt-2 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-50" onClick={() => document.getElementById('charge-adjustments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Request a price correction</button>}
+                       </div>
+                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
+                     </div>
+@@ -691,6 +707,41 @@ const Admin_CheckoutDetail = () => {
+                 )
+               })}
+             </div>
++            <div id="charge-adjustments" className="mt-6 border-t border-slate-200 pt-5">
++              <h3 className="text-base font-black text-slate-900">Discounts and Charge Corrections</h3>
++              <p className="mt-1 text-xs text-slate-600">Correct the price before confirming. Doctor-recorded treatment and item usage stay in the medical record. If an item was never used, ask the doctor to correct the usage record as well.</p>
++              {dirty && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">Save your current charge changes before applying a separate charge reduction.</p>}
++              <ChargeAdjustmentsPanel billingId={billingId} staffOnly={false} onUpdated={()=>{if(dirty){setExternalUpdate(true);setVersionConflict(true)}else load({preserveStep:true})}} />
++              {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
++                <label><span className="form-label">Promotion review outcome</span>
++                  <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
++                    onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
++                    <option value="">Not reviewed yet</option>
++                    <option value="needs_review">Needs clinic review</option>
++                    <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
++                    <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
++                  </select>
++                </label>
++                <label><span className="form-label">Review notes</span>
++                  <textarea className="form-control mt-1.5" maxLength={255} rows={2}
++                    value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
++                    placeholder="Reason for review decision (required when no promotional discount is applied)" />
++                </label>
++                <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
++              </div>}
++              <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
++              {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
++                {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
++                {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
++                {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
++                  <label><span className="form-label">Reason for Adjustment *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
++                  {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Pending Staff adjustment request.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Apply Admin Discount'}</button>}
++                </>}
++                {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
++                {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
++                {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
++              </div>}
++            </div>
+           </section>
+ 
+           <aside className="lg:sticky lg:top-24 lg:self-start">
+@@ -707,41 +758,10 @@ const Admin_CheckoutDetail = () => {
+       {isDraft && step === 2 && (
+         <div className="checkout-stage-enter grid gap-4 lg:grid-cols-[1fr_340px]">
+           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
+-            <h2 className="font-black text-slate-900">3. Adjustments & Discounts</h2>
+-            <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
+-            <ChargeAdjustmentsPanel billingId={billingId} staffOnly={false} onUpdated={()=>{ if(!dirty) load({preserveStep:true}) }} />
+-            <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount||0} />
+-            {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+-              <label><span className="form-label">Promotion review outcome</span>
+-                <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
+-                  onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
+-                  <option value="">Not reviewed yet</option>
+-                  <option value="needs_review">Needs clinic review</option>
+-                  <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
+-                  <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
+-                </select>
+-              </label>
+-              <label><span className="form-label">Review notes</span>
+-                <textarea className="form-control mt-1.5" maxLength={255} rows={2}
+-                  value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
+-                  placeholder="Reason for review decision (required when no promotional discount is applied)" />
+-              </label>
+-              <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
+-            </div>}
+-            <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
+-            {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
+-              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
+-              {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
+-              {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
+-                <label><span className="form-label">Reason for Adjustment *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
+-                {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Pending Staff adjustment request.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Apply Admin Discount'}</button>}
+-              </>}
+-              {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
+-              {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
+-              {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
+-            </div>}
+-            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Charges</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
+-            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button></div>
++            <h2 className="font-black text-slate-900">3. Confirm Bill (Read Only)</h2>
++            <p className="mt-1 text-sm text-slate-500">Review the final charges below. To change a price or discount, go back to Review Charges.</p>
++            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Final Charge List</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
++            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button></div>
+           </section>
+           <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges. Additional Medicine / Supply inventory is deducted from the selected batch only when the bill becomes fully paid.</p></div></aside>
+         </div>
+@@ -771,7 +791,7 @@ const Admin_CheckoutDetail = () => {
+         </div>
+       )}
+ 
+-      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate(`${targetBase}/billing?tab=payments`)}>Next Patient →</button></div>}
++      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-2 text-sm text-emerald-800">Need a refund? Use payment history. Paid bills cannot be edited directly.</p><button type="button" className="button-secondary mt-3" onClick={()=>navigate(`${targetBase}/billing/transactions/${billingId}`)}>View Payment History &amp; Refunds</button><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate(`${targetBase}/billing?tab=payments`)}>Next Patient →</button></div>}
+ 
+       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Charge" description="Add an inventory item, an extra service charge, or a custom charge. Doctor-recorded services stay unchanged." size="md"><div className="grid gap-3 sm:grid-cols-2"><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-emerald-300 hover:bg-emerald-50" onClick={() => addType('supply')}><MdLocalPharmacy className="mx-auto text-3xl text-emerald-600" /><p className="mt-3 font-black">Medicine / Supply</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-violet-300 hover:bg-violet-50" onClick={() => addType('custom')}><MdAdd className="mx-auto text-3xl text-violet-600" /><p className="mt-3 font-black">Custom Charge</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-sky-300 hover:bg-sky-50" onClick={() => addType('service')}><MdAdd className="mx-auto text-3xl text-sky-600" /><p className="mt-3 font-black">Service Charge</p></button></div><div className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800"><MdLock className="mr-1 inline" /> Billing-only service charges do not update the doctor's medical record. Ask the doctor to record actual treatment or stock usage.</div></Modal>
+ 
+diff --git a/client/src/pages/patientPage/History.jsx b/client/src/pages/patientPage/History.jsx
+index 911ea9a..f019393 100644
+--- a/client/src/pages/patientPage/History.jsx
++++ b/client/src/pages/patientPage/History.jsx
+@@ -10,8 +10,8 @@ import { parsePrescription } from '../../utils/prescriptionDisplay.mjs'
+ import { formatAppointmentRange, formatDurationMinutes, getReservedDurationMinutes } from '../../utils/appointmentTime'
+ import {
+   MdAccessTime, MdCalendarToday, MdClose, MdExpandLess, MdExpandMore,
+-  MdFace, MdHistory, MdImage, MdLocalPharmacy, MdMedicalServices,
+-  MdNotes, MdOpenInNew, MdSearch, MdReceipt, MdPayments, MdRefresh,
++  MdFace, MdHistory, MdLocalPharmacy, MdMedicalServices,
++  MdSearch, MdReceipt, MdPayments, MdRefresh,
+   MdChevronRight, MdDownload, MdAccountBalanceWallet, MdCheckCircle,
+ } from 'react-icons/md'
+ 
+@@ -59,22 +59,11 @@ const groupByMonth = items => items.reduce((groups, item) => {
+   return groups
+ }, {})
+ 
+-const ProgressImages = ({ images }) => {
+-  const list = Array.isArray(images) ? images.filter(image => image?.image_url) : []
+-  return <div className="grid gap-3 sm:grid-cols-2">
+-    {list.map((image, index) => <a key={`${image.image_url}-${index}`} href={image.image_url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-slate-200 bg-white hover:border-emerald-200">
+-      <img src={image.image_url} alt={image.caption || `Progress image ${index + 1}`} className="h-36 w-full bg-slate-100 object-cover" />
+-      <span className="flex items-center justify-between gap-2 p-3 text-xs text-slate-600"><span className="space-y-1"><span className="block">{image.caption || `Progress image ${index + 1}`}</span>{image.security_scan_status === 'approved' && <span className="block text-[10px] font-bold text-emerald-700">Security scan passed</span>}</span><MdOpenInNew className="shrink-0" /></span>
+-    </a>)}
+-  </div>
+-}
+-
+ const VisitCard = ({ visit, expanded, onToggle, onViewBill }) => {
+   const Icon = visit.type === 'derma' ? MdFace : MdMedicalServices
+   const rx = parsePrescription(visit.prescription)
+-  const images = Array.isArray(visit.progress_images) ? visit.progress_images.filter(image => image?.image_url) : []
+   const status = VISIT_STATUS[visit.status] || { label: String(visit.status || 'History').replaceAll('_', ' '), color: 'bg-slate-100 text-slate-600' }
+-  const hasClinical = visit.status === 'completed' && Boolean(visit.consultation_id || visit.diagnosis || visit.consultation_notes || rx.kind !== 'empty' || images.length)
++  const hasClinical = visit.status === 'completed' && Boolean(visit.consultation_id || visit.diagnosis || rx.kind !== 'empty')
+   const billStatus = visit.billing_id ? paymentStatus({
+     billing_status: visit.billing_status, billing_total: visit.billing_total, billing_paid_amount: visit.billing_paid_amount,
+   }) : null
+@@ -104,9 +93,7 @@ const VisitCard = ({ visit, expanded, onToggle, onViewBill }) => {
+     </div>
+     {expanded && hasClinical && <section className="space-y-4 border-t border-slate-100 bg-slate-50/50 p-4 sm:p-5">
+       {visit.diagnosis && <div><h4 className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Diagnosis</h4><p className="rounded-lg bg-white p-3 text-sm text-slate-700">{visit.diagnosis}</p></div>}
+-      {visit.consultation_notes && <div><h4 className="mb-1 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdNotes /> Clinical Notes</h4><p className="whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{visit.consultation_notes}</p></div>}
+       {(visit.consultation_id || rx.kind !== 'empty') && <div><h4 className="mb-2 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdLocalPharmacy /> Prescriptions</h4><PrescriptionDetails value={visit.prescription} status={visit.prescription_status}/></div>}
+-      {images.length > 0 && <div><h4 className="mb-2 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdImage /> Progress Images</h4><ProgressImages images={images} /></div>}
+     </section>}
+     {hasClinical && <button type="button" onClick={() => onToggle(visit.id)} className="flex w-full items-center justify-center gap-1 border-t border-slate-100 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50">{expanded ? <><MdExpandLess /> Hide Consultation Details</> : <><MdExpandMore /> View Consultation Details</>}</button>}
+   </article>
+diff --git a/client/src/pages/staffPage/Staff_CheckoutDetail.jsx b/client/src/pages/staffPage/Staff_CheckoutDetail.jsx
+index c1ca00b..7722d9a 100644
+--- a/client/src/pages/staffPage/Staff_CheckoutDetail.jsx
++++ b/client/src/pages/staffPage/Staff_CheckoutDetail.jsx
+@@ -232,8 +232,12 @@ const Staff_CheckoutDetail = () => {
+   useEffect(() => { load() }, [billingId]) // eslint-disable-line react-hooks/exhaustive-deps
+ 
+   useEffect(() => {
+-    const refresh = () => {
+-      if (dirty) setExternalUpdate(true)
++    const refresh = event => {
++      const topic = event?.detail?.eventName
++      const updatedBillId = Number(event?.detail?.data?.billingId || 0)
++      if (topic && !['billing.updated','stream.reconnected'].includes(topic)) return
++      if (updatedBillId && updatedBillId !== Number(billingId)) return
++      if (dirty) { setExternalUpdate(true); setVersionConflict(true) }
+       else load({ preserveStep: true })
+     }
+     window.addEventListener('clinic:refresh', refresh)
+@@ -375,6 +379,7 @@ const Staff_CheckoutDetail = () => {
+       setBill(updated)
+       setDraft(normalizeBill(updated))
+       setDirty(false)
++      setExternalUpdate(false)
+       setVersionConflict(false)
+       const requests = await getBillingAdjustmentRequests(billingId)
+       setAdjustments(Array.isArray(requests) ? requests : [])
+@@ -466,10 +471,20 @@ const Staff_CheckoutDetail = () => {
+     return ''
+   }
+ 
+-  const proceedToReview = () => {
++  const proceedToReview = async () => {
++    if (externalUpdate || versionConflict) {
++      toast.error('Another user changed this bill. Reload the latest bill before confirming.')
++      return
++    }
+     const validationError = validateReviewCharges()
+     if (validationError) { toast.error(validationError); return }
+-    setDraft(applyApprovedOverridesToDraft())
++    const reviewed = applyApprovedOverridesToDraft()
++    setDraft(reviewed)
++    const approved = currentAdjustments.some(item => item.status === 'approved')
++    if (dirty || approved) {
++      const saved = await saveDraft({ quiet: true, draftOverride: reviewed })
++      if (!saved) return
++    }
+     setStep(2)
+   }
+ 
+@@ -529,7 +544,7 @@ const Staff_CheckoutDetail = () => {
+       setDirty(false)
+       setVersionConflict(false)
+       setPaymentConfirm(false)
+-      setStep(2)
++      setStep(1)
+       toast.success('Bill reopened for editing. Make the correction, then confirm the bill again.')
+     } catch (err) {
+       if (err.code === 'BILL_VERSION_CONFLICT' || /changed/i.test(err.message || '')) setVersionConflict(true)
+@@ -676,6 +691,7 @@ const Staff_CheckoutDetail = () => {
+                         </div>
+                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
+                         {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
++                        {protectedLine && <button type="button" className="mt-2 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-50" onClick={() => document.getElementById('charge-adjustments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Request a price correction</button>}
+                       </div>
+                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
+                     </div>
+@@ -715,6 +731,41 @@ const Staff_CheckoutDetail = () => {
+                 )
+               })}
+             </div>
++            <div id="charge-adjustments" className="mt-6 border-t border-slate-200 pt-5">
++              <h3 className="text-base font-black text-slate-900">Discounts and Charge Corrections</h3>
++              <p className="mt-1 text-xs text-slate-600">Correct the price before confirming. Doctor-recorded treatment and item usage stay in the medical record. If an item was never used, ask the doctor to correct the usage record as well.</p>
++              {dirty && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">Save your current charge changes before applying a separate charge reduction.</p>}
++              <ChargeAdjustmentsPanel billingId={billingId} staffOnly={true} onUpdated={()=>{if(dirty){setExternalUpdate(true);setVersionConflict(true)}else load({preserveStep:true})}} />
++              {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
++                <label><span className="form-label">Promotion review outcome</span>
++                  <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
++                    onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
++                    <option value="">Not reviewed yet</option>
++                    <option value="needs_review">Needs clinic review</option>
++                    <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
++                    <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
++                  </select>
++                </label>
++                <label><span className="form-label">Review notes</span>
++                  <textarea className="form-control mt-1.5" maxLength={255} rows={2}
++                    value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
++                    placeholder="Reason for review decision (required when no promotional discount is applied)" />
++                </label>
++                <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
++              </div>}
++              <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
++              {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
++                {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
++                {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
++                {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
++                  <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
++                  {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
++                </>}
++                {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
++                {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
++                {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
++              </div>}
++            </div>
+           </section>
+ 
+           <aside className="lg:sticky lg:top-24 lg:self-start">
+@@ -731,41 +782,10 @@ const Staff_CheckoutDetail = () => {
+       {isDraft && step === 2 && (
+         <div className="checkout-stage-enter grid gap-4 lg:grid-cols-[1fr_340px]">
+           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
+-            <h2 className="font-black text-slate-900">3. Adjustments & Discounts</h2>
+-            <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
+-            <ChargeAdjustmentsPanel billingId={billingId} staffOnly={true} onUpdated={()=>{ if(!dirty) load({preserveStep:true}) }} />
+-            <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount||0} />
+-            {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+-              <label><span className="form-label">Promotion review outcome</span>
+-                <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
+-                  onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
+-                  <option value="">Not reviewed yet</option>
+-                  <option value="needs_review">Needs clinic review</option>
+-                  <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
+-                  <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
+-                </select>
+-              </label>
+-              <label><span className="form-label">Review notes</span>
+-                <textarea className="form-control mt-1.5" maxLength={255} rows={2}
+-                  value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
+-                  placeholder="Reason for review decision (required when no promotional discount is applied)" />
+-              </label>
+-              <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
+-            </div>}
+-            <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
+-            {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
+-              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
+-              {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
+-              {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
+-                <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
+-                {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
+-              </>}
+-              {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
+-              {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
+-              {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
+-            </div>}
+-            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Charges</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
+-            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button></div>
++            <h2 className="font-black text-slate-900">3. Confirm Bill (Read Only)</h2>
++            <p className="mt-1 text-sm text-slate-500">Review the final charges below. To change a price or discount, go back to Review Charges.</p>
++            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Final Charge List</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
++            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button></div>
+           </section>
+           <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges. Additional Medicine / Supply inventory is deducted from the selected batch only when the bill becomes fully paid.</p></div></aside>
+         </div>
+@@ -795,7 +815,7 @@ const Staff_CheckoutDetail = () => {
+         </div>
+       )}
+ 
+-      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate('/staff/checkout')}>Next Patient →</button></div>}
++      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-2 text-sm text-emerald-800">Need a refund? Use payment history. Paid bills cannot be edited directly.</p><p className="mt-2 text-sm text-emerald-900">Ask a Billing Admin to handle any refund or correction.</p><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate('/staff/checkout')}>Next Patient →</button></div>}
+ 
+       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Charge" description="Add an inventory item, an extra service charge, or a custom charge. Doctor-recorded services stay unchanged." size="md"><div className="grid gap-3 sm:grid-cols-2"><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-emerald-300 hover:bg-emerald-50" onClick={() => addType('supply')}><MdLocalPharmacy className="mx-auto text-3xl text-emerald-600" /><p className="mt-3 font-black">Medicine / Supply</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-violet-300 hover:bg-violet-50" onClick={() => addType('custom')}><MdAdd className="mx-auto text-3xl text-violet-600" /><p className="mt-3 font-black">Custom Charge</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-sky-300 hover:bg-sky-50" onClick={() => addType('service')}><MdAdd className="mx-auto text-3xl text-sky-600" /><p className="mt-3 font-black">Service Charge</p></button></div><div className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800"><MdLock className="mr-1 inline" /> Billing-only service charges do not update the doctor's medical record. Ask the doctor to record actual treatment or stock usage.</div></Modal>
+ 
+diff --git a/client/src/utils/clinicLiveEvents.mjs b/client/src/utils/clinicLiveEvents.mjs
+index 478a45c..d94b229 100644
+--- a/client/src/utils/clinicLiveEvents.mjs
++++ b/client/src/utils/clinicLiveEvents.mjs
+@@ -3,6 +3,7 @@ export const EVENT_TOPICS={
+  'appointment_updated':'appointment.updated', 'queue_updated':'queue.updated',
+  'consultation_saved':'appointment.updated','billing_paid':'billing.updated',
+  'billing_finalized':'billing.updated','billing_reopened':'billing.updated',
++ 'billing_updated':'billing.updated',
+  'billing_voided':'billing.updated','billing_payment_changed':'billing.updated',
+  'billing_adjustment_resolved':'billing.updated','billing_adjustment_requested':'billing.updated',
+  'cashier_closed':'billing.updated','cashier_reopened':'billing.updated',
+diff --git a/client/tests/billingReplacement20261105.node.test.mjs b/client/tests/billingReplacement20261105.node.test.mjs
+index f6afe37..3c43b39 100644
+--- a/client/tests/billingReplacement20261105.node.test.mjs
++++ b/client/tests/billingReplacement20261105.node.test.mjs
+@@ -68,13 +68,13 @@ test('per-bill history contains charges payments receipts requests and activity'
+ test('checkout presents four clear sections and handles adjustments at billing review',()=>{
+  for(const file of ['src/pages/adminPage/Admin_CheckoutDetail.jsx','src/pages/staffPage/Staff_CheckoutDetail.jsx']){
+   const source=read(file)
+-  for(const title of ['1. Patient & Consultation','2. Bill Charges','3. Adjustments & Discounts'])assert.ok(source.includes(title),`${file}: ${title}`)
++  for(const title of ['1. Patient & Consultation','2. Bill Charges','3. Confirm Bill (Read Only)'])assert.ok(source.includes(title),`${file}: ${title}`)
+   assert.match(source,/<CheckoutPaymentSection bill=\{bill\} draft=\{draft\}/)
+   assert.match(source,/isPayable && step === 3/)
+   const payment=read('src/components/billing/CheckoutPaymentSection.jsx')
+   for(const title of ['Payment Details','Payment Summary','Record Payment'])assert.ok(payment.includes(title),title)
+   assert.equal((source.match(/<ChargeAdjustmentsPanel billingId=/g)||[]).length,1)
+-  assert.ok(source.indexOf('<ChargeAdjustmentsPanel billingId=')>source.indexOf('3. Adjustments & Discounts'))
++  assert.ok(source.indexOf('<ChargeAdjustmentsPanel billingId=')<source.indexOf('3. Confirm Bill (Read Only)'))
+   assert.match(source,/No Additional Discount/)
+   assert.doesNotMatch(source,/Patient Checkout/)
+  }
+diff --git a/client/tests/fix4Workflow20261111.node.test.mjs b/client/tests/fix4Workflow20261111.node.test.mjs
+new file mode 100644
+index 0000000..2e0e086
+--- /dev/null
++++ b/client/tests/fix4Workflow20261111.node.test.mjs
+@@ -0,0 +1,90 @@
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import path from 'node:path'
++import { fileURLToPath } from 'node:url'
++import { normalizeClinicEvent } from '../src/utils/clinicLiveEvents.mjs'
++const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
++const read = p => fs.readFileSync(path.join(root,p),'utf8')
++const checkouts = ['client/src/pages/adminPage/Admin_CheckoutDetail.jsx','client/src/pages/staffPage/Staff_CheckoutDetail.jsx','client/src/components/billing/BillCheckout.jsx']
++
++test('patient history does not send clinical notes or progress images', () => {
++ const server = read('server/controllers/patient.controller.js')
++ const endpoint = server.slice(server.indexOf('const getHistory = '), server.indexOf('const getMyBillingHistory = '))
++ assert.doesNotMatch(endpoint, /consultation_notes|progress_images|loadImagesForConsultationIds/)
++ assert.match(endpoint,/c\.prescription/)
++ assert.match(endpoint,/res\.json\(rows\)/)
++ const page = read('client/src/pages/patientPage/History.jsx')
++ assert.doesNotMatch(page, /visit\.consultation_notes|visit\.progress_images|ProgressImages/)
++ assert.match(page,/PrescriptionDetails/)
++})
++test('service editor and permissions have item search', () => {
++ const service = read('client/src/pages/adminPage/Admin_BillingServiceForm.jsx')
++ const picker = read('client/src/components/accounts/StaffPermissionPicker.jsx')
++ assert.match(service,/Search inventory item/)
++ assert.match(service,/inv\.barcode/)
++ assert.match(picker,/Search staff permissions/)
++ assert.match(picker,/filteredGroups\.map/)
++ const keys=read('client/src/config/staffPermissions.js')
++ assert.match(keys,/key: 'checkout', label: 'Manage Payments \(Checkout\)'/)
++ assert.match(keys,/key: 'billing', label: 'View Billing Records'/)
++})
++test('Excel preview filters changes without changing the upload payload', () => {
++ const view = read('client/src/components/system/InventoryExcelTools.jsx')
++ assert.match(view,/const visibleRows =/)
++ assert.match(view,/reviewStatus === 'errors'/)
++ assert.match(view,/visibleRows\.slice\(0,100\)/)
++ assert.match(view,/Open Services & Pricing/)
++ assert.match(view,/const payload = changes\.map\(entry => entry\.payload\)/)
++})
++test('all checkout views put adjustments in Review Charges and Confirm Bill is read-only', () => {
++ for(const p of checkouts) {
++  const view=read(p)
++  const first=view.indexOf('{isDraft && step === 1 && (')
++  const second=view.indexOf('{isDraft && step === 2 && (')
++  const payment=view.indexOf('{isPayable && step === 3 && (')
++  assert.ok(first>=0 && second>first && payment>second,p)
++  const review=view.slice(first,second)
++  const confirm=view.slice(second,payment)
++  assert.match(review, /<ChargeAdjustmentsPanel/)
++  assert.match(review,/Additional Discount/)
++  assert.match(review,/Request a price correction/)
++  assert.match(confirm,/Confirm Bill \(Read Only\)/)
++  assert.doesNotMatch(confirm,/<ChargeAdjustmentsPanel|DiscountProofField|selectDiscount\(/)
++  assert.match(view,/const proceedToReview = async/)
++  assert.match(view,/await saveDraft\(/)
++ }
++})
++test('bill save creates branch-scoped SSE event and clients filter to current bill', () => {
++ const server=read('server/controllers/staff.controller.js')
++ const block=server.slice(server.indexOf('const updateBill ='),server.indexOf('const getBillingAdjustmentRequests ='))
++ assert.match(block,/await conn\.commit\(\)/)
++ assert.match(block,/broadcast\(\['admin', 'staff'\], 'billing_updated', \{ billingId \}, \{ branchId: req\.branchId \}\)/)
++ assert.ok(block.indexOf('await conn.commit()') < block.indexOf("'billing_updated'"))
++ assert.equal(normalizeClinicEvent('billing_updated'),'billing.updated')
++ for(const p of checkouts){const s=read(p);assert.match(s,/updatedBillId|const changed=/);assert.match(s,/billing\.updated/);assert.match(s,/versionConflict/)}
++})
++test('Admin refunds use existing password and 6-digit email code protection, never touch stock', () => {
++ const ui=read('client/src/components/billing/BillingPaymentRefundControl.jsx')
++ const server=read('server/controllers/admin.controller.js')
++ assert.match(ui,/refundBillingPayment\(payment\.id, \{ amount: requested, reason: reason\.trim\(\), password \}\)/)
++ assert.match(ui,/confirmBillingPaymentAction\(payment\.id, code\)/)
++ assert.match(ui,/moneyReturned/)
++ assert.match(server,/bcrypt\.compare\(password, admin\.password\)/)
++ assert.match(server,/sendAccountSecurityOtp/)
++ assert.match(ui,/does not send money through PayMongo or add medicines back to stock/)
++ const history=read('client/src/components/billing/BillHistoryDetail.jsx')
++ assert.match(history,/!staff && <BillingPaymentRefundControl/)
++})
++test('confirmed unpaid bill can reopen but paid bill does not offer direct edit', () => {
++ const server=read('server/controllers/staff.controller.js')
++ assert.match(server,/Only a confirmed bill with no recorded payment can return to editing/)
++ for(const p of checkouts){const view=read(p);assert.match(view,/canReopenForEditing/);assert.match(view,/Paid bills cannot be edited directly/)}
++})
++
++test('Admin stock usage lookup respects the current branch', () => {
++ const source=read('server/controllers/billingCorrections.controller.js')
++ const block=source.slice(source.indexOf('const getBillStockUsage ='),source.indexOf('const reverseCheckoutDispensing ='))
++ assert.match(block,/WHERE id = \? AND branch_id = \? LIMIT 1/)
++ assert.match(block,/\[billingId, req.branchId\]/)
++})
+diff --git a/server/controllers/billingCorrections.controller.js b/server/controllers/billingCorrections.controller.js
+index fa8ced9..10507d6 100644
+--- a/server/controllers/billingCorrections.controller.js
++++ b/server/controllers/billingCorrections.controller.js
+@@ -82,7 +82,7 @@ const loadBillStockUsage = async (billingId, executor = db) => {
+ const getBillStockUsage = async (req, res) => {
+   const billingId = Number(req.params.id)
+   if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
+-  const [[bill]] = await db.query('SELECT id FROM billing_records WHERE id = ? LIMIT 1', [billingId])
++  const [[bill]] = await db.query('SELECT id FROM billing_records WHERE id = ? AND branch_id = ? LIMIT 1', [billingId, req.branchId])
+   if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
+   res.json(await loadBillStockUsage(billingId))
+ }
+diff --git a/server/controllers/patient.controller.js b/server/controllers/patient.controller.js
+index 51593ba..847c55b 100644
+--- a/server/controllers/patient.controller.js
++++ b/server/controllers/patient.controller.js
+@@ -15,7 +15,6 @@ const { normalizePhilippinePhone } = require('../utils/phone')
+ const { sendPatientRegistrationOtp } = require('../utils/smsService')
+ const { buildDoctorAvailabilitySummary } = require('../utils/doctorAvailabilitySummary')
+ const { getDoctorUnavailableDates, getDoctorUnavailableDate } = require('../utils/doctorAvailability')
+-const { loadImagesForConsultationIds } = require('../utils/consultationImages')
+ const {
+   normalizePatientProfileInput,
+   getPatientProfileStatus,
+@@ -602,7 +601,6 @@ const getHistory = async (req, res) => {
+        c.diagnosis,
+        c.prescription,
+        c.prescription_status,
+-       c.notes AS consultation_notes,
+        br.id AS billing_id, br.status AS billing_status,
+        br.total_amount AS billing_total,
+        COALESCE(bp.paid_amount,0) AS billing_paid_amount
+@@ -618,11 +616,9 @@ const getHistory = async (req, res) => {
+      ORDER BY a.appointment_date DESC`,
+     [req.user.id]
+   )
+-  const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
+-  res.json(rows.map((row) => ({
+-    ...row,
+-    progress_images: imagesByConsultationId[row.consultation_id] || [],
+-  })))
++  // Patient history must not expose private clinical notes or uploaded images.
++  // This endpoint includes appointment details, diagnosis and prescriptions only.
++  res.json(rows)
+ }
+ 
+ const getMyBillingHistory = async (req, res) => {
+diff --git a/server/controllers/staff.controller.js b/server/controllers/staff.controller.js
+index 3ffb6d8..9d69d8e 100644
+--- a/server/controllers/staff.controller.js
++++ b/server/controllers/staff.controller.js
+@@ -1372,6 +1372,7 @@ const updateBill = async (req, res) => {
+     if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || undefined, current_version: err.current_version })
+     throw err
+   } finally { conn.release() }
++  broadcast(['admin', 'staff'], 'billing_updated', { billingId }, { branchId: req.branchId })
+   res.json(await getBillingRecordWithItems(billingId))
+ }
+ 

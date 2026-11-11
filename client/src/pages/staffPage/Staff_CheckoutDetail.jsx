@@ -232,8 +232,12 @@ const Staff_CheckoutDetail = () => {
   useEffect(() => { load() }, [billingId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const refresh = () => {
-      if (dirty) setExternalUpdate(true)
+    const refresh = event => {
+      const topic = event?.detail?.eventName
+      const updatedBillId = Number(event?.detail?.data?.billingId || 0)
+      if (topic && !['billing.updated','stream.reconnected'].includes(topic)) return
+      if (updatedBillId && updatedBillId !== Number(billingId)) return
+      if (dirty) { setExternalUpdate(true); setVersionConflict(true) }
       else load({ preserveStep: true })
     }
     window.addEventListener('clinic:refresh', refresh)
@@ -375,6 +379,7 @@ const Staff_CheckoutDetail = () => {
       setBill(updated)
       setDraft(normalizeBill(updated))
       setDirty(false)
+      setExternalUpdate(false)
       setVersionConflict(false)
       const requests = await getBillingAdjustmentRequests(billingId)
       setAdjustments(Array.isArray(requests) ? requests : [])
@@ -466,10 +471,20 @@ const Staff_CheckoutDetail = () => {
     return ''
   }
 
-  const proceedToReview = () => {
+  const proceedToReview = async () => {
+    if (externalUpdate || versionConflict) {
+      toast.error('Another user changed this bill. Reload the latest bill before confirming.')
+      return
+    }
     const validationError = validateReviewCharges()
     if (validationError) { toast.error(validationError); return }
-    setDraft(applyApprovedOverridesToDraft())
+    const reviewed = applyApprovedOverridesToDraft()
+    setDraft(reviewed)
+    const approved = currentAdjustments.some(item => item.status === 'approved')
+    if (dirty || approved) {
+      const saved = await saveDraft({ quiet: true, draftOverride: reviewed })
+      if (!saved) return
+    }
     setStep(2)
   }
 
@@ -529,7 +544,7 @@ const Staff_CheckoutDetail = () => {
       setDirty(false)
       setVersionConflict(false)
       setPaymentConfirm(false)
-      setStep(2)
+      setStep(1)
       toast.success('Bill reopened for editing. Make the correction, then confirm the bill again.')
     } catch (err) {
       if (err.code === 'BILL_VERSION_CONFLICT' || /changed/i.test(err.message || '')) setVersionConflict(true)
@@ -676,6 +691,7 @@ const Staff_CheckoutDetail = () => {
                         </div>
                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
                         {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
+                        {protectedLine && <button type="button" className="mt-2 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-50" onClick={() => document.getElementById('charge-adjustments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Request a price correction</button>}
                       </div>
                       {!protectedLine && <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => removeItem(index)} aria-label="Remove charge"><MdDeleteOutline /></button>}
                     </div>
@@ -715,6 +731,41 @@ const Staff_CheckoutDetail = () => {
                 )
               })}
             </div>
+            <div id="charge-adjustments" className="mt-6 border-t border-slate-200 pt-5">
+              <h3 className="text-base font-black text-slate-900">Discounts and Charge Corrections</h3>
+              <p className="mt-1 text-xs text-slate-600">Correct the price before confirming. Doctor-recorded treatment and item usage stay in the medical record. If an item was never used, ask the doctor to correct the usage record as well.</p>
+              {dirty && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">Save your current charge changes before applying a separate charge reduction.</p>}
+              <ChargeAdjustmentsPanel billingId={billingId} staffOnly={true} onUpdated={()=>{if(dirty){setExternalUpdate(true);setVersionConflict(true)}else load({preserveStep:true})}} />
+              {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <label><span className="form-label">Promotion review outcome</span>
+                  <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
+                    onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
+                    <option value="">Not reviewed yet</option>
+                    <option value="needs_review">Needs clinic review</option>
+                    <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
+                    <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
+                  </select>
+                </label>
+                <label><span className="form-label">Review notes</span>
+                  <textarea className="form-control mt-1.5" maxLength={255} rows={2}
+                    value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
+                    placeholder="Reason for review decision (required when no promotional discount is applied)" />
+                </label>
+                <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
+              </div>}
+              <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
+              {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
+                {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
+                {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
+                {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
+                  <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
+                  {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
+                </>}
+                {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
+                {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
+                {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
+              </div>}
+            </div>
           </section>
 
           <aside className="lg:sticky lg:top-24 lg:self-start">
@@ -731,41 +782,10 @@ const Staff_CheckoutDetail = () => {
       {isDraft && step === 2 && (
         <div className="checkout-stage-enter grid gap-4 lg:grid-cols-[1fr_340px]">
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
-            <h2 className="font-black text-slate-900">3. Adjustments & Discounts</h2>
-            <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
-            <ChargeAdjustmentsPanel billingId={billingId} staffOnly={true} onUpdated={()=>{ if(!dirty) load({preserveStep:true}) }} />
-            <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount||0} />
-            {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <label><span className="form-label">Promotion review outcome</span>
-                <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
-                  onChange={e=>markDraft(current=>({...current,promotion_review_outcome:e.target.value}))}>
-                  <option value="">Not reviewed yet</option>
-                  <option value="needs_review">Needs clinic review</option>
-                  <option value="reviewed_no_discount">Reviewed — no promotional discount applied</option>
-                  <option value="manual_discount_applied">Manual discount applied (requires a saved, authorized discount)</option>
-                </select>
-              </label>
-              <label><span className="form-label">Review notes</span>
-                <textarea className="form-control mt-1.5" maxLength={255} rows={2}
-                  value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
-                  placeholder="Reason for review decision (required when no promotional discount is applied)" />
-              </label>
-              <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
-            </div>}
-            <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
-            {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
-              {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
-              {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
-              {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
-                <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
-                {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
-              </>}
-              {discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved by Admin{discountApproval.admin_note ? ` — ${discountApproval.admin_note}` : ''}</div>}
-              {discountPersistedApproval && !discountApproval && <div className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700"><MdCheck className="mr-1 inline" /> Approved discount already applied to this saved bill. Any later bill edit will require a new approval.</div>}
-              {discountRejected && !discountPending && !discountApproval && <div className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">Previous request rejected: {discountRejected.admin_note || 'No reason supplied.'}</div>}
-            </div>}
-            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Charges</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
-            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button><button className="button-secondary" disabled={saving} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button></div>
+            <h2 className="font-black text-slate-900">3. Confirm Bill (Read Only)</h2>
+            <p className="mt-1 text-sm text-slate-500">Review the final charges below. To change a price or discount, go back to Review Charges.</p>
+            <div className="mt-6 rounded-2xl border border-slate-200 p-4"><h3 className="text-sm font-black">Final Charge List</h3><div className="mt-3 divide-y divide-slate-100">{draft.items.map((item, index) => <div key={item.id || index} className="flex justify-between gap-4 py-2 text-sm"><span>{item.service_name || 'Charge'} <span className="text-slate-400">× {item.quantity}</span>{item.source_type === 'consultation' && <MdLock className="ml-1 inline text-sky-500" />}</span><strong>{formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>)}</div></div>
+            <div className="mt-5 flex flex-wrap gap-2"><button className="button-secondary" onClick={() => setStep(1)}>← Back to Charges</button></div>
           </section>
           <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md"><h2 className="font-black">Final Total</h2><div className="mt-4 space-y-3"><div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between text-sm"><span className="text-slate-500">Discount</span><strong className="text-violet-700">− {formatMoney(totals.discount)}</strong></div><div className="flex justify-between border-t border-slate-200 pt-4 text-xl"><span className="font-black">TOTAL</span><strong>{formatMoney(totals.total)}</strong></div></div><button className="button-primary mt-5 w-full justify-center" disabled={finalizing || saving || (discountNeedsApproval && !discountApproval && !discountPersistedApproval)} onClick={prepareFinalize}>{finalizing ? 'Checking…' : `Confirm Bill — ${formatMoney(totals.total)}`}</button><p className="mt-3 text-center text-xs text-slate-500">Confirmation locks charges. Additional Medicine / Supply inventory is deducted from the selected batch only when the bill becomes fully paid.</p></div></aside>
         </div>
@@ -795,7 +815,7 @@ const Staff_CheckoutDetail = () => {
         </div>
       )}
 
-      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate('/staff/checkout')}>Next Patient →</button></div>}
+      {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-2 text-sm text-emerald-800">Need a refund? Use payment history. Paid bills cannot be edited directly.</p><p className="mt-2 text-sm text-emerald-900">Ask a Billing Admin to handle any refund or correction.</p><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate('/staff/checkout')}>Next Patient →</button></div>}
 
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Charge" description="Add an inventory item, an extra service charge, or a custom charge. Doctor-recorded services stay unchanged." size="md"><div className="grid gap-3 sm:grid-cols-2"><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-emerald-300 hover:bg-emerald-50" onClick={() => addType('supply')}><MdLocalPharmacy className="mx-auto text-3xl text-emerald-600" /><p className="mt-3 font-black">Medicine / Supply</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-violet-300 hover:bg-violet-50" onClick={() => addType('custom')}><MdAdd className="mx-auto text-3xl text-violet-600" /><p className="mt-3 font-black">Custom Charge</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-sky-300 hover:bg-sky-50" onClick={() => addType('service')}><MdAdd className="mx-auto text-3xl text-sky-600" /><p className="mt-3 font-black">Service Charge</p></button></div><div className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800"><MdLock className="mr-1 inline" /> Billing-only service charges do not update the doctor's medical record. Ask the doctor to record actual treatment or stock usage.</div></Modal>
 

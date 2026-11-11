@@ -5,6 +5,11 @@ import { STAFF_PERMISSION_GROUPS, STAFF_PERMISSION_KEYS, normalizeStaffPermissio
 const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
   const selected = useMemo(() => normalizeStaffPermissions(value), [value])
   const [openHelp, setOpenHelp] = useState(null)
+  const [search, setSearch] = useState('')
+  const filteredGroups = useMemo(() => STAFF_PERMISSION_GROUPS.map(group => ({
+    ...group,
+    permissions: group.permissions.filter(p => `${p.label} ${p.short} ${p.description} ${group.label}`.toLowerCase().includes(search.trim().toLowerCase())),
+  })).filter(group => group.permissions.length), [search])
   const selectedSet = new Set(selected)
 
   const setPermissions = (next) => onChange?.(normalizeStaffPermissions(next))
@@ -28,7 +33,14 @@ const StaffPermissionPicker = ({ value = [], onChange, disabled = false }) => {
         </div>
       </div>
 
-      {STAFF_PERMISSION_GROUPS.map((group) => {
+      <label className="block">
+        <span className="text-xs font-bold text-slate-600">Find a permission</span>
+        <input type="search" value={search} onChange={event => setSearch(event.target.value)}
+          placeholder="Search checkout, billing, appointments..." aria-label="Search staff permissions"
+          className="form-control mt-1.5" />
+      </label>
+      {filteredGroups.length === 0 && <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">No permissions match your search.</p>}
+      {filteredGroups.map((group) => {
         const keys = group.permissions.map((item) => item.key)
         const count = keys.filter((key) => selectedSet.has(key)).length
         const allSelected = count === keys.length

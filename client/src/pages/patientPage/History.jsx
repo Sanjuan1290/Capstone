@@ -10,8 +10,8 @@ import { parsePrescription } from '../../utils/prescriptionDisplay.mjs'
 import { formatAppointmentRange, formatDurationMinutes, getReservedDurationMinutes } from '../../utils/appointmentTime'
 import {
   MdAccessTime, MdCalendarToday, MdClose, MdExpandLess, MdExpandMore,
-  MdFace, MdHistory, MdImage, MdLocalPharmacy, MdMedicalServices,
-  MdNotes, MdOpenInNew, MdSearch, MdReceipt, MdPayments, MdRefresh,
+  MdFace, MdHistory, MdLocalPharmacy, MdMedicalServices,
+  MdSearch, MdReceipt, MdPayments, MdRefresh,
   MdChevronRight, MdDownload, MdAccountBalanceWallet, MdCheckCircle,
 } from 'react-icons/md'
 
@@ -59,22 +59,11 @@ const groupByMonth = items => items.reduce((groups, item) => {
   return groups
 }, {})
 
-const ProgressImages = ({ images }) => {
-  const list = Array.isArray(images) ? images.filter(image => image?.image_url) : []
-  return <div className="grid gap-3 sm:grid-cols-2">
-    {list.map((image, index) => <a key={`${image.image_url}-${index}`} href={image.image_url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-slate-200 bg-white hover:border-emerald-200">
-      <img src={image.image_url} alt={image.caption || `Progress image ${index + 1}`} className="h-36 w-full bg-slate-100 object-cover" />
-      <span className="flex items-center justify-between gap-2 p-3 text-xs text-slate-600"><span className="space-y-1"><span className="block">{image.caption || `Progress image ${index + 1}`}</span>{image.security_scan_status === 'approved' && <span className="block text-[10px] font-bold text-emerald-700">Security scan passed</span>}</span><MdOpenInNew className="shrink-0" /></span>
-    </a>)}
-  </div>
-}
-
 const VisitCard = ({ visit, expanded, onToggle, onViewBill }) => {
   const Icon = visit.type === 'derma' ? MdFace : MdMedicalServices
   const rx = parsePrescription(visit.prescription)
-  const images = Array.isArray(visit.progress_images) ? visit.progress_images.filter(image => image?.image_url) : []
   const status = VISIT_STATUS[visit.status] || { label: String(visit.status || 'History').replaceAll('_', ' '), color: 'bg-slate-100 text-slate-600' }
-  const hasClinical = visit.status === 'completed' && Boolean(visit.consultation_id || visit.diagnosis || visit.consultation_notes || rx.kind !== 'empty' || images.length)
+  const hasClinical = visit.status === 'completed' && Boolean(visit.consultation_id || visit.diagnosis || rx.kind !== 'empty')
   const billStatus = visit.billing_id ? paymentStatus({
     billing_status: visit.billing_status, billing_total: visit.billing_total, billing_paid_amount: visit.billing_paid_amount,
   }) : null
@@ -104,9 +93,7 @@ const VisitCard = ({ visit, expanded, onToggle, onViewBill }) => {
     </div>
     {expanded && hasClinical && <section className="space-y-4 border-t border-slate-100 bg-slate-50/50 p-4 sm:p-5">
       {visit.diagnosis && <div><h4 className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Diagnosis</h4><p className="rounded-lg bg-white p-3 text-sm text-slate-700">{visit.diagnosis}</p></div>}
-      {visit.consultation_notes && <div><h4 className="mb-1 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdNotes /> Clinical Notes</h4><p className="whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{visit.consultation_notes}</p></div>}
       {(visit.consultation_id || rx.kind !== 'empty') && <div><h4 className="mb-2 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdLocalPharmacy /> Prescriptions</h4><PrescriptionDetails value={visit.prescription} status={visit.prescription_status}/></div>}
-      {images.length > 0 && <div><h4 className="mb-2 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdImage /> Progress Images</h4><ProgressImages images={images} /></div>}
     </section>}
     {hasClinical && <button type="button" onClick={() => onToggle(visit.id)} className="flex w-full items-center justify-center gap-1 border-t border-slate-100 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50">{expanded ? <><MdExpandLess /> Hide Consultation Details</> : <><MdExpandMore /> View Consultation Details</>}</button>}
   </article>
@@ -275,4 +262,3 @@ const History = () => {
   </div>
 }
 export default History
-

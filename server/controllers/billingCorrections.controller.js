@@ -82,7 +82,7 @@ const loadBillStockUsage = async (billingId, executor = db) => {
 const getBillStockUsage = async (req, res) => {
   const billingId = Number(req.params.id)
   if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
-  const [[bill]] = await db.query('SELECT id FROM billing_records WHERE id = ? LIMIT 1', [billingId])
+  const [[bill]] = await db.query('SELECT id FROM billing_records WHERE id = ? AND branch_id = ? LIMIT 1', [billingId, req.branchId])
   if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
   res.json(await loadBillStockUsage(billingId))
 }

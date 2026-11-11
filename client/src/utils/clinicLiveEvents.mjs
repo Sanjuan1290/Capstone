@@ -3,6 +3,7 @@ export const EVENT_TOPICS={
  'appointment_updated':'appointment.updated', 'queue_updated':'queue.updated',
  'consultation_saved':'appointment.updated','billing_paid':'billing.updated',
  'billing_finalized':'billing.updated','billing_reopened':'billing.updated',
+ 'billing_updated':'billing.updated',
  'billing_voided':'billing.updated','billing_payment_changed':'billing.updated',
  'billing_adjustment_resolved':'billing.updated','billing_adjustment_requested':'billing.updated',
  'cashier_closed':'billing.updated','cashier_reopened':'billing.updated',

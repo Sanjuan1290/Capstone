@@ -1372,6 +1372,7 @@ const updateBill = async (req, res) => {
     if (err.statusCode) return res.status(err.statusCode).json({ message: err.message, code: err.code || undefined, current_version: err.current_version })
     throw err
   } finally { conn.release() }
+  broadcast(['admin', 'staff'], 'billing_updated', { billingId }, { branchId: req.branchId })
   res.json(await getBillingRecordWithItems(billingId))
 }
 

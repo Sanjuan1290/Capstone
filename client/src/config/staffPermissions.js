@@ -22,8 +22,8 @@ export const STAFF_PERMISSION_GROUPS = [
     label: 'Billing & Stock',
     description: 'Control payment collection, billing visibility, inventory, and transfers.',
     permissions: [
-      { key: 'checkout', label: 'Checkout', short: 'Collect patient payments', description: 'Open bills that are ready for payment and process patient checkout and payment collection.' },
-      { key: 'billing', label: 'Billing', short: 'View billing records', description: 'View billing records, transactions, payment history, balances, and permitted billing information. Checkout actions still require Checkout access.' },
+      { key: 'checkout', label: 'Manage Payments (Checkout)', short: 'Confirm bills and collect payments', description: 'Open bills that are ready for payment and process patient checkout and payment collection.' },
+      { key: 'billing', label: 'View Billing Records', short: 'Read bills, balances and receipts', description: 'View billing records, transactions, payment history, balances, and permitted billing information. Checkout actions still require Checkout access.' },
       { key: 'inventory', label: 'Inventory', short: 'Stock and batches', description: 'View and manage clinic inventory, stock levels, batches, and permitted stock movements.' },
     ],
   },
@@ -64,4 +64,3 @@ export const STAFF_PERMISSION_MAP = Object.fromEntries(STAFF_PERMISSIONS.map((it
 
 export const normalizeStaffPermissions = (value) => [...new Set((Array.isArray(value) ? value : []).filter((key) => STAFF_PERMISSION_KEYS.includes(key)))]
 export const hasStaffPermission = (user, key) => normalizeStaffPermissions(user?.permissions).includes(key)
-

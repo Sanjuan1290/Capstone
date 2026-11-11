@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { MdClose, MdDownload, MdFileDownload, MdFileUpload, MdEditNote } from 'react-icons/md'
 import {
   INVENTORY_HEADERS, INVENTORY_BULK_EDIT_HEADERS,
@@ -31,6 +32,10 @@ const diagnosticsCSV = (rows) => {
 // import path for the two redesigned flows: the server commits each file atomically.
 export default function InventoryExcelTools({ items, stockRooms, masterData, services, onUpdated, onWorkflowChange }) {
   const fileRef = useRef(null)
+  const location = useLocation()
+  const pricingPath = `${location.pathname.replace(/\/inventory(?:\/.*)?$/, '')}/system-setup/billing/services`
+  const [reviewSearch, setReviewSearch] = useState('')
+  const [reviewStatus, setReviewStatus] = useState('all')
   const [preview, setPreview] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -46,6 +51,8 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     setPreview(null)
     setConfirmed(false)
     setServerIssue(null)
+    setReviewSearch('')
+    setReviewStatus('all')
     setError('')
     onWorkflowChange?.(false)
   }
@@ -79,7 +86,7 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
   }
   const handleFile = async (file) => {
     if(!file||busy){onWorkflowChange?.(false);return}
-    setPreview(null);setResults(null);setConfirmed(false);setError('')
+    setPreview(null);setResults(null);setConfirmed(false);setError('');setReviewSearch('');setReviewStatus('all')
     try{
       const parsed=await readInventoryImportFile(file)
       if(!parsed.rows.length)throw new Error('The Excel file has no inventory rows.')
@@ -105,6 +112,14 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
   const changes = preview?.rows.filter(r => r.changed && !r.errors.length) || []
   const appliedEarlier = preview?.mode==='edit' ? preview.rows.filter(r=>r.alreadyApplied?.length).length : 0
   const unchanged = preview ? preview.rows.length - changes.length - invalid.length - appliedEarlier : 0
+  const visibleRows = (preview?.rows || []).filter(row => {
+    const matched = `${row.name || ''} ${row.row || ''} ${row.sheet || ''}`.toLowerCase().includes(reviewSearch.trim().toLowerCase())
+    if (!matched) return false
+    if (reviewStatus === 'errors') return Boolean(row.errors?.length)
+    if (reviewStatus === 'changed') return Boolean(row.changed && !row.errors?.length)
+    if (reviewStatus === 'unchanged') return !row.changed && !row.errors?.length
+    return true
+  })
 
   const downloadErrors = () => {
     if (!preview || !invalid.length) return
@@ -177,10 +192,25 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
         <div className="min-h-0 flex-1 space-y-3 overflow-auto p-4 sm:p-5">
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{preview.mode==='new'?'Initial Stock on each new-item row becomes one opening batch. Repeated item names create one product with separate batches.':'Only New Selling Price and New Low Stock Alert can change. Existing stock and previous bills stay unchanged.'} <strong>Nothing is saved until you confirm below.</strong></div>
           {preview.mode==='new' && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Opening Stock Summary</strong><p className="mt-1">{changes.length} new item(s) · {changes.reduce((n,r)=>n+(r.openingBatches||0),0)} opening batch(es) · {changes.reduce((n,r)=>n+(r.openingQuantity||0),0)} units total. Opening stock is calculated from the single Inventory sheet.</p></div>}
-          {serverIssue && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-900"><strong>Could not save these changes</strong><p className="mt-2">{serverIssue.message}</p><p className="mt-1">No items in this upload were saved. Your preview is still available. Correct the issue or download a new Excel file.</p></div>}
+          {serverIssue && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-900"><strong>Could not save these changes</strong><p className="mt-2">{serverIssue.message}</p><p className="mt-1">No items in this upload were saved. Your preview is still available. Correct the issue or download a new Excel file.</p>{/linked to billable services|Services & Pricing/i.test(serverIssue.message) && <p className="mt-2">This item's price is used by a service. Update the service setup instead. <Link to={pricingPath} className="font-bold underline">Open Services & Pricing</Link></p>}</div>}
           {invalid.length>0 && <section className="rounded-xl border border-red-300 bg-red-50 p-3" aria-label="Excel errors"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold text-red-900">Review {invalid.length} Excel row(s) before saving</h3><button type="button" className="button-secondary" onClick={downloadErrors}><MdDownload/> Download Error Report</button></div><div className="mt-2 max-h-44 overflow-auto space-y-1 text-sm text-red-900">{invalid.map((r,i)=><p key={`${r.row}-${i}`}><strong>{r.sheet||'Inventory'} row {r.row} — {r.name||'Unnamed item'}:</strong> {r.errors.join(' ')}</p>)}</div></section>}
-          <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-100 text-xs font-bold text-slate-600"><tr>{['Excel Row','Item','Details / Quantity','Result'].map(h=><th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody>{preview.rows.slice(0,100).map((r,i)=><tr key={`${r.row}-${i}`} className="border-t border-slate-100"><td className="px-3 py-2">{r.row}</td><td className="px-3 py-2 font-semibold">{r.name}</td><td className="px-3 py-2 text-xs text-slate-600">{preview.mode==='new'?`New item · ${r.openingQuantity||0} opening units · ${r.openingBatches||0} batches`:r.fieldChanges?.length ? r.fieldChanges.map(c=>`${c.label}: ${c.label==='Selling Price'?'₱'+Number(c.before).toFixed(2):c.before} → ${c.label==='Selling Price'?'₱'+Number(c.after).toFixed(2):c.after}`).join(' · ') : r.alreadyApplied?.length ? `Already updated: ${r.alreadyApplied.join(', ')}` : 'No fields requested'}</td><td className={`px-3 py-2 text-xs ${r.errors.length?'text-red-700':r.changed?'text-emerald-700':'text-slate-500'}`}>{r.errors.length?r.errors.join('; '):r.changed?'Ready to save':r.alreadyApplied?.length?'Already applied':'No change'}</td></tr>)}</tbody></table></div>
-          {preview.rows.length>100&&<p className="text-xs text-slate-500">Showing the first 100 rows. Every row was checked; download the error report for all issues.</p>}
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <label className="min-w-[200px] flex-1 text-xs font-bold text-slate-600">Find an item or row
+              <input type="search" className="form-control mt-1" value={reviewSearch} onChange={e=>setReviewSearch(e.target.value)} placeholder="Item name or Excel row" />
+            </label>
+            <label className="text-xs font-bold text-slate-600">Show
+              <select className="form-control mt-1" value={reviewStatus} onChange={e=>setReviewStatus(e.target.value)}>
+                <option value="all">All ({preview.rows.length})</option>
+                <option value="changed">Changed ({changes.length})</option>
+                <option value="errors">Needs review ({invalid.length})</option>
+                <option value="unchanged">Unchanged ({unchanged + appliedEarlier})</option>
+              </select>
+            </label>
+            <span className="text-xs text-slate-500">Showing {Math.min(visibleRows.length,100)} of {visibleRows.length} matching rows</span>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-100 text-xs font-bold text-slate-600"><tr>{['Excel Row','Item','Details / Quantity','Result'].map(h=><th key={h} className="px-3 py-2">{h}</th>)}</tr></thead><tbody>{visibleRows.slice(0,100).map((r,i)=><tr key={`${r.row}-${i}`} className="border-t border-slate-100"><td className="px-3 py-2">{r.row}</td><td className="px-3 py-2 font-semibold">{r.name}</td><td className="px-3 py-2 text-xs text-slate-600">{preview.mode==='new'?`New item · ${r.openingQuantity||0} opening units · ${r.openingBatches||0} batches`:r.fieldChanges?.length ? r.fieldChanges.map(c=>`${c.label}: ${c.label==='Selling Price'?'₱'+Number(c.before).toFixed(2):c.before} → ${c.label==='Selling Price'?'₱'+Number(c.after).toFixed(2):c.after}`).join(' · ') : r.alreadyApplied?.length ? `Already updated: ${r.alreadyApplied.join(', ')}` : 'No fields requested'}</td><td className={`px-3 py-2 text-xs ${r.errors.length?'text-red-700':r.changed?'text-emerald-700':'text-slate-500'}`}>{r.errors.length?r.errors.join('; '):r.changed?'Ready to save':r.alreadyApplied?.length?'Already applied':'No change'}</td></tr>)}</tbody></table></div>
+          {!visibleRows.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No items match this search or filter.</p>}
+          {visibleRows.length>100&&<p className="text-xs text-slate-500">Showing the first 100 matching rows. All Excel rows were still checked; download the error report for issues outside this page.</p>}
           {!invalid.length && !!changes.length && <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} className="mt-1 h-4 w-4"/><span>I reviewed this upload. New-item opening stock creates batch movements, while existing-item edits never change stock or previous transactions.</span></label>}
           {busy&&<p role="status" className="rounded-xl bg-sky-50 p-3 text-sm text-sky-900">Saving all changes together. Please don't close this window.</p>}
         </div>
@@ -189,5 +219,3 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     </div>}
   </section>
 }
-
-
