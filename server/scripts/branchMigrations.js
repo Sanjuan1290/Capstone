@@ -63,6 +63,7 @@ const migrationFiles = [
   '2026-11-11-registration-sms-limits.sql',
   '2026-11-11-billing-stock-reservations.sql',
   '2026-11-11-doctor-confirmation-notifications.sql',
+  '2026-11-12-inventory-excel-undo.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -200,3 +201,4 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
+

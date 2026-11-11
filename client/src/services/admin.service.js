@@ -382,6 +382,9 @@ export const getReports = (params = {}, options = {}) => {
 export const getInventory = () =>
   requestJson(`${getAdminApiBase()}/inventory`)
 
+export const getArchivedInventoryItems = () => requestJson(`${getAdminApiBase()}/inventory/archived`)
+export const restoreInventoryItem = id => requestJson(`${getAdminApiBase()}/inventory/${id}/restore`,{method:'POST'})
+
 export const getInventoryLogs = (params = {}) => {
   const search = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -425,6 +428,11 @@ export const bulkReceiveInventoryItems = (items) => requestJson(`${getAdminApiBa
 })
 export const bulkUpdateInventoryItems = (items) => requestJson(`${getAdminApiBase()}/inventory/bulk-update`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+})
+export const getInventoryExcelUploads = () => requestJson(`${getAdminApiBase()}/inventory/excel-imports`)
+export const undoInventoryExcelUpload = (id, reason) => requestJson(`${getAdminApiBase()}/inventory/excel-imports/${id}/undo`,{
+  method:'POST', headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({confirmation:'UNDO',reason}),
 })
 
 // FIX 5: Delete inventory item
@@ -599,3 +607,4 @@ export const saveReminderSettings = (value) => requestJson(`${getAdminApiBase()}
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdminApiBase()}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
+

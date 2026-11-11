@@ -69,8 +69,8 @@ async function createItem(req,res){
     conn=await db.getConnection();await conn.beginTransaction()
     const supplier=await validateReferences(conn,req.branchId,p)
     const barcode=p.barcode||await nextInventoryBarcode(p.category,req.branchId,conn)
-    const [[same]]=await conn.query('SELECT id FROM inventory WHERE branch_id=? AND (barcode=? OR LOWER(TRIM(name))=LOWER(?)) LIMIT 1',[req.branchId,barcode,p.name])
-    if(same)throw fail(409,'INVENTORY_DUPLICATE','An item with this barcode or name already exists in this branch.')
+    const [[same]]=await conn.query('SELECT id,archived_at FROM inventory WHERE branch_id=? AND (barcode=? OR LOWER(TRIM(name))=LOWER(?)) LIMIT 1',[req.branchId,barcode,p.name])
+    if(same)throw fail(409,same.archived_at?'INVENTORY_ARCHIVED':'INVENTORY_DUPLICATE',same.archived_at?'This item is archived. Open Archived Items and select Restore instead of creating a duplicate.':'An item with this barcode or name already exists in this branch.')
     const [result]=await conn.query(`INSERT INTO inventory
       (branch_id,barcode,name,category,item_type,uom,dosage_form,strength,measurement_value,measurement_unit,unit,base_unit,unit_size,stock,stock_base,threshold,price,selling_price,supplier,supplier_id,default_location_id)
       VALUES (?,?,?,?,?,'unit',?,?,?,?,'unit','unit',1,0,0,?,?,?,?,?,?)`,
@@ -134,6 +134,34 @@ async function archiveItem(req,res){
   }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
 }
 
+// Archived records remain visible to authorized Admins and can be restored
+// without changing historical inventory movements or creating a duplicate item.
+async function listArchivedItems(req,res) {
+  const [rows] = await db.query(`SELECT id,name,barcode,category,item_type,archived_at,archive_reason,
+    stock,threshold FROM inventory WHERE branch_id=? AND archived_at IS NOT NULL
+    ORDER BY archived_at DESC,id DESC LIMIT 1000`,[req.branchId])
+  return res.json(rows)
+}
+async function restoreArchivedItem(req,res) {
+  let conn
+  try {
+    if(!positiveId(req.params.id))throw fail(400,'INVALID_ID','Select a valid archived item.')
+    conn=await db.getConnection();await conn.beginTransaction()
+    const [[prior]]=await conn.query('SELECT id,name,barcode,archived_at FROM inventory WHERE id=? AND branch_id=? FOR UPDATE',
+      [req.params.id,req.branchId])
+    if(!prior)throw fail(404,'ITEM_NOT_FOUND','Inventory item was not found in this branch.')
+    if(!prior.archived_at)throw fail(409,'NOT_ARCHIVED','This item is already active.')
+    const [[other]]=await conn.query(`SELECT id FROM inventory WHERE branch_id=? AND id<>? AND archived_at IS NULL
+      AND (barcode=? OR LOWER(TRIM(name))=LOWER(?)) LIMIT 1`,[req.branchId,prior.id,prior.barcode,prior.name])
+    if(other)throw fail(409,'ACTIVE_ITEM_DUPLICATE','Another active item has this name or barcode. Review the duplicate before restoring.')
+    await conn.query('UPDATE inventory SET archived_at=NULL,archived_by_admin_id=NULL,archive_reason=NULL WHERE id=? AND branch_id=?',
+      [prior.id,req.branchId])
+    await audit(req,conn,'inventory.item_restored',prior.id,{archived_at:prior.archived_at},{archived_at:null})
+    await conn.commit();conn.release();conn=null
+    return res.json({restored:true,message:`${prior.name} restored.`})
+  } catch(error) {if(conn){await conn.rollback().catch(()=>{});conn.release()}return errorResponse(error,res)}
+}
+
 // Separate Excel operations: create item + opening batches, metadata edit, and
 // authenticated stock receipts. Only the receipt engines change stock balances.
 const bulkFields = (value, allowed) => value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).every(k=>allowed.includes(k))
@@ -178,27 +206,35 @@ async function bulkCreateItems(req,res) {
     for(const row of rows) {
       const p=normalize(row)
       const supplier=await validateReferences(conn,req.branchId,p)
-      const [[existing]]=await conn.query('SELECT id FROM inventory WHERE branch_id=? AND LOWER(TRIM(name))=LOWER(?) LIMIT 1',[req.branchId,p.name])
-      if(existing)throw fail(409,'INVENTORY_DUPLICATE',`Item already exists: ${p.name}. No items have been saved.`)
+      const [[existing]]=await conn.query('SELECT id,archived_at FROM inventory WHERE branch_id=? AND LOWER(TRIM(name))=LOWER(?) LIMIT 1',[req.branchId,p.name])
+      if(existing)throw fail(409,existing.archived_at?'INVENTORY_ARCHIVED':'INVENTORY_DUPLICATE',existing.archived_at?`${p.name} is archived. Restore it from Archived Items first. No items have been saved.`:`Item already exists: ${p.name}. No items have been saved.`)
       const barcode=await nextInventoryBarcode(p.category,req.branchId,conn)
       const [result]=await conn.query(`INSERT INTO inventory
         (branch_id,barcode,name,category,item_type,uom,dosage_form,strength,measurement_value,measurement_unit,unit,base_unit,unit_size,stock,stock_base,threshold,price,selling_price,supplier,supplier_id,default_location_id)
         VALUES (?,?,?,?,?,'unit',?,?,?,?,'unit','unit',1,0,0,?,?,?,?,?,?)`,
         [req.branchId,barcode,p.name,p.category,p.item_type,p.dosage_form,p.strength,p.measurement_value,p.measurement_unit,p.threshold,p.selling_price,p.selling_price,supplier?.name||null,p.supplier_id,p.default_location_id])
       let openingQuantity=0
+      const receivedBatchIds=[]
       for(const batch of (row.opening_batches||[])){
         const {room,supplier:batchSupplier}=await getValidReceivingRefs(conn,req.branchId,p.category,batch)
         const receipt=await receiveInventoryBatch(result.insertId,{quantity:batch.quantity,expiration_date:batch.expiration_date,location_id:room.id,supplier_id:batchSupplier.id,supplier_lot_number:batch.supplier_lot_number||null,unit_cost:batch.unit_cost,note:'Excel opening stock'},conn)
         await conn.query(`INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id)
           VALUES (?,?,'in',?,'Excel opening stock','received',?,?,?)`,[result.insertId,req.user.id,batch.quantity,receipt.batch_id,room.name,req.branchId])
         openingQuantity+=batch.quantity
+        receivedBatchIds.push({id:receipt.batch_id,quantity:Number(batch.quantity)})
       }
       if(openingQuantity>0)await syncInventorySnapshot(result.insertId,conn)
       await audit(req,conn,'inventory.item_created',result.insertId,null,{...p,barcode,opening_quantity:openingQuantity,opening_batch_count:(row.opening_batches||[]).length,source:'excel_import'})
-      created.push({id:result.insertId,name:p.name,barcode,opening_quantity:openingQuantity,opening_batches:(row.opening_batches||[]).length})
+      created.push({id:result.insertId,name:p.name,barcode,opening_quantity:openingQuantity,
+        opening_batches:(row.opening_batches||[]).length,batch_ids:receivedBatchIds,
+        selling_price:Number(p.selling_price),threshold:Number(p.threshold)})
     }
+    const [savedUpload]=await conn.query(`INSERT INTO inventory_excel_uploads
+      (branch_id,upload_type,changes_json,created_by_admin_id) VALUES (?,?,?,?)`,
+      [req.branchId,'new_items',JSON.stringify(created),req.user.id])
     await conn.commit();conn.release();conn=null
-    return res.status(201).json({created:created.length,updated:0,items:created,message:'New items and opening batches were saved. Stock balances match the received batches.'})
+    return res.status(201).json({created:created.length,updated:0,items:created,upload_id:savedUpload.insertId,
+      message:'New items and opening batches were saved. Stock balances match the received batches.'})
   }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
 }
 
@@ -299,16 +335,107 @@ async function bulkUpdateItems(req,res) {
       params.push(prior.id,req.branchId)
       await conn.query(`UPDATE inventory SET ${sets.join(',')} WHERE id=? AND branch_id=?`,params)
       await audit(req,conn,'inventory.item_bulk_details_updated',prior.id,auditBefore,auditAfter)
-      updated.push({id:prior.id,name:prior.name,fields:updates})
+      updated.push({id:prior.id,name:prior.name,fields:updates,
+        before:auditBefore,after:Object.fromEntries(updates.map(field=>[field,Number(row.changes[field])]))})
+    }
+    let uploadId=null
+    if(updated.length){
+      const [savedUpload]=await conn.query(`INSERT INTO inventory_excel_uploads
+        (branch_id,upload_type,changes_json,created_by_admin_id) VALUES (?,?,?,?)`,
+        [req.branchId,'item_edits',JSON.stringify(updated),req.user.id])
+      uploadId=savedUpload.insertId
     }
     await conn.commit();conn.release();conn=null
-    return res.json({created:0,updated:updated.length,already_applied:alreadyApplied.length,items:updated,message:updated.length?`${updated.length} item(s) updated. Earlier bills, stock movements, and current quantities were not edited.`:'These changes are already applied. Nothing else was updated.'})
+    return res.json({created:0,updated:updated.length,already_applied:alreadyApplied.length,items:updated,upload_id:uploadId,message:updated.length?`${updated.length} item(s) updated. Earlier bills, stock movements, and current quantities were not edited.`:'These changes are already applied. Nothing else was updated.'})
   }catch(e){if(conn){await conn.rollback();conn.release()}return errorResponse(e,res)}
+}
+
+// Excel upload history and guarded Undo. This never deletes a used medicine,
+// reverses a clinical/billing entry, or rewrites payment records.
+async function listExcelUploads(req,res){
+  const [rows]=await db.query(`SELECT id,upload_type,created_at,created_by_admin_id,undone_at,undone_by_admin_id
+    FROM inventory_excel_uploads WHERE branch_id=? ORDER BY id DESC LIMIT 30`,[req.branchId])
+  return res.json(rows)
+}
+async function undoExcelUpload(req,res){
+  let conn
+  try{
+    if(!positiveId(req.params.id))throw fail(400,'INVALID_UPLOAD','Select a valid Excel upload.')
+    const reason=clean(req.body?.reason,255)
+    if(reason.length<5||req.body?.confirmation!=='UNDO')throw fail(400,'CONFIRM_REQUIRED','Type UNDO and enter a reason of at least 5 characters.')
+    conn=await db.getConnection();await conn.beginTransaction()
+    const [[upload]]=await conn.query('SELECT * FROM inventory_excel_uploads WHERE id=? AND branch_id=? FOR UPDATE',[req.params.id,req.branchId])
+    if(!upload)throw fail(404,'UPLOAD_NOT_FOUND','Excel upload not found in this clinic branch.')
+    if(upload.undone_at)throw fail(409,'ALREADY_UNDONE','This Excel upload was already undone.')
+    const changes=typeof upload.changes_json==='string'?JSON.parse(upload.changes_json):upload.changes_json
+    if(!Array.isArray(changes)||!changes.length)throw fail(409,'EMPTY_UPLOAD','This upload contains no changes to undo.')
+    if(upload.upload_type==='new_items'){
+      // A new-item import is removable only if all item details, all opening
+      // batches, and all stock movement logs still match the original upload.
+      // Every later stock movement, service link or clinical/billing reference
+      // blocks the entire Undo transaction.
+      for(const item of changes){
+        const [[current]]=await conn.query('SELECT * FROM inventory WHERE id=? AND branch_id=? FOR UPDATE',[item.id,req.branchId])
+        if(!current||current.archived_at||String(current.name)!==String(item.name)||String(current.barcode)!==String(item.barcode)||
+          !priceMatch(current.selling_price,item.selling_price)||Number(current.threshold)!==Number(item.threshold)||
+          Number(current.stock)!==Number(item.opening_quantity)){
+          throw fail(409,'ITEM_CHANGED',`${item.name} changed after import. Undo was stopped; no data was deleted.`)
+        }
+        const [batches]=await conn.query('SELECT id,quantity FROM inventory_batches WHERE inventory_id=? ORDER BY id FOR UPDATE',[item.id])
+        const initial=item.batch_ids||[]
+        if(batches.length!==initial.length||batches.some(b=>!initial.some(x=>Number(x.id)===Number(b.id)&&Number(x.quantity)===Number(b.quantity))))
+          throw fail(409,'BATCH_CHANGED',`${item.name} has later or changed batches. Undo was stopped.`)
+        const [logs]=await conn.query('SELECT id,batch_id,qty,movement_type FROM inventory_logs WHERE inventory_id=? AND branch_id=? FOR UPDATE',[item.id,req.branchId])
+        if(logs.length!==initial.length||logs.some(l=>l.movement_type!=='received'||!initial.some(x=>Number(x.id)===Number(l.batch_id)&&Number(x.quantity)===Number(l.qty))))
+          throw fail(409,'STOCK_USED',`${item.name} has other stock movements. Undo was stopped.`)
+        const [[uses]]=await conn.query(`SELECT
+          (SELECT COUNT(*) FROM billing_service_materials WHERE inventory_id=?) +
+          (SELECT COUNT(*) FROM billing_items WHERE source_inventory_id=?) +
+          (SELECT COUNT(*) FROM consultation_inventory_usage WHERE inventory_id=?) +
+          (SELECT COUNT(*) FROM supply_requests WHERE inventory_id=?) +
+          (SELECT COUNT(*) FROM inventory_transfers WHERE inventory_id=?) +
+          (SELECT COUNT(*) FROM inventory_excel_receipts WHERE inventory_id=?) AS total`,
+          [item.id,item.id,item.id,item.id,item.id,item.id])
+        if(Number(uses?.total)>0)throw fail(409,'ITEM_REFERENCED',`${item.name} is linked to a service, visit, transfer, or receipt. Undo was stopped.`)
+      }
+      for(const item of changes){
+        // Foreign keys and the transaction also protect against new references.
+        const [deleted]=await conn.query('DELETE FROM inventory WHERE id=? AND branch_id=? AND archived_at IS NULL',[item.id,req.branchId])
+        if(Number(deleted.affectedRows)!==1)throw fail(409,'ITEM_CHANGED','An imported item changed during Undo.')
+        await audit(req,conn,'inventory.excel_import_item_undone',item.id,{barcode:item.barcode,opening_quantity:item.opening_quantity},{upload_id:upload.id,reason})
+      }
+    } else if(upload.upload_type==='item_edits'){
+      for(const item of changes){
+        const [[current]]=await conn.query('SELECT id,name,archived_at,selling_price,threshold FROM inventory WHERE id=? AND branch_id=? FOR UPDATE',[item.id,req.branchId])
+        if(!current||current.archived_at||String(current.name)!==String(item.name))throw fail(409,'ITEM_CHANGED',`${item.name} is missing or changed. Undo was stopped.`)
+        for(const field of item.fields){
+          const same=field==='selling_price'?priceMatch:(a,b)=>Number(a)===Number(b)
+          if(!same(current[field],item.after[field]))throw fail(409,'ITEM_CHANGED',`${item.name} ${field} changed after import. Undo was stopped.`)
+        }
+      }
+      for(const item of changes){
+        const sets=[],params=[]
+        if(item.fields.includes('selling_price')){sets.push('selling_price=?','price=?');params.push(item.before.selling_price,item.before.selling_price)}
+        if(item.fields.includes('threshold')){sets.push('threshold=?');params.push(item.before.threshold)}
+        params.push(item.id,req.branchId)
+        await conn.query(`UPDATE inventory SET ${sets.join(',')} WHERE id=? AND branch_id=?`,params)
+        await audit(req,conn,'inventory.excel_edit_undone',item.id,item.after,{...item.before,upload_id:upload.id,reason})
+      }
+    } else throw fail(409,'UNDO_NOT_SUPPORTED','This Excel upload type cannot be undone automatically.')
+    await conn.query('UPDATE inventory_excel_uploads SET undone_at=NOW(),undone_by_admin_id=?,undo_reason=? WHERE id=? AND branch_id=?',
+      [req.user.id,reason,upload.id,req.branchId])
+    await conn.commit();conn.release();conn=null
+    return res.json({undone:true,message:`Excel upload #${upload.id} was undone. All affected items were checked.`})
+  }catch(error){if(conn){await conn.rollback().catch(()=>{});conn.release()}return errorResponse(error,res)}
 }
 
 function registerBranchInventoryItems(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const guard=[...middle,requirePermission('inventory')]
+  router.get(`${prefix}/inventory/archived`,...guard,listArchivedItems)
+  router.get(`${prefix}/inventory/excel-imports`,...guard,listExcelUploads)
+  router.post(`${prefix}/inventory/excel-imports/:id/undo`,...guard,afterSuccessfulMutation('inventory.updated'),undoExcelUpload)
+  router.post(`${prefix}/inventory/:id/restore`,...guard,afterSuccessfulMutation('inventory.updated'),restoreArchivedItem)
   router.post(`${prefix}/inventory`,...guard,afterSuccessfulMutation('inventory.updated'),createItem)
   router.post(`${prefix}/inventory/import-new`,...guard,afterSuccessfulMutation('inventory.updated'),bulkCreateItems)
   router.post(`${prefix}/inventory/bulk-update`,...guard,afterSuccessfulMutation('inventory.updated'),bulkUpdateItems)
@@ -317,7 +444,8 @@ function registerBranchInventoryItems(router,{requireSuper,branchContext,require
   router.delete(`${prefix}/inventory/:id`,...guard,afterSuccessfulMutation('inventory.updated'),archiveItem)
  }
 }
-module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem,bulkCreateItems,bulkUpdateItems,bulkReceiveItems}
+module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem,listArchivedItems,restoreArchivedItem,listExcelUploads,undoExcelUpload,bulkCreateItems,bulkUpdateItems,bulkReceiveItems}
+
 
 
 

@@ -3082,35 +3082,32 @@ const normalizeInventoryBatchActionPayload = (action, body, batch) => {
   }
 
   if (action === 'correct_details') {
-    let lotCode = String(body?.batch_lot_code || '').trim().replace(/^-+/, '')
-    const prefix = String(batch.item_barcode || '').trim()
-    if (prefix && lotCode.toLowerCase().startsWith(`${prefix.toLowerCase()}-`)) lotCode = lotCode.slice(prefix.length + 1)
-    if (!lotCode) {
-      const error = new Error('Batch / Lot code is required.')
+    // Fix 7: a batch code is an immutable text identifier, not a product barcode.
+    // Only expiry can be corrected through the current interface and API.
+    const forbidden = ['batch_code','batch_lot_code','supplier_lot_number','note']
+      .filter(key => Object.hasOwn(body || {}, key))
+    if (forbidden.length) {
+      const error = new Error('Only the batch expiry date can be edited. Batch codes and supplier lots are read-only.')
+      error.statusCode = 400
+      error.code = 'BATCH_CODE_IMMUTABLE'
+      throw error
+    }
+    const expiry = String(body?.expiration_date || '').trim()
+    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(expiry) &&
+      !Number.isNaN(Date.parse(expiry + 'T00:00:00Z')) &&
+      new Date(expiry + 'T00:00:00Z').toISOString().slice(0,10) === expiry
+    if (!validDate) {
+      const error = new Error('Select a valid batch expiry date.')
+      error.statusCode = 400
+      error.code = 'INVALID_BATCH_EXPIRY'
+      throw error
+    }
+    if (String(batch.expiration_date || '').slice(0,10) === expiry) {
+      const error = new Error('Choose a different expiry date.')
       error.statusCode = 400
       throw error
     }
-    const fullBatchCode = prefix ? `${prefix}-${lotCode}` : lotCode
-    if (fullBatchCode.length > 80) {
-      const error = new Error('Batch / Lot code is too long.')
-      error.statusCode = 400
-      throw error
-    }
-    const rawExpiry = String(body?.expiration_date || '').trim()
-    const expirationDate = rawExpiry || null
-    if (expirationDate && !/^\d{4}-\d{2}-\d{2}$/.test(expirationDate)) {
-      const error = new Error('Enter a valid batch expiry date.')
-      error.statusCode = 400
-      throw error
-    }
-    return {
-      reason,
-      batch_lot_code: lotCode,
-      batch_code: fullBatchCode,
-      supplier_lot_number: String(body?.supplier_lot_number || '').trim().slice(0, 120) || null,
-      expiration_date: expirationDate,
-      note: String(body?.note || '').trim().slice(0, 1000) || null,
-    }
+    return {reason, expiration_date:expiry}
   }
 
   if (action === 'archive') {
@@ -3335,19 +3332,14 @@ const confirmInventoryBatchAction = async (req, res) => {
         branchId:req.branchId,ipAddress:req.ip||null,
       },conn)
     } else if (action === 'correct_details') {
-      if (batch.archived_at) throw Object.assign(new Error('Restore this archived batch before correcting it.'), { statusCode:409 })
-      const newCode = String(requested.batch_code || '').trim()
-      if (!newCode) throw Object.assign(new Error('Batch / Lot code is required.'), { statusCode:400 })
-      const [[duplicate]] = await conn.query('SELECT id FROM inventory_batches WHERE inventory_id=? AND batch_code=? AND id<>? LIMIT 1', [batch.inventory_id,newCode,batch.id])
-      if (duplicate) throw Object.assign(new Error('That Batch / Lot code already exists for this item.'), { statusCode:409, code:'BATCH_ALREADY_EXISTS' })
-      await conn.query(
-        'UPDATE inventory_batches SET batch_code=?,supplier_lot_number=?,expiration_date=?,note=? WHERE id=?',
-        [newCode,requested.supplier_lot_number || null,requested.expiration_date || null,requested.note || null,batch.id]
-      )
+      if (batch.archived_at) throw Object.assign(new Error('Restore this archived batch before correcting it.'), {statusCode:409})
+      // Never rewrite historical batch identifiers, supplier lots or notes.
+      await conn.query('UPDATE inventory_batches SET expiration_date=? WHERE id=? AND branch_id=?',
+        [requested.expiration_date,batch.id,req.branchId])
       await writeAuditLog({
-        userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_details_corrected',entityType:'inventory_batch',entityId:batch.id,
-        oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,supplier_lot_number:batch.supplier_lot_number||null,expiration_date:currentExpiry,note:batch.note||null },
-        newValues:{ item_name:batch.item_name,batch_code:newCode,supplier_lot_number:requested.supplier_lot_number||null,expiration_date:requested.expiration_date||null,note:requested.note||null,reason,authorization:'admin_password_email_code' },
+        userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_expiry_corrected',entityType:'inventory_batch',entityId:batch.id,
+        oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,expiration_date:currentExpiry},
+        newValues:{item_name:batch.item_name,batch_code:batch.batch_code,expiration_date:requested.expiration_date,reason,authorization:'admin_password_email_code'},
         branchId:req.branchId,ipAddress:req.ip||null,
       },conn)
     } else if (action === 'archive') {
@@ -4391,3 +4383,4 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+

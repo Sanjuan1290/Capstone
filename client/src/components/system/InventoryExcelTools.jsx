@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { MdClose, MdDownload, MdFileDownload, MdFileUpload, MdEditNote } from 'react-icons/md'
+import { MdClose, MdDownload, MdFileDownload, MdFileUpload, MdEditNote, MdHistory } from 'react-icons/md'
 import {
   INVENTORY_HEADERS, INVENTORY_BULK_EDIT_HEADERS,
   makeInventoryXlsx, makeInventoryNewItemsTemplate, readInventoryImportFile, asInventoryRow, asInventoryBulkEditRow,
@@ -45,6 +45,34 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
   const [exportPage, setExportPage] = useState(0)
   const [reportPage, setReportPage] = useState(0)
   const [serverIssue, setServerIssue] = useState(null)
+  const [uploads, setUploads] = useState([])
+  const [uploadError, setUploadError] = useState('')
+  const [undoing, setUndoing] = useState(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const loadUploads = async () => {
+    if (!services.getInventoryExcelUploads) return
+    try {
+      const rows = await services.getInventoryExcelUploads()
+      setUploads(Array.isArray(rows) ? rows : [])
+      setUploadError('')
+    } catch(e) {setUploadError(e.message||'Excel import history is unavailable.')}
+  }
+  useEffect(()=>{if(historyOpen)void loadUploads()},[historyOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  const undoUpload = async (upload) => {
+    if(!services.undoInventoryExcelUpload || undoing) return
+    if (!window.confirm(`Undo Excel upload #${upload.id}? This will only work if all affected items are unchanged and unused.`)) return
+    const reason = window.prompt('Reason for undoing this Excel upload (at least 5 characters):')
+    if (!reason || reason.trim().length < 5) return
+    setUndoing(upload.id);setUploadError('')
+    try {
+      const result = await services.undoInventoryExcelUpload(upload.id,reason.trim())
+      setResults({created:0,updated:0,unchanged:0,alreadyApplied:0,message:result?.message||'Excel upload undone.'})
+      await onUpdated()
+      await loadUploads()
+    } catch(e) {setUploadError(e.message||'Undo blocked because records changed after the upload.')}
+    finally {setUndoing(null)}
+  }
+
 
   const closePreview = () => {
     if (busy) return
@@ -136,6 +164,7 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
       const payload = changes.map(entry => entry.payload)
       const result = preview.mode === 'new' ? await services.importNewInventoryItems(payload) : await services.bulkUpdateInventoryItems(payload)
       setResults({ type: preview.mode, created: result?.created ?? 0, updated: result?.updated ?? 0, unchanged, alreadyApplied: (result?.already_applied ?? 0) + appliedEarlier, message: result?.message || 'Inventory updated.' })
+      if(historyOpen) await loadUploads()
       setPreview(null); setConfirmed(false)
       onWorkflowChange?.(false)
       try { await onUpdated() } catch { setError('The changes were saved, but the inventory list could not refresh. Refresh the page to see the latest items.') }
@@ -183,6 +212,15 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
         <p className="mt-3 text-xs text-slate-600">Editable exports permit selling price and low-stock alert changes only. They never add stock or create items.</p>
       </div>
     </div>}
+    {showTools && services.getInventoryExcelUploads && <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-3"><div><h3 className="flex items-center gap-2 font-bold text-slate-900"><MdHistory/> Excel Import History</h3><p className="text-xs text-slate-500">Undo new-item uploads or item edits only when the affected records have not been used or changed.</p></div><button type="button" className="button-secondary" onClick={()=>setHistoryOpen(v=>!v)}>{historyOpen?'Hide History':'Show History'}</button></div>
+      {historyOpen && <div className="mt-3 space-y-2">
+        <button type="button" className="button-secondary" onClick={loadUploads}>Refresh History</button>
+        {uploadError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{uploadError}</p>}
+        {uploads.length===0 && <p className="text-sm text-slate-500">No recent Excel uploads recorded.</p>}
+        {uploads.map(upload=><div key={upload.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div><p className="text-sm font-bold">Upload #{upload.id} · {upload.upload_type==='new_items'?'New Items':'Item Edits'}</p><p className="text-xs text-slate-500">{upload.created_at?new Date(upload.created_at).toLocaleString('en-PH'):'Date unavailable'} · {upload.undone_at?'Undone':'Saved'}</p></div><button type="button" className="button-secondary" disabled={Boolean(upload.undone_at)||Boolean(undoing)||busy} onClick={()=>undoUpload(upload)}>{undoing===upload.id?'Checking…':upload.undone_at?'Already Undone':'Undo Upload'}</button></div>)}
+      </div>}
+    </div>}
     <input ref={fileRef} type="file" accept=".xlsx" className="sr-only" aria-label="Choose CARAIT Inventory Excel file" onChange={e=>{const file=e.target.files?.[0];e.target.value='';void handleFile(file)}} onCancel={()=>onWorkflowChange?.(false)}/>
     {results && <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900" role="status"><strong>{results.message}</strong><p className="mt-1">Added: {results.created} · Updated: {results.updated} · Already applied: {results.alreadyApplied||0} · Other unchanged: {results.unchanged}</p></div>}
     {error && !preview && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900"><div className="flex items-start justify-between gap-2"><strong>Excel upload needs attention</strong><button type="button" onClick={()=>setError('')} aria-label="Dismiss Excel error"><MdClose/></button></div><p className="mt-2">{error}</p><p className="mt-1 text-xs">The current upload remains unsaved. If the file is outdated, download a fresh copy and retry.</p></div>}
@@ -219,3 +257,4 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     </div>}
   </section>
 }
+

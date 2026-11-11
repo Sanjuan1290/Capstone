@@ -11,8 +11,12 @@ import {
   importNewInventoryItems,
   bulkUpdateInventoryItems,
   bulkReceiveInventoryItems,
+  getInventoryExcelUploads,
+  undoInventoryExcelUpload,
   deleteInventoryItem,
   getInventory,
+  getArchivedInventoryItems,
+  restoreInventoryItem,
   getInventoryLogs,
   getInventoryMasterData,
   saveInventoryLocationType,
@@ -28,11 +32,15 @@ import {
 
 const adminServices = {
   getInventory,
+  getArchivedInventoryItems,
+  restoreInventoryItem,
   updateStock,
   addInventoryItem,
   importNewInventoryItems,
   bulkUpdateInventoryItems,
   bulkReceiveInventoryItems,
+  getInventoryExcelUploads,
+  undoInventoryExcelUpload,
   updateInventoryItem,
   deleteInventoryItem,
   getInventoryMasterData,
@@ -286,4 +294,5 @@ const AdminInventory = () => {
 }
 
 export default AdminInventory
+
 
