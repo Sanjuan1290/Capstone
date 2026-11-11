@@ -126,7 +126,7 @@ const CheckoutSupplyEditor = ({ item, inventory, onSelectInventory, onSelectBatc
           />
         </label>
         <div>
-          <span className="form-label">Patient Price</span>
+          <span className="form-label">Item Price</span>
           <div className={`mt-1.5 rounded-xl border px-3 py-2.5 text-sm font-black ${Number(item.unit_price || 0) <= 0 ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-50'}`}>
             {formatMoney(item.unit_price)}
           </div>

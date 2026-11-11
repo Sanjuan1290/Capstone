@@ -386,6 +386,8 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
           usage_change_reason: String(item?.usage_change_reason || '').slice(0,255) || null,
           partial_service_note: String(item?.partial_service_note || '').slice(0,255) || null,
           usage_overridden: usageOverridden,
+          requested_promotion_id: item?.promotion_id === undefined || item?.promotion_id === null || item?.promotion_id === ''
+            ? null : Number(item.promotion_id),
         }
 
         return {
@@ -780,14 +782,8 @@ const upsertDraftBillingForAppointment = async ({
   if (!Number.isSafeInteger(branchId) || branchId <= 0) throw Object.assign(new Error('Appointment branch required to create a bill.'), { statusCode: 403, code: 'BRANCH_REQUIRED' })
   const normalizedItems = await normalizeBillingItems(consultationItems, executor, branchId)
   const {money}=require('./promotionPricing')
-  const selectedService=Number(appointment?.promotion_selected_for_service_id||0)
-  // Only the selected, consultation-owned service can receive this promotion.
-  // Unrelated services, added supplies and custom charges retain their full price.
-  const eligibleLines=normalizedItems.filter(item=>item.item_type==='service' &&
-    item.source_type==='consultation' && Number(item.catalog_service_id)===selectedService)
-  const eligibleTotal=money(eligibleLines.reduce((sum,item)=>sum+Number(item.line_total||0),0))
-  const promotionDiscount=eligibleLines.length ? Math.min(eligibleTotal,
-    Math.max(0,Number(appointment?.promotion_discount_amount_snapshot||0))) : 0
+  const {applyServicePromotions}=require('./billingServicePromotions')
+  const {total:promotionDiscount}=await applyServicePromotions(normalizedItems,appointment,executor,branchId)
   const totals = computeBillingTotals({ items: normalizedItems, discount_amount:promotionDiscount })
 
   const [existingRows] = await executor.query(

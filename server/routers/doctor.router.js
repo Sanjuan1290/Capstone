@@ -60,6 +60,7 @@ router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
 router.get('/billing/catalog',                 getBillingCatalog)
+router.get('/consultations/:appointmentId/available-promotions', require('../utils/billingPromotionEndpoints').forDoctor)
 router.get('/consultations/:appointmentId/charge-adjustments', clinicalChargeAdjustments)
 router.post('/consultations/:appointmentId/charge-adjustments', requestClinicalChargeAdjustment)
 router.delete('/consultations/:appointmentId/charge-adjustments/:requestId', cancelClinicalChargeAdjustment)
@@ -87,6 +88,3 @@ router.put('/schedule/unavailable-dates', afterSuccessfulMutation('schedule.upda
 router.delete('/schedule/unavailable-dates/:date', afterSuccessfulMutation('schedule.updated'), deleteMyUnavailableDate)
 
 module.exports = router
-
-
-

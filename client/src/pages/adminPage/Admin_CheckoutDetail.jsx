@@ -13,6 +13,7 @@ import {
   getAdminCheckoutBill as getBillById,
   getAdminBillAdjustmentRequests as getBillingAdjustmentRequests,
   getBillingPaymentSettings,
+  getBillingPromotionOptions,
   getAdminDiscountPresets as getDiscountPresets,
   getAdminFinalizePreview as getFinalizePreview,
   getInventory,
@@ -30,6 +31,7 @@ import { LoadingState, ErrorState } from '../../components/ui/PageState'
 import BillingStatusBadge from '../../components/billing/BillingStatusBadge'
 import QrPhPaymentPanel from '../../components/billing/QrPhPaymentPanel'
 import SelectedPromotionNotice from '../../components/billing/SelectedPromotionNotice'
+import CheckoutServiceEditor from '../../components/billing/CheckoutServiceEditor'
 import CheckoutPaymentSection from '../../components/billing/CheckoutPaymentSection'
 import { createAdminQrPayment, getAdminQrStatus, cancelAdminQrPayment } from '../../services/admin.service'
 import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
@@ -40,16 +42,17 @@ import { printBillingReceipt } from '../../utils/billingReceipt'
 const makeBlankItem = (itemType = 'custom') => ({
   id: null,
   item_type: itemType,
-  source_type: itemType === 'supply' ? 'staff_supply' : 'staff_custom',
+  source_type: itemType === 'service' ? 'staff_service' : itemType === 'supply' ? 'staff_supply' : 'staff_custom',
   catalog_service_id: null,
   source_inventory_id: '',
-  category: itemType === 'supply' ? 'Medicine / Supply' : 'Custom Charge',
+  category: itemType === 'service' ? 'Service' : itemType === 'supply' ? 'Medicine / Supply' : 'Custom Charge',
   service_name: '',
   quantity: 1,
   base_amount: 0,
   markup_percentage: 0,
   unit_price: '',
   notes: '',
+  promotion_id: '',
   details: null,
 })
 
@@ -76,6 +79,7 @@ const normalizeBill = (bill) => ({
     unit_price: Number(item.unit_price || 0),
         notes: item.notes || '',
     details: item.details || null,
+    promotion_id: item.details?.requested_promotion_id ?? '',
   })) : [],
 })
 
@@ -95,6 +99,7 @@ const serializeItems = (items = []) => items.filter((item) => !isProtectedConsul
   markup_percentage: Number(item.markup_percentage || 0),
   unit_price: Number(item.unit_price || 0),
   notes: item.notes || '',
+  promotion_id: item.promotion_id,
   sort_order: index,
   details: item.details || null,
 }))
@@ -119,6 +124,7 @@ const Admin_CheckoutDetail = () => {
   const [bill, setBill] = useState(null)
   const [draft, setDraft] = useState(null)
   const [inventory, setInventory] = useState([])
+  const [serviceOptions,setServiceOptions] = useState({services:[],promotions:[]})
   const [paymentSettings, setPaymentSettings] = useState({})
   const [discounts, setDiscounts] = useState([])
   const [adjustments, setAdjustments] = useState([])
@@ -193,12 +199,13 @@ const Admin_CheckoutDetail = () => {
     setError('')
     try {
       const current = await getBillById(billingId)
-      const [items, settings, presets, requests, clinic] = await Promise.all([
+      const [items, settings, presets, requests, clinic, availableServices] = await Promise.all([
         getInventory(),
         getBillingPaymentSettings(),
         getDiscountPresets(),
         getBillingAdjustmentRequests(billingId),
         getClinicSettings(),
+        getBillingPromotionOptions(billingId).catch(()=>({services:[],promotions:[]})),
       ])
       setBill(current)
       setDraft(normalizeBill(current))
@@ -207,6 +214,7 @@ const Admin_CheckoutDetail = () => {
       setDiscounts(Array.isArray(presets) ? presets : [])
       setAdjustments(Array.isArray(requests) ? requests : [])
       setClinicSettings(clinic || {})
+      setServiceOptions(availableServices || {services:[],promotions:[]})
       restoreAdjustmentState(current, requests, presets)
       if (!preserveStep || initialLoadRef.current) {
         setStep(['ready', 'partially_paid'].includes(current.status) ? 3 : current.status === 'paid' ? 3 : 1)
@@ -269,6 +277,15 @@ const Admin_CheckoutDetail = () => {
     markDraft((current) => ({ ...current, items: current.items.filter((_, i) => i !== index) }))
   }
 
+  const selectService = (index,value) => {
+    const service=serviceOptions.services.find(row=>Number(row.id)===Number(value))
+    if(!service)return
+    markDraft(current=>({...current,items:current.items.map((item,i)=>i!==index?item:{
+      ...item, catalog_service_id:service.id,service_name:service.service_name,
+      category:'Service',quantity:1,unit_price:Number(service.default_price||0),
+      promotion_id:'',details:null,
+    })}))
+  }
   const selectSupply = (index, value) => {
     const item = inventoryMap.get(Number(value))
     if (!item) return
@@ -337,6 +354,8 @@ const Admin_CheckoutDetail = () => {
     if (invalidName) return 'Enter a description for every added charge.'
     const invalidQuantity = workingDraft.items.find((item) => !isProtectedConsultationLine(item) && !(Number(item.quantity) > 0))
     if (invalidQuantity) return 'Every added charge must have a quantity greater than zero.'
+    const invalidService = workingDraft.items.find(item=>item.source_type==='staff_service' && (!item.catalog_service_id || String(item.notes||'').trim().length<5))
+    if(invalidService)return 'Choose a clinic service and enter a short reason (at least 5 characters) for adding it to the bill.'
     const invalidCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !String(item.notes || '').trim())
     if (invalidCustom) return 'Every custom charge needs a reason or note before continuing.'
     const zeroPriceCustom = workingDraft.items.find((item) => item.item_type === 'custom' && !(Number(item.unit_price) > 0))
@@ -612,11 +631,11 @@ const Admin_CheckoutDetail = () => {
         <div className="checkout-stage-enter grid gap-4 lg:grid-cols-[1fr_320px]">
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div><h2 className="font-black text-slate-900">2. Bill Charges</h2><p className="mt-1 text-sm text-slate-500">Doctor-recorded clinical services are locked. Staff can add medicines/supplies or a traceable custom charge.</p></div>
+              <div><h2 className="font-black text-slate-900">2. Bill Charges</h2><p className="mt-1 text-sm text-slate-500">Doctor-recorded clinical services are locked. Staff can add inventory items, a service charge, or a custom charge. Doctor-recorded care stays unchanged.</p></div>
               <button className="button-secondary" onClick={() => setAddOpen(true)}><MdAdd /> Add Charge</button>
             </div>
 
-            <SelectedPromotionNotice promotion={bill.selected_promotion} />
+            <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount||0} />
             {zeroPriceItems.length > 0 && <div className="mt-4 flex gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900"><MdWarning /> {zeroPriceItems.length} charge{zeroPriceItems.length === 1 ? '' : 's'} currently {zeroPriceItems.length === 1 ? 'has' : 'have'} a missing/₱0.00 price. Fix the price before continuing.</div>}
 
             <div className="mt-5 space-y-3">
@@ -641,8 +660,13 @@ const Admin_CheckoutDetail = () => {
                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px_140px]">
                         <div><span className="form-label">{item.source_type === 'consultation_extra' ? 'Extra Item' : 'Service'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.service_name}</div></div>
                         <div><span className="form-label">Qty</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{item.quantity}</div></div>
-                        <div><span className="form-label">Patient Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
+                        <div><span className="form-label">{item.item_type === 'service' ? 'Service Price' : 'Item Price'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
                       </div>
+                    ) : item.item_type === 'service' ? (
+                      <CheckoutServiceEditor item={item} services={serviceOptions.services} promotions={serviceOptions.promotions}
+                        onSelect={value=>selectService(index,value)}
+                        onPromotion={value=>updateItem(index,'promotion_id',value)}
+                        onNotes={value=>updateItem(index,'notes',value)}/>
                     ) : item.item_type === 'supply' ? (
                       <CheckoutSupplyEditor
                         item={item}
@@ -686,7 +710,7 @@ const Admin_CheckoutDetail = () => {
             <h2 className="font-black text-slate-900">3. Adjustments & Discounts</h2>
             <p className="mt-1 text-sm text-slate-500">Apply an eligible discount and review the patient's final charges before locking the bill.</p>
             <ChargeAdjustmentsPanel billingId={billingId} staffOnly={false} onUpdated={()=>{ if(!dirty) load({preserveStep:true}) }} />
-            <SelectedPromotionNotice promotion={bill.selected_promotion} />
+            <SelectedPromotionNotice promotion={bill.selected_promotion} items={draft.items} discountAmount={draft.discount_amount} courtesyAmount={bill.approved_courtesy_discount||0} />
             {bill.selected_promotion && !Number(bill.promotion_discount_amount||0) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <label><span className="form-label">Promotion review outcome</span>
                 <select className="form-control mt-1.5" value={draft.promotion_review_outcome || ''}
@@ -749,7 +773,7 @@ const Admin_CheckoutDetail = () => {
 
       {isPaid && <div className="checkout-stage-enter rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center"><MdCheck className="mx-auto text-5xl text-emerald-700" /><h2 className="mt-3 text-xl font-black text-emerald-900">Paid in Full</h2><p className="mt-1 text-sm text-emerald-800">This checkout is complete.</p><button className="button-primary mt-5" onClick={() => navigate(`${targetBase}/billing?tab=payments`)}>Next Patient →</button></div>}
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Charge" description="Clinical services come from the Doctor consultation. Staff may add only a medicine/supply or a traceable custom charge." size="md"><div className="grid gap-3 sm:grid-cols-2"><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-emerald-300 hover:bg-emerald-50" onClick={() => addType('supply')}><MdLocalPharmacy className="mx-auto text-3xl text-emerald-600" /><p className="mt-3 font-black">Medicine / Supply</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-violet-300 hover:bg-violet-50" onClick={() => addType('custom')}><MdAdd className="mx-auto text-3xl text-violet-600" /><p className="mt-3 font-black">Custom Charge</p></button></div><div className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800"><MdLock className="mr-1 inline" /> Missing a clinical service? Ask the Doctor to correct or amend the consultation rather than adding it at Checkout.</div></Modal>
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Charge" description="Add an inventory item, an extra service charge, or a custom charge. Doctor-recorded services stay unchanged." size="md"><div className="grid gap-3 sm:grid-cols-2"><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-emerald-300 hover:bg-emerald-50" onClick={() => addType('supply')}><MdLocalPharmacy className="mx-auto text-3xl text-emerald-600" /><p className="mt-3 font-black">Medicine / Supply</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-violet-300 hover:bg-violet-50" onClick={() => addType('custom')}><MdAdd className="mx-auto text-3xl text-violet-600" /><p className="mt-3 font-black">Custom Charge</p></button><button className="rounded-2xl border border-slate-200 p-5 text-center hover:border-sky-300 hover:bg-sky-50" onClick={() => addType('service')}><MdAdd className="mx-auto text-3xl text-sky-600" /><p className="mt-3 font-black">Service Charge</p></button></div><div className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800"><MdLock className="mr-1 inline" /> Billing-only service charges do not update the doctor's medical record. Ask the doctor to record actual treatment or stock usage.</div></Modal>
 
       <Modal open={Boolean(finalizePreview)} onClose={() => !finalizing && setFinalizePreview(null)} title="Confirm this bill?" description="This is the final review before charges are locked and direct medicines/supplies are dispensed." size="lg">
         {finalizePreview && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Total</p><p className="mt-1 text-xl font-black">{formatMoney(finalizePreview.total_amount)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Charges</p><p className="mt-1 text-xl font-black">{finalizePreview.charge_count}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Supply Items</p><p className="mt-1 text-xl font-black">{finalizePreview.supply_count}</p></div></div>

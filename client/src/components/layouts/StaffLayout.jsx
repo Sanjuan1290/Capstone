@@ -6,7 +6,7 @@ import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
 import { useSSE } from '../../hooks/useSSE'
 import { playNotificationSound } from '../../utils/notificationSound'
-import { getDashboard } from '../../services/staff.service'
+import { getDashboard, getBills } from '../../services/staff.service'
 import {
   MdDashboard, MdEventAvailable, MdQueuePlayNext, MdPeople, MdInventory2, MdChevronLeft,
   MdLogout, MdPerson, MdMenu, MdClose, MdSettings, MdPayments,
@@ -24,8 +24,8 @@ const NAV_GROUPS = [
     { permission: 'doctor_schedules', name: 'Doctor Schedules', path: '/staff/doctor-schedules', icon: MdCalendarToday, short: 'Doctors' },
   ] },
   { label: 'Billing & Stock', items: [
-    { permission: 'checkout', name: 'Billing', path: '/staff/checkout', icon: MdPayments, short: 'Billing' },
-    { permission: 'billing', name: 'Billing', path: '/staff/billing', icon: MdPayments, short: 'Billing' },
+    { permission: 'checkout', name: 'Billing', path: '/staff/checkout', icon: MdPayments, short: 'Billing', badge: 'billing' },
+    { permission: 'billing', name: 'Billing', path: '/staff/billing', icon: MdPayments, short: 'Billing', badge: 'billing' },
     { permission: 'inventory', name: 'Inventory', path: '/staff/inventory', icon: MdInventory2, short: 'Stock' },
   ] },
   { label: 'People & Setup', items: [
@@ -47,6 +47,7 @@ const StaffLayout = () => {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [pending, setPending] = useState(0)
+  const [pendingBilling, setPendingBilling] = useState(0)
 
   const groups = useMemo(() => NAV_GROUPS
     .map((group) => ({ ...group, items: group.items.filter((item) => hasStaffPermission(user, item.permission) && !(item.path === '/staff/billing' && hasStaffPermission(user, 'checkout'))) }))
@@ -58,6 +59,19 @@ const StaffLayout = () => {
   }, [user])
 
   useEffect(() => { loadCounts() }, [loadCounts])
+  const loadBillingCount = useCallback(() => {
+    if (!hasStaffPermission(user, 'checkout') && !hasStaffPermission(user,'billing')) return Promise.resolve()
+    return getBills({status:'draft,pending,ready,partially_paid',page:1,limit:1})
+      .then(data => setPendingBilling(Number(data?.pagination?.total || 0)))
+      .catch(() => setPendingBilling(0))
+  },[user])
+  useEffect(() => {
+    void loadBillingCount()
+    const timer=window.setInterval(() => { if(document.visibilityState !== 'hidden') void loadBillingCount() },60000)
+    const refresh=()=>{void loadBillingCount()}
+    window.addEventListener('clinic:refresh',refresh)
+    return () => {window.clearInterval(timer);window.removeEventListener('clinic:refresh',refresh)}
+  },[loadBillingCount])
 
   const onEvent = useCallback((eventName) => {
     if (eventName === 'notification_created') playNotificationSound()
@@ -65,8 +79,9 @@ const StaffLayout = () => {
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
       // useSSE centralizes branch-aware data invalidation and refresh delivery.
       if (eventName === 'appointment_updated') loadCounts()
+      if (['consultation_saved','billing_finalized','billing_paid'].includes(eventName)) loadBillingCount()
     }
-  }, [loadCounts])
+  }, [loadCounts,loadBillingCount])
   useSSE('staff', user?.id, onEvent)
 
   const logout = async () => {
@@ -76,7 +91,7 @@ const StaffLayout = () => {
     catch { window.alert('Could not log out. Please try again.'); setLoggingOut(false) }
   }
 
-  const badgeFor = (item) => item.badge === 'pending' ? pending : 0
+  const badgeFor = (item) => item.badge === 'pending' ? pending : item.badge === 'billing' ? pendingBilling : 0
   const descriptionFor = (item) => item.description || STAFF_PERMISSION_MAP[item.permission]?.description || item.name
 
   const isNavActive = (isActive, item) => isActive || (item.path === '/staff/checkout' && location.pathname.startsWith('/staff/billing'))

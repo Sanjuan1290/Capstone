@@ -81,7 +81,7 @@ const makeNoShowWarningResponse = (appointment) => ({
   code: 'NO_SHOW_WARNING',
   message: 'This patient did not show up in their last online appointment. Review the booking policy before confirming.',
   last_no_show: appointment,
-  policy: 'Patients who miss an online booking should contact the clinic before booking again. Repeated no-shows or fake bookings may be cancelled by staff.',
+  policy: 'This patient missed their previous online appointment. Clinic staff should contact the patient to confirm their availability before approving another booking. Repeated no-shows or suspicious bookings may be reviewed by staff.',
 })
 
 module.exports = {

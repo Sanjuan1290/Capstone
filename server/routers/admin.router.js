@@ -136,6 +136,7 @@ router.post('/billing/payment-settings/upload-status', ...auth, adminCtrl.getPay
 router.post('/billing/discount-proof/upload', ...auth, express.raw({ type: ['image/png', 'image/jpeg'], limit: '5mb' }), adminCtrl.uploadDiscountProofImageAdmin)
 router.post('/billing/discount-proof/upload-status', ...auth, adminCtrl.getDiscountProofUploadScanStatusAdmin)
 router.put('/billing/payment-settings', ...auth, adminCtrl.updatePaymentSettingsAdmin)
+router.get('/billing/:id/available-promotions', ...auth, require('../utils/billingPromotionEndpoints').forBill)
 router.get('/billing/:id', ...auth, staffCtrl.getBillById)
 router.put('/billing/:id', ...auth, staffCtrl.updateBill)
 router.get('/billing/:id/finalize-preview', ...auth, staffCtrl.getFinalizePreview)

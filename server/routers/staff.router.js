@@ -153,6 +153,7 @@ router.post('/billing/:id/charge-adjustments',...auth,can('checkout'),ownBill,do
 router.get('/billing/:id/adjustment-requests', ...auth, canAny('checkout', 'billing'), ownBill, staffCtrl.getBillingAdjustmentRequests)
 router.post('/billing/:id/adjustment-requests', ...auth, can('checkout'), ownBill, staffCtrl.requestBillingAdjustment)
 router.patch('/billing/:id/adjustment-requests/:requestId/cancel', ...auth, can('checkout'), ownBill, staffCtrl.cancelBillingAdjustmentRequest)
+router.get('/billing/:id/available-promotions', ...auth, can('checkout'), ownBill, require('../utils/billingPromotionEndpoints').forBill)
 router.get('/billing/:id', ...auth, canAny('checkout', 'billing'), ownBill, staffCtrl.getBillById)
 router.put('/billing/:id', ...auth, can('checkout'), ownBill, staffCtrl.updateBill)
 router.get('/billing/:id/finalize-preview', ...auth, can('checkout'), ownBill, staffCtrl.getFinalizePreview)
@@ -258,6 +259,3 @@ router.post('/admin-access/inventory/locations', ...auth, can('system_setup'), u
 router.put('/admin-access/inventory/locations/:id', ...auth, can('system_setup'), editSystemStockRoom)
 
 module.exports = router
-
-
-

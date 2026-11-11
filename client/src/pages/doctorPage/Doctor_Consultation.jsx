@@ -15,6 +15,7 @@ import {
   getPatientHistory,
   getInventoryItems,
   getBillingCatalog,
+  getConsultationPromotionOptions,
   addConsultationAmendment,
 } from '../../services/doctor.service'
 import { doctorClinicLabel } from '../../utils/doctor'
@@ -255,6 +256,8 @@ const Doctor_Consultation = () => {
   const [billingCatalog, setBillingCatalog] = useState([])
   const [billableServices, setBillableServices] = useState([])
   const [newConsultationServiceId,setNewConsultationServiceId] = useState('')
+  const [showAddService,setShowAddService] = useState(false)
+  const [availablePromotions,setAvailablePromotions] = useState([])
   const [clinicSettings, setClinicSettings] = useState(null)
   const [uploadingIndex, setUploadingIndex] = useState(null)
   const [imageUploadStatus, setImageUploadStatus] = useState({})
@@ -389,7 +392,8 @@ const Doctor_Consultation = () => {
     if (promotion) setAppt(current => current ? {
       ...current,
       promotion_selected_for_service_id: promotion.service_id,
-      promotion_discount_amount_snapshot: promotion.applied_discount_amount ?? promotion.discount_amount ?? 0,
+      promotion_id: promotion.id,
+      promotion_discount_amount_snapshot: promotion.discount_amount ?? 0,
     } : current)
     setBillableServices(restoreConsultationServicesFromBilling(consult?.billing?.items))
   }
@@ -499,6 +503,14 @@ const Doctor_Consultation = () => {
     void loadHistory(appt.patient_id)
     return () => { patientHistoryLoadRef.current += 1 }
   }, [appt?.id, appt?.patient_id])
+
+  useEffect(() => {
+    if(!appt?.id){setAvailablePromotions([]);return}
+    let cancelled=false
+    getConsultationPromotionOptions(appt.id).then(data=>{if(!cancelled)setAvailablePromotions(data.promotions||[])})
+      .catch(()=>{if(!cancelled)setAvailablePromotions([])})
+    return()=>{cancelled=true}
+  },[appt?.id])
 
   useEffect(() => {
     getInventoryItems()
@@ -776,6 +788,11 @@ const Doctor_Consultation = () => {
     setBillableServices(prev=>prev.map(s=>Number(s.catalog_service_id)===Number(serviceId)
       ? {...s,usage_change_reason:reason} : s))
   }
+  const updateServicePromotion = (serviceId, value) => {
+    if(isEditMode)return
+    setBillableServices(previous=>previous.map(service=>Number(service.catalog_service_id)===Number(serviceId)
+      ? {...service, promotion_id:value===''?null:Number(value)} : service))
+  }
   const updatePartialService = (serviceId, note) => {
     if (isEditMode) return
     setBillableServices(prev => prev.map(service => Number(service.catalog_service_id) === Number(serviceId)
@@ -789,6 +806,20 @@ const Doctor_Consultation = () => {
     setExtraConsumableQuantity(1)
     setExtraConsumableReason(billableServices.find(s=>Number(s.catalog_service_id)===Number(serviceId))?.usage_change_reason || '')
     setExtraConsumableOpen(true)
+  }
+  const restoreIncludedMaterial = (serviceId, original) => {
+    if (isEditMode) return
+    setBillableServices(previous => previous.map(service => {
+      if (Number(service.catalog_service_id) !== Number(serviceId)) return service
+      const id = Number(original.inventory_id)
+      if ((service.materials || []).some(item => !isExtraConsumable(item) && Number(item.inventory_id) === id)) return service
+      return { ...service, materials: [...(service.materials || []), {
+        inventory_id:id,
+        material_name:original.material_name || original.inventory_name || 'Inventory Item',
+        quantity:Number(original.quantity || 1),
+        unit_label:original.inventory_base_unit || original.unit_label || original.inventory_unit || 'unit',
+      }] }
+    }))
   }
   const removeIncludedMaterial = (serviceId, materialIndex) => {
     if (isEditMode) return
@@ -807,6 +838,7 @@ const Doctor_Consultation = () => {
       })),
     }])
     setNewConsultationServiceId('')
+    setShowAddService(false)
   }
   const removePerformedService = serviceId => {
     if(isEditMode || Number(appt?.requested_service_id)===Number(serviceId))return
@@ -1374,8 +1406,10 @@ const Doctor_Consultation = () => {
                 {isEditMode && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">Clinical usage locked after completion</span>}
               </div>
 
-              {!isEditMode && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
-                <label htmlFor="performed-service-select" className="mb-1 block text-sm font-bold text-slate-800">Add a service performed</label>
+              {!isEditMode && <div className="mb-4">
+                <button type="button" className="button-secondary" aria-expanded={showAddService} aria-controls="add-performed-service" onClick={()=>setShowAddService(open=>!open)}><MdAdd/>{showAddService ? 'Close Add Service' : 'Add Service Performed'}</button>
+                {showAddService && <div id="add-performed-service" className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+                <label htmlFor="performed-service-select" className="mb-1 block text-sm font-bold text-slate-800">Select the service performed</label>
                 <p className="mb-3 text-xs text-slate-600">For walk-ins, choose actual services after examining the patient. The bill is generated when this consultation is completed.</p>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <select id="performed-service-select" className="form-control min-w-0 flex-1" value={newConsultationServiceId} onChange={event=>setNewConsultationServiceId(event.target.value)}>
@@ -1384,6 +1418,7 @@ const Doctor_Consultation = () => {
                   </select>
                   <button type="button" className="button-primary" disabled={!newConsultationServiceId} onClick={addPerformedService}>Add Service</button>
                 </div>
+                </div>}
               </div>}
               {!billableServices.length ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">{appt?.requested_service_id ? 'The booked service could not be loaded. Reload before completing.' : 'No services recorded yet. Select the service or procedure actually performed before completing this walk-in consultation.'}</div>
@@ -1392,6 +1427,15 @@ const Doctor_Consultation = () => {
                   {billableServices.map((service) => {
                     const catalogService = billingCatalog.find((row) => Number(row.id) === Number(service.catalog_service_id))
                     const defaultMaterials = (service.materials || []).filter(material => !isExtraConsumable(material))
+                    const standardMaterials = (catalogService?.materials || []).filter(material => Number(material.inventory_id) > 0)
+                    const displayedMaterials = [
+                      ...standardMaterials.map(original => {
+                        const index = (service.materials || []).findIndex(material => !isExtraConsumable(material) && Number(material.inventory_id) === Number(original.inventory_id))
+                        return { material:index >= 0 ? service.materials[index] : original, materialIndex:index, removed:index < 0 }
+                      }),
+                      ...defaultMaterials.filter(material => !standardMaterials.some(original => Number(original.inventory_id) === Number(material.inventory_id)))
+                        .map(material => ({material,materialIndex:(service.materials || []).indexOf(material),removed:false})),
+                    ]
                     const booked = Number(service.catalog_service_id) === Number(appt?.requested_service_id)
                     return (
                       <div key={service.catalog_service_id || service.service_name} className="rounded-2xl border border-violet-200 bg-violet-50/30 p-4">
@@ -1404,36 +1448,60 @@ const Doctor_Consultation = () => {
                                 {booked && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">Booked Service</span>}{!booked && !isEditMode && <button type="button" className="rounded-lg border border-rose-200 px-2 py-1 text-[10px] font-bold text-rose-700" onClick={()=>removePerformedService(service.catalog_service_id)}>Remove Service</button>}
                               </div>
                               <p className="mt-0.5 text-xs text-slate-500">{catalogService?.category || 'Clinic service'} · Service quantity {Number(service.quantity || 1)}</p>
-                                <p className="mt-1 text-xs font-semibold text-emerald-800">Estimated patient charge: {(() => { const promotion=Number(appt?.promotion_selected_for_service_id)===Number(service.catalog_service_id)?appt:null;const price=estimateConsultationServicePrice(service,catalogService,inventoryItems,promotion);return price===null?'Pricing unavailable':`₱${price.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}` })()}</p>
+                                <p className="mt-1 text-xs font-semibold text-emerald-800">Estimated patient charge: {(() => {
+                                  let promotion=booked?appt:null
+                                  if(!booked){
+                                    const chosen=service.promotion_id==null?Number(appt?.promotion_id||0):Number(service.promotion_id)
+                                    const offer=availablePromotions.find(p=>Number(p.id)===chosen && Number(p.service_id)===Number(service.catalog_service_id))
+                                    if(offer){const base=Number(catalogService?.default_price||0);const amount=offer.discount_type==='percentage'?base*Number(offer.discount_value)/100:Number(offer.discount_value);promotion={discount_amount:Math.min(base,Math.round((amount+Number.EPSILON)*100)/100)}}
+                                  }
+                                  const price=estimateConsultationServicePrice(service,catalogService,inventoryItems,promotion)
+                                  return price===null?'Pricing unavailable':`₱${price.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`
+                                })()}</p>
                             </div>
                           </div>
                         </div>
 
+                        {!booked && !isEditMode && <label className="mt-3 block text-xs font-semibold text-slate-700">Promotion for this service
+                          <select className="form-control mt-1" value={service.promotion_id==null?'':String(service.promotion_id)} onChange={event=>updateServicePromotion(service.catalog_service_id,event.target.value)}>
+                            <option value="">Use the booked promotion if this service qualifies</option>
+                            <option value="0">No promotion</option>
+                            {availablePromotions.filter(p=>Number(p.service_id)===Number(service.catalog_service_id)).map(p=><option key={p.id} value={p.id}>{p.title} · {p.discount_type==='percentage'?`${p.discount_value}% OFF`:`₱${Number(p.discount_value).toFixed(2)} OFF`}</option>)}
+                          </select>
+                          <span className="mt-1 block font-normal text-slate-500">Billing checks the service, visit date, and promotion before applying any discount.</span>
+                        </label>}
+                        <div className="mt-3 rounded-lg border border-violet-100 bg-white p-3 text-xs text-slate-600">
+                          <p className="font-bold text-slate-800">Service breakdown</p>
+                          <p className="mt-1">Service price: ₱{Number(catalogService?.default_price || 0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                          <p className="mt-1">Items included in this service: {Number((catalogService?.materials || []).length)}. Their actual use can change without automatically changing the package price.</p>
+                          <p className="mt-1">Extra inventory items are billed separately. Promotions and price reductions are reviewed on the bill.</p>
+                        </div>
                         <div className="mt-4 border-t border-violet-100 pt-4">
                           <div>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Inventory Items Actually Used</p>
                             <p className="mt-1 text-xs text-slate-500">Changes here affect only this patient, not the standard service. Select a substitute when the default product was not used.</p>
                           </div>
-                          {defaultMaterials.length ? (
+                          {displayedMaterials.length ? (
                             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                              {defaultMaterials.map((material) => {
-                                const materialIndex = (service.materials || []).indexOf(material)
+                              {displayedMaterials.map(({material,materialIndex,removed}) => {
                                 const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id))
                                 const precision = supplyPrecision(inv)
                                 const quantityError = supplyQuantityError(material.quantity, inv)
                                 return (
-                                  <div key={`${material.inventory_id || material.material_name}-${materialIndex}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                                  <div key={`${material.inventory_id || material.material_name}-${materialIndex}`} className={`rounded-xl border p-3 ${removed?'border-dashed border-slate-200 bg-slate-50':'border-slate-200 bg-white'}`}>
                                     <div className="flex items-start justify-between gap-2">
                                       <div>
-                                        <p className="text-xs font-semibold text-slate-700">{material.material_name}</p>
-                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Inventory item used</p>
+                                        <p className={`text-xs font-semibold ${removed?'text-slate-400 line-through':'text-slate-700'}`}>{material.material_name || material.inventory_name}</p>
+                                        <p className="mt-0.5 text-[10px] font-semibold text-slate-400">{removed?'Removed from this visit':'Inventory item used'}</p>
                                       </div>
                                       {!isEditMode && <div className="flex flex-wrap gap-1">
+                                         {removed ? <button type="button" className="rounded-lg border px-2 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-50" onClick={()=>restoreIncludedMaterial(service.catalog_service_id,material)}>Restore</button> : <>
                                          <button type="button" className="rounded-lg border px-2 py-1 text-xs text-violet-700 hover:bg-violet-50" onClick={()=>replaceIncludedMaterial(service.catalog_service_id,materialIndex)}>Replace</button>
                                          <button type="button" className="rounded-lg border px-2 py-1 text-xs text-rose-700 hover:bg-rose-50" onClick={()=>removeIncludedMaterial(service.catalog_service_id,materialIndex)}>Remove</button>
+                                         </>}
                                        </div>}
                                     </div>
-                                    <div className="mt-3">
+                                    {!removed && <div className="mt-3">
                                       <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Quantity Used</span>
                                       <div className="mt-1.5 flex items-center gap-2">
                                         <input type="number" aria-label={`Quantity Used for ${material.material_name}`} aria-invalid={Boolean(quantityError)} className="form-control h-9 w-24" min={precision ? 10 ** -precision : 1} step={precision ? 10 ** -precision : 1} disabled={isEditMode} value={material.quantity} onChange={event=>updateServiceMaterial(service.catalog_service_id,materialIndex,event.target.value)}/>
@@ -1443,7 +1511,7 @@ const Doctor_Consultation = () => {
                                       {inv && Number(inv.available_stock ?? inv.stock ?? 0) <= 0 && !isEditMode && (
                                         <p role="alert" className="mt-2 text-xs font-semibold text-amber-800">No available stock for this item. Replace it or ask staff to restock before completing the consultation.</p>
                                       )}
-                                    </div>
+                                    </div>}
                                   </div>
                                 )
                               })}

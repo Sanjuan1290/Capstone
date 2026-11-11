@@ -40,14 +40,17 @@ test('appointment date outside offer validity is rejected',async()=>{
 test('rejects promotion not linked to active branch-owned service',async()=>{
  await assert.rejects(resolveSelectedPromotion(executor(promo,false),input),{status:409,code:'PROMOTION_SERVICE_MISMATCH'})
 })
-test('billing applies a selected discount only to qualifying consultation services',()=>{
+test('billing applies a promotion only to eligible catalog service lines, never inventory',()=>{
  const bill=fs.readFileSync(path.join(__dirname,'../../utils/billing.js'),'utf8')
  const notice=fs.readFileSync(path.join(__dirname,'../../../client/src/components/billing/SelectedPromotionNotice.jsx'),'utf8')
  assert.match(bill,/selected_promotion: records\[0\].promotion_title_snapshot/)
  assert.match(notice,/Promotion applied/)
  assert.match(bill,/promotion_selected_for_service_id/)
  assert.match(bill,/promotion_discount_amount_snapshot/)
- assert.match(bill,/item.source_type==='consultation'/)
+ const servicePromos=fs.readFileSync(path.join(__dirname,'../../utils/billingServicePromotions.js'),'utf8')
+ assert.match(servicePromos,/item.item_type==='service'/)
+ assert.match(servicePromos,/\['consultation','staff_service'\]/)
+ assert.match(servicePromos,/PROMOTION_SERVICE_MISMATCH/)
  assert.doesNotMatch(notice,/billing_payments/)
 })
 test('migration is additive and preserves snapshots on legacy promotion hard deletes',()=>{
@@ -72,4 +75,3 @@ test('offer deep-link and patient form pass only selected promotion ID',()=>{
  assert.match(form,/onPromotionChange=\{setSelectedPromotionId\}/)
  assert.doesNotMatch(card,/discount_amount|billing_payments/)
 })
-

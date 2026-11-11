@@ -155,6 +155,7 @@ export const getBills = (params = {}) => {
   return requestJson(`${getAdminApiBase()}/billing${query ? `?${query}` : ''}`)
 }
 
+export const getBillingPromotionOptions = id => requestJson(`${getAdminApiBase()}/billing/${id}/available-promotions`)
 export const getBillById = (id) => requestJson(`${getAdminApiBase()}/billing/${id}`)
 export const closeUnpaidClinicalStock = (id, reason) => requestJson(`${getAdminApiBase()}/billing/${id}/clinical-stock/close-unpaid`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})})
 export const getBillingCollectionsPeriod = (startDate, endDate) => {

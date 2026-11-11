@@ -623,6 +623,7 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db, b
       materials:normalizedMaterials, usage_overridden:changed,
       usage_change_reason:reason || null,
       partial_service_note:partialNote || null,
+      ...(Object.prototype.hasOwnProperty.call(raw,'promotion_id') ? {promotion_id:raw.promotion_id} : {}),
     })
   }
   return normalized

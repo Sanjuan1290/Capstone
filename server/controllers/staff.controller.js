@@ -1180,9 +1180,26 @@ const updateBill = async (req, res) => {
     }))
 
     const staffRawItems = rawItems.filter((item) => !protectedIds.has(Number(item?.id || 0)) && !['consultation', 'consultation_extra'].includes(String(item?.source_type || '')))
-    if (staffRawItems.some((item) => String(item?.item_type || '').toLowerCase() === 'service' || Number(item?.catalog_service_id || 0) > 0)) {
-      await conn.rollback()
-      return res.status(400).json({ message: 'Clinic services must come from the Doctor consultation. Staff can add only Medicine / Supply or Custom Charge items at Checkout.', code: 'STAFF_SERVICE_NOT_ALLOWED' })
+    // Checkout may add a catalog service charge without changing clinical records.
+    // Actual treatment and item usage must still be documented by the Doctor.
+    const doctorServiceIds=new Set(consultationItems.filter(item=>item.item_type==='service').map(item=>Number(item.catalog_service_id)))
+    const addedServiceIds=new Set()
+    for (const item of staffRawItems) {
+      const isService=String(item?.item_type||'').toLowerCase()==='service'
+      if(!isService && Number(item?.catalog_service_id||0)>0){
+        await conn.rollback();return res.status(400).json({code:'INVALID_SERVICE_ITEM',message:'Select a catalog service rather than editing a custom charge.'})
+      }
+      if(!isService)continue
+      const id=Number(item.catalog_service_id||0)
+      if(!Number.isSafeInteger(id)||id<1 || doctorServiceIds.has(id) || addedServiceIds.has(id)){
+        await conn.rollback();return res.status(409).json({code:'DUPLICATE_SERVICE',message:'This service is already on the bill, or the selected service is invalid.'})
+      }
+      if(String(item.notes||'').trim().length<5){
+        await conn.rollback();return res.status(400).json({code:'SERVICE_CHARGE_REASON_REQUIRED',message:'Enter a short reason for adding this service at checkout.'})
+      }
+      const [[active]]=await conn.query('SELECT id FROM billing_service_catalog WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1',[id,req.branchId])
+      if(!active){await conn.rollback();return res.status(409).json({code:'SERVICE_NOT_AVAILABLE',message:'This service is no longer available in this clinic.'})}
+      addedServiceIds.add(id)
     }
     for (const item of staffRawItems) {
       if (String(item?.item_type || '').toLowerCase() === 'custom' && !String(item?.notes || '').trim()) {
@@ -1192,7 +1209,9 @@ const updateBill = async (req, res) => {
     }
     const normalizedStaffItems = await normalizeBillingItems(staffRawItems.map((item) => ({
       ...item,
-      source_type: String(item?.item_type || '').toLowerCase() === 'supply' ? 'staff_supply' : 'staff_custom',
+      source_type: String(item?.item_type||'').toLowerCase()==='service'?'staff_service':String(item?.item_type||'').toLowerCase()==='supply'?'staff_supply':'staff_custom',
+      // Staff service charges must never pretend that medical items were used.
+      ...(String(item?.item_type||'').toLowerCase()==='service'?{materials:[],quantity:1}:{}),
       source_reference_id: null,
     })), conn, req.branchId)
 
@@ -1265,11 +1284,8 @@ const updateBill = async (req, res) => {
       }
     }
 
-    const eligibleService=Number(currentBill.selected_promotion?.service_id||0)
-    const qualifyingLines=allItems.filter(item=>item.item_type==='service' &&
-      item.source_type==='consultation' && Number(item.catalog_service_id)===eligibleService)
-    const qualifyingTotal=toMoney(qualifyingLines.reduce((sum,item)=>sum+Number(item.line_total||0),0))
-    const promotionDiscount=toMoney(Math.min(qualifyingTotal,Number(currentBill.selected_promotion?.discount_amount||0)))
+    const {applyServicePromotions}=require('../utils/billingServicePromotions')
+    const {total:promotionDiscount}=await applyServicePromotions(allItems,currentBill,conn,req.branchId)
     const combinedDiscount=toMoney(discount.amount+courtesyTotal+promotionDiscount)
     if(combinedDiscount>subtotalOnly.subtotal){
       await conn.rollback()

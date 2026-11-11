@@ -1,6 +1,7 @@
 // client/src/services/doctor.service.js
 const BASE = '/api/doctor'
 
+export const getConsultationPromotionOptions = appointmentId => requestJson(`${BASE}/consultations/${appointmentId}/available-promotions`)
 export const getClinicalChargeAdjustments = appointmentId => requestJson(`${BASE}/consultations/${appointmentId}/charge-adjustments`)
 export const requestClinicalChargeAdjustment = (appointmentId, payload) => requestJson(`${BASE}/consultations/${appointmentId}/charge-adjustments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 export const cancelClinicalChargeAdjustment = (appointmentId, requestId) => requestJson(`${BASE}/consultations/${appointmentId}/charge-adjustments/${requestId}`, { method: 'DELETE' })
@@ -143,8 +144,3 @@ export const callNextPatient = () =>
 // NEW: mark a specific queue entry as done
 export const markQueueEntryDone = (id) =>
   requestJson(`${BASE}/queue/${id}/done`, { method: 'PATCH' })
-
-
-
-
-

@@ -5,7 +5,7 @@ import NotificationBell from '../NotificationBell'
 import ProfileAvatar from '../ProfileAvatar'
 import { useSSE } from '../../hooks/useSSE'
 import { playNotificationSound } from '../../utils/notificationSound'
-import { getDashboard } from '../../services/admin.service'
+import { getDashboard, getBills } from '../../services/admin.service'
 import {
   MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
   MdBarChart, MdChevronLeft, MdLogout, MdAdminPanelSettings, MdMenu, MdClose, MdSettings,
@@ -20,7 +20,7 @@ const GROUPS = [
     { name: 'Doctor Schedules', path: '/admin/doctor-schedules', icon: MdCalendarToday, short: 'Schedule' },
   ] },
   { label: 'Billing & Stock', items: [
-    { name: 'Billing', path: '/admin/billing', icon: MdPayments, short: 'Billing' },
+    { name: 'Billing', path: '/admin/billing', icon: MdPayments, short: 'Billing', badge: 'billing' },
     { name: 'Inventory', path: '/admin/inventory', icon: MdInventory2, short: 'Stock' },
   ] },
   { label: 'People & Setup', items: [
@@ -43,6 +43,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState('')
   const [pending, setPending] = useState(0)
+  const [pendingBilling, setPendingBilling] = useState(0)
   const navigate = useNavigate()
 
   const loadCounts = useCallback(() => {
@@ -51,6 +52,16 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
     return getDashboard().then(data => setPending(Number(data?.pendingApprovals || 0))).catch(() => {})
   }, [branch?.id, superBranch])
   useEffect(() => { loadCounts() }, [loadCounts])
+  const loadBillingCount = useCallback(() => getBills({ status:'draft,pending,ready,partially_paid',page:1,limit:1 })
+    .then(data => setPendingBilling(Number(data?.pagination?.total || 0)))
+    .catch(() => setPendingBilling(0)), [branch?.id, superBranch])
+  useEffect(() => {
+    void loadBillingCount()
+    const timer = window.setInterval(() => { if (document.visibilityState !== 'hidden') void loadBillingCount() }, 60000)
+    const refresh = () => { void loadBillingCount() }
+    window.addEventListener('clinic:refresh', refresh)
+    return () => { window.clearInterval(timer); window.removeEventListener('clinic:refresh', refresh) }
+  }, [loadBillingCount])
 
   const handleSSEMessage = useCallback((eventName) => {
     if (eventName === 'notification_created') playNotificationSound()
@@ -58,8 +69,9 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
       window.dispatchEvent(new CustomEvent('clinic:notifications-refresh'))
       // useSSE centralizes branch-aware data invalidation and refresh delivery.
       if (eventName === 'appointment_updated') loadCounts()
+      if (['consultation_saved','billing_finalized','billing_paid'].includes(eventName)) loadBillingCount()
     }
-  }, [loadCounts])
+  }, [loadCounts,loadBillingCount])
   // Each stream resolves branch ownership from its authenticated cookie.
   // Super Admin workspaces receive the explicitly privileged central stream.
   useSSE(superBranch ? 'superadmin' : 'admin', user?.id, handleSSEMessage)
@@ -97,7 +109,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
     event.stopPropagation()
     navigate(`${portalPath(target.pathname)}${target.search}${target.hash}`)
   }
-  const badgeFor = (item) => item.badge === 'pending' ? pending : 0
+  const badgeFor = (item) => item.badge === 'pending' ? pending : item.badge === 'billing' ? pendingBilling : 0
   const NavItem = ({ item }) => {
     const Icon = item.icon; const badge = badgeFor(item)
     return <NavLink to={portalPath(item.path)} end={item.path === '/admin'} onClick={() => setMobileOpen(false)} className={({ isActive }) => `relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors group ${isActive ? 'bg-amber-500/15 text-amber-400' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>

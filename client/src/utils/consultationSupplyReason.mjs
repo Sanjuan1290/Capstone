@@ -38,6 +38,7 @@ export function restoreConsultationServicesFromBilling(items = []) {
       materials: Array.isArray(details.materials) ? [...details.materials] : [],
       usage_change_reason: details.usage_change_reason || '',
       partial_service_note: details.partial_service_note || '',
+      ...(details.requested_promotion_id !== null && details.requested_promotion_id !== undefined ? {promotion_id:details.requested_promotion_id} : {}),
       usage_overridden: Boolean(details.usage_overridden),
     }
   })

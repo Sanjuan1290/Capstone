@@ -132,6 +132,7 @@ export const getBills = (params = {}) => {
   return requestJson(`${BASE}/billing${query ? `?${query}` : ''}`)
 }
 
+export const getBillingPromotionOptions = id => requestJson(`${BASE}/billing/${id}/available-promotions`)
 export const getBillingCatalog = (clinicType = '') => {
   const query = clinicType ? `?clinic_type=${encodeURIComponent(clinicType)}` : ''
   return requestJson(`${BASE}/billing/catalog${query}`)
@@ -291,6 +292,3 @@ export const cancelStaffQrPayment = (id, attemptId) => requestJson(`${BASE}/bill
 
 
 export const sendAppointmentReminderNow = (id,channels) => requestJson(`${BASE}/appointments/${id}/remind`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels})})
-
-
-
