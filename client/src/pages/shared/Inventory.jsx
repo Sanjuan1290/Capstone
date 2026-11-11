@@ -11,6 +11,7 @@ import { useToast } from '../../components/ui/ToastProvider'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import InventoryExcelTools from '../../components/system/InventoryExcelTools'
 import { inventoryStockCount as getPackageCount, matchesInventoryStatus } from '../../utils/inventoryStatus.mjs'
+import { findScannedInventoryItem } from '../../utils/inventoryBarcodeLookup.mjs'
 
 const CATEGORIES = [{ value: 'medical', label: 'General Medicine' }, { value: 'derma', label: 'Dermatology' }]
 const ITEM_TYPES = [{ value: 'medicine', label: 'Medicine' }, { value: 'supplies', label: 'Supplies' }]
@@ -823,6 +824,8 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   const [showArchived, setShowArchived] = useState(false)
   const [restoringId, setRestoringId] = useState(null)
   const [scannedItem, setScannedItem] = useState(null)
+  const [scanProblem, setScanProblem] = useState(null)
+  const [scanLookupLoading, setScanLookupLoading] = useState(false)
   const [moveItem, setMoveItem] = useState(null)
   const [stockLocations, setStockLocations] = useState([])
   const [batchManagerItem, setBatchManagerItem] = useState(null)
@@ -870,7 +873,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
   }, [getInventory, getInventoryMasterData, getInventoryLocations, getArchivedInventoryItems])
 
   useEffect(() => { load() }, [load])
-  useClinicRefresh(load,['inventory.updated','service.updated','settings.updated'],{fallbackMs:60000,skip:()=>excelWorkflowActive||showAdd||Boolean(editItem)||Boolean(stockItem)||Boolean(moveItem)||Boolean(batchManagerItem)})
+  useClinicRefresh(load,['inventory.updated','service.updated','settings.updated'],{fallbackMs:60000,skip:()=>excelWorkflowActive||showAdd||scannerOpen||scanLookupLoading||Boolean(scanProblem)||Boolean(scannedItem)||Boolean(editItem)||Boolean(stockItem)||Boolean(moveItem)||Boolean(batchManagerItem)})
 
   const submitMoveStock = async (item, payload) => {
     const result = await moveInventoryStock(item.id, payload)
@@ -941,6 +944,11 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 
   const confirmDelete = async () => {
     if (!deleteCandidate?.id) return
+    // A displayed zero available balance may still contain stock reserved for a visit.
+    if (Number(deleteCandidate.stock ?? deleteCandidate.stock_base ?? 0) !== 0) {
+      setFeedback({ type: 'error', message: 'Stock must be 0 before archiving. Record the actual stock movement first.' })
+      return
+    }
     setDeleting(true)
     try {
       const result = await deleteInventoryItem(deleteCandidate.id)
@@ -973,20 +981,39 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
     }
   }
 
-  const handleScannerDetected = useCallback((code) => {
+  const handleScannerDetected = useCallback(async (code) => {
     setScannerOpen(false)
-    const normalizedCode = String(code || '').trim()
-    const found = items.find((item) => String(item.barcode || '').trim() === normalizedCode)
-    if (found) {
-      toast.success(`Barcode matched ${found.name}.`)
-      setScannedItem(found)
-    } else {
-      if (typeof toast.info === 'function') toast.info(`Barcode ${normalizedCode} is not registered yet. Add Item has been opened with the scanned barcode.`)
-      else toast.warning(`Barcode ${normalizedCode} is not registered yet. Add Item has been opened with the scanned barcode.`)
-      setNewItemBarcode(normalizedCode)
-      setShowAdd(true)
+    setScannedItem(null)
+    setScanProblem(null)
+    setScanLookupLoading(true)
+    try {
+      // Search the full branch inventory, not only the current page or filters.
+      // A fresh read avoids opening Add Item for a product added by another user.
+      const firstMatch = findScannedInventoryItem(code, items, archivedItems)
+      let match = firstMatch
+      if (firstMatch.status === 'not_found') {
+        const [fresh, archived] = await Promise.all([
+          getInventory(),
+          getArchivedInventoryItems ? getArchivedInventoryItems() : Promise.resolve([]),
+        ])
+        const freshItems = Array.isArray(fresh) ? fresh : fresh?.items || []
+        const freshArchived = Array.isArray(archived) ? archived : []
+        setItems(freshItems)
+        if (getArchivedInventoryItems) setArchivedItems(freshArchived)
+        match = findScannedInventoryItem(code, freshItems, freshArchived)
+      }
+      if (match.status === 'active') {
+        setScannedItem(match.item)
+      } else {
+        // An unknown or archived product must never open Add Item automatically.
+        setScanProblem(match)
+      }
+    } catch (error) {
+      setScanProblem({ status: 'error', code: String(code || '').trim(), message: error.message || 'Could not check this barcode. Try again.' })
+    } finally {
+      setScanLookupLoading(false)
     }
-  }, [items, toast])
+  }, [items, archivedItems, getInventory, getArchivedInventoryItems])
 
   // A background refresh must not replace the page: doing so unmounts an open
   // Excel review modal immediately after returning from the operating-system
@@ -1011,7 +1038,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center"><MdRefresh className="text-[18px]" /></button>
-          <button onClick={() => setScannerOpen(true)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 flex items-center gap-2"><MdQrCodeScanner /> Scan Barcode</button>
+          <button onClick={() => { setScanProblem(null); setScannedItem(null); setScannerOpen(true) }} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 flex items-center gap-2"><MdQrCodeScanner /> Scan Barcode</button>
           {getArchivedInventoryItems && <button type="button" onClick={()=>setShowArchived(v=>!v)} className="button-secondary"><MdRestore/> {showArchived?'Active Inventory':`Archived Items (${archivedItems.length})`}</button>}
           <button title={hasActiveStockRoom ? 'Add inventory item' : 'Configure at least one active Stock Room in System Setup first'} disabled={!hasActiveStockRoom} onClick={() => { setNewItemBarcode(''); setShowAdd(true) }} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"><MdAdd /> Add Item</button>
         </div>
@@ -1163,14 +1190,22 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} masterData={masterData} stockRooms={stockLocations} existingItems={items} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
       {stockItem && <StockModal item={stockItem} initialType={stockMode} movementReasons={masterData.movement_reasons || []} suppliers={masterData.suppliers || []} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
+      {scanLookupLoading && <div role="status" className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4"><div className="rounded-2xl bg-white p-6 text-sm font-semibold text-slate-700">Checking the scanned barcode…</div></div>}
+      {scanProblem && <div role="dialog" aria-modal="true" aria-label="Scanned barcode result" className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"><h2 className="text-lg font-bold text-slate-900">{scanProblem.status === 'archived' ? 'Item is archived' : scanProblem.status === 'error' ? 'Could not check barcode' : 'Barcode not found'}</h2><p className="mt-2 break-all font-mono text-sm text-slate-600">{scanProblem.code}</p><p className="mt-3 text-sm text-slate-600">{scanProblem.status === 'archived' ? `${scanProblem.item.name} is archived. Restore it from Archived Items before using Stock In or Stock Out.` : scanProblem.status === 'error' ? scanProblem.message : 'No active item in this branch has that Product Barcode. Check the code or choose an item from Inventory. Batch codes are not Product Barcodes.'}</p><div className="mt-5 flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>{setScanProblem(null);setScannerOpen(true)}}>Scan Again</button>{scanProblem.status === 'archived' && getArchivedInventoryItems && <button type="button" className="button-secondary" onClick={()=>{setShowArchived(true);setScanProblem(null)}}>View Archived Items</button>}<button type="button" className="button-primary ml-auto" onClick={()=>setScanProblem(null)}>Close</button></div></div></div>}
       {scannedItem && <div role="dialog" aria-modal="true" aria-label="Choose barcode stock action" className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"><h2 className="text-lg font-bold">Choose Stock Action</h2><p className="mt-2 text-sm text-slate-600">{scannedItem.name} · {scannedItem.barcode}</p><div className="mt-5 flex gap-3"><button className="button-secondary flex-1" onClick={()=>{setStockMode('in');setStockItem(scannedItem);setScannedItem(null)}}>Stock In</button><button className="button-secondary flex-1" onClick={()=>{setStockMode('out');setStockItem(scannedItem);setScannedItem(null)}}>Stock Out</button></div><button className="mt-4 w-full text-sm text-slate-500" onClick={()=>setScannedItem(null)}>Cancel</button></div></div>}
       {moveItem && <MoveStockModal item={moveItem} locations={stockLocations} onClose={() => setMoveItem(null)} onSubmit={submitMoveStock} />}
       {batchManagerItem && requestInventoryBatchActionCode && confirmInventoryBatchAction && <BatchManagerModal item={batchManagerItem} onClose={()=>setBatchManagerItem(null)} onRequestAction={requestInventoryBatchActionCode} onConfirmAction={confirmInventoryBatchAction} onLoadHistory={getInventoryBatchHistory} onChanged={async (message)=>{setBatchManagerItem(null);await load();setFeedback({type:'success',message})}} />}
       <ConfirmDialog
         open={Boolean(deleteCandidate)}
         title="Archive inventory item?"
-        message={deleteCandidate ? `Archive ${deleteCandidate.name}? Items with stock cannot be archived. Archived items are hidden from active inventory and their inventory, billing, transfer, and clinical history is preserved.` : ''}
-        confirmLabel="Archive Item"
+        message={deleteCandidate ? (Number(deleteCandidate.stock ?? deleteCandidate.stock_base ?? 0) > 0
+          ? `${deleteCandidate.name} still has ${formatUnits(deleteCandidate.stock ?? deleteCandidate.stock_base)}. Stock must be 0 before you can archive this item. Use Stock Out for an actual loss, expiry or disposal, or transfer/dispense stock as appropriate. Do not remove usable stock only to archive it.`
+          : `${deleteCandidate.name} has 0 units in stock. Archive it? It will move to Archived Items and can be restored later. Past records stay saved.`) : ''}
+        warning={Number(deleteCandidate?.stock ?? deleteCandidate?.stock_base ?? 0) > 0 ? `Cannot archive: ${formatUnits(deleteCandidate.stock ?? deleteCandidate.stock_base)} remaining. Stock must be 0.` : undefined}
+        confirmLabel={Number(deleteCandidate?.stock ?? deleteCandidate?.stock_base ?? 0) > 0 ? 'Stock must be 0' : 'Archive Item'}
+        confirmDisabled={Number(deleteCandidate?.stock ?? deleteCandidate?.stock_base ?? 0) > 0}
+        alternativeLabel={Number(deleteCandidate?.stock ?? deleteCandidate?.stock_base ?? 0) > 0 ? 'Open Stock Out' : undefined}
+        onAlternative={()=>{setStockMode('out');setStockItem(deleteCandidate);setDeleteCandidate(null)}}
         loading={deleting}
         onCancel={() => !deleting && setDeleteCandidate(null)}
         onConfirm={confirmDelete}

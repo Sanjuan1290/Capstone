@@ -125,7 +125,7 @@ async function archiveItem(req,res){
     const [[prior]]=await conn.query('SELECT id,name,stock,archived_at FROM inventory WHERE id=? AND branch_id=? FOR UPDATE',[req.params.id,req.branchId])
     if(!prior)throw fail(404,'INVENTORY_NOT_FOUND','Item not found in this branch.')
     if(prior.archived_at)throw fail(409,'INVENTORY_ARCHIVED','Item is already archived.')
-    if(Number(prior.stock)>0)throw fail(409,'INVENTORY_STOCK_REMAINS','Use a documented stock-out before archiving an item with stock.')
+    if(Number(prior.stock)>0)throw fail(409,'INVENTORY_STOCK_REMAINS','Stock must be 0 before archiving. This item still has stock. Record a valid Stock Out, transfer, or dispensing first.')
     const reason=clean(req.body?.reason,255)||'Archived by branch administrator'
     await conn.query('UPDATE inventory SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=? AND branch_id=?',[req.user.id,reason,prior.id,req.branchId])
     await audit(req,conn,'inventory.item_archived',prior.id,prior,{archived:true,reason})

@@ -2907,7 +2907,7 @@ const deleteInventoryItem = async (req, res) => {
       await conn.rollback()
       return res.status(409).json({
         code: 'INVENTORY_STOCK_REMAINS',
-        message: 'This item still has stock. Stock out, dispense, or transfer the remaining quantity before archiving it.'
+        message: 'Stock must be 0 before archiving. This item still has stock. Use Stock Out, transfer, or dispensing for the remaining quantity first.'
       })
     }
 
