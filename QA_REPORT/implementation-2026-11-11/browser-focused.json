@@ -1,0 +1,7 @@
+{
+  "name": "browser-focused",
+  "command": "node QA_REPORT/implementation-2026-11-11/browser-suite.cjs implementation20261111.spec.mjs",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 9264
+}

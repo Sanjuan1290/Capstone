@@ -45,10 +45,12 @@ test('new extra consumable is charged separately but counted only once for inven
  assert.equal(usage.find(x=>x.inventory_id===8).quantity,2)
 })
 function setup(){
- const stored={bill:{id:6,branch_id:1,status:'draft',version:1,subtotal:455,discount_amount:0,total_amount:455,consultation_id:11},requests:[],clinical:{status:'finalized'},logs:[]}
+ const stored={bill:{id:6,branch_id:1,status:'draft',version:1,subtotal:455,discount_amount:0,total_amount:455,consultation_id:11},requests:[],clinical:{status:'finalized'},logs:[],audit:[]}
  const serviceItem={id:90,billing_id:6,item_type:'service',source_type:'consultation',catalog_service_id:77,service_name:'Wound Dressing',quantity:1,line_total:455,details_json:JSON.stringify({pricing:{consultation_fee:350},materials:[{inventory_id:7,material_name:'Gloves',quantity:1,charge_total:40},{inventory_id:8,material_name:'Saline',quantity:1,charge_total:65}]})}
  const conn={query:async(sql,args=[])=>{
   stored.logs.push(sql)
+  if(sql.startsWith('SELECT full_name FROM'))return [[{full_name:'Synthetic actor'}]]
+  if(sql.startsWith('INSERT INTO audit_logs')){stored.audit.push(args);return [{insertId:stored.audit.length,affectedRows:1}]}
   if(sql.includes('FROM consultations WHERE'))return [[stored.clinical]]
   if(sql.includes('FROM billing_items bi JOIN'))return [[serviceItem]]
   if(sql.includes('FROM billing_records WHERE'))return [[{...stored.bill}]]
@@ -59,7 +61,8 @@ function setup(){
   if(sql.startsWith('SELECT * FROM billing_charge_adjustments WHERE branch_id='))return [stored.requests]
   if(sql.startsWith('INSERT INTO billing_charge_adjustments')){
     const nextId=5+stored.requests.length
-    stored.requests.push({id:nextId,branch_id:1,billing_id:6,bill_version:stored.bill.version,target_type:args[3],catalog_service_id:args[4],inventory_id:args[5],requested_amount:args[6],original_charge_snapshot:args[7],reason:args[8],requester_role:args[9],requester_user_id:args[10],status:'pending'})
+    const literalPending=sql.includes("'pending'")
+    stored.requests.push({id:nextId,branch_id:1,billing_id:6,bill_version:args[2],target_type:args[3],catalog_service_id:args[4],inventory_id:args[5],requested_amount:args[6],original_charge_snapshot:args[7],reason:args[8],requester_role:args[literalPending?9:10],requester_user_id:args[literalPending?10:11],status:literalPending?'pending':args[9]})
     return [{insertId:nextId}]
   }
   if(sql.startsWith('UPDATE billing_records SET discount_amount=')){
@@ -128,8 +131,9 @@ test('two independent pending reductions stay actionable after the first approva
  assert.equal(stored.requests.find(x=>x.id===second).status,'rejected')
  assert.equal(stored.bill.total_amount,405)
 })
-test('an administrator cannot approve their own reduction',async()=>{
- const {conn}=setup()
- const id=await finance.request({billingId:6,branchId:1,actorRole:'admin',actorId:8,targetType:'service_fee',serviceId:77,amount:50,reason:'Courtesy reduction'},conn)
+test('an administrator cannot approve their own legacy pending reduction',async()=>{
+ const {conn,stored}=setup()
+ const id=await finance.request({billingId:6,branchId:1,actorRole:'staff',actorId:8,targetType:'service_fee',serviceId:77,amount:50,reason:'Courtesy reduction'},conn)
+ stored.requests.find(row=>row.id===id).requester_role='admin'
  await assert.rejects(()=>finance.resolve({billingId:6,branchId:1,requestId:id,adminId:8,status:'approved'},conn),{code:'SELF_APPROVAL_DENIED'})
 })

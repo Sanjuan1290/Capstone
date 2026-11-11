@@ -5,7 +5,7 @@ const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
-const { runBranchMigrations, migrationFiles } = require('../../scripts/branchMigrations')
+const { runBranchMigrations, migrationFiles, acceptedContentHashes } = require('../../scripts/branchMigrations')
 const batch4MigrationFile = '2026-10-26-batch4-selected-promotion.sql'
 const { createFoundationSchemaFixture } = require('../helpers/foundationSchemaFixture.cjs')
 
@@ -127,16 +127,22 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
-  assert.equal(migrationFiles.at(-2), '2026-11-05-promotion-pricing.sql')
-  assert.equal(migrationFiles.at(-1), '2026-11-05-billing-failure-history.sql')
+  assert.deepEqual(migrationFiles.slice(-5), ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql'])
   const failureSql = fs.readFileSync(path.join(migrationDir, '2026-11-05-billing-failure-history.sql'), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   assert.equal(crypto.createHash('sha256').update(failureSql).digest('hex'), 'ca694239471fcc47f20c1ad93b96216e0eb1d0fe825cb3c61fe4e65568abe675')
   for (const file of migrationFiles) assert.ok(fs.existsSync(path.join(migrationDir, file)), `Registered migration missing: ${file}`)
   for (const [file, expected] of Object.entries(expectedChecksums)) {
     const sql = fs.readFileSync(path.join(migrationDir, file), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    const actual = crypto.createHash('sha256').update(sql).digest('hex')
-    assert.equal(actual, expected, `${file} changed; create a new migration instead of editing history`)
+    assert.ok(acceptedContentHashes(sql).has(expected), `${file} changed; create a new migration instead of editing history`)
   }
+})
+
+test('pinned hashes allow line endings and final newlines but reject substantive SQL changes', () => {
+  const canonical='SELECT 1;\n'
+  const expected=crypto.createHash('sha256').update(canonical).digest('hex')
+  for(const source of ['SELECT 1;','SELECT 1;\r\n','SELECT 1;\n\n'])assert.ok(acceptedContentHashes(source).has(expected))
+  assert.equal(acceptedContentHashes('SELECT 2;\n').has(expected),false)
+  assert.equal(acceptedContentHashes('SELECT 1;\nALTER TABLE patients DROP COLUMN email;\n').has(expected),false)
 })
 
 test('migration runner preserves registration order and skips already applied migrations', async () => {

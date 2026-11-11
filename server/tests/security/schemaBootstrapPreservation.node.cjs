@@ -20,7 +20,7 @@ test('stock summary rebuild commits the delete and insert together', async () =>
     rollback: async () => calls.push('rollback'),
     release: () => calls.push('release'),
   }
-  await rebuildInventoryLocationStock({ getConnection: async () => connection })
+  await rebuildInventoryLocationStock({ query: async () => [[{ n: 0 }]], getConnection: async () => connection })
   assert.deepEqual(calls, ['begin', 'delete', 'insert', 'commit', 'release'])
 })
 
@@ -36,6 +36,6 @@ test('failed stock summary rebuild rolls back before releasing its connection', 
     rollback: async () => calls.push('rollback'),
     release: () => calls.push('release'),
   }
-  await assert.rejects(rebuildInventoryLocationStock({ getConnection: async () => connection }), /synthetic insert failure/)
+  await assert.rejects(rebuildInventoryLocationStock({ query: async () => [[{ n: 0 }]], getConnection: async () => connection }), /synthetic insert failure/)
   assert.deepEqual(calls, ['begin', 'delete', 'insert', 'rollback', 'release'])
 })

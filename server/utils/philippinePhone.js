@@ -39,8 +39,8 @@ function normalizeGoogleMapsUrl(value) {
   let parsed
   try { parsed = new URL(raw) } catch { fail() }
   const host = parsed.hostname.toLowerCase()
-  const isGoogleMapsHost = host === 'maps.app.goo.gl' || (host === 'goo.gl' && parsed.pathname.toLowerCase().startsWith('/maps')) || host === 'maps.google.com' || ((host === 'google.com' || host === 'www.google.com') && parsed.pathname.toLowerCase().startsWith('/maps'))
-  if (parsed.protocol !== 'https:' || !isGoogleMapsHost || parsed.username || parsed.password) fail()
+  const isGoogleMapsHost = (host === 'maps.app.goo.gl' && /^\/[^/]+/.test(parsed.pathname)) || (host === 'goo.gl' && /^\/maps\/[^/]+/i.test(parsed.pathname)) || host === 'maps.google.com' || ((host === 'google.com' || host === 'www.google.com') && /^\/maps(?:\/|$)/i.test(parsed.pathname))
+  if (parsed.protocol !== 'https:' || !isGoogleMapsHost || parsed.username || parsed.password || parsed.port) fail()
   return parsed.toString()
 }
 

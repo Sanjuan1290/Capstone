@@ -1,5 +1,6 @@
-import {useCallback,useEffect,useState} from 'react'
+import {useCallback,useEffect,useRef,useState} from 'react'
 import { MdCheckCircle, MdHourglassEmpty, MdInfoOutline, MdPayments, MdWarningAmber } from 'react-icons/md'
+import Modal from '../ui/Modal'
 const money=n=>`₱${(Number(n)||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`
 const base=()=>{
   const path=window.location.pathname
@@ -24,6 +25,8 @@ const fetchJson=async(url,options={})=>{
 export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=false}){
  const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false)
  const [target,setTarget]=useState(''),[amount,setAmount]=useState(''),[reason,setReason]=useState(''),[success,setSuccess]=useState('')
+ const submitting=useRef(false)
+ const [reversing,setReversing]=useState(null),[reversalReason,setReversalReason]=useState('')
  const load=useCallback(async()=>{
    setLoading(true)
    try{
@@ -35,27 +38,39 @@ export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=fa
  useEffect(()=>{void load()},[load])
  const targets=data?.targets||[],requests=data?.requests||[]
  const selected=targets.find(t=>`${t.target_type}:${t.catalog_service_id}:${t.inventory_id||0}`===target)
- const editable=['draft','pending'].includes(data?.bill?.status)
+ const editable=['draft','pending'].includes(data?.bill?.status)&&!data?.bill?.paid_at&&Number(data?.bill?.payment_count||0)===0
+ const direct=!staffOnly&&data?.can_adjust_directly===true
  const submit=async()=>{
-  if(!selected)return
+  if(!selected||submitting.current)return
+  if(direct&&!window.confirm(`Apply a direct reduction of ${money(amount)} to this patient's bill? Reason: ${reason.trim()}. Actual supplies used will not change.`))return
+  submitting.current=true
   setBusy(true);setError('');setSuccess('')
   try{
    await fetchJson(`${base()}/billing/${billingId}/charge-adjustments`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,amount:Number(amount),reason})})
-   setAmount('');setReason('');setSuccess('Charge reduction submitted for approval.');await load();onUpdated?.()
-  }catch(e){setError(e.message)}finally{setBusy(false)}
+   setAmount('');setReason('');setSuccess(direct?'Direct charge reduction applied. Bill totals will refresh.':'Charge reduction submitted for approval.');await load();onUpdated?.()
+  }catch(e){setError(e.message)}finally{submitting.current=false;setBusy(false)}
  }
  const resolve=async(id,status)=>{
+  if(submitting.current)return
   const note=status==='rejected'?window.prompt('Reason for rejecting the adjustment:'):''
   if(status==='rejected'&&!String(note||'').trim())return
-  setBusy(true);setError('');setSuccess('')
+  submitting.current=true;setBusy(true);setError('');setSuccess('')
   try{
     await fetchJson(`${base()}/billing/${billingId}/charge-adjustments/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,note})})
     setSuccess(status==='approved'?'Charge reduction approved. Bill totals will refresh.':'Charge reduction rejected.');await load();onUpdated?.()
-  }catch(e){setError(e.message)}finally{setBusy(false)}
+  }catch(e){setError(e.message)}finally{submitting.current=false;setBusy(false)}
+ }
+ const reverse=async()=>{
+  if(!reversing||submitting.current||reversalReason.trim().length<5)return
+  submitting.current=true;setBusy(true);setError('');setSuccess('')
+  try{
+   await fetchJson(`${base()}/billing/${billingId}/charge-adjustments/${reversing.id}/reverse`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:reversalReason.trim()})})
+   setReversing(null);setReversalReason('');setSuccess('Charge reduction reversed.');await load();await onUpdated?.()
+  }catch(e){setError(e.message)}finally{submitting.current=false;setBusy(false)}
  }
  return <section className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5" aria-label="Adjust service and consumable charges">
    <div className="flex items-start gap-3"><span className="rounded-xl bg-sky-100 p-2 text-sky-700"><MdPayments className="text-xl" /></span><div><h3 className="font-black text-slate-900">{staffOnly ? 'Request Charge Reduction' : 'Review Charge Reductions'}</h3>
-   <p className="mt-1 text-xs leading-relaxed text-slate-600">Apply a patient-specific service fee or consumable reduction through the existing approval workflow. The original charge and actual inventory usage remain unchanged.</p></div></div>
+   <p className="mt-1 text-xs leading-relaxed text-slate-600">{staffOnly?'Request a patient-specific service fee or consumable reduction for Billing Admin approval.':'Apply a direct reduction with a reason, or review Doctor and Staff requests.'} Approved reductions affect this bill only. The original charge and actual inventory usage remain unchanged.</p></div></div>
    <div className="mt-3 flex items-start gap-2 rounded-xl border border-sky-100 bg-white px-3 py-2 text-xs text-sky-800"><MdInfoOutline className="mt-0.5 shrink-0"/><span>{staffOnly?'An Admin must approve your request during Bill Checkout.':'Review each Doctor or Staff charge reduction here. Decisions are recorded on this bill.'}</span></div>
    {success && <p role="status" className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800"><MdCheckCircle />{success}</p>}
    {loading&&!data&&!error&&<p role="status" className="mt-2 text-xs text-slate-600">Loading charge reductions…</p>}
@@ -63,7 +78,7 @@ export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=fa
      <span>{error}</span>
      <button type="button" className="button-secondary" disabled={loading} onClick={()=>{void load()}}>{loading?'Retrying…':'Retry charge reductions'}</button>
    </div>}
-   {editable && staffOnly && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-2">
+   {editable && (staffOnly || direct) && <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-2">
     <label className="sm:col-span-2 text-xs font-semibold">Charge to reduce
       <select className="form-control mt-1" value={target} onChange={e=>setTarget(e.target.value)}>
        <option value="">Select a service fee or supply</option>
@@ -76,13 +91,22 @@ export default function ChargeAdjustmentsPanel({billingId,onUpdated,staffOnly=fa
     <label className="text-xs font-semibold">Reason
      <input className="form-control mt-1" maxLength={255} placeholder="e.g. Courtesy discount" value={reason} onChange={e=>setReason(e.target.value)}/>
     </label>
-    <button className="button-secondary sm:col-span-2" type="button" disabled={busy||!selected||!Number.isFinite(Number(amount))||Number(amount)<=0||Number(amount)>Number(selected?.original_charge||0)||reason.trim().length<5} onClick={submit}>{busy?'Submitting…':'Request Charge Reduction'}</button>
+    <button className="button-secondary sm:col-span-2" type="button" disabled={busy||!selected||!Number.isFinite(Number(amount))||Number(amount)<=0||Number(amount)>Number(selected?.original_charge||0)||reason.trim().length<5} onClick={submit}>{busy?(direct?'Applying…':'Submitting…'):direct?'Apply Direct Reduction':'Request Charge Reduction'}</button>
    </div>}
    {requests.length>0&&<div className="mt-4 space-y-2">{requests.map(t=><div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs" key={t.id}>
-     <div className="min-w-0"><strong>{t.target_type==='service_fee'?'Service fee':'Consumable'} — {money(t.requested_amount)}</strong><p className="mt-1 break-words text-slate-600">{t.reason}</p><span className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-bold ${t.status==='approved'?'bg-emerald-100 text-emerald-700':t.status==='rejected'?'bg-rose-100 text-rose-700':'bg-amber-100 text-amber-800'}`}>{t.status==='approved'?<MdCheckCircle/>:t.status==='pending'?<MdHourglassEmpty/>:<MdWarningAmber/>}{t.status==='approved'?'Approved':t.status==='rejected'?'Rejected':'Awaiting approval'}</span></div>
+     <div className="min-w-0"><strong>{t.target_type==='service_fee'?'Service fee':'Consumable'} — {money(t.requested_amount)}</strong><p className="mt-1 break-words text-slate-600">{t.reason}</p><span className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-bold ${t.status==='approved'?'bg-emerald-100 text-emerald-700':['rejected','reversed'].includes(t.status)?'bg-slate-100 text-slate-700':'bg-amber-100 text-amber-800'}`}>{t.status==='approved'?<MdCheckCircle/>:t.status==='pending'?<MdHourglassEmpty/>:<MdWarningAmber/>}{t.status==='approved'?'Approved':t.status==='reversed'?'Reversed':t.status==='rejected'?'Rejected':'Awaiting approval'}</span>{t.status==='reversed'&&<p className="mt-2 break-words text-slate-600">Reversal: {t.reversal_reason} · {t.reversed_at ? new Date(t.reversed_at).toLocaleString('en-PH') : 'Recorded'}{t.reversed_by_admin_id ? ` · Admin #${t.reversed_by_admin_id}` : ''}</p>}</div>
+     {direct&&t.status==='approved'&&editable&&<button type="button" className="button-secondary" disabled={busy} onClick={()=>{setReversing(t);setReversalReason('')}}>Reverse Reduction</button>}
      {!staffOnly && t.status==='pending'&&editable&&<div className="flex gap-2"><button className="button-secondary" disabled={busy} onClick={()=>resolve(t.id,'approved')}>Approve</button><button className="button-secondary" disabled={busy} onClick={()=>resolve(t.id,'rejected')}>Reject</button></div>}
    </div>)}</div>}
    {data && targets.length===0 && <p className="mt-3 text-xs text-slate-500">This bill has no eligible itemized charges yet. Complete the consultation first.</p>}
+   <Modal open={Boolean(reversing)} onClose={()=>!busy&&setReversing(null)} closeDisabled={busy} title="Reverse approved reduction?" description="The original approval stays in history. This restores the charge on this bill only." size="md" closeOnEscape>
+    {reversing&&<form onSubmit={event=>{event.preventDefault();void reverse()}} className="space-y-4">
+     <dl className="space-y-2 text-sm">{[['Original charge',reversing.original_charge_snapshot],['Approved reduction',reversing.requested_amount],['Current bill total',data?.bill?.total_amount],['New bill total after reversal',Number(data?.bill?.total_amount||0)+Number(reversing.requested_amount)]].map(([label,value])=><div key={label} className="flex justify-between gap-3"><dt>{label}</dt><dd className="font-bold">{money(value)}</dd></div>)}</dl>
+     <label className="block text-sm font-semibold">Reversal reason<textarea autoFocus required minLength={5} maxLength={255} rows={3} className="form-control mt-2" value={reversalReason} onChange={event=>setReversalReason(event.target.value)}/></label>
+     {error&&<p role="alert" className="text-sm text-rose-700">{error}</p>}
+     <div className="flex flex-wrap justify-end gap-2"><button type="button" className="button-secondary" disabled={busy} onClick={()=>setReversing(null)}>Cancel</button><button type="submit" className="button-primary" disabled={busy||reversalReason.trim().length<5}>{busy?'Reversing…':'Confirm Reversal'}</button></div>
+    </form>}
+   </Modal>
  </section>
 }
 

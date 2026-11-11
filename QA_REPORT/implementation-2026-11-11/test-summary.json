@@ -1,0 +1,133 @@
+{
+  "date": "2026-11-11",
+  "timezone": "Asia/Manila",
+  "baselineCommit": "b192e96",
+  "node": {
+    "baselineServer": {
+      "tests": 684,
+      "pass": 657,
+      "fail": 27,
+      "skipped": 0
+    },
+    "server": {
+      "tests": 699,
+      "pass": 672,
+      "fail": 27,
+      "skipped": 0
+    },
+    "baselineClient": {
+      "tests": 370,
+      "pass": 349,
+      "fail": 21,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 373,
+      "pass": 352,
+      "fail": 21,
+      "skipped": 0
+    },
+    "finance": {
+      "tests": 15,
+      "pass": 15,
+      "fail": 0,
+      "skipped": 0
+    },
+    "formatting": {
+      "tests": 12,
+      "pass": 12,
+      "fail": 0,
+      "skipped": 0
+    }
+  },
+  "vitest": {
+    "baseline": {
+      "pass": 259,
+      "fail": 4
+    },
+    "current": {
+      "pass": 259,
+      "fail": 4
+    }
+  },
+  "browser": {
+    "baseline": {
+      "pass": 11,
+      "fail": 16
+    },
+    "current": {
+      "pass": 23,
+      "fail": 16
+    },
+    "newCases": 12
+  },
+  "native": {
+    "pass": 21,
+    "fail": 0
+  },
+  "receiptPDF": {
+    "pass": 32,
+    "fail": 0
+  },
+  "apiSmoke": {
+    "workflow": {
+      "pass": 41,
+      "fail": 0
+    },
+    "anonymous": {
+      "pass": 738,
+      "fail": 0
+    },
+    "expired": {
+      "pass": 738,
+      "fail": 0
+    },
+    "sqlPlans": {
+      "pass": 676,
+      "fail": 5
+    },
+    "commandStatus": "FAIL"
+  },
+  "introducedFailingTests": {
+    "server": [],
+    "client": [],
+    "vitest": [],
+    "browser": []
+  },
+  "sourceMetadataReads": 85,
+  "sourceWrites": 0,
+  "applicationRowsCopied": 0,
+  "remoteDeployment": false,
+  "cleanup": {
+    "status": "PASS",
+    "portClosed": true,
+    "migrationLedgerVerified": true
+  },
+  "referenceComparison": {
+    "status": "PASS",
+    "code": {
+      "exportedSections": 999,
+      "comparedTextFiles": 772,
+      "excludedSections": 227,
+      "matchingCurrent": 755,
+      "currentPatch": 17,
+      "referenceDifferences": 0,
+      "missingCurrent": 0,
+      "exportMatchesBaseline": 772,
+      "currentOnly": 9
+    },
+    "migration": {
+      "createdTables": 11,
+      "createdTablesPresent": 11,
+      "alteredTables": 9,
+      "checkedColumns": 113,
+      "missingColumns": 0,
+      "evolvedColumns": 1,
+      "checkedIndexes": 15,
+      "supersededIndexes": 3,
+      "missingIndexes": 0
+    },
+    "newDatabaseConnections": 0,
+    "databaseWrites": 0
+  }
+}

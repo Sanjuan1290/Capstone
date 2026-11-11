@@ -1,0 +1,57 @@
+{
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "New QA text contains no detected private configuration values",
+      "status": "PASS"
+    },
+    {
+      "name": "Generated copies of supplied PDF pages were removed",
+      "status": "PASS"
+    },
+    {
+      "name": "Supplied references match baseline and preserve the current fixes",
+      "status": "PASS"
+    },
+    {
+      "name": "No newly failing names in the compared suites",
+      "status": "PASS"
+    },
+    {
+      "name": "Native and receipt cases all pass",
+      "status": "PASS"
+    },
+    {
+      "name": "Broader SQL failures are reported accurately",
+      "status": "PASS"
+    },
+    {
+      "name": "Synthetic database shutdown and migration replay are recorded",
+      "status": "PASS"
+    },
+    {
+      "name": "Required seven report sections exist",
+      "status": "PASS"
+    },
+    {
+      "name": "All changed product and test files are documented",
+      "status": "PASS"
+    },
+    {
+      "name": "Source diff has no whitespace errors",
+      "status": "PASS"
+    },
+    {
+      "name": "All current browser PDF artifacts remain available",
+      "status": "PASS"
+    },
+    {
+      "name": "Evidence manifest includes all nonignored QA files",
+      "status": "PASS"
+    }
+  ],
+  "scannedTextFiles": 75,
+  "privateConfigurationFindings": 0,
+  "productionMutations": 0,
+  "remoteDeployment": false
+}

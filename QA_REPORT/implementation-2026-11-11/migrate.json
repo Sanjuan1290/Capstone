@@ -1,0 +1,7 @@
+{
+  "name": "migrate",
+  "command": "npm run migrate",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 942
+}

@@ -1,0 +1,9 @@
+{
+  "name": "fresh-migrate",
+  "command": "npm run migrate",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 1087,
+  "status": "PASS"
+}

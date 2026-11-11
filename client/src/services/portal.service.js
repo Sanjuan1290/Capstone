@@ -17,7 +17,11 @@ const request = async (role, path = '', options = {}) => {
   if (!contentType.toLowerCase().includes('application/json')) throw new Error(res.status === 404 ? 'Settings endpoint is unavailable. Check the API server or proxy.' : 'Unable to load settings. The server did not return valid account information.')
   let data
   try { data = await res.json() } catch { throw new Error('Unable to read the server response. Please retry.') }
-  if (!res.ok) { const err = new Error(data.message || 'Request failed'); Object.assign(err, data); throw err }
+  if (!res.ok) {
+    const reference = data.request_id ? ` Reference: ${data.request_id}` : ''
+    const message = `${data.message || 'Request failed'}${reference}`
+    throw Object.assign(new Error(message), data, { message, status: res.status })
+  }
   return data
 }
 

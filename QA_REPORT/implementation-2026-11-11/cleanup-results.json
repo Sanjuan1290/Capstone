@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "syntheticOnly": true,
+  "database": "carait_qa_20261111",
+  "mysqlVersion": "8.0.41",
+  "port": 33409,
+  "portClosed": true,
+  "migrationLedgerVerified": true,
+  "generatedReferenceCopiesRemoved": [
+    "reference-page-1.png",
+    "reference-page-2.png",
+    "reference-page-3.png",
+    "reference-page-4.png",
+    "reference-page-5.png"
+  ],
+  "originalUserFilesModified": false,
+  "productionMutations": 0,
+  "syntheticDatadirRetained": true
+}

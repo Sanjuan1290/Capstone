@@ -1,0 +1,1563 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config=../QA_REPORT/implementation-2026-11-11/playwright.config.mjs",
+      "billing.spec.mjs",
+      "audit-regressions.spec.mjs"
+    ],
+    "configFile": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\playwright.config.mjs",
+    "rootDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/client/tests/browser",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/implementation-2026-11-11/browser-artifacts/baseline-playwright",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/client/tests/browser",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 20000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "",
+        "testDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser",
+        "snapshotDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser",
+        "testIgnore": [],
+        "testMatch": "**/*.@(spec|test).?(c|m)[jt]s?(x)",
+        "timeout": 20000,
+        "use": {
+          "baseURL": "http://127.0.0.1:52683",
+          "headless": true,
+          "launchOptions": {
+            "executablePath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+          },
+          "screenshot": "only-on-failure"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": ""
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\baseline-browser-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "audit-regressions.spec.mjs",
+      "file": "audit-regressions.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "admin Settings loads asynchronously without changing hook order",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1193,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:06:37.696Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a849584246764893c820-21dac98c8e87ae236ba7",
+          "file": "audit-regressions.spec.mjs",
+          "line": 18,
+          "column": 56
+        },
+        {
+          "title": "staff Settings loads asynchronously without changing hook order",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1046,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:06:39.444Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a849584246764893c820-3927986a51a32b5e4493",
+          "file": "audit-regressions.spec.mjs",
+          "line": 18,
+          "column": 56
+        },
+        {
+          "title": "doctor Settings loads asynchronously without changing hook order",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1020,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:06:40.510Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a849584246764893c820-eb5bea744d0b4c3457de",
+          "file": "audit-regressions.spec.mjs",
+          "line": 18,
+          "column": 56
+        },
+        {
+          "title": "patient Settings loads asynchronously without changing hook order",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1092,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:06:41.541Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a849584246764893c820-d6dc3f6c14838821995a",
+          "file": "audit-regressions.spec.mjs",
+          "line": 18,
+          "column": 56
+        },
+        {
+          "title": "legacy billing redirect retains the Super Admin physical branch without a runtime ReferenceError",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 633,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:06:42.645Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a849584246764893c820-b58c02ed1299368273d4",
+          "file": "audit-regressions.spec.mjs",
+          "line": 30,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "billing.spec.mjs",
+      "file": "billing.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "admin: two billing tabs and accurate payment filters",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 5392,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:76:67",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 67,
+                      "line": 76
+                    },
+                    "snippet": "  74 |  await page.goto(`${root}/${role==='staff'?'checkout':'billing'}`)\n  75 |  const nav=page.getByRole('navigation',{name:'Billing',exact:true})\n> 76 |  await expect(nav.getByRole('link',{name:'Payments',exact:true})).toBeVisible();await expect(nav.getByRole('link',{name:'Receipts & History',exact:true})).toBeVisible()\n     |                                                                   ^\n  77 |  await expect(page.getByRole('button',{name:'Pending Payments',exact:true})).toBeVisible()\n  78 |  await page.getByRole('button',{name:'Failed Payments',exact:true}).click();await expect(page.getByText(/QR Ph failed: PAYMENT_DECLINED/)).toBeVisible()\n  79 |  await page.getByRole('button',{name:'Paid Payments',exact:true}).click();await expect(page.getByText(/Receipt: OR-TEST-6/)).toBeVisible()"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 67,
+                        "line": 76
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n\n\n  74 |  await page.goto(`${root}/${role==='staff'?'checkout':'billing'}`)\n  75 |  const nav=page.getByRole('navigation',{name:'Billing',exact:true})\n> 76 |  await expect(nav.getByRole('link',{name:'Payments',exact:true})).toBeVisible();await expect(nav.getByRole('link',{name:'Receipts & History',exact:true})).toBeVisible()\n     |                                                                   ^\n  77 |  await expect(page.getByRole('button',{name:'Pending Payments',exact:true})).toBeVisible()\n  78 |  await page.getByRole('button',{name:'Failed Payments',exact:true}).click();await expect(page.getByText(/QR Ph failed: PAYMENT_DECLINED/)).toBeVisible()\n  79 |  await page.getByRole('button',{name:'Paid Payments',exact:true}).click();await expect(page.getByText(/Receipt: OR-TEST-6/)).toBeVisible()\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:76:67"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:06:43.330Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-admin-two-billing-tabs-and-accurate-payment-filters\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-admin-two-billing-tabs-and-accurate-payment-filters\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 67,
+                    "line": 76
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-991eae2938c513e6e132",
+          "file": "billing.spec.mjs",
+          "line": 72,
+          "column": 50
+        },
+        {
+          "title": "superadmin: two billing tabs and accurate payment filters",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 5523,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:76:67",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 67,
+                      "line": 76
+                    },
+                    "snippet": "  74 |  await page.goto(`${root}/${role==='staff'?'checkout':'billing'}`)\n  75 |  const nav=page.getByRole('navigation',{name:'Billing',exact:true})\n> 76 |  await expect(nav.getByRole('link',{name:'Payments',exact:true})).toBeVisible();await expect(nav.getByRole('link',{name:'Receipts & History',exact:true})).toBeVisible()\n     |                                                                   ^\n  77 |  await expect(page.getByRole('button',{name:'Pending Payments',exact:true})).toBeVisible()\n  78 |  await page.getByRole('button',{name:'Failed Payments',exact:true}).click();await expect(page.getByText(/QR Ph failed: PAYMENT_DECLINED/)).toBeVisible()\n  79 |  await page.getByRole('button',{name:'Paid Payments',exact:true}).click();await expect(page.getByText(/Receipt: OR-TEST-6/)).toBeVisible()"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 67,
+                        "line": 76
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n\n\n  74 |  await page.goto(`${root}/${role==='staff'?'checkout':'billing'}`)\n  75 |  const nav=page.getByRole('navigation',{name:'Billing',exact:true})\n> 76 |  await expect(nav.getByRole('link',{name:'Payments',exact:true})).toBeVisible();await expect(nav.getByRole('link',{name:'Receipts & History',exact:true})).toBeVisible()\n     |                                                                   ^\n  77 |  await expect(page.getByRole('button',{name:'Pending Payments',exact:true})).toBeVisible()\n  78 |  await page.getByRole('button',{name:'Failed Payments',exact:true}).click();await expect(page.getByText(/QR Ph failed: PAYMENT_DECLINED/)).toBeVisible()\n  79 |  await page.getByRole('button',{name:'Paid Payments',exact:true}).click();await expect(page.getByText(/Receipt: OR-TEST-6/)).toBeVisible()\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:76:67"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:06:49.647Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-superadmin-two-bil-82a9b-nd-accurate-payment-filters\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-superadmin-two-bil-82a9b-nd-accurate-payment-filters\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 67,
+                    "line": 76
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-c802f08121810c8c9857",
+          "file": "billing.spec.mjs",
+          "line": 72,
+          "column": 50
+        },
+        {
+          "title": "staff: two billing tabs and accurate payment filters",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 5469,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:76:67",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 67,
+                      "line": 76
+                    },
+                    "snippet": "  74 |  await page.goto(`${root}/${role==='staff'?'checkout':'billing'}`)\n  75 |  const nav=page.getByRole('navigation',{name:'Billing',exact:true})\n> 76 |  await expect(nav.getByRole('link',{name:'Payments',exact:true})).toBeVisible();await expect(nav.getByRole('link',{name:'Receipts & History',exact:true})).toBeVisible()\n     |                                                                   ^\n  77 |  await expect(page.getByRole('button',{name:'Pending Payments',exact:true})).toBeVisible()\n  78 |  await page.getByRole('button',{name:'Failed Payments',exact:true}).click();await expect(page.getByText(/QR Ph failed: PAYMENT_DECLINED/)).toBeVisible()\n  79 |  await page.getByRole('button',{name:'Paid Payments',exact:true}).click();await expect(page.getByText(/Receipt: OR-TEST-6/)).toBeVisible()"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 67,
+                        "line": 76
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('navigation', { name: 'Billing', exact: true }).getByRole('link', { name: 'Payments', exact: true })\u001b[22m\n\n\n  74 |  await page.goto(`${root}/${role==='staff'?'checkout':'billing'}`)\n  75 |  const nav=page.getByRole('navigation',{name:'Billing',exact:true})\n> 76 |  await expect(nav.getByRole('link',{name:'Payments',exact:true})).toBeVisible();await expect(nav.getByRole('link',{name:'Receipts & History',exact:true})).toBeVisible()\n     |                                                                   ^\n  77 |  await expect(page.getByRole('button',{name:'Pending Payments',exact:true})).toBeVisible()\n  78 |  await page.getByRole('button',{name:'Failed Payments',exact:true}).click();await expect(page.getByText(/QR Ph failed: PAYMENT_DECLINED/)).toBeVisible()\n  79 |  await page.getByRole('button',{name:'Paid Payments',exact:true}).click();await expect(page.getByText(/Receipt: OR-TEST-6/)).toBeVisible()\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:76:67"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:06:56.296Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-staff-two-billing-tabs-and-accurate-payment-filters\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-staff-two-billing-tabs-and-accurate-payment-filters\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 67,
+                    "line": 76
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-e5a7c85d30dcf3a26f0c",
+          "file": "billing.spec.mjs",
+          "line": 72,
+          "column": 50
+        },
+        {
+          "title": "admin: three requests resolve independently in shared checkout",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2049,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:02.915Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-f226c1475f0817317e02",
+          "file": "billing.spec.mjs",
+          "line": 84,
+          "column": 42
+        },
+        {
+          "title": "superadmin: three requests resolve independently in shared checkout",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1944,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:05.411Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-2fbbff2a09cce086dc12",
+          "file": "billing.spec.mjs",
+          "line": 84,
+          "column": 42
+        },
+        {
+          "title": "Staff sees pending requests without approval controls",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 5757,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Charge Reductions' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Charge Reductions' }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Charge Reductions' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Charge Reductions' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Charge Reductions' }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Charge Reductions' })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:100:69",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 69,
+                      "line": 100
+                    },
+                    "snippet": "   98 | test('Staff sees pending requests without approval controls',async({page})=>{\n   99 |  const {checkout}=await mockClinic(page,'staff');await page.goto(checkout);await page.getByRole('button',{name:/Continue to Confirm Bill/}).click()\n> 100 |  await expect(page.getByRole('heading',{name:'Charge Reductions'})).toBeVisible();await expect(page.getByRole('button',{name:'Approve',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Reject',exact:true})).toHaveCount(0)\n      |                                                                     ^\n  101 | })\n  102 | test('notification navigation waits for read acknowledgement and keeps Super Admin branch',async({page})=>{\n  103 |  const {state,root,checkout}=await mockClinic(page,'superadmin');await page.goto(`${root}/billing`)"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 69,
+                        "line": 100
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Charge Reductions' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Charge Reductions' }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Charge Reductions' })\u001b[22m\n\n\n   98 | test('Staff sees pending requests without approval controls',async({page})=>{\n   99 |  const {checkout}=await mockClinic(page,'staff');await page.goto(checkout);await page.getByRole('button',{name:/Continue to Confirm Bill/}).click()\n> 100 |  await expect(page.getByRole('heading',{name:'Charge Reductions'})).toBeVisible();await expect(page.getByRole('button',{name:'Approve',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Reject',exact:true})).toHaveCount(0)\n      |                                                                     ^\n  101 | })\n  102 | test('notification navigation waits for read acknowledgement and keeps Super Admin branch',async({page})=>{\n  103 |  const {state,root,checkout}=await mockClinic(page,'superadmin');await page.goto(`${root}/billing`)\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:100:69"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:07.371Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-Staff-sees-pending-c3fa1-s-without-approval-controls\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-Staff-sees-pending-c3fa1-s-without-approval-controls\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 69,
+                    "line": 100
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-4f76a3c1e3f0bd7589c8",
+          "file": "billing.spec.mjs",
+          "line": 98,
+          "column": 1
+        },
+        {
+          "title": "notification navigation waits for read acknowledgement and keeps Super Admin branch",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1090,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:14.102Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-e2893fc4c57e301a39e3",
+          "file": "billing.spec.mjs",
+          "line": 102,
+          "column": 1
+        },
+        {
+          "title": "deleted notification stays in its portal with an actionable error",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 535,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:15.674Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-ce82724921b860ace3a8",
+          "file": "billing.spec.mjs",
+          "line": 108,
+          "column": 1
+        },
+        {
+          "title": "dedicated history retains cancelled and expired attempts and receipt details",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 5394,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Activity Timeline' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Activity Timeline' }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Activity Timeline' })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Activity Timeline' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Activity Timeline' }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Activity Timeline' })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:114:69",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 69,
+                      "line": 114
+                    },
+                    "snippet": "  112 | test('dedicated history retains cancelled and expired attempts and receipt details',async({page})=>{\n  113 |  const {root}=await mockClinic(page,'admin');await page.goto(`${root}/billing/transactions/6`)\n> 114 |  await expect(page.getByRole('heading',{name:'Activity Timeline'})).toBeVisible();await expect(page.getByText(/#1 · cancelled/)).toBeVisible();await expect(page.getByText(/#2 · expired/)).toBeVisible()\n      |                                                                     ^\n  115 | })\n  116 | test('Doctor quantity validation and request-only reduction flow',async({page})=>{\n  117 |  const {state}=await mockClinic(page,'doctor',{requests:false});await page.goto('/doctor/consultation?id=9')"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 69,
+                        "line": 114
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Activity Timeline' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Activity Timeline' }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Activity Timeline' })\u001b[22m\n\n\n  112 | test('dedicated history retains cancelled and expired attempts and receipt details',async({page})=>{\n  113 |  const {root}=await mockClinic(page,'admin');await page.goto(`${root}/billing/transactions/6`)\n> 114 |  await expect(page.getByRole('heading',{name:'Activity Timeline'})).toBeVisible();await expect(page.getByText(/#1 · cancelled/)).toBeVisible();await expect(page.getByText(/#2 · expired/)).toBeVisible()\n      |                                                                     ^\n  115 | })\n  116 | test('Doctor quantity validation and request-only reduction flow',async({page})=>{\n  117 |  const {state}=await mockClinic(page,'doctor',{requests:false});await page.goto('/doctor/consultation?id=9')\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:114:69"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:16.221Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-dedicated-history--325cd-ttempts-and-receipt-details\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-dedicated-history--325cd-ttempts-and-receipt-details\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 69,
+                    "line": 114
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-81e6de8fc9815d5b125f",
+          "file": "billing.spec.mjs",
+          "line": 112,
+          "column": 1
+        },
+        {
+          "title": "Doctor quantity validation and request-only reduction flow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 706,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:22.508Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-d3e3b8ee2a5e430d067a",
+          "file": "billing.spec.mjs",
+          "line": 116,
+          "column": 1
+        },
+        {
+          "title": "admin: walk-in submission sends only visit data once",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "timedOut",
+                  "duration": 20093,
+                  "error": {
+                    "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m",
+                    "stack": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 74,
+                        "line": 135
+                      },
+                      "message": "Error: locator.click: Test timeout of 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /Dr Test.*Available for walk-ins/ })\u001b[22m\n\n\n  133 |  await page.getByRole('button',{name:'Continue',exact:true}).click()\n  134 |  await page.getByRole('button',{name:'General Medicine',exact:true}).click()\n> 135 |  await page.getByRole('button',{name:/Dr Test.*Available for walk-ins/}).click()\n      |                                                                          ^\n  136 |  await page.getByRole('button',{name:'Follow up',exact:true}).click()\n  137 |  await page.getByRole('button',{name:'Continue',exact:true}).click()\n  138 |  await page.getByRole('checkbox').check()\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:135:74"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:23.639Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-admin-walk-in-submission-sends-only-visit-data-once\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-admin-walk-in-submission-sends-only-visit-data-once\\error-context.md"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-2787ee8476021202b99b",
+          "file": "billing.spec.mjs",
+          "line": 127,
+          "column": 50
+        },
+        {
+          "title": "superadmin: walk-in submission sends only visit data once",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "timedOut",
+                  "duration": 20098,
+                  "error": {
+                    "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m",
+                    "stack": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 74,
+                        "line": 135
+                      },
+                      "message": "Error: locator.click: Test timeout of 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /Dr Test.*Available for walk-ins/ })\u001b[22m\n\n\n  133 |  await page.getByRole('button',{name:'Continue',exact:true}).click()\n  134 |  await page.getByRole('button',{name:'General Medicine',exact:true}).click()\n> 135 |  await page.getByRole('button',{name:/Dr Test.*Available for walk-ins/}).click()\n      |                                                                          ^\n  136 |  await page.getByRole('button',{name:'Follow up',exact:true}).click()\n  137 |  await page.getByRole('button',{name:'Continue',exact:true}).click()\n  138 |  await page.getByRole('checkbox').check()\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:135:74"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:07:44.500Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-superadmin-walk-in-bbe89--sends-only-visit-data-once\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-superadmin-walk-in-bbe89--sends-only-visit-data-once\\error-context.md"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-59c884d4280167a5d32e",
+          "file": "billing.spec.mjs",
+          "line": 127,
+          "column": 50
+        },
+        {
+          "title": "staff: walk-in submission sends only visit data once",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "timedOut",
+                  "duration": 20093,
+                  "error": {
+                    "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m",
+                    "stack": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 74,
+                        "line": 135
+                      },
+                      "message": "Error: locator.click: Test timeout of 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /Dr Test.*Available for walk-ins/ })\u001b[22m\n\n\n  133 |  await page.getByRole('button',{name:'Continue',exact:true}).click()\n  134 |  await page.getByRole('button',{name:'General Medicine',exact:true}).click()\n> 135 |  await page.getByRole('button',{name:/Dr Test.*Available for walk-ins/}).click()\n      |                                                                          ^\n  136 |  await page.getByRole('button',{name:'Follow up',exact:true}).click()\n  137 |  await page.getByRole('button',{name:'Continue',exact:true}).click()\n  138 |  await page.getByRole('checkbox').check()\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:135:74"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:08:05.717Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-staff-walk-in-submission-sends-only-visit-data-once\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-staff-walk-in-submission-sends-only-visit-data-once\\error-context.md"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-e467bf78ee3e942fa1ae",
+          "file": "billing.spec.mjs",
+          "line": 127,
+          "column": 50
+        },
+        {
+          "title": "lost partial payment response retries the same key and preserves the remaining balance",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "timedOut",
+                  "duration": 20124,
+                  "error": {
+                    "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m",
+                    "stack": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 77,
+                        "line": 150
+                      },
+                      "message": "Error: locator.click: Test timeout of 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Confirm Payment ₱100.00', exact: true })\u001b[22m\n\n\n  148 |  await page.goto(checkout)\n  149 |  await page.getByRole('button',{name:'Cash',exact:true}).click();await page.getByLabel('Payment Amount',{exact:true}).fill('100')\n> 150 |  await page.getByRole('button',{name:'Confirm Payment ₱100.00',exact:true}).click()\n      |                                                                             ^\n  151 |  const confirmation=page.getByRole('dialog')\n  152 |  await confirmation.getByRole('button',{name:'Confirm Payment ₱100.00',exact:true}).click()\n  153 |  await expect.poll(()=>state.paymentResponseLost).toBe(true)\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:150:77"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:08:26.985Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-lost-partial-payme-8c7a0-erves-the-remaining-balance\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-lost-partial-payme-8c7a0-erves-the-remaining-balance\\error-context.md"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-bec8a29881e14243415f",
+          "file": "billing.spec.mjs",
+          "line": 146,
+          "column": 1
+        },
+        {
+          "title": "a paid bill opens its saved receipt with the promotion total",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "timedOut",
+                  "duration": 20102,
+                  "error": {
+                    "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m",
+                    "stack": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 19,
+                        "line": 166
+                      },
+                      "message": "Error: page.waitForEvent: Test timeout of 20000ms exceeded.\n=========================== logs ===========================\nwaiting for event \"popup\"\n============================================================\n\n  164 |  const {root}=await mockClinic(page,'staff',{requests:false,bill:{status:'paid',paid_amount:405,balance_amount:0,payments:[payment]}})\n  165 |  await page.goto(`${root}/billing/history/6`)\n> 166 |  const popup=page.waitForEvent('popup');await page.getByRole('button',{name:'View Receipt',exact:true}).click();const receipt=await popup\n      |                   ^\n  167 |  await expect(receipt.locator('body')).toContainText('OR-TEST-PAID');await expect(receipt.locator('body')).toContainText('Branch Address');await expect(receipt.locator('body')).toContainText('₱405.00');await expect(receipt.locator('body')).toContainText('₱135.00')\n  168 | })\n  169 |\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:166:19"
+                    },
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 105,
+                        "line": 166
+                      },
+                      "message": "Error: locator.click: Test timeout of 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'View Receipt', exact: true })\u001b[22m\n\n\n  164 |  const {root}=await mockClinic(page,'staff',{requests:false,bill:{status:'paid',paid_amount:405,balance_amount:0,payments:[payment]}})\n  165 |  await page.goto(`${root}/billing/history/6`)\n> 166 |  const popup=page.waitForEvent('popup');await page.getByRole('button',{name:'View Receipt',exact:true}).click();const receipt=await popup\n      |                                                                                                         ^\n  167 |  await expect(receipt.locator('body')).toContainText('OR-TEST-PAID');await expect(receipt.locator('body')).toContainText('Branch Address');await expect(receipt.locator('body')).toContainText('₱405.00');await expect(receipt.locator('body')).toContainText('₱135.00')\n  168 | })\n  169 |\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:166:105"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:08:48.333Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-a-paid-bill-opens--ca5df-pt-with-the-promotion-total\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-a-paid-bill-opens--ca5df-pt-with-the-promotion-total\\error-context.md"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-9bb0513111141dbb2ef3",
+          "file": "billing.spec.mjs",
+          "line": 162,
+          "column": 1
+        },
+        {
+          "title": "admin: scheduled manual booking never serializes its button event",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 6775,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:176:90",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 90,
+                      "line": 176
+                    },
+                    "snippet": "  174 |  await page.getByRole('button',{name:'Next month',exact:true}).click();await page.getByRole('button',{name:/^[A-Z][a-z]+ \\d{1,2}, \\d{4}$/}).first().click();await page.getByRole('button',{name:'10:00',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click()\n  175 |  await page.getByRole('button',{name:'Follow up',exact:true}).click();await page.getByRole('checkbox').check();await page.getByRole('button',{name:'Create Appointment',exact:true}).click()\n> 176 |  await expect(page.getByRole('heading',{name:'Appointment request created',exact:true})).toBeVisible()\n      |                                                                                          ^\n  177 |  const calls=state.calls.filter(c=>c.path.endsWith('/appointments')&&c.method==='POST');expect(calls).toHaveLength(1);expect(calls[0].body.override_no_show_warning).toBe(false);expect(calls[0].body.patient_id).toBe(4);expect(calls[0].body.doctor_id).toBe(8);expect(calls[0].body.requested_service_id).toBe(77);expect(calls[0].body.appointment_time).toBe('10:00')\n  178 | })\n  179 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 90,
+                        "line": 176
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n\n\n  174 |  await page.getByRole('button',{name:'Next month',exact:true}).click();await page.getByRole('button',{name:/^[A-Z][a-z]+ \\d{1,2}, \\d{4}$/}).first().click();await page.getByRole('button',{name:'10:00',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click()\n  175 |  await page.getByRole('button',{name:'Follow up',exact:true}).click();await page.getByRole('checkbox').check();await page.getByRole('button',{name:'Create Appointment',exact:true}).click()\n> 176 |  await expect(page.getByRole('heading',{name:'Appointment request created',exact:true})).toBeVisible()\n      |                                                                                          ^\n  177 |  const calls=state.calls.filter(c=>c.path.endsWith('/appointments')&&c.method==='POST');expect(calls).toHaveLength(1);expect(calls[0].body.override_no_show_warning).toBe(false);expect(calls[0].body.patient_id).toBe(4);expect(calls[0].body.doctor_id).toBe(8);expect(calls[0].body.requested_service_id).toBe(77);expect(calls[0].body.appointment_time).toBe('10:00')\n  178 | })\n  179 |\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:176:90"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:09:09.714Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-admin-scheduled-ma-5975c-serializes-its-button-event\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-admin-scheduled-ma-5975c-serializes-its-button-event\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 90,
+                    "line": 176
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-76677e93245c39445971",
+          "file": "billing.spec.mjs",
+          "line": 170,
+          "column": 50
+        },
+        {
+          "title": "superadmin: scheduled manual booking never serializes its button event",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 6796,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:176:90",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 90,
+                      "line": 176
+                    },
+                    "snippet": "  174 |  await page.getByRole('button',{name:'Next month',exact:true}).click();await page.getByRole('button',{name:/^[A-Z][a-z]+ \\d{1,2}, \\d{4}$/}).first().click();await page.getByRole('button',{name:'10:00',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click()\n  175 |  await page.getByRole('button',{name:'Follow up',exact:true}).click();await page.getByRole('checkbox').check();await page.getByRole('button',{name:'Create Appointment',exact:true}).click()\n> 176 |  await expect(page.getByRole('heading',{name:'Appointment request created',exact:true})).toBeVisible()\n      |                                                                                          ^\n  177 |  const calls=state.calls.filter(c=>c.path.endsWith('/appointments')&&c.method==='POST');expect(calls).toHaveLength(1);expect(calls[0].body.override_no_show_warning).toBe(false);expect(calls[0].body.patient_id).toBe(4);expect(calls[0].body.doctor_id).toBe(8);expect(calls[0].body.requested_service_id).toBe(77);expect(calls[0].body.appointment_time).toBe('10:00')\n  178 | })\n  179 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 90,
+                        "line": 176
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n\n\n  174 |  await page.getByRole('button',{name:'Next month',exact:true}).click();await page.getByRole('button',{name:/^[A-Z][a-z]+ \\d{1,2}, \\d{4}$/}).first().click();await page.getByRole('button',{name:'10:00',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click()\n  175 |  await page.getByRole('button',{name:'Follow up',exact:true}).click();await page.getByRole('checkbox').check();await page.getByRole('button',{name:'Create Appointment',exact:true}).click()\n> 176 |  await expect(page.getByRole('heading',{name:'Appointment request created',exact:true})).toBeVisible()\n      |                                                                                          ^\n  177 |  const calls=state.calls.filter(c=>c.path.endsWith('/appointments')&&c.method==='POST');expect(calls).toHaveLength(1);expect(calls[0].body.override_no_show_warning).toBe(false);expect(calls[0].body.patient_id).toBe(4);expect(calls[0].body.doctor_id).toBe(8);expect(calls[0].body.requested_service_id).toBe(77);expect(calls[0].body.appointment_time).toBe('10:00')\n  178 | })\n  179 |\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:176:90"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:09:17.692Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-superadmin-schedul-f7147-serializes-its-button-event\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-superadmin-schedul-f7147-serializes-its-button-event\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 90,
+                    "line": 176
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-b3dd7856fd44bff25d14",
+          "file": "billing.spec.mjs",
+          "line": 170,
+          "column": 50
+        },
+        {
+          "title": "staff: scheduled manual booking never serializes its button event",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 12,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 6755,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:176:90",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 90,
+                      "line": 176
+                    },
+                    "snippet": "  174 |  await page.getByRole('button',{name:'Next month',exact:true}).click();await page.getByRole('button',{name:/^[A-Z][a-z]+ \\d{1,2}, \\d{4}$/}).first().click();await page.getByRole('button',{name:'10:00',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click()\n  175 |  await page.getByRole('button',{name:'Follow up',exact:true}).click();await page.getByRole('checkbox').check();await page.getByRole('button',{name:'Create Appointment',exact:true}).click()\n> 176 |  await expect(page.getByRole('heading',{name:'Appointment request created',exact:true})).toBeVisible()\n      |                                                                                          ^\n  177 |  const calls=state.calls.filter(c=>c.path.endsWith('/appointments')&&c.method==='POST');expect(calls).toHaveLength(1);expect(calls[0].body.override_no_show_warning).toBe(false);expect(calls[0].body.patient_id).toBe(4);expect(calls[0].body.doctor_id).toBe(8);expect(calls[0].body.requested_service_id).toBe(77);expect(calls[0].body.appointment_time).toBe('10:00')\n  178 | })\n  179 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 90,
+                        "line": 176
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Appointment request created', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Appointment request created', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Appointment request created', exact: true })\u001b[22m\n\n\n  174 |  await page.getByRole('button',{name:'Next month',exact:true}).click();await page.getByRole('button',{name:/^[A-Z][a-z]+ \\d{1,2}, \\d{4}$/}).first().click();await page.getByRole('button',{name:'10:00',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click()\n  175 |  await page.getByRole('button',{name:'Follow up',exact:true}).click();await page.getByRole('checkbox').check();await page.getByRole('button',{name:'Create Appointment',exact:true}).click()\n> 176 |  await expect(page.getByRole('heading',{name:'Appointment request created',exact:true})).toBeVisible()\n      |                                                                                          ^\n  177 |  const calls=state.calls.filter(c=>c.path.endsWith('/appointments')&&c.method==='POST');expect(calls).toHaveLength(1);expect(calls[0].body.override_no_show_warning).toBe(false);expect(calls[0].body.patient_id).toBe(4);expect(calls[0].body.doctor_id).toBe(8);expect(calls[0].body.requested_service_id).toBe(77);expect(calls[0].body.appointment_time).toBe('10:00')\n  178 | })\n  179 |\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:176:90"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:09:25.691Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-staff-scheduled-ma-0d232-serializes-its-button-event\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-staff-scheduled-ma-0d232-serializes-its-button-event\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 90,
+                    "line": 176
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-c8f590c0b9191a58e103",
+          "file": "billing.spec.mjs",
+          "line": 170,
+          "column": 50
+        },
+        {
+          "title": "billing-only Staff can view bills without checkout, cash tools, or Admin actions",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 13,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 5481,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Payments', exact: true })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Payments', exact: true })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:182:71",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 71,
+                      "line": 182
+                    },
+                    "snippet": "  180 | test('billing-only Staff can view bills without checkout, cash tools, or Admin actions',async({page})=>{\n  181 |  await mockClinic(page,'staff',{permissions:['billing']});await page.goto('/staff/billing')\n> 182 |  await expect(page.getByRole('heading',{name:'Payments',exact:true})).toBeVisible()\n      |                                                                       ^\n  183 |  await expect(page.getByRole('link',{name:'Open Bill',exact:true})).toHaveCount(0)\n  184 |  await expect(page.getByText('Admin Tools',{exact:true})).toHaveCount(0)\n  185 |  await page.getByRole('link',{name:'Bill Details & History',exact:true}).click()"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 71,
+                        "line": 182
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: 'Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('heading', { name: 'Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Payments', exact: true })\u001b[22m\n\n\n  180 | test('billing-only Staff can view bills without checkout, cash tools, or Admin actions',async({page})=>{\n  181 |  await mockClinic(page,'staff',{permissions:['billing']});await page.goto('/staff/billing')\n> 182 |  await expect(page.getByRole('heading',{name:'Payments',exact:true})).toBeVisible()\n      |                                                                       ^\n  183 |  await expect(page.getByRole('link',{name:'Open Bill',exact:true})).toHaveCount(0)\n  184 |  await expect(page.getByText('Admin Tools',{exact:true})).toHaveCount(0)\n  185 |  await page.getByRole('link',{name:'Bill Details & History',exact:true}).click()\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:182:71"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:09:33.642Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-billing-only-Staff-0d389-cash-tools-or-Admin-actions\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-billing-only-Staff-0d389-cash-tools-or-Admin-actions\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 71,
+                    "line": 182
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-9a73408feb4dfb22d178",
+          "file": "billing.spec.mjs",
+          "line": 180,
+          "column": 1
+        },
+        {
+          "title": "mobile billing tabs and checkout fit the available viewport",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 14,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 5485,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('button', { name: 'Pending Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('button', { name: 'Pending Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('button', { name: 'Pending Payments', exact: true })\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('button', { name: 'Pending Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('button', { name: 'Pending Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('button', { name: 'Pending Payments', exact: true })\u001b[22m\n\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:191:78",
+                    "location": {
+                      "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                      "column": 78,
+                      "line": 191
+                    },
+                    "snippet": "  189 |  await page.setViewportSize({width:390,height:844})\n  190 |  const {root,checkout}=await mockClinic(page,'admin');await page.goto(`${root}/billing`)\n> 191 |  await expect(page.getByRole('button',{name:'Pending Payments',exact:true})).toBeVisible()\n      |                                                                              ^\n  192 |  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true)\n  193 |  await page.goto(checkout);await page.getByRole('button',{name:/Continue to Confirm Bill/}).click()\n  194 |  await expect(page.getByRole('heading',{name:'Charge Reductions'})).toBeVisible()"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 78,
+                        "line": 191
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('button', { name: 'Pending Payments', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('button', { name: 'Pending Payments', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('button', { name: 'Pending Payments', exact: true })\u001b[22m\n\n\n  189 |  await page.setViewportSize({width:390,height:844})\n  190 |  const {root,checkout}=await mockClinic(page,'admin');await page.goto(`${root}/billing`)\n> 191 |  await expect(page.getByRole('button',{name:'Pending Payments',exact:true})).toBeVisible()\n      |                                                                              ^\n  192 |  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true)\n  193 |  await page.goto(checkout);await page.getByRole('button',{name:/Continue to Confirm Bill/}).click()\n  194 |  await expect(page.getByRole('heading',{name:'Charge Reductions'})).toBeVisible()\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:191:78"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:09:40.359Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-mobile-billing-tab-74126--fit-the-available-viewport\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-mobile-billing-tab-74126--fit-the-available-viewport\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                    "column": 78,
+                    "line": 191
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-6d5254c5f047ea551698",
+          "file": "billing.spec.mjs",
+          "line": 188,
+          "column": 1
+        },
+        {
+          "title": "Admin applies a clearly labelled direct reduction with reason and confirmation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 15,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1145,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:09:47.059Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-642cd3454a208b5368e6",
+          "file": "billing.spec.mjs",
+          "line": 201,
+          "column": 1
+        },
+        {
+          "title": "Staff retains permission to close only their own cash drawer inside collapsed tools",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 15,
+                  "parallelIndex": 0,
+                  "status": "timedOut",
+                  "duration": 20081,
+                  "error": {
+                    "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m",
+                    "stack": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 20000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs",
+                        "column": 51,
+                        "line": 214
+                      },
+                      "message": "Error: locator.click: Test timeout of 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('Admin Tools', { exact: true })\u001b[22m\n\n\n  212 |  const {state}=await mockClinic(page,'staff',{permissions:['checkout']});await page.goto('/staff/checkout')\n  213 |  expect(state.calls.some(call=>call.path.endsWith('/cashier-closing'))).toBe(false)\n> 214 |  await page.getByText('Admin Tools',{exact:true}).click();await expect(page.getByRole('heading',{name:'Your End-of-Day Cash Drawer'})).toBeVisible()\n      |                                                   ^\n  215 |  await page.getByRole('button',{name:'Close My Drawer',exact:true}).click();await page.getByRole('spinbutton',{name:'Counted cash *',exact:true}).fill('100');await page.getByRole('button',{name:'Close Drawer',exact:true}).click()\n  216 |  await expect(page.getByText('Closed',{exact:true})).toBeVisible()\n  217 |  const requests=state.calls.filter(call=>call.path.endsWith('/cashier-closing')&&call.method==='POST');expect(requests).toHaveLength(1);expect(requests[0].body).toEqual({actual_cash:100,notes:null})\n    at D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser\\billing.spec.mjs:214:51"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T18:09:48.601Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-Staff-retains-perm-58315-awer-inside-collapsed-tools\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\implementation-2026-11-11\\browser-artifacts\\baseline-playwright\\billing-Staff-retains-perm-58315-awer-inside-collapsed-tools\\error-context.md"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "620a8933f10b7a4205ef-b9674222e8406a91cf7a",
+          "file": "billing.spec.mjs",
+          "line": 211,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-10T18:06:36.951Z",
+    "duration": 211962.16100000002,
+    "expected": 11,
+    "skipped": 0,
+    "unexpected": 16,
+    "flaky": 0
+  }
+}

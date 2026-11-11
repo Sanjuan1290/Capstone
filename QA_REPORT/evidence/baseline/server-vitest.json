@@ -1,0 +1,9 @@
+{
+  "name": "server-vitest",
+  "command": "npm test -- --reporter=json --outputFile=../QA_REPORT/evidence/server-vitest-results.json",
+  "cwd": "server",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 18851,
+  "status": "FAIL"
+}

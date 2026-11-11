@@ -1,0 +1,7 @@
+{
+  "name": "focused-client",
+  "command": "node --test tests/prescriptionDisplay20261111.node.test.mjs tests/billingReceiptA5_20261105.node.test.mjs",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 161
+}

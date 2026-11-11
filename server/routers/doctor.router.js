@@ -15,6 +15,7 @@ const {
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
+  clinicalChargeAdjustments, requestClinicalChargeAdjustment, cancelClinicalChargeAdjustment,
 } = require('../controllers/doctor.controller')
 const commonCtrl = require('../controllers/common.controller')
 const {handler:walkInAcceptanceHandler}=require('../utils/walkInAcceptance')
@@ -59,6 +60,9 @@ router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
 router.get('/billing/catalog',                 getBillingCatalog)
+router.get('/consultations/:appointmentId/charge-adjustments', clinicalChargeAdjustments)
+router.post('/consultations/:appointmentId/charge-adjustments', requestClinicalChargeAdjustment)
+router.delete('/consultations/:appointmentId/charge-adjustments/:requestId', cancelClinicalChargeAdjustment)
 router.post('/uploads/clinical', clinicalUploadLimiter, express.raw({ type: ['image/png', 'image/jpeg'], limit: '10mb' }), uploadClinicalImage)
 router.post('/uploads/clinical/status', clinicalUploadStatusLimiter, getClinicalUploadScanStatus)
 

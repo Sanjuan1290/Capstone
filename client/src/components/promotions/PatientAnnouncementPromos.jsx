@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { MdArrowForward, MdRefresh } from 'react-icons/md'
 
@@ -6,7 +6,7 @@ import { MdArrowForward, MdRefresh } from 'react-icons/md'
 export default function PatientAnnouncementPromos({branchId}) {
   const [posts,setPosts]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true)
   const currentBranch=useRef(branchId)
-  currentBranch.current=branchId
+  useLayoutEffect(()=>{currentBranch.current=branchId;return()=>{currentBranch.current=null}},[branchId])
   const load=useCallback(async()=>{
     if(!branchId){setPosts([]);setLoading(false);return}
     setLoading(true);setError('')

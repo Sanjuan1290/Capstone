@@ -23,7 +23,7 @@ const stubs={
  express:{raw:()=> (req,res,next)=>next()},
 }
 const moduleObj={exports:{}}
-vm.runInNewContext(`(function(require,module,exports){${source}\n})`,{console})(key=>{if(key in stubs)return stubs[key];throw Error('Unexpected require: '+key)},moduleObj,moduleObj.exports)
+vm.runInNewContext(`(function(require,module,exports){${source}\n})`,{console})(key=>{if(key in stubs)return stubs[key];if(key.startsWith('.'))return require('node:module').createRequire(path.resolve(__dirname,'../../routers/branchPromotions.js'))(key);throw Error('Unexpected require: '+key)},moduleObj,moduleObj.exports)
 const router={get:(route,...handlers)=>routes.set('GET '+route,handlers.at(-1)),post:(route,...handlers)=>routes.set('POST '+route,handlers.at(-1)),put:(route,...handlers)=>routes.set('PUT '+route,handlers.at(-1)),delete:(route,...handlers)=>routes.set('DELETE '+route,handlers.at(-1))}
 moduleObj.exports.registerBranchPromotions(router,{requireSuper:(req,res,next)=>next(),branchContext:(req,res,next)=>next(),requirePermission:()=> (req,res,next)=>next()})
 const req=({imageUrl,token})=>({branchId:1,user:{id:3},adminContext:{account_role:'admin'},ip:'127.0.0.1',params:{},body:{title:'Skin care',description:'Details',badge_text:'Offer',starts_on:'2026-11-01',ends_on:'2026-11-30',service_ids:[7],is_active:true,show_on_dashboard:true,image_url:imageUrl,image_token:token,featured_order:1}})

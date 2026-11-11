@@ -68,7 +68,11 @@ test('per-bill history contains charges payments receipts requests and activity'
 test('checkout presents four clear sections and handles adjustments at billing review',()=>{
  for(const file of ['src/pages/adminPage/Admin_CheckoutDetail.jsx','src/pages/staffPage/Staff_CheckoutDetail.jsx']){
   const source=read(file)
-  for(const title of ['1. Patient & Consultation','2. Bill Charges','3. Adjustments & Discounts','4. Payment'])assert.ok(source.includes(title),`${file}: ${title}`)
+  for(const title of ['1. Patient & Consultation','2. Bill Charges','3. Adjustments & Discounts'])assert.ok(source.includes(title),`${file}: ${title}`)
+  assert.match(source,/<CheckoutPaymentSection bill=\{bill\} draft=\{draft\}/)
+  assert.match(source,/isPayable && step === 3/)
+  const payment=read('src/components/billing/CheckoutPaymentSection.jsx')
+  for(const title of ['Payment Details','Payment Summary','Record Payment'])assert.ok(payment.includes(title),title)
   assert.equal((source.match(/<ChargeAdjustmentsPanel billingId=/g)||[]).length,1)
   assert.ok(source.indexOf('<ChargeAdjustmentsPanel billingId=')>source.indexOf('3. Adjustments & Discounts'))
   assert.match(source,/No Additional Discount/)

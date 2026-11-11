@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState } from 'react'
 import {
   MdAccessTime,
   MdAdd,
@@ -37,7 +37,7 @@ import {
   MdTitle,
 } from 'react-icons/md'
 import { getAdminLandingPage, getPublicLandingDirectory, saveLandingDraft, publishLandingDraft, restoreLandingVersion } from '../../services/landing.service'
-import { LandingPageSections } from '../LandingPages/LandingPage'
+import LandingDraftPreview from '../../components/system/LandingDraftPreview'
 import { uploadToCloudinary } from '../../services/portal.service'
 
 const Toast = ({ toasts }) => (
@@ -54,7 +54,7 @@ const Toast = ({ toasts }) => (
   </div>
 )
 
-const cardClass = 'rounded-[28px] border border-slate-200 bg-white p-5 md:p-6 shadow-sm'
+const cardClass = 'min-w-0 rounded-2xl border border-slate-200 bg-white p-5 md:p-6'
 const inputClass = 'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-700 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100'
 const textareaClass = `${inputClass} min-h-[120px] resize-y`
 
@@ -118,6 +118,16 @@ const Admin_LandingPage = () => {
   const [directory, setDirectory] = useState({ services: [], doctors: [] })
   const [previewDevice, setPreviewDevice] = useState('mobile')
   const [previewFull, setPreviewFull] = useState(false)
+  const mutationInFlight=useRef(false)
+  useEffect(()=>{
+    if(!previewFull)return undefined
+    const previous=document.activeElement,overflow=document.body.style.overflow
+    document.body.style.overflow='hidden'
+    const close=event=>{if(event.key==='Escape')setPreviewFull(false)}
+    document.addEventListener('keydown',close)
+    document.querySelector('[aria-label="Close preview"]')?.focus()
+    return()=>{document.body.style.overflow=overflow;document.removeEventListener('keydown',close);previous?.focus?.()}
+  },[previewFull])
 
   const showToast = (message, type = 'success') => {
     const id = Date.now()
@@ -212,26 +222,32 @@ const Admin_LandingPage = () => {
     setIsDirty(false)
   }
   const handleSave = async () => {
+    if(mutationInFlight.current)return
+    mutationInFlight.current=true
     setSaving(true)
     try {
       const saved = await saveLandingDraft(form, revision)
       applyServer(saved)
       showToast('Draft saved. The public website has not changed.')
     } catch (err) { showToast(err.message || 'Could not save your draft.', 'error') }
-    finally { setSaving(false) }
+    finally { mutationInFlight.current=false;setSaving(false) }
   }
   const handlePublish = async () => {
+    if(mutationInFlight.current)return
     if (!window.confirm('Publish these changes to the public CARAIT Clinic website?')) return
+    mutationInFlight.current=true
     setSaving(true)
     try {
       const published = await publishLandingDraft(form, revision)
       applyServer(published)
       showToast('Changes are now published on the website.')
     } catch (err) { showToast(err.message || 'Could not publish changes.', 'error') }
-    finally { setSaving(false) }
+    finally { mutationInFlight.current=false;setSaving(false) }
   }
   const handleRestore = async () => {
+    if(mutationInFlight.current)return
     if (!selectedVersion || !window.confirm('Restore this older version as a draft? The public website will stay the same until you publish.')) return
+    mutationInFlight.current=true
     setSaving(true)
     try {
       const restored = await restoreLandingVersion(selectedVersion, revision)
@@ -239,7 +255,7 @@ const Admin_LandingPage = () => {
       setSelectedVersion('')
       showToast('Previous version loaded as a draft. Review it before publishing.')
     } catch (err) { showToast(err.message || 'Could not restore this version.', 'error') }
-    finally { setSaving(false) }
+    finally { mutationInFlight.current=false;setSaving(false) }
   }
 
   const toggleService = (index) => {
@@ -290,10 +306,10 @@ const Admin_LandingPage = () => {
   }
 
   return (
-    <div className="max-w-7xl pb-6">
+    <div className="w-full min-w-0 max-w-[1600px] pb-6">
       <Toast toasts={toasts} />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+      <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1.8fr)_minmax(320px,1fr)]">
         <div className="min-w-0 space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
@@ -316,8 +332,9 @@ const Admin_LandingPage = () => {
           </button>
         </div>
 
-        <div className="-mx-4 overflow-x-auto px-4">
-          <div className="flex min-w-max gap-6 border-b border-slate-200">
+        <button type="button" onClick={()=>setPreviewFull(true)} className="button-secondary xl:hidden"><MdVisibility/> Preview Website</button>
+        <nav aria-label="Website sections" className="min-w-0">
+          <div className="flex flex-wrap gap-x-5 gap-y-2 border-b border-slate-200">
             {tabs.map((tab) => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
@@ -337,7 +354,7 @@ const Admin_LandingPage = () => {
               )
             })}
           </div>
-        </div>
+        </nav>
 
         {activeTab === 'header' && <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="text-base font-bold text-slate-900">Homepage Section Order</h2>
@@ -765,8 +782,8 @@ const Admin_LandingPage = () => {
             />
             <VisibilitySwitch shown={form.contact.visible !== false} onClick={() => toggleVisibility('contact')} />
 
-            <div className="grid gap-6 lg:grid-cols-3">
-              <SubCard title="Contact Info" className="lg:col-span-1">
+            <div className="space-y-6">
+              <SubCard title="A. Contact Information">
                 <IconField icon={MdTitle} iconClass="text-slate-500" label="Contact Heading">
                   <input value={form.contact.heading || ''} onChange={e => setValue('contact', 'heading', e.target.value)} className={inputClass} />
                 </IconField>
@@ -786,12 +803,14 @@ const Admin_LandingPage = () => {
                       onChange={e => setValue('contact', 'address_lines', [e.target.value, form.contact.address_lines?.[1] || ''])}
                       className={inputClass}
                       placeholder="Address line 1"
+                      aria-label="Address line 1"
                     />
                     <input
                       value={form.contact.address_lines?.[1] || ''}
                       onChange={e => setValue('contact', 'address_lines', [form.contact.address_lines?.[0] || '', e.target.value])}
                       className={inputClass}
                       placeholder="Address line 2"
+                      aria-label="Address line 2"
                     />
                   </div>
                 </IconField>
@@ -806,7 +825,7 @@ const Admin_LandingPage = () => {
                 </Field>
               </SubCard>
 
-              <SubCard title="Map" className="lg:col-span-1">
+              <SubCard title="B. Google Maps">
                 <IconField icon={MdMap} iconClass="text-sky-600" label="Google Maps Embed URL">
                   <textarea value={form.contact.map_embed_url || ''} onChange={e => setValue('contact', 'map_embed_url', e.target.value)} className={textareaClass} />
                 </IconField>
@@ -825,7 +844,7 @@ const Admin_LandingPage = () => {
                 )}
               </SubCard>
 
-              <SubCard title="Call to Action" className="lg:col-span-1">
+              <SubCard title="C. Call to Action">
                 <IconField icon={MdCalendarMonth} iconClass="text-sky-600" label="Call-to-Action Title">
                   <input value={form.contact.cta_heading || ''} onChange={e => setValue('contact', 'cta_heading', e.target.value)} className={inputClass} />
                 </IconField>
@@ -870,13 +889,14 @@ const Admin_LandingPage = () => {
           </section>
         )}
         </div>
-        <aside className="min-w-0" aria-label="Live draft preview">
-          <div className="sticky top-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg">
+        <aside className="hidden min-w-0 xl:block" aria-label="Live draft preview">
+          <div className="sticky top-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 p-4">
               <div><p className="text-sm font-bold text-slate-800">Live Draft Preview</p><p className="text-xs text-slate-500">Updates as you edit. Not published.</p></div>
               <button type="button" onClick={() => setPreviewFull(true)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-sky-50">Expand Preview</button>
             </div>
-            <div className="max-h-[650px] overflow-y-auto"><LandingPageSections content={form} directory={directory} preview previewSection={activeTab} /></div>
+            <div role="group" aria-label="Preview device" className="flex gap-2 border-b border-slate-200 p-3">{['mobile','desktop'].map(device=><button type="button" key={device} aria-pressed={previewDevice===device} onClick={()=>setPreviewDevice(device)} className="button-secondary capitalize">{device} preview</button>)}</div>
+            <LandingDraftPreview content={form} directory={directory} device={previewDevice} section={activeTab}/>
           </div>
         </aside>
       </div>
@@ -885,13 +905,13 @@ const Admin_LandingPage = () => {
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 rounded-t-2xl bg-white p-3">
           <div><p className="font-bold text-slate-800">Unpublished Website Preview</p><p className="text-xs text-slate-500">This is a preview only. Changes are not yet public.</p></div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setPreviewDevice('mobile')} aria-pressed={previewDevice==='mobile'} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${previewDevice==='mobile'?'bg-sky-700 text-white':'bg-slate-100 text-slate-700'}`}><MdSmartphone /></button>
-            <button type="button" onClick={() => setPreviewDevice('desktop')} aria-pressed={previewDevice==='desktop'} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${previewDevice==='desktop'?'bg-sky-700 text-white':'bg-slate-100 text-slate-700'}`}><MdDesktopWindows /></button>
+            <button type="button" aria-label="Mobile preview" onClick={() => setPreviewDevice('mobile')} aria-pressed={previewDevice==='mobile'} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${previewDevice==='mobile'?'bg-sky-700 text-white':'bg-slate-100 text-slate-700'}`}><MdSmartphone /></button>
+            <button type="button" aria-label="Desktop preview" onClick={() => setPreviewDevice('desktop')} aria-pressed={previewDevice==='desktop'} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${previewDevice==='desktop'?'bg-sky-700 text-white':'bg-slate-100 text-slate-700'}`}><MdDesktopWindows /></button>
             <button type="button" onClick={() => setPreviewFull(false)} aria-label="Close preview" className="flex min-h-11 items-center gap-1 rounded-lg bg-slate-100 px-3 font-semibold"><MdClose /> Close</button>
           </div>
         </div>
         <div className="mx-auto w-full max-w-7xl flex-1 overflow-y-auto rounded-b-2xl bg-slate-100 p-2 sm:p-4">
-          <div className={`mx-auto overflow-hidden bg-white shadow-xl transition-[max-width] duration-300 ${previewDevice==='mobile'?'max-w-[390px]':'max-w-6xl'}`}><LandingPageSections content={form} directory={directory} preview /></div>
+          <div className={`mx-auto overflow-hidden bg-white shadow-xl transition-[max-width] duration-300 ${previewDevice==='mobile'?'max-w-[390px]':'max-w-6xl'}`}><LandingDraftPreview content={form} directory={directory} device={previewDevice}/></div>
         </div>
       </div>}
 
@@ -939,13 +959,16 @@ const Field = ({ label, children, className = '' }) => (
 
 const IconField = ({ icon, iconClass, label, children }) => {
   const Icon = icon
+  const id=useId()
+  const controls=Children.toArray(children)
+  const control=controls.find(child=>isValidElement(child)&&['input','textarea','select'].includes(child.type))
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
+      <label htmlFor={control?id:undefined} className="flex items-center gap-2">
         <Icon className={`text-[18px] ${iconClass}`} />
         <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{label}</span>
-      </div>
-      <div className="space-y-2">{children}</div>
+      </label>
+      <div className="space-y-2">{controls.map(child=>child===control?cloneElement(child,{id}):child)}</div>
     </div>
   )
 }

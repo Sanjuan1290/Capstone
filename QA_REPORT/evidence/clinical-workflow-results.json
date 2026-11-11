@@ -1,0 +1,220 @@
+{
+  "results": [
+    {
+      "name": "admin password login with local-only MFA override",
+      "status": "PASS"
+    },
+    {
+      "name": "superadmin password login with local-only MFA override",
+      "status": "PASS"
+    },
+    {
+      "name": "staff password login with local-only MFA override",
+      "status": "PASS"
+    },
+    {
+      "name": "patient actual password login returns HttpOnly session cookie",
+      "status": "PASS"
+    },
+    {
+      "name": "doctor actual password login returns HttpOnly session cookie",
+      "status": "PASS"
+    },
+    {
+      "name": "Patient books a same-day synthetic appointment through actual slot validation",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff confirms the booked appointment",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff checks in the actual appointment; duplicate check-in cannot create a second queue row",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff calls the patient and Doctor starts consultation",
+      "status": "PASS"
+    },
+    {
+      "name": "Doctor saves a versioned draft without inventory deduction",
+      "status": "PASS"
+    },
+    {
+      "name": "Insufficient stock rolls back finalization and clinical state",
+      "status": "PASS"
+    },
+    {
+      "name": "Doctor finalizes once, deducting exactly one unit and retaining prescription",
+      "status": "PASS"
+    },
+    {
+      "name": "Staff confirms the completed bill and collects cash exactly once",
+      "status": "PASS"
+    },
+    {
+      "name": "Patient history contains the same paid bill; another patient cannot read it",
+      "status": "PASS"
+    },
+    {
+      "name": "Patient logout invalidates the current session",
+      "status": "PASS"
+    }
+  ],
+  "executions": [
+    {
+      "case": "admin password login with local-only MFA override",
+      "method": "POST",
+      "path": "/api/admin/login",
+      "status": 200
+    },
+    {
+      "case": "superadmin password login with local-only MFA override",
+      "method": "POST",
+      "path": "/api/admin/login",
+      "status": 200
+    },
+    {
+      "case": "staff password login with local-only MFA override",
+      "method": "POST",
+      "path": "/api/staff/login",
+      "status": 200
+    },
+    {
+      "case": "patient actual password login returns HttpOnly session cookie",
+      "method": "POST",
+      "path": "/api/patient/login",
+      "status": 200
+    },
+    {
+      "case": "doctor actual password login returns HttpOnly session cookie",
+      "method": "POST",
+      "path": "/api/doctor/login",
+      "status": 200
+    },
+    {
+      "case": "Patient books a same-day synthetic appointment through actual slot validation",
+      "method": "POST",
+      "path": "/api/patient/appointments",
+      "status": 201,
+      "role": "patient"
+    },
+    {
+      "case": "Staff confirms the booked appointment",
+      "method": "PATCH",
+      "path": "/api/staff/appointments/10/confirm",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff checks in the actual appointment; duplicate check-in cannot create a second queue row",
+      "method": "POST",
+      "path": "/api/staff/queue",
+      "status": 201,
+      "role": "staff"
+    },
+    {
+      "case": "Staff checks in the actual appointment; duplicate check-in cannot create a second queue row",
+      "method": "POST",
+      "path": "/api/staff/queue",
+      "status": 409,
+      "role": "staff"
+    },
+    {
+      "case": "Staff calls the patient and Doctor starts consultation",
+      "method": "PATCH",
+      "path": "/api/staff/queue/2/status",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff calls the patient and Doctor starts consultation",
+      "method": "PATCH",
+      "path": "/api/doctor/appointments/10/start",
+      "status": 200,
+      "role": "doctor"
+    },
+    {
+      "case": "Doctor saves a versioned draft without inventory deduction",
+      "method": "PUT",
+      "path": "/api/doctor/consultations/10/draft",
+      "status": 200,
+      "role": "doctor"
+    },
+    {
+      "case": "Insufficient stock rolls back finalization and clinical state",
+      "method": "POST",
+      "path": "/api/doctor/consultations/10/finalize",
+      "status": 409,
+      "role": "doctor"
+    },
+    {
+      "case": "Doctor finalizes once, deducting exactly one unit and retaining prescription",
+      "method": "POST",
+      "path": "/api/doctor/consultations/10/finalize",
+      "status": 200,
+      "role": "doctor"
+    },
+    {
+      "case": "Doctor finalizes once, deducting exactly one unit and retaining prescription",
+      "method": "POST",
+      "path": "/api/doctor/consultations/10/finalize",
+      "status": 409,
+      "role": "doctor"
+    },
+    {
+      "case": "Staff confirms the completed bill and collects cash exactly once",
+      "method": "POST",
+      "path": "/api/staff/billing/7/finalize",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff confirms the completed bill and collects cash exactly once",
+      "method": "POST",
+      "path": "/api/staff/billing/7/pay",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Staff confirms the completed bill and collects cash exactly once",
+      "method": "POST",
+      "path": "/api/staff/billing/7/pay",
+      "status": 200,
+      "role": "staff"
+    },
+    {
+      "case": "Patient history contains the same paid bill; another patient cannot read it",
+      "method": "GET",
+      "path": "/api/patient/billing/history/7",
+      "status": 200,
+      "role": "patient"
+    },
+    {
+      "case": "Patient history contains the same paid bill; another patient cannot read it",
+      "method": "GET",
+      "path": "/api/patient/billing/history/7",
+      "status": 404,
+      "role": "patient"
+    },
+    {
+      "case": "Patient logout invalidates the current session",
+      "method": "POST",
+      "path": "/api/patient/logout",
+      "status": 200,
+      "role": "patient"
+    },
+    {
+      "case": "Patient logout invalidates the current session",
+      "method": "GET",
+      "path": "/api/patient/appointments",
+      "status": 401,
+      "role": "patient"
+    }
+  ],
+  "isolatedDatabase": true,
+  "providerDeliveryTested": false,
+  "adminMfaDeliveryTested": false,
+  "sameDayPolicyOverride": "Local process and synthetic branch 1 only",
+  "productionMutations": 0
+}

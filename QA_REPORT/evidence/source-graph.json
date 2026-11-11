@@ -1,0 +1,9 @@
+{
+  "name": "source-graph",
+  "command": "npm run verify:source",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 626,
+  "status": "PASS"
+}

@@ -598,6 +598,7 @@ const getHistory = async (req, res) => {
        c.id AS consultation_id,
        c.diagnosis,
        c.prescription,
+       c.prescription_status,
        c.notes AS consultation_notes,
        br.id AS billing_id, br.status AS billing_status,
        br.total_amount AS billing_total,

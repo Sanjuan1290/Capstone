@@ -6,6 +6,7 @@ import {
 } from 'react-icons/md'
 import { getClinicSettings } from '../../services/clinic.service'
 import { printBillingReceipt } from '../../utils/billingReceipt'
+import PrescriptionDetails from './PrescriptionDetails'
 
 const money = value => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(value) || 0)
 const formatDate = value => {
@@ -100,7 +101,7 @@ function VisitDetails({ visit, bill, canViewBilling, clinicSettings, onBack }) {
         <Info label="Consultation record status" value={statusLabel(visit.consultation_status)} />
         <Info label="Doctor's findings" value={visit.diagnosis} />
         <Info label="Treatment notes" value={visit.consultation_notes} />
-        <Info label="Prescription" value={visit.prescription_status === 'not_recorded' ? 'Not recorded' : visit.prescription} />
+        <div><dt className="text-sm font-semibold text-slate-500">Prescription</dt><dd className="mt-2"><PrescriptionDetails value={visit.prescription} status={visit.prescription_status}/></dd></div>
       </dl> : <p className="mt-3 text-sm text-slate-600">No doctor's consultation record has been saved for this appointment.</p>}
     </div>
     {canViewBilling ? <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

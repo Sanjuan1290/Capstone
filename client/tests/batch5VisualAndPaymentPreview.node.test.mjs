@@ -31,13 +31,16 @@ test('invalid, over-balance and insufficient cash amounts are rejected', () => {
   }
 })
 test('both Staff and Admin render the same isolated estimated preview', () => {
-  for(const page of ['components/billing/BillCheckout.jsx','components/billing/BillCheckout.jsx']){
+  for(const page of ['pages/adminPage/Admin_CheckoutDetail.jsx','pages/staffPage/Staff_CheckoutDetail.jsx','components/billing/BillCheckout.jsx']){
     const source=read(page)
-    assert.match(source,/import PaymentPreview from/)
-    assert.match(source,/<PaymentPreview bill=\{bill\} draft=\{draft\} formatMoney=\{formatMoney\}/)
-    assert.match(source,/formatMoney\(bill\.paid_amount\)/)
-    assert.match(source,/formatMoney\(bill\.balance_amount\)/)
+    assert.match(source,/import CheckoutPaymentSection from/)
+    assert.match(source,/<CheckoutPaymentSection bill=\{bill\} draft=\{draft\}/)
   }
+  const section=read('components/billing/CheckoutPaymentSection.jsx')
+  assert.match(section,/calculatePaymentPreview\(\{bill,draft\}\)/)
+  assert.match(section,/Previously paid amount',bill\.paid_amount/)
+  assert.match(section,/preview\.balanceAfter:bill\.balance_amount/)
+  assert.doesNotMatch(section,/payBill\(|recordPayment\(/)
   assert.doesNotMatch(read('components/billing/PaymentPreview.jsx'),/payBill\(|recordPayment\(|setDraft\(/)
 })
 test('dark-mode components explicitly handle translucent and weekday surfaces', () => {

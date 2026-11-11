@@ -1,0 +1,32 @@
+{
+  "status": "PASS",
+  "columns": [
+    {
+      "COLUMN_NAME": "reversal_reason",
+      "COLUMN_TYPE": "varchar(255)",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "COLUMN_NAME": "reversed_at",
+      "COLUMN_TYPE": "datetime",
+      "IS_NULLABLE": "YES"
+    },
+    {
+      "COLUMN_NAME": "reversed_by_admin_id",
+      "COLUMN_TYPE": "int",
+      "IS_NULLABLE": "YES"
+    }
+  ],
+  "foreignKeys": [
+    {
+      "CONSTRAINT_NAME": "fk_charge_adjust_bill",
+      "REFERENCED_TABLE_NAME": "billing_records"
+    }
+  ],
+  "negativeOrInconsistentBills": 0,
+  "reversedHistoryMissingFields": 0,
+  "sourceWrites": 0,
+  "guardedMigrationReentryPrepared": true,
+  "guardedMigrationReentryCompleted": true,
+  "finalMigrationLedgerRows": 1
+}

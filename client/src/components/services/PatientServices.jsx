@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { MdArrowForward, MdMedicalServices, MdFace, MdRefresh } from 'react-icons/md'
 import { getBookingServices } from '../../services/patient.service'
@@ -27,7 +27,10 @@ export default function PatientServices({ branchId }) {
   const [page, setPage] = useState(1)
   const currentBranch = useRef(branchId)
   const sectionRef = useRef(null)
-  currentBranch.current = branchId
+  useLayoutEffect(() => {
+    currentBranch.current = branchId
+    return () => { currentBranch.current = null }
+  }, [branchId])
 
   const load = useCallback(async () => {
     if (!branchId) { setServices([]); setLoading(false); setError(''); return }

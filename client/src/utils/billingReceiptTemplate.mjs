@@ -86,7 +86,19 @@ export function buildBillingReceiptHtml({bill,payment,clinicSettings={},logoUrl=
 .section-heading{font-size:10pt;margin:17px 0 8px;font-weight:800}.items{border-collapse:collapse;table-layout:fixed;width:100%;font-size:8.6pt}.items th{text-align:left;font-size:7.5pt;text-transform:uppercase;letter-spacing:.035em;color:#506178;border-bottom:1px solid #aab7c6;padding:7px 5px}.items td{padding:8px 5px;border-bottom:1px solid #e6eaf0;vertical-align:top}.items th:first-child,.items td:first-child{padding-left:0}.items th:last-child,.items td:last-child{padding-right:0}.items .numeric{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.item-name{overflow-wrap:anywhere}.items thead{display:table-header-group}.items tr{break-inside:avoid;page-break-inside:avoid}
 .amounts{margin-top:14px;max-width:100%;padding-top:5px;border-top:1px solid #d8e0e9}.amount-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:6px 0;font-size:9pt}.amount-row span{min-width:0;overflow-wrap:anywhere}.amount-row strong{white-space:nowrap;font-variant-numeric:tabular-nums}.discount strong{color:#007b59}.bill-total{border-top:2px solid #12253f;margin-top:10px;padding-top:10px;font-size:14pt;font-weight:800}.payment-summary{border:1px solid #cfdae6;border-radius:8px;margin-top:14px;padding:11px 13px;break-inside:avoid}.payment-summary h2{font-size:9pt;margin:0 0 7px;text-transform:uppercase;letter-spacing:.05em}.payment-summary .amount-row{margin:5px 0}.payment-summary .balance{padding-top:6px;border-top:1px solid #dce4ed;font-weight:800}.this-payment{font-weight:800}
 .note{color:#53657b;font-size:8pt;margin-top:12px;overflow-wrap:anywhere}.foot{border-top:1px solid #d8e0e9;margin-top:23px;padding-top:11px;text-align:center;font-size:8.5pt;color:#53657b;break-inside:avoid;white-space:pre-wrap;overflow-wrap:anywhere}.foot strong{color:#253d55}
-@media screen{body{padding:18px;max-width:560px;margin:auto;box-shadow:0 1px 10px #d8e0e9}}@media print{body{padding:0;box-shadow:none;max-width:none}.receipt{margin:0} }
+@media screen{body{padding:18px;max-width:560px;margin:auto;box-shadow:0 1px 10px #d8e0e9}}@media print{
+ @page{size:A5 portrait;margin:8mm}
+ html,body{height:auto;min-height:0;margin:0;padding:0}
+ body{font-size:9.5pt;line-height:1.25;box-shadow:none;max-width:none}
+ .receipt{margin:0;break-inside:auto}
+ .brand{gap:9px;padding-bottom:8px;margin-bottom:8px}.logo{width:42px;height:42px}.brand-name{font-size:16pt}.branch{margin-top:3px}
+ .receipt-top{margin-bottom:8px}.details{row-gap:6px;column-gap:12px;padding:8px 0}.detail{font-size:8.5pt}
+ .details .detail-label{display:inline;margin:0 4px 0 0;font-size:7.5pt}.details .detail-label::after{content:':'}.details .detail strong{font-weight:600}
+ .section-heading{margin:10px 0 6px}.items th{padding-top:5px;padding-bottom:5px}.items td{padding-top:6px;padding-bottom:6px}
+ .amounts{margin-top:10px}.amount-row{margin:4px 0}.bill-total{margin-top:8px;padding-top:8px;font-size:13pt}
+ .payment-summary{margin-top:10px;padding:8px 11px}.payment-summary .amount-row{margin:4px 0}
+ .foot{margin-top:12px;padding-top:8px;font-size:8pt;break-before:auto;page-break-before:auto}
+}
 </style></head><body><main class="receipt">
 <header class="brand"><img class="logo" src="${escapeHtml(logoUrl)}" alt="Carait Clinic logo"><div class="brand-copy"><h1 class="brand-name">CARAIT CLINIC</h1><div class="branch">${escapeHtml(branchName)}</div>${address ? `<div class="contact">${escapeHtml(address)}</div>` : ''}${contact ? `<div class="contact">${escapeHtml(contact)}</div>` : ''}<div class="receipt-title">${escapeHtml(title)}</div></div></header>
 <div class="receipt-top"><div class="receipt-id"><span class="detail-label">Receipt number</span><strong>${escapeHtml(payment.receipt_number || '—')}</strong></div><span class="status ${state.klass}">${escapeHtml(state.label)}</span></div>

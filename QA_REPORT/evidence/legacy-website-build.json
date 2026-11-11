@@ -1,0 +1,9 @@
+{
+  "name": "legacy-website-build",
+  "command": "npm run build",
+  "cwd": "client/WEBSITE",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 812,
+  "status": "FAIL"
+}

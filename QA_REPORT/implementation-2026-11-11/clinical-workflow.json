@@ -1,0 +1,7 @@
+{
+  "name": "clinical-workflow",
+  "command": "node QA_REPORT/implementation-2026-11-11/clinical-workflow.cjs",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 12222
+}

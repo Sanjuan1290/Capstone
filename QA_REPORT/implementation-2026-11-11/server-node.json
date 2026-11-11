@@ -1,0 +1,7 @@
+{
+  "name": "server-node",
+  "command": "npm run test:node",
+  "exitCode": 1,
+  "status": "FAIL",
+  "durationMs": 23470
+}

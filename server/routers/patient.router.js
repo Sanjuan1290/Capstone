@@ -20,7 +20,7 @@ const { cloneDefaultBookingPolicyDocument, parseStoredBookingPolicyDocument } = 
 
 // Physical clinic locations available for online patient booking.
 router.get('/branches', async(req,res)=>{
- const [rows]=await db.query('SELECT id,name,address,phone,offers_medical,offers_derma FROM clinic_branches WHERE is_active=1 ORDER BY created_at,id')
+ const [rows]=await db.query('SELECT id,name,address,phone,google_maps_url,offers_medical,offers_derma FROM clinic_branches WHERE is_active=1 ORDER BY created_at,id')
  res.json(rows)
 })
 // Public policy page. A branch is optional; without one, patients see the clinic-wide default policy.

@@ -1,0 +1,7 @@
+{
+  "name": "baseline-client-build",
+  "command": "npm run build",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 6249
+}

@@ -1,3 +1,5 @@
+import {useAuth} from '../../context/AuthContext'
+import {paymentRequestKey} from '../../utils/paymentRequest.mjs'
 import ChargeAdjustmentsPanel from '../../components/billing/ChargeAdjustmentsPanel'
 import { CheckoutProgress, CheckoutStatus, CheckoutOverview } from '../../components/billing/CheckoutExperience'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -29,7 +31,7 @@ import { LoadingState, ErrorState } from '../../components/ui/PageState'
 import BillingStatusBadge from '../../components/billing/BillingStatusBadge'
 import QrPhPaymentPanel from '../../components/billing/QrPhPaymentPanel'
 import SelectedPromotionNotice from '../../components/billing/SelectedPromotionNotice'
-import PaymentPreview from '../../components/billing/PaymentPreview'
+import CheckoutPaymentSection from '../../components/billing/CheckoutPaymentSection'
 import { createStaffQrPayment, getStaffQrStatus, cancelStaffQrPayment } from '../../services/staff.service'
 import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
 import DiscountProofField from '../../components/billing/DiscountProofField'
@@ -108,6 +110,8 @@ const totalsFor = (draft) => {
 
 
 const Staff_CheckoutDetail = () => {
+  const {user}=useAuth()
+  const paymentSubmitting=useRef(false),paymentIntent=useRef(null)
   const { billingId } = useParams()
   const navigate = useNavigate()
   const toast = useToast()
@@ -526,15 +530,23 @@ const Staff_CheckoutDetail = () => {
   }
 
   const recordPayment = async () => {
+    if(paymentSubmitting.current)return
+    paymentSubmitting.current=true
     setPaying(true)
     try {
+      const signature=JSON.stringify([billingId,bill.version,bill.balance_amount,draft.payment_method,Number(draft.payment_amount),Number(draft.amount_received),String(draft.reference_number||'').trim()])
+      const storageKey=`carait:payment:${'/staff'}:${user?.id}:${billingId}`
+      if(paymentIntent.current?.signature!==signature){
+        const key=paymentRequestKey(window.sessionStorage,storageKey,signature,()=>`checkout-${billingId}-${globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`}`)
+        paymentIntent.current={signature,key,storageKey}
+      }
       const updated = await payBill(billingId, {
         payment_method: draft.payment_method,
         payment_amount: Number(draft.payment_amount || 0),
         amount_received: Number(draft.amount_received || 0),
         reference_number: String(draft.reference_number || '').trim() || null,
         payment_notes: String(draft.payment_notes || '').trim() || null,
-        idempotency_key: `checkout-${billingId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        idempotency_key: paymentIntent.current.key,
       })
       const payments = Array.isArray(updated.payments) ? updated.payments : []
       const payment = payments[0] || null
@@ -544,10 +556,13 @@ const Staff_CheckoutDetail = () => {
       setPaymentSuccess(true)
       setPaymentConfirm(false)
       setDirty(false)
+      try{window.sessionStorage.removeItem(paymentIntent.current.storageKey)}catch{ /* Confirmed receipt remains valid if storage is unavailable. */ }
+      paymentIntent.current=null
       toast.success('Payment recorded.')
     } catch (err) {
       toast.error(err.message || 'Payment could not be recorded.')
     } finally {
+      paymentSubmitting.current=false
       setPaying(false)
     }
   }
@@ -744,36 +759,14 @@ const Staff_CheckoutDetail = () => {
               </button>
             </div>
           )}
-          <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
-            <h2 className="font-black text-slate-900">4. Payment</h2><p className="mt-1 text-sm text-slate-500">Only payment methods enabled by Admin are shown here.</p>
-            <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-center"><p className="text-xs font-black uppercase tracking-wide text-sky-700">Amount Due</p><p className="mt-2 text-3xl font-black text-sky-950">{formatMoney(bill.balance_amount)}</p></div>
-            <details className="mt-5 rounded-2xl border border-sky-200 bg-sky-50/30 p-3" open={qrPending ? true : undefined}>
-              <summary className="min-h-11 cursor-pointer px-2 py-2 text-sm font-semibold text-slate-800">Pay with QR Ph (optional) — open QR payment</summary>
-            <QrPhPaymentPanel billId={billingId} remainingBalance={bill.balance_amount} getStatus={getStaffQrStatus} createQr={createStaffQrPayment} cancelQr={cancelStaffQrPayment} onPaid={() => load({ preserveStep: true })} onPendingChange={(locked) => {
+          <CheckoutPaymentSection bill={bill} draft={draft} setDraft={setDraft} paymentMethods={paymentMethods} paymentSettings={paymentSettings} qrPending={qrPending} paying={paying} requestPay={requestPay} printReceipt={printReceipt} qrPayment={<QrPhPaymentPanel billId={billingId} remainingBalance={bill.balance_amount} getStatus={getStaffQrStatus} createQr={createStaffQrPayment} cancelQr={cancelStaffQrPayment} onPaid={() => load({ preserveStep: true })} onPendingChange={(locked) => {
               setQrPending(locked)
               if (locked) setDraft(current => current?.payment_method ? { ...current, payment_method: '', reference_number: '' } : current)
             }} onSwitchToCash={async () => {
               await load({ preserveStep: true })
               setDraft(current => current ? { ...current, payment_method: 'cash', reference_number: '', payment_amount: Number(current.balance_amount || bill.balance_amount), amount_received: Number(current.balance_amount || bill.balance_amount) } : current)
               toast.success('QR cancelled. Ready for cash payment.')
-            }} />
-            </details>
-            {qrPending ? <div role="status" className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              <p className="font-bold">QR status is being checked or payment is active — Cash is not available yet.</p>
-              <p className="mt-2">To take cash instead, select <strong>Cancel QR & Switch to Cash</strong> above. Wait for the clinic server to confirm cancellation before collecting money.</p>
-            </div> : <div className="mt-5"><p className="form-label">How will the patient pay?</p><p className="mt-1 text-xs text-slate-500">Choose a payment method. This selection does not record payment.</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{paymentMethods.map((method) => <button key={method.value} disabled={qrPending} aria-pressed={draft.payment_method === method.value} onClick={() => setDraft((current) => ({ ...current, payment_method: current.payment_method === method.value ? '' : method.value, reference_number: '', amount_received: current.payment_amount || bill.balance_amount }))} className={`rounded-2xl border p-4 text-left font-black transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 motion-reduce:transition-none ${draft.payment_method === method.value ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 hover:bg-slate-50'}`}>{method.label}</button>)}</div>{draft.payment_method && <button type="button" className="mt-3 min-h-11 text-sm font-semibold text-sky-700 underline underline-offset-2" onClick={() => setDraft(current => ({ ...current, payment_method: '', reference_number: '' }))}>Clear selected payment method</button>}{paymentMethods.length === 0 && <div className="mt-2 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">No payment methods are enabled. Ask an administrator to update Billing → Setup → Payment Methods.</div>}</div>}
-            {!qrPending && draft.payment_method && <div className="mt-5 space-y-4"><p className="text-xs font-semibold text-amber-800">Only enter a payment after you have received the money. Choosing Cash does not mark a bill paid.</p><label><span className="form-label">Payment Amount</span><input type="number" min="0.01" max={bill.balance_amount} step="0.01" className="form-control mt-1.5" value={draft.payment_amount} onChange={(e) => setDraft((current) => ({ ...current, payment_amount: e.target.value, amount_received: current.payment_method === 'cash' ? e.target.value : current.amount_received }))} /></label>
-              {draft.payment_method === 'cash' ? <label><span className="form-label">Cash Received</span><input type="number" min="0" step="0.01" className="form-control mt-1.5" value={draft.amount_received} onChange={(e) => setDraft((current) => ({ ...current, amount_received: e.target.value }))} />{Number(draft.amount_received || 0) >= Number(draft.payment_amount || 0) && Number(draft.payment_amount || 0) > 0 && <span className="mt-2 block rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">Change: {formatMoney(Number(draft.amount_received || 0) - Number(draft.payment_amount || 0))}</span>}</label> : <>
-                <label><span className="form-label">Reference Number *</span><input maxLength={120} className="form-control mt-1.5" value={draft.reference_number} onChange={(e) => setDraft((current) => ({ ...current, reference_number: e.target.value }))} /></label>
-                {['gcash', 'maya'].includes(draft.payment_method) && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center">{paymentSettings[`${draft.payment_method}_qr_mode`] === 'external' ? <p className="text-sm font-bold text-slate-700">Use the clinic's {paymentMethodLabel(draft.payment_method)} QR available at the front desk.</p> : paymentSettings[`${draft.payment_method}_qr_url`] ? <><img src={paymentSettings[`${draft.payment_method}_qr_url`]} alt={`${paymentMethodLabel(draft.payment_method)} QR`} className="mx-auto max-h-64 rounded-xl object-contain" /><p className="mt-3 text-sm font-bold">Scan to pay {formatMoney(draft.payment_amount)}</p></> : <p className="text-sm font-bold text-rose-700">This digital payment method is enabled but its QR instructions are incomplete. Ask an administrator to correct Services & Pricing Setup.</p>}</div>}
-                {draft.payment_method === 'bank_transfer' && <div className="rounded-2xl bg-slate-50 p-4 text-sm"><p><strong>Bank:</strong> {paymentSettings.bank_name || 'Not configured'}</p><p className="mt-1"><strong>Account Name:</strong> {paymentSettings.bank_account_name || '—'}</p><p className="mt-1"><strong>Account Number:</strong> {paymentSettings.bank_account_number || '—'}</p></div>}
-              </>}
-              <label><span className="form-label">Payment Notes</span><textarea maxLength={500} rows={2} className="form-control mt-1.5 resize-none" value={draft.payment_notes || ''} onChange={(e) => setDraft((current) => ({ ...current, payment_notes: e.target.value }))} /></label>
-            </div>}
-          </section>
-          <aside className="lg:sticky lg:top-24 lg:self-start"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md"><h2 className="font-black">Payment Summary</h2><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Total Bill</span><strong>{formatMoney(bill.total_amount)}</strong></div><div className="flex justify-between"><span>Paid</span><strong className="text-emerald-700">{formatMoney(bill.paid_amount)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Balance</span><strong>{formatMoney(bill.balance_amount)}</strong></div><PaymentPreview bill={bill} draft={draft} formatMoney={formatMoney} /></div><button className="button-primary mt-5 w-full justify-center" disabled={paying || qrPending || !draft.payment_method} onClick={requestPay}>Record {formatMoney(draft.payment_amount)} Payment</button>{bill.payments?.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4"><p className="text-xs font-black uppercase text-slate-400">Previous Payments</p><div className="mt-2 space-y-2">{bill.payments.slice(0, 3).map((payment) => <div key={payment.id} className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><strong>{payment.receipt_number}</strong><strong>{formatMoney(payment.amount)}</strong></div>{Number(payment.refund_amount || 0) > 0 && <p className="mt-1 font-bold text-violet-700">Refunded: {formatMoney(payment.refund_amount)}</p>}<button className="mt-2 font-bold text-sky-700" onClick={() => printReceipt(payment)}>Print Receipt</button></div>)}</div></div>}</div></aside>
-          </div>
+            }} />} />
         </div>
       )}
 

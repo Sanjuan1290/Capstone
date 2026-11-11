@@ -5,6 +5,8 @@ import useClientPagination from '../../hooks/useClientPagination'
 import { getMyHistory, getMyBillingHistory, getMyBillingDetails } from '../../services/patient.service'
 import { printBillingReceipt } from '../../utils/billingReceipt'
 import { doctorClinicLabel } from '../../utils/doctor'
+import PrescriptionDetails from '../../components/patients/PrescriptionDetails'
+import { parsePrescription } from '../../utils/prescriptionDisplay.mjs'
 import { formatAppointmentRange, formatDurationMinutes, getReservedDurationMinutes } from '../../utils/appointmentTime'
 import {
   MdAccessTime, MdCalendarToday, MdClose, MdExpandLess, MdExpandMore,
@@ -49,9 +51,6 @@ const VISIT_STATUS = {
   rejected: { label: 'Rejected', color: 'bg-slate-100 text-slate-600' },
   no_show: { label: 'Did Not Arrive', color: 'bg-amber-50 text-amber-800' },
 }
-const parseRx = value => {
-  try { const rows = typeof value === 'string' ? JSON.parse(value) : value; return Array.isArray(rows) ? rows : [] } catch { return [] }
-}
 const groupByMonth = items => items.reduce((groups, item) => {
   const raw = String(item.appointment_date || item.date || '')
   const [y, m] = raw.slice(0, 7).split('-').map(Number)
@@ -72,10 +71,10 @@ const ProgressImages = ({ images }) => {
 
 const VisitCard = ({ visit, expanded, onToggle, onViewBill }) => {
   const Icon = visit.type === 'derma' ? MdFace : MdMedicalServices
-  const rx = parseRx(visit.prescription)
+  const rx = parsePrescription(visit.prescription)
   const images = Array.isArray(visit.progress_images) ? visit.progress_images.filter(image => image?.image_url) : []
   const status = VISIT_STATUS[visit.status] || { label: String(visit.status || 'History').replaceAll('_', ' '), color: 'bg-slate-100 text-slate-600' }
-  const hasClinical = visit.status === 'completed' && Boolean(visit.diagnosis || visit.consultation_notes || rx.length || images.length)
+  const hasClinical = visit.status === 'completed' && Boolean(visit.consultation_id || visit.diagnosis || visit.consultation_notes || rx.kind !== 'empty' || images.length)
   const billStatus = visit.billing_id ? paymentStatus({
     billing_status: visit.billing_status, billing_total: visit.billing_total, billing_paid_amount: visit.billing_paid_amount,
   }) : null
@@ -106,7 +105,7 @@ const VisitCard = ({ visit, expanded, onToggle, onViewBill }) => {
     {expanded && hasClinical && <section className="space-y-4 border-t border-slate-100 bg-slate-50/50 p-4 sm:p-5">
       {visit.diagnosis && <div><h4 className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Diagnosis</h4><p className="rounded-lg bg-white p-3 text-sm text-slate-700">{visit.diagnosis}</p></div>}
       {visit.consultation_notes && <div><h4 className="mb-1 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdNotes /> Clinical Notes</h4><p className="whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{visit.consultation_notes}</p></div>}
-      {rx.length > 0 && <div><h4 className="mb-2 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdLocalPharmacy /> Prescriptions</h4><div className="space-y-2">{rx.map((item, i) => <div key={i} className="rounded-xl border border-violet-100 bg-violet-50 p-3"><p className="font-semibold text-violet-900">{item.medicine}</p><p className="mt-1 text-xs text-violet-700">{[item.quantity ?? item.dosage ? `Qty: ${item.quantity ?? item.dosage}` : '', item.frequency, item.duration].filter(Boolean).join(' · ')}</p>{item.notes && <p className="mt-1 text-xs italic text-violet-700">{item.notes}</p>}</div>)}</div></div>}
+      {(visit.consultation_id || rx.kind !== 'empty') && <div><h4 className="mb-2 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdLocalPharmacy /> Prescriptions</h4><PrescriptionDetails value={visit.prescription} status={visit.prescription_status}/></div>}
       {images.length > 0 && <div><h4 className="mb-2 flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><MdImage /> Progress Images</h4><ProgressImages images={images} /></div>}
     </section>}
     {hasClinical && <button type="button" onClick={() => onToggle(visit.id)} className="flex w-full items-center justify-center gap-1 border-t border-slate-100 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50">{expanded ? <><MdExpandLess /> Hide Consultation Details</> : <><MdExpandMore /> View Consultation Details</>}</button>}

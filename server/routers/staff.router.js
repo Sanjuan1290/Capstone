@@ -148,7 +148,7 @@ router.get('/billing/cashier-closing', ...auth, can('checkout'), correctionsCtrl
 router.post('/billing/cashier-closing', ...auth, can('checkout'), correctionsCtrl.closeMyCashier)
 const chargeFinance=require('../utils/chargeAdjustments')
 const doFinance=fn=>async(req,res,next)=>{let conn;try{conn=await db.getConnection();await conn.beginTransaction();const out=await fn(req,conn);await conn.commit();res.json(out)}catch(e){if(conn)await conn.rollback().catch(()=>{});if(e.statusCode)return res.status(e.statusCode).json({code:e.code,message:e.message});next(e)}finally{conn?.release()}}
-router.get('/billing/:id/charge-adjustments',...auth,can('checkout'),ownBill,doFinance((req,conn)=>chargeFinance.list(conn,Number(req.params.id),req.branchId)))
+router.get('/billing/:id/charge-adjustments',...auth,canAny('checkout','billing'),ownBill,doFinance((req,conn)=>chargeFinance.list(conn,Number(req.params.id),req.branchId)))
 router.post('/billing/:id/charge-adjustments',...auth,can('checkout'),ownBill,doFinance(async(req,conn)=>({id:await chargeFinance.request({billingId:Number(req.params.id),branchId:req.branchId,actorRole:'staff',actorId:req.user.id,targetType:req.body?.target_type,serviceId:Number(req.body?.catalog_service_id),inventoryId:Number(req.body?.inventory_id||0),amount:req.body?.amount,reason:req.body?.reason},conn),message:'Discount requested. Administrator approval is required.'})))
 router.get('/billing/:id/adjustment-requests', ...auth, canAny('checkout', 'billing'), ownBill, staffCtrl.getBillingAdjustmentRequests)
 router.post('/billing/:id/adjustment-requests', ...auth, can('checkout'), ownBill, staffCtrl.requestBillingAdjustment)

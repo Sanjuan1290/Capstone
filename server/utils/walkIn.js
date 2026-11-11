@@ -99,6 +99,7 @@ const addWalkInVisit = async ({
   const conn = executor === db ? await db.getConnection() : executor
   const ownsConnection = executor === db
   let lockKey = null
+  let patientLockKey = null
   try {
     // Patient-scoped lock acquired BEFORE precheck, and held until commit.
     // Prevents concurrent requests from creating two active queue entries.

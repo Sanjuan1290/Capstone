@@ -43,7 +43,15 @@ test('search filters by name, email and phone using bound parameters', () => {
   assert.match(result.whereSql, /p\.phone LIKE/)
   assert.match(result.whereSql, /REPLACE\(REPLACE\(REPLACE/)
   assert.equal(result.params.length, 4)
-  assert.equal(result.params[3], '%09171234567%')
+  assert.equal(result.params[3], '%639171234567%')
+})
+
+test('digits inside names and email addresses do not broaden searches to unrelated phone numbers', () => {
+  for (const search of ['patient1@example.com', 'Patient 1']) {
+    const result = buildPatientDirectoryWhere({ search })
+    assert.equal(result.params.length, 3)
+    assert.doesNotMatch(result.whereSql, /REPLACE\(REPLACE\(REPLACE/)
+  }
 })
 
 test('status filters distinguish active and banned accounts', () => {

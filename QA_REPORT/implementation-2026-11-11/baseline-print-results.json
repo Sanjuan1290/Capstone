@@ -1,0 +1,514 @@
+[
+  {
+    "browser": "Edge",
+    "case": "one-service",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Edge-one-service-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "one-service",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Edge-one-service-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "multiple-services",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Edge-multiple-services-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "multiple-services",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Edge-multiple-services-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "promotion",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Edge-promotion-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "promotion",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Edge-promotion-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "partial",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Edge-partial-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "partial",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Edge-partial-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "refunded",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Edge-refunded-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "refunded",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Edge-refunded-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "voided",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Edge-voided-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "voided",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Edge-voided-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "long-fields",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Edge-long-fields-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "long-fields",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Edge-long-fields-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Edge",
+    "case": "many-items",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Edge-many-items-clean.pdf",
+    "expected": "multiple-pages",
+    "pages": 4,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "PASS"
+  },
+  {
+    "browser": "Edge",
+    "case": "many-items",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Edge-many-items-headers.pdf",
+    "expected": "multiple-pages",
+    "pages": 4,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "PASS"
+  },
+  {
+    "browser": "Chrome",
+    "case": "one-service",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Chrome-one-service-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "one-service",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Chrome-one-service-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "multiple-services",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Chrome-multiple-services-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "multiple-services",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Chrome-multiple-services-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "promotion",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Chrome-promotion-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "promotion",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Chrome-promotion-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "partial",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Chrome-partial-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "partial",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Chrome-partial-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "refunded",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Chrome-refunded-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "refunded",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Chrome-refunded-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "voided",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Chrome-voided-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "voided",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Chrome-voided-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "long-fields",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Chrome-long-fields-clean.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "long-fields",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Chrome-long-fields-headers.pdf",
+    "expected": "one-page",
+    "pages": 2,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "FAIL"
+  },
+  {
+    "browser": "Chrome",
+    "case": "many-items",
+    "headers": false,
+    "pdf": "browser-artifacts\\baseline-Chrome-many-items-clean.pdf",
+    "expected": "multiple-pages",
+    "pages": 4,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "PASS"
+  },
+  {
+    "browser": "Chrome",
+    "case": "many-items",
+    "headers": true,
+    "pdf": "browser-artifacts\\baseline-Chrome-many-items-headers.pdf",
+    "expected": "multiple-pages",
+    "pages": 4,
+    "millimetres": [
+      148.17,
+      209.89
+    ],
+    "allItemsRetained": true,
+    "requiredContentRetained": true,
+    "a5Portrait": true,
+    "status": "PASS"
+  }
+]

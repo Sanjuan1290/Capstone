@@ -5,6 +5,7 @@ const fs=require('node:fs'),path=require('node:path')
 const root=path.resolve(__dirname,'../..'),read=f=>fs.readFileSync(path.join(root,f),'utf8')
 const routerFiles=['branches.router.js','branchOperationalReads.js','branchReports.js','branchAudit.js','branchPromotions.js','branchAnnouncements.js','branchSystemWrites.js','branchQueueInventoryWrites.js','branchInventoryItems.js','branchCatalogWrites.js','branchAppointmentWrites.js','branchBillPreviewReads.js','branchGlobalReferenceWrites.js', 'branchPaymentSettingsWrites.js','branchSensitiveWrites.js','branchPaymentActions.js','branchCheckoutDraftWrites.js','branchBillCorrections.js','branchBatchActions.js','branchCashierAndPayment.js','paymongoGateway.js']
 const methods=['GET','POST','PUT','PATCH','DELETE']
+routerFiles.push('branchChargeAdjustments.js')
 // Consume one JS template expression ${...}, including nested backtick templates.
 function interpolation(str,start){
  let i=start,depth=1,quote=null,escaped=false

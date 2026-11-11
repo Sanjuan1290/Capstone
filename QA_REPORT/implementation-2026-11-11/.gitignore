@@ -1,0 +1,7 @@
+.tools/
+.baseline/
+baseline.zip
+browser-artifacts/
+*.pdf
+reference-page-*.png
+receipt-*.png

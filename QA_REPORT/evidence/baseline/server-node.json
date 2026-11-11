@@ -1,0 +1,9 @@
+{
+  "name": "server-node",
+  "command": "npm run test:node",
+  "cwd": "server",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 48383,
+  "status": "FAIL"
+}

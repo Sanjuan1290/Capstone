@@ -4,7 +4,7 @@ import PatientOffers from './pages/patientPage/PatientOffers.jsx'
 
 import {
   RouterProvider, createBrowserRouter, createRoutesFromElements,
-  Route, Navigate, useParams,
+  Route, Navigate, useParams, useLocation,
 } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 

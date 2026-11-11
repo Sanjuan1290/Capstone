@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "result": "FAIL",
+      "reason": "Local production-mode process did not become healthy"
+    }
+  ],
+  "productionMode": true,
+  "isolatedDatabase": true,
+  "remoteDeployment": false,
+  "processStopped": true
+}

@@ -1,0 +1,9 @@
+{
+  "name": "new-regressions",
+  "command": "node --test tests/deployment/resumableBranchMigrations.node.test.cjs tests/billing/finalizeApprovalGate20261105.node.test.cjs tests/branchGoogleMapsUrl.node.test.cjs tests/superadminPatientDirectory.node.test.cjs tests/serviceCustomization.node.test.cjs tests/billing/redesign20261105.node.test.cjs",
+  "cwd": "server",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 368,
+  "status": "FAIL"
+}

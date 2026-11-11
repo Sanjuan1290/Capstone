@@ -1,0 +1,9 @@
+{
+  "name": "reports-sql",
+  "command": "npm run verify:reports-sql",
+  "cwd": "server",
+  "exitCode": 0,
+  "signal": null,
+  "durationMs": 439,
+  "status": "PASS"
+}

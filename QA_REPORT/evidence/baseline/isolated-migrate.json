@@ -1,0 +1,9 @@
+{
+  "name": "isolated-migrate",
+  "command": "npm run migrate",
+  "cwd": "server",
+  "exitCode": 1,
+  "signal": null,
+  "durationMs": 1751,
+  "status": "FAIL"
+}

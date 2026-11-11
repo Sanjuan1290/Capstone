@@ -1,0 +1,7 @@
+{
+  "name": "client-build",
+  "command": "npm run build",
+  "exitCode": 0,
+  "status": "PASS",
+  "durationMs": 3380
+}
