@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "functionalBugsFixed": 3,
+  "targetedPass": 42,
+  "newFailingNames": 0,
+  "remainingConflictMarkers": 0,
+  "scannedQaTextFiles": 22,
+  "privateConfigurationFindings": 0,
+  "productionQueries": 0,
+  "productionWrites": 0,
+  "migrationsExecuted": 0,
+  "providerMessagesSent": 0
+}

@@ -698,6 +698,7 @@ const confirmAppointment = async (req, res) => {
     [id]
   )
   if (rows.length === 0) return res.status(404).json({ message: 'Appointment not found.' })
+  if (rows[0].status === 'confirmed') return res.json({ message: 'Appointment already confirmed.' })
   const lastNoShow = await getLastNoShowAppointment(rows[0].patient_id)
   if (lastNoShow && !req.body?.override_no_show_warning) {
     return res.status(409).json(makeNoShowWarningResponse(lastNoShow))
@@ -705,12 +706,6 @@ const confirmAppointment = async (req, res) => {
   assertAppointmentTransition(rows[0].status, 'confirmed')
   const [updated] = await db.query("UPDATE appointments SET status = 'confirmed', confirmation_deadline_at = NULL WHERE id = ? AND status = ?", [id, rows[0].status])
   await assertAppointmentMutationApplied(updated, id)
-  // Dispatch after a real status transition without delaying the clinic confirmation response.
-  void notifyDoctorOnConfirmation({
-    appointmentId: Number(id), doctorId: rows[0].doctor_id,
-    appointmentDate: rows[0].appointment_date, appointmentTime: rows[0].appointment_time,
-    clinicType: rows[0].clinic_type, branchId: rows[0].branch_id,
-  }).catch(error => console.error('[doctor-confirmation] notification failed', {appointmentId: id, message:error.message}))
   await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'appointment.confirmed',entityType:'appointment',entityId:id,oldValues:{status:rows[0].status},newValues:{status:'confirmed'},ipAddress:req.ip||null }).catch(() => {})
   await createNotification({
     target_role: 'patient',
@@ -721,7 +716,7 @@ const confirmAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: id,
   })
-  await createNotification({
+  const doctorNotification = await createNotification({
     target_role: 'doctor',
     target_user_id: rows[0].doctor_id,
     type: 'appointment_confirmed',
@@ -730,6 +725,14 @@ const confirmAppointment = async (req, res) => {
     reference_type: 'appointment',
     reference_id: id,
   })
+
+  // One persisted notification per successful confirmation; provider calls stay asynchronous.
+  void notifyDoctorOnConfirmation({
+    appointmentId: Number(id), doctorId: rows[0].doctor_id,
+    appointmentDate: rows[0].appointment_date, appointmentTime: rows[0].appointment_time,
+    clinicType: rows[0].clinic_type, branchId: rows[0].branch_id,
+    confirmationId: doctorNotification.id,
+  }).catch(error => console.error('[doctor-confirmation] notification failed', {appointmentId: id, message:error.message}))
 
   await sendAppointmentStatusEmail({
     to: rows[0].patient_email,

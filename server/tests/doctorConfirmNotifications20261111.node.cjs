@@ -2,6 +2,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const Module = require('node:module')
 const fs = require('node:fs')
+const vm = require('node:vm')
 const path = require('node:path')
 const root = path.resolve(__dirname, '..')
 const modulePath = path.join(root, 'utils/doctorConfirmationNotifications.js')
@@ -91,4 +92,65 @@ test('both confirmation controllers notify only after the successful status upda
 test('configuration routes are Super Admin only',()=>{
   const text=fs.readFileSync(path.join(root,'routers/admin.router.js'),'utf8')
   for(const verb of ['get','put']) assert.match(text,new RegExp(`router\\.${verb}\\('/system-setup/doctor-notifications', \\.\\.\\.auth`))
+})
+
+test('reschedule confirmations use new email keys while retries keep the same key',async()=>{
+ const {module:m,calls}=setup()
+ const original={email:'doctor@example.test',name:'Dr. Alex',date:'2026-11-20',time:'10:00 AM',clinic:'derma',branch:'South Clinic',appointmentId:31,confirmationId:100}
+ await m.sendDoctorConfirmationEmail(original)
+ await m.sendDoctorConfirmationEmail(original)
+ await m.sendDoctorConfirmationEmail({...original,date:'2026-11-21',time:'11:00 AM',confirmationId:101})
+ await m.sendDoctorConfirmationEmail({...original,confirmationId:102})
+ const sent=calls.email.map(([message])=>message)
+ assert.equal(sent[0].idempotencyKey,sent[1].idempotencyKey)
+ assert.notEqual(sent[0].idempotencyKey,sent[2].idempotencyKey)
+ assert.notEqual(sent[0].idempotencyKey,sent[3].idempotencyKey,'A new confirmation back at the original slot is a new event')
+ assert.ok(sent.every(message=>message.idempotencyKey.length<=256))
+ assert.ok(sent.every(message=>!message.idempotencyKey.includes(original.email)))
+})
+
+test('email keys also distinguish changed payloads for callers without a confirmation event ID',async()=>{
+ const {module:m,calls}=setup()
+ const original={email:'doctor@example.test',name:'Dr. Alex',date:'2026-11-20',time:'10:00 AM',clinic:'derma',branch:'South Clinic',appointmentId:31}
+ await m.sendDoctorConfirmationEmail(original)
+ await m.sendDoctorConfirmationEmail(original)
+ await m.sendDoctorConfirmationEmail({...original,date:'2026-11-21'})
+ await m.sendDoctorConfirmationEmail({...original,email:'other@example.test'})
+ const keys=calls.email.map(([message])=>message.idempotencyKey)
+ assert.equal(keys[0],keys[1]);assert.notEqual(keys[0],keys[2]);assert.notEqual(keys[0],keys[3])
+})
+
+for(const role of ['admin','staff'])test(`${role} confirmation uses persisted events without repeating duplicate or concurrent notifications`,async()=>{
+ const text=fs.readFileSync(path.join(root,`controllers/${role}.controller.js`),'utf8')
+ const source=text.slice(text.indexOf('const confirmAppointment = async'),text.indexOf('const cancelAppointment = async'))
+ const state={id:31,status:'pending',doctor_id:5,patient_id:7,patient_name:'Synthetic Patient',patient_email:'patient@qa.invalid',patient_phone:'+639171234567',doctor_name:'Synthetic Doctor',appointment_date:'2026-11-20',appointment_time:'10:00:00',clinic_type:'medical',branch_id:2}
+ let nextNotificationId=0
+ const sent=[],notifications=[]
+ const sandbox={db:{query:async(sql,args)=>{
+  if(sql.includes('SELECT a.id'))return [[{...state}]]
+  if(sql.startsWith('UPDATE appointments')){if(state.status!==args[1])return [{affectedRows:0}];state.status='confirmed';return [{affectedRows:1}]}
+  throw new Error('Unexpected synthetic confirmation query')
+ }},expirePendingAppointments:async()=>{},getLastNoShowAppointment:async()=>null,
+ assertAppointmentTransition:require('../utils/appointmentSecurity').assertAppointmentTransition,
+ assertAppointmentMutationApplied:async updated=>assert.equal(updated.affectedRows,1),
+ writeAuditLog:async()=>{},createNotification:async payload=>{const row={...payload,id:++nextNotificationId};notifications.push(row);return row},
+ notifyDoctorOnConfirmation:async payload=>{sent.push(payload)},sendAppointmentStatusEmail:async()=>{},sendPatientAppointmentStatusSms:async()=>{},broadcast:()=>{},console}
+ const confirm=vm.runInNewContext(source+';confirmAppointment',sandbox)
+ const req={params:{id:'31'},body:{},user:{id:12,role:'admin'},ip:'127.0.0.1',branchId:2}
+ const responses=[]
+ const res={json:payload=>{responses.push(payload);return res},status:()=>res}
+ await confirm(req,res)
+ await confirm(req,res)
+ assert.match(responses[1].message,/already confirmed/i)
+ assert.equal(sent.length,1);assert.equal(notifications.length,2)
+ state.status='pending';state.appointment_date='2026-11-21'
+ await confirm(req,res)
+ state.status='pending'
+ const raced=await Promise.allSettled([confirm(req,res),confirm(req,res)])
+ assert.equal(raced.filter(result=>result.status==='fulfilled').length,1)
+ assert.equal(raced.filter(result=>result.status==='rejected').length,1)
+ const doctorEvents=notifications.filter(row=>row.target_role==='doctor')
+ assert.equal(sent.length,3);assert.equal(doctorEvents.length,3)
+ assert.deepEqual(sent.map(payload=>payload.confirmationId),doctorEvents.map(row=>row.id))
+ assert.notEqual(sent[0].confirmationId,sent[1].confirmationId)
 })

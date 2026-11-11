@@ -52,3 +52,31 @@ test('no promotion on new service cannot apply to inventory',async()=>{
  const result=await applyServicePromotions(items,appointment,fixture([]),1)
  assert.equal(result.total,0)
 })
+
+test('deleting the live booked promotion preserves its saved discount only on the booked service',async()=>{
+ const booked={...appointment,promotion_id:null}
+ const items=[service(1,400),service(2,540),supply()]
+ const result=await applyServicePromotions(items,booked,fixture([]),1)
+ assert.equal(result.total,100)
+ assert.equal(result.applied.length,1)
+ const saved=JSON.parse(items[0].details_json).applied_promotion
+ assert.equal(saved.amount,100)
+ assert.equal(saved.title,appointment.promotion_title_snapshot)
+ assert.equal(saved.id,null,'Do not invent a live promotion ID after ON DELETE SET NULL')
+ assert.equal(JSON.parse(items[1].details_json).applied_promotion,null)
+ assert.equal(JSON.parse(items[2].details_json).applied_promotion,undefined)
+})
+
+test('deleted booked promotion remains capped and is not counted twice on repeated saves',async()=>{
+ const items=[service(1,80)]
+ const booked={...appointment,promotion_id:null}
+ assert.equal((await applyServicePromotions(items,booked,fixture([]),1)).total,80)
+ assert.equal((await applyServicePromotions(items,booked,fixture([]),1)).total,80)
+ assert.equal(JSON.parse(items[0].details_json).applied_promotion.amount,80)
+})
+
+test('a deleted booked offer cannot authorize an explicit added-service discount',async()=>{
+ const booked={...appointment,promotion_id:null}
+ await assert.rejects(applyServicePromotions([service(2,540,9)],booked,fixture([]),1),{code:'PROMOTION_SERVICE_MISMATCH'})
+ assert.equal((await applyServicePromotions([service(2,540)],booked,fixture([]),1)).total,0)
+})

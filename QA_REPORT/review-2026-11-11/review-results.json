@@ -1,0 +1,622 @@
+{
+  "date": "2026-11-11",
+  "timezone": "Asia/Manila",
+  "reviewedHead": "b93ff316744048006033e9b3c17114f41b6f5f0f",
+  "baseline": "7723e97",
+  "changedFiles": [
+    {
+      "file": "client/src/App.jsx",
+      "added": 2,
+      "removed": 3
+    },
+    {
+      "file": "client/src/components/NotificationBell.jsx",
+      "added": 4,
+      "removed": 5
+    },
+    {
+      "file": "client/src/components/accounts/StaffPermissionPicker.jsx",
+      "added": 19,
+      "removed": 7
+    },
+    {
+      "file": "client/src/components/billing/BillCheckout.jsx",
+      "added": 64,
+      "removed": 45
+    },
+    {
+      "file": "client/src/components/billing/BillHistoryDetail.jsx",
+      "added": 3,
+      "removed": 2
+    },
+    {
+      "file": "client/src/components/billing/BillingPaymentRefundControl.jsx",
+      "added": 67,
+      "removed": 0
+    },
+    {
+      "file": "client/src/components/billing/CheckoutServiceEditor.jsx",
+      "added": 32,
+      "removed": 0
+    },
+    {
+      "file": "client/src/components/billing/CheckoutSupplyEditor.jsx",
+      "added": 5,
+      "removed": 5
+    },
+    {
+      "file": "client/src/components/billing/DoctorChargeReductionPanel.jsx",
+      "added": 20,
+      "removed": 4
+    },
+    {
+      "file": "client/src/components/billing/PaymentPreview.jsx",
+      "added": 6,
+      "removed": 6
+    },
+    {
+      "file": "client/src/components/billing/SelectedPromotionNotice.jsx",
+      "added": 19,
+      "removed": 22
+    },
+    {
+      "file": "client/src/components/layouts/AdminLayout.jsx",
+      "added": 19,
+      "removed": 10
+    },
+    {
+      "file": "client/src/components/layouts/DoctorLayout.jsx",
+      "added": 2,
+      "removed": 9
+    },
+    {
+      "file": "client/src/components/layouts/PatientLayout.jsx",
+      "added": 2,
+      "removed": 9
+    },
+    {
+      "file": "client/src/components/layouts/StaffLayout.jsx",
+      "added": 23,
+      "removed": 12
+    },
+    {
+      "file": "client/src/components/promotions/PromotionCards.jsx",
+      "added": 5,
+      "removed": 7
+    },
+    {
+      "file": "client/src/components/schedule/ScheduleDayCard.jsx",
+      "added": 15,
+      "removed": 17
+    },
+    {
+      "file": "client/src/components/services/PatientServices.jsx",
+      "added": 8,
+      "removed": 10
+    },
+    {
+      "file": "client/src/components/system/InventoryExcelTools.jsx",
+      "added": 34,
+      "removed": 6
+    },
+    {
+      "file": "client/src/config/staffPermissions.js",
+      "added": 2,
+      "removed": 3
+    },
+    {
+      "file": "client/src/context/ThemeContext.jsx",
+      "added": 9,
+      "removed": 18
+    },
+    {
+      "file": "client/src/hooks/usePolling.js",
+      "added": 27,
+      "removed": 45
+    },
+    {
+      "file": "client/src/index.css",
+      "added": 1,
+      "removed": 38
+    },
+    {
+      "file": "client/src/pages/adminPage/Admin_BillingServiceForm.jsx",
+      "added": 8,
+      "removed": 9
+    },
+    {
+      "file": "client/src/pages/adminPage/Admin_CheckoutDetail.jsx",
+      "added": 109,
+      "removed": 53
+    },
+    {
+      "file": "client/src/pages/displayPage/QueueDisplay.jsx",
+      "added": 4,
+      "removed": 3
+    },
+    {
+      "file": "client/src/pages/doctorPage/Doctor_Appointments.jsx",
+      "added": 2,
+      "removed": 1
+    },
+    {
+      "file": "client/src/pages/doctorPage/Doctor_Consultation.jsx",
+      "added": 109,
+      "removed": 28
+    },
+    {
+      "file": "client/src/pages/doctorPage/Doctor_Dashboard.jsx",
+      "added": 3,
+      "removed": 3
+    },
+    {
+      "file": "client/src/pages/patientPage/History.jsx",
+      "added": 3,
+      "removed": 17
+    },
+    {
+      "file": "client/src/pages/patientPage/PatientDashboard.jsx",
+      "added": 13,
+      "removed": 13
+    },
+    {
+      "file": "client/src/pages/shared/Inventory.jsx",
+      "added": 4,
+      "removed": 7
+    },
+    {
+      "file": "client/src/pages/shared/PrivacyPolicys.jsx",
+      "added": 1,
+      "removed": 2
+    },
+    {
+      "file": "client/src/pages/shared/SettingsPage.jsx",
+      "added": 2,
+      "removed": 3
+    },
+    {
+      "file": "client/src/pages/staffPage/Staff_CheckoutDetail.jsx",
+      "added": 95,
+      "removed": 53
+    },
+    {
+      "file": "client/src/pages/staffPage/Staff_WalkInQueue.jsx",
+      "added": 5,
+      "removed": 4
+    },
+    {
+      "file": "client/src/pages/superAdminPage/BranchPortals.jsx",
+      "added": 1,
+      "removed": 5
+    },
+    {
+      "file": "client/src/pages/superAdminPage/redesign/SystemSetup.jsx",
+      "added": 102,
+      "removed": 0
+    },
+    {
+      "file": "client/src/services/admin.service.js",
+      "added": 2,
+      "removed": 7
+    },
+    {
+      "file": "client/src/services/doctor.service.js",
+      "added": 1,
+      "removed": 5
+    },
+    {
+      "file": "client/src/services/staff.service.js",
+      "added": 1,
+      "removed": 3
+    },
+    {
+      "file": "client/src/utils/clinicLiveEvents.mjs",
+      "added": 1,
+      "removed": 0
+    },
+    {
+      "file": "client/src/utils/consultationSupplyReason.mjs",
+      "added": 2,
+      "removed": 0
+    },
+    {
+      "file": "client/src/utils/queueLabel.mjs",
+      "added": 9,
+      "removed": 0
+    },
+    {
+      "file": "client/tailwind.config.js",
+      "added": 0,
+      "removed": 1
+    },
+    {
+      "file": "client/tests/billingReplacement20261105.node.test.mjs",
+      "added": 2,
+      "removed": 2
+    },
+    {
+      "file": "client/tests/doctorNotificationsLightMode20261111.node.test.mjs",
+      "added": 41,
+      "removed": 0
+    },
+    {
+      "file": "client/tests/fix4Workflow20261111.node.test.mjs",
+      "added": 90,
+      "removed": 0
+    },
+    {
+      "file": "client/tests/queueLabels20261111.node.test.mjs",
+      "added": 13,
+      "removed": 0
+    },
+    {
+      "file": "server/controllers/admin.controller.js",
+      "added": 22,
+      "removed": 6
+    },
+    {
+      "file": "server/controllers/billingCorrections.controller.js",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "file": "server/controllers/doctor.controller.js",
+      "added": 34,
+      "removed": 13
+    },
+    {
+      "file": "server/controllers/patient.controller.js",
+      "added": 6,
+      "removed": 14
+    },
+    {
+      "file": "server/controllers/staff.controller.js",
+      "added": 44,
+      "removed": 21
+    },
+    {
+      "file": "server/db/migrations/2026-11-11-billing-stock-reservations.sql",
+      "added": 24,
+      "removed": 0
+    },
+    {
+      "file": "server/db/migrations/2026-11-11-doctor-confirmation-notifications.sql",
+      "added": 10,
+      "removed": 0
+    },
+    {
+      "file": "server/db/migrations/2026-11-11-registration-sms-limits.sql",
+      "added": 9,
+      "removed": 0
+    },
+    {
+      "file": "server/routers/admin.router.js",
+      "added": 6,
+      "removed": 4
+    },
+    {
+      "file": "server/routers/branchClinicalStock.js",
+      "added": 40,
+      "removed": 0
+    },
+    {
+      "file": "server/routers/branches.router.js",
+      "added": 1,
+      "removed": 5
+    },
+    {
+      "file": "server/routers/doctor.router.js",
+      "added": 1,
+      "removed": 3
+    },
+    {
+      "file": "server/routers/doctorNotificationSettings.js",
+      "added": 19,
+      "removed": 0
+    },
+    {
+      "file": "server/routers/queue.router.js",
+      "added": 2,
+      "removed": 0
+    },
+    {
+      "file": "server/routers/semaphoreBalance.js",
+      "added": 13,
+      "removed": 0
+    },
+    {
+      "file": "server/routers/staff.router.js",
+      "added": 1,
+      "removed": 3
+    },
+    {
+      "file": "server/scripts/branchMigrations.js",
+      "added": 3,
+      "removed": 7
+    },
+    {
+      "file": "server/scripts/resetDemoData.js",
+      "added": 125,
+      "removed": 0
+    },
+    {
+      "file": "server/tests/batch4/selectedPromotion.node.cjs",
+      "added": 5,
+      "removed": 3
+    },
+    {
+      "file": "server/tests/billing/consultationBillingUx20261111.node.test.cjs",
+      "added": 51,
+      "removed": 0
+    },
+    {
+      "file": "server/tests/billing/servicePromotions20261111.node.test.cjs",
+      "added": 54,
+      "removed": 0
+    },
+    {
+      "file": "server/tests/clinicalReservations20261111.node.cjs",
+      "added": 36,
+      "removed": 0
+    },
+    {
+      "file": "server/tests/demoReset20261111.node.cjs",
+      "added": 20,
+      "removed": 0
+    },
+    {
+      "file": "server/tests/doctorConfirmNotifications20261111.node.cjs",
+      "added": 94,
+      "removed": 0
+    },
+    {
+      "file": "server/tests/registrationSmsLimits20261111.node.cjs",
+      "added": 51,
+      "removed": 0
+    },
+    {
+      "file": "server/tests/semaphoreBalance20261111.node.cjs",
+      "added": 36,
+      "removed": 0
+    },
+    {
+      "file": "server/utils/appointmentPolicies.js",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "file": "server/utils/billing.js",
+      "added": 13,
+      "removed": 10
+    },
+    {
+      "file": "server/utils/billingPromotionEndpoints.js",
+      "added": 21,
+      "removed": 0
+    },
+    {
+      "file": "server/utils/billingServicePromotions.js",
+      "added": 62,
+      "removed": 0
+    },
+    {
+      "file": "server/utils/clinicalInventoryReservations.js",
+      "added": 127,
+      "removed": 0
+    },
+    {
+      "file": "server/utils/doctorConfirmationNotifications.js",
+      "added": 89,
+      "removed": 0
+    },
+    {
+      "file": "server/utils/emailService.js",
+      "added": 1,
+      "removed": 1
+    },
+    {
+      "file": "server/utils/inventoryBatches.js",
+      "added": 70,
+      "removed": 1
+    },
+    {
+      "file": "server/utils/registrationSmsLimits.js",
+      "added": 54,
+      "removed": 0
+    },
+    {
+      "file": "server/utils/semaphoreBalance.js",
+      "added": 69,
+      "removed": 0
+    },
+    {
+      "file": "server/utils/smsService.js",
+      "added": 5,
+      "removed": 2
+    }
+  ],
+  "findings": [
+    {
+      "priority": "P1",
+      "title": "Keep the booked discount after its live promotion is deleted",
+      "file": "server/utils/billingServicePromotions.js",
+      "line": 40,
+      "issue": "The saved booking snapshot is used only when promotion_id is truthy. Deleting an offer is supported, and the existing FK sets appointment.promotion_id to NULL while leaving the saved selected service and discount snapshots. On later consultation finalization or draft save, this helper removes the booked discount and raises the patient total.",
+      "evidence": "Synthetic post-delete state: service 400, saved discount 100; before live ID is cleared the discount is 100, afterwards it is 0 and the bill becomes 400 instead of 300. No live row was deleted.",
+      "fix": "Treat a valid saved booking snapshot as authoritative independently of the optional live promotion FK. Apply current offer eligibility only to added-service selections. Add a booked-offer-deletion regression.",
+      "confidence": "Reproduced with actual helper and in-memory query executor."
+    },
+    {
+      "priority": "P2",
+      "title": "Interpret SMS quota timestamps in the database timezone",
+      "file": "server/utils/registrationSmsLimits.js",
+      "line": 31,
+      "issue": "The connection returns DATETIME strings (dateStrings:true) and defaults to +08:00, but new Date(row.window_start/last_sent_at) parses a timezone-free string in the Node host timezone. On a UTC host, the stored timestamps appear eight hours in the future: cooldown is skipped and the hourly window becomes nine hours.",
+      "evidence": "In a UTC process with MySQL-style +08:00 strings, attempts at 0, 1 and 2 seconds were all allowed. Attempt 4 at 3 seconds returned retryAfterSeconds=32397 instead of enforcing the first 60-second pause. The current unit mock stores Date objects and misses this boundary.",
+      "fix": "Use a single explicit timezone/UTC representation or database-native time comparisons for the entire quota window. Test mysql2 dateStrings values on a UTC host.",
+      "confidence": "Reproduced with actual quota code and synthetic dateStrings executor."
+    },
+    {
+      "priority": "P2",
+      "title": "Give each confirmation event its own email idempotency key",
+      "file": "server/utils/doctorConfirmationNotifications.js",
+      "line": 61,
+      "issue": "Every confirmation for an appointment uses doctor-confirm-<id>. A patient can reschedule an already confirmed appointment back to pending; when the clinic confirms again, the changed date/time produces a new email payload with the old key.",
+      "evidence": "Captured two actual helper payloads for appointment 9 on different dates/times: both keys were doctor-confirm-9 and the HTML differed. No email was sent. Provider rejection is an inference from the documented API contract.",
+      "fix": "Key by a persisted confirmation-event/revision identifier, retaining the same key only for retries of that exact event.",
+      "confidence": "Key/payload collision reproduced locally; delivery behavior verified from official documentation.",
+      "source": "https://resend.com/docs/dashboard/emails/idempotency-keys"
+    },
+    {
+      "priority": "P2",
+      "title": "Update migration-order expectations for the three appended migrations",
+      "file": "server/tests/deployment/migrationRunner.node.cjs",
+      "line": 141,
+      "issue": "The runner appends registration-sms-limits, billing-stock-reservations and doctor-confirmation-notifications, but the pinned-check test still asserts the old last five files. This makes the existing backend regression suite fail deterministically.",
+      "evidence": "The current checked-in migration SQL matches pinned SHA-256 checksums test now fails. The displayed diff is the expected migration tail, not a changed historical SQL hash.",
+      "fix": "Assert the updated complete registration order/tail while retaining historical hash and replay/type/history checks. Do not change old migration SQL or delete failing tests.",
+      "confidence": "Observed in the fresh full backend Node run."
+    }
+  ],
+  "node": {
+    "server": {
+      "tests": 730,
+      "pass": 697,
+      "fail": 33,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 387,
+      "pass": 364,
+      "fail": 23,
+      "skipped": 0
+    }
+  },
+  "previousNode": {
+    "server": {
+      "tests": 702,
+      "pass": 675,
+      "fail": 27,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 373,
+      "pass": 352,
+      "fail": 21,
+      "skipped": 0
+    }
+  },
+  "vitest": {
+    "tests": 263,
+    "pass": 257,
+    "fail": 6
+  },
+  "previousVitest": {
+    "tests": 263,
+    "pass": 259,
+    "fail": 4
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 24
+  },
+  "browser": {
+    "selectedSuite": "implementation20261111.spec.mjs",
+    "pass": 12,
+    "fail": 0,
+    "skipped": 0
+  },
+  "introducedFailures": {
+    "server": [
+      "complete consultation with none reduction decision preserves promotion and actual consumption",
+      "complete consultation with approved reduction decision preserves promotion and actual consumption",
+      "complete consultation with rejected reduction decision preserves promotion and actual consumption",
+      "walk-in endpoints and service selection are connected across roles",
+      "current checked-in migration SQL matches pinned SHA-256 checksums",
+      "billing and all reschedule paths preserve selected promotional discount boundaries"
+    ],
+    "client": [
+      "dark-mode components explicitly handle translucent and weekday surfaces",
+      "backend snapshots discounts at booking and charges them once in consultation and staff checkout"
+    ],
+    "vitest": [
+      "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity tracks service consumables as generic whole units and adds their Selling Price to the Service Price",
+      "September 30 consultation workflow UX allows patient-specific substitutions while keeping the booked service, branch inventory and completion lock"
+    ]
+  },
+  "currentFailures": {
+    "server": [
+      "approved image binds promotion, actor and current branch and saves only verified asset",
+      "complete consultation with none reduction decision preserves promotion and actual consumption",
+      "complete consultation with approved reduction decision preserves promotion and actual consumption",
+      "complete consultation with rejected reduction decision preserves promotion and actual consumption",
+      "readiness obtains branch-scoped accurate counts with 4 parameterized grouped queries",
+      "legacy organization-level readiness still works without a branch filter",
+      "branch doctor schedule endpoint uses weekday order and retains doctor ownership",
+      "deactivated branch is denied",
+      "Super Admin consolidated inventory sums both branches",
+      "billing settings are registered before dynamic bill id",
+      "walk-in endpoints and service selection are connected across roles",
+      "inactive branch operational actions are disabled while status switch remains accessible",
+      "active/inactive status filter compares strings correctly",
+      "public navigation is responsive and routes back to anchored home sections",
+      "stock requests are confined to the requested branch",
+      "current checked-in migration SQL matches pinned SHA-256 checksums",
+      "Doctor and billing helpers enforce branch-owned catalog items and bill attribution",
+      "cross-branch inventory expiry uses the Manila date at the UTC boundary",
+      "draft announcement accepts plain-text content",
+      "rejects unsafe external CTA URLs",
+      "rejects protocol-relative redirects",
+      "billing and all reschedule paths preserve selected promotional discount boundaries",
+      "first-login schema, invitation, login, password reset and UI all use the same flag",
+      "new additive migration stores draft and published policy separately",
+      "public page is routed, linked from the footer, and opened from the booking flow",
+      "appointment validates the doctor and service inside the requested branch transaction",
+      "patient booking explicitly requires branch-owned doctor and service",
+      "Patient promotion API rejects absent branch and cannot return other branch offers",
+      "new compatibility endpoints have branch predicates, not JS-only list filtering",
+      "patient doctor schedules require branch-scoped active doctor",
+      "dashboard and reports separate billed from collected and have date selectors",
+      "substitute Saline with alternative prices patient-specific ₱470, deducts only actual products",
+      "branch and Staff System Setup use the same physical stock allocation summary"
+    ],
+    "client": [
+      "AuthContext preserves a session on unavailable checks and revalidates on tab return",
+      "patient guards show a retry state instead of redirecting on an unavailable auth check",
+      "branch form includes blank, standard, copy, preview and creation guidance",
+      "both checkout portals supply branch scoped cancellation to the shared QR panel",
+      "dark-mode components explicitly handle translucent and weekday surfaces",
+      "doctor availability sorts weekdays while preserving booking routes",
+      "featured offers preserve selected promotion while providing bounded scroll controls",
+      "Staff and Admin wrappers bind one shared checkout to their own permitted APIs",
+      "pending clinical adjustments are reviewed on bill, not by a Doctor",
+      "backend snapshots discounts at booking and charges them once in consultation and staff checkout",
+      "shared Billing navigation and action links retain the selected physical branch",
+      "charge adjustment UI preserves approval, reason and stock separation notices",
+      "unapproved catalog prices and placeholders are not presented as public prices",
+      "redesigned dashboard retains live services, offers, announcements, and booking paths",
+      "prescription prints as two landscape pads without signature box",
+      "existing fields print and duplicate across pads",
+      "long prescription continues on extra sheet without dropping medicine entries",
+      "staff with Checkout and Billing sees the same four billing tasks as Admin",
+      "billing-only staff cannot reach payment or cashier tools via query parameter",
+      "checkout-only staff can still read branch-owned bills but does not gain Admin approvals",
+      "dashboard and reports never display zero-valued KPIs on request failure",
+      "branch activation retains the confirmation flow and readiness details",
+      "branch and super admin explicitly return permanent deletion on successful delete"
+    ],
+    "vitest": [
+      "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity tracks service consumables as generic whole units and adds their Selling Price to the Service Price",
+      "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity uses prescription quantity while keeping legacy dosage readable",
+      "Batch 5 deferred inventory deduction workflow does not cap actual consumable entry to pre-checked treatment-room stock",
+      "billing checkout follow-up regressions uses clinic-facing billing statuses and provides a return path to payment",
+      "September 30 consultation workflow UX allows patient-specific substitutions while keeping the booked service, branch inventory and completion lock",
+      "Batch 1 recovery and consultation autosave regressions keeps draft saving independent from treatment-room stock and autosaves without a manual Save Draft button"
+    ]
+  },
+  "conflictMarkers": 0,
+  "applicationEdits": 0,
+  "productionQueries": 0,
+  "productionWrites": 0,
+  "providerMessagesSent": 0
+}

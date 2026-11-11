@@ -1,0 +1,147 @@
+{
+  "date": "2026-11-11",
+  "timezone": "Asia/Manila",
+  "baseCommit": "b93ff316744048006033e9b3c17114f41b6f5f0f",
+  "functionalBugsFixed": 3,
+  "changedFiles": [
+    "server/controllers/admin.controller.js",
+    "server/controllers/staff.controller.js",
+    "server/tests/billing/servicePromotions20261111.node.test.cjs",
+    "server/tests/doctorConfirmNotifications20261111.node.cjs",
+    "server/tests/registrationSmsLimits20261111.node.cjs",
+    "server/utils/billingServicePromotions.js",
+    "server/utils/doctorConfirmationNotifications.js",
+    "server/utils/registrationSmsLimits.js"
+  ],
+  "newRegressionCases": 9,
+  "node": {
+    "targeted": {
+      "tests": 42,
+      "pass": 42,
+      "fail": 0,
+      "skipped": 0
+    },
+    "server": {
+      "tests": 739,
+      "pass": 709,
+      "fail": 30,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 387,
+      "pass": 364,
+      "fail": 23,
+      "skipped": 0
+    }
+  },
+  "previousNode": {
+    "server": {
+      "tests": 730,
+      "pass": 697,
+      "fail": 33,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 387,
+      "pass": 364,
+      "fail": 23,
+      "skipped": 0
+    }
+  },
+  "vitest": {
+    "tests": 263,
+    "pass": 257,
+    "fail": 6
+  },
+  "previousVitest": {
+    "tests": 263,
+    "pass": 257,
+    "fail": 6
+  },
+  "introducedFailures": {
+    "server": [],
+    "client": [],
+    "vitest": []
+  },
+  "resolvedFailures": [
+    "complete consultation with none reduction decision preserves promotion and actual consumption",
+    "complete consultation with approved reduction decision preserves promotion and actual consumption",
+    "complete consultation with rejected reduction decision preserves promotion and actual consumption"
+  ],
+  "build": "PASS",
+  "backendValidation": "PASS",
+  "sourceGraph": "PASS",
+  "remainingFailures": {
+    "server": [
+      "approved image binds promotion, actor and current branch and saves only verified asset",
+      "readiness obtains branch-scoped accurate counts with 4 parameterized grouped queries",
+      "legacy organization-level readiness still works without a branch filter",
+      "branch doctor schedule endpoint uses weekday order and retains doctor ownership",
+      "deactivated branch is denied",
+      "Super Admin consolidated inventory sums both branches",
+      "billing settings are registered before dynamic bill id",
+      "walk-in endpoints and service selection are connected across roles",
+      "inactive branch operational actions are disabled while status switch remains accessible",
+      "active/inactive status filter compares strings correctly",
+      "public navigation is responsive and routes back to anchored home sections",
+      "stock requests are confined to the requested branch",
+      "current checked-in migration SQL matches pinned SHA-256 checksums",
+      "Doctor and billing helpers enforce branch-owned catalog items and bill attribution",
+      "cross-branch inventory expiry uses the Manila date at the UTC boundary",
+      "draft announcement accepts plain-text content",
+      "rejects unsafe external CTA URLs",
+      "rejects protocol-relative redirects",
+      "billing and all reschedule paths preserve selected promotional discount boundaries",
+      "first-login schema, invitation, login, password reset and UI all use the same flag",
+      "new additive migration stores draft and published policy separately",
+      "public page is routed, linked from the footer, and opened from the booking flow",
+      "appointment validates the doctor and service inside the requested branch transaction",
+      "patient booking explicitly requires branch-owned doctor and service",
+      "Patient promotion API rejects absent branch and cannot return other branch offers",
+      "new compatibility endpoints have branch predicates, not JS-only list filtering",
+      "patient doctor schedules require branch-scoped active doctor",
+      "dashboard and reports separate billed from collected and have date selectors",
+      "substitute Saline with alternative prices patient-specific ₱470, deducts only actual products",
+      "branch and Staff System Setup use the same physical stock allocation summary"
+    ],
+    "client": [
+      "AuthContext preserves a session on unavailable checks and revalidates on tab return",
+      "patient guards show a retry state instead of redirecting on an unavailable auth check",
+      "branch form includes blank, standard, copy, preview and creation guidance",
+      "both checkout portals supply branch scoped cancellation to the shared QR panel",
+      "dark-mode components explicitly handle translucent and weekday surfaces",
+      "doctor availability sorts weekdays while preserving booking routes",
+      "featured offers preserve selected promotion while providing bounded scroll controls",
+      "Staff and Admin wrappers bind one shared checkout to their own permitted APIs",
+      "pending clinical adjustments are reviewed on bill, not by a Doctor",
+      "backend snapshots discounts at booking and charges them once in consultation and staff checkout",
+      "shared Billing navigation and action links retain the selected physical branch",
+      "charge adjustment UI preserves approval, reason and stock separation notices",
+      "unapproved catalog prices and placeholders are not presented as public prices",
+      "redesigned dashboard retains live services, offers, announcements, and booking paths",
+      "prescription prints as two landscape pads without signature box",
+      "existing fields print and duplicate across pads",
+      "long prescription continues on extra sheet without dropping medicine entries",
+      "staff with Checkout and Billing sees the same four billing tasks as Admin",
+      "billing-only staff cannot reach payment or cashier tools via query parameter",
+      "checkout-only staff can still read branch-owned bills but does not gain Admin approvals",
+      "dashboard and reports never display zero-valued KPIs on request failure",
+      "branch activation retains the confirmation flow and readiness details",
+      "branch and super admin explicitly return permanent deletion on successful delete"
+    ],
+    "vitest": [
+      "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity tracks service consumables as generic whole units and adds their Selling Price to the Service Price",
+      "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity uses prescription quantity while keeping legacy dosage readable",
+      "Batch 5 deferred inventory deduction workflow does not cap actual consumable entry to pre-checked treatment-room stock",
+      "billing checkout follow-up regressions uses clinic-facing billing statuses and provides a return path to payment",
+      "September 30 consultation workflow UX allows patient-specific substitutions while keeping the booked service, branch inventory and completion lock",
+      "Batch 1 recovery and consultation autosave regressions keeps draft saving independent from treatment-room stock and autosaves without a manual Save Draft button"
+    ]
+  },
+  "productionQueries": 0,
+  "productionWrites": 0,
+  "migrationsExecuted": 0,
+  "providerMessagesSent": 0,
+  "dependenciesChanged": false,
+  "deployed": false
+}

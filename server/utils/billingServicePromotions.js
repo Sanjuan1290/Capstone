@@ -37,10 +37,11 @@ const applyServicePromotions = async (items, appointment, executor, branchId) =>
   const id=Number(item.catalog_service_id)
   const base=money(Number(item.line_total||0))
   let offer=null,amount=0,title=''
-  if(item.source_type==='consultation' && id===bookedId && bookedOfferId){
+  // Deleting a live offer clears its FK, not the patient's saved booking price.
+  if(item.source_type==='consultation' && bookedId>0 && id===bookedId && (bookedOfferId>0 || bookingDiscount>0)){
    amount=Math.min(base,money(bookingDiscount))
    title=String(appointment.promotion_title_snapshot||'Booked promotion')
-   offer={id:bookedOfferId,title,discount_type:appointment.promotion_discount_type_snapshot,discount_value:appointment.promotion_discount_value_snapshot}
+   offer={id:bookedOfferId>0?bookedOfferId:null,title,discount_type:appointment.promotion_discount_type_snapshot,discount_value:appointment.promotion_discount_value_snapshot}
   }else{
    const chosen=details.requested_promotion_id
    const chosenId=chosen===null || chosen===undefined ? null : Number(chosen)
@@ -53,7 +54,7 @@ const applyServicePromotions = async (items, appointment, executor, branchId) =>
    }
    if(offer){amount=amountFor(base,offer.discount_type,offer.discount_value);title=offer.title}
   }
-  details.applied_promotion=offer && amount>0 ? {id:Number(offer.id),title,amount,discount_type:offer.discount_type,discount_value:Number(offer.discount_value||0)} : null
+  details.applied_promotion=offer && amount>0 ? {id:offer.id==null?null:Number(offer.id),title,amount,discount_type:offer.discount_type,discount_value:Number(offer.discount_value||0)} : null
   item.details_json=JSON.stringify(details)
   if(amount>0){total=money(total+amount);applied.push({catalog_service_id:id,title,amount,service_name:item.service_name})}
  }

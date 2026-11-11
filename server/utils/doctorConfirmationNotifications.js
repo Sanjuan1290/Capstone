@@ -1,6 +1,7 @@
 // Global Super Admin-controlled doctor appointment confirmation channels.
 // This runs only after a pending appointment actually changes to confirmed.
 const db = require('../db/connect')
+const { createHash } = require('node:crypto')
 const { sendResendEmail } = require('./resendEmail')
 const { sendDoctorAppointmentSms } = require('./smsService')
 const { formatAppointmentDate } = require('./emailService')
@@ -40,10 +41,10 @@ const saveSettings = async (options, adminId, executor = db) => {
 }
 
 const htmlEscape = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
-const sendDoctorConfirmationEmail = async ({ email, name, date, time, clinic, branch, appointmentId }) => {
+const sendDoctorConfirmationEmail = async ({ email, name, date, time, clinic, branch, appointmentId, confirmationId }) => {
   const url = `${String(process.env.CLIENT_URL || 'https://caraitclinic.com').replace(/\/$/, '')}/doctor/appointments`
   const formattedDate = formatAppointmentDate(date)
-  return sendResendEmail({
+  const payload = {
     to: email,
     subject: 'Carait Clinic - Appointment confirmed on your schedule',
     // No diagnosis, clinical notes, phone, or private patient information in external messages.
@@ -58,17 +59,21 @@ const sendDoctorConfirmationEmail = async ({ email, name, date, time, clinic, br
       <p>Sign in to your Doctor Portal for the appointment details.</p>
       <p><a href="${htmlEscape(url)}">Open Doctor Appointments</a></p>
     </div>`,
-    idempotencyKey: `doctor-confirm-${appointmentId}`,
-  })
+  }
+  // The saved doctor notification identifies this confirmation, even when a
+  // visit moves back to its original slot. Exact retries keep the same key.
+  const eventId = Number.isSafeInteger(Number(confirmationId)) && Number(confirmationId)>0 ? String(Number(confirmationId)) : 'snapshot'
+  const payloadHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex')
+  return sendResendEmail({...payload,idempotencyKey:`doctor-confirm-${appointmentId}-${eventId}-${payloadHash}`})
 }
 
-const notifyDoctorOnConfirmation = async ({ appointmentId, doctorId, appointmentDate, appointmentTime, clinicType, branchId }, executor = db, delivery = {}) => {
+const notifyDoctorOnConfirmation = async ({ appointmentId, doctorId, appointmentDate, appointmentTime, clinicType, branchId, confirmationId }, executor = db, delivery = {}) => {
   const settings = await readSettings(executor)
   if (!settings.send_email && !settings.send_sms) return { email:'disabled', sms:'disabled' }
   const [[doctor]] = await executor.query('SELECT full_name,email,phone FROM doctors WHERE id=? AND is_active=1 LIMIT 1', [doctorId])
   if (!doctor) return {email:'skipped',sms:'skipped'}
   const [[branch]] = await executor.query('SELECT name FROM clinic_branches WHERE id=? LIMIT 1', [branchId])
-  const payload = { email:doctor.email, name:doctor.full_name, date:appointmentDate, time:appointmentTime, clinic:clinicType, branch:branch?.name, appointmentId }
+  const payload = { email:doctor.email, name:doctor.full_name, date:appointmentDate, time:appointmentTime, clinic:clinicType, branch:branch?.name, appointmentId, confirmationId }
   const sender = delivery.sendEmail || sendDoctorConfirmationEmail
   const smsSender = delivery.sendSms || sendDoctorAppointmentSms
   const results = await Promise.allSettled([

@@ -7,6 +7,18 @@ const HOUR_MS = 60 * 60 * 1000
 const COOLDOWN_MS = 60 * 1000
 const MAX_SENDS_PER_HOUR = 3
 
+const databaseTimestampMs = value => {
+  if (value instanceof Date) return value.getTime()
+  if (typeof value !== 'string') return NaN
+  const text = value.trim().replace(' ', 'T')
+  if (/(?:Z|[+-]\d{2}:\d{2})$/i.test(text)) return new Date(text).getTime()
+  // mysql2 dateStrings values carry no offset. Match connectionOptions rather
+  // than interpreting Manila wall-clock time in the Node host's timezone.
+  const configured = String(process.env.DB_TIME_ZONE || '')
+  const offset = /^[+-]\d{2}:\d{2}$/.test(configured) ? configured : '+08:00'
+  return new Date(`${text}${offset}`).getTime()
+}
+
 const makeLimitError = (seconds) => Object.assign(
   new Error(`Please wait ${seconds} seconds before asking for another SMS code.`),
   { statusCode: 429, code: 'SMS_LIMIT_REACHED', retryAfterSeconds: seconds }
@@ -28,8 +40,8 @@ const claimRegistrationSms = async (phone, { connection = null, now = new Date()
       'SELECT window_start, send_count, last_sent_at FROM registration_sms_limits WHERE phone_hash = ? FOR UPDATE',
       [hashed]
     )
-    const start = new Date(row.window_start).getTime()
-    const last = row.last_sent_at ? new Date(row.last_sent_at).getTime() : 0
+    const start = databaseTimestampMs(row.window_start)
+    const last = row.last_sent_at ? databaseTimestampMs(row.last_sent_at) : 0
     const currentMs = new Date(now).getTime()
     const windowExpired = !Number.isFinite(start) || currentMs - start >= HOUR_MS
     const sends = windowExpired ? 0 : Number(row.send_count || 0)

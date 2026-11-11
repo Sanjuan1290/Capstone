@@ -1,0 +1,60 @@
+{
+  "productionQueries": 0,
+  "providerCalls": 0,
+  "applicationEdits": 0,
+  "results": [
+    {
+      "finding": "Booked promotion is lost after the live offer is deleted",
+      "bugReproduced": true,
+      "savedSnapshotDiscount": 100,
+      "discountBeforeDeletingOffer": 100,
+      "discountAfterLiveIdBecomesNull": 0,
+      "expectedTotal": 300,
+      "observedTotal": 400,
+      "reason": "The existing FK uses ON DELETE SET NULL while title/selected-service/discount snapshots remain."
+    },
+    {
+      "finding": "SMS cooldown/window misreads Manila SQL date strings on a UTC Node host",
+      "bugReproduced": true,
+      "configuration": {
+        "nodeTimezone": "UTC",
+        "mysqlTimezone": "+08:00",
+        "dateStrings": true
+      },
+      "expectedSecondAttemptAllowed": false,
+      "observed": [
+        {
+          "elapsedSeconds": 0,
+          "allowed": true
+        },
+        {
+          "elapsedSeconds": 1,
+          "allowed": true
+        },
+        {
+          "elapsedSeconds": 2,
+          "allowed": true
+        },
+        {
+          "elapsedSeconds": 3,
+          "allowed": false,
+          "code": "SMS_LIMIT_REACHED",
+          "retryAfterSeconds": 32397
+        }
+      ],
+      "reason": "Stored DATETIME values are strings without a timezone; new Date parses them in host time."
+    },
+    {
+      "finding": "A reconfirmed rescheduled appointment reuses the first confirmation email key",
+      "bugReproduced": true,
+      "keys": [
+        "doctor-confirm-9",
+        "doctor-confirm-9"
+      ],
+      "differentPayloads": true,
+      "providerCalls": 0,
+      "providerBehaviorSource": "https://resend.com/docs/dashboard/emails/idempotency-keys",
+      "inference": "Within the provider retention period, reusing a key for a different payload rejects the second email. Only payload/key construction was reproduced locally; no delivery was attempted."
+    }
+  ]
+}

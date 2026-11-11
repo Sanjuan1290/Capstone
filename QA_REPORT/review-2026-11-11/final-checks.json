@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "reviewedHead": "b93ff316744048006033e9b3c17114f41b6f5f0f",
+  "textFilesScanned": 26,
+  "privateConfigurationFindings": 0,
+  "trackedApplicationEdits": 0,
+  "productionQueries": 0,
+  "productionWrites": 0,
+  "findingsDocumented": 4
+}
