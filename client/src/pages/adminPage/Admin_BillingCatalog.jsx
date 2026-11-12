@@ -95,6 +95,7 @@ const Admin_BillingCatalog = () => {
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPayments className="text-amber-500" /> Services & Pricing</h1>
         <p className="mt-1 text-sm text-slate-500">Manage the actual services patients can book and Doctors can select, including pricing and default consumables.</p>
+        <p className="mt-1 text-xs text-slate-500">Services linked to appointments, bills, or promotions can be deactivated to retain history. Unused services can be deleted.</p>
       </div>
       <div className="flex gap-2">
         <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>
@@ -164,5 +165,6 @@ const Admin_BillingCatalog = () => {
 }
 
 export default Admin_BillingCatalog
+
 
 

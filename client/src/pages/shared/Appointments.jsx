@@ -268,6 +268,21 @@ const Appointments = ({ services }) => {
   const navigate = useNavigate()
   const location = useLocation()
 
+  // Dashboard deep links open the requested status or clinic-local date.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const requestedTab = params.get('tab')
+    const requestedDate = params.get('date')
+    if (!requestedTab && !requestedDate) return
+    if (requestedTab && STATUS_TABS.some((entry) => entry.key === requestedTab)) setTab(requestedTab)
+    if (requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+      setDateFrom(requestedDate)
+      setDateTo(requestedDate)
+      setMoreFilters(true)
+    }
+    setPage(1)
+  }, [location.search])
+
   const notificationOpened = useRef(null)
   useEffect(() => {
     const id = new URLSearchParams(location.search).get('appointment_id')
@@ -692,6 +707,7 @@ const Appointments = ({ services }) => {
 }
 
 export default Appointments
+
 
 
 

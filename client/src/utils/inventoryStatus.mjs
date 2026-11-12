@@ -28,8 +28,10 @@ export const inventoryExpiringSoon = (item, now = new Date()) => {
 
 export const matchesInventoryStatus = (item, status, now = new Date()) => {
   const count = inventoryStockCount(item)
+  if (status === 'alerts') return count <= Number(item.threshold || 0)
   if (status === 'low') return count > 0 && count <= Number(item.threshold || 0)
   if (status === 'out') return count <= 0
   if (status === 'expiring') return inventoryExpiringSoon(item, now)
   return true
 }
+

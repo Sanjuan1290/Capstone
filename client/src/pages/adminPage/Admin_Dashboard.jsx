@@ -17,6 +17,7 @@ import {
 import { doctorClinicLabel } from '../../utils/doctor'
 import { doctorAvailabilityLabel, doctorDisplayName, isDoctorAvailable } from './dashboardDoctors.mjs'
 import { loadAdminDashboardSections } from './dashboardData.mjs'
+import { dashboardCardDestinations } from './dashboardCardDestinations.mjs'
 
 const POLL_MS = 30_000
 
@@ -136,12 +137,13 @@ const Admin_Dashboard = () => {
   usePolling(load, POLL_MS)
 
   const activeDoctorCount = (doctorStatus || []).filter(isDoctorAvailable).length
+  const cardDestinations = dashboardCardDestinations(todayISO)
 
   const stats = [
-    { label: 'Today\'s Appts',   value: todayAppts === null ? '—' : todayAppts.length, sub: 'scheduled', color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', up: null },
-    { label: 'Total Patients',   value: dashStats?.totalPatients ?? '—', sub: 'registered', color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-200', up: null },
-    { label: 'Pending Approvals',value: dashStats?.pendingApprovals ?? dashStats?.pendingCount ?? '—', sub: 'need review', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', up: false },
-    { label: 'Low Stock Alerts', value: dashStats?.lowStockCount ?? dashStats?.lowStock ?? '—', sub: 'items', color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-200', up: false },
+    { label: 'Today\'s Appts',   value: todayAppts === null ? '—' : todayAppts.length, sub: 'all statuses', path: cardDestinations.today, color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', up: null },
+    { label: 'Total Patients',   value: dashStats?.totalPatients ?? '—', sub: 'with appointments', path: cardDestinations.patients, color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-200', up: null },
+    { label: 'Pending Approvals',value: dashStats?.pendingApprovals ?? dashStats?.pendingCount ?? '—', sub: 'appointments to confirm', path: cardDestinations.pending, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', up: null },
+    { label: 'Low Stock Alerts', value: dashStats?.lowStockCount ?? dashStats?.lowStock ?? '—', sub: 'low or out of stock', path: cardDestinations.stock, color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-200', up: null },
   ]
 
   const quickLinks = [
@@ -194,16 +196,17 @@ const Admin_Dashboard = () => {
 
       {/* ── Stat cards ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-        {stats.map(({ label, value, sub, color, bg, border, up }) => (
-          <div key={label} className={`${bg} border ${border} rounded-2xl px-4 py-4 lg:px-5 transition-transform hover:scale-[1.02]`}>
+        {stats.map(({ label, value, sub, color, bg, border, up, path }) => (
+          <NavLink key={label} to={portalPath(path)} aria-label={`${label}: ${value}. View details`} className={`${bg} block border ${border} rounded-2xl px-4 py-4 lg:px-5 transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600`}>
             <p className="text-xs text-slate-500 font-medium">{label}</p>
             <p className={`text-3xl font-black mt-1 ${color}`}>{value}</p>
             <div className="flex items-center gap-1 mt-0.5">
               {up === true  && <MdTrendingUp   className="text-emerald-500 text-[12px]" />}
               {up === false && <MdTrendingDown  className="text-red-500 text-[12px]" />}
-              <p className="text-[11px] text-slate-400">{sub}</p>
+              <p className="text-[11px] text-slate-500">{sub}</p>
+              <MdChevronRight aria-hidden="true" className="ml-auto text-slate-400 text-sm" />
             </div>
-          </div>
+          </NavLink>
         ))}
       </div>
 
@@ -322,3 +325,4 @@ const Admin_Dashboard = () => {
 }
 
 export default Admin_Dashboard
+
