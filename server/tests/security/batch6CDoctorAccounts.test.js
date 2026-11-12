@@ -24,10 +24,12 @@ describe('September 29 Batch 6C — Doctor Account classification cleanup', () =
 
   it('does not write specialty from Admin doctor create/update payloads', () => {
     const source = read('server', 'controllers', 'admin.controller.js')
-    expect(source).toContain("const { full_name, email, phone, clinic_type, prc_license } = req.body")
+    expect(source).toContain("const { full_name, email, phone, clinic_type, prc_license } = req.body || {}")
     expect(source).toContain('INSERT INTO doctors (full_name, email, phone, clinic_type, prc_license, password, must_change_password)')
+    expect(source).toContain('findDoctorIdentityConflict')
+    expect(source).toContain('handleDoctorUniqueIndexError')
     expect(source).toContain('UPDATE doctors SET phone_verified_at = IF(phone <=> ?, phone_verified_at, NULL), full_name = ?, email = ?, phone = ?, clinic_type = ?, prc_license = ? WHERE id = ?')
-    expect(source).toContain('[normalizedPhone, full_name.trim(), email.trim(), normalizedPhone, clinic_type, prc_license?.trim() || null, req.params.id]')
+    expect(source).toContain('[normalizedPhone, full_name.trim(), cleanEmail, normalizedPhone, clinic_type, cleanPrc, req.params.id]')
   })
 
   it('keeps the legacy specialty column readable for backward compatibility', () => {
@@ -35,4 +37,5 @@ describe('September 29 Batch 6C — Doctor Account classification cleanup', () =
     expect(source).toContain('SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?')
   })
 })
+
 

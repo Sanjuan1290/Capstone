@@ -353,9 +353,16 @@ async function bulkUpdateItems(req,res) {
 // Excel upload history and guarded Undo. This never deletes a used medicine,
 // reverses a clinical/billing entry, or rewrites payment records.
 async function listExcelUploads(req,res){
+  const page = Number(req.query.page || 1)
+  if (!Number.isSafeInteger(page) || page < 1 || page > 1000000) return res.status(400).json({code:'INVALID_PAGE',message:'Choose a valid history page.'})
+  const limit = 10
+  const [[count]] = await db.query('SELECT COUNT(*) AS total FROM inventory_excel_uploads WHERE branch_id=?',[req.branchId])
+  const total = Number(count?.total || 0)
+  const totalPages = Math.max(1,Math.ceil(total/limit))
+  const safePage = Math.min(page,totalPages)
   const [rows]=await db.query(`SELECT id,upload_type,created_at,created_by_admin_id,undone_at,undone_by_admin_id
-    FROM inventory_excel_uploads WHERE branch_id=? ORDER BY id DESC LIMIT 30`,[req.branchId])
-  return res.json(rows)
+    FROM inventory_excel_uploads WHERE branch_id=? ORDER BY id DESC LIMIT ? OFFSET ?`,[req.branchId,limit,(safePage-1)*limit])
+  return res.json({items:rows,pagination:{page:safePage,limit,total,totalPages}})
 }
 async function undoExcelUpload(req,res){
   let conn
@@ -445,6 +452,7 @@ function registerBranchInventoryItems(router,{requireSuper,branchContext,require
  }
 }
 module.exports={registerBranchInventoryItems,createItem,updateItem,archiveItem,listArchivedItems,restoreArchivedItem,listExcelUploads,undoExcelUpload,bulkCreateItems,bulkUpdateItems,bulkReceiveItems}
+
 
 
 

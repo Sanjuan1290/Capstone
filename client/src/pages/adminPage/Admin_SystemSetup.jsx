@@ -15,6 +15,7 @@ import Modal from '../../components/ui/Modal'
 import Pagination from '../../components/ui/Pagination'
 import SystemSetupTabs, { SYSTEM_SETUP_TABS } from '../../components/system/SystemSetupTabs'
 import StockRoomsManager from '../../components/system/StockRoomsManager'
+import QueueDisplaySecurity from '../../components/system/QueueDisplaySecurity'
 import SetupTableActions, { SETUP_ACTION_BUTTON, SETUP_ACTION_CELL } from '../../components/system/SetupTableActions'
 import useClientPagination from '../../hooks/useClientPagination'
 import { LoadingState, ErrorState, EmptyState } from '../../components/ui/PageState'
@@ -151,10 +152,8 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
       setForm({
         name: row?.name || '',
         movement_type: row?.movement_type || 'in',
-        requires_batch: row ? Number(row.requires_batch) : 0,
         is_active: row ? Number(row.is_active) : 1,
         is_system: row ? Number(row.is_system) : 0,
-        code: row?.code || '',
       })
     }
   }
@@ -248,7 +247,7 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
       ) : (
         <div>
           <div className="overflow-x-auto">
-          <table className={`w-full text-sm ${type === 'suppliers' ? 'min-w-[1160px]' : type === 'movement_reasons' ? 'min-w-[950px]' : 'min-w-[820px]'}`}>
+          <table className={`w-full text-sm ${type === 'suppliers' ? 'min-w-[1160px]' : type === 'movement_reasons' ? 'min-w-[830px]' : 'min-w-[820px]'}`}>
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
               <tr>
                 <th className="px-5 py-3">Name</th>
@@ -259,7 +258,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                 {type === 'suppliers' && <th className="px-5 py-3">Address</th>}
                 {type === 'suppliers' && <th className="px-5 py-3">Clinic</th>}
                 {type === 'movement_reasons' && <th className="px-5 py-3">Movement</th>}
-                {type === 'movement_reasons' && <th className="px-5 py-3">Batch Rule</th>}
                 <th className="min-w-[100px] px-5 py-3">Status</th>
                 <th className={SETUP_ACTION_CELL}>Actions</th>
               </tr>
@@ -275,7 +273,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                   {type === 'suppliers' && <td className="max-w-xs px-5 py-4 text-slate-500">{row.address || '—'}</td>}
                   {type === 'suppliers' && <td className="px-5 py-4 text-slate-500">{supplierClinicLabel(row.category)}</td>}
                   {type === 'movement_reasons' && <td className="px-5 py-4 text-slate-500"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${row.movement_type === 'in' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{row.movement_type === 'in' ? 'Stock In' : 'Stock Out'}</span></td>}
-                  {type === 'movement_reasons' && <td className="px-5 py-4 text-slate-500">{Number(row.requires_batch) === 1 ? 'Exact batch required' : 'Standard batch flow'}</td>}
                   <td className="px-5 py-4">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${Number(row.is_active) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                       {Number(row.is_active) === 1 ? 'Active' : 'Inactive'}
@@ -382,11 +379,6 @@ const ReferenceManager = ({ type, rows, onReload, portalBase = '/admin' }) => {
                 </select>
                 {editing && Number(form.is_system) === 1 && <p className="mt-1 text-xs text-slate-400">Built-in reasons keep their Stock In / Stock Out type so existing inventory history remains consistent.</p>}
               </label>
-              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <input type="checkbox" className="mt-1" checked={Number(form.requires_batch) === 1} onChange={(e) => setForm((value) => ({ ...value, requires_batch: e.target.checked ? 1 : 0 }))} />
-                <span><strong className="text-sm text-slate-800">Require exact batch selection</strong><span className="mt-0.5 block text-xs text-slate-500">Use this for reasons where the specific lot must remain traceable, such as expired, damaged, wastage, or returns.</span></span>
-              </label>
-              {editing && form.code && <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">Internal code: <code className="font-bold text-slate-700">{form.code}</code>. The code is kept stable and is not edited from System Setup.</div>}
             </>
           )}
 
@@ -457,14 +449,14 @@ const Admin_SystemSetup = () => {
     }
   }
 
-  useClinicRefresh(load,['service.updated','settings.updated'],{fallbackMs:90000,skip:()=>['visits','stock_rooms'].includes(tab)})
+  useClinicRefresh(load,['service.updated','settings.updated'],{fallbackMs:90000,skip:()=>['visits','stock_rooms','queue_security'].includes(tab)})
 
   useEffect(() => {
     if (validTab !== tab) setTab(validTab)
   }, [validTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!['visits', 'stock_rooms'].includes(tab)) load()
+    if (!['visits', 'stock_rooms', 'queue_security'].includes(tab)) load()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -474,7 +466,7 @@ const Admin_SystemSetup = () => {
           <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdSettings className="text-amber-500" /> System Setup</h1>
           <p className="mt-1 text-sm text-slate-500">Manage patient visit options, cancellation reasons, services and pricing setup, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
         </div>
-        {!['visits', 'stock_rooms'].includes(tab) && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
+        {!['visits', 'stock_rooms', 'queue_security'].includes(tab) && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
       </div>
 
       <SystemSetupTabs />
@@ -485,6 +477,8 @@ const Admin_SystemSetup = () => {
         <Admin_PatientBooking embedded />
       ) : tab === 'stock_rooms' ? (
         <StockRoomsManager />
+      ) : tab === 'queue_security' ? (
+        <QueueDisplaySecurity />
       ) : loading && !loaded ? (
         <LoadingState label="Loading System Setup..." />
       ) : error && !loaded ? (
@@ -497,6 +491,7 @@ const Admin_SystemSetup = () => {
 }
 
 export default Admin_SystemSetup
+
 
 
 

@@ -29,7 +29,7 @@ const putSettings=async(branchId,input,executor=db)=>{
   return getSettings(branchId,executor)
 }
 const loadAppointment=async(id,branchId,executor=db)=>{
- const [[row]]=await executor.query(`SELECT a.id,a.branch_id,a.status,
+ const [[row]]=await executor.query(`SELECT a.id,a.branch_id,a.status,a.appointment_source,
  DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,a.appointment_time,
  a.requested_service_name_snapshot AS service_name,
  p.id AS patient_id,p.full_name AS patient_name,p.email,p.phone,p.consent_given,p.email_verified_at,p.phone_verified_at,
@@ -40,7 +40,7 @@ const loadAppointment=async(id,branchId,executor=db)=>{
  return row||null
 }
 const isEligible=(appt,now=new Date())=>{
- if(!appt||appt.status!=='confirmed'||!truthy(appt.consent_given))return false
+ if(!appt||appt.status!=='confirmed'||appt.appointment_source==='guest_online'||!truthy(appt.consent_given))return false
  const time=appointmentStartUtc(appt.appointment_date,appt.appointment_time)
  return Boolean(time&&time.getTime()>now.getTime())
 }
@@ -131,4 +131,5 @@ const runAutomatic=async({executor=db,now=new Date()}={})=>{
  return results
 }
 module.exports={HOURS,checkSettings,getSettings,putSettings,loadAppointment,isEligible,sendManual,runAutomatic,sendOne}
+
 

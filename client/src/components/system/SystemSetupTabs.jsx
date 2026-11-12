@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'
 import {
-  MdCategory, MdEventBusy, MdLocalShipping, MdMeetingRoom, MdPayments, MdSettings, MdSwapVert,
+  MdCategory, MdEventBusy, MdLocalShipping, MdMeetingRoom, MdPayments, MdSettings, MdSwapVert, MdPin,
 } from 'react-icons/md'
 
 export const SYSTEM_SETUP_TABS = [
@@ -11,6 +11,7 @@ export const SYSTEM_SETUP_TABS = [
   { key: 'service_categories', label: 'Service Categories', Icon: MdCategory, suffix: '/system-setup?tab=service_categories' },
   { key: 'suppliers', label: 'Suppliers', Icon: MdLocalShipping, suffix: '/system-setup?tab=suppliers' },
   { key: 'stock_rooms', label: 'Stock Rooms', Icon: MdMeetingRoom, suffix: '/system-setup?tab=stock_rooms' },
+  { key: 'queue_security', label: 'Queue Display Security', Icon: MdPin, suffix: '/system-setup?tab=queue_security' },
   { key: 'movement_reasons', label: 'Movement Reasons', Icon: MdSwapVert, suffix: '/system-setup?tab=movement_reasons' },
 ]
 
@@ -35,3 +36,4 @@ const SystemSetupTabs = () => {
 }
 
 export default SystemSetupTabs
+

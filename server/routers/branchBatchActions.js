@@ -6,8 +6,10 @@ const handle=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next)
 function registerBranchBatchActions(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const guard=[...middle,requirePermission('inventory')]
+  router.delete(`${prefix}/inventory/batches/:batchId/remove`,...guard,handle(admin.removeInventoryBatch))
   router.post(`${prefix}/inventory/batches/:batchId/action/request-code`,...guard,handle(admin.requestInventoryBatchActionCode))
   router.post(`${prefix}/inventory/batches/:batchId/action/confirm`,...guard,handle(admin.confirmInventoryBatchAction))
  }
 }
 module.exports={registerBranchBatchActions}
+

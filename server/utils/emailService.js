@@ -1,4 +1,5 @@
 const { sendResendEmail } = require('./resendEmail')
+const {isGuestContact}=require('./guestContactPolicy')
 
 const formatAppointmentDate = (appointmentDate) => {
   const raw = typeof appointmentDate === 'string'
@@ -93,6 +94,7 @@ const sendAppointmentStatusEmail = async ({
   status,
   notes,
 }) => {
+  if (!to || await isGuestContact({email:to}))return {skipped:true,reason:'guest_in_app_only'}
   const formattedDate = formatAppointmentDate(appointment_date)
 
   const statusMap = {
@@ -178,3 +180,4 @@ module.exports = {
   sendAdminMfaOtp,
   sendAccountSecurityOtp,
 }
+

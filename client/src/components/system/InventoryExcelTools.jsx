@@ -46,18 +46,22 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
   const [reportPage, setReportPage] = useState(0)
   const [serverIssue, setServerIssue] = useState(null)
   const [uploads, setUploads] = useState([])
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyPagination, setHistoryPagination] = useState({ page:1, totalPages:1, total:0 })
   const [uploadError, setUploadError] = useState('')
   const [undoing, setUndoing] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const loadUploads = async () => {
+  const loadUploads = async (page = historyPage) => {
     if (!services.getInventoryExcelUploads) return
     try {
-      const rows = await services.getInventoryExcelUploads()
-      setUploads(Array.isArray(rows) ? rows : [])
+      const result = await services.getInventoryExcelUploads(page)
+      setUploads(Array.isArray(result?.items) ? result.items : [])
+      setHistoryPagination(result?.pagination || {page:1,totalPages:1,total:0})
+      if (result?.pagination?.page !== undefined) setHistoryPage(result.pagination.page)
       setUploadError('')
     } catch(e) {setUploadError(e.message||'Excel import history is unavailable.')}
   }
-  useEffect(()=>{if(historyOpen)void loadUploads()},[historyOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(historyOpen)void loadUploads(historyPage)},[historyOpen,historyPage]) // eslint-disable-line react-hooks/exhaustive-deps
   const undoUpload = async (upload) => {
     if(!services.undoInventoryExcelUpload || undoing) return
     if (!window.confirm(`Undo Excel upload #${upload.id}? This will only work if all affected items are unchanged and unused.`)) return
@@ -215,10 +219,11 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     {showTools && services.getInventoryExcelUploads && <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3"><div><h3 className="flex items-center gap-2 font-bold text-slate-900"><MdHistory/> Excel Import History</h3><p className="text-xs text-slate-500">Undo new-item uploads or item edits only when the affected records have not been used or changed.</p></div><button type="button" className="button-secondary" onClick={()=>setHistoryOpen(v=>!v)}>{historyOpen?'Hide History':'Show History'}</button></div>
       {historyOpen && <div className="mt-3 space-y-2">
-        <button type="button" className="button-secondary" onClick={loadUploads}>Refresh History</button>
+        <button type="button" className="button-secondary" onClick={()=>loadUploads(historyPage)}>Refresh History</button>
         {uploadError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{uploadError}</p>}
         {uploads.length===0 && <p className="text-sm text-slate-500">No recent Excel uploads recorded.</p>}
         {uploads.map(upload=><div key={upload.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div><p className="text-sm font-bold">Upload #{upload.id} · {upload.upload_type==='new_items'?'New Items':'Item Edits'}</p><p className="text-xs text-slate-500">{upload.created_at?new Date(upload.created_at).toLocaleString('en-PH'):'Date unavailable'} · {upload.undone_at?'Undone':'Saved'}</p></div><button type="button" className="button-secondary" disabled={Boolean(upload.undone_at)||Boolean(undoing)||busy} onClick={()=>undoUpload(upload)}>{undoing===upload.id?'Checking…':upload.undone_at?'Already Undone':'Undo Upload'}</button></div>)}
+        <div className="flex items-center justify-between gap-2 border-t pt-3 text-sm"><span className="text-slate-500">{historyPagination.total} uploads · Page {historyPagination.page} of {historyPagination.totalPages}</span><div className="flex gap-2"><button type="button" className="button-secondary" disabled={historyPage<=1||busy||Boolean(undoing)} onClick={()=>setHistoryPage(p=>p-1)}>Previous</button><button type="button" className="button-secondary" disabled={historyPage>=historyPagination.totalPages||busy||Boolean(undoing)} onClick={()=>setHistoryPage(p=>p+1)}>Next</button></div></div>
       </div>}
     </div>}
     <input ref={fileRef} type="file" accept=".xlsx" className="sr-only" aria-label="Choose CARAIT Inventory Excel file" onChange={e=>{const file=e.target.files?.[0];e.target.value='';void handleFile(file)}} onCancel={()=>onWorkflowChange?.(false)}/>
@@ -257,4 +262,5 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     </div>}
   </section>
 }
+
 

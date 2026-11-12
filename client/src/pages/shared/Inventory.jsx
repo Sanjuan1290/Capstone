@@ -578,13 +578,16 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
   </div>
 }
 
-const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReasons = [], suppliers = [] }) => {
+const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReasons = [], suppliers = [], stockRooms = [] }) => {
   const type = initialType === 'out' ? 'out' : 'in'
   const [qty, setQty] = useState(type === 'in' ? '1' : '')
   const [note, setNote] = useState('')
   const [expirationDate, setExpirationDate] = useState('')
   const [supplierId, setSupplierId] = useState(item?.supplier_id ? String(item.supplier_id) : '')
   const [noExpiry, setNoExpiry] = useState(false)
+  const [stockInMode, setStockInMode] = useState('new')
+  const [existingBatchId, setExistingBatchId] = useState('')
+  const [receiveLocationId, setReceiveLocationId] = useState(() => String((stockRooms.find(room => Number(room.is_main_stockroom) === 1 && Number(room.is_active ?? 1) === 1) || stockRooms.find(room => Number(room.is_active ?? 1) === 1))?.id || ''))
   const [movementReason, setMovementReason] = useState(type === 'in' ? 'received' : 'adjustment_out')
   const [stockOutSelectionKey, setStockOutSelectionKey] = useState('')
   const [busy, setBusy] = useState(false)
@@ -594,6 +597,10 @@ const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReaso
   const stockOutReasons = configuredStockOutReasons.length ? configuredStockOutReasons : DEFAULT_STOCK_OUT_REASONS
   const reasons = type === 'in' ? stockInReasons : stockOutReasons
   const batches = (Array.isArray(item?.batches) ? item.batches : []).filter((batch) => !batch.archived_at)
+  const activeReceiveRooms = stockRooms.filter(room => Number(room.is_active ?? 1) === 1)
+  const selectedExistingBatch = batches.find(batch => String(batch.id) === existingBatchId) || null
+  const selectedReason = stockInReasons.find(reason => reason.value === movementReason)
+  const mustReturnToExistingBatch = type === 'in' && (/return(?:ed)?[ _-]*(?:unused|to[ _-]*stock)/i.test(`${movementReason} ${selectedReason?.label || ''}`) || movementReason === 'returned')
   const stockOutOptions = useMemo(() => batches.flatMap((batch) => {
     const locations = (Array.isArray(batch?.locations) ? batch.locations : []).filter((location) => Number(location?.quantity || 0) > 0)
     if (locations.length) return locations.map((location) => ({ key: `${batch.id}:${location.id || location.name}`, batch, location, available: Number(location.quantity || 0) }))
@@ -612,7 +619,11 @@ const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReaso
     if (!reasons.some((reason) => reason.value === movementReason)) setMovementReason(reasons[0]?.value || '')
   }, [movementReason, reasons])
 
-  const stockInInvalid = type === 'in' && (numericQty <= 0 || !Number.isInteger(numericQty) || !movementReason || !supplierId || (!noExpiry && !expirationDate) || (item?.item_type === 'medicine' && !expirationDate))
+  useEffect(() => {
+    if (mustReturnToExistingBatch) setStockInMode('existing')
+  }, [mustReturnToExistingBatch])
+
+  const stockInInvalid = type === 'in' && (numericQty <= 0 || !Number.isInteger(numericQty) || !movementReason || !receiveLocationId || (stockInMode === 'existing' ? !selectedExistingBatch : (!supplierId || (!noExpiry && !expirationDate) || (item?.item_type === 'medicine' && !expirationDate))) || (mustReturnToExistingBatch && stockInMode !== 'existing'))
   const stockOutInvalid = type === 'out' && (!movementReason || !selectedStockOut || numericQty <= 0 || !Number.isInteger(numericQty) || numericQty > selectedStockOutAvailable)
 
   const handleSave = async () => {
@@ -624,13 +635,12 @@ const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReaso
         qty: numericQty,
         note: note.trim(),
         movement_reason: movementReason,
-        expiration_date: noExpiry ? '' : expirationDate,
-        no_expiry: noExpiry,
-        supplier_id: Number(supplierId),
-        batch_code: '',
-        supplier_lot_number: '',
-        supplier_lot_missing: true,
-        existing_batch_id: null,
+        stock_in_mode: stockInMode,
+        existing_batch_id: stockInMode === 'existing' ? Number(existingBatchId) : null,
+        storage_location_id: Number(receiveLocationId),
+        expiration_date: stockInMode === 'new' && !noExpiry ? expirationDate : null,
+        no_expiry: stockInMode === 'new' && noExpiry,
+        supplier_id: stockInMode === 'new' ? Number(supplierId) : null,
       } : {
         type: 'out',
         qty: numericQty,
@@ -653,12 +663,21 @@ const StockModal = ({ item, initialType = 'in', onClose, onSubmit, movementReaso
 
       <div className="flex-1 overflow-y-auto px-6 py-6"><div className="space-y-4">
         {type === 'in' ? <>
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><strong>Every Stock In creates a new batch automatically.</strong> Each receipt gets its own read-only Batch Code and keeps its expiry and quantity separate.</div>
-          <Field label={`Quantity Received (units) *`}><input type="text" inputMode="numeric" pattern="[0-9]*" value={qty} onChange={wholeUnitInput(setQty)} className={inputClass}/></Field>
-          <Field label="Movement Reason *"><select value={movementReason} onChange={(e)=>setMovementReason(e.target.value)} className={inputClass}>{stockInReasons.map((reason)=><option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field><Field label="Supplier for this receipt *"><select value={supplierId} onChange={(e)=>setSupplierId(e.target.value)} className={inputClass}><option value="">Select supplier</option>{receiptSuppliers.map((supplier)=><option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select><p className="mt-1 text-xs text-slate-400">Defaults to the item's Supplier, but each receipt can record the actual supplier used.</p></Field>
-          <div><Field label={`Batch Expiry${item?.item_type === 'medicine' ? ' *' : ''}`}><input type="date" value={expirationDate} onChange={(e)=>setExpirationDate(e.target.value)} disabled={noExpiry} className={`${inputClass} ${!noExpiry && !expirationDate ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{item?.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setExpirationDate('')}}/> No expiry / Not applicable</label>}{!noExpiry && !expirationDate && <p className="mt-1 text-xs font-semibold text-amber-700">{item?.item_type === 'medicine' ? 'Expiry is required for medicines.' : 'Enter an expiry date or choose No expiry / Not applicable.'}</p>}</div>
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Select an existing batch for returns and positive stock corrections, or create a new batch for a separate receipt. Every movement records the exact batch and stock room.</div>
+          <Field label="Quantity to Stock In (units) *"><input type="text" inputMode="numeric" pattern="[0-9]*" value={qty} onChange={wholeUnitInput(setQty)} className={inputClass}/></Field>
+          <Field label="Movement Reason *"><select value={movementReason} onChange={(e)=>setMovementReason(e.target.value)} className={inputClass}>{stockInReasons.map((reason)=><option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field>
+          <Field label="Receiving Stock Room *"><select className={inputClass} value={receiveLocationId} onChange={e=>setReceiveLocationId(e.target.value)}><option value="">Choose stock room</option>{activeReceiveRooms.map(room=><option key={room.id} value={room.id}>{room.name}</option>)}</select></Field>
+          <Field label="Batch Operation *"><select value={mustReturnToExistingBatch ? 'existing' : stockInMode} onChange={e=>{setStockInMode(e.target.value);setExistingBatchId('')}} className={inputClass} disabled={mustReturnToExistingBatch}><option value="new" disabled={mustReturnToExistingBatch}>Create New Batch</option><option value="existing">Add to Existing Batch</option></select>{mustReturnToExistingBatch && <p className="mt-1 text-xs text-amber-700">Returns of unused items must use the original batch; new batches are not allowed for this reason.</p>}</Field>
+          {stockInMode === 'existing' ? <>
+            <Field label="Existing Batch *"><select className={inputClass} value={existingBatchId} onChange={e=>setExistingBatchId(e.target.value)}><option value="">Select the exact batch</option>{batches.map(batch=><option key={batch.id} value={batch.id}>{batch.batch_code || `Batch #${batch.id}`} · {formatUnits(batch.quantity)} clinic units · Expiry {batch.expiration_date ? formatDate(batch.expiration_date) : 'Not applicable'}</option>)}</select></Field>
+            {selectedExistingBatch && <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sm text-sky-800"><strong>Selected Batch:</strong> {selectedExistingBatch.batch_code || `Batch #${selectedExistingBatch.id}`}<p className="mt-1">Expiry: {selectedExistingBatch.expiration_date ? formatDate(selectedExistingBatch.expiration_date) : 'Not applicable'} · Current clinic quantity: {formatUnits(selectedExistingBatch.quantity)}</p><p className="mt-1 text-xs">The stored supplier and expiry remain unchanged. Quantity is added to this exact batch in the selected room.</p></div>}
+            {!batches.length && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">No active batch is available. An unused-item return needs its original batch; check the batch history with your administrator.</p>}
+          </> : <>
+            <Field label="Supplier for this receipt *"><select value={supplierId} onChange={(e)=>setSupplierId(e.target.value)} className={inputClass}><option value="">Select supplier</option>{receiptSuppliers.map((supplier)=><option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></Field>
+            <div><Field label={`Batch Expiry${item?.item_type === 'medicine' ? ' *' : ''}`}><input type="date" value={expirationDate} onChange={e=>setExpirationDate(e.target.value)} disabled={noExpiry} className={`${inputClass} ${!noExpiry && !expirationDate ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{item?.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setExpirationDate('')}}/> No expiry / Not applicable</label>}{!noExpiry && !expirationDate && <p className="mt-1 text-xs font-semibold text-amber-700">{item?.item_type === 'medicine' ? 'Expiry is required for medicines.' : 'Enter an expiry date or choose No expiry / Not applicable.'}</p>}</div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">New Batch Code (read-only preview)</p><p className="mt-2 font-mono text-base font-bold text-slate-800">{internalBatchPreview}</p><p className="mt-2 text-xs text-slate-500">The server assigns the final code when stock is received.</p></div>
+          </>}
           <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800"><span className="font-semibold">Selling Price:</span> PHP {Number(item?.selling_price || 0).toFixed(2)} <span className="text-xs text-sky-600">(managed in Edit Item)</span></div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">New Batch Code (read-only preview)</p><p className="mt-2 font-mono text-base font-bold text-slate-800">{internalBatchPreview}</p><p className="mt-2 text-xs text-slate-500">The server assigns the final code when stock is received. This is not another barcode.</p></div>
           <Field label="Reference / Delivery Note"><input maxLength={255} value={note} onChange={(e)=>setNote(e.target.value)} className={inputClass} placeholder="e.g. Delivery receipt DR-1024"/></Field>
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">After Stock In</p><div className="mt-2 flex justify-between"><span>Current clinic stock</span><strong>{formatUnits(clinicStock)}</strong></div><div className="mt-1 flex justify-between text-emerald-700"><span>Receiving</span><strong>+{formatUnits(numericQty)}</strong></div><div className="mt-2 border-t border-slate-100 pt-2 flex justify-between"><span>New clinic stock</span><strong>{formatUnits(clinicStock + numericQty)}</strong></div></div>
         </> : <>
@@ -694,15 +713,13 @@ const ProtectedBatchActionModal = ({ item, batch, action, onClose, onRequest, on
   const [step,setStep]=useState('details')
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
-  const [targetQuantity,setTargetQuantity]=useState(String(Number(batch?.quantity || 0)))
   const [expiry,setExpiry]=useState(batch?.expiration_date ? String(batch.expiration_date).slice(0,10) : '')
-  const labels={correct_quantity:'Correct Quantity',correct_details:'Edit Batch',archive:'Archive Batch',restore:'Restore Batch',delete:'Delete Batch'}
+  const labels={correct_details:'Edit Batch',archive:'Archive Batch',restore:'Restore Batch',delete:'Delete Batch'}
   const submitRequest=async()=>{
     if(reason.trim().length<5 || !password) return setError('Enter a reason (at least 5 characters) and your Admin password.')
     setBusy(true);setError('')
     try{
       const payload={action,password,reason:reason.trim()}
-      if(action==='correct_quantity') payload.target_quantity=Math.max(0,Number(targetQuantity)||0)
       if(action==='correct_details') payload.expiration_date=expiry
       await onRequest(batch.id,payload);setStep('code')
     }catch(err){setError(err.message||'Could not send verification code.')}finally{setBusy(false)}
@@ -716,7 +733,7 @@ const ProtectedBatchActionModal = ({ item, batch, action, onClose, onRequest, on
     <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="font-bold text-slate-900">{labels[action]||'Batch Action'}</h3><p className="mt-1 text-xs text-slate-500">{item.name} · {batch.batch_code||`Batch #${batch.id}`}</p></div><button onClick={onClose} disabled={busy}><MdClose/></button></div>
     <div className="max-h-[70vh] overflow-y-auto p-6 space-y-4">
       {step==='details'?<>
-        {action==='correct_quantity'&&<><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm"><span className="text-slate-500">Current Quantity</span><p className="mt-1 text-xl font-black text-slate-900">{formatUnits(batch.quantity)}</p></div><Field label="Correct Quantity *"><input type="text" inputMode="numeric" pattern="[0-9]*" value={targetQuantity} onChange={wholeUnitInput(setTargetQuantity)} className={inputClass}/><p className="mt-1 text-xs text-slate-400">The system records only the difference as Inventory Correction (+/-); it never rewrites history silently.</p></Field></>}
+
         {action==='correct_details'&&<><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600"><strong>Batch Code (read-only):</strong> {batch.batch_code||'—'}<p className="mt-1">Only the expiry date can be changed. The batch code stays the same.</p></div><Field label="Batch Expiry *"><input type="date" required value={expiry} onChange={e=>setExpiry(e.target.value)} className={inputClass}/></Field></>}
         {action==='archive'&&<div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Archiving hides this zero-stock batch from normal stock operations while preserving its history.</div>}
         {action==='restore'&&<div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800">Restoring makes this batch visible again for future stock operations.</div>}
@@ -794,7 +811,16 @@ const MoveStockModal = ({ item, locations = [], onClose, onSubmit }) => {
   </div></div>
 }
 
-const BatchManagerModal = ({ item, onClose, onRequestAction, onConfirmAction, onLoadHistory, onChanged }) => {
+const BatchManagerModal = ({ item, onClose, onRequestAction, onConfirmAction, onRemoveBatch, onLoadHistory, onChanged }) => {
+  const [removingId,setRemovingId]=useState(null)
+  const removeBatch = async (batch) => {
+    if (!onRemoveBatch || removingId) return
+    if (!window.confirm(`Remove batch ${batch.batch_code || batch.id}? Batches with historical records will be archived instead of deleted.`)) return
+    setRemovingId(batch.id)
+    try { const result = await onRemoveBatch(batch.id); onChanged(result?.message || 'Batch removed.') }
+    catch (error) { window.alert(error.message || 'Could not remove this batch.') }
+    finally { setRemovingId(null) }
+  }
   const [selected,setSelected]=useState(null)
   const [historyBatch,setHistoryBatch]=useState(null)
   const [historyData,setHistoryData]=useState({movements:[],audit:[]})
@@ -807,9 +833,9 @@ const BatchManagerModal = ({ item, onClose, onRequestAction, onConfirmAction, on
   const auditChanges=(row)=>{const oldValues=row?.old_values||{};const newValues=row?.new_values||{};return Object.keys(newValues).filter(key=>!['authorization','item_name','reason'].includes(key)&&formatAuditValue(oldValues[key])!==formatAuditValue(newValues[key])).map(key=>({key:key.replace(/_/g,' '),before:formatAuditValue(oldValues[key]),after:formatAuditValue(newValues[key])}))}
 
   return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 px-4"><div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-    <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="text-lg font-bold text-slate-900">Manage Batches</h3><p className="mt-1 text-xs text-slate-500">{item.name} · Batch codes stay fixed. Edit Expiry only; use Correct Quantity for audited stock corrections.</p></div><button onClick={onClose}><MdClose/></button></div>
+    <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="text-lg font-bold text-slate-900">Manage Batches</h3><p className="mt-1 text-xs text-slate-500">{item.name} · Batch codes stay fixed. Use Stock In or Stock Out with an exact batch for quantity corrections.</p></div><button onClick={onClose}><MdClose/></button></div>
     <div className="border-b border-slate-100 bg-slate-50 px-6 py-4"><div className="grid gap-3 sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Product Barcode</p><p className="mt-1 font-mono text-sm font-bold text-slate-800">{item.barcode||'—'}</p></div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Clinic-wide Stock</p><p className="mt-1 text-sm font-black text-slate-800">{formatUnits(item.available_stock ?? item.stock)}</p>{item.pending_usage != null && <p className="text-xs text-slate-500">Recorded: {formatUnits(item.stock)} · Pending: {formatUnits(item.pending_usage)}</p>}</div><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Selling Price</p><p className={`mt-1 text-sm font-black ${Number(item.selling_price || 0) > 0 ? 'text-slate-800' : 'text-red-600'}`}>{Number(item.selling_price || 0) > 0 ? `PHP ${Number(item.selling_price).toFixed(2)}` : 'Not set'}</p></div></div></div>
-    <div className="flex-1 overflow-y-auto p-6 space-y-4">{visible.length?visible.map((batch)=>{const status=getBatchStatusMeta(batch);const locations=(Array.isArray(batch.locations)?batch.locations:[]).filter((location)=>Number(location.quantity||0)>0);return <div key={batch.id} className="rounded-3xl border border-slate-200 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-mono text-sm font-black text-slate-900">{batch.batch_code||`Batch #${batch.id}`}</p>{status.label!=='Active' && <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${status.tone}`}>{status.label}</span>}</div><div className="mt-3 grid gap-3 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Supplier</p><p className="mt-1 font-semibold text-slate-700">{batch.supplier_name||'Not recorded'}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Quantity</p><p className="mt-1 font-semibold text-slate-700">{formatUnits(batch.quantity)}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Expiry</p><p className="mt-1 font-semibold text-slate-700">{batch.expiration_date?formatDate(batch.expiration_date):'No expiry'}</p></div></div>{locations.length>0&&<div className="mt-4"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Location Balance</p><div className="mt-2 flex flex-wrap gap-2">{locations.map((location)=><span key={`${batch.id}-${location.id||location.name}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>{location.name||'Location'}</strong> · {formatUnits(location.quantity)}</span>)}</div></div>}{batch.archive_reason&&<p className="mt-3 text-xs text-slate-400">Archive reason: {batch.archive_reason}</p>}</div><div className="flex flex-wrap gap-2"><button className="button-secondary" onClick={()=>openHistory(batch)}>View History</button>{!batch.archived_at&&<><button className="button-secondary" onClick={()=>setSelected({action:'correct_details',batch})}><MdEdit/> Edit Expiry</button><button className="button-secondary" onClick={()=>setSelected({action:'correct_quantity',batch})}>Correct Quantity</button></>}{!batch.archived_at&&Number(batch.quantity||0)<=0&&<button className="button-secondary" onClick={()=>setSelected({action:'archive',batch})}>Archive</button>}{batch.archived_at&&<button className="button-secondary" onClick={()=>setSelected({action:'restore',batch})}>Restore</button>}{Number(batch.quantity||0)<=0&&<button className="button-danger" onClick={()=>setSelected({action:'delete',batch})}>Delete</button>}</div></div></div>}) : <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-400">No batches in this view.</div>}</div>
+    <div className="flex-1 overflow-y-auto p-6 space-y-4">{visible.length?visible.map((batch)=>{const status=getBatchStatusMeta(batch);const locations=(Array.isArray(batch.locations)?batch.locations:[]).filter((location)=>Number(location.quantity||0)>0);return <div key={batch.id} className="rounded-3xl border border-slate-200 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-mono text-sm font-black text-slate-900">{batch.batch_code||`Batch #${batch.id}`}</p>{status.label!=='Active' && <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${status.tone}`}>{status.label}</span>}</div><div className="mt-3 grid gap-3 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Supplier</p><p className="mt-1 font-semibold text-slate-700">{batch.supplier_name||'Not recorded'}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Quantity</p><p className="mt-1 font-semibold text-slate-700">{formatUnits(batch.quantity)}</p></div><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Expiry</p><p className="mt-1 font-semibold text-slate-700">{batch.expiration_date?formatDate(batch.expiration_date):'No expiry'}</p></div></div>{locations.length>0&&<div className="mt-4"><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Location Balance</p><div className="mt-2 flex flex-wrap gap-2">{locations.map((location)=><span key={`${batch.id}-${location.id||location.name}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>{location.name||'Location'}</strong> · {formatUnits(location.quantity)}</span>)}</div></div>}{batch.archive_reason&&<p className="mt-3 text-xs text-slate-400">Archive reason: {batch.archive_reason}</p>}</div><div className="flex flex-wrap gap-2"><button className="button-secondary" onClick={()=>openHistory(batch)}>View History</button>{!batch.archived_at&&<><button className="button-secondary" onClick={()=>setSelected({action:'correct_details',batch})}><MdEdit/> Edit Expiry</button></>}{batch.archived_at&&<button className="button-secondary" onClick={()=>setSelected({action:'restore',batch})}>Restore</button>}{Number(batch.quantity||0)===0&&onRemoveBatch&&<button className="button-danger" disabled={Boolean(removingId)} onClick={()=>removeBatch(batch)}>{removingId===batch.id?'Removing…':'Remove Batch'}</button>}</div></div></div>}) : <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-400">No batches in this view.</div>}</div>
     <div className="border-t border-slate-100 p-5 flex justify-end"><button className="button-secondary" onClick={onClose}>Close</button></div>
     {selected&&<ProtectedBatchActionModal item={item} batch={selected.batch} action={selected.action} onClose={()=>setSelected(null)} onRequest={onRequestAction} onConfirm={onConfirmAction} onSuccess={(message)=>{setSelected(null);onChanged(message)}}/>}
     {historyBatch&&<div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 px-4"><div className="flex max-h-[82vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"><div className="flex items-start justify-between border-b border-slate-100 px-6 py-4"><div><h3 className="font-bold text-slate-900">Batch History</h3><p className="mt-1 text-xs text-slate-500">{historyBatch.batch_code||`Batch #${historyBatch.id}`} · {item.name}</p></div><button onClick={()=>setHistoryBatch(null)}><MdClose/></button></div><div className="flex-1 overflow-y-auto p-6">{historyLoading?<div className="py-10 text-center text-sm text-slate-400">Loading history...</div>:historyError?<p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{historyError}</p>:<div className="space-y-6"><section><h4 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-400">Movements</h4>{historyData.movements.length?<div className="space-y-3">{historyData.movements.map((row)=><div key={`move-${row.id}`} className="rounded-2xl border border-slate-200 p-4 text-sm"><div className="flex justify-between gap-3"><strong className="text-slate-800">{String(row.movement_type||row.type||'movement').replace(/_/g,' ')}</strong><span className="text-xs text-slate-400">{row.logged_at?new Date(row.logged_at).toLocaleString('en-PH'):'—'}</span></div><p className="mt-1 text-slate-600">Qty: {formatUnits(row.qty)} · By: {row.performed_by||'System'} ({row.performed_by_role||'System'})</p>{row.from_location&&<p className="mt-1 text-xs text-slate-500">From: {row.from_location}</p>}{row.to_location&&<p className="mt-1 text-xs text-slate-500">To: {row.to_location}</p>}{row.note&&<p className="mt-1 text-xs text-slate-500">{row.note}</p>}</div>)}</div>:<p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">No stock movement history recorded.</p>}</section><section><h4 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-400">Protected Corrections & Actions</h4>{historyData.audit.length?<div className="space-y-3">{historyData.audit.map((row)=>{const changes=auditChanges(row);const reason=row?.new_values?.reason||row?.old_values?.reason;return <div key={`audit-${row.id}`} className="rounded-2xl border border-slate-200 p-4 text-sm"><div className="flex justify-between gap-3"><strong className="text-slate-800">{String(row.action||'batch action').replace(/^inventory\\./,'').replace(/_/g,' ')}</strong><span className="text-xs text-slate-400">{row.created_at?new Date(row.created_at).toLocaleString('en-PH'):'—'}</span></div>{changes.map((change)=><p key={change.key} className="mt-1 text-xs text-slate-600"><span className="font-semibold capitalize">{change.key}:</span> {change.before} → {change.after}</p>)}{reason&&<p className="mt-2 text-xs text-slate-500"><span className="font-semibold">Reason:</span> {reason}</p>}</div>})}</div>:<p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">No protected corrections recorded.</p>}</section></div>}</div><div className="border-t border-slate-100 p-5 flex justify-end"><button className="button-secondary" onClick={()=>setHistoryBatch(null)}>Close</button></div></div></div>}
@@ -818,7 +844,7 @@ const BatchManagerModal = ({ item, onClose, onRequestAction, onConfirmAction, on
 
 const Inventory = ({ services, canManageSellingPrice = false }) => {
   const toast = useToast()
-  const { getInventory, getArchivedInventoryItems, restoreInventoryItem, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, requestInventoryBatchActionCode, confirmInventoryBatchAction, getInventoryBatchHistory, moveInventoryStock, getInventoryLocations } = services
+  const { getInventory, getArchivedInventoryItems, restoreInventoryItem, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, removeInventoryBatch, requestInventoryBatchActionCode, confirmInventoryBatchAction, getInventoryBatchHistory, moveInventoryStock, getInventoryLocations } = services
   const [items, setItems] = useState([])
   const [archivedItems, setArchivedItems] = useState([])
   const [showArchived, setShowArchived] = useState(false)
@@ -973,7 +999,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       const updated = await updateStock(stockItem.id, payload)
       if (updated?.id) setItems((current)=>current.map((entry)=>Number(entry.id)===Number(updated.id)?updated:entry))
       await load()
-      setFeedback({ type: 'success', message: payload.type === 'in' ? `${stockItem.name} stock received as a new batch.` : `${stockItem.name} stock out recorded and inventory totals refreshed.` })
+      setFeedback({ type: 'success', message: payload.type === 'in' ? `${stockItem.name} stock received into the ${payload.existing_batch_id ? 'selected existing batch' : 'new batch'}.` : `${stockItem.name} stock out recorded and inventory totals refreshed.` })
       setStockItem(null)
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Failed to update stock.' })
@@ -1188,13 +1214,13 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       </>}
       {showAdd && <ItemFormModal title="Add Item" initialBarcode={newItemBarcode} canManageSellingPrice={canManageSellingPrice} masterData={masterData} stockRooms={stockLocations} existingItems={items} onClose={() => { setShowAdd(false); setNewItemBarcode('') }} onSubmit={handleAdd} />}
       {editItem && <ItemFormModal title="Edit Inventory Item" initialItem={editItem} canManageSellingPrice={canManageSellingPrice} masterData={masterData} stockRooms={stockLocations} existingItems={items} onClose={() => setEditItem(null)} onSubmit={handleEdit} />}
-      {stockItem && <StockModal item={stockItem} initialType={stockMode} movementReasons={masterData.movement_reasons || []} suppliers={masterData.suppliers || []} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} />}
+      {stockItem && <StockModal item={stockItem} initialType={stockMode} movementReasons={masterData.movement_reasons || []} suppliers={masterData.suppliers || []} stockRooms={stockLocations} onClose={() => setStockItem(null)} onSubmit={handleStockUpdate} />}
       {scannerOpen && <CameraScanner onDetected={handleScannerDetected} onClose={() => setScannerOpen(false)} />}
       {scanLookupLoading && <div role="status" className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4"><div className="rounded-2xl bg-white p-6 text-sm font-semibold text-slate-700">Checking the scanned barcode…</div></div>}
       {scanProblem && <div role="dialog" aria-modal="true" aria-label="Scanned barcode result" className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"><h2 className="text-lg font-bold text-slate-900">{scanProblem.status === 'archived' ? 'Item is archived' : scanProblem.status === 'error' ? 'Could not check barcode' : 'Barcode not found'}</h2><p className="mt-2 break-all font-mono text-sm text-slate-600">{scanProblem.code}</p><p className="mt-3 text-sm text-slate-600">{scanProblem.status === 'archived' ? `${scanProblem.item.name} is archived. Restore it from Archived Items before using Stock In or Stock Out.` : scanProblem.status === 'error' ? scanProblem.message : 'No active item in this branch has that Product Barcode. Check the code or choose an item from Inventory. Batch codes are not Product Barcodes.'}</p><div className="mt-5 flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>{setScanProblem(null);setScannerOpen(true)}}>Scan Again</button>{scanProblem.status === 'archived' && getArchivedInventoryItems && <button type="button" className="button-secondary" onClick={()=>{setShowArchived(true);setScanProblem(null)}}>View Archived Items</button>}<button type="button" className="button-primary ml-auto" onClick={()=>setScanProblem(null)}>Close</button></div></div></div>}
       {scannedItem && <div role="dialog" aria-modal="true" aria-label="Choose barcode stock action" className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"><h2 className="text-lg font-bold">Choose Stock Action</h2><p className="mt-2 text-sm text-slate-600">{scannedItem.name} · {scannedItem.barcode}</p><div className="mt-5 flex gap-3"><button className="button-secondary flex-1" onClick={()=>{setStockMode('in');setStockItem(scannedItem);setScannedItem(null)}}>Stock In</button><button className="button-secondary flex-1" onClick={()=>{setStockMode('out');setStockItem(scannedItem);setScannedItem(null)}}>Stock Out</button></div><button className="mt-4 w-full text-sm text-slate-500" onClick={()=>setScannedItem(null)}>Cancel</button></div></div>}
       {moveItem && <MoveStockModal item={moveItem} locations={stockLocations} onClose={() => setMoveItem(null)} onSubmit={submitMoveStock} />}
-      {batchManagerItem && requestInventoryBatchActionCode && confirmInventoryBatchAction && <BatchManagerModal item={batchManagerItem} onClose={()=>setBatchManagerItem(null)} onRequestAction={requestInventoryBatchActionCode} onConfirmAction={confirmInventoryBatchAction} onLoadHistory={getInventoryBatchHistory} onChanged={async (message)=>{setBatchManagerItem(null);await load();setFeedback({type:'success',message})}} />}
+      {batchManagerItem && requestInventoryBatchActionCode && confirmInventoryBatchAction && <BatchManagerModal item={batchManagerItem} onClose={()=>setBatchManagerItem(null)} onRequestAction={requestInventoryBatchActionCode} onConfirmAction={confirmInventoryBatchAction} onRemoveBatch={removeInventoryBatch} onLoadHistory={getInventoryBatchHistory} onChanged={async (message)=>{setBatchManagerItem(null);await load();setFeedback({type:'success',message})}} />}
       <ConfirmDialog
         open={Boolean(deleteCandidate)}
         title="Archive inventory item?"
@@ -1215,4 +1241,5 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
 }
 
 export default Inventory
+
 

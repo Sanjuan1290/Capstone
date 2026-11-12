@@ -41,7 +41,7 @@ const resolveConfiguredMovementReason = async (type, value, executor, branchId) 
     return {
       code: normalizeStockMovementType(type, requested),
       name: requested || (type === 'in' ? 'Received from Supplier' : 'Inventory Correction (-)'),
-      requires_batch: type === 'out' ? 1 : 0,
+      requires_batch: 1,
       is_system: 1,
     }
   }
@@ -80,48 +80,62 @@ const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, 
   let auditValues
 
   if (type === 'in') {
+    const existingBatchId = Number(body.existing_batch_id || 0)
+    const mode = String(body.stock_in_mode || (existingBatchId ? 'existing' : 'new')).trim()
+    if (!['new', 'existing'].includes(mode) || (mode === 'existing' && (!Number.isSafeInteger(existingBatchId) || existingBatchId <= 0)) || (mode === 'new' && existingBatchId > 0)) {
+      throw Object.assign(new Error('Choose Create New Batch or Add to Existing Batch, and select the exact batch when required.'), { statusCode: 400, code: 'STOCK_IN_BATCH_SELECTION_REQUIRED' })
+    }
+    const isExisting = mode === 'existing'
+    const movementReason = await resolveConfiguredMovementReason('in', body.movement_reason, executor, branchId)
+    const movementType = movementReason.code
+    // A returned unused item must return to its original batch, not a new lot.
+    const isUnusedReturn = /return(?:ed)?[ _-]*(?:unused|to[ _-]*stock)/i.test(`${movementType} ${movementReason.name}`) || movementType === 'returned'
+    if (isUnusedReturn && !isExisting) {
+      throw Object.assign(new Error('Returned unused items must be added to their original existing batch.'), { statusCode: 400, code: 'RETURN_REQUIRES_EXISTING_BATCH' })
+    }
     const noExpiry = body.no_expiry === true || body.no_expiry === 1 || String(body.no_expiry || '').toLowerCase() === 'true'
-    if (item.item_type === 'medicine' && !String(body.expiration_date || '').trim()) {
+    if (!isExisting && item.item_type === 'medicine' && !String(body.expiration_date || '').trim()) {
       const error = new Error('Batch Expiry is required for medicines.')
       error.statusCode = 400
       error.code = 'INVENTORY_EXPIRY_REQUIRED'
       throw error
     }
-    if (item.item_type === 'supplies' && !noExpiry && !String(body.expiration_date || '').trim()) {
+    if (!isExisting && item.item_type === 'supplies' && !noExpiry && !String(body.expiration_date || '').trim()) {
       const error = new Error('Enter the Batch Expiry or select “No expiry / Not applicable”.')
       error.statusCode = 400
       error.code = 'INVENTORY_EXPIRY_REQUIRED'
       throw error
     }
-    const supplierId = Number(body.supplier_id || item.supplier_id || 0)
-    if (!supplierId) throw Object.assign(new Error('Select the supplier for this receipt.'), { statusCode: 400, code: 'INVENTORY_SUPPLIER_REQUIRED' })
-    const [[supplier]] = await executor.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [supplierId, branchId])
-    if (!supplier || !String(supplier.category || '').split(',').map(v=>v.trim()).includes(item.category)) {
-      throw Object.assign(new Error('The selected supplier is not assigned to this item clinic.'), { statusCode: 400, code: 'SUPPLIER_CLINIC_MISMATCH' })
+    let supplierId = null
+    let supplier = null
+    if (!isExisting) {
+      supplierId = Number(body.supplier_id || item.supplier_id || 0)
+      if (!supplierId) throw Object.assign(new Error('Select the supplier for this receipt.'), { statusCode: 400, code: 'INVENTORY_SUPPLIER_REQUIRED' })
+      ;[[supplier]] = await executor.query('SELECT id,name,category FROM inventory_suppliers WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [supplierId, branchId])
+      if (!supplier || !String(supplier.category || '').split(',').map(v=>v.trim()).includes(item.category)) {
+        throw Object.assign(new Error('The selected supplier is not assigned to this item clinic.'), { statusCode: 400, code: 'SUPPLIER_CLINIC_MISMATCH' })
+      }
     }
     const sellingPrice = Number(item.selling_price)
     if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
-      const error = new Error('Set a Selling Price greater than ₱0.00 before receiving more stock for this item.')
-      error.statusCode = 400
-      error.code = 'INVENTORY_SELLING_PRICE_REQUIRED'
-      throw error
+      throw Object.assign(new Error('Set a Selling Price greater than ₱0.00 before receiving more stock for this item.'), { statusCode: 400, code: 'INVENTORY_SELLING_PRICE_REQUIRED' })
     }
-    if (body.storage_location_id) {
-      const [[location]] = await executor.query('SELECT id FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [body.storage_location_id, branchId])
-      if (!location) throw Object.assign(new Error('Storage location not found in this branch.'), { statusCode: 404, code: 'LOCATION_NOT_FOUND' })
+    const selectedLocationId = Number(body.storage_location_id || 0)
+    if (selectedLocationId) {
+      const [[location]] = await executor.query('SELECT id FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1 LIMIT 1', [selectedLocationId, branchId])
+      if (!location) throw Object.assign(new Error('Stock room not found in this branch.'), { statusCode: 404, code: 'LOCATION_NOT_FOUND' })
     }
-    const movementReason = await resolveConfiguredMovementReason('in', body.movement_reason, executor, branchId)
-    const movementType = movementReason.code
     const received = await receiveInventoryBatch(inventoryId, {
       quantity: qty,
-      expiration_date: noExpiry ? null : body.expiration_date,
-      batch_code: body.batch_code,
+      existing_batch_id: isExisting ? existingBatchId : null,
+      expiration_date: isExisting ? null : (noExpiry ? null : body.expiration_date),
+      batch_code: null,
       supplier_lot_number: null,
-      supplier_id: supplierId,
-      note: note || 'Manual stock-in',
+      supplier_id: isExisting ? null : supplierId,
+      note: note || (isExisting ? 'Manual stock-in to an existing batch' : 'Manual stock-in'),
       // Acquisition cost is intentionally not tracked in the simplified inventory model.
       unit_cost: 0,
-      location_id: body.storage_location_id,
+      location_id: selectedLocationId || null,
     }, executor)
     // inventory.price is a legacy compatibility mirror of Selling Price.
     await executor.query('UPDATE inventory SET price=selling_price WHERE id=?', [inventoryId])
@@ -214,3 +228,4 @@ const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, 
 }
 
 module.exports = { applyManualInventoryMovement }
+

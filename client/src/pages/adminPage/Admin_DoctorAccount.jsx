@@ -42,7 +42,7 @@ const AddModal = ({ onClose, onAdd }) => {
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
           <div>
             <p className="text-sm font-bold text-slate-800">Add Doctor Account</p>
-            <p className="text-xs text-slate-500 mt-0.5">PRC license required</p>
+            <p className="text-xs text-slate-500 mt-0.5">Each doctor must have their own email, mobile number, and PRC license number.</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
             <MdClose />
@@ -59,7 +59,7 @@ const AddModal = ({ onClose, onAdd }) => {
             { k: 'full_name',   l: 'Full Name (with title)', t: 'text',  p: 'e.g. Dr. Juan Santos', req: true  },
             { k: 'email',       l: 'Email',                  t: 'email', p: 'e.g. juan@carait.com', req: true  },
             { k: 'phone',       l: 'Phone Number',            t: 'tel',   p: '09171234567',           req: true  },
-            { k: 'prc_license', l: 'PRC License No.',        t: 'text',  p: 'e.g. PRC-001234',       req: true  },
+            { k: 'prc_license', l: 'PRC License No.',        t: 'text',  p: 'Enter verified PRC license number',       req: true  },
           ].map(({ k, l, t, p, req }) => (
             <div key={k}>
               <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
@@ -150,7 +150,7 @@ const EditModal = ({ doctor, onClose, onSave }) => {
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
             <p className="text-sm font-bold text-slate-800">Update Doctor Account</p>
-            <p className="text-xs text-slate-500 mt-0.5">Use after verifying the doctor's request with admin records.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Check license details before saving. Identifiers cannot be shared across doctor accounts.</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-400">
             <MdClose />
@@ -417,4 +417,5 @@ const Admin_DoctorAccount = () => {
 }
 
 export default Admin_DoctorAccount
+
 

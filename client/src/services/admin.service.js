@@ -366,6 +366,8 @@ export const deleteDoctorUnavailableDate = (doctorId, date) =>
 export const getAuditLogs = (params = {}, options = {}) => { const search = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== '') search.set(k,v) }); const q=search.toString(); return requestJson(`${getAdminApiBase()}/audit-logs${q ? `?${q}` : ''}`, options) }
 export const getClinicSettings = () => requestJson(`${getAdminApiBase()}/clinic-settings`)
 export const updateClinicSettings = (payload) => requestJson(`${getAdminApiBase()}/clinic-settings`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+export const getGlobalClinicSettings = () => requestJson('/api/admin/clinic-settings')
+export const updateGlobalClinicSettings = (payload) => requestJson('/api/admin/clinic-settings', { method:'PUT', headers:{'Content-Type':'application/json'},body:JSON.stringify(payload) })
 
 export const recordReportExport = (payload = {}) => requestJson(`${getAdminApiBase()}/reports/export-audit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
@@ -429,7 +431,7 @@ export const bulkReceiveInventoryItems = (items) => requestJson(`${getAdminApiBa
 export const bulkUpdateInventoryItems = (items) => requestJson(`${getAdminApiBase()}/inventory/bulk-update`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
 })
-export const getInventoryExcelUploads = () => requestJson(`${getAdminApiBase()}/inventory/excel-imports`)
+export const getInventoryExcelUploads = (page = 1) => requestJson(`${getAdminApiBase()}/inventory/excel-imports?page=${encodeURIComponent(page)}`)
 export const undoInventoryExcelUpload = (id, reason) => requestJson(`${getAdminApiBase()}/inventory/excel-imports/${id}/undo`,{
   method:'POST', headers:{'Content-Type':'application/json'},
   body:JSON.stringify({confirmation:'UNDO',reason}),
@@ -577,6 +579,7 @@ export const confirmInventoryBatchAction = (batchId, code) =>
     body: JSON.stringify({ code }),
   })
 
+export const removeInventoryBatch = (batchId) => requestJson(`${getAdminApiBase()}/inventory/batches/${encodeURIComponent(batchId)}/remove`, { method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:'REMOVE'}) })
 export const getInventoryBatchHistory = (batchId) =>
   requestJson(`${getAdminApiBase()}/inventory/batches/${batchId}/history`)
 
@@ -608,3 +611,7 @@ export const sendAppointmentReminderNow = (id,channels) => requestJson(`${getAdm
 
 export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/billing/payment-issues`)
 
+
+
+export const getQueueDisplaySecurity = () => requestJson(`${getAdminApiBase()}/queue-display-security`)
+export const generateQueueDisplayPin = () => requestJson(`${getAdminApiBase()}/queue-display-security/generate`,{method:'POST'})

@@ -765,60 +765,34 @@ const lookupWalkInPatients = async (req, res) => {
 }
 
 const createWalkInPatient = async (req, res) => {
-  const {
-    full_name = '', phone = '', email = '', birthdate = null, sex = null,
-    consent_given, consent_method = 'signed_intake_form',
-  } = req.body
-
-  if (!String(full_name).trim() || !String(phone).trim())
-    return res.status(400).json({ message: 'Full name and phone number are required.' })
-  if (!consent_given)
-    return res.status(400).json({ message: 'Patient data privacy consent is required before registration.' })
-
-  const normalizedSex = ['Male', 'Female', 'Other'].includes(String(sex || '')) ? String(sex) : null
-  const birthdateError = birthdate ? validateBirthdate(String(birthdate)) : null
-  if (birthdateError) return res.status(400).json({ message: birthdateError })
-  const normalizedBirthdate = birthdate ? String(birthdate).slice(0,10) : null
-  const { normalizedPhone, existing } = await findExistingPatientByPhone(phone)
-  if (!normalizedPhone)
-    return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
-  if (existing) {
-    return res.status(409).json({
-      message: 'A patient with that phone number already exists. Search for the patient and add them as an existing patient instead.',
-    })
+  const {full_name,phone,email,address,birthdate,reported_age,sex,consent_given,consent_method='signed_intake_form'} = req.body || {}
+  const name = String(full_name || '').trim()
+  if (!name || name.length>150) return res.status(400).json({message:'Enter a patient full name (up to 150 characters).'})
+  if (!consent_given) return res.status(400).json({message:'Record appropriate patient privacy consent before continuing.'})
+  const gender=String(sex||'')
+  if (!['Male','Female','Other'].includes(gender)) return res.status(400).json({message:'Choose the patient gender.'})
+  const birthdateError=birthdate?validateBirthdate(String(birthdate)):null
+  if (birthdateError) return res.status(400).json({message:birthdateError})
+  const age=birthdate?null:Number(reported_age)
+  if (!birthdate && (!/^\d{1,3}$/.test(String(reported_age)) || !Number.isSafeInteger(age) || age>120)) return res.status(400).json({message:'Enter an age from 0 to 120 when birthdate is unavailable.'})
+  const normalizedPhone=String(phone||'').trim()?normalizePhilippinePhone(phone):null
+  if (String(phone||'').trim() && !normalizedPhone) return res.status(400).json({message:'Enter a valid mobile number or leave it blank.'})
+  if (normalizedPhone) {
+    const {existing}=await findExistingPatientByPhone(phone)
+    if (existing) return res.status(409).json({message:'This mobile number already belongs to a patient. Search and select the existing patient.'})
   }
-
-  const normalizedEmail = String(email || '').trim() || null
-  if (normalizedEmail) {
-    const [existingEmail] = await db.query('SELECT id FROM patients WHERE email = ?', [normalizedEmail])
-    if (existingEmail.length > 0) return res.status(409).json({ message: 'A patient with that email already exists.' })
-  }
-
-  const tempPassword = makeTempPassword()
-  const hashedPassword = await bcrypt.hash(tempPassword, 10)
-  const [result] = await db.query(
-    `INSERT INTO patients
-      (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, is_walk_in,
-       consent_given, consent_given_at, consent_method, consent_recorded_by_staff_id, receive_promotions, is_profile_complete)
-     VALUES (?, ?, ?, ?, NULL, ?, NULL, ?, ?, 1, 1, NOW(), ?, ?, 0, 0)`,
-    [String(full_name).trim(), normalizedBirthdate, normalizedSex, normalizedSex, normalizedPhone, normalizedEmail, hashedPassword, String(consent_method || 'signed_intake_form'), req.user.id]
-  )
-
-  await db.query(
-    'INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)',
-    [result.insertId, 'data_processing', req.ip || null]
-  )
-  await writeAuditLog({
-    userId: req.user.id,
-    userRole: 'staff',
-    action: 'patient.walkin_registered',
-    entityType: 'patient',
-    entityId: result.insertId,
-    newValues: { full_name: String(full_name).trim(), phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex, consent_method },
-    ipAddress: req.ip || null,
-  })
-
-  res.status(201).json({ id: result.insertId, full_name: String(full_name).trim(), phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex })
+  const normalizedEmail=String(email||'').trim()||null
+  if(normalizedEmail&&(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)||normalizedEmail.length>150))return res.status(400).json({message:'Enter a valid email or leave it blank.'})
+  if(normalizedEmail){const [existing]=await db.query('SELECT id FROM patients WHERE LOWER(email)=LOWER(?) LIMIT 1',[normalizedEmail]);if(existing.length)return res.status(409).json({message:'This email belongs to another patient. Search for the existing record.'})}
+  const cleanAddress=String(address||'').trim()||null
+  if(cleanAddress&&cleanAddress.length>500)return res.status(400).json({message:'Address is too long.'})
+  const [result]=await db.query(`INSERT INTO patients
+    (full_name,birthdate,reported_age,gender,sex,phone,address,email,password,is_walk_in,consent_given,consent_given_at,consent_method,consent_recorded_by_staff_id,receive_promotions,is_profile_complete)
+    VALUES (?,?,?,?,?,?,?,?,NULL,1,1,NOW(),?,?,0,0)`,
+    [name,birthdate?String(birthdate).slice(0,10):null,age,gender,gender,normalizedPhone,cleanAddress,normalizedEmail,String(consent_method||'signed_intake_form'),req.user.id])
+  await db.query('INSERT INTO patient_consents (patient_id,consent_type,ip_address) VALUES (?, ?, ?)',[result.insertId,'data_processing',req.ip||null])
+  await writeAuditLog({userId:req.user.id,userRole:'staff',action:'patient.walkin_registered',entityType:'patient',entityId:result.insertId,newValues:{full_name:name,has_phone:Boolean(normalizedPhone),reported_age:age,sex:gender},ipAddress:req.ip||null})
+  return res.status(201).json({id:result.insertId,full_name:name,phone:normalizedPhone,email:normalizedEmail,birthdate:birthdate||null,reported_age:age,sex:gender})
 }
 
 const getPatientRecord = async (req, res) => {
@@ -2172,3 +2146,4 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+

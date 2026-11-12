@@ -405,7 +405,7 @@ const login = async (req, res) => {
   }
 
   const patient = rows[0]
-  const match = await bcrypt.compare(password, patient.password)
+  const match = patient.password ? await bcrypt.compare(password, patient.password) : false
   if (!match) {
     await writeAuditLog({ userId: patient.id, userRole: 'patient', action: 'auth.login_failed', entityType: 'patient', entityId: patient.id, newValues: { reason: 'invalid_credentials' }, ipAddress: req.ip || null }).catch(() => {})
     return res.status(401).json({ message: 'Invalid email/mobile number or password.' })
@@ -1228,3 +1228,4 @@ module.exports = {
   getDoctorAvailableSlots,
   getDoctorTakenSlots,
 }
+

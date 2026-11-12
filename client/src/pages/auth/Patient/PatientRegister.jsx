@@ -150,6 +150,7 @@ const RegistrationForm = ({ onSuccess, nextPath }) => {
       <div className="relative w-full max-w-2xl">
         <div className="mb-6 flex flex-col items-center"><img src="/logo.png" alt="Carait" className="mb-3 h-14 w-14 rounded-2xl bg-white/10 object-contain p-2"/><h1 className="text-xl font-black text-white">Carait Clinic</h1><p className="mt-0.5 text-sm text-slate-400">Create your patient account</p></div>
         <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <div className="border-b border-emerald-100 bg-emerald-50 p-3 text-center text-sm">Prefer not to create an account? <NavLink to="/guest/book" className="font-bold text-emerald-700 underline">Book as Guest</NavLink></div>
           <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5"><span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold text-white/70">Step 1 of 2</span><h2 className="mt-1 text-lg font-bold text-white">Patient Information</h2><p className="mt-0.5 text-sm text-emerald-100">Complete your profile now so you can book immediately after verification.</p></div>
           <form onSubmit={handleSubmit} className="space-y-5 px-5 py-6 sm:px-8">
             {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
@@ -269,5 +270,6 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
+
 
 

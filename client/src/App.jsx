@@ -20,6 +20,8 @@ import SuperAdminAllInventory from './pages/superAdminPage/AllInventory'
 import PatientRegister       from './pages/auth/Patient/PatientRegister'
 import PatientLogin          from './pages/auth/Patient/PatientLogin'
 import PatientRoute          from './components/PatientRoute'
+import GuestBookAppointment from './pages/patientPage/GuestBookAppointment'
+import GuestAppointmentStatus from './pages/patientPage/GuestAppointmentStatus'
 import GuestOnlyRoute       from './components/GuestOnlyRoute'
 import PatientLayout         from './components/layouts/PatientLayout'
 import PatientDashboard      from './pages/patientPage/PatientDashboard'
@@ -122,6 +124,8 @@ const router = createBrowserRouter(createRoutesFromElements(
     <Route path='/' element={<Layout />}>
       <Route index element={<LandingPage />} />
       <Route path='/news' element={<NewsList />} />
+      <Route path='/guest/book' element={<GuestBookAppointment />} />
+      <Route path='/guest/appointments/:id' element={<GuestAppointmentStatus />} />
       <Route path='/news/:branchId/:slug' element={<NewsDetail />} />
       <Route path='/unsubscribe' element={<MarketingUnsubscribe />} />
 
@@ -251,6 +255,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='staff-accounts' element={<Admin_StaffAccount />} />
         <Route path='doctor-accounts' element={<Admin_DoctorAccount />} />
         <Route path='system-setup' element={<Admin_SystemSetup />} />
+        <Route path='clinic-settings' element={<Admin_ClinicSettings />} />
         <Route path='announcements' element={<Admin_Announcements />} />
         <Route path='system-setup/billing' element={<Admin_SystemSetupBilling />}>
           <Route index element={<Navigate to='services' replace />} />
@@ -287,6 +292,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path='staff-accounts' element={<Admin_StaffAccount />} />
         <Route path='doctor-accounts' element={<Admin_DoctorAccount />} />
         <Route path='system-setup' element={<Admin_SystemSetup />} />
+        <Route path='clinic-settings' element={<Admin_ClinicSettings />} />
         <Route path='announcements' element={<Admin_Announcements />} />
         <Route path='system-setup/billing' element={<Admin_SystemSetupBilling />}>
           <Route index element={<Navigate to='services' replace />} />
@@ -323,3 +329,4 @@ const App = () => (
 )
 
 export default App
+

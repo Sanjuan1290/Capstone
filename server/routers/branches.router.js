@@ -834,6 +834,7 @@ require('./branchPaymentActions').registerBranchPaymentActions(router,{requireSu
 require('./branchCheckoutDraftWrites').registerBranchCheckoutDraftWrites(router,{requireSuper,branchContext,requirePermission})
 require('./branchBillCorrections').registerBranchBillCorrections(router,{requireSuper,branchContext,requirePermission})
 require('./branchBatchActions').registerBranchBatchActions(router,{requireSuper,branchContext,requirePermission})
+require('./branchQueueDisplaySecurity').registerBranchQueueDisplaySecurity(router,{requireSuper,branchContext,requirePermission})
 require('./branchCashierAndPayment').registerBranchCashierAndPayment(router,{requireSuper,branchContext,requirePermission})
 for (const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]) {
   router.use(`${prefix}/billing`,...middle,requirePermission('billing'),require('./paymongoGateway').apiRouter)
@@ -851,3 +852,4 @@ router.all('/workspace/:branchId/legacy/*',requireSuper,branchContext,(req,res)=
 }))
 
 module.exports={router,PERMISSIONS,forbidden}
+

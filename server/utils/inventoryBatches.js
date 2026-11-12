@@ -253,10 +253,44 @@ const receiveInventoryBatch = async (
 
   const existingBatchId = Number(existing_batch_id)
   if (existingBatchId > 0) {
-    throw Object.assign(
-      new Error('Every Stock In is a new receipt and must create a new batch. Existing batches cannot be increased through Stock In.'),
-      { statusCode: 409, code: 'NEW_RECEIPT_REQUIRES_NEW_BATCH' }
+    // The caller must already hold a transaction. A return or count correction
+    // increases ONLY the selected batch, never silently creates another one.
+    const [[batch]] = await executor.query(
+      `SELECT id,batch_code,quantity,expiration_date,supplier_lot_number,supplier_id,unit_cost
+       FROM inventory_batches
+       WHERE id=? AND inventory_id=? AND branch_id=? AND archived_at IS NULL
+         AND (expiration_date IS NULL OR expiration_date >= CURDATE())
+       FOR UPDATE`,
+      [existingBatchId, inventoryId, branchId]
     )
+    if (!batch) throw Object.assign(new Error('This batch is archived, expired, or not available for this item and branch.'), { statusCode: 409, code: 'EXISTING_BATCH_UNAVAILABLE' })
+    if (normalizeBatchCode(batch_code) || normalizeSupplierLotNumber(supplier_lot_number) || expiration_date) {
+      throw Object.assign(new Error('Existing batch codes and expiry cannot be changed during Stock In.'), { statusCode: 400, code: 'EXISTING_BATCH_FIELDS_READ_ONLY' })
+    }
+    if (supplier_id != null && Number(supplier_id) > 0 && Number(supplier_id) !== Number(batch.supplier_id)) {
+      throw Object.assign(new Error('This batch belongs to a different supplier. Use its saved supplier details.'), { statusCode: 409, code: 'BATCH_SUPPLIER_MISMATCH' })
+    }
+    const [updated] = await executor.query('UPDATE inventory_batches SET quantity=quantity+? WHERE id=? AND inventory_id=? AND branch_id=? AND archived_at IS NULL', [batchQty, existingBatchId, inventoryId, branchId])
+    if (Number(updated.affectedRows || 0) !== 1) throw Object.assign(new Error('Batch stock changed during the transaction. Retry after refreshing inventory.'), { statusCode: 409, code: 'EXISTING_BATCH_CHANGED' })
+    await executor.query(
+      `INSERT INTO inventory_location_batches (location_id,inventory_id,batch_id,quantity)
+       VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+VALUES(quantity)`,
+      [locationId, inventoryId, existingBatchId, batchQty]
+    )
+    await syncLocationSnapshot(inventoryId, executor)
+    return {
+      batch_id: existingBatchId,
+      batch_code: batch.batch_code,
+      supplier_lot_number: batch.supplier_lot_number || null,
+      supplier_id: batch.supplier_id || null,
+      expiration_date: normalizeExpiryDate(batch.expiration_date instanceof Date ? batch.expiration_date.toISOString().slice(0,10) : batch.expiration_date),
+      unit_cost: Number(batch.unit_cost || 0),
+      quantity_added: batchQty,
+      previous_quantity: Number(batch.quantity || 0),
+      new_quantity: Number(batch.quantity || 0) + batchQty,
+      existing: true,
+      location: locationName,
+    }
   }
 
   const resolvedBatchCode = normalizeBatchCode(batch_code) || await generateNextBatchCode(inventoryId, executor)
@@ -747,3 +781,4 @@ module.exports = {
   transferInventoryBatchesFEFO,
   attachBatchesToInventory,
 }
+

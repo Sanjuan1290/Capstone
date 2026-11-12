@@ -5,7 +5,8 @@ const express     = require('express')
 const router      = express.Router()
 const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
-const { loginLimiter, otpRequestLimiter, otpVerifyLimiter } = require('../middlewares/rateLimit.middleware')
+const { loginLimiter, otpRequestLimiter, otpVerifyLimiter, createRateLimiter } = require('../middlewares/rateLimit.middleware')
+const guestBooking=require('../controllers/guestBooking.controller')
 const {
   register, verifyRegistration, resendRegistrationVerification, login, checkAuth, logout,
   getProfileStatus, updateProfile,
@@ -39,6 +40,28 @@ router.get('/booking-policy', async(req,res)=>{
  const document=published||cloneDefaultBookingPolicyDocument()
  res.json({...document,branch_id:Number(row.id),branch_name:row.name,uses_default:!published,is_branch_specific:Boolean(published),published_at:published?row.published_at:null})
 })
+// Guest booking read endpoints reuse the same clinic schedule and service validators.
+// They expose only public availability, never patient/account details.
+const guestCreateLimiter=createRateLimiter({name:'guest-create-appointment',windowMs:60*60*1000,max:8})
+const guestStatusLimiter=createRateLimiter({name:'guest-booking-status',windowMs:60*1000,max:60})
+router.get('/guest/booking-readiness',getBookingReadiness)
+router.get('/guest/booking-services',getBookingServices)
+router.get('/guest/appointment-reasons',getAppointmentReasons)
+router.get('/guest/doctors',getDoctors)
+router.get('/guest/doctors/availability',getDoctorsAvailability)
+router.get('/guest/doctors/:id/schedule',getDoctorSchedule)
+router.get('/guest/doctors/:id/unavailable-dates',getDoctorUnavailableDatesController)
+router.get('/guest/doctors/:id/available-slots',(req,res,next)=>{
+  if(req.query.appointment_id)return res.status(400).json({message:'Guest bookings cannot edit existing appointments.'})
+  req.user={id:0}
+  Promise.resolve(getDoctorAvailableSlots(req,res)).catch(next)
+})
+router.post('/guest/appointments',guestCreateLimiter,(req,res,next)=>Promise.resolve(guestBooking.create(req,res)).catch(error=>{
+  if(error.statusCode)return res.status(error.statusCode).json({code:error.code,message:error.message})
+  next(error)
+}))
+router.get('/guest/appointments/:id',guestStatusLimiter,(req,res,next)=>Promise.resolve(guestBooking.status(req,res)).catch(next))
+
 // Public
 router.post('/register',        otpRequestLimiter, register)
 router.post('/register/verify', otpVerifyLimiter, verifyRegistration)
@@ -86,5 +109,6 @@ router.get('/doctors/:id/available-slots',          getDoctorAvailableSlots)
 router.get('/doctors/:id/taken-slots',             getDoctorTakenSlots)
 
 module.exports = router
+
 
 

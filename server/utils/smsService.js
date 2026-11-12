@@ -1,5 +1,6 @@
 const https = require('https')
 const { normalizePhilippinePhone } = require('./phone')
+const {isGuestContact}=require('./guestContactPolicy')
 
 const SEMAPHORE_HOST = 'api.semaphore.co'
 const SEMAPHORE_BASE_PATH = '/api/v4'
@@ -139,6 +140,7 @@ const sendPatientAppointmentStatusSms = async ({
 }) => {
   const normalized = normalizePhilippinePhone(patientPhone)
   if (!normalized) return { skipped: true }
+  if (await isGuestContact({phone:normalized})) return {skipped:true,reason:'guest_in_app_only'}
 
   const cleanDoctorName = String(doctorName || '').replace(/^Dr\.?\s*/i, '').trim() || 'your doctor'
   const patientLabel = String(patientName || '').trim() || 'Patient'
@@ -169,6 +171,7 @@ const sendPatientPhoneChangeOtp = async ({ phone, code, fullName }) => {
 const sendPatientAppointmentReminderSms = async ({patientPhone,appointment_date,appointment_time,doctor_name,branch_name,branch_phone}) => {
   const normalized=normalizePhilippinePhone(patientPhone)
   if(!normalized) return {skipped:true}
+  if(await isGuestContact({phone:normalized}))return {skipped:true,reason:'guest_in_app_only'}
   const message=`CARAIT Clinic reminder: Your appointment with ${String(doctor_name||'your doctor').slice(0,45)} is on ${appointment_date} at ${appointment_time}, ${String(branch_name||'clinic').slice(0,45)}. No reply needed. ${branch_phone?`Contact: ${String(branch_phone).slice(0,25)}`:''}`
   return sendSemaphore('/messages',{number:normalized,message},'Appointment reminder')
 }
@@ -182,3 +185,4 @@ module.exports = {
   sendDoctorAppointmentSms,
   sendPatientAppointmentStatusSms,
 }
+

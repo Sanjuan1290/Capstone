@@ -64,6 +64,7 @@ const PatientLogin = () => {
           <p className="mt-1 text-sm text-slate-400">Patient Portal</p>
         </div>
 
+        <div className="mb-3 text-center"><NavLink to="/guest/book" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-emerald-400/40 px-5 text-sm font-bold text-emerald-100 hover:bg-white/10">Book as Guest — No Account Required</NavLink></div>
         <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
           <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-5">
             <h2 className="text-lg font-bold text-white">Welcome back</h2>
@@ -159,5 +160,6 @@ const PatientLogin = () => {
 }
 
 export default PatientLogin
+
 
 

@@ -21,6 +21,7 @@ import {
   getInventoryMasterData,
   saveInventoryLocationType,
   createInventorySupplier,
+  removeInventoryBatch,
   requestInventoryBatchActionCode,
   confirmInventoryBatchAction,
   getInventoryBatchHistory,
@@ -44,6 +45,7 @@ const adminServices = {
   updateInventoryItem,
   deleteInventoryItem,
   getInventoryMasterData,
+  removeInventoryBatch,
   createInventoryLocationType: (payload) => saveInventoryLocationType(payload),
   updateInventoryLocationType: (id, payload) => saveInventoryLocationType(payload, id),
   createInventorySupplier,
@@ -294,5 +296,6 @@ const AdminInventory = () => {
 }
 
 export default AdminInventory
+
 
 

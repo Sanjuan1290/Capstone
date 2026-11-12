@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS inventory_movement_reasons (
   name VARCHAR(120) NOT NULL,
   code VARCHAR(80) NOT NULL,
   movement_type ENUM('in','out') NOT NULL,
-  requires_batch TINYINT(1) NOT NULL DEFAULT 0,
+  requires_batch TINYINT(1) NOT NULL DEFAULT 1,
   is_system TINYINT(1) NOT NULL DEFAULT 0,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -18,9 +18,9 @@ CREATE TABLE IF NOT EXISTS inventory_movement_reasons (
 INSERT INTO inventory_movement_reasons
   (name, code, movement_type, requires_batch, is_system, is_active)
 VALUES
-  ('Received from Supplier', 'received', 'in', 0, 1, 1),
-  ('Returned to Stock', 'returned', 'in', 0, 1, 1),
-  ('Inventory Correction (+)', 'correction_in', 'in', 0, 1, 1),
+  ('Received from Supplier', 'received', 'in', 1, 1, 1),
+  ('Returned to Stock', 'returned', 'in', 1, 1, 1),
+  ('Inventory Correction (+)', 'correction_in', 'in', 1, 1, 1),
   ('Inventory Correction (-)', 'adjustment_out', 'out', 1, 1, 1),
   ('Expired Stock', 'expired', 'out', 1, 1, 1),
   ('Damaged Stock', 'damaged', 'out', 1, 1, 1),
@@ -31,3 +31,4 @@ ON DUPLICATE KEY UPDATE
   movement_type = VALUES(movement_type),
   requires_batch = VALUES(requires_batch),
   is_system = VALUES(is_system);
+

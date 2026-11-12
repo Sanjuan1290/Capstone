@@ -166,7 +166,7 @@ async function saveBranchMovementReason(req, res) {
   const id = Number(req.params.id || 0)
   const name = String(req.body?.name || '').trim()
   const movementType = String(req.body?.movement_type || '')
-  const requiresBatch = req.body?.requires_batch === true || Number(req.body?.requires_batch) === 1 ? 1 : 0
+  const requiresBatch = 1 // All manual stock movements are recorded against an exact batch
   const isActive = active(req.body?.is_active, 1)
   if (!safeId(branchId)) return res.status(403).json({ code: 'BRANCH_CONTEXT_REQUIRED', message: 'Select an authorized clinic branch.' })
   if (req.params.id && !safeId(id)) return res.status(400).json({ message: 'Invalid movement reason.' })
@@ -242,3 +242,4 @@ module.exports.saveBranchLocationType=saveBranchLocationType
 module.exports.updateBranchClinicSettings=updateBranchClinicSettings
 
 module.exports.saveBranchMovementReason=saveBranchMovementReason
+

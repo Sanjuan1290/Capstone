@@ -9,6 +9,7 @@ const router = express.Router()
 const db = require('../db/connect')
 const { queueDisplayLimiter } = require('../middlewares/rateLimit.middleware')
 const { getTodayDateOnly, isClinicOpenDate } = require('../utils/date')
+const {branchPin,comparePin}=require('../utils/queueDisplaySecurity')
 
 const COOKIE_NAME = 'queue_display_token'
 const DISPLAY_ROLE = 'queue_display'
@@ -34,10 +35,10 @@ const getDisplayTtlMs = () => {
   return Math.min(hours, 24) * 60 * 60 * 1000
 }
 
-const issueDisplaySession = (res, branch) => {
+const issueDisplaySession = (res, branch, pinVersion = 0) => {
   const ttlMs = getDisplayTtlMs()
   const token = jwt.sign(
-    { role: DISPLAY_ROLE, purpose: 'waiting_room_queue', branch_id: Number(branch.id), branch_name: branch.name },
+    { role: DISPLAY_ROLE, purpose: 'waiting_room_queue', branch_id: Number(branch.id), branch_name: branch.name, pin_version:pinVersion },
     process.env.JWT_SECRET,
     { expiresIn: Math.floor(ttlMs / 1000) }
   )
@@ -50,7 +51,7 @@ const issueDisplaySession = (res, branch) => {
   })
 }
 
-const requireDisplaySession = (req, res, next) => {
+const requireDisplaySession = async (req, res, next) => {
   const token = req.cookies?.[COOKIE_NAME]
   if (!token) {
     return res.status(401).json({ code: 'QUEUE_DISPLAY_LOCKED', message: 'Queue display is locked.' })
@@ -60,6 +61,8 @@ const requireDisplaySession = (req, res, next) => {
     if (decoded.role !== DISPLAY_ROLE || decoded.purpose !== 'waiting_room_queue' || !Number.isSafeInteger(Number(decoded.branch_id)) || Number(decoded.branch_id) <= 0) {
       throw new Error('Invalid display session.')
     }
+    const current = await branchPin(Number(decoded.branch_id))
+    if (Number(decoded.pin_version || 0) !== Number(current?.pin_version || 0)) throw new Error('PIN rotated.')
     req.queueDisplay = decoded
     return next()
   } catch {
@@ -76,19 +79,20 @@ router.get('/display/branches', async (req, res) => {
 })
 
 router.post('/display/unlock', queueDisplayLimiter, async (req, res) => {
-  const expectedPin = getDisplayPin()
-  if (!expectedPin) {
-    return res.status(503).json({ code: 'QUEUE_DISPLAY_NOT_CONFIGURED', message: 'Queue display PIN is not configured.' })
-  }
-  if (!safeEqual(req.body?.pin, expectedPin)) {
-    return res.status(401).json({ code: 'INVALID_QUEUE_DISPLAY_PIN', message: 'Incorrect display PIN.' })
-  }
   const branchId = Number(req.body?.branch_id)
-  if (!Number.isSafeInteger(branchId) || branchId <= 0) return res.status(400).json({ message: 'Choose a clinic branch.' })
-  const [[branch]] = await db.query('SELECT id,name FROM clinic_branches WHERE id=? AND is_active=1 LIMIT 1', [branchId])
-  if (!branch) return res.status(404).json({ code: 'BRANCH_NOT_FOUND', message: 'The selected clinic branch is unavailable.' })
-  issueDisplaySession(res, branch)
-  return res.json({ message: 'Queue display unlocked.', branch_name: branch.name })
+  const legacyPin=getDisplayPin()
+  // Preserve the legacy invalid-PIN response when branch has not yet been selected.
+  if ((!Number.isSafeInteger(branchId) || branchId<=0) && !safeEqual(req.body?.pin,legacyPin))
+    return res.status(401).json({code:'INVALID_QUEUE_DISPLAY_PIN',message:'Incorrect display PIN.'})
+  if (!Number.isSafeInteger(branchId) || branchId<=0) return res.status(400).json({message:'Choose a clinic branch.'})
+  const configured=await branchPin(branchId)
+  if (!configured && !legacyPin) return res.status(503).json({code:'QUEUE_DISPLAY_NOT_CONFIGURED',message:'Queue display PIN is not configured.'})
+  const valid=configured?comparePin(req.body?.pin,configured.pin_hash):safeEqual(req.body?.pin,legacyPin)
+  if (!valid) return res.status(401).json({code:'INVALID_QUEUE_DISPLAY_PIN',message:'Incorrect display PIN.'})
+  const [[branch]]=await db.query('SELECT id,name FROM clinic_branches WHERE id=? AND is_active=1 LIMIT 1',[branchId])
+  if (!branch) return res.status(404).json({code:'BRANCH_NOT_FOUND',message:'This clinic branch is unavailable.'})
+  issueDisplaySession(res,branch,Number(configured?.pin_version || 0))
+  return res.json({message:'Queue display unlocked.',branch_name:branch.name})
 })
 
 router.post('/display/lock', (req, res) => {
@@ -142,3 +146,4 @@ router.get('/live', requireDisplaySession, async (req, res) => {
 })
 
 module.exports = router
+
