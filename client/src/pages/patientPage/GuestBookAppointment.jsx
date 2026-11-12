@@ -3,13 +3,13 @@ import { Link, useNavigate } from 'react-router-dom'
 import { MdArrowForward, MdCalendarToday, MdCheckCircle, MdChevronLeft, MdLock, MdRefresh, MdSms } from 'react-icons/md'
 import { StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary } from './BookAppointment'
 import { GUEST_BOOKING_STEPS, guestPatientError, normalizeGuestPhone, normalizeGuestServices } from '../../utils/guestBookingFlow.mjs'
-import { getClinicToday, getMinPatientBirthdate } from '../../utils/patientBirthdate.mjs'
+import { getMaxPatientBirthdate, getMinPatientBirthdate } from '../../utils/patientBirthdate.mjs'
 import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'
 import { buildBookingPolicyUrl } from '../../utils/bookingPolicyNavigation.mjs'
 import { getGuestBranches, guestRequest, guestPost } from '../../services/guestBooking.service'
 
 const emptyVisit = () => ({ clinicType: '', service: null, doctor: null, date: '', time: '', reason: '', reasonDetails: '', notes: '' })
-const emptyPatient = () => ({ full_name: '', gender: '', birthdate: '', reported_age: '', phone: '', email: '', address: '', consent_given: false })
+const emptyPatient = () => ({ full_name: '', gender: '', birthdate: '', phone: '', email: '', address: '', consent_given: false })
 const list = value => Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : []
 const query = (path, parameters) => path + '?' + new URLSearchParams(parameters)
 const inputClass = 'mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-600'
@@ -63,7 +63,8 @@ export default function GuestBookAppointment() {
   const normalizedPhone = normalizeGuestPhone(phone)
   const verified = verification.verified && verification.phone === normalizedPhone && Date.parse(verification.expires_at) > clock
   const quota = verified ? verification.daily_limit : null
-  const profileLocked = verified && Boolean(verification.patient)
+  // Older guest records may have only a reported age. Allow their birthdate to be completed.
+  const profileLocked = verified && Boolean(verification.patient?.birthdate)
   const branchName = branches.find(branch => String(branch.id) === branchId)?.name || 'Select a clinic branch'
   const retry = () => setReload(value => value + 1)
 
@@ -90,7 +91,7 @@ export default function GuestBookAppointment() {
     setVerification(result)
     if (!result.verified) return
     setPhone('0' + result.phone.slice(2))
-    if (result.patient) setPatient({ ...emptyPatient(), ...result.patient, reported_age: String(result.patient.reported_age ?? ''), consent_given: false })
+    if (result.patient) setPatient({ ...emptyPatient(), ...result.patient, consent_given: false })
     void recover(result.phone)
   }, [recover])
 
@@ -202,7 +203,9 @@ export default function GuestBookAppointment() {
       const key = intent.current || readPending(normalizedPhone) || crypto.randomUUID()
       intent.current = key; savePending(normalizedPhone, key)
       const result = await guestPost('appointments', {
-        ...patient, phone: normalizedPhone, branch_id: Number(branchId), clinic_type: form.clinicType,
+        full_name: patient.full_name, gender: patient.gender, birthdate: patient.birthdate,
+        email: patient.email, address: patient.address, consent_given: patient.consent_given,
+        phone: normalizedPhone, branch_id: Number(branchId), clinic_type: form.clinicType,
         doctor_id: Number(form.doctor.id), requested_service_id: Number(form.service.id),
         appointment_date: form.date, appointment_time: form.time, reason: form.reason, reason_details: form.reasonDetails, notes: form.notes,
         submission_key: key,
@@ -246,14 +249,13 @@ export default function GuestBookAppointment() {
               {step === 2 && <StepDoctor clinicType={form.clinicType} service={form.service} value={form.doctor} onChange={doctor => changeVisit({ doctor, date: '', time: '' })} doctorList={doctors} loadingDoctors={doctorLoading} doctorError={doctorError} onRetry={retry} />}
               {step === 3 && <div className="space-y-3"><StepSchedule date={form.date} time={form.time} onDateChange={date => changeVisit({ date, time: '' })} onTimeChange={time => changeVisit({ time })} timeSlots={slots} doctorSchedules={schedules} unavailableDates={unavailable} loadingSlots={slotsLoading || scheduleLoading} slotsError={slotsError || scheduleError} service={form.service} />{(scheduleError || slotsError) && <button type="button" className="button-secondary" onClick={retry}><MdRefresh />Retry availability</button>}</div>}
               {step === 4 && <div className="space-y-6">
-                <section className="space-y-4" aria-labelledby="guest-patient-title"><div><h2 id="guest-patient-title" className="text-lg font-bold text-slate-900">Patient information</h2><p className="mt-1 text-sm text-slate-600">{profileLocked ? 'Your saved guest details have been loaded for this verified number. Contact the clinic to correct them.' : 'Provide your name, gender, and age or birthdate. Email and address are optional.'}</p></div><div className="grid gap-4 sm:grid-cols-2">
+                <section className="space-y-4" aria-labelledby="guest-patient-title"><div><h2 id="guest-patient-title" className="text-lg font-bold text-slate-900">Patient information</h2><p className="mt-1 text-sm text-slate-600">{profileLocked ? 'Your saved name and birthdate are locked to protect this guest record. You can update your optional email and address.' : 'Provide your name, gender, and birthdate. Patients must be 18 or older. Email and address are optional.'}</p></div><div className="grid gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2"><Field label="Full name *" maxLength={150} autoComplete="name" value={patient.full_name} disabled={profileLocked} onChange={event => updatePatient('full_name', event.target.value)} /></div>
                   <label className="block"><span className="text-xs font-bold uppercase tracking-wide text-slate-600">Gender *</span><select aria-label="Gender" value={patient.gender} disabled={profileLocked} onChange={event => updatePatient('gender', event.target.value)} className={inputClass}><option value="">Select gender</option><option>Male</option><option>Female</option><option>Other</option></select></label>
                   <Field label="Verified mobile number" value={phone} readOnly />
-                  <Field label="Birthdate (optional if age is provided)" type="date" min={getMinPatientBirthdate()} max={getClinicToday()} value={patient.birthdate} disabled={profileLocked} onChange={event => setPatient(current => ({ ...current, birthdate: event.target.value, reported_age: event.target.value ? '' : current.reported_age }))} />
-                  <Field label="Age (required without birthdate)" type="number" min="0" max="120" value={patient.reported_age} disabled={profileLocked || Boolean(patient.birthdate)} onChange={event => updatePatient('reported_age', event.target.value)} />
-                  <Field label="Email address (optional)" type="email" maxLength={150} autoComplete="email" value={patient.email} disabled={profileLocked} onChange={event => updatePatient('email', event.target.value)} />
-                  <Field label="Address (optional)" maxLength={500} autoComplete="street-address" value={patient.address} disabled={profileLocked} onChange={event => updatePatient('address', event.target.value)} />
+                  <Field label="Birthdate * (18 years or older)" type="date" min={getMinPatientBirthdate()} max={getMaxPatientBirthdate()} required value={patient.birthdate} disabled={profileLocked} onChange={event => updatePatient('birthdate', event.target.value)} />
+                  <Field label="Email address (optional)" type="email" maxLength={150} autoComplete="email" value={patient.email} onChange={event => updatePatient('email', event.target.value)} />
+                  <Field label="Address (optional)" maxLength={500} autoComplete="street-address" value={patient.address} onChange={event => updatePatient('address', event.target.value)} />
                 </div></section>
                 <section className="border-t border-slate-100 pt-5">{reasonsError && <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Custom reasons could not be loaded. Choose Other and describe your concern, or <button type="button" className="font-bold underline" onClick={retry}>try again</button>.</p>}<StepDetails reason={form.reason} reasonDetails={form.reasonDetails} notes={form.notes} reasonOptions={reasons} loadingReasons={reasonsLoading} onReasonChange={reason => changeVisit({ reason, reasonDetails: reason === 'Other' ? form.reasonDetails : '' })} onReasonDetailsChange={reasonDetails => changeVisit({ reasonDetails })} onNotesChange={notes => changeVisit({ notes })} /></section>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 lg:hidden"><BookingSummary form={form} branchName={branchName} /></div>
@@ -275,3 +277,4 @@ export default function GuestBookAppointment() {
     </div>
   </main>
 }
+

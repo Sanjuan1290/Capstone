@@ -16,6 +16,9 @@ const Doctor_ConsultationHistory = () => {
   const navigate = useNavigate()
   const [rows, setRows] = useState([])
   const [query, setQuery] = useState('')
+  const [clinicFilter, setClinicFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -41,17 +44,17 @@ const Doctor_ConsultationHistory = () => {
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (!needle) return rows
-    return rows.filter((row) => [
-      row.patient_name,
-      row.requested_service_name_snapshot,
-      row.reason,
-      row.clinic_type,
-      row.consultation_status,
-    ].filter(Boolean).some((value) => String(value).toLowerCase().includes(needle)))
-  }, [rows, query])
+    return rows.filter((row) => {
+      const visitDate = String(row.appointment_date || '').slice(0, 10)
+      if (clinicFilter && row.clinic_type !== clinicFilter) return false
+      if (dateFrom && visitDate < dateFrom) return false
+      if (dateTo && visitDate > dateTo) return false
+      return !needle || [row.patient_name, row.requested_service_name_snapshot, row.reason, row.clinic_type, row.consultation_status]
+        .filter(Boolean).some((value) => String(value).toLowerCase().includes(needle))
+    })
+  }, [rows, query, clinicFilter, dateFrom, dateTo])
 
-  const pagination = useClientPagination(filtered, { initialPageSize: 12, resetDeps: [query] })
+  const pagination = useClientPagination(filtered, { initialPageSize: 12, resetDeps: [query, clinicFilter, dateFrom, dateTo] })
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5">
@@ -68,7 +71,18 @@ const Doctor_ConsultationHistory = () => {
             <input className="form-control pl-11" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search patient, service, reason or clinic..." />
           </div>
         </label>
-        <p className="mt-3 text-xs font-semibold text-slate-500">{filtered.length} completed consultation{filtered.length === 1 ? '' : 's'}</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <label className="block text-xs font-bold text-slate-600">Clinic
+            <select className="form-control mt-1" value={clinicFilter} onChange={e => setClinicFilter(e.target.value)}><option value="">All clinics</option><option value="medical">General Medicine</option><option value="derma">Dermatology</option></select>
+          </label>
+          <label className="block text-xs font-bold text-slate-600">From
+            <input className="form-control mt-1" type="date" max={dateTo || undefined} value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+          </label>
+          <label className="block text-xs font-bold text-slate-600">To
+            <input className="form-control mt-1" type="date" min={dateFrom || undefined} value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-xs font-semibold text-slate-500">{filtered.length} completed consultation{filtered.length === 1 ? '' : 's'}</p><button type="button" className="text-xs font-bold text-violet-700 underline" onClick={()=>{setQuery('');setClinicFilter('');setDateFrom('');setDateTo('')}}>Clear filters</button></div>
       </div>
 
       {loading ? <LoadingState label="Loading past consultations..." /> : error ? <ErrorState message={error} onRetry={load} /> : (
@@ -115,3 +129,4 @@ const Doctor_ConsultationHistory = () => {
 }
 
 export default Doctor_ConsultationHistory
+

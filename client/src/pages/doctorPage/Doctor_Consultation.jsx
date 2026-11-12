@@ -1,5 +1,5 @@
 import { estimateConsultationServicePrice } from '../../utils/consultationPricing.mjs'
-import { supplyPrecision, supplyQuantityError } from '../../utils/supplyQuantity.mjs'
+import { supplyQuantityError } from '../../utils/supplyQuantity.mjs'
 import DoctorChargeReductionPanel from '../../components/billing/DoctorChargeReductionPanel'
 import { restoreConsultationServicesFromBilling, supplyReasonStatus } from '../../utils/consultationSupplyReason.mjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -846,6 +846,8 @@ const Doctor_Consultation = () => {
   }
 
   const updateServiceMaterial = (serviceId, materialIndex, quantity) => {
+    // Ignore decimal/exponent input instead of rounding medicine quantities.
+    if (!/^\d*$/.test(String(quantity))) return
     if (isEditMode) return
     setBillableServices((prev) => prev.map((service) => Number(service.catalog_service_id) === Number(serviceId)
       ? { ...service, materials: (service.materials || []).map((material, index) => index === materialIndex ? { ...material, quantity: Math.max(0, Number(quantity) || 0) } : material) }
@@ -893,14 +895,14 @@ const Doctor_Consultation = () => {
 
   const addExtraConsumable = () => {
     if (isEditMode || !extraConsumableSelected || (!extraConsumableTarget && !replacementTarget)) return
-    const quantity = Math.max(0, Number(extraConsumableQuantity) || 0)
-    if (quantity <= 0) {
+    const quantity = Number(extraConsumableQuantity)
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) {
       window.alert('Enter the additional quantity used for this extra consumable.')
       return
     }
     const reason = extraConsumableReason.trim()
-    if (reason.length < 5 || reason.length > 255) {
-      window.alert('Enter a reason (5–255 characters) for the added or replaced supply.')
+    if (reason.length > 0 && (reason.length < 5 || reason.length > 255)) {
+      window.alert('If you include a reason, enter 5–255 characters, or leave it blank.')
       return
     }
     const targetId=replacementTarget?.serviceId || extraConsumableTarget?.catalog_service_id
@@ -1010,7 +1012,7 @@ const Doctor_Consultation = () => {
     ).valid)
     if (missingSupplyReason) {
       setTab('consultation')
-      window.alert('Enter a reason of 5–255 characters for changed or additional supplies before completing the consultation. Your draft can still save.')
+      window.alert('A reason you entered for changed or additional supplies must have 5–255 characters. You can also leave it blank.')
       requestAnimationFrame(() => {
         document.getElementById(`consultation-supply-reason-${missingSupplyReason.catalog_service_id}`)?.focus()
       })
@@ -1473,8 +1475,8 @@ const Doctor_Consultation = () => {
                         <div className="mt-3 rounded-lg border border-violet-100 bg-white p-3 text-xs text-slate-600">
                           <p className="font-bold text-slate-800">Service breakdown</p>
                           <p className="mt-1">Service price: ₱{Number(catalogService?.default_price || 0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
-                          <p className="mt-1">Items included in this service: {Number((catalogService?.materials || []).length)}. Their actual use can change without automatically changing the package price.</p>
-                          <p className="mt-1">Extra inventory items are billed separately. Promotions and price reductions are reviewed on the bill.</p>
+                          <p className="mt-1">Items included in this service: {Number((catalogService?.materials || []).length)}. Removing a default item reduces the draft service charge by its Selling Price; additions or substitutions change the estimate.</p>
+                          <p className="mt-1">The bill reflects included-item changes at their Selling Prices. Extra items are billed separately; promotions are assessed during billing.</p>
                         </div>
                         <div className="mt-4 border-t border-violet-100 pt-4">
                           <div>
@@ -1485,7 +1487,6 @@ const Doctor_Consultation = () => {
                             <div className="mt-3 grid gap-2 sm:grid-cols-2">
                               {displayedMaterials.map(({material,materialIndex,removed}) => {
                                 const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id))
-                                const precision = supplyPrecision(inv)
                                 const quantityError = supplyQuantityError(material.quantity, inv)
                                 return (
                                   <div key={`${material.inventory_id || material.material_name}-${materialIndex}`} className={`rounded-xl border p-3 ${removed?'border-dashed border-slate-200 bg-slate-50':'border-slate-200 bg-white'}`}>
@@ -1504,7 +1505,7 @@ const Doctor_Consultation = () => {
                                     {!removed && <div className="mt-3">
                                       <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Quantity Used</span>
                                       <div className="mt-1.5 flex items-center gap-2">
-                                        <input type="number" aria-label={`Quantity Used for ${material.material_name}`} aria-invalid={Boolean(quantityError)} className="form-control h-9 w-24" min={precision ? 10 ** -precision : 1} step={precision ? 10 ** -precision : 1} disabled={isEditMode} value={material.quantity} onChange={event=>updateServiceMaterial(service.catalog_service_id,materialIndex,event.target.value)}/>
+                                        <input type="number" inputMode="numeric" pattern="[0-9]*" aria-label={`Quantity Used for ${material.material_name}`} aria-invalid={Boolean(quantityError)} className="form-control h-9 w-24" min="1" step="1" disabled={isEditMode} value={material.quantity} onChange={event=>updateServiceMaterial(service.catalog_service_id,materialIndex,event.target.value)}/>
                                         <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
                                       </div>
                                       {quantityError && <p role="alert" className="mt-1 text-xs text-rose-700">{quantityError}</p>}
@@ -1524,8 +1525,8 @@ const Doctor_Consultation = () => {
                             <span className="mt-1 block font-normal text-slate-500">Billing can review this note and decide if the service fee should be reduced. This does not change the price automatically.</span>
                           </label>
                           {!isEditMode && Number(service.catalog_service_id) !== Number(extraConsumableTarget?.catalog_service_id) && <label className="mt-4 block text-xs font-semibold text-slate-700">Reason for item changes
-                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Required before completing when items change" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
-                            {!supplyReasonStatus(service, catalogService).valid && <span className="mt-1 block text-amber-700">Add a reason of at least 5 characters before completing the consultation. Your draft can still save.</span>}
+                            <input className="form-control mt-1" maxLength={255} value={service.usage_change_reason || ''} placeholder="Optional: reason for the change" onChange={event=>updateServiceReason(service.catalog_service_id,event.target.value)}/>
+                            {!supplyReasonStatus(service, catalogService).valid && <span className="mt-1 block text-amber-700">If provided, the reason must contain at least 5 characters. You can leave it blank.</span>}
                           </label>}
                         </div>
                       </div>
@@ -1549,7 +1550,6 @@ const Doctor_Consultation = () => {
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {extraConsumableRows.map(({ material, index: materialIndex }) => {
                           const inv = inventoryItems.find((row) => Number(row.id) === Number(material.inventory_id))
-                          const decimal = Number(inv?.uom_allow_decimal || 0) === 1
                           return (
                             <div key={`extra-${material.inventory_id || material.material_name}-${materialIndex}`} className="rounded-xl border border-amber-200 bg-white p-3">
                               <div className="flex items-start justify-between gap-2">
@@ -1562,7 +1562,7 @@ const Doctor_Consultation = () => {
                               <label className="mt-3 block">
                                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Additional Quantity Used</span>
                                 <div className="mt-1.5 flex items-center gap-2">
-                                  <input type="number" inputMode="decimal" min="0" step={decimal ? 0.01 : 1} disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(extraConsumableTarget.catalog_service_id, materialIndex, Math.max(0, Number(e.target.value) || 0))} className="form-control h-9" />
+                                  <input type="number" inputMode="numeric" pattern="[0-9]*" min="1" step="1" disabled={isEditMode} value={material.quantity} onChange={(e) => updateServiceMaterial(extraConsumableTarget.catalog_service_id, materialIndex, e.target.value)} className="form-control h-9" />
                                   <span className="whitespace-nowrap text-xs text-slate-500">{material.unit_label || inv?.uom || 'unit'}</span>
                                 </div>
                               </label>
@@ -1576,7 +1576,7 @@ const Doctor_Consultation = () => {
                     {!isEditMode && extraConsumableTarget && <label className="mt-3 block text-xs font-semibold text-slate-700" htmlFor={`consultation-supply-reason-${extraConsumableTarget.catalog_service_id}`}>
                       Reason for changed or added supplies {supplyReasonStatus(extraConsumableTarget,billingCatalog.find(s=>Number(s.id)===Number(extraConsumableTarget.catalog_service_id))).required ? '*' : '(if applicable)'}
                       <input id={`consultation-supply-reason-${extraConsumableTarget.catalog_service_id}`} className="form-control mt-1" maxLength={255} value={extraConsumableTarget.usage_change_reason || ''} placeholder="Example: Used an additional syringe for treatment" onChange={event=>updateServiceReason(extraConsumableTarget.catalog_service_id,event.target.value)} aria-invalid={!supplyReasonStatus(extraConsumableTarget,billingCatalog.find(s=>Number(s.id)===Number(extraConsumableTarget.catalog_service_id))).valid}/>
-                      {!supplyReasonStatus(extraConsumableTarget,billingCatalog.find(s=>Number(s.id)===Number(extraConsumableTarget.catalog_service_id))).valid && <span className="mt-1 block text-amber-700">Enter at least 5 characters before completing. Your consultation draft will still autosave.</span>}
+                      {!supplyReasonStatus(extraConsumableTarget,billingCatalog.find(s=>Number(s.id)===Number(extraConsumableTarget.catalog_service_id))).valid && <span className="mt-1 block text-amber-700">If provided, enter at least 5 characters. You may also leave it blank.</span>}
                     </label>}
                   </div>
                 </div>
@@ -1922,24 +1922,25 @@ const Doctor_Consultation = () => {
               <div className="mt-2 flex items-center gap-2">
                 <input
                   type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step={Number(extraConsumableSelected.uom_allow_decimal || 0) === 1 ? 0.01 : 1}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  min="1"
+                  step="1"
                   className="form-control"
                   value={extraConsumableQuantity}
-                  onChange={(e) => setExtraConsumableQuantity(e.target.value)}
+                  onChange={(e) => { if (/^\d*$/.test(e.target.value)) setExtraConsumableQuantity(e.target.value) }}
                 />
                 <span className="shrink-0 text-sm font-semibold text-slate-500">{extraConsumableSelected.uom || extraConsumableSelected.unit || 'unit'}</span>
               </div>
             </label>
           )}
-          <label className="block text-sm font-semibold text-slate-700">Reason for {replacementTarget ? 'replacement' : 'additional supply'} *
-            <textarea className="form-control mt-1" rows={2} maxLength={255} value={extraConsumableReason} onChange={(e)=>setExtraConsumableReason(e.target.value)} placeholder="Why was this product used? (at least 5 characters)" />
-            <span className="mt-1 block text-xs font-normal text-slate-500">The reason is saved with this patient's consultation, not the standard service.</span>
+          <label className="block text-sm font-semibold text-slate-700">Reason for {replacementTarget ? 'replacement' : 'additional supply'} (optional)
+            <textarea className="form-control mt-1" rows={2} maxLength={255} value={extraConsumableReason} onChange={(e)=>setExtraConsumableReason(e.target.value)} placeholder="Optional: explain why this item was used" />
+            <span className="mt-1 block text-xs font-normal text-slate-500">If you add a reason, use 5–255 characters. It is saved with this consultation, not the standard service.</span>
           </label>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" className="button-secondary" onClick={() => { setExtraConsumableOpen(false); setExtraConsumableSearch(''); setExtraConsumableId(''); setExtraConsumableQuantity(1); setExtraConsumableReason('') }}>Cancel</button>
-            <button type="button" className="button-primary" disabled={!extraConsumableSelected || !(Number(extraConsumableQuantity) > 0) || extraConsumableReason.trim().length < 5} onClick={addExtraConsumable}><MdInventory2 /> {replacementTarget ? 'Replace Consumable' : 'Add Consumable'}</button>
+            <button type="button" className="button-primary" disabled={!extraConsumableSelected || !Number.isSafeInteger(Number(extraConsumableQuantity)) || !(Number(extraConsumableQuantity) > 0) || (extraConsumableReason.trim().length > 0 && extraConsumableReason.trim().length < 5)} onClick={addExtraConsumable}><MdInventory2 /> {replacementTarget ? 'Replace Consumable' : 'Add Consumable'}</button>
           </div>
         </div>
       </Modal>
@@ -1989,3 +1990,4 @@ const Doctor_Consultation = () => {
 }
 
 export default Doctor_Consultation
+

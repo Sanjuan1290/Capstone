@@ -562,7 +562,7 @@ const assertBookedServicePresent = (appointment, billableServices) => {
 // Service Setup defines the default, not the materials physically used for every patient.
 // Validate the doctor's per-consultation choices inside the same transaction that
 // saves the bill, before any physical inventory movement is written.
-const enforceFixedCatalogConsumables = async (billableServices, executor = db, branchId, { requireReason = true } = {}) => {
+const enforceFixedCatalogConsumables = async (billableServices, executor = db, branchId) => {
   if (!Array.isArray(billableServices) || billableServices.length > 30) {
     throw makeConsultationValidationError('Select valid consultation services.', 'INVALID_SERVICE_USAGE')
   }
@@ -584,8 +584,8 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db, b
     for (const material of submitted) {
       const id=Number(material?.inventory_id)
       const qty=Number(material?.quantity)
-      if (!Number.isSafeInteger(id)||id<=0 || !Number.isFinite(qty)||qty<=0 || qty>100000 || Math.round(qty*100)/100 !== qty) {
-        throw makeConsultationValidationError('Each supply must have a valid product and quantity (up to 2 decimal places).', 'INVALID_SUPPLY_QUANTITY')
+      if (!Number.isSafeInteger(id)||id<=0 || !Number.isSafeInteger(qty)||qty<=0 || qty>100000) {
+        throw makeConsultationValidationError('Each supply must have a valid product and a positive whole-number quantity.', 'INVALID_SUPPLY_QUANTITY')
       }
       const extra = material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
       const key=`${id}:${extra?'extra':'included'}`
@@ -613,8 +613,8 @@ const enforceFixedCatalogConsumables = async (billableServices, executor = db, b
       throw makeConsultationValidationError('Explain which service step was not performed (5–255 characters).', 'PARTIAL_SERVICE_REASON_REQUIRED')
     }
     const reason=String(raw?.usage_change_reason || '').trim()
-    if (reason.length > 255 || (requireReason && (changed || normalizedMaterials.some(m=>m.consultation_extra)) && reason.length < 5)) {
-      throw makeConsultationValidationError('Enter a reason (5–255 characters) when changing or adding supplies.', 'SUPPLY_CHANGE_REASON_REQUIRED')
+    if (reason.length > 255 || (reason.length > 0 && reason.length < 5)) {
+      throw makeConsultationValidationError('If you enter a supply-change reason, use 5–255 characters or leave it blank.', 'SUPPLY_CHANGE_REASON_REQUIRED')
     }
     if (Number(raw?.quantity ?? 1)!==1)throw makeConsultationValidationError('Service quantity must remain 1.', 'SERVICE_QUANTITY_FIXED')
     normalized.push({
@@ -695,8 +695,8 @@ const saveConsultationDraft = async (req, res) => {
     }
     if (payload.billableServices !== null) {
       // Save all clinical draft fields even while the doctor is still entering a
-      // supply-change reason. Finalization revalidates the required reason.
-      const fixedBillableServices = await enforceFixedCatalogConsumables(payload.billableServices, conn, req.branchId, { requireReason: false })
+      // supply-change reason. Optional notes are length-checked at finalization.
+      const fixedBillableServices = await enforceFixedCatalogConsumables(payload.billableServices, conn, req.branchId)
       assertBookedServicePresent(appt, fixedBillableServices)
       billing = await upsertDraftBillingForAppointment({ appointment: appt, consultationId, items: fixedBillableServices }, conn)
     } else {
@@ -1776,3 +1776,4 @@ module.exports = {
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,
 }
+

@@ -17,7 +17,7 @@ import { useAuth } from '../../../context/AuthContext'
 import PasswordRequirements from '../../../components/PasswordRequirements'
 import PhilippinePhoneInput from '../../../components/ui/PhilippinePhoneInput'
 import { getPasswordValidationError, isPasswordValid } from '../../../utils/passwordPolicy'
-import { getClinicToday, getMinPatientBirthdate, validatePatientBirthdate } from '../../../utils/patientBirthdate.mjs'
+import { getMaxPatientBirthdate, getMinPatientBirthdate, validatePatientBirthdate } from '../../../utils/patientBirthdate.mjs'
 
 const INPUT_CLASS = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 text-sm
   text-slate-800 placeholder-slate-300 transition-all focus:border-emerald-400 focus:bg-white
@@ -25,7 +25,7 @@ const INPUT_CLASS = `w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-
 const LABEL_CLASS = 'mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-slate-500'
 const GENDER_OPTIONS = ['Male', 'Female', 'Other']
 
-const maxBirthdate = getClinicToday
+const maxBirthdate = getMaxPatientBirthdate
 const minBirthdate = getMinPatientBirthdate
 const validateBirthdate = validatePatientBirthdate
 
@@ -270,6 +270,7 @@ const PatientRegister = () => {
 }
 
 export default PatientRegister
+
 
 
 

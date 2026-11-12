@@ -1,23 +1,11 @@
 // Consultation-specific supply usage stays separate from Services & Pricing defaults.
-// Drafts may have missing reasons; completion must not.
+// Supply-change reasons are optional. If entered, they must be 5–255 characters.
 const isExtra = (material) => material?.consultation_extra === true || Number(material?.consultation_extra || 0) === 1
 
-export function supplyReasonStatus(service = {}, catalogService = null) {
-  const materials = Array.isArray(service?.materials) ? service.materials : []
-  const extras = materials.some(isExtra)
-  const changedFromSnapshot = service?.usage_overridden === true || Number(service?.usage_overridden || 0) === 1
-  let changedFromCatalog = false
-  if (catalogService && Array.isArray(catalogService.materials)) {
-    const expected = new Map(catalogService.materials
-      .filter((m) => Number(m.inventory_id) > 0 && Number(m.quantity) > 0)
-      .map((m) => [Number(m.inventory_id), Number(m.quantity)]))
-    const actual = new Map(materials.filter((m) => !isExtra(m))
-      .map((m) => [Number(m.inventory_id), Number(m.quantity)]))
-    changedFromCatalog = expected.size !== actual.size || [...expected].some(([id, qty]) => actual.get(id) !== qty)
-  }
-  const required = extras || changedFromSnapshot || changedFromCatalog
+export function supplyReasonStatus(service = {}, _catalogService = null) {
+  const required = false
   const reason = String(service?.usage_change_reason || '').trim()
-  return { required, valid: !required || (reason.length >= 5 && reason.length <= 255), remaining: Math.max(0, 5 - reason.length) }
+  return { required, valid: reason.length === 0 || (reason.length >= 5 && reason.length <= 255), remaining: reason ? Math.max(0, 5 - reason.length) : 0 }
 }
 
 const parseDetails = (raw) => {
@@ -61,3 +49,4 @@ export function restoreConsultationServicesFromBilling(items = []) {
   }
   return services
 }
+

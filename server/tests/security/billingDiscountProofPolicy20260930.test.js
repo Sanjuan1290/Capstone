@@ -10,13 +10,14 @@ describe('discount proof policy', () => {
     }),
   }
 
-  it('requires proof when the preset requires a reference', async () => {
-    await expect(resolveDiscountForDraft({ billingId: 8, subtotal: 1000, presetId: 3 }, executor, { allowDirectAdmin: true }))
-      .rejects.toMatchObject({ code: 'DISCOUNT_PROOF_REQUIRED' })
+  it('allows an in-person verified ID without a file upload', async () => {
+    const result = await resolveDiscountForDraft({ billingId: 8, subtotal: 1000, presetId: 3 }, executor, { allowDirectAdmin: true })
+    expect(result.amount).toBe(200)
   })
 
-  it('accepts the uploaded proof URL and computes the discount', async () => {
+  it('preserves historical proof URL compatibility while computing the discount', async () => {
     const result = await resolveDiscountForDraft({ billingId: 8, subtotal: 1000, presetId: 3, referenceImageUrl: 'https://res.cloudinary.com/test/image/upload/pwd.jpg' }, executor, { allowDirectAdmin: true })
     expect(result.amount).toBe(200)
   })
 })
+

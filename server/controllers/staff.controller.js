@@ -774,7 +774,7 @@ const createWalkInPatient = async (req, res) => {
   const birthdateError=birthdate?validateBirthdate(String(birthdate)):null
   if (birthdateError) return res.status(400).json({message:birthdateError})
   const age=birthdate?null:Number(reported_age)
-  if (!birthdate && (!/^\d{1,3}$/.test(String(reported_age)) || !Number.isSafeInteger(age) || age>120)) return res.status(400).json({message:'Enter an age from 0 to 120 when birthdate is unavailable.'})
+  if (!birthdate && (!/^\d{1,3}$/.test(String(reported_age)) || !Number.isSafeInteger(age) || age<18 || age>120)) return res.status(400).json({message:'Enter an age from 18 to 120 when birthdate is unavailable.'})
   const normalizedPhone=String(phone||'').trim()?normalizePhilippinePhone(phone):null
   if (String(phone||'').trim() && !normalizedPhone) return res.status(400).json({message:'Enter a valid mobile number or leave it blank.'})
   if (normalizedPhone) {
@@ -1229,37 +1229,8 @@ const updateBill = async (req, res) => {
       referenceImageUrl: req.body.discount_reference_image_url,
       requestedAmount: requestedPresetAmount,
     }, conn, { allowDirectAdmin: isAdminActor, savedBill: currentBill })
-    let discountReferenceImageUrl = null
-    if (discount.preset && Number(discount.preset.requires_reference) === 1) {
-      discountReferenceImageUrl = normalizeOptionalText(req.body.discount_reference_image_url, { field: 'Discount Proof Image', max: 500 })
-      if (!discountReferenceImageUrl) {
-        await conn.rollback()
-        return res.status(400).json({ message: `${discount.preset.label} discount requires an uploaded reference / ID proof image.`, code: 'DISCOUNT_PROOF_REQUIRED' })
-      }
-      const sameAsSaved = String(currentBill.discount_reference_image_url || '') === String(discountReferenceImageUrl)
-      let trustedFromApprovedRequest = false
-      if (!sameAsSaved && !isAdminActor) {
-        const [[approvedProof]] = await conn.query(
-          `SELECT id FROM billing_adjustment_requests
-           WHERE billing_id=? AND bill_version=? AND request_type='discount' AND status='approved'
-             AND discount_preset_id=? AND reference_image_url=?
-           ORDER BY resolved_at DESC, id DESC LIMIT 1`,
-          [billingId, expectedVersion, discount.preset.id, discountReferenceImageUrl]
-        )
-        trustedFromApprovedRequest = Boolean(approvedProof)
-      }
-      if (!sameAsSaved && !trustedFromApprovedRequest) {
-        try {
-          verifyUploadSecurityToken(String(req.body.discount_reference_security_token || ''), {
-            stage: 'accepted', role: actorRole, user_id: req.user.id,
-            context_type: 'discount_proof', context_id: billingId, url: discountReferenceImageUrl,
-          })
-        } catch (error) {
-          await conn.rollback()
-          return res.status(error.statusCode || 400).json({ message: error.message || 'Upload the discount proof image again before saving this bill.', code: error.code || 'DISCOUNT_PROOF_INVALID' })
-        }
-      }
-    }
+    // No new ID-proof uploads are collected at checkout. Keep existing finalized records unchanged.
+    const discountReferenceImageUrl = null
 
     const {applyServicePromotions}=require('../utils/billingServicePromotions')
     const {total:promotionDiscount}=await applyServicePromotions(allItems,currentBill,conn,req.branchId)
@@ -1386,18 +1357,8 @@ const requestBillingAdjustment = async (req, res) => {
   if (requestedAmount && requestedAmount > Number(bill.subtotal || 0) + 0.001) return res.status(400).json({ message: 'Requested discount cannot exceed the bill subtotal.' })
   const reason = normalizeText(req.body.reason, { field: 'Approval Reason', required: true, max: 255, multiline: true })
   const reference = normalizeOptionalText(req.body.reference, { field: 'Discount Reference', max: 120 })
-  const referenceImageUrl = normalizeOptionalText(req.body.reference_image_url, { field: 'Discount Proof Image', max: 500 })
-  if (Number(preset.requires_reference) === 1) {
-    if (!referenceImageUrl) return res.status(400).json({ message: `${preset.label} discount requires an uploaded reference / ID proof image.`, code: 'DISCOUNT_PROOF_REQUIRED' })
-    try {
-      verifyUploadSecurityToken(String(req.body.reference_security_token || ''), {
-        stage: 'accepted', role: 'staff', user_id: req.user.id,
-        context_type: 'discount_proof', context_id: billingId, url: referenceImageUrl,
-      })
-    } catch (error) {
-      return res.status(error.statusCode || 400).json({ message: error.message || 'Upload the discount proof image again before requesting approval.', code: error.code || 'DISCOUNT_PROOF_INVALID' })
-    }
-  }
+  // Staff verify qualifying IDs in person; do not request or store their images.
+  const referenceImageUrl = null
 
   const [existing] = await db.query(
     `SELECT id FROM billing_adjustment_requests WHERE billing_id=? AND bill_version=? AND staff_id=? AND request_type=? AND status='pending'
@@ -2146,4 +2107,5 @@ module.exports = {
   getDoctors, getDoctorSchedules, getDoctorAvailabilityForStaff, getWalkInDoctors, getDoctorUnavailableDatesForStaff, getAppointmentAvailableSlotsForStaff,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 

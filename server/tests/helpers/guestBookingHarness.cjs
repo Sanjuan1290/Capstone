@@ -111,9 +111,10 @@ function harness(seed = {}) {
     '../utils/bookingReadiness': { getOnlineBookingReadiness: async () => ({}), applyBranchBookingOfferings: () => ({ medical: { bookable: true } }) }, '../utils/guestBookingPolicy': policy })
   const cookies = {}
   const response = () => ({ headers: {}, statusCode: 200, status(value) { this.statusCode = value; return this }, setHeader(name, value) { this.headers[name.toLowerCase()] = String(value) }, cookie(name, token, options) { cookies[name] = token; this.cookieOptions = options }, json(value) { this.body = value; return this } })
-  const body = (overrides = {}) => ({ full_name: 'Synthetic Guest', gender: 'Female', reported_age: 35, phone: '09170000001', consent_given: true, branch_id: 1, doctor_id: 8, requested_service_id: 77, clinic_type: 'medical', appointment_date: '2027-02-01', appointment_time: '10:00 AM', reason: 'Other', reason_details: 'Synthetic follow up', ...overrides })
+  const body = (overrides = {}) => ({ full_name: 'Synthetic Guest', gender: 'Female', birthdate: '1990-01-01', phone: '09170000001', consent_given: true, branch_id: 1, doctor_id: 8, requested_service_id: 77, clinic_type: 'medical', appointment_date: '2027-02-01', appointment_time: '10:00 AM', reason: 'Other', reason_details: 'Synthetic follow up', ...overrides })
   const request = (payload = {}) => ({ body: payload, cookies: { ...cookies }, ip: '127.0.0.1' })
   const verified = async phone => { const res = response(); await phoneController.requestCode(request({ phone }), res); const result = response(); await phoneController.verifyCode(request({ phone, code: messages.at(-1).code }), result); return result }
   return { db, policy, booking, phoneController, security, settings, calls, messages, notifications, validations, cookies, response, request, body, verified, get state() { return state }, locks }
 }
 module.exports = { harness }
+

@@ -7,17 +7,19 @@ const configured = {materials:[{inventory_id:7,quantity:1},{inventory_id:8,quant
 const patientSpecific = {catalog_service_id:77,materials:[{inventory_id:7,quantity:1},{inventory_id:9,quantity:1}],usage_change_reason:''}
 
 test('original service supplies do not need a change reason',()=>{
-  assert.deepEqual(supplyReasonStatus({materials: configured.materials},configured),{required:false,valid:true,remaining:5})
+  assert.deepEqual(supplyReasonStatus({materials: configured.materials},configured),{required:false,valid:true,remaining:0})
 })
-test('replaced or removed supplies require a reason before finalizing',()=>{
-  assert.equal(supplyReasonStatus(patientSpecific,configured).valid,false)
+test('replaced or removed supplies may omit a reason',()=>{
+  assert.equal(supplyReasonStatus(patientSpecific,configured).valid,true)
   assert.equal(supplyReasonStatus({...patientSpecific,usage_change_reason:'Other clinically suitable supply.'},configured).valid,true)
-  assert.equal(supplyReasonStatus({materials:[{inventory_id:7,quantity:1}]},configured).required,true)
+  assert.equal(supplyReasonStatus({materials:[{inventory_id:7,quantity:1}]},configured).required,false)
+  assert.equal(supplyReasonStatus({...patientSpecific,usage_change_reason:'abc'},configured).valid,false)
 })
-test('extra supply requires reason with or without configured defaults',()=>{
+test('extra supply allows a blank reason, but rejects a short nonempty reason',()=>{
   const newItem={materials:[{inventory_id:12,quantity:1,consultation_extra:true}],usage_change_reason:''}
-  assert.equal(supplyReasonStatus(newItem,{materials:[]}).required,true)
-  assert.equal(supplyReasonStatus(newItem,{materials:[]}).valid,false)
+  assert.equal(supplyReasonStatus(newItem,{materials:[]}).required,false)
+  assert.equal(supplyReasonStatus(newItem,{materials:[]}).valid,true)
+  assert.equal(supplyReasonStatus({...newItem,usage_change_reason:'abc'},{materials:[]}).valid,false)
   assert.equal(supplyReasonStatus({...newItem,usage_change_reason:'Used an additional syringe.'},{materials:[]}).valid,true)
 })
 test('draft reload restores extras from billing supply lines and keeps reason',()=>{
@@ -64,3 +66,4 @@ test('previously blocked draft can be retried after the reason is entered',async
   assert.equal(queue.isBlocked(),false)
   assert.deepEqual(seen,[[22,'Extra syringe was used.']])
 })
+

@@ -85,9 +85,8 @@ function registerBranchPaymentSettingsWrites(router,{requireSuper,branchContext,
   router.put(`${prefix}/billing/payment-settings`,...guard,save)
   router.post(`${prefix}/billing/payment-settings/upload`,...guard,express.raw({type:['image/png','image/jpeg','image/webp'],limit:'5mb'}),safe(admin.uploadPaymentQrImageAdmin))
   router.post(`${prefix}/billing/payment-settings/upload-status`,...guard,safe(admin.getPaymentQrUploadScanStatusAdmin))
-  router.post(`${prefix}/billing/discount-proof/upload`,...guard,branchBillForProof,express.raw({type:['image/png','image/jpeg'],limit:'5mb'}),safe(admin.uploadDiscountProofImageAdmin))
-  router.post(`${prefix}/billing/discount-proof/upload-status`,...guard,branchBillForProof,safe(admin.getDiscountProofUploadScanStatusAdmin))
  }
 }
 module.exports={registerBranchPaymentSettingsWrites,save,branchBillForProof,secureImageUrl}
+
 

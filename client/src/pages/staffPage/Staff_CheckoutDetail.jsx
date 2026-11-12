@@ -22,7 +22,6 @@ import {
   reopenBillForEditing as reopenBill,
   requestBillingAdjustment,
   updateBill,
-  uploadDiscountProofImage,
 } from '../../services/staff.service'
 import { getClinicSettings } from '../../services/clinic.service'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -36,7 +35,6 @@ import CheckoutServiceEditor from '../../components/billing/CheckoutServiceEdito
 import CheckoutPaymentSection from '../../components/billing/CheckoutPaymentSection'
 import { createStaffQrPayment, getStaffQrStatus, cancelStaffQrPayment } from '../../services/staff.service'
 import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
-import DiscountProofField from '../../components/billing/DiscountProofField'
 import { enabledPaymentMethods, formatMoney, paymentMethodLabel, roundMoney } from '../../utils/billingUi'
 import { printBillingReceipt } from '../../utils/billingReceipt'
 
@@ -131,7 +129,6 @@ const Staff_CheckoutDetail = () => {
   const [adjustments, setAdjustments] = useState([])
   const [clinicSettings, setClinicSettings] = useState({})
   const [selectedDiscountId, setSelectedDiscountId] = useState('')
-  const [discountProof, setDiscountProof] = useState({ url: '', security_token: '' })
   const [discountReason, setDiscountReason] = useState('')
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -178,7 +175,7 @@ const Staff_CheckoutDetail = () => {
     const discountRequest = approvedDiscount || pendingDiscount
     if (discountRequest?.discount_preset_id) {
       setSelectedDiscountId(String(discountRequest.discount_preset_id))
-      setDiscountProof({ url: discountRequest.reference_image_url || current.discount_reference_image_url || '', security_token: '' })
+
       setDiscountReason(discountRequest.reason || '')
       if (discountRequest.requested_amount) {
         const courtesy = Number(current?.approved_courtesy_discount || 0)
@@ -191,7 +188,7 @@ const Staff_CheckoutDetail = () => {
       && p.discount_type === current.discount_type
     ))
     setSelectedDiscountId(preset ? String(preset.id) : '')
-    setDiscountProof({ url: current.discount_reference_image_url || '', security_token: '' })
+
     setDiscountReason('')
   }
 
@@ -361,7 +358,7 @@ const Staff_CheckoutDetail = () => {
   const selectDiscount = (value) => {
     const preset = discounts.find((item) => Number(item.id) === Number(value)) || null
     setSelectedDiscountId(value)
-    setDiscountProof({ url: '', security_token: '' })
+
     setDiscountReason('')
     markDraft((current) => {
       const courtesy = Number(bill?.approved_courtesy_discount || 0)
@@ -386,8 +383,8 @@ const Staff_CheckoutDetail = () => {
         items: serializeItems(workingDraft.items),
         discount_preset_id: selectedDiscountId || null,
         discount_reference: null,
-        discount_reference_image_url: discountProof.url || null,
-        discount_reference_security_token: discountProof.security_token || null,
+        discount_reference_image_url: null,
+        discount_reference_security_token: null,
         discount_amount: workingDraft.discount_amount,
         preset_discount_amount: roundMoney(Math.max(0, Number(workingDraft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0))),
         payment_notes: workingDraft.payment_notes || null,
@@ -418,10 +415,6 @@ const Staff_CheckoutDetail = () => {
 
   const requestDiscount = async () => {
     if (!selectedDiscount) return
-    if (Number(selectedDiscount.requires_reference) === 1 && !discountProof.url) {
-      toast.error('Upload the required reference / ID proof image.')
-      return
-    }
     if (!discountReason.trim()) {
       toast.error('Enter a reason for administrator approval.')
       return
@@ -433,8 +426,8 @@ const Staff_CheckoutDetail = () => {
         discount_preset_id: selectedDiscount.id,
         requested_amount: roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0))),
         reference: null,
-        reference_image_url: discountProof.url || null,
-        reference_security_token: discountProof.security_token || null,
+        reference_image_url: null,
+        reference_security_token: null,
         reason: discountReason.trim(),
       })
       setAdjustments(await getBillingAdjustmentRequests(billingId))
@@ -771,12 +764,11 @@ const Staff_CheckoutDetail = () => {
                     value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
                     placeholder="Reason for review decision (required when no promotional discount is applied)" />
                 </label>
-                <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
+                <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Administrator approval requirements still apply to discounts that need it.</p>
               </div>}
               <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
               {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
                 {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
-                {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
                 {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
                   <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
                   {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
@@ -853,4 +845,5 @@ const Staff_CheckoutDetail = () => {
 }
 
 export default Staff_CheckoutDetail
+
 

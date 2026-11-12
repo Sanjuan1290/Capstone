@@ -20,7 +20,6 @@ import SelectedPromotionNotice from '../../components/billing/SelectedPromotionN
 import CheckoutPaymentSection from '../../components/billing/CheckoutPaymentSection'
 
 import CheckoutSupplyEditor, { getCheckoutBatchOptions } from '../../components/billing/CheckoutSupplyEditor'
-import DiscountProofField from '../../components/billing/DiscountProofField'
 import { enabledPaymentMethods, formatMoney, paymentMethodLabel, roundMoney } from '../../utils/billingUi'
 import { printBillingReceipt } from '../../utils/billingReceipt'
 
@@ -109,7 +108,6 @@ const BillCheckout = ({services,admin=false}) => {
   reopenBill,
   requestBillingAdjustment,
   updateBill,
-  uploadDiscountProofImage,
 createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
   const {user}=useAuth()
   const paymentSubmitting=useRef(false)
@@ -129,7 +127,6 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
   const [adjustments, setAdjustments] = useState([])
   const [clinicSettings, setClinicSettings] = useState({})
   const [selectedDiscountId, setSelectedDiscountId] = useState('')
-  const [discountProof, setDiscountProof] = useState({ url: '', security_token: '' })
   const [discountReason, setDiscountReason] = useState('')
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -176,7 +173,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
     const discountRequest = approvedDiscount || pendingDiscount
     if (discountRequest?.discount_preset_id) {
       setSelectedDiscountId(String(discountRequest.discount_preset_id))
-      setDiscountProof({ url: discountRequest.reference_image_url || current.discount_reference_image_url || '', security_token: '' })
+
       setDiscountReason(discountRequest.reason || '')
       if (discountRequest.requested_amount) {
         const courtesy = Number(current?.approved_courtesy_discount || 0)
@@ -189,7 +186,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
       && p.discount_type === current.discount_type
     ))
     setSelectedDiscountId(preset ? String(preset.id) : Number(current.discount_amount||0)>Number(current.approved_courtesy_discount||0)+Number(current.promotion_discount_amount||0)?'saved':'')
-    setDiscountProof({ url: current.discount_reference_image_url || '', security_token: '' })
+
     setDiscountReason('')
   }
 
@@ -330,7 +327,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
   const selectDiscount = (value) => {
     const preset = discounts.find((item) => Number(item.id) === Number(value)) || null
     setSelectedDiscountId(value)
-    setDiscountProof({ url: '', security_token: '' })
+
     setDiscountReason('')
     markDraft((current) => {
       const courtesy = Number(bill?.approved_courtesy_discount || 0)
@@ -355,8 +352,8 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
         items: serializeItems(workingDraft.items),
         discount_preset_id: selectedDiscount?.id || null,
         discount_reference: null,
-        discount_reference_image_url: discountProof.url || null,
-        discount_reference_security_token: discountProof.security_token || null,
+        discount_reference_image_url: null,
+        discount_reference_security_token: null,
         discount_amount: workingDraft.discount_amount,
         preset_discount_amount: roundMoney(Math.max(0, Number(workingDraft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0))),
         payment_notes: workingDraft.payment_notes || null,
@@ -387,10 +384,6 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
 
   const requestDiscount = async () => {
     if (!selectedDiscount) return
-    if (Number(selectedDiscount.requires_reference) === 1 && !discountProof.url) {
-      toast.error('Upload the required reference / ID proof image.')
-      return
-    }
     if (!discountReason.trim()) {
       toast.error('Enter a reason for administrator approval.')
       return
@@ -402,8 +395,8 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
         discount_preset_id: selectedDiscount.id,
         requested_amount: roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0))),
         reference: null,
-        reference_image_url: discountProof.url || null,
-        reference_security_token: discountProof.security_token || null,
+        reference_image_url: null,
+        reference_security_token: null,
         reason: discountReason.trim(),
       })
       setAdjustments(await getBillingAdjustmentRequests(billingId))
@@ -671,6 +664,17 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
                           {protectedLine && <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-black text-sky-800"><MdLock /> {item.source_type === 'consultation_extra' ? 'Extra Item · From Consultation' : 'From Consultation'}</span>}
                         </div>
                         {protectedLine && <p className="mt-1 text-xs text-slate-500">{item.source_type === 'consultation_extra' ? 'Additional consumable recorded during consultation. Quantity and selling-price snapshot are read-only at Checkout.' : 'Recorded by the Doctor. Service, quantity, and price are read-only at Checkout.'}</p>}
+                        {protectedLine && item.item_type === 'service' && (item.details?.pricing?.material_adjustments || []).length > 0 && (
+                          <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                            <p className="font-bold">Consultation inventory adjustments reflected in this service price</p>
+                            {(item.details.pricing.material_adjustments || []).map((change, changeIndex) =>
+                              <p className="mt-1" key={`${change.inventory_id}-${changeIndex}`}>
+                                {change.name}: {change.before} configured → {change.after} used ({change.price_change < 0 ? '−' : '+'}{formatMoney(Math.abs(change.price_change))})
+                              </p>
+                            )}
+                            <p className="mt-1 font-bold">Service price: {formatMoney(item.details.pricing.original_price)} → {formatMoney(item.unit_price)}</p>
+                          </div>
+                        )}
                         {protectedLine && item.details?.partial_service_note && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Part of service not performed: {item.details.partial_service_note}. Review for a possible reduction under Adjustments. No price was changed automatically.</p>}
                         {protectedLine && <button type="button" className="mt-2 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-bold text-sky-800 hover:bg-sky-50" onClick={() => document.getElementById('charge-adjustments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Request a price correction</button>}
                       </div>
@@ -728,12 +732,11 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
                     value={draft.promotion_review_note || ''} onChange={e=>markDraft(current=>({...current,promotion_review_note:e.target.value}))}
                     placeholder="Reason for review decision (required when no promotional discount is applied)" />
                 </label>
-                <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Approval and proof requirements still apply to any actual discount.</p>
+                <p className="text-xs text-slate-500">An outcome is recorded only when you save the bill. Administrator approval requirements still apply to discounts that need it.</p>
               </div>}
               <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{selectedDiscountId==='saved'&&<option value="saved">Saved authorized additional discount</option>}{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
               {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
                 {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
-                {Number(selectedDiscount.requires_reference) === 1 && <DiscountProofField billingId={billingId} value={discountProof} onChange={(proof) => { setDiscountProof(proof); setDirty(true) }} uploadFn={uploadDiscountProofImage} />}
                 {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
                   <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
                   {discountPending ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800"><span>Waiting for Admin approval.</span><button className="text-xs font-black text-rose-700" disabled={adjusting} onClick={() => cancelAdjustment(discountPending)}>Cancel Request</button></div> : <button className="button-secondary" disabled={adjusting} onClick={requestDiscount}>{adjusting ? 'Sending…' : 'Request Admin Approval'}</button>}
@@ -810,3 +813,4 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
 }
 
 export default BillCheckout
+

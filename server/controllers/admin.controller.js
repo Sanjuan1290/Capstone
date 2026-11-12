@@ -1087,7 +1087,7 @@ const getPatientRecord = async (req, res) => {
 }
 
 const createWalkInPatient = async (req, res) => {
-  const { full_name, phone, email, birthdate, sex, consent_given, consent_method = 'signed_intake_form' } = req.body
+  const { full_name, phone, email, birthdate, reported_age, sex, consent_given, consent_method = 'signed_intake_form' } = req.body
   const name = String(full_name || '').trim()
   if (!name || !String(phone || '').trim()) return res.status(400).json({ message: 'Full name and phone number are required.' })
   if (!consent_given) return res.status(400).json({ message: 'Patient data privacy consent is required.' })
@@ -1104,14 +1104,18 @@ const createWalkInPatient = async (req, res) => {
   const normalizedSex = ['Male','Female','Other'].includes(String(sex || '')) ? String(sex) : null
   const birthdateError = birthdate ? validateBirthdate(String(birthdate)) : null
   if (birthdateError) return res.status(400).json({ message: birthdateError })
+  const patientAge = birthdate ? null : Number(reported_age)
+  if (!birthdate && (!/^\d{1,3}$/.test(String(reported_age)) || !Number.isSafeInteger(patientAge) || patientAge < 18 || patientAge > 120)) {
+    return res.status(400).json({ message: 'Provide a birthdate for a patient aged 18 or older, or enter a reported age from 18 to 120.' })
+  }
   const normalizedBirthdate = birthdate ? String(birthdate).slice(0,10) : null
   const tempPassword = makeTempPassword()
   const hashedPassword = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(
     `INSERT INTO patients
-     (full_name, birthdate, gender, sex, phone, email, password, is_walk_in, consent_given, consent_given_at, consent_method, receive_promotions, is_profile_complete)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, NOW(), ?, 0, 0)`,
-    [name, normalizedBirthdate, normalizedSex, normalizedSex, normalizedPhone, normalizedEmail, hashedPassword, String(consent_method || 'signed_intake_form')]
+     (full_name, birthdate, reported_age, gender, sex, phone, email, password, is_walk_in, consent_given, consent_given_at, consent_method, receive_promotions, is_profile_complete)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW(), ?, 0, 0)`,
+    [name, normalizedBirthdate, patientAge, normalizedSex, normalizedSex, normalizedPhone, normalizedEmail, hashedPassword, String(consent_method || 'signed_intake_form')]
   )
   await db.query('INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)', [result.insertId, 'data_processing', req.ip || null])
   await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'patient.walkin_registered', entityType: 'patient', entityId: result.insertId, newValues: { full_name: name, phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex, consent_method }, ipAddress: req.ip || null })
@@ -3768,7 +3772,7 @@ const saveDiscountPresetAdmin = async (req,res) => {
   const discountType=['percentage','fixed'].includes(req.body.discount_type)?req.body.discount_type:'fixed'
   const value=Math.max(0,Number(req.body.value)||0)
   if(discountType==='percentage' && value>100) return res.status(400).json({code:'INVALID_DISCOUNT_PERCENTAGE',message:'Percentage discount cannot exceed 100%.'})
-  const payload={label:String(req.body.label||'').trim(),discount_type:discountType,value,requires_reference:req.body.requires_reference?1:0,requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===0||req.body.is_active===false?0:1}
+  const payload={label:String(req.body.label||'').trim(),discount_type:discountType,value,requires_reference:0,requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===0||req.body.is_active===false?0:1}
   if(!payload.label)return res.status(400).json({message:'Discount label is required.'})
   if(id && !payload.is_active){
     const [[pending]]=await db.query(`SELECT COUNT(*) AS total FROM billing_adjustment_requests WHERE discount_preset_id=? AND status='pending'`,[id])
@@ -4379,5 +4383,6 @@ module.exports = {
   getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
+
 
 

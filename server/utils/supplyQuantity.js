@@ -1,7 +1,6 @@
-function supplyPrecision(item={}) {
- if(Number(item.uom_allow_decimal??item.allow_decimal_quantity??0)!==1)return 0
- const n=Number(item.uom_decimal_precision??item.decimal_precision??2)
- return Math.min(2,Math.max(1,Number.isInteger(n)&&n>0?n:2))
+function supplyPrecision() {
+ // All clinic inventory consumables are recorded as whole units.
+ return 0
 }
 function validateSupplyQuantity(value,item={}) {
  const qty=Number(value),precision=supplyPrecision(item),factor=10**precision
@@ -9,3 +8,4 @@ function validateSupplyQuantity(value,item={}) {
  return qty
 }
 module.exports={supplyPrecision,validateSupplyQuantity}
+

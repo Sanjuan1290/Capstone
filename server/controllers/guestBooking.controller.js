@@ -13,8 +13,7 @@ const {getOnlineBookingReadiness,applyBranchBookingOfferings}=require('../utils/
 const {verifiedPhone,findPhonePatients,readDailyQuota,assertQuota,submissionToken,PHONE_SQL,phoneVariants}=require('../utils/guestBookingPolicy')
 
 const invalid=(status,code,message)=>Object.assign(new Error(message),{statusCode:status,code})
-const ageAtVisit=(birthdate,date,reportedAge)=>{
-  if(!birthdate)return Number(reportedAge)
+const ageAtVisit=(birthdate,date)=>{
   const [y,m,d]=String(birthdate).slice(0,10).split('-').map(Number)
   const [by,bm,bd]=String(date).split('-').map(Number)
   return by-y-(bm<m||(bm===m&&bd<d)?1:0)
@@ -25,7 +24,6 @@ const create=async(req,res)=>{
   const gender=String(b.gender||'')
   const phone=normalizePhilippinePhone(b.phone)
   const birthdate=String(b.birthdate||'').trim()
-  const age=Number(b.reported_age)
   const email=String(b.email||'').trim()||null
   const address=String(b.address||'').trim()||null
   const branchId=Number(b.branch_id),doctorId=Number(b.doctor_id),serviceId=Number(b.requested_service_id)
@@ -39,8 +37,9 @@ const create=async(req,res)=>{
   if(verifiedPhone(req)!==phone)throw invalid(403,'GUEST_PHONE_VERIFICATION_REQUIRED','Verify this mobile number by SMS before requesting an appointment.')
   if(['promotion_id','selected_promotion_id','promotion','selected_promotion','discount_amount','promotion_discount_amount'].some(key=>b[key]!=null&&b[key]!==''&&b[key]!==0))throw invalid(403,'GUEST_PROMOTIONS_NOT_ALLOWED','Promotions are available to registered patients. Sign in to use an eligible offer.')
   if(notes&&notes.length>2000)throw invalid(400,'INVALID_NOTES','Additional notes must be 2,000 characters or less.')
-  if(birthdate){const error=validateBirthdate(birthdate);if(error)throw invalid(400,'INVALID_BIRTHDATE',error)}
-  if(!birthdate&&(!/^\d{1,3}$/.test(String(b.reported_age))||!Number.isInteger(age)||age>120))throw invalid(400,'AGE_REQUIRED','Enter an age between 0 and 120, or provide your birthdate.')
+  if(!birthdate)throw invalid(400,'BIRTHDATE_REQUIRED','Enter your birthdate. Guest patients must be at least 18 years old.')
+  const birthdateError=validateBirthdate(birthdate)
+  if(birthdateError)throw invalid(400,'INVALID_BIRTHDATE',birthdateError)
   if(email&&(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>150))throw invalid(400,'INVALID_EMAIL','Enter a valid email or leave it blank.')
   if(address&&address.length>500)throw invalid(400,'INVALID_ADDRESS','Address must be 500 characters or less.')
   if(b.consent_given!==true)throw invalid(400,'PRIVACY_CONSENT_REQUIRED','Accept the privacy notice before booking.')
@@ -65,8 +64,8 @@ const create=async(req,res)=>{
   const settings=await loadBookingSettings(db,branchId)
   const duration=Number(service.average_duration_minutes||60)
   const reserved=roundReservedDurationMinutes(duration,settings.booking_start_interval_minutes)
-  const bookedAge=ageAtVisit(birthdate,date,age)
-  if(bookedAge<0||bookedAge>120)throw invalid(400,'INVALID_PATIENT_AGE','The reported age or birthdate is invalid for the appointment date.')
+  const bookedAge=ageAtVisit(birthdate,date)
+  if(bookedAge<18||bookedAge>120)throw invalid(400,'INVALID_PATIENT_AGE','Patients must be at least 18 years old to book an appointment.')
   const lockKey=`carait:guest-phone:${crypto.createHash('sha256').update(phone).digest('hex').slice(0,32)}`
   let appointmentId=null, accessToken=submissionToken(b.submission_key,phone), replayed=false, bookingStatus='pending', dailyLimit
   const tokenHash=crypto.createHash('sha256').update(accessToken).digest('hex')
@@ -104,7 +103,7 @@ const create=async(req,res)=>{
       if(!patientId){
       const [patient]=await conn.query(`INSERT INTO patients
         (full_name,birthdate,reported_age,gender,sex,phone,address,email,password,is_walk_in,consent_given,consent_given_at,consent_method,receive_promotions,is_profile_complete,phone_verified_at)
-        VALUES (?,?,?,?,?,?,?,?,NULL,1,1,NOW(),'guest_online',0,0,NOW())`,[name,birthdate||null,birthdate?null:age,gender,gender,phone,address,email])
+        VALUES (?,?,?,?,?,?,?,?,NULL,1,1,NOW(),'guest_online',0,0,NOW())`,[name,birthdate,null,gender,gender,phone,address,email])
       patientId=patient.insertId
       await conn.query('INSERT INTO patient_consents (patient_id,consent_type,ip_address) VALUES (?,?,?)',[patientId,'data_processing',req.ip||null])
       }
@@ -114,6 +113,22 @@ const create=async(req,res)=>{
         // before the existing patient row. Recheck a concurrent portal upgrade.
         const [current]=await findPhonePatients(conn,phone,true)
         if(!current||Number(current.id)!==Number(patientId)||Number(current.has_password)||current.consent_method!=='guest_online')throw invalid(409,'EXISTING_PATIENT','This patient record changed. Sign in or contact the clinic before booking.')
+        if(current.birthdate&&String(current.birthdate).slice(0,10)!==birthdate)throw invalid(409,'GUEST_DETAILS_MISMATCH','This birthdate differs from the saved guest record. Please contact the clinic.')
+        // The verified mobile belongs to this guest record. Persist contact details
+        // supplied on a later booking, rather than keeping older blank values.
+        await conn.query(`UPDATE patients
+          SET phone=?, email=COALESCE(?,email),address=COALESCE(?,address),
+              birthdate=COALESCE(birthdate,?),reported_age=NULL
+          WHERE id=? AND consent_method='guest_online' AND password IS NULL`,
+          [phone,email,address,birthdate,patientId])
+      }
+      // Validate persistence for new and returning guests before committing a booking.
+      const [[savedContact]] = await conn.query('SELECT phone,email FROM patients WHERE id=? FOR UPDATE',[patientId])
+      if(!savedContact || normalizePhilippinePhone(savedContact.phone)!==phone){
+        throw invalid(409,'GUEST_CONTACT_SAVE_FAILED','The clinic could not save your verified mobile number. Please retry this booking.')
+      }
+      if(email && String(savedContact.email||'').trim().toLowerCase()!==email.toLowerCase()){
+        throw invalid(409,'GUEST_EMAIL_SAVE_FAILED','The clinic could not save your optional email address. Please retry this booking.')
       }
       await validateAppointmentSlot({patientId,doctorId,branchId,clinicType,date,time,durationMinutes:reserved,startIntervalMinutes:settings.booking_start_interval_minutes,enforceLeadTime:true,minLeadMinutes:settings.online_min_lead_minutes,executor:conn})
       const deadline=buildConfirmationDeadlineSql({date,time,cutoffMinutes:settings.pending_confirmation_cutoff_minutes})
@@ -122,7 +137,7 @@ const create=async(req,res)=>{
          requested_service_duration_minutes_snapshot,reserved_duration_minutes_snapshot,patient_age_at_visit,
          confirmation_deadline_at,reason,appointment_date,appointment_time,notes,appointment_source,branch_id)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'guest_online',?)`,
-        [patientId,doctorId,clinicType,serviceId,service.service_name,service.default_price,duration,reserved,existing?.birthdate?ageAtVisit(existing.birthdate,date,age):bookedAge,deadline,storedReason,date,time,notes,branchId])
+        [patientId,doctorId,clinicType,serviceId,service.service_name,service.default_price,duration,reserved,bookedAge,deadline,storedReason,date,time,notes,branchId])
       appointmentId=appointment.insertId
       await conn.query('INSERT INTO guest_booking_access (appointment_id,token_hash,expires_at) VALUES (?,?,DATE_ADD(NOW(),INTERVAL 90 DAY))',[appointmentId,tokenHash])
       await writeAuditLog({userRole:'guest',action:'appointment.guest_booked',entityType:'appointment',entityId:appointmentId,branchId,newValues:{guest:true,doctor_id:doctorId,service_id:serviceId,date,time},ipAddress:req.ip||null},conn)
@@ -203,3 +218,4 @@ const recover=async(req,res)=>{
   }finally{if(acquired)await conn.query('SELECT RELEASE_LOCK(?)',[lockKey]).catch(()=>{});conn.release()}
 }
 module.exports={create,status,recover,lookup}
+

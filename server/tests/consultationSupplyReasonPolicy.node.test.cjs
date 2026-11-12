@@ -31,8 +31,12 @@ test('incomplete supply reason may be saved in a draft',async()=>{
   assert.equal(result[0].materials[1].consultation_extra,true)
   assert.equal(result[0].usage_change_reason,null)
 })
-test('finalization still rejects missing clinical supply reason',async()=>{
-  await assert.rejects(validate(extra(),executor,1),{code:'SUPPLY_CHANGE_REASON_REQUIRED'})
+test('finalization accepts extra supplies without a reason',async()=>{
+  const result=await validate(extra(),executor,1)
+  assert.equal(result[0].usage_change_reason,null)
+})
+test('finalization still rejects short nonempty supply reasons',async()=>{
+  await assert.rejects(validate(extra('abc'),executor,1),{code:'SUPPLY_CHANGE_REASON_REQUIRED'})
 })
 test('finalization allows a valid clinical supply reason',async()=>{
   const result=await validate(extra('Additional syringe used for treatment.'),executor,1)
@@ -48,3 +52,4 @@ test('a service can use medical and dermatology items from the same branch',asyn
   const result=await validate(extra('Shared item used for this treatment.'),executor,1)
   assert.deepEqual(Array.from(result[0].materials,m=>m.inventory_id),[7,12])
 })
+

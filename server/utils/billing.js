@@ -273,7 +273,7 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
       .filter((value) => value > 0)
   ))
 
-  const requestedInventoryIds = Array.from(new Set(
+  let requestedInventoryIds = Array.from(new Set(
     rawItems
       .flatMap((item) => [
         Number(item?.source_inventory_id || item?.inventory_id || 0),
@@ -286,6 +286,11 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
     ? await listBillingCatalog({ includeInactive: true, ids: requestedServiceIds, ...(branchId != null ? { branchId } : {}) }, executor)
     : []
   const serviceMap = new Map(services.map((service) => [service.id, service]))
+  // Default supplies may be absent from the doctor's actual-usage list.
+  // Their prices are still needed to calculate the removed-item credit.
+  requestedInventoryIds = [...new Set([...requestedInventoryIds, ...services.flatMap(service =>
+    (service.materials || []).map(material => Number(material.inventory_id || 0))
+  )].filter(id => Number.isSafeInteger(id) && id > 0))]
 
   const inventoryMap = new Map()
   if (requestedInventoryIds.length > 0) {
@@ -363,12 +368,16 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
         const consultationFee = roundMoney(Math.max(0, Number(service?.consultation_fee) || 0))
         const markupPercentage = 0
         if (catalogPatientPrice <= 0) { const err = new Error(`${service?.service_name || fallbackName || 'Service'} does not have a valid patient price.`); err.statusCode = 400; err.code = 'SERVICE_PRICE_REQUIRED'; throw err }
-        // Included supplies are a fixed service package. Actual usage (including
-        // substitutions) changes inventory only. Explicit Extra Supplies are billed
-        // separately at the configured selling price, once.
+        // The saved catalog price includes default supplies. Apply only the
+        // per-consultation difference; extra items are billed as separate lines.
+        const {repriceConsultationService} = require('./consultationMaterialPricing')
         const usageOverridden = item?.usage_overridden === true
-        const actualSuppliesPrice = 0
-        const unitPrice = catalogPatientPrice
+        const adjusted = repriceConsultationService({
+          catalogPrice:catalogPatientPrice, consultationFee,
+          defaults:service?.materials || [], actual:normalizedMaterials,inventoryMap,
+        })
+        const actualSuppliesPrice = adjusted.difference
+        const unitPrice = adjusted.unitPrice
         const baseAmount = unitPrice
         const serviceDetails = {
           pricing: {
@@ -377,9 +386,11 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
             markup_percentage: markupPercentage,
             suggested_price: catalogPatientPrice,
             patient_price: unitPrice,
-            price_overridden: false,
-            supply_billing_rule: 'included_fixed_extras_separate',
+            price_overridden: adjusted.difference !== 0,
+            supply_billing_rule: 'actual_included_delta_extras_separate',
             original_price: catalogPatientPrice,
+            material_adjustment_amount: adjusted.difference,
+            material_adjustments: adjusted.adjustments,
             override_reason: usageOverridden ? String(item.usage_change_reason || '').slice(0,255) : null,
           },
           materials: normalizedMaterials,
@@ -882,4 +893,5 @@ module.exports = {
   PROTECTED_CONSULTATION_SOURCE_TYPES,
   upsertDraftBillingForAppointment,
 }
+
 

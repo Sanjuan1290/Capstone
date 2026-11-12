@@ -9,6 +9,7 @@ import { useLocation } from 'react-router-dom'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import Pagination from '../../components/ui/Pagination'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import useClientPagination from '../../hooks/useClientPagination'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -408,6 +409,9 @@ const Doctor_Appointments = () => {
   const [loading, setLoading] = useState(true)
   const [walkInQueue, setWalkInQueue] = useState([])
   const [calling, setCalling] = useState(false)
+  const [pendingStart, setPendingStart] = useState(null)
+  const [startingConsultation, setStartingConsultation] = useState(false)
+  const [startError, setStartError] = useState('')
   const [prescModal, setPrescModal] = useState(null)
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
   const [viewMode, setViewMode] = useState(notificationDate ? 'date' : 'today')
@@ -473,21 +477,20 @@ const Doctor_Appointments = () => {
 
   usePolling(loadQueue, 10000, viewMode !== 'today')
 
-  const handleStart = async (appt) => {
+  // Opening a record already in progress does not change its state.
+  // Starting a new consultation requires an explicit decision from the doctor.
+  const handleStart = (appt) => {
     const appointmentDate = String(appt.appointment_date || '').slice(0, 10)
     if (appointmentDate && appointmentDate !== today) {
-      alert('Consultations can only be started on the appointment date.')
+      window.alert('Consultations can only be started on the appointment date.')
       return
     }
-    try {
-      if (appt.status !== 'in-progress') {
-        await startConsultation(appt.id)
-        setAppointments(prev => prev.map(a => a.id === appt.id ? { ...a, status: 'in-progress' } : a))
-      }
-      navigate('/doctor/consultation', { state: { appointment: { ...appt, status: 'in-progress' } } })
-    } catch (err) {
-      console.error('Failed to start consultation', err)
+    if (appt.status === 'in-progress') {
+      navigate('/doctor/consultation', { state: { appointment: appt } })
+      return
     }
+    setStartError('')
+    setPendingStart({ appointment: appt, kind: 'scheduled' })
   }
 
   const handleCallNext = async () => {
@@ -513,33 +516,56 @@ const Doctor_Appointments = () => {
     setMobileDetailOpen(true)
   }
 
-  const handleConsultWalkIn = async (entry) => {
+  const handleConsultWalkIn = (entry) => {
     if (!entry?.appointment_id) {
-      alert('This walk-in does not have a linked appointment record yet.')
+      window.alert('This walk-in does not have a linked appointment record yet.')
       return
     }
+    setStartError('')
+    setPendingStart({ entry, kind: 'walkin' })
+  }
 
-    const walkInAppt = {
-      id: entry.appointment_id,
-      patient_id: entry.patient_id,
-      patient_name: entry.patient_name,
-      patient: entry.patient_name,
-      patient_age: entry.patient_age,
-      patient_sex: entry.patient_sex,
-      patient_phone: entry.patient_phone,
-      reason: entry.reason || 'Walk-in consultation',
-      time: entry.time || entry.arrivedAt,
-      type: entry.type,
-      appointment_date: today,
-      status: 'in-progress',
-    }
-
+  const confirmStartConsultation = async () => {
+    if (!pendingStart || startingConsultation) return
+    const pending = pendingStart
+    setStartingConsultation(true)
+    setStartError('')
     try {
-      await startConsultation(entry.appointment_id)
-      navigate('/doctor/consultation', { state: { appointment: walkInAppt } })
-    } catch (err) {
-      console.error('Failed to open walk-in consultation', err)
-      alert('Failed to open walk-in consultation. Please try again.')
+      if (pending.kind === 'walkin') {
+        const entry = pending.entry
+        const walkInAppt = {
+          id: entry.appointment_id,
+          patient_id: entry.patient_id,
+          patient_name: entry.patient_name,
+          patient: entry.patient_name,
+          patient_age: entry.patient_age,
+          patient_sex: entry.patient_sex,
+          patient_phone: entry.patient_phone,
+          reason: entry.reason || 'Walk-in consultation',
+          time: entry.time || entry.arrivedAt,
+          type: entry.type,
+          appointment_date: today,
+          status: 'in-progress',
+        }
+        await startConsultation(entry.appointment_id)
+        setPendingStart(null)
+        navigate('/doctor/consultation', { state: { appointment: walkInAppt } })
+      } else {
+        const appt = pending.appointment
+        const appointmentDate = String(appt.appointment_date || '').slice(0, 10)
+        if (appointmentDate && appointmentDate !== today) {
+          setStartError('Consultations can only be started on the appointment date.')
+          return
+        }
+        await startConsultation(appt.id)
+        setAppointments(previous => previous.map(item => item.id === appt.id ? { ...item, status: 'in-progress' } : item))
+        setPendingStart(null)
+        navigate('/doctor/consultation', { state: { appointment: { ...appt, status: 'in-progress' } } })
+      }
+    } catch (error) {
+      setStartError(error?.message || 'Could not start consultation. Please try again.')
+    } finally {
+      setStartingConsultation(false)
     }
   }
 
@@ -607,10 +633,7 @@ const Doctor_Appointments = () => {
           <div className="flex flex-wrap items-end gap-3">
             <button type="button" onClick={() => changeView('today')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${viewMode === 'today' ? 'bg-violet-600 text-white' : 'border border-slate-200 text-slate-600'}`}>Today {remainingToday > 0 ? remainingToday : ''}</button>
             <button type="button" onClick={() => changeView('upcoming')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${viewMode === 'upcoming' ? 'bg-violet-600 text-white' : 'border border-slate-200 text-slate-600'}`}>Upcoming {upcomingCount > 0 ? upcomingCount : ''}</button>
-            <label className="block min-w-[190px]">
-              <span className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">View a Date</span>
-              <input type="date" value={dateFilter} onFocus={() => changeView('date')} onChange={(event) => { setDateFilter(event.target.value || today); setViewMode('date') }} className={`form-control ${viewMode === 'date' ? 'border-violet-400 bg-violet-50' : ''}`} />
-            </label>
+            {viewMode === 'date' && notificationDate && <span className="rounded-xl bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-800">Appointment notification: {formatAppointmentDate(notificationDate)}</span>}
           </div>
           <div className="mt-4 border-t border-slate-100 pt-4">
             <label className="block">
@@ -731,6 +754,19 @@ const Doctor_Appointments = () => {
         </div>
       )}
 
+      <ConfirmDialog
+        open={Boolean(pendingStart)}
+        title="Start Consultation?"
+        message={`Start the consultation for ${pendingStart?.kind === 'walkin' ? pendingStart?.entry?.patient_name || 'this walk-in patient' : pendingStart?.appointment?.patient_name || pendingStart?.appointment?.patient || 'this patient'}? This will mark the appointment as In Progress. If you clicked by mistake, choose Cancel.`}
+        confirmLabel="Yes, Start Consultation"
+        cancelLabel="Cancel"
+        tone="primary"
+        loading={startingConsultation}
+        warning={startError || undefined}
+        onConfirm={confirmStartConsultation}
+        onCancel={() => { if (!startingConsultation) { setPendingStart(null); setStartError('') } }}
+      />
+
       {prescModal && (
         <PrescriptionModal
           appointmentId={prescModal.id}
@@ -744,3 +780,4 @@ const Doctor_Appointments = () => {
 }
 
 export default Doctor_Appointments
+

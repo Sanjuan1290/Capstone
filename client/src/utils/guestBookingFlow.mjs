@@ -9,10 +9,8 @@ export const normalizeGuestPhone = value => {
 export const guestPatientError = patient => {
   if (!String(patient.full_name || '').trim()) return 'Enter the patient full name.'
   if (!['Male', 'Female', 'Other'].includes(patient.gender)) return 'Choose the patient gender.'
-  if (patient.birthdate) {
-    const error = validatePatientBirthdate(patient.birthdate)
-    if (error) return error
-  } else if (!/^\d{1,3}$/.test(String(patient.reported_age)) || Number(patient.reported_age) > 120) return 'Enter an age from 0 to 120, or provide a birthdate.'
+  const birthdateError = validatePatientBirthdate(patient.birthdate)
+  if (birthdateError) return birthdateError
   if (patient.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patient.email.trim())) return 'Enter a valid email address or leave it blank.'
   if (!patient.consent_given) return 'Accept the privacy notice before submitting.'
   return ''
@@ -22,3 +20,4 @@ export const normalizeGuestServices = services => (Array.isArray(services) ? ser
   const excluded = ['current_offer', 'promotions', 'promotion', 'discount_amount', 'promotion_discount_amount']
   return Object.fromEntries(Object.entries(service).filter(([key]) => !excluded.includes(key)))
 })
+

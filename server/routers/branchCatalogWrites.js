@@ -99,7 +99,7 @@ async function saveDiscount(req,res){
   const id=req.params.id?Number(req.params.id):0
   if(id&&!validId(id))throw err(400,'INVALID_ID','Invalid discount ID.')
   const p={label:String(req.body.label||'').trim().slice(0,120),discount_type:req.body.discount_type,
-   value:number(req.body.value,{min:0,max:99999999}),requires_reference:req.body.requires_reference?1:0,
+   value:number(req.body.value,{min:0,max:99999999}),requires_reference:0,
    requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===false||req.body.is_active===0?0:1}
   if(!p.label||!['percentage','fixed'].includes(p.discount_type)||p.value===null||(p.discount_type==='percentage'&&p.value>100))throw err(400,'INVALID_DISCOUNT','Enter a valid label, discount type and value.')
   const [[prior]]=id?await conn.query('SELECT * FROM discount_presets WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId]):[[]]
@@ -124,6 +124,7 @@ function registerBranchCatalogWrites(router,{requireSuper,branchContext,requireP
  }
 }
 module.exports={registerBranchCatalogWrites,saveService,deleteService,saveDiscount}
+
 
 
 

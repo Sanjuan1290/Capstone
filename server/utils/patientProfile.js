@@ -1,4 +1,5 @@
 const ALLOWED_GENDERS = new Set(['Male', 'Female', 'Other'])
+const MIN_PATIENT_AGE = 18
 
 const { getTodayDateOnly } = require('./date')
 
@@ -29,6 +30,7 @@ const validateBirthdate = (birthdate, now = new Date()) => {
   const age = getAgeOnDate(birthdate, now)
   if (age === null) return 'Enter a valid birthdate.'
   if (age < 0) return 'Birthdate cannot be in the future.'
+  if (age < MIN_PATIENT_AGE) return 'Patients must be at least 18 years old.'
   if (age > 100) return 'Patient age cannot exceed 100 years.'
   return null
 }
@@ -71,6 +73,7 @@ const getPatientProfileStatus = (patient = {}) => {
 
 module.exports = {
   ALLOWED_GENDERS,
+  MIN_PATIENT_AGE,
   toDateOnly,
   isValidDateOnly,
   getAgeOnDate,
@@ -78,3 +81,4 @@ module.exports = {
   normalizePatientProfileInput,
   getPatientProfileStatus,
 }
+

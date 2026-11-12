@@ -37,7 +37,7 @@ const readDailyQuota = async (executor, phone, now = new Date()) => {
   return { limit: DAILY_LIMIT, used, remaining: Math.max(0, DAILY_LIMIT - used), resets_at: reset.toISOString() }
 }
 const findPhonePatients = async (executor, phone, forUpdate = false) => {
-  const [rows] = await executor.query('SELECT p.id,p.full_name,p.birthdate,p.reported_age,COALESCE(p.gender,p.sex) AS gender,p.phone,p.email,p.address,p.consent_method,' +
+  const [rows] = await executor.query("SELECT p.id,p.full_name,DATE_FORMAT(p.birthdate,'%Y-%m-%d') AS birthdate,p.reported_age,COALESCE(p.gender,p.sex) AS gender,p.phone,p.email,p.address,p.consent_method," +
     '(p.password IS NOT NULL AND p.password<>\'\') AS has_password FROM patients p WHERE ' + PHONE_SQL + ' IN (?,?,?) LIMIT 2' + (forUpdate ? ' FOR UPDATE' : ''), phoneVariants(phone))
   return rows
 }
@@ -58,3 +58,4 @@ const submissionToken = (key, phone) => {
   return crypto.createHmac('sha256', signingSecret()).update('guest-booking:v1:' + phone + ':' + key).digest('base64url')
 }
 module.exports = { DAILY_LIMIT, VERIFIED_COOKIE, VERIFICATION_SECONDS, PHONE_SQL, phoneVariants, verifiedPhone, verificationProof, issuePhoneProof, verificationState, findPhonePatients, readDailyQuota, assertQuota, submissionToken, fail }
+

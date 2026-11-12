@@ -6,12 +6,12 @@ test('guest phone variants normalize to the same verified identity', () => {
   for (const value of ['09170000001', '+63 917 000 0001', '639170000001']) assert.equal(normalizeGuestPhone(value), '639170000001')
   for (const value of ['', '0917000000', 'abc', '08170000001']) assert.equal(normalizeGuestPhone(value), '')
 })
-test('guest details require consent and valid age or birthdate while email stays optional', () => {
-  const patient = { full_name: 'Synthetic Guest', gender: 'Female', reported_age: '35', consent_given: true }
+test('guest details require an adult birthdate while email stays optional', () => {
+  const patient = { full_name: 'Synthetic Guest', gender: 'Female', birthdate: '1990-01-01', consent_given: true }
   assert.equal(guestPatientError(patient), '')
   assert.match(guestPatientError({ ...patient, consent_given: false }), /privacy/)
-  for (const age of ['', '-1', '121', '1.5']) assert.match(guestPatientError({ ...patient, reported_age: age }), /age/)
-  assert.equal(guestPatientError({ ...patient, reported_age: '0' }), '')
+  assert.match(guestPatientError({ ...patient, birthdate: '' }), /birthdate/i)
+  assert.match(guestPatientError({ ...patient, birthdate: '2010-01-01', reported_age: 35 }), /18 years/i)
   assert.match(guestPatientError({ ...patient, email: 'invalid' }), /email/)
   assert.match(guestPatientError({ ...patient, birthdate: '2999-01-01' }), /birthdate|birth|future/i)
 })
@@ -37,3 +37,4 @@ test('quota and SMS errors retain server codes, remaining quota and retry timing
   globalThis.fetch = async () => ({ ok: false, status: 429, headers: new Headers({ 'Retry-After': '60' }), json: async () => ({ code: 'GUEST_DAILY_LIMIT', message: 'Daily limit reached', details: { remaining: 0 } }) })
   await assert.rejects(guestPost('appointments', {}), error => error.code === 'GUEST_DAILY_LIMIT' && error.status === 429 && error.details.remaining === 0 && error.retryAfter === 60)
 })
+

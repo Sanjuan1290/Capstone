@@ -74,21 +74,22 @@ describe('billing checkout follow-up regressions', () => {
     expect(consultation).not.toContain('Actual Quantity Used')
   })
 
-  it('uses image proof for discounts while keeping payment transaction references as text', () => {
+  it('does not collect discount ID images and keeps payment transaction references as text', () => {
     const adminCheckout = read('client', 'src', 'pages', 'adminPage', 'Admin_CheckoutDetail.jsx')
     const staffCheckout = read('client', 'src', 'pages', 'staffPage', 'Staff_CheckoutDetail.jsx')
     const payment = read('client', 'src', 'components', 'billing', 'CheckoutPaymentSection.jsx')
     const routesAdmin = read('server', 'routers', 'admin.router.js')
     const routesStaff = read('server', 'routers', 'staff.router.js')
     const schema = read('server', 'utils', 'schema.js')
-    expect(adminCheckout).toContain('DiscountProofField')
-    expect(staffCheckout).toContain('reference_image_url: discountProof.url')
+    expect(adminCheckout).not.toContain('DiscountProofField')
+    expect(staffCheckout).not.toContain('reference_image_url: discountProof.url')
     expect(adminCheckout).toContain('<CheckoutPaymentSection')
     expect(staffCheckout).toContain('<CheckoutPaymentSection')
     expect(payment).toContain('Reference Number *')
-    expect(routesAdmin).toContain("/billing/discount-proof/upload")
-    expect(routesStaff).toContain("/billing/discount-proof/upload")
+    expect(routesAdmin).not.toContain("/billing/discount-proof/upload")
+    expect(routesStaff).not.toContain("/billing/discount-proof/upload")
     expect(schema).toContain("discount_reference_image_url")
     expect(schema).toContain("reference_image_url")
   })
 })
+

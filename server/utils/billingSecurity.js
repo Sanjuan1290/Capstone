@@ -39,9 +39,8 @@ const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal
   const preset = await loadDiscountPreset(presetId, executor)
   if(preset&&sameSavedAmount&&savedLabels.some(label=>label.toLowerCase()===String(preset.label).toLowerCase())&&saved.discount_type===preset.discount_type)return {type:preset.discount_type,label:preset.label,amount:savedAmount,preset,preserved:true}
   if (!preset || Number(preset.is_active) === 0) throw Object.assign(new Error('Selected discount is unavailable.'), { statusCode: 400 })
-  if (Number(preset.requires_reference) && !String(referenceImageUrl || reference || '').trim()) {
-    throw Object.assign(new Error(`${preset.label} discount requires an uploaded reference / ID proof image.`), { statusCode: 400, code: 'DISCOUNT_PROOF_REQUIRED' })
-  }
+  // Verify discount eligibility and required approval; ID documents are checked in person, not uploaded.
+
 
   let amount = preset.discount_type === 'percentage'
     ? roundMoney(Number(subtotal || 0) * (Number(preset.value || 0) / 100))
@@ -102,3 +101,4 @@ const applyApprovedPriceOverrides = async (billingId, items = [], executor = db,
 }
 
 module.exports = { loadDiscountPreset, getApprovedAdjustment, resolveDiscountForDraft, applyApprovedPriceOverrides }
+
