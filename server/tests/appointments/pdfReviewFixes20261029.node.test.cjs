@@ -43,9 +43,9 @@ test('manual reminder explains SMS provider unavailable',async()=>{
  assert.equal(result[0].reason,'sms_provider_not_configured')
  smsReady=true
 })
-test('booking and reschedule source keep verified-email and explicit reschedule reason checks',()=>{
+test('booking allows unverified email and reschedule still requires a reason',()=>{
  const ctrl=fs.readFileSync(path.resolve(__dirname,'../../controllers/patient.controller.js'),'utf8')
- assert.match(ctrl,/EMAIL_VERIFICATION_REQUIRED/)
+ assert.doesNotMatch(ctrl,/EMAIL_VERIFICATION_REQUIRED/)
  assert.match(ctrl,/reschedule_requested_at = NOW\(\)/)
  assert.match(ctrl,/reschedule_reason = \?/)
  assert.match(ctrl,/RESCHEDULE_REASON_REQUIRED/)
@@ -65,3 +65,4 @@ test('reschedule migration contains only additive statements',()=>{
  assert.equal(statements.length,5)
  assert.ok(statements.every(line=>/^ALTER TABLE appointments ADD COLUMN /i.test(line)))
 })
+

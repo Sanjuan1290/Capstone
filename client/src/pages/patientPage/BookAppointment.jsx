@@ -38,6 +38,7 @@ const CLINIC_TYPES = [
 const MONTHS  = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAYS    = ['Su','Mo','Tu','We','Th','Fr','Sa']
 const STEPS = BOOKING_STEPS
+const BOOKING_PRICE_DISCLOSURE = 'The amount shown is an estimate based on your selected service and any eligible offer. Your final bill may change depending on the doctor’s assessment, additional treatments, and medicines or supplies used. The clinic will review additional charges with you before payment.'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getDaysInMonth(y, m) { return new Date(y, m+1, 0).getDate() }
@@ -68,7 +69,7 @@ export const StepBar = ({ current, labels = STEPS }) => (
 )
 
 // ── Step 1: Category and service selection in one screen ────────────────────
-export const StepService = ({ category, onCategoryChange, value, onChange, services, promotions = [], promotionsLoading = false, branchId, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness, allowPromotions = true }) => {
+export const StepService = ({ category, onCategoryChange, value, onChange, services, promotions = [], promotionsLoading = false, branchId, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness }) => {
   const [query, setQuery] = useState('')
   const filtered = services.filter(service =>
     (category === 'all' || service.booking_clinic_type === category) &&
@@ -108,7 +109,7 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
         const selected = Number(value?.id)===Number(service.id) && value?.booking_clinic_type===service.booking_clinic_type
         const clinic = CLINIC_TYPES.find(c=>c.id===service.booking_clinic_type)
         const bookable = !readinessError && Boolean(readiness?.[service.booking_clinic_type]?.bookable)
-        const preview = allowPromotions ? selectBookingPrice(service, promotions, { branchId, date: getLocalDateOnly(), fallbackCurrentOffer: promotionsLoading }) : {}
+        const preview = selectBookingPrice(service, promotions, { branchId, date: getLocalDateOnly(), fallbackCurrentOffer: promotionsLoading })
         return <button key={`${service.booking_clinic_type}:${service.id}`} type="button" disabled={!bookable} aria-pressed={selected}
           onClick={() => onChange(service)} className={`flex min-h-40 flex-col rounded-2xl border-2 p-4 text-left transition-all duration-200 motion-reduce:transition-none ${!bookable ? 'cursor-not-allowed opacity-60' : 'hover:shadow-md'} ${selected ? 'border-emerald-600 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:border-emerald-300'}`}>
           <div className="flex w-full items-start justify-between gap-2">
@@ -120,8 +121,8 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
           {preview.quote?.discount > 0 ? <div className="mt-2 space-y-0.5" aria-label="Special offer price">
             <p className="text-xs font-bold text-emerald-700"><MdLocalOffer className="mr-1 inline" />{preview.promotion.title} · {preview.promotion.discount_type === 'percentage' ? `${preview.promotion.discount_value}% OFF` : `Save ${peso(preview.quote.discount)}`}</p>
             <p className="text-sm"><span className="mr-2 text-slate-500 line-through">{peso(preview.quote.original)}</span><strong className="text-emerald-800">{peso(preview.quote.current)}</strong></p>
-            <p className="text-[11px] text-slate-500">Discount subject to your appointment date.</p>
-          </div> : <p className="mt-2 text-sm font-bold text-emerald-800">Service price: {formatPublicServicePrice(service)}</p>}
+            <p className="text-[11px] text-slate-500">Expected discounted price. Eligibility depends on your appointment date; final charges may vary.</p>
+          </div> : <p className="mt-2 text-sm font-bold text-emerald-800">Expected service price: {formatPublicServicePrice(service)}</p>}
           <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-4 text-sm">
             <span className="text-slate-600">{formatDuration(service.average_duration_minutes)} estimated</span>
             <span className="font-semibold text-emerald-800">{selected ? 'Selected' : bookable ? 'Select service' : 'Not available'}</span>
@@ -129,7 +130,7 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
         </button>
       })}
     </div>
-    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Selected service: <strong>{value.service_name}</strong>. {allowPromotions ? 'The service discount shown above is subject to your appointment date.' : 'The regular service price applies to guest bookings.'} Additional treatment or supplies, if approved, may affect the final bill.</p>}
+    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Selected service: <strong>{value.service_name}</strong>. {BOOKING_PRICE_DISCLOSURE}</p>}
   </div>
 }
 
@@ -340,7 +341,7 @@ export const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadi
         <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
           Please Describe Your Reason <span className="text-red-400">*</span>
         </label>
-        <textarea aria-label="Describe your reason" value={reasonDetails} onChange={e => onReasonDetailsChange(e.target.value)} rows={3}
+        <textarea value={reasonDetails} onChange={e => onReasonDetailsChange(e.target.value)} rows={3}
           maxLength={180}
           placeholder="Briefly describe what you would like the doctor to check…"
           className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 transition-all resize-none" />
@@ -351,7 +352,7 @@ export const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadi
       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
         Additional Notes <span className="normal-case font-normal text-slate-300">(optional)</span>
       </label>
-      <textarea aria-label="Additional notes" maxLength={2000} value={notes} onChange={e => onNotesChange(e.target.value)} rows={3}
+      <textarea value={notes} onChange={e => onNotesChange(e.target.value)} rows={3}
         placeholder="Any symptoms, concerns, or information the doctor should know…"
         className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200
           rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-400 focus:ring-2
@@ -420,7 +421,7 @@ export const BookingSummary = ({ form, branchName, selectedPromotion }) => {
     {[
       ['Clinic Branch',branchName],
       ['Service',form.service?.service_name || 'Not selected yet'],
-      ['Service Price',form.service ? (hasDiscount ? peso(quote.current) : formatPublicServicePrice(form.service)) : 'Not selected yet'],
+      ['Expected Service Price',form.service ? (hasDiscount ? peso(quote.current) : formatPublicServicePrice(form.service)) : 'Not selected yet'],
       ['Doctor',form.doctor?.full_name || form.doctor?.name || 'Not selected yet'],
       ['Date',dateText],
       ['Time',form.time ? formatAppointmentTimeRange(form.time,form.service?.reserved_duration_minutes || 60) : 'Not selected yet'],
@@ -434,7 +435,11 @@ export const BookingSummary = ({ form, branchName, selectedPromotion }) => {
       {!form.date && <p className="mt-1 text-xs">Final discount eligibility depends on your appointment date.</p>}
     </div>}
     {selectedPromotion && !hasDiscount && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><MdLocalOffer className="mr-1 inline" /> Selected offer: {selectedPromotion.title} (no automatic price reduction)</p>}
-    <p className="rounded-xl bg-sky-50 p-3 text-sm leading-relaxed text-sky-900"><MdInfoOutline className="mr-1 inline" /> The clinic confirms availability and final charges. Your request is not yet a confirmed appointment.</p>
+    {form.service && <div role="note" className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm leading-relaxed text-sky-900">
+      <p className="font-bold"><MdInfoOutline className="mr-1 inline" /> Service price is an estimate</p>
+      <p className="mt-1">{BOOKING_PRICE_DISCLOSURE}</p>
+    </div>}
+    <p className="text-xs leading-relaxed text-slate-600">The clinic confirms appointment availability. Submitting a booking request does not finalize your bill or deduct supplies.</p>
   </div>
 }
 
@@ -453,8 +458,9 @@ const SuccessScreen = ({ onReset, form, branchName, selectedPromotion }) => (
       <p className="mt-2 text-slate-800">{form.service?.service_name} · {form.doctor?.full_name || form.doctor?.name}</p>
       {selectedPromotion && promotionQuote(form.service?.default_price, selectedPromotion)?.discount > 0 ? <div className="mt-2 text-sm">
         <p className="font-semibold text-emerald-900">{selectedPromotion.title}: <span className="line-through text-slate-500">{peso(form.service.default_price)}</span> {peso(promotionQuote(form.service.default_price, selectedPromotion).current)}</p>
-        <p className="text-xs text-slate-600">Service discount: −{peso(promotionQuote(form.service.default_price, selectedPromotion).discount)} · Other charges may apply.</p>
-      </div> : <p className="mt-1 font-semibold text-emerald-900">Service price: {formatPublicServicePrice(form.service)}</p>}
+        <p className="text-xs text-slate-600">Expected discounted service price · Discount: −{peso(promotionQuote(form.service.default_price, selectedPromotion).discount)}</p>
+      </div> : <p className="mt-1 font-semibold text-emerald-900">Expected service price: {formatPublicServicePrice(form.service)}</p>}
+      {form.service && <p className="mt-2 text-xs leading-relaxed text-amber-950">{BOOKING_PRICE_DISCLOSURE}</p>}
       <p className="mt-1 text-slate-700">{branchName} · {form.date} · {form.time}</p>
     </div>
     <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
@@ -520,8 +526,9 @@ const BookAppointment = () => {
   const readinessRequestId = useRef(0)
   const doctorsRequestId = useRef(0)
 
-  // Booking requires the current persisted verification status, not a cached
-  // login response. Recheck when returning from Settings or another browser tab.
+  // Email verification is recommended but never required for booking.
+  // Refresh the persisted account status to show an accurate warning without
+  // relying on a cached login response or interrupting the booking flow.
   const patientId = user?.id
   const refreshEmailVerification = useCallback(async () => {
     const requestId = ++emailStatusRequestId.current
@@ -798,7 +805,7 @@ const BookAppointment = () => {
   const set = key => val => setForm(f => ({ ...f, [key]: val }))
 
   const canNext = () => {
-    if (loadingReadiness || readinessError || emailStatus !== 'verified' || promotionsLoading) return false
+    if (loadingReadiness || readinessError || promotionsLoading) return false
     if (promotionsError && form.service?.current_offer) return false
     if (step===0) return !!form.service && !!form.clinicType && Boolean(bookingReadiness?.[form.clinicType]?.bookable)
     if (step===1) return !checkingVisits && !!form.doctor && !matchingActiveDoctor(form.doctor)
@@ -821,7 +828,7 @@ const BookAppointment = () => {
   }, [step])
 
   const handleConfirm = async () => {
-    if (bookingSubmissionLock.current || submitting || promotionsLoading || (promotionsError && form.service?.current_offer) || !policyAccepted || !form.reason || !form.date || !form.time || !timeSlots.includes(form.time) || !form.doctor || !form.service || !bookingReadiness?.[form.clinicType]?.bookable || readinessError || emailStatus !== 'verified') return
+    if (bookingSubmissionLock.current || submitting || promotionsLoading || (promotionsError && form.service?.current_offer) || !policyAccepted || !form.reason || !form.date || !form.time || !timeSlots.includes(form.time) || !form.doctor || !form.service || !bookingReadiness?.[form.clinicType]?.bookable || readinessError) return
     const effective = eligibleBookingPromotions(promotions,{branchId,serviceId:form.service.id,date:form.date})
       .filter(p=>p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly())
     if(selectedPromotionId && !effective.some(p=>Number(p.id)===Number(selectedPromotionId))){
@@ -846,7 +853,6 @@ const BookAppointment = () => {
       setActiveVisits((current) => [...current, { doctor_id: form.doctor.id, status: 'pending' }])
     } catch (err) {
       setBookingNotice(err.message || 'This appointment could not be booked. Please review your selection.')
-      if (err.code === 'EMAIL_VERIFICATION_REQUIRED') refreshEmailVerification()
       if (/already have an active appointment/i.test(err.message || '')) setStep(1)
     } finally {
       bookingSubmissionLock.current = false
@@ -865,18 +871,23 @@ const BookAppointment = () => {
   }
 
   const emailVerificationNotice = emailStatus === 'verified' ? null : emailStatus === 'checking' ? (
-    <div role="status" className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">Checking your email verification status…</div>
+    <div role="status" className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+      Checking email verification status. You can continue booking while we check.
+    </div>
   ) : emailStatus === 'error' ? (
     <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-      <p className="font-bold">Could not check your email verification</p>
-      <p className="mt-1">{emailStatusError} Your booking details are still here.</p>
-      <button type="button" onClick={refreshEmailVerification} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800"><MdRefresh /> Try Again</button>
+      <p className="font-bold">Email verification status unavailable</p>
+      <p className="mt-1">{emailStatusError} You can still book an appointment, but some email notifications may not reach you. We recommend verifying your email in Settings.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={refreshEmailVerification} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-amber-300 bg-white px-4 py-2 font-bold text-amber-900 hover:bg-amber-100"><MdRefresh /> Retry status check</button>
+        <NavLink to="/patient/settings" className="inline-flex min-h-10 items-center rounded-xl bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800">Verify Email in Settings</NavLink>
+      </div>
     </div>
   ) : (
     <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-      <p className="font-bold">Verify your email before booking</p>
-      <p className="mt-1">We need to confirm your email address before you can request an appointment. You can verify it in Settings, even without choosing a clinic branch.</p>
-      <NavLink to="/patient/settings" className="mt-3 inline-flex rounded-xl bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800">Go to Settings · Verify Email</NavLink>
+      <p className="font-bold">Your email address is not verified</p>
+      <p className="mt-1">You can still book an appointment. However, some appointment notifications and updates may be sent by email, so you might miss important messages. We recommend verifying your email address in Settings.</p>
+      <NavLink to="/patient/settings" className="mt-3 inline-flex min-h-10 items-center rounded-xl bg-amber-700 px-4 py-2 font-bold text-white hover:bg-amber-800">Go to Settings · Verify Email</NavLink>
     </div>
   )
 
@@ -962,6 +973,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 
