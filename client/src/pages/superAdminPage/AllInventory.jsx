@@ -3,16 +3,16 @@ import {NavLink} from 'react-router-dom'
 import {
   MdInventory2, MdRefresh, MdFileDownload, MdSearch, MdClose, MdChevronLeft,
   MdChevronRight, MdWarningAmber, MdStorefront, MdOutlineInventory,
-  MdInfoOutline, MdVisibility, MdLockOutline, MdAccountTree
+  MdInfoOutline, MdVisibility, MdLockOutline
 } from 'react-icons/md'
 import {PageHead, Card, Banner, Loading, Empty, whole, fetchJson} from './redesign/shared'
 import {
-  buildFilters, createInventoryCsv, dateOnly, money, number, statusLabels,
-  branchesWithStock, sellingPriceLabel
+  buildFilters, dateOnly, money, number, statusLabels
 } from './inventoryView.mjs'
+import {makeSuperAdminInventoryReport} from '../../utils/superAdminInventoryReport.mjs'
 
 const initialFilters = {
-  view: 'combined', search: '', branch_ids: '', status: '', sort: 'name',
+  view: 'by_branch', search: '', branch_ids: '', status: '', sort: 'name',
   page: 1, limit: 10
 }
 const statuses = [
@@ -45,6 +45,8 @@ export default function SuperAdminAllInventory() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
+  const [exportBusy, setExportBusy] = useState(false)
+  const [exportError, setExportError] = useState('')
   const [branches, setBranches] = useState([])
   const [selected, setSelected] = useState(null)
   const [batches, setBatches] = useState([])
@@ -90,7 +92,7 @@ export default function SuperAdminAllInventory() {
     setBatches([])
     setBatchesError('')
     setBatchesLoading(true)
-    const ids = (row.inventory_ids || [row.id]).filter(id => Number.isSafeInteger(Number(id)) && Number(id) > 0)
+    const ids = [row.id].filter(id => Number.isSafeInteger(Number(id)) && Number(id) > 0)
     try {
       const response = await fetchJson(`/inventory/all/batches?item_ids=${ids.join(',')}`)
       if (current === requestCounter.current) setBatches(Array.isArray(response) ? response : [])
@@ -104,31 +106,48 @@ export default function SuperAdminAllInventory() {
     setFilters(old => ({...old, page}))
     resultsRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'})
   }
-  const exportCurrentPage = () => {
-    if (!data?.rows?.length) return
-    const csv = createInventoryCsv(data.rows)
-    const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'}))
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `CARAIT_All_Inventory_Page_${filters.page}.csv`
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 15000)
+  const exportExcel = async () => {
+    if (exportBusy) return
+    setExportError('')
+    setExportBusy(true)
+    try {
+      // The export API is Super Admin-only and retrieves ALL matching rows,
+      // independently of the visible page or rows-per-page setting.
+      const query = buildFilters({...filters, page: undefined, limit: undefined})
+      const report = await fetchJson(`/inventory/all/export?${query}`)
+      const generatedAt = new Date()
+      const workbook = makeSuperAdminInventoryReport(report, {filters, generatedAt})
+      const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).formatToParts(generatedAt).map(part => [part.type, part.value]))
+      const stamp = `${dateParts.year}-${dateParts.month}-${dateParts.day}`
+      const url = URL.createObjectURL(workbook)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `CARAIT_All_Inventory_${stamp}.xlsx`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 15000)
+    } catch (err) {
+      setExportError(err.message || 'Unable to prepare the Excel report. Please try again.')
+    } finally {
+      setExportBusy(false)
+    }
   }
   const summary = data?.summary || {}
   const totalPages = Math.max(1, Math.ceil(Number(data?.total || 0) / Number(data?.limit || filters.limit)))
   const hasFilters = Boolean(filters.search || filters.branch_ids || filters.status)
 
   return <div className="mx-auto w-full max-w-[1450px] space-y-5 pb-8">
-    <PageHead title="All Inventory" description="Stock quantities and Total Selling Value across clinic branches. Read-only." action={<div className="flex flex-wrap items-center gap-2">
+    <PageHead title="All Inventory" description="Individual inventory items for every clinic branch. Stock and selling values are read-only." action={<div className="flex flex-wrap items-center gap-2">
       <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"><MdLockOutline/> Read-only</span>
-      <button type="button" className="button-secondary inline-flex items-center gap-2" disabled={!data?.rows?.length} onClick={exportCurrentPage}><MdFileDownload/> Export CSV</button>
+      <button type="button" className="button-secondary inline-flex items-center gap-2" disabled={exportBusy || loading || !data} onClick={exportExcel}><MdFileDownload/> {exportBusy ? 'Preparing Excel…' : 'Export Excel (.xlsx)'}</button>
       <button type="button" className="button-secondary inline-flex items-center gap-2" onClick={() => setRefresh(value => value + 1)}><MdRefresh/> Refresh</button>
     </div>}/>
 
     {!data && loading ? <Loading cards={4}/> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <Summary label="Total Products" value={whole(summary.total_products || 0)} Icon={MdInventory2} description="Different products in the selected branches"/>
+      <Summary label="Inventory Items" value={whole(summary.total_items || 0)} Icon={MdInventory2} description="Separate inventory records in the selected branches"/>
       <Summary label="Total Selling Value" value={money(summary.total_selling_value)} Icon={MdStorefront} description="Estimated value at current selling prices; not revenue"/>
       <Summary label="Low Stock" value={whole(summary.low_stock || 0)} Icon={MdWarningAmber} tone="amber" description="Branch-item records at or below their stock alert"/>
       <Summary label="Out of Stock" value={whole(summary.out_of_stock || 0)} Icon={MdOutlineInventory} tone="rose" description="Branch-item records with zero stock"/>
@@ -156,9 +175,10 @@ export default function SuperAdminAllInventory() {
       {hasFilters && <div className="mt-3 text-right"><button type="button" onClick={clearFilters} className="text-xs font-semibold text-slate-600 underline hover:text-slate-900">Clear filters</button></div>}
     </Card>
 
+    {exportError && <Banner onDismiss={() => setExportError('')}>{exportError}</Banner>}
     {error && <Banner onRetry={() => setRefresh(value => value + 1)}>{error}</Banner>}
     <div ref={resultsRef} className="scroll-mt-6"/>
-    {data && <Card title="Inventory List" description={`${whole(data.total)} product${data.total === 1 ? '' : 's'} in the selected scope. Select Branches with Stock or View Details to see quantities and values for each branch.`} action={<label className="flex items-center gap-2 text-xs font-semibold text-slate-600">Rows per page
+    {data && <Card title="Inventory List" description={`${whole(data.total)} inventory item${data.total === 1 ? '' : 's'} in the selected scope. Each row belongs to one branch, even when names match.`} action={<label className="flex items-center gap-2 text-xs font-semibold text-slate-600">Rows per page
       <select aria-label="Rows per page" className="form-control w-20" value={filters.limit} onChange={event => update('limit', Number(event.target.value))}>
         {[10,25,50,100].map(count => <option key={count} value={count}>{count}</option>)}
       </select>
@@ -168,19 +188,19 @@ export default function SuperAdminAllInventory() {
         <table className="w-full min-w-[950px] text-left text-sm">
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-600"><tr>
             <th scope="col" className="px-3 py-3">Product</th>
-            <th scope="col" className="px-3 py-3">Total Stock</th>
+            <th scope="col" className="px-3 py-3">Stock</th>
             <th scope="col" className="px-3 py-3">Selling Price</th>
-            <th scope="col" className="px-3 py-3">Branches with Stock</th>
+            <th scope="col" className="px-3 py-3">Branch</th>
             <th scope="col" className="px-3 py-3">Total Selling Value</th>
             <th scope="col" className="px-3 py-3">Status</th>
             <th scope="col" className="px-3 py-3 text-right">Action</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {data.rows.map((row, index) => <tr key={`${row.key || row.id}-${index}`} className="hover:bg-slate-50">
-              <td className="max-w-[250px] px-3 py-3"><p className="font-bold text-slate-900">{row.name}</p><p className="mt-1 text-xs text-slate-500">{[row.category === 'derma' ? 'Dermatology' : row.category === 'medical' ? 'General Medicine' : row.category, row.item_type].filter(Boolean).join(' · ')}</p></td>
+            {data.rows.map(row => <tr key={`${row.branch_id}-${row.id}`} className="hover:bg-slate-50">
+              <td className="max-w-[250px] px-3 py-3"><p className="font-bold text-slate-900">{row.name}</p><p className="mt-1 text-xs text-slate-500">{[row.category === 'derma' ? 'Dermatology' : row.category === 'medical' ? 'General Medicine' : row.category, row.item_type].filter(Boolean).join(' · ')}</p><p className="mt-1 text-[11px] text-slate-400">{row.barcode || `Inventory ID ${row.id}`}</p></td>
               <td className="px-3 py-3 font-semibold tabular-nums text-slate-800">{number(row.quantity_base)}<span className="block text-[11px] font-normal text-slate-500">{row.base_unit || 'base units'}</span></td>
-              <td className="px-3 py-3 text-xs font-semibold text-slate-800">{sellingPriceLabel(row)}</td>
-              <td className="px-3 py-3"><button type="button" onClick={() => openDetails(row)} aria-label={`View branches with stock for ${row.name}`} className="text-left text-sm font-bold text-emerald-700 underline underline-offset-2 hover:text-emerald-900">{branchesWithStock(row).length} branch{branchesWithStock(row).length === 1 ? '' : 'es'}</button></td>
+              <td className="px-3 py-3 text-xs font-semibold text-slate-800">{row.selling_price == null ? 'Not set' : money(row.selling_price)}</td>
+              <td className="px-3 py-3 text-sm font-semibold text-slate-700">{row.branch_name || `Branch ${row.branch_id}`}</td>
               <td className="px-3 py-3 font-bold tabular-nums text-slate-900">{money(row.selling_value)}</td>
               <td className="px-3 py-3"><StatusBadges item={row}/></td>
               <td className="px-3 py-3 text-right"><button type="button" onClick={() => openDetails(row)} className="button-secondary inline-flex items-center gap-1.5 text-xs"><MdVisibility/> View Details</button></td>
@@ -189,7 +209,7 @@ export default function SuperAdminAllInventory() {
         </table>
       </div> : <Empty title="No matching inventory" description="Try another branch or stock status." action={hasFilters && <button type="button" className="button-secondary" onClick={clearFilters}>Clear filters</button>}/>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-        <span>Showing <strong>{data.total ? (data.page - 1) * data.limit + 1 : 0}–{Math.min(data.page * data.limit, data.total)}</strong> of <strong>{whole(data.total)}</strong> products</span>
+        <span>Showing <strong>{data.total ? (data.page - 1) * data.limit + 1 : 0}–{Math.min(data.page * data.limit, data.total)}</strong> of <strong>{whole(data.total)}</strong> inventory items</span>
         <div className="flex items-center gap-2">
           <button type="button" className="button-secondary" aria-label="Previous page" disabled={filters.page <= 1} onClick={() => pageTo(filters.page - 1)}><MdChevronLeft/></button>
           <span className="font-semibold">Page {Math.min(filters.page, totalPages)} of {totalPages}</span>
@@ -197,13 +217,13 @@ export default function SuperAdminAllInventory() {
         </div>
       </div>
       <p className="mt-2 text-[11px] text-slate-500">Total Selling Value is an estimate based on recorded on-hand quantities and current selling prices, not actual revenue or profit. Expired or otherwise unsellable stock may still be included in recorded on-hand stock.</p>
-      <p className="mt-1 text-[11px] text-slate-500">CSV exports only the current table page and includes each product's branch selling-value breakdown.</p>
+      <p className="mt-1 text-[11px] text-slate-500">Excel exports every matching branch inventory record, including separate barcodes and selling prices.</p>
     </Card>}
 
     {selected && <div className="fixed inset-0 z-[80] flex justify-end bg-slate-950/50" onMouseDown={event => {if (event.target === event.currentTarget) closeDetails()}}>
-      <aside role="dialog" aria-modal="true" aria-label="Product inventory details" className="h-full w-full max-w-[760px] overflow-y-auto bg-white shadow-2xl" tabIndex={-1}>
+      <aside role="dialog" aria-modal="true" aria-label="Branch inventory item details" className="h-full w-full max-w-[760px] overflow-y-auto bg-white shadow-2xl" tabIndex={-1}>
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-5">
-          <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Product Details · Read-only</p><h2 className="mt-1 break-words text-xl font-black text-slate-900">{selected.name}</h2><p className="mt-1 text-xs text-slate-500">{selected.category} · {selected.item_type}</p></div>
+          <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Branch Inventory Item · Read-only</p><h2 className="mt-1 break-words text-xl font-black text-slate-900">{selected.name}</h2><p className="mt-1 text-xs text-slate-500">{selected.branch_name} · {selected.category} · {selected.item_type}</p><p className="mt-1 text-xs text-slate-500">Barcode: {selected.barcode || 'Not set'} · Inventory ID: {selected.id}</p></div>
           <button type="button" className="button-secondary" aria-label="Close details" onClick={closeDetails}><MdClose/> Close</button>
         </div>
         <div className="space-y-5 p-5">
@@ -211,19 +231,21 @@ export default function SuperAdminAllInventory() {
             <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-600">Total Stock</p><p className="mt-1 text-xl font-black">{number(selected.quantity_base)}</p><p className="text-xs text-slate-500">{selected.base_unit || 'base units'}</p></div>
             <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-600">Total Selling Value</p><p className="mt-1 text-xl font-black">{money(selected.selling_value)}</p><p className="text-[11px] text-slate-500">At current selling prices</p></div>
           </div>
-          <section aria-label="Branches with stock" className="space-y-3">
-            <div className="flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><MdAccountTree/> Branches with Stock</h3><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">{branchesWithStock(selected).length} branch{branchesWithStock(selected).length === 1 ? '' : 'es'}</span></div>
-            {selected.per_branch?.length ? <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full min-w-[580px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Branch</th><th className="px-3 py-3">Stock</th><th className="px-3 py-3">Selling Price</th><th className="px-3 py-3 text-right">Total Selling Value</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">{selected.per_branch.map(branch => <tr key={branch.inventory_id}>
-                  <td className="px-3 py-3"><p className="font-semibold">{branch.branch_name}</p>{Number(branch.quantity_base) <= 0 && <span className="text-[11px] text-rose-600">Out of stock</span>}<NavLink className="mt-1 block text-[11px] font-semibold text-emerald-700 underline" to={`/superadmin/branches/${branch.branch_id}/inventory?search=${encodeURIComponent(selected.name)}`}>View branch inventory</NavLink></td>
-                  <td className="px-3 py-3"><span className="font-semibold tabular-nums">{number(branch.quantity_base)}</span><span className="block text-[11px] text-slate-500">{selected.base_unit || 'base units'}</span></td>
-                  <td className="px-3 py-3"><span className="font-semibold tabular-nums">{branch.selling_price == null ? 'Not set' : money(branch.selling_price)}</span><span className="block text-[11px] text-slate-500">per {branch.selling_unit || 'item'}</span></td>
-                  <td className="px-3 py-3 text-right font-bold tabular-nums">{money(branch.selling_value)}</td>
-                </tr>)}</tbody>
-                <tfoot><tr className="border-t-2 border-slate-200 bg-slate-50 font-bold"><td className="px-3 py-3">All selected branches</td><td className="px-3 py-3">{number(selected.quantity_base)}</td><td className="px-3 py-3">{sellingPriceLabel(selected)}</td><td className="px-3 py-3 text-right">{money(selected.selling_value)}</td></tr></tfoot>
-              </table>
-            </div> : <p className="text-sm text-slate-500">No stock records found for the selected branches.</p>}
+          <section aria-label="Item details" className="space-y-3">
+            <h3 className="text-sm font-bold text-slate-900">Item & Branch Details</h3>
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 p-4 text-sm sm:grid-cols-3">
+                <div><dt className="text-xs text-slate-500">Clinic Branch</dt><dd className="mt-1 font-semibold">{selected.branch_name}</dd></div>
+                <div><dt className="text-xs text-slate-500">Product Barcode</dt><dd className="mt-1 break-all font-semibold">{selected.barcode || 'Not set'}</dd></div>
+                <div><dt className="text-xs text-slate-500">Inventory ID</dt><dd className="mt-1 font-semibold">{selected.id}</dd></div>
+                <div><dt className="text-xs text-slate-500">Selling Price</dt><dd className="mt-1 font-semibold">{selected.selling_price == null ? 'Not set' : money(selected.selling_price)}</dd></div>
+                <div><dt className="text-xs text-slate-500">Low Stock Alert</dt><dd className="mt-1 font-semibold">{number(selected.threshold || 0)} {selected.base_unit || 'units'}</dd></div>
+                <div><dt className="text-xs text-slate-500">Nearest Expiry</dt><dd className="mt-1 font-semibold">{dateOnly(selected.nearest_expiry) || 'Not recorded'}</dd></div>
+              </dl>
+            </div>
+            <NavLink className="inline-flex text-xs font-semibold text-emerald-700 underline underline-offset-2 hover:text-emerald-900" to={`/superadmin/branches/${selected.branch_id}/inventory`}>
+              Open {selected.branch_name} inventory
+            </NavLink>
           </section>
           <section aria-label="Stock locations" className="space-y-2">
             <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><MdOutlineInventory/> Batches & Stock Locations</h3>

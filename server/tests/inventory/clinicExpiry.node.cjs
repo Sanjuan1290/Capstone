@@ -10,6 +10,7 @@ test('cross-branch inventory expiry uses the Manila date at the UTC boundary',as
   vm.runInNewContext(`(function(require,module,exports){${fs.readFileSync(file,'utf8')}\n})`,{Date:BoundaryDate},{filename:file})(name=>{
     if(name==='../db/connect')return db
     if(name==='../utils/date')return {getTodayDateOnly:()=> '2026-10-28',addDaysDateOnly}
+    if(name==='../utils/allInventoryOverview')return require('../../utils/allInventoryOverview')
     throw Error('Unexpected inventory dependency')
   },mod,mod.exports)
   mod.exports.registerAllInventory({get:(route,...chain)=>handlers.set(route,chain.at(-1))},()=>{})

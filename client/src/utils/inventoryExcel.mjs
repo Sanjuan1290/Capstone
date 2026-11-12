@@ -24,7 +24,7 @@ const crcTable = Array.from({length:256}, (_,i)=>{let c=i;for(let k=0;k<8;k++)c=
 const checksum = (bytes) => {let c=0xFFFFFFFF; for(const byte of bytes)c=crcTable[(c^byte)&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
 const u16=(view,pos,val)=>view.setUint16(pos,val,true)
 const u32=(view,pos,val)=>view.setUint32(pos,val,true)
-const zipStored = (entries) => {
+export const zipStored = (entries) => {
   let offset=0;const local=[],central=[]
   for(const [path,text] of entries){
     const name=encoder.encode(path),data=encoder.encode(text),crc=checksum(data)
@@ -280,6 +280,3 @@ export const asInventoryBulkEditRow = (item) => [
   item.id, item.barcode || '', item.name || '', Number(item.selling_price ?? item.price ?? 0), '',
   Number(item.threshold ?? 0), '',
 ]
-
-
-

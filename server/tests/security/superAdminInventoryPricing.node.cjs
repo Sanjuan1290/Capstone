@@ -42,30 +42,38 @@ function mockInventory(query = {}) {
   }
 }
 
-test('combined inventory sums each branch selling value without averaging prices', async () => {
+test('separate inventory items keep their own branch selling prices and values', async () => {
   const result = await mockInventory()()
-  assert.equal(result.rows.length, 1)
-  const item = result.rows[0]
-  assert.equal(item.quantity_base, 70)
-  assert.equal(item.selling_value, 230)
-  assert.equal(item.per_branch.length, 3)
-  assert.equal(item.branch_coverage, 2)
-  assert.equal(item.per_branch.find(r => r.branch_id === 1).selling_price, 3)
-  assert.equal(item.per_branch.find(r => r.branch_id === 2).selling_value, 80)
-  assert.equal(item.per_branch.find(r => r.branch_id === 3).quantity_base, 0)
+  assert.equal(result.rows.length, 3)
   assert.equal(result.summary.total_selling_value, 230)
+  assert.equal(result.summary.total_items, 3)
+  const rows=Object.fromEntries(result.rows.map(r=>[r.branch_id,r]))
+  assert.equal(rows[1].quantity_base, 50)
+  assert.equal(rows[1].selling_price, 3)
+  assert.equal(rows[2].selling_price, 4)
+  assert.equal(rows[2].selling_value, 80)
+  assert.equal(rows[3].quantity_base, 0)
 })
 
-test('low-stock product filter retains the value of the same item in other branches', async () => {
+test('low-stock filter returns only the matching branch item and its selling value', async () => {
   const result = await mockInventory({status: 'low'})()
   assert.equal(result.total, 1)
-  assert.equal(result.rows[0].selling_value, 230)
-  assert.equal(result.summary.total_selling_value, 230)
+  assert.equal(result.rows[0].id, 22)
+  assert.equal(result.rows[0].selling_value, 80)
+  assert.equal(result.summary.total_selling_value, 80)
 })
 
-test('selecting one branch limits quantities and value to that branch', async () => {
+test('selecting a branch limits returned rows and values to that branch', async () => {
   const result = await mockInventory({branch_ids: '2'})()
+  assert.equal(result.total, 1)
+  assert.equal(result.rows[0].id, 22)
   assert.equal(result.rows[0].quantity_base, 20)
   assert.equal(result.summary.total_selling_value, 80)
-  assert.equal(result.rows[0].per_branch.length, 1)
+})
+
+test('a duplicate name inside the same branch does not merge item identity',async()=>{
+  const result=await mockInventory()()
+  const sameName=result.rows.filter(r=>r.name==='Alcohol Pad')
+  assert.equal(sameName.length,3)
+  assert.equal(new Set(sameName.map(r=>r.id)).size,3)
 })

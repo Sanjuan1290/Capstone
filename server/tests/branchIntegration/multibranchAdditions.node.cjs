@@ -37,7 +37,7 @@ test('branch provisioner seeds a branch without stock or patients',async()=>{
   assert.ok(statements.every(x=>!(/\b(?:inventory_batches|billing_records|patients)\b/.test(x.sql))))
   assert.ok(statements.every(x=>x.params.includes(5)))
 })
-test('Super Admin consolidated inventory sums both branches',async()=>{
+test('Super Admin inventory keeps branch entries independent',async()=>{
   const mock={query:async(sql,args)=>{
     if(sql.includes('FROM clinic_branches'))return [[{id:1,name:'Laguna Clinic',code:'LAG',is_active:1},{id:2,name:'Manila Clinic',code:'MNL',is_active:1}]]
     if(sql.includes('FROM inventory i')){
@@ -51,10 +51,12 @@ test('Super Admin consolidated inventory sums both branches',async()=>{
   registerAllInventory(router,(req,res,next)=>next())
   const res=response();await routes['/inventory/all']({query:{}},res)
   assert.equal(res.code,200)
-  assert.equal(res.value.rows.length,1)
-  assert.equal(res.value.rows[0].quantity_base,10)
-  assert.equal(res.value.rows[0].cost_value,50)
-  assert.deepEqual(res.value.rows[0].branches_below_threshold,['Manila Clinic'])
+  assert.equal(res.value.rows.length,2)
+  assert.deepEqual(res.value.rows.map(row=>row.id),[1,2])
+  assert.equal(res.value.rows.find(row=>row.id===1).quantity_base,6)
+  assert.equal(res.value.rows.find(row=>row.id===2).quantity_base,4)
+  assert.equal(res.value.summary.total_selling_value,120)
+  assert.equal(res.value.summary.low_stock,1)
   assert.equal(res.value.comparison.length,2)
 })
 test('migration parser handles DELIMITER procedure bodies',()=>{

@@ -24,15 +24,18 @@ function harness(){
  const run=async query=>{const res={statusCode:200,status(n){this.statusCode=n;return this},json(v){this.body=v;return this}};await routes['/inventory/all']({query},res);return res}
  return {run,queries,routes}
 }
-test('combined inventory counts distinct products and branch-item alerts separately',async()=>{
- const {run}=harness(),r=await run({view:'combined'})
+test('every branch item retains its own identity, stock alerts and selling price',async()=>{
+ const {run}=harness(),r=await run({view:'combined'}) // even legacy view request cannot combine records
  assert.equal(r.statusCode,200)
- assert.equal(r.body.total,2)
- const saline=r.body.rows.find(x=>x.name==='Saline')
- assert.equal(saline.quantity_base,53)
- assert.equal(saline.branch_coverage,2)
- assert.deepEqual(Array.from(saline.branches_below_threshold),['Tagaytay'])
- assert.equal(r.body.summary.total_products,2)
+ assert.equal(r.body.view,'by_branch')
+ assert.equal(r.body.total,3)
+ const saline=r.body.rows.filter(x=>x.name==='Saline')
+ assert.equal(saline.length,2)
+ assert.deepEqual(Array.from(saline,row=>row.id),[1,2])
+ assert.deepEqual(Array.from(saline,row=>row.branch_id),[1,2])
+ assert.equal(saline[0].quantity_base,50)
+ assert.equal(saline[1].quantity_base,3)
+ assert.equal(r.body.summary.total_products,3)
  assert.equal(r.body.summary.total_items,3)
  assert.equal(r.body.summary.low_stock,1)
  assert.equal(r.body.summary.out_of_stock,1)
@@ -63,7 +66,7 @@ test('invalid branch IDs are rejected without inventory query',async()=>{
 test('all inventory endpoint omits purchase-cost reporting and can sort by selling value',async()=>{
  const {run,queries}=harness(),r=await run({sort:'selling_value'})
  assert.equal(r.statusCode,200)
- assert.deepEqual(Array.from(r.body.rows,row=>row.name),['Saline','Gloves'])
+ assert.deepEqual(Array.from(r.body.rows,row=>row.name),['Saline','Saline','Gloves'])
  assert.ok(queries.every(sql=>!String(sql).includes('unit_cost')))
  assert.equal(Object.hasOwn(r.body.summary,'total_stock_value'),false)
  assert.ok(r.body.comparison.every(branch=>!Object.hasOwn(branch,'cost_value')))
