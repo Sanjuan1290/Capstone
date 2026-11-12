@@ -64,7 +64,7 @@ const Doctor_Dashboard = () => {
   const done       = todayAppts.filter(a => a.status === 'completed').length
   const inProgress = todayAppts.filter(a => a.status === 'in-progress').length
   const waiting    = todayAppts.filter(a => a.status === 'pending' || a.status === 'confirmed').length
-  const doctorName = user?.full_name?.replace(/^Dr\.?\s*/i, '').split(' ').pop() || 'Doctor'
+  const doctorName = String(user?.full_name || '').trim().replace(/^(?:Dr\.?\s*)+/i, '') || 'Doctor'
 
   const stats = [
     { label: 'Total Today',   value: todayAppts.length, sub: 'scheduled',      color: 'text-slate-800',   bg: 'bg-white',       border: 'border-slate-200'   },
@@ -266,3 +266,4 @@ const Doctor_Dashboard = () => {
 }
 
 export default Doctor_Dashboard
+

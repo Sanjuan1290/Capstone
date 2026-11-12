@@ -162,7 +162,7 @@ const DoctorLayout = () => {
               <MdPerson className="text-violet-400 text-[18px]" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-white truncate">{user?.full_name || 'Doctor'}</p>
+              <p className="text-sm font-bold text-white break-words" title={user?.full_name || 'Doctor'}>{user?.full_name || 'Doctor'}</p>
               <p className="text-[10px] text-violet-400 font-semibold truncate">{doctorClinicLabel(user)}</p>
             </div>
           </div>
@@ -296,3 +296,4 @@ const DoctorLayout = () => {
 }
 
 export default DoctorLayout
+

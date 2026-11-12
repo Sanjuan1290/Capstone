@@ -369,7 +369,7 @@ const Admin_DoctorAccount = () => {
                     <DIcon className={`text-[18px] ${isDerma ? 'text-emerald-600' : 'text-slate-500'}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-800 truncate">{doc.full_name}</p>
+                    <p className="text-sm font-bold text-slate-800 break-words" title={doc.full_name}>{doc.full_name}</p>
                     <p className="text-xs text-slate-500 truncate">{isDerma ? 'Dermatology' : 'General Medicine'}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
@@ -417,5 +417,6 @@ const Admin_DoctorAccount = () => {
 }
 
 export default Admin_DoctorAccount
+
 
 

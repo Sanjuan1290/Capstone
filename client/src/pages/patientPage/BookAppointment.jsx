@@ -71,10 +71,16 @@ export const StepBar = ({ current, labels = STEPS }) => (
 // ── Step 1: Category and service selection in one screen ────────────────────
 export const StepService = ({ category, onCategoryChange, value, onChange, services, promotions = [], promotionsLoading = false, branchId, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness }) => {
   const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 6
   const filtered = services.filter(service =>
     (category === 'all' || service.booking_clinic_type === category) &&
     `${service.service_name} ${service.category || ''}`.toLowerCase().includes(query.trim().toLowerCase())
   )
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const visibleServices = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  useEffect(() => setPage(1), [category, query, branchId])
   return <div className="space-y-5">
     <div>
       <h2 className="text-xl font-bold text-slate-900">What service do you need?</h2>
@@ -105,7 +111,7 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
       <p className="mt-1 text-sm text-slate-600">Try another category or contact the clinic for help.</p>
     </div>}
     <div className="grid gap-3 md:grid-cols-2">
-      {!loading && !error && filtered.map(service => {
+      {!loading && !error && visibleServices.map(service => {
         const selected = Number(value?.id)===Number(service.id) && value?.booking_clinic_type===service.booking_clinic_type
         const clinic = CLINIC_TYPES.find(c=>c.id===service.booking_clinic_type)
         const bookable = !readinessError && Boolean(readiness?.[service.booking_clinic_type]?.bookable)
@@ -130,6 +136,14 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
         </button>
       })}
     </div>
+    {!loading && !error && filtered.length > PAGE_SIZE && <nav aria-label="Service pagination" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs text-slate-600">Showing {(currentPage-1)*PAGE_SIZE+1}–{Math.min(currentPage*PAGE_SIZE, filtered.length)} of {filtered.length} services</p>
+      <div className="flex items-center gap-2">
+        <button type="button" className="button-secondary" disabled={currentPage===1} onClick={() => setPage(currentPage-1)}>Previous</button>
+        <span className="text-xs font-semibold text-slate-700">Page {currentPage} of {totalPages}</span>
+        <button type="button" className="button-secondary" disabled={currentPage===totalPages} onClick={() => setPage(currentPage+1)}>Next</button>
+      </div>
+    </nav>}
     {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Selected service: <strong>{value.service_name}</strong>. {BOOKING_PRICE_DISCLOSURE}</p>}
   </div>
 }
@@ -487,7 +501,6 @@ const BookAppointment = () => {
   const [slotsError, setSlotsError] = useState('')
   const { user, setUser } = useAuth()
   const [emailStatus, setEmailStatus] = useState('checking')
-  const [mobileVerified, setMobileVerified] = useState(false)
   const [emailStatusError, setEmailStatusError] = useState('')
   const emailStatusRequestId = useRef(0)
   const [activeVisits, setActiveVisits] = useState([])
@@ -540,14 +553,12 @@ const BookAppointment = () => {
       const current = await getSettings('patient')
       const status = getVerifiedPatientAccount(current, patientId)
       if (requestId !== emailStatusRequestId.current) return
-      setMobileVerified(Boolean(current.phone_verified_at))
       setUser((prev) => isSamePatientAccount(current, prev?.id)
         ? { ...prev, email: current.email, email_verified_at: current.email_verified_at || null, phone_verified_at: current.phone_verified_at || null }
         : prev)
       setEmailStatus(status)
     } catch (error) {
       if (requestId !== emailStatusRequestId.current) return
-      setMobileVerified(false)
       setEmailStatusError(error.message || 'Unable to confirm email status.')
       setEmailStatus('error')
     }
@@ -609,10 +620,10 @@ const BookAppointment = () => {
     }
     return () => { readinessRequestId.current += 1 }
   }, [branchId])
-  // Exclusive offers never affect the displayed or submitted price until the
-  // signed-in account has *both* verified contact methods. The API rechecks.
-  const qualifiesForExclusiveOffers=Boolean(patientId && !Number(user?.is_walk_in||0) && emailStatus==='verified' && mobileVerified)
-  const bookablePromotions=promotions.filter(p=>p.eligibility_type!=='verified' || qualifiesForExclusiveOffers)
+  // Registered patients may use eligible offers regardless of email/SMS verification.
+  // Guest booking uses a separate public flow without promotions.
+  const qualifiesForExclusiveOffers=Boolean(patientId && !Number(user?.is_walk_in || 0))
+  const bookablePromotions=qualifiesForExclusiveOffers ? promotions : []
 
   const loadPromotions=()=>{
     const requestId=++promotionsRequestId.current
@@ -922,12 +933,6 @@ const BookAppointment = () => {
         </a>
       </div>
       {emailVerificationNotice}
-      {!qualifiesForExclusiveOffers && promotions.some(p=>p.eligibility_type==='verified' && Number(p.branch_id)===Number(branchId)) &&
-        <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-bold">Exclusive offers require a verified patient account</p>
-          <p className="mt-1">You can book at the regular price. To use verified-patient offers, verify your email and mobile number in Settings. The discount will only appear when your account qualifies.</p>
-          <NavLink to="/patient/settings" className="mt-2 inline-block font-semibold underline">Manage verification in Settings</NavLink>
-        </div>}
       {promotionsError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
         <span>{promotionsError}</span>
         <button type="button" onClick={()=>void loadPromotions()} className="min-h-10 rounded-lg border border-amber-300 bg-white px-3 font-bold text-amber-900">Retry Offers</button>
@@ -987,6 +992,7 @@ const BookAppointment = () => {
 }
 
 export default BookAppointment
+
 
 
 

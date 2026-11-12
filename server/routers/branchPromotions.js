@@ -16,7 +16,7 @@ const validate=body=>{
  if(body?.featured_order!==undefined && (!Number.isSafeInteger(Number(body.featured_order)) || Number(body.featured_order)<0 || Number(body.featured_order)>9999))return 'Featured order must be between 0 and 9999.'
  if(!validRule(String(body?.discount_type || 'none'),Number(body?.discount_value || 0)))return 'Choose a valid percentage (1–100) or fixed peso discount, or select no discount.'
  if(String(body?.discount_type || 'none')!=='none' && (!Array.isArray(body.service_ids)||!body.service_ids.length))return 'Select one or more eligible services for a discount.'
- if(body?.eligibility_type!==undefined && !['all','verified'].includes(body.eligibility_type))return 'Choose All Patients or Verified Patients Only.'
+ if(body?.eligibility_type!==undefined && !['all','verified'].includes(body.eligibility_type))return 'Choose a valid promotion eligibility setting.'
  if(body?.service_ids!==undefined && (!Array.isArray(body.service_ids)||body.service_ids.length>100||body.service_ids.some(i=>!validId(i))))return 'Select valid branch services or leave them blank.'
  return null
 }
@@ -31,7 +31,7 @@ const list=async(req,res)=>{
 const save=async(req,res)=>{
  const failure=validate(req.body);if(failure)return res.status(400).json({message:failure})
  const id=req.params.id?Number(req.params.id):null;if(id!==null&&!validId(id))return res.status(400).json({message:'Invalid promotion.'})
- const data={title:String(req.body.title).trim(),description:String(req.body.description).trim(),badge_text:String(req.body.badge_text||'').trim()||null,starts_on:req.body.starts_on,ends_on:req.body.ends_on,is_active:req.body.is_active===true||Number(req.body.is_active)===1?1:0,show_on_dashboard:req.body.show_on_dashboard===false||Number(req.body.show_on_dashboard)===0?0:1,featured_order:Number(req.body.featured_order||0),discount_type:String(req.body.discount_type||'none'),discount_value:Number(req.body.discount_value||0),eligibility_type:String(req.body.eligibility_type||'all'),service_ids:[...new Set((req.body.service_ids||[]).map(Number))]}
+ const data={title:String(req.body.title).trim(),description:String(req.body.description).trim(),badge_text:String(req.body.badge_text||'').trim()||null,starts_on:req.body.starts_on,ends_on:req.body.ends_on,is_active:req.body.is_active===true||Number(req.body.is_active)===1?1:0,show_on_dashboard:req.body.show_on_dashboard===false||Number(req.body.show_on_dashboard)===0?0:1,featured_order:Number(req.body.featured_order||0),discount_type:String(req.body.discount_type||'none'),discount_value:Number(req.body.discount_value||0),eligibility_type:'all',service_ids:[...new Set((req.body.service_ids||[]).map(Number))]}
  const conn=await db.getConnection()
  try{
   await conn.beginTransaction()
@@ -64,8 +64,8 @@ const notify=async(req,res)=>{
  const id=Number(req.params.id);if(!validId(id))return res.status(400).json({message:'Invalid promotion.'})
  const [[p]]=await db.query('SELECT id,title,description,eligibility_type FROM clinic_promotions WHERE id=? AND branch_id=? AND is_active=1 AND starts_on<=CURDATE() AND ends_on>=CURDATE()', [id,req.branchId]);if(!p)return res.status(409).json({message:'Only an active, currently valid promotion can be sent.'})
  // Never notify patients merely because they exist in the shared patient directory.
- const [patients]=await db.query(`SELECT patient.id FROM patients patient WHERE patient.receive_promotions=1 AND COALESCE(patient.is_walk_in,0)=0 AND patient.phone_verified_at IS NOT NULL
- AND (?='all' OR (patient.email_verified_at IS NOT NULL AND patient.password IS NOT NULL AND patient.password<>'')) AND EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id=patient.id AND a.branch_id=?) AND NOT EXISTS (SELECT 1 FROM clinic_promotion_notifications n WHERE n.promotion_id=? AND n.patient_id=patient.id) ORDER BY patient.id LIMIT 500`,[p.eligibility_type||'all',req.branchId,id])
+ const [patients]=await db.query(`SELECT patient.id FROM patients patient WHERE patient.receive_promotions=1 AND COALESCE(patient.is_walk_in,0)=0 AND patient.password IS NOT NULL AND patient.password<>''
+ AND EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id=patient.id AND a.branch_id=?) AND NOT EXISTS (SELECT 1 FROM clinic_promotion_notifications n WHERE n.promotion_id=? AND n.patient_id=patient.id) ORDER BY patient.id LIMIT 500`,[req.branchId,id])
  let delivered=0,failed=0
  for(const patient of patients){const [reservation]=await db.query('INSERT IGNORE INTO clinic_promotion_notifications (promotion_id,patient_id) VALUES (?,?)',[id,patient.id]);if(!reservation.affectedRows)continue
    try{await createNotification({target_role:'patient',target_user_id:patient.id,type:'clinic_promotion',title:p.title,message:p.description,reference_type:'promotion',reference_id:id,branch_id:req.branchId,link:'/patient/book'});await db.query('UPDATE clinic_promotion_notifications SET notified_at=NOW() WHERE promotion_id=? AND patient_id=?',[id,patient.id]);delivered++}catch(e){failed++;await db.query('DELETE FROM clinic_promotion_notifications WHERE promotion_id=? AND patient_id=? AND notified_at IS NULL',[id,patient.id]).catch(()=>{})}
@@ -104,5 +104,6 @@ const registerBranchPromotions=(router,{requireSuper,branchContext,requirePermis
  }
 }
 module.exports={registerBranchPromotions,validate,list,save,deactivate,uploadImage,imageStatus}
+
 
 

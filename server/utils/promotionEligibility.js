@@ -1,14 +1,12 @@
-// Selected offers bind a date-validated discount rule to a booked service.
+// Only registered patient accounts receive promotional prices; guests never do.
 const { getTodayDateOnly } = require('./date')
 const {priceFor}=require('./promotionPricing')
-const VERIFIED_ONLY = 'verified'
+const VERIFIED_ONLY = 'verified' // Legacy stored option, now treated as account-only
 const isEligiblePatient = async (executor, patientId) => {
   const id = Number(patientId)
   if (!Number.isSafeInteger(id) || id <= 0) return false
   const [[account]] = await executor.query(`SELECT id FROM patients
-    WHERE id=? AND COALESCE(is_walk_in,0)=0 AND email IS NOT NULL AND email<>''
-      AND phone IS NOT NULL AND phone<>'' AND password IS NOT NULL AND password<>''
-      AND email_verified_at IS NOT NULL AND phone_verified_at IS NOT NULL LIMIT 1`, [id])
+    WHERE id=? AND COALESCE(is_walk_in,0)=0 AND password IS NOT NULL AND password<>'' LIMIT 1`, [id])
   return Boolean(account)
 }
 
@@ -35,8 +33,8 @@ const resolveSelectedPromotion = async (executor, { promotionId, branchId, servi
       promo.starts_on > appointmentDate || promo.ends_on < appointmentDate) {
     throw Object.assign(new Error('This promotion is no longer available for the selected appointment date. Please choose another offer.'), { status: 409, code: 'PROMOTION_UNAVAILABLE' })
   }
-  if (promo.eligibility_type === VERIFIED_ONLY && !await isEligiblePatient(executor, patientId)) {
-    throw Object.assign(new Error('This offer requires a registered patient account with verified email and mobile number. You may still book at the regular price.'), {status:403,code:'PROMOTION_VERIFICATION_REQUIRED'})
+  if (!await isEligiblePatient(executor, patientId)) {
+    throw Object.assign(new Error('Promotions require a registered patient account. Guests can book at the regular price.'), {status:403,code:'PROMOTION_ACCOUNT_REQUIRED'})
   }
   const [[linked]] = await executor.query(`
     SELECT ps.service_id FROM clinic_promotion_services ps
@@ -52,5 +50,6 @@ const resolveSelectedPromotion = async (executor, { promotionId, branchId, servi
 }
 
 module.exports = { parsePromotionId, resolveSelectedPromotion, isEligiblePatient, VERIFIED_ONLY }
+
 
 

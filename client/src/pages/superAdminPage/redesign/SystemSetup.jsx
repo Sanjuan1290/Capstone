@@ -66,7 +66,7 @@ export const SuperAdminSystemSetup = () => {
       <form onSubmit={save} className="space-y-4">
         {[
           ['send_email','Email doctor','Send an email to the doctor when an appointment is confirmed.'],
-          ['send_sms','SMS doctor','Send an SMS to the doctor when an appointment is confirmed. SMS may cost money.'],
+          ['send_sms','SMS doctor','Send an SMS to the doctor when an appointment is confirmed. SMS will cost credits.'],
         ].map(([field,title,description]) => <label key={field} className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-slate-200 p-4">
           <span className="min-w-0"><span className="block text-sm font-bold text-slate-900">{title}</span><span className="mt-1 block text-xs text-slate-600">{description}</span></span>
           <input type="checkbox" role="switch" aria-label={title} disabled={loading||saving||Boolean(error&&loading)} checked={settings[field]} onChange={event=>{setSettings(current=>({...current,[field]:event.target.checked}));setMessage('')}} className="h-5 w-5 shrink-0 accent-teal-700" />
@@ -100,3 +100,4 @@ export const SuperAdminSystemSetup = () => {
     </Card>
   </div>
 }
+

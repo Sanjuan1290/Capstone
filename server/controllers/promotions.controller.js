@@ -76,8 +76,7 @@ const validate = (body) => {
   const discount_type=String(body.discount_type||'none')
   const discount_value=Number(body.discount_value||0)
   if(!validRule(discount_type,discount_value)) throw Object.assign(new Error('Enter a valid discount rule.'),{status:400})
-  const eligibility_type=String(body.eligibility_type||'all')
-  if (!['all','verified'].includes(eligibility_type)) throw Object.assign(new Error('Invalid promotion eligibility.'),{status:400})
+  const eligibility_type='all' // All discounts now require registered patient accounts regardless of verification
   const service_ids = [...new Set(ids.map(Number))]
   return { title, description, badge_text: badge_text || null, starts_on, ends_on,
     is_active: body.is_active === true || body.is_active === 1,
@@ -146,7 +145,7 @@ const notifyOptedInPatients = async (req, res) => {
   if (!promo) return res.status(409).json({ message: 'Only active, currently valid promotions can send notifications.' })
   const [patients] = await db.query(`
     SELECT p.id FROM patients p
-    WHERE p.receive_promotions = 1 AND COALESCE(p.is_walk_in,0) = 0 AND p.phone_verified_at IS NOT NULL
+    WHERE p.receive_promotions = 1 AND COALESCE(p.is_walk_in,0) = 0 AND p.password IS NOT NULL AND p.password<>''
       AND NOT EXISTS (SELECT 1 FROM clinic_promotion_notifications n WHERE n.promotion_id = ? AND n.patient_id = p.id)
     ORDER BY p.id LIMIT 500`, [id])
   let delivered = 0
@@ -172,5 +171,6 @@ const notifyOptedInPatients = async (req, res) => {
 }
 
 module.exports = { listAllPromotions, getActivePromotions, getPublicPromotions, savePromotion, deletePromotion, notifyOptedInPatients }
+
 
 
