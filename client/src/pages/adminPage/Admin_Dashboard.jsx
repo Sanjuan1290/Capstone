@@ -3,6 +3,7 @@ import StockAlertBanner from '../../components/StockAlertBanner'
 // client/src/pages/adminPage/Admin_Dashboard.jsx
 // REDESIGNED: Hero banner, stat grid, today's appointments, doctor status, quick links
 
+import { hasStaffPermission } from '../../config/staffPermissions'
 import { useState, useCallback } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -112,8 +113,15 @@ const Admin_Dashboard = () => {
   const { user }   = useAuth()
   const location = useLocation()
   const selected = location.pathname.match(/^\/superadmin\/branches\/\d+/)
-  const portalBase = selected ? selected[0] : '/admin'
-  const portalPath = path => path.replace(/^\/admin/, portalBase)
+  const portalBase = selected ? selected[0] : location.pathname.startsWith('/staff') ? '/staff' : '/admin'
+  const canView = key => portalBase !== '/staff' || hasStaffPermission(user,key)
+  const mayViewAppointments = canView('appointments')
+  const permissionFor = path => path.includes('patient-records') ? 'patient_records' : path.includes('system-setup') ? 'system_setup' : path.includes('doctor-schedules') ? 'doctor_schedules' : path.includes('inventory') ? 'inventory' : path.includes('reports') ? 'reports' : path.includes('billing') ? (hasStaffPermission(user,'checkout') ? 'checkout' : 'billing') : 'appointments'
+  const portalPath = path => {
+    const target=path.replace(/^\/admin/,portalBase)
+    if(portalBase==='/staff'&&target==='/staff/billing'&&hasStaffPermission(user,'checkout'))return '/staff/checkout'
+    return target
+  }
   const [dashStats,    setDashStats]    = useState(null)
   const [todayAppts,   setTodayAppts]   = useState(null)
   const [doctorStatus, setDoctorStatus] = useState(null)
@@ -127,14 +135,14 @@ const Admin_Dashboard = () => {
 
   const load = useCallback(() => {
     setLoadErrors({})
-    loadAdminDashboardSections({ getDashboard, getAppointments, date: todayISO }).then(result => {
+    loadAdminDashboardSections({ getDashboard, getAppointments: mayViewAppointments ? getAppointments : async()=>[], date: todayISO }).then(result => {
       setDashStats(result.dashboard)
       setTodayAppts(result.appointments)
       setDoctorStatus(result.dashboard?.doctorStatus ?? null)
       setLoadErrors(result.errors)
       setLastUpdated(result.dashboard || result.appointments ? new Date() : null)
     }).finally(() => setLoading(false))
-  }, [todayISO])
+  }, [todayISO, mayViewAppointments])
   useClinicRefresh(load, [], { fallbackMs: 60000 })
 
 
@@ -144,7 +152,7 @@ const Admin_Dashboard = () => {
   const cardDestinations = dashboardCardDestinations(todayISO)
 
   const stats = [
-    { label: 'Today\'s Appts',   value: todayAppts === null ? '—' : todayAppts.length, sub: 'all statuses', path: cardDestinations.today, color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', up: null },
+    { label: 'Today\'s Appts',   value: !mayViewAppointments ? '?' : todayAppts === null ? '—' : todayAppts.length, sub: 'all statuses', path: cardDestinations.today, color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-200', up: null },
     { label: 'Total Patients',   value: dashStats?.totalPatients ?? '—', sub: 'with appointments', path: cardDestinations.patients, color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-200', up: null },
     { label: 'Pending Approvals',value: dashStats?.pendingApprovals ?? dashStats?.pendingCount ?? '—', sub: 'appointments to confirm', path: cardDestinations.pending, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', up: null },
     { label: 'Low Stock Alerts', value: dashStats?.lowStockCount ?? dashStats?.lowStock ?? '—', sub: 'low or out of stock', path: cardDestinations.stock, color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-200', up: null },
@@ -198,7 +206,7 @@ const Admin_Dashboard = () => {
       {/* ── Stat cards ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         {stats.map(({ label, value, sub, color, bg, border, up, path }) => (
-          <NavLink key={label} to={portalPath(path)} aria-label={`${label}: ${value}. View details`} className={`${bg} block border ${border} rounded-2xl px-4 py-4 lg:px-5 transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600`}>
+          <NavLink key={label} to={canView(permissionFor(path)) ? portalPath(path) : portalBase} aria-disabled={!canView(permissionFor(path))} aria-label={`${label}: ${value}. View details`} className={`${bg} block border ${border} rounded-2xl px-4 py-4 lg:px-5 transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600`}>
             <p className="text-xs text-slate-500 font-medium">{label}</p>
             <p className={`text-3xl font-black mt-1 ${color}`}>{value}</p>
             <div className="flex items-center gap-1 mt-0.5">
@@ -213,7 +221,7 @@ const Admin_Dashboard = () => {
 
       {loadErrors.dashboard && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><p className="font-semibold">Unable to load branch dashboard statistics: {loadErrors.dashboard}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div>}
       {loadErrors.summary && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><p>{loadErrors.summary}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div>}
-      {loadErrors.booking ? <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><p>{loadErrors.booking}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div> : dashStats?.bookingReadiness && <BookingReadinessPanel readiness={dashStats.bookingReadiness} portalPath={portalPath} />}
+      {loadErrors.booking ? <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><p>{loadErrors.booking}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div> : canView('system_setup') && dashStats?.bookingReadiness && <BookingReadinessPanel readiness={dashStats.bookingReadiness} portalPath={portalPath} />}
 
       {/* ── Main 2-col ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-5">
@@ -222,11 +230,11 @@ const Admin_Dashboard = () => {
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <h2 className="text-sm font-bold text-slate-800">Today's Appointments</h2>
-            <NavLink to={portalPath("/admin/appointments")} className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-0.5">
+            <NavLink to={mayViewAppointments ? portalPath("/admin/appointments") : portalBase} className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-0.5">
               View all <MdChevronRight className="text-[14px]" />
             </NavLink>
           </div>
-          {loadErrors.appointments ? <div role="alert" className="p-4 text-sm text-rose-800"><p>Today’s appointments could not load: {loadErrors.appointments}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div> : todayAppts?.length === 0 ? (
+          {!mayViewAppointments ? <p className="p-4 text-sm text-slate-500">Appointments permission is required to view patient appointment details.</p> : loadErrors.appointments ? <div role="alert" className="p-4 text-sm text-rose-800"><p>Today’s appointments could not load: {loadErrors.appointments}</p><button className="mt-2 font-semibold underline" type="button" onClick={load}>Try again</button></div> : todayAppts?.length === 0 ? (
             <div className="flex flex-col items-center py-12 text-center px-6">
               <MdCalendarToday className="text-slate-200 text-[32px] mb-2" />
               <p className="text-xs text-slate-400">No appointments scheduled today.</p>
@@ -297,7 +305,7 @@ const Admin_Dashboard = () => {
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
         <h2 className="text-sm font-bold text-slate-800 mb-4">Quick Navigation</h2>
         <div className="grid grid-cols-3 sm:grid-cols-7 gap-3">
-          {quickLinks.map(({ label, path, icon: Icon, color, bg }) => (
+          {quickLinks.filter(item => canView(permissionFor(item.path))).map(({ label, path, icon: Icon, color, bg }) => (
             <NavLink key={path} to={portalPath(path)}
               className={`flex flex-col items-center gap-2 p-4 rounded-2xl ${bg}
                 hover:opacity-80 hover:-translate-y-0.5 hover:shadow-md transition-all active:scale-95`}>

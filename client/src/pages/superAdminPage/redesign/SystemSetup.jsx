@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../../hooks/useClinicRefresh'
 import { useEffect, useState } from 'react'
 import { PageHead, Banner, Card } from './shared'
 
@@ -48,6 +49,7 @@ export const SuperAdminSystemSetup = () => {
     finally{setCreditsLoading(false)}
   }
   useEffect(()=>{void loadCredits()},[])
+  useClinicRefresh(() => loadCredits(), [], {skip: () => creditsLoading})
   const dirty = settings.send_email!==original.send_email || settings.send_sms!==original.send_sms
   const save = async (event) => {
     event.preventDefault()

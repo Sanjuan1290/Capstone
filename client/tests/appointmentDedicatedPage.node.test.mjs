@@ -19,8 +19,8 @@ test('New Appointment is a dedicated page and not an embedded modal', () => {
   assert.match(page, /useBlocker/)
   assert.match(page, /Discard & Leave/)
 })
-test('Staff route requires appointments permission; Admin and Super Admin branch routes exist', () => {
-  assert.match(router, /path='appointments\/new' element=\{<StaffPermissionRoute permission="appointments"><Staff_NewAppointment/)
+test('Staff creation route accepts either workflow permission; Admin and Super Admin branch routes exist', () => {
+  assert.match(router, /path='appointments\/new' element=\{<StaffPermissionRoute permissions=\{\['appointments','walk_in_queue'\]\}><Staff_NewAppointment/)
   assert.equal((router.match(/path='appointments\/new' element=\{<Admin_NewAppointment/g) || []).length, 2)
   for (const role of ['admin', 'staff']) assert.match(read(`client/src/pages/${role}Page/${role[0].toUpperCase()+role.slice(1)}_NewAppointment.jsx`), /<AppointmentCreatePage services=/)
 })
@@ -50,9 +50,9 @@ test('queue display is available from Appointments and walk-in success, in a new
   assert.match(q, /queue_number|queueNo|queueNo/)
 })
 test('staff appointments-only access can read doctor schedules and unavailable dates without permission to edit schedules', () => {
-  assert.match(branches, /get\(`\$\{prefix\}\/doctors\/:id\/schedules`,\.\.\.middle,allowAnyPermission\('appointments','doctor_schedules'\)/)
-  assert.match(branches, /get\(`\$\{prefix\}\/doctors\/:id\/unavailable-dates`,\.\.\.middle,allowAnyPermission\('appointments','doctor_schedules'\)/)
-  assert.match(branches, /get\(`\$\{prefix\}\/doctors\/:id\/available-slots`,\.\.\.middle,allowAnyPermission\('appointments','doctor_schedules'\)/)
+  assert.match(branches, /get\(`\$\{prefix\}\/doctors\/:id\/schedules`,\.\.\.middle,allowAnyPermission\('appointments','doctor_schedules','walk_in_queue'\)/)
+  assert.match(branches, /get\(`\$\{prefix\}\/doctors\/:id\/unavailable-dates`,\.\.\.middle,allowAnyPermission\('appointments','doctor_schedules','walk_in_queue'\)/)
+  assert.match(branches, /get\(`\$\{prefix\}\/doctors\/:id\/available-slots`,\.\.\.middle,allowAnyPermission\('appointments','doctor_schedules','walk_in_queue'\)/)
   assert.match(branches, /put\(`\$\{prefix\}\/doctors\/:id\/schedules`,afterSuccessfulMutation\('schedule.updated'\),\.\.\.ownedPerson\('doctors','doctor_schedules'/)
 })
 test('staff-assisted appointment never bypasses branch-scoped server validation', () => {

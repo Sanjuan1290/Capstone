@@ -2050,6 +2050,7 @@ const getDoctorAvailabilityForStaff = async (req, res) => {
   const startDate = String(req.query.start_date || '').trim() || undefined
   if (startDate && !isValidDateOnly(startDate)) return res.status(400).json({ message: 'A valid start date is required.' })
   const result = await buildDoctorAvailabilitySummary({
+    branchId: req.branchId,
     doctorId,
     startDate,
     days: Math.min(14, Math.max(1, Number(req.query.days) || 14)),
@@ -2069,6 +2070,7 @@ const getWalkInDoctors = async (req, res) => {
 
 const getDoctorUnavailableDatesForStaff = async (req, res) => {
   const rows = await getDoctorUnavailableDates(req.params.id, {
+    branchId: req.branchId,
     startDate: String(req.query.start_date || '').trim() || undefined,
     endDate: String(req.query.end_date || '').trim() || undefined,
   })

@@ -24,7 +24,13 @@ module.exports = function registerStaffOperationalRoutes(router, { auth, can, ca
     if (/\/inventory(?:\/|$)/.test(route)) adapter[method](route,...handlers)
   }]))
   require('./branchQueueInventoryWrites').registerBranchQueueInventoryWrites(inventoryAdapter,options)
+  require('./branchQueueInventoryWrites').registerBranchMoveStock(inventoryAdapter,options)
   const safe = fn => (req,res,next) => Promise.resolve(fn(req,res)).catch(next)
+  router.get('/admin-access/dashboard',...auth,can('dashboard'),safe(async(req,res)=>{
+    const payload=await require('../utils/branchDashboard').loadBranchDashboard({db:require('../db/connect'),branchId:req.branchId,getBookingReadiness:require('../utils/bookingReadiness').getOnlineBookingReadiness})
+    res.json(payload)
+  }))
+  router.get('/admin-access/appointments',...auth,can('appointments'),staff.getAppointments)
   const setup = require('./branchSystemWrites')
   router.get('/admin-access/inventory',...auth,canAny('inventory','system_setup','billing'),staff.getInventory)
   router.get('/admin-access/doctors',...auth,can('doctor_schedules'),staff.getDoctors)

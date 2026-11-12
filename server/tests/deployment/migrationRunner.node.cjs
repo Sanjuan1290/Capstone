@@ -161,6 +161,8 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.equal(migrationFiles.at(-4), '2026-11-12-queue-daily-department-numbers.sql')
   assert.equal(migrationFiles.at(-3), '2026-11-13-inventory-movement-balances.sql')
   assert.deepEqual(migrationFiles.slice(-2),['2026-11-13-walk-in-queue-permission.sql','2026-11-13-shared-operation-actors.sql'])
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(migrationDir, '2026-11-13-walk-in-queue-permission.sql'), 'utf8').replace(/\r\n/g, '\n')).digest('hex'), '11bbdf535ae59f471e254f9cdb7b7dcb4665801c52ec12db53736d67e5dc6cea')
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(migrationDir, '2026-11-13-shared-operation-actors.sql'), 'utf8').replace(/\r\n/g, '\n')).digest('hex'), '308efbaeabf56521eab08997ecf2347c3aaffeb6c9b9f88f93acab69381be738')
   const balanceSql = fs.readFileSync(path.join(migrationDir, '2026-11-13-inventory-movement-balances.sql'), 'utf8').replace(/\r\n/g, '\n')
   assert.equal(crypto.createHash('sha256').update(balanceSql).digest('hex'), '424fe528d3718b2e90e65b63133b34f7f8375fbe0c7f5168d8c52c14db089732')
   const queueSql = fs.readFileSync(path.join(migrationDir, '2026-11-12-queue-daily-department-numbers.sql'), 'utf8').replace(/\r\n/g, '\n')

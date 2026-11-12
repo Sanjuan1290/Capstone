@@ -170,8 +170,11 @@ async function moveStockLocation(req,res){
   const {moveBatchBetweenLocations}=require('../utils/inventoryBatches')
   const moved=await moveBatchBetweenLocations(item.id,batchId,from,to,qty,conn)
   const note=String(p.note||'').trim().slice(0,255)||null
-  await conn.query(`INSERT INTO inventory_transfers (inventory_id,from_location,to_location,quantity,transferred_by_role,transferred_by_user_id,notes,from_branch_id,to_branch_id)
-    VALUES (?,?,?,?,'admin',?,?,?,?)`,[item.id,moved.from.name,moved.to.name,qty,req.user.id,note,req.branchId,req.branchId])
+  const actorRole=req.user?.role==='staff'?'staff':'admin'
+  const [transfer]=await conn.query(`INSERT INTO inventory_transfers (inventory_id,from_location,to_location,quantity,transferred_by_role,transferred_by_user_id,notes,from_branch_id,to_branch_id)
+    VALUES (?,?,?,?,?,?,?,?,?)`,[item.id,moved.from.name,moved.to.name,qty,actorRole,req.user.id,note,req.branchId,req.branchId])
+  await conn.query('INSERT INTO inventory_transfer_batches (transfer_id,batch_id,quantity,expiration_date) VALUES (?,?,?,?)',[transfer.insertId,batchId,qty,moved.expiration_date||null])
+  await require('../utils/inventoryActivity').writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id,${actorRole==='staff'?'staff_id':'admin_id'},type,qty,note,movement_type,batch_id,from_location,to_location,reference_type,reference_id,branch_id) VALUES (?,?,'out',?,?,'transfer_out',?,?,?,'inventory_transfer',?,?)`,[item.id,req.user.id,qty,note,batchId,moved.from.name,moved.to.name,transfer.insertId,req.branchId],moved)
   await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'staff',action:'inventory.location_transfer',entityType:'inventory_item',entityId:item.id,branchId:req.branchId,newValues:{batch_id:batchId,from_location_id:from,to_location_id:to,quantity:qty,note},ipAddress:req.ip},conn)
   await conn.commit()
   return res.json({message:'Batch stock moved between locations.',batch_id:batchId,quantity:qty,from_location:moved.from.name,to_location:moved.to.name})

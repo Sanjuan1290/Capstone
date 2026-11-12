@@ -1634,7 +1634,7 @@ const getMyQueue = async (req, res) => {
   res.json(rows)
 }
 
-// PATCH /queue/call-next — mark current in-progress as done, set next waiting as in-progress
+// Call a waiting patient; an unanswered call can be returned to waiting explicitly.
 const callNext = async (req, res) => {
   const result = await callNextQueuePatient({
     branchId: req.branchId,
@@ -1642,6 +1642,7 @@ const callNext = async (req, res) => {
     actorRole: 'doctor',
     actorId: req.user.id,
     ipAddress: req.ip || null,
+    returnCalledQueueId: req.body?.return_called_queue_id ?? null,
   })
   res.json(result)
 }

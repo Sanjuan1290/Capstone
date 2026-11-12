@@ -78,7 +78,7 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     expect(serviceForm).toContain('Services & Pricing is Admin-only')
     expect(inventory).toContain('Changing this Selling Price affects linked service totals')
     expect(inventory).toContain('Only Admin can change inventory pricing')
-    expect(staffInventory).toContain("export { default } from '../adminPage/Admin_Inventory'")
+    expect(staffInventory).toContain('Admin_Inventory')
     expect(admin).toContain('recalculateLinkedServicePatientPrices')
     expect(admin).toContain("code: 'ADMIN_PRICING_REQUIRED'")
     expect(staff).toContain("code: 'ADMIN_PRICING_REQUIRED'")

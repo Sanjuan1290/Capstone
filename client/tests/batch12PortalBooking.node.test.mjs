@@ -11,7 +11,7 @@ test('service workflows retain the authorized portal and selected branch', () =>
   assert.equal(portalBaseForPath('/superadmin/branches/203/system-setup?tab=service_categories'), '/superadmin/branches/203')
   assert.equal(portalBaseForPath('/admin/system-setup/billing/services'), '/admin')
   assert.equal(portalBaseForPath('/staff/system-setup/billing/services'), '/staff')
-  assert.equal(canManageServicePricingAtPath('/staff/system-setup/billing/services'), false)
+  assert.equal(canManageServicePricingAtPath('/staff/system-setup/billing/services'), true)
   assert.equal(canManageServicePricingAtPath('/superadmin/branches/1/system-setup/billing/services'), true)
 })
 

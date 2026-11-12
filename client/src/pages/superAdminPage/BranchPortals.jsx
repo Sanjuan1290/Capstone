@@ -3,7 +3,7 @@ import {useCallback,useEffect,useState} from 'react'
 import {NavLink,Outlet,useParams,useLocation,useNavigate,useOutletContext} from 'react-router-dom'
 import {useAuth} from '../../context/AuthContext'
 import NotificationBell from '../../components/NotificationBell'
-import {MdDashboard,MdBusiness,MdPeople,MdBarChart,MdHistory,MdLanguage,MdLogout,MdSettings,MdEventAvailable,MdInventory2,MdPayments,MdCalendarToday,MdTune,MdSwapHoriz,MdRefresh,MdMenu,MdClose,MdKeyboardArrowDown,MdPersonSearch} from 'react-icons/md'
+import {MdQueuePlayNext,MdDashboard,MdBusiness,MdPeople,MdBarChart,MdHistory,MdLanguage,MdLogout,MdSettings,MdEventAvailable,MdInventory2,MdPayments,MdCalendarToday,MdTune,MdSwapHoriz,MdRefresh,MdMenu,MdClose,MdKeyboardArrowDown,MdPersonSearch} from 'react-icons/md'
 import {fetchJson,PERMISSIONS,LABEL,Card,Banner,StatCard,PageHead,Pill,pesos} from './redesign/shared'
 export {SuperAdminDashboard,SuperAdminReports} from './redesign/Overview'
 export {SuperAdminBranches} from './redesign/Branches'
@@ -13,7 +13,7 @@ export {SuperAdminAuditLogs} from './redesign/Audits'
 const Panel=({title,desc,children})=><Card title={title} description={desc}>{children}</Card>
 const Stat=({title,value})=><StatCard label={title} value={value}/>
 const ErrorText=({error})=>error?<Banner>{error}</Banner>:null
-const ICON={dashboard:MdDashboard,appointments:MdEventAvailable,patient_records:MdPeople,doctor_schedules:MdCalendarToday,billing:MdPayments,inventory:MdInventory2,accounts:MdPeople,system_setup:MdTune,reports:MdBarChart,audit_logs:MdHistory}
+const ICON={dashboard:MdDashboard,appointments:MdEventAvailable,walk_in_queue:MdQueuePlayNext,patient_records:MdPeople,doctor_schedules:MdCalendarToday,billing:MdPayments,inventory:MdInventory2,accounts:MdPeople,system_setup:MdTune,reports:MdBarChart,audit_logs:MdHistory}
 const SUPER_ITEMS=[{name:'Dashboard',to:'/superadmin',Icon:MdDashboard,group:'OVERVIEW'},{name:'Clinic Branches',to:'/superadmin/branches',Icon:MdBusiness},{name:'All Inventory',to:'/superadmin/inventory',Icon:MdInventory2},{name:'Accounts',to:'/superadmin/accounts',Icon:MdPeople,group:'MANAGEMENT'},{name:'Patients',to:'/superadmin/patients',Icon:MdPersonSearch},{name:'Reports & Analytics',to:'/superadmin/reports',Icon:MdBarChart},{name:'Audit Logs',to:'/superadmin/audit-logs',Icon:MdHistory,group:'SYSTEM'},{name:'Landing Page',to:'/superadmin/landingpage',Icon:MdLanguage},{name:'System Setup',to:'/superadmin/system-setup',Icon:MdTune},{name:'Settings',to:'/superadmin/settings',Icon:MdSettings}]
 const Shell=({title,items,footer,children,superMode=false})=>{
  const {user,logout}=useAuth(),navigate=useNavigate(),location=useLocation(),[open,setOpen]=useState(false)

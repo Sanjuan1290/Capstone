@@ -184,9 +184,9 @@ router.get('/walk-in/doctors', ...auth, canAny('appointments','walk_in_queue'), 
 router.get('/doctors/:id/walk-ins/acceptance', ...auth, canAny('appointments','walk_in_queue','doctor_schedules'), ownAssignedDoctor, require('../utils/walkInAcceptance').handler())
 router.put('/doctors/:id/walk-ins/acceptance', ...auth, can('doctor_schedules'), ownAssignedDoctor, require('../utils/walkInAcceptance').handler({editable:true}))
 router.get('/doctors/:id/schedules', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), staffCtrl.getDoctorSchedules)
-router.get('/doctors/:id/availability', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorAvailabilityForStaff)
-router.get('/doctors/:id/unavailable-dates', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorUnavailableDatesForStaff)
-router.get('/doctors/:id/available-slots', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownDoctor, staffCtrl.getAppointmentAvailableSlotsForStaff)
+router.get('/doctors/:id/availability', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownAssignedDoctor, staffCtrl.getDoctorAvailabilityForStaff)
+router.get('/doctors/:id/unavailable-dates', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownAssignedDoctor, staffCtrl.getDoctorUnavailableDatesForStaff)
+router.get('/doctors/:id/available-slots', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownAssignedDoctor, staffCtrl.getAppointmentAvailableSlotsForStaff)
 
 
 // ── Accounts directory (Staff is read-only; permission changes stay Admin-only) ──

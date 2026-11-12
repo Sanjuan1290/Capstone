@@ -64,3 +64,50 @@ test('shared Staff route adapter registers scoped editing without account or aud
   assert.equal(allowed,false);assert.equal(code,403)
  }
 })
+
+test('protected batch OTP checks the Staff password and binds the code to the Staff account',async()=>{
+ const source=fs.readFileSync(require.resolve('../../controllers/admin.controller'),'utf8')
+ const section=source.slice(source.indexOf('const requestInventoryBatchActionCode ='),source.indexOf('const confirmInventoryBatchAction ='))
+ const codes=[],sent=[],sqlCalls=[]
+ const scope={INVENTORY_BATCH_ACTIONS:new Set(['archive']),INVENTORY_BATCH_ACTION_PURPOSE:'inventory_action',
+  getInventoryBatchForAction:async()=>({id:7,inventory_id:11,branch_id:1,quantity:0}),normalizeInventoryBatchActionPayload:()=>({reason:'No stock left'}),
+  db:{query:async(sql,params)=>{sqlCalls.push({sql,params});return [[{id:8,full_name:'Staff',email:'synthetic@example.test',password:'hash'}]]}},
+  bcrypt:{compare:async(password)=>password==='correct'},createSecurityCode:async body=>{codes.push(body);return '123456'},sendAccountSecurityOtp:async(...args)=>sent.push(args),writeAuditLog:async()=>{},maskEmailAddress:email=>email,
+ }
+ vm.runInNewContext(section+';globalThis.run=requestInventoryBatchActionCode',scope)
+ const req=password=>({user:{id:8,role:'staff'},branchId:1,params:{batchId:7},body:{action:'archive',password}})
+ const response=()=>({code:200,status(n){this.code=n;return this},json(body){this.body=body;return this}})
+ const denied=response();await scope.run(req('wrong'),denied);assert.equal(denied.code,401);assert.equal(codes.length,0)
+ const good=response();await scope.run(req('correct'),good)
+ assert.equal(good.code,200);assert.equal(codes[0].role,'staff');assert.equal(codes[0].accountId,8);assert.equal(codes[0].payload.branch_id,1)
+ assert.ok(sqlCalls.every(row=>row.sql.includes('FROM staff WHERE id=?')))
+ assert.equal(sent.length,1) // Mocked delivery only.
+})
+
+test('Excel actor migration resumes, preserves Admin IDs, skips correct columns and rejects drift',async()=>{
+ const {ensureOperationalActorColumns}=require('../../utils/operationalActors')
+ const columns=new Map([['inventory_excel_uploads.created_by_admin_id',{COLUMN_TYPE:'int(11)',IS_NULLABLE:'NO'}]]),writes=[]
+ const db={async query(sql,args){
+  if(sql.startsWith('SELECT')){const row=columns.get(args.join('.'));return [row?[row]:[]]}
+  writes.push(sql);const match=/ALTER TABLE (\w+) (?:ADD|MODIFY) COLUMN (\w+) INT NULL/.exec(sql)
+  columns.set(match[1]+'.'+match[2],{COLUMN_TYPE:'int',IS_NULLABLE:'YES'});return [{}]
+ }}
+ await assert.rejects(ensureOperationalActorColumns(db),/migration required/)
+ await ensureOperationalActorColumns(db,true);assert.equal(writes.length,4)
+ await ensureOperationalActorColumns(db,true);assert.equal(writes.length,4)
+ assert.equal(writes.filter(sql=>sql.includes('MODIFY COLUMN')).length,1)
+ assert.ok(!writes.some(sql=>/UPDATE|DELETE|DROP/.test(sql)))
+ columns.set('inventory_excel_receipts.created_by_staff_id',{COLUMN_TYPE:'varchar(20)',IS_NULLABLE:'YES'})
+ await assert.rejects(ensureOperationalActorColumns(db,true),/Incompatible/)
+})
+
+test('Staff schedule availability and unavailable dates retain the selected physical branch',async()=>{
+ const source=fs.readFileSync(require.resolve('../../controllers/staff.controller'),'utf8'),seen=[]
+ const scope={buildDoctorAvailabilitySummary:async args=>{seen.push(args);return {doctors:[{id:8}]}},getDoctorUnavailableDates:async(id,args)=>{seen.push(args);return []}}
+ const availability=source.slice(source.indexOf('const getDoctorAvailabilityForStaff ='),source.indexOf('const getWalkInDoctors ='))
+ const unavailable=source.slice(source.indexOf('const getDoctorUnavailableDatesForStaff ='),source.indexOf('const getSupplyRequests ='))
+ vm.runInNewContext(availability+unavailable+';globalThis.availability=getDoctorAvailabilityForStaff;globalThis.unavailable=getDoctorUnavailableDatesForStaff',scope)
+ const req={params:{id:'8'},query:{},branchId:7},res={json(){},status(){return this}}
+ await scope.availability(req,res);await scope.unavailable(req,res)
+ assert.equal(seen.length,2);assert.ok(seen.every(args=>args.branchId===7))
+})

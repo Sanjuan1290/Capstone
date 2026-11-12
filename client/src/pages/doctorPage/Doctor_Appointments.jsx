@@ -7,7 +7,7 @@ import { useLocation } from 'react-router-dom'
 // 3. Read-only clinical record viewer for completed appointments
 // 4. Status indicators and quick actions on every row
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import useClientPagination from '../../hooks/useClientPagination'
@@ -327,7 +327,7 @@ const DetailPanel = ({ appt, onClose, onStart, onViewPrescription, allowStart = 
 }
 
 // ── Walk-in Queue Panel ───────────────────────────────────────────────────────
-const WalkInPanel = ({ queue, onCallNext, onConsultWalkIn, calling }) => (
+const WalkInPanel = ({ queue, onCallNext, onConsultWalkIn, onDefer, calling, feedback }) => (
   <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
     <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
       <div>
@@ -346,6 +346,7 @@ const WalkInPanel = ({ queue, onCallNext, onConsultWalkIn, calling }) => (
       </button>
     </div>
 
+    {feedback && <p role="alert" className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">{feedback}</p>}
     <div className="divide-y divide-slate-100">
       {queue.length === 0 ? (
         <div className="flex flex-col items-center py-8">
@@ -355,7 +356,7 @@ const WalkInPanel = ({ queue, onCallNext, onConsultWalkIn, calling }) => (
       ) : queue.map((q, idx) => {
         const qcfg = QUEUE_STATUS[q.status] || QUEUE_STATUS.waiting
         return (
-          <div key={q.id} className={`flex items-center gap-3 px-4 py-3 ${q.status === 'called' ? 'bg-sky-50/50' : q.status === 'in_consultation' ? 'bg-violet-50/50' : ''}`}>
+          <div key={q.id} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${q.status === 'called' ? 'bg-sky-50/50' : q.status === 'in_consultation' ? 'bg-violet-50/50' : ''}`}>
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0
               ${q.status === 'called' ? 'bg-sky-100 text-sky-700' : q.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'}`}>
               {formatQueueLabel(q)}
@@ -370,11 +371,12 @@ const WalkInPanel = ({ queue, onCallNext, onConsultWalkIn, calling }) => (
               </div>
             </div>
             {q.status === 'called' && q.appointment_id && (
-              <button onClick={() => onConsultWalkIn(q)}
+              <button disabled={calling} onClick={() => onConsultWalkIn(q)}
                 className="shrink-0 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700 hover:bg-violet-100 transition-colors">
                 Start Consultation
               </button>
             )}
+            {q.status === 'called' && <button type="button" disabled={calling} onClick={() => onDefer(q)} className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-900 disabled:opacity-50">Patient not here</button>}
             {q.status === 'in_consultation' && (
               <span className="shrink-0 rounded-lg bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-700">In Consultation</span>
             )}
@@ -409,6 +411,9 @@ const Doctor_Appointments = () => {
   const [loading, setLoading] = useState(true)
   const [walkInQueue, setWalkInQueue] = useState([])
   const [calling, setCalling] = useState(false)
+  const callingLock = useRef(false)
+  const [queueFeedback, setQueueFeedback] = useState('')
+  const [deferCandidate, setDeferCandidate] = useState(null)
   const [pendingStart, setPendingStart] = useState(null)
   const [startingConsultation, setStartingConsultation] = useState(false)
   const [startError, setStartError] = useState('')
@@ -493,15 +498,22 @@ const Doctor_Appointments = () => {
     setPendingStart({ appointment: appt, kind: 'scheduled' })
   }
 
-  const handleCallNext = async () => {
-    setCalling(true)
+  const handleCallNext = async (returnEntry = null) => {
+    if (callingLock.current) return
+    callingLock.current = true; setCalling(true); setQueueFeedback('')
     try {
-      await callNextPatient()
-      loadQueue()
+      const result = await callNextPatient(returnEntry ? {return_called_queue_id:returnEntry.id} : {})
+      const label = result.nextPatient ? formatQueueLabel(result.nextPatient) : ''
+      setQueueFeedback(result.returnedPatient
+        ? `${formatQueueLabel(result.returnedPatient)} returned to waiting. ${label ? `${label} is now being called.` : 'There are no other waiting patients to call.'}`
+        : `${label ? label + ': ' : ''}${result.message || 'Queue updated.'}`)
+      setDeferCandidate(null)
+      await loadQueue()
     } catch (err) {
-      console.error('Call next failed', err)
+      setQueueFeedback(err.message || 'Could not call the next patient. Try again.')
+      await loadQueue()
     } finally {
-      setCalling(false)
+      callingLock.current = false; setCalling(false)
     }
   }
 
@@ -729,7 +741,9 @@ const Doctor_Appointments = () => {
               <div className="space-y-3">
                 <WalkInPanel
                   queue={walkInPagination.pageItems}
-                  onCallNext={handleCallNext}
+                  onCallNext={() => handleCallNext()}
+                  onDefer={setDeferCandidate}
+                  feedback={queueFeedback}
                   onConsultWalkIn={handleConsultWalkIn}
                   calling={calling}
                 />
@@ -754,6 +768,17 @@ const Doctor_Appointments = () => {
         </div>
       )}
 
+      <ConfirmDialog
+        open={Boolean(deferCandidate)}
+        title="Patient not here?"
+        message={`Return ${formatQueueLabel(deferCandidate || {})} to waiting and call the next waiting patient? Their appointment stays open so they can be called again when they arrive.`}
+        confirmLabel="Return to Waiting & Call Next"
+        cancelLabel="Cancel"
+        loading={calling}
+        warning={queueFeedback || undefined}
+        onConfirm={() => handleCallNext(deferCandidate)}
+        onCancel={() => { if (!calling) setDeferCandidate(null) }}
+      />
       <ConfirmDialog
         open={Boolean(pendingStart)}
         title="Start Consultation?"

@@ -45,7 +45,7 @@ const getLockedQueueEntry = async (queueId, conn, branchId) => {
      FROM queue q
      LEFT JOIN appointments a ON a.id = q.appointment_id AND a.branch_id=q.branch_id
      LEFT JOIN patients p ON p.id = q.patient_id
-     LEFT JOIN doctors d ON d.id = q.doctor_id AND d.branch_id=q.branch_id
+     LEFT JOIN doctors d ON d.id = q.doctor_id
      WHERE q.id = ? AND q.branch_id = ?
      FOR UPDATE`,
     [queueId, branchId]
@@ -53,7 +53,7 @@ const getLockedQueueEntry = async (queueId, conn, branchId) => {
   return rows[0] || null
 }
 
-const setQueueState = async ({ queueId, nextStatus, actorRole, actorId, ipAddress = null, branchId }) => {
+const setQueueState = async ({ queueId, nextStatus, actorRole, actorId, ipAddress = null, branchId, reasonCode = null }) => {
   branchId = assertBranch(branchId)
   const target = normalizeQueueStatus(nextStatus)
   const conn = await db.getConnection()
@@ -107,7 +107,7 @@ const setQueueState = async ({ queueId, nextStatus, actorRole, actorId, ipAddres
       entityType: 'queue',
       entityId: queueId,
       oldValues: { status: previous },
-      newValues: { status: target, appointment_id: row.appointment_id || null },
+      newValues: { status: target, appointment_id: row.appointment_id || null, ...(reasonCode ? { reason_code: reasonCode } : {}) },
       ipAddress,
       branchId,
     }, conn)
@@ -174,8 +174,11 @@ const startQueueConsultationByAppointment = async ({ appointmentId, doctorId, ac
   return setQueueState({ queueId: rows[0].id, nextStatus: 'in_consultation', actorRole: 'doctor', actorId, ipAddress, branchId })
 }
 
-const callNextQueuePatient = async ({ doctorId, actorRole, actorId, ipAddress = null, branchId }) => {
+const callNextQueuePatient = async ({ doctorId, actorRole, actorId, ipAddress = null, branchId, returnCalledQueueId = null }) => {
   branchId = assertBranch(branchId)
+  if (returnCalledQueueId != null && (!Number.isSafeInteger(Number(returnCalledQueueId)) || Number(returnCalledQueueId) <= 0)) {
+    throw Object.assign(new Error('Choose a valid called patient.'), {statusCode:400,code:'INVALID_QUEUE_ENTRY'})
+  }
   const today = getTodayDateOnly()
   const lockName = `carait:queue-call:${Number(doctorId)}:${today}`.slice(0, 64)
   const lockConn = await db.getConnection()
@@ -189,13 +192,20 @@ const callNextQueuePatient = async ({ doctorId, actorRole, actorId, ipAddress = 
     }
 
     const [activeRows] = await lockConn.query(
-      `SELECT id, status, queue_number, patient_name, patient_id, appointment_id
+      `SELECT id, status, queue_number, patient_name, patient_id, appointment_id, type
        FROM queue
        WHERE doctor_id=? AND branch_id=? AND queue_date=? AND status IN ('called','in-progress','in_consultation')
-       ORDER BY queue_number ASC LIMIT 1`,
+       ORDER BY CASE WHEN status='in_consultation' THEN 0 ELSE 1 END, queue_number ASC LIMIT 1`,
       [doctorId, branchId, today]
     )
-    if (activeRows[0]) {
+    let returnedPatient = null
+    if (returnCalledQueueId != null) {
+      const active = activeRows[0]
+      if (!active || Number(active.id) !== Number(returnCalledQueueId) || normalizeQueueStatus(active.status) !== 'called') {
+        throw Object.assign(new Error('The called patient changed or their consultation has already started. Review the queue before trying again.'), {statusCode:409,code:'QUEUE_CHANGED'})
+      }
+      returnedPatient = await setQueueState({queueId:active.id,nextStatus:'waiting',actorRole,actorId,ipAddress,branchId,reasonCode:'patient_not_present'})
+    } else if (activeRows[0]) {
       const active = activeRows[0]
       const status = normalizeQueueStatus(active.status)
       return {
@@ -204,23 +214,24 @@ const callNextQueuePatient = async ({ doctorId, actorRole, actorId, ipAddress = 
           : 'A patient has already been called. Start or return that patient before calling the next one.',
         nextPatient: { ...active, status },
         alreadyActive: true,
+        code: 'QUEUE_PATIENT_ALREADY_ACTIVE',
       }
     }
 
     const [nextRows] = await lockConn.query(
       `SELECT id, queue_number, patient_name, patient_id, appointment_id, type
        FROM queue
-       WHERE doctor_id=? AND branch_id=? AND queue_date=? AND status='waiting'
+       WHERE doctor_id=? AND branch_id=? AND queue_date=? AND status='waiting'${returnedPatient ? ' AND id<>?' : ''}
        ORDER BY queue_number ASC LIMIT 1`,
-      [doctorId, branchId, today]
+      [doctorId, branchId, today, ...(returnedPatient ? [returnedPatient.id] : [])]
     )
     const next = nextRows[0] || null
-    if (!next) return { message: 'No more patients in queue.', nextPatient: null }
+    if (!next) return { message: returnedPatient ? 'Patient returned to waiting. There are no other waiting patients to call.' : 'No more patients in queue.', nextPatient: null, returnedPatient }
 
     // Keep the named lock until the selected row has actually transitioned.
     // This closes the SELECT -> UPDATE race between two callers.
     const updated = await setQueueState({ queueId: next.id, nextStatus: 'called', actorRole, actorId, ipAddress, branchId })
-    return { message: 'Next patient called.', nextPatient: { ...next, status: updated.status } }
+    return { message: returnedPatient ? 'Patient returned to waiting and the next patient called.' : 'Next patient called.', nextPatient: { ...next, status: updated.status }, returnedPatient }
   } finally {
     await lockConn.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {})
     lockConn.release()

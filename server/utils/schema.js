@@ -1448,6 +1448,7 @@ const ensureAppSchema = async () => {
     JOIN (
       SELECT 'dashboard' permission_key UNION ALL
       SELECT 'appointments' UNION ALL
+      SELECT 'walk_in_queue' UNION ALL
       SELECT 'patient_records' UNION ALL
       SELECT 'doctor_schedules' UNION ALL
       SELECT 'checkout' UNION ALL

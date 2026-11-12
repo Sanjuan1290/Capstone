@@ -16,7 +16,7 @@ test('all four dashboard cards have branch-relative destinations and accepted fi
     stock: '/admin/inventory?status=alerts',
   })
   const dashboard = read('pages/adminPage/Admin_Dashboard.jsx')
-  assert.match(dashboard, /<NavLink key=\{label\} to=\{portalPath\(path\)\}/)
+  assert.match(dashboard, /<NavLink key=\{label\} to=\{canView\(permissionFor\(path\)\) \? portalPath\(path\) : portalBase\}/)
   assert.match(dashboard, /aria-label=\{`\$\{label\}: \$\{value\}\. View details`\}/)
 })
 

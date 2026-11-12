@@ -138,8 +138,8 @@ export const getMyQueue = () =>
   requestJson(`${BASE}/queue`)
 
 // NEW: mark current patient done and call next
-export const callNextPatient = () =>
-  requestJson(`${BASE}/queue/call-next`, { method: 'PATCH' })
+export const callNextPatient = (payload = {}) =>
+  requestJson(`${BASE}/queue/call-next`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body:JSON.stringify(payload) })
 
 // NEW: mark a specific queue entry as done
 export const markQueueEntryDone = (id) =>
