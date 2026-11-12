@@ -54,3 +54,38 @@ test('workbook supports zero matching products and validates missing data',async
   assert.ok(empty.byteLength>1000)
   assert.throws(()=>makeSuperAdminInventoryReport({}),/unavailable/)
 })
+
+const unzipStored = bytes => {
+ const files=new Map();let offset=0
+ while(bytes.readUInt32LE(offset)===0x04034b50){
+  assert.equal(bytes.readUInt16LE(offset+8),0)
+  const size=bytes.readUInt32LE(offset+18),nameLength=bytes.readUInt16LE(offset+26),extraLength=bytes.readUInt16LE(offset+28)
+  const name=bytes.subarray(offset+30,offset+30+nameLength).toString('utf8'),start=offset+30+nameLength+extraLength
+  files.set(name,bytes.subarray(start,start+size).toString('utf8'));offset=start+size
+ }
+ assert.equal(bytes.readUInt32LE(offset),0x02014b50)
+ return files
+}
+
+test('Excel parts follow the OOXML sequence for filters, merged cells and differential styles',async()=>{
+ const parts=unzipStored(await workbook())
+ const styles=parts.get('xl/styles.xml')
+ assert.ok(styles.indexOf('<cellStyles ')<styles.indexOf('<dxfs '),'cellStyles must precede differential formats')
+ for(const name of ['xl/worksheets/sheet1.xml','xl/worksheets/sheet2.xml']){
+  const sheet=parts.get(name)
+  assert.ok(sheet.indexOf('<autoFilter ')<sheet.indexOf('<mergeCells '),name)
+  assert.ok(sheet.indexOf('<mergeCells ')<sheet.indexOf('<conditionalFormatting '),name)
+  assert.ok(sheet.indexOf('<conditionalFormatting ')<sheet.indexOf('<pageMargins '),name)
+ }
+ assert.match(parts.get('xl/workbook.xml'),/<bookViews><workbookView\/><\/bookViews>/)
+})
+
+test('export preserves literal barcodes and escapes copied item text without invalid XML characters',async()=>{
+ const report={...sample,rows:[{...sample.rows[0],name:'A & B\u0001 <test>',barcode:'00123456'}]}
+ const parts=unzipStored(Buffer.from(await makeSuperAdminInventoryReport(report).arrayBuffer()))
+ const sheet=parts.get('xl/worksheets/sheet2.xml')
+ assert.match(sheet,/A &amp; B &lt;test&gt;/)
+ assert.doesNotMatch(sheet,/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/)
+ assert.match(sheet,/<c r="C6"[^>]+t="inlineStr"><is><t xml:space="preserve">00123456<\/t>/)
+ assert.match(sheet,/<c r="I6"[^>]*><v>650<\/v>/)
+})

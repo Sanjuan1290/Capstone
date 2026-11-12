@@ -1,0 +1,6 @@
+*.log
+*.json
+baseline*.xlsx
+baseline*.mjs
+validation-deps/
+browser-artifacts/

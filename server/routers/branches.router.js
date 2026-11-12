@@ -656,7 +656,7 @@ const originalAppointments = async(req,res) => {
   if(req.query.date && !date)return res.status(400).json({message:'Invalid date.'})
   const [rows]=await db.query(`SELECT a.*,DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,
     a.appointment_time AS time,a.clinic_type AS type,
-    p.full_name AS patient_name,p.full_name AS patient_full_name,
+    p.full_name AS patient_name,p.full_name AS patient_full_name,p.phone AS patient_phone,p.email AS patient_email,
     d.full_name AS doctor_name,d.full_name AS doctor,d.specialty
     FROM appointments a JOIN patients p ON p.id=a.patient_id
     JOIN doctors d ON d.id=a.doctor_id

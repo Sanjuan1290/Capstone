@@ -3,7 +3,7 @@
 import {zipStored} from './inventoryExcel.mjs'
 
 const XML = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
-const escapeXml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+const escapeXml = value => String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
 const column = index => {let n=index+1, result=''; while(n){n--;result=String.fromCharCode(65+n%26)+result;n=Math.floor(n/26)}return result}
 const money = amount => Math.round((Number(amount)||0)*100)/100
 const numeric = amount => Number.isFinite(Number(amount)) ? Number(amount) : 0
@@ -55,7 +55,7 @@ const stylesXml = () => {
     formatXml(2,4,1,0,'left',true),formatXml(6,4,1),
   ]
   const dxfs=`<dxfs count="2"><dxf><font><color rgb="FF9A3412"/></font><fill><patternFill patternType="solid"><fgColor rgb="${colors.amber}"/></patternFill></fill></dxf><dxf><font><color rgb="FFB91C1C"/></font><fill><patternFill patternType="solid"><fgColor rgb="${colors.red}"/></patternFill></fill></dxf></dxfs>`
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="${XML}"><numFmts count="3"><numFmt numFmtId="164" formatCode="&quot;₱&quot;#,##0.00"/><numFmt numFmtId="165" formatCode="#,##0"/><numFmt numFmtId="166" formatCode="dd mmm yyyy"/></numFmts><fonts count="${fonts.length}">${fonts.join('')}</fonts><fills count="${fills.length}">${fills.join('')}</fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top style="thin"><color rgb="${colors.line}"/></top><bottom style="thin"><color rgb="${colors.line}"/></bottom></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs>${dxfs}<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="${XML}"><numFmts count="3"><numFmt numFmtId="164" formatCode="&quot;₱&quot;#,##0.00"/><numFmt numFmtId="165" formatCode="#,##0"/><numFmt numFmtId="166" formatCode="dd mmm yyyy"/></numFmts><fonts count="${fonts.length}">${fonts.join('')}</fonts><fills count="${fills.length}">${fills.join('')}</fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top style="thin"><color rgb="${colors.line}"/></top><bottom style="thin"><color rgb="${colors.line}"/></bottom></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>${dxfs}</styleSheet>`
 }
 const cell = (value,style=STYLE.text,col=0,row=1) => {
   if(value===undefined||value===null||value==='')return ''
@@ -76,7 +76,7 @@ const sheetXml = ({name,columns,rows,merges=[],headerRow,filterRange,freeze,stat
   const frozen=freeze?`<pane ySplit="${freeze}" topLeftCell="A${freeze+1}" activePane="bottomLeft" state="frozen"/>`:''
   const filters=filterRange?`<autoFilter ref="${filterRange}"/>`:''
   const statusFormats=statusColumn?conditionalStatus(statusColumn,headerRow+1,maxRow):''
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${XML}"><sheetPr><tabColor rgb="${tabColor||colors.teal}"/></sheetPr><dimension ref="A1:${column(columns.length-1)}${maxRow}"/><sheetViews><sheetView workbookViewId="0" zoomScale="90">${frozen}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols>${attrs}</cols><sheetData>${body}</sheetData>${merged}${statusFormats}${filters}<pageMargins left="0.3" right="0.3" top="0.6" bottom="0.6" header="0.2" footer="0.2"/></worksheet>`
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${XML}"><sheetPr><tabColor rgb="${tabColor||colors.teal}"/></sheetPr><dimension ref="A1:${column(columns.length-1)}${maxRow}"/><sheetViews><sheetView workbookViewId="0" zoomScale="90">${frozen}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols>${attrs}</cols><sheetData>${body}</sheetData>${filters}${merged}${statusFormats}<pageMargins left="0.3" right="0.3" top="0.6" bottom="0.6" header="0.2" footer="0.2"/></worksheet>`
 }
 const reportTitle=(title,sub,cols)=>[
   {r:1,cells:[[title,STYLE.title]],height:38},
@@ -153,7 +153,7 @@ export function makeSuperAdminInventoryReport(report,options={}) {
   const entries=[
     ['[Content_Types].xml',`<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${overrides}</Types>`],
     ['_rels/.rels','<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
-    ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="${XML}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((name,i)=>`<sheet name="${escapeXml(name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`],
+    ['xl/workbook.xml',`<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="${XML}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>${names.map((name,i)=>`<sheet name="${escapeXml(name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`],
     ['xl/_rels/workbook.xml.rels',`<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${references}<Relationship Id="rId${sheets.length+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
     ['xl/styles.xml',stylesXml()],
     ...sheets.map((sheet,i)=>[`xl/worksheets/sheet${i+1}.xml`,sheetXml(sheet)])

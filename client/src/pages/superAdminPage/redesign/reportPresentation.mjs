@@ -57,8 +57,8 @@ export function sectionCsv(section,data,branches=[]) {
  return ['Group,Metric,Value',...sectionRows(section,data,branches).map(row=>row.map(safe).join(','))].join('\r\n')
 }
 const sheet=(name,headers,rows)=>({name,headers,rows})
-export function reportWorkbookSheets(reports,{branchName,from,to,branches=[]}={}) {
- if(REPORT_SECTIONS.some(x=>!reports?.[x.value])) throw new Error('All report sections must be available before exporting Excel.')
+export function reportTables(reports,{branchName,from,to,branches=[]}={}) {
+ if(REPORT_SECTIONS.some(x=>!reports?.[x.value])) throw new Error('All report sections must be available before exporting.')
  const a=reports.appointments, f=reports.financial, s=reports.services, i=reports.inventory
  return [
   sheet('Report Info',['Setting','Value'],context(branchName,from,to)),
@@ -75,3 +75,4 @@ export function reportWorkbookSheets(reports,{branchName,from,to,branches=[]}={}
   sheet('Stock Rooms',['Branch','Room','Type','Products','Current Quantity'],(i.stockrooms||[]).map(r=>[r.branch_name,r.name,r.location_type,r.products,r.quantity])),
  ]
 }
+export const reportWorkbookSheets = reportTables

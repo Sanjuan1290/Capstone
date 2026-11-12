@@ -1,11 +1,11 @@
-import {useEffect,useMemo,useRef,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {NavLink} from 'react-router-dom'
-import {MdDownload,MdFileDownload,MdPictureAsPdf,MdRefresh,MdCalendarMonth,MdPeople,MdPayments,MdCheckCircle,MdPersonOff,MdInventory2} from 'react-icons/md'
+import {MdPictureAsPdf,MdRefresh,MdCalendarMonth,MdPeople,MdPayments,MdCheckCircle,MdPersonOff,MdInventory2} from 'react-icons/md'
 import {LineChart,HorizontalBarChart} from '../../../components/charts/AnalyticsCharts'
-import {makeReportWorkbook} from '../../../utils/inventoryExcel.mjs'
+import {buildSuperAdminReportHtml,printSuperAdminReport} from '../../../utils/superAdminReportPdf.mjs'
 import {fetchJson,Card,PageHead,StatCard,Banner,Loading,Empty,pesos,whole,todayISO,beforeISO,SecondaryButton} from './shared'
 import {isValidReportPeriod} from './reportFormat'
-import {REPORT_SECTIONS,reportWorkbookSheets,sectionCsv} from './reportPresentation.mjs'
+import {REPORT_SECTIONS} from './reportPresentation.mjs'
 import {useOverviewData} from './Overview'
 
 const money=value=>pesos(value)
@@ -13,12 +13,6 @@ const num=value=>Number(value||0)
 const label=value=>String(value||'').replace(/[_-]/g,' ').replace(/\b\w/g,c=>c.toUpperCase())
 const toChart=rows=>(rows||[]).map(row=>({label:label(row.name),value:num(row.count)}))
 const valueBox=(title,value,description,Icon)=>({title,value,description,Icon})
-const download=(name,blob)=>{
- const url=URL.createObjectURL(blob)
- const link=document.createElement('a')
- link.href=url;link.download=name;document.body.append(link);link.click();link.remove()
- setTimeout(()=>URL.revokeObjectURL(url),3000)
-}
 const DataTable=({columns,rows,empty='No records match the selected filters.'})=>{
  if(!rows?.length)return <Empty title="No report records" description={empty}/>
  return <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">{columns.map(c=><th key={c.label} scope="col" className={`whitespace-nowrap px-3 py-3 ${c.right?'text-right':''}`}>{c.label}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={row.id||`${index}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">{columns.map(col=><td key={col.label} className={`px-3 py-3 ${col.right?'text-right tabular-nums':''}`}>{col.render?col.render(row):row[col.key]??'—'}</td>)}</tr>)}</tbody></table></div>
@@ -157,13 +151,13 @@ export default function ReportsPage(){
  const [period,setPeriod]=useState('30'),[from,setFrom]=useState(beforeISO(30)),[to,setTo]=useState(todayISO())
  const [branch,setBranch]=useState('all'),[section,setSection]=useState('overview')
  const [refreshCount,setRefreshCount]=useState(0),[details,setDetails]=useState(null),[detailsError,setDetailsError]=useState(''),[detailsLoading,setDetailsLoading]=useState(true)
- const [exportBusy,setExportBusy]=useState(false),[exportError,setExportError]=useState('')
+ const [exportBusy,setExportBusy]=useState(false),[exportError,setExportError]=useState(''),[exportNotice,setExportNotice]=useState('')
  const requestRef=useRef(0)
  const valid=isValidReportPeriod(from,to)&&((Date.parse(to)-Date.parse(from))/86400000<=366)
  const {rows,trends,errors,loading,loadedAt,reload}=useOverviewData({from,to,branch})
  const branches=useMemo(()=>branch==='all'?(rows||[]):(rows||[]).filter(r=>String(r.id)===branch),[rows,branch])
  const branchName=branch==='all'?'All Branches':(rows||[]).find(r=>String(r.id)===branch)?.name||'Selected Branch'
- const urlFor=key=>`/analytics/report-details?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&section=${encodeURIComponent(key)}${branch==='all'?'':`&branch_id=${encodeURIComponent(branch)}`}`
+ const urlFor=useCallback(key=>`/analytics/report-details?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&section=${encodeURIComponent(key)}${branch==='all'?'':`&branch_id=${encodeURIComponent(branch)}`}`,[from,to,branch])
  useEffect(()=>{
   const id=++requestRef.current
   if(!valid){setDetails(null);setDetailsError('Select a valid date range of no more than 366 days.');setDetailsLoading(false);return}
@@ -172,21 +166,16 @@ export default function ReportsPage(){
    if(id===requestRef.current&&!controller.signal.aborted) setDetails(result?.data||null)
   }).catch(error=>{if(id===requestRef.current&&!controller.signal.aborted)setDetailsError(error.message||'Unable to load this report.')}).finally(()=>{if(id===requestRef.current&&!controller.signal.aborted)setDetailsLoading(false)})
   return()=>controller.abort()
- },[section,from,to,branch,refreshCount,valid])
+ },[section,refreshCount,valid,urlFor])
  const changePeriod=next=>{
   setPeriod(next)
   if(next==='custom')return
   setFrom(beforeISO(Number(next)));setTo(todayISO())
  }
- const refresh=()=>{reload();setRefreshCount(x=>x+1);setExportError('')}
- const filename=`carait-${section}-${branch}-${from}-to-${to}`
- const csv=()=>{
-  if(!details)return
-  download(`${filename}.csv`,new Blob(['\ufeff',sectionCsv(section,details,branches)],{type:'text/csv;charset=utf-8'}))
- }
- const excel=async()=>{
-  if(!valid||exportBusy)return
-  setExportError('');setExportBusy(true)
+ const refresh=()=>{reload();setRefreshCount(x=>x+1);setExportError('');setExportNotice('')}
+ const exportPdf=async()=>{
+  if(!valid||exportBusy||detailsLoading||!details||rows===null)return
+  setExportError('');setExportNotice('');setExportBusy(true)
   try{
    const results=await Promise.all(REPORT_SECTIONS.map(async item=>{
     if(item.value===section&&details)return [item.value,details]
@@ -194,18 +183,17 @@ export default function ReportsPage(){
     if(!payload?.data)throw new Error(`${item.label} returned no data.`)
     return [item.value,payload.data]
    }))
-   const workbook=makeReportWorkbook(reportWorkbookSheets(Object.fromEntries(results),{branchName,from,to,branches}))
-   download(`carait-all-reports-${branch}-${from}-to-${to}.xlsx`,workbook)
-  }catch(error){setExportError(error.message||'Unable to export the workbook. Try again.')}
+   const html=buildSuperAdminReportHtml(Object.fromEntries(results),{branchName,from,to,branches})
+   await printSuperAdminReport(html)
+   setExportNotice('Print dialog opened. Choose “Save as PDF” to save all report sections for the selected branch and dates.')
+  }catch(error){setExportError(error.message||'Unable to prepare the PDF report. Try again.')}
   finally{setExportBusy(false)}
  }
  const Report=RENDERS[section]
  return <div id="super-admin-report" className="space-y-6">
   <PageHead title="Reports & Analytics" description="View clinic operations, collections, consultations and inventory across all branches or one clinic." action={<div className="flex flex-wrap items-center gap-2" data-report-actions>
    <SecondaryButton onClick={refresh} disabled={loading||detailsLoading}><MdRefresh/> Refresh</SecondaryButton>
-   <SecondaryButton onClick={csv} disabled={!details||detailsLoading}><MdFileDownload/> CSV</SecondaryButton>
-   <SecondaryButton onClick={excel} disabled={!valid||exportBusy}><MdDownload/> {exportBusy?'Preparing Excel…':'Excel'}</SecondaryButton>
-   <SecondaryButton onClick={()=>window.print()} disabled={!details||detailsLoading}><MdPictureAsPdf/> Print / Save PDF</SecondaryButton>
+   <SecondaryButton onClick={exportPdf} disabled={!valid||exportBusy||loading||detailsLoading||!details||rows===null}><MdPictureAsPdf/> {exportBusy?'Preparing PDF…':'Print / Save PDF'}</SecondaryButton>
   </div>}/>
   <Card className="print:shadow-none" ><div data-report-controls className="flex flex-wrap items-end gap-4">
    <label className="min-w-0 w-full flex-1 text-xs font-bold text-slate-600 sm:min-w-[190px]">Clinic Branch<select aria-label="Clinic Branch" className="form-control mt-1 w-full" value={branch} onChange={event=>setBranch(event.target.value)}><option value="all">All Branches</option>{(rows||[]).map(r=><option key={r.id} value={r.id}>{r.name}{!Number(r.is_active)?' (Inactive)':''}</option>)}</select></label>
@@ -214,6 +202,7 @@ export default function ReportsPage(){
   </div><p className="mt-3 text-xs text-slate-500">{branchName} · {from} to {to}{loadedAt?` · Updated ${loadedAt.toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'})}`:''}</p></Card>
   <nav data-report-controls aria-label="Report Sections" className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2">{REPORT_SECTIONS.map(tab=><button key={tab.value} type="button" onClick={()=>setSection(tab.value)} aria-current={section===tab.value?'page':undefined} className={`min-h-10 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${section===tab.value?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-100'}`}>{tab.label}</button>)}</nav>
   {exportError&&<Banner onDismiss={()=>setExportError('')}>{exportError}</Banner>}
+  {exportNotice&&<Banner type="info" title="Save your PDF" onDismiss={()=>setExportNotice('')}>{exportNotice}</Banner>}
   {errors.period&&<Banner>{errors.period}</Banner>}
   {detailsError&&<Banner onRetry={refresh}>{detailsError}</Banner>}
   {detailsLoading?<Loading cards={6}/>:details?<Report data={details} branches={branches} trends={trends} error={errors.trends} refresh={refresh}/>:!detailsError?<Banner>Report data is unavailable. Try refreshing.</Banner>:null}
