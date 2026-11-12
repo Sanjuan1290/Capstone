@@ -46,7 +46,7 @@ async function validatePricing(conn,branchId,p){
  for(const [index,m] of p.materials.entries()){
   if(!validId(m.inventory_id)||!Number.isInteger(Number(m.quantity))||Number(m.quantity)<=0)throw err(400,'INVALID_CONSUMABLE',`Consumable ${index+1} requires an inventory item and whole-number quantity.`)
   const [[item]]=await conn.query('SELECT id,name,category,selling_price,archived_at FROM inventory WHERE id=? AND branch_id=?',[m.inventory_id,branchId])
-  if(!item||item.archived_at||item.category!==p.clinic_type)throw err(404,'INVENTORY_NOT_FOUND',`Consumable ${index+1} is unavailable in this branch.`)
+  if(!item||item.archived_at)throw err(404,'INVENTORY_NOT_FOUND',`Consumable ${index+1} is unavailable in this branch.`)
   if(!(Number(item.selling_price)>0))throw err(409,'CONSUMABLE_PRICE_REQUIRED',`Set a selling price for ${item.name} first.`)
   total+=Number(item.selling_price)*Number(m.quantity)
  }

@@ -302,12 +302,6 @@ const applyServiceConsumablePricing = async (payload, executor = db) => {
       error.code = 'SERVICE_CONSUMABLE_UNAVAILABLE'
       throw error
     }
-    if (item.category && item.category !== payload.clinic_type) {
-      const error = new Error(`${item.name} belongs to a different clinic and cannot be used for this service.`)
-      error.statusCode = 409
-      error.code = 'SERVICE_CONSUMABLE_CLINIC_MISMATCH'
-      throw error
-    }
     const quantity = Number(material.quantity || 0)
     if (!(quantity > 0) || !Number.isInteger(quantity)) {
       const error = new Error(`Consumable quantity for ${item.name} must be a whole number greater than zero.`)

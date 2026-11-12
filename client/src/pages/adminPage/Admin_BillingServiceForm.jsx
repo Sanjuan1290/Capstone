@@ -15,6 +15,7 @@ const formatDuration = (minutes) => { const total = Number(minutes || 0); const 
 const reservedDuration = (minutes) => Math.ceil(Math.max(15, Number(minutes || 60)) / 30) * 30
 const blank = { category_id: '', category: '', service_name: '', clinic_type: 'medical', default_price: '', average_duration_minutes: 60, is_active: 1, materials: [] }
 const clinicLabel = (value) => CLINIC_TYPES.find((item) => item.value === value)?.label || value
+const isInventoryCompatible = item => Boolean(item && !item.archived_at)
 const toForm = (service) => ({
   category_id: service?.category_id || '', category: service?.category || '', service_name: service?.service_name || '',
   clinic_type: ['medical','derma'].includes(service?.clinic_type) ? service.clinic_type : 'medical',
@@ -57,16 +58,13 @@ const Admin_BillingServiceForm = () => {
     .sort((a,b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' })), [serviceCategories, form.clinic_type, form.category_id])
 
   const servicePrice = Math.max(0, Number(form.default_price || 0))
-  const isInventoryCompatible = (item, clinicType = form.clinic_type) => Boolean(
-    item && !item.archived_at && (!item.category || item.category === clinicType)
-  )
   const consumablesTotal = useMemo(() => form.materials.reduce((sum, material) => {
     const item = inventoryMap.get(Number(material.inventory_id))
     if (!isInventoryCompatible(item)) return sum
     const unitPrice = Math.max(0, Number(item?.selling_price || 0))
     const quantity = Math.max(0, Number(material.quantity || 0))
     return sum + (unitPrice * quantity)
-  }, 0), [form.materials, inventoryMap, form.clinic_type])
+  }, 0), [form.materials, inventoryMap])
   const patientPrice = Math.round((servicePrice + consumablesTotal) * 100) / 100
 
   useEffect(() => { (async () => {
@@ -97,10 +95,10 @@ const Admin_BillingServiceForm = () => {
 
   const update = (key, value) => { setForm((current) => ({ ...current, [key]: value })); setDirty(true) }
   const changeClinic = (clinicType) => {
-    setForm((current) => ({ ...current, clinic_type: clinicType, category_id: '', category: '', materials: [] }))
-    setErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith('material_') && !key.startsWith('qty_') && !key.startsWith('price_'))))
+    setForm((current) => ({ ...current, clinic_type: clinicType, category_id: '', category: '' }))
+    setErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== 'category')))
     setDirty(true)
-    toast.info('Clinic changed. Added items were cleared. Choose items from the selected clinic.')
+    toast.info('Clinic changed. Choose a service category. Your selected inventory items have been kept.')
   }
   const changeCategory = (categoryId) => { const category = serviceCategories.find((item) => Number(item.id) === Number(categoryId)); setForm((current) => ({ ...current, category_id: categoryId, category: category?.name || '' })); setDirty(true) }
   const updateMaterial = (index, key, value) => { setForm((current) => ({ ...current, materials: current.materials.map((m, i) => i === index ? { ...m, [key]: value } : m) })); setDirty(true) }
@@ -135,7 +133,7 @@ const Admin_BillingServiceForm = () => {
       const item = inventoryMap.get(Number(m.inventory_id))
       if (!m.inventory_id || !isInventoryCompatible(item)) {
         next[`material_${i}`] = m.inventory_id
-          ? 'This inventory item does not belong to the selected clinic. Choose another item.'
+          ? 'This inventory item is unavailable. Choose an active item from this branch.'
           : 'Select an inventory item.'
       }
       if (!(Number(m.quantity) > 0) || !Number.isInteger(Number(m.quantity))) next[`qty_${i}`] = 'Quantity must be a whole number greater than zero.'
@@ -182,8 +180,8 @@ const Admin_BillingServiceForm = () => {
       </div>}
 
       {step === 2 && <div className="space-y-4">
-        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-black">Default Items</h2><p className="mt-1 text-sm text-slate-500">Choose items normally used for this service. The doctor records actual usage, and billing handles the final stock-out in the new workflow. Existing systems retain their current stock rules until the new workflow is enabled.</p></div><button className="button-secondary" onClick={()=>update('materials',[...form.materials,blankMaterial()])}><MdAdd /> Add Item</button></div>
-        {!form.materials.length ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">No default items.</div> : <div className="space-y-3">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id)); const stepValue=1; const unitPrice=Number(item?.selling_price||0); const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0)); return <div key={index} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><strong className="text-xs uppercase tracking-wide text-slate-400">Item {index+1}</strong><button className="text-slate-400 hover:text-rose-600" onClick={()=>update('materials',form.materials.filter((_,i)=>i!==index))}><MdClose /></button></div><div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_.7fr_.9fr]"><label><span className="form-label">Inventory Item *</span><input type="search" value={itemSearch[index] || ''} onChange={event=>setItemSearch(current=>({...current,[index]:event.target.value}))} className="form-control mt-1.5" placeholder="Search by item or barcode" aria-label={`Search inventory item ${index+1}`} /><select className="form-control mt-1.5" value={m.inventory_id} onChange={(e)=>chooseInventory(index,e.target.value)}><option value="">Select item</option>{inventory.filter((inv)=>(!inv.category||inv.category===form.clinic_type)&&(!itemSearch[index]||String(inv.name||'').toLowerCase().includes(itemSearch[index].toLowerCase())||String(inv.barcode||'').toLowerCase().includes(itemSearch[index].toLowerCase())||String(inv.id)===String(m.inventory_id))).map((inv)=><option key={inv.id} value={inv.id}>{inv.name} — {Number(inv.selling_price||0)>0?formatMoney(inv.selling_price):'Price not set'}</option>)}</select>{errors[`material_${index}`]&&<p className="form-error">{errors[`material_${index}`]}</p>}{errors[`price_${index}`]&&<p className="form-error">{errors[`price_${index}`]}</p>}</label><div><span className="form-label">Quantity Used *</span><input aria-label={`Quantity used for item ${index+1}`} type="number" min={stepValue} step={stepValue} className="form-control mt-1.5" value={m.quantity} onChange={(e)=>updateMaterial(index,'quantity',e.target.value)} /><p className="mt-1 text-[11px] text-slate-400">Whole units only.</p>{errors[`qty_${index}`]&&<p className="form-error">{errors[`qty_${index}`]}</p>}</div><div><span className="form-label">Item Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"><p className="font-bold text-slate-800">{unitPrice>0?formatMoney(unitPrice):'Not set'}</p><p className="mt-0.5 text-[11px] text-slate-400">{Number(m.quantity||0)>0&&unitPrice>0?`${formatMoney(lineTotal)} total`:'Inventory Selling Price'}</p></div></div><label className="sm:col-span-3"><span className="form-label">Notes</span><input maxLength={255} className="form-control mt-1.5" value={m.notes} onChange={(e)=>updateMaterial(index,'notes',e.target.value)} placeholder="Optional usage note" /></label></div></div>})}</div>}
+        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-black">Default Items</h2><p className="mt-1 text-sm text-slate-500">Choose items from either General Medicine or Dermatology inventory in this branch. The doctor records actual usage, and stock quantities follow the billing workflow.</p></div><button className="button-secondary" onClick={()=>update('materials',[...form.materials,blankMaterial()])}><MdAdd /> Add Item</button></div>
+        {!form.materials.length ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">No default items.</div> : <div className="space-y-3">{form.materials.map((m,index)=>{const item=inventoryMap.get(Number(m.inventory_id)); const stepValue=1; const unitPrice=Number(item?.selling_price||0); const lineTotal=unitPrice*Math.max(0,Number(m.quantity||0)); return <div key={index} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><strong className="text-xs uppercase tracking-wide text-slate-400">Item {index+1}</strong><button className="text-slate-400 hover:text-rose-600" onClick={()=>update('materials',form.materials.filter((_,i)=>i!==index))}><MdClose /></button></div><div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_.7fr_.9fr]"><label><span className="form-label">Inventory Item *</span><input type="search" value={itemSearch[index] || ''} onChange={event=>setItemSearch(current=>({...current,[index]:event.target.value}))} className="form-control mt-1.5" placeholder="Search by item or barcode" aria-label={`Search inventory item ${index+1}`} /><select aria-label={`Inventory item ${index+1}`} className="form-control mt-1.5" value={m.inventory_id} onChange={(e)=>chooseInventory(index,e.target.value)}><option value="">Select item</option>{inventory.filter((inv)=>isInventoryCompatible(inv)&&(!itemSearch[index]||String(inv.name||'').toLowerCase().includes(itemSearch[index].toLowerCase())||String(inv.barcode||'').toLowerCase().includes(itemSearch[index].toLowerCase())||String(inv.id)===String(m.inventory_id))).map((inv)=><option key={inv.id} value={inv.id}>{inv.name} · {clinicLabel(inv.category)} — {Number(inv.selling_price||0)>0?formatMoney(inv.selling_price):'Price not set'}</option>)}</select>{errors[`material_${index}`]&&<p className="form-error">{errors[`material_${index}`]}</p>}{errors[`price_${index}`]&&<p className="form-error">{errors[`price_${index}`]}</p>}</label><div><span className="form-label">Quantity Used *</span><input aria-label={`Quantity used for item ${index+1}`} type="number" min={stepValue} step={stepValue} className="form-control mt-1.5" value={m.quantity} onChange={(e)=>updateMaterial(index,'quantity',e.target.value)} /><p className="mt-1 text-[11px] text-slate-400">Whole units only.</p>{errors[`qty_${index}`]&&<p className="form-error">{errors[`qty_${index}`]}</p>}</div><div><span className="form-label">Item Price</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"><p className="font-bold text-slate-800">{unitPrice>0?formatMoney(unitPrice):'Not set'}</p><p className="mt-0.5 text-[11px] text-slate-400">{Number(m.quantity||0)>0&&unitPrice>0?`${formatMoney(lineTotal)} total`:'Inventory Selling Price'}</p></div></div><label className="sm:col-span-3"><span className="form-label">Notes</span><input maxLength={255} className="form-control mt-1.5" value={m.notes} onChange={(e)=>updateMaterial(index,'notes',e.target.value)} placeholder="Optional usage note" /></label></div></div>})}</div>}
         <div className="grid gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm sm:grid-cols-3"><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Service Price</p><p className="mt-1 font-black text-amber-950">{formatMoney(servicePrice)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Items Used</p><p className="mt-1 font-black text-amber-950">{formatMoney(consumablesTotal)}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-amber-700">Total Patient Price</p><p className="mt-1 text-lg font-black text-amber-950">{formatMoney(patientPrice)}</p></div></div>
       </div>}
 

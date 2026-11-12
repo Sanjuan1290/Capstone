@@ -22,6 +22,7 @@ import PatientLogin          from './pages/auth/Patient/PatientLogin'
 import PatientRoute          from './components/PatientRoute'
 import GuestBookAppointment from './pages/patientPage/GuestBookAppointment'
 import GuestAppointmentStatus from './pages/patientPage/GuestAppointmentStatus'
+import GuestAppointmentLookup from './pages/patientPage/GuestAppointmentLookup'
 import GuestOnlyRoute       from './components/GuestOnlyRoute'
 import PatientLayout         from './components/layouts/PatientLayout'
 import PatientDashboard      from './pages/patientPage/PatientDashboard'
@@ -125,6 +126,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route index element={<LandingPage />} />
       <Route path='/news' element={<NewsList />} />
       <Route path='/guest/book' element={<GuestBookAppointment />} />
+      <Route path='/guest/appointments' element={<GuestAppointmentLookup />} />
       <Route path='/guest/appointments/:id' element={<GuestAppointmentStatus />} />
       <Route path='/news/:branchId/:slug' element={<NewsDetail />} />
       <Route path='/unsubscribe' element={<MarketingUnsubscribe />} />

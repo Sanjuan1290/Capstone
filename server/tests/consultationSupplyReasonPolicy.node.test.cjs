@@ -22,7 +22,7 @@ const executor={query:async(sql,args)=>{
   if(!sql.includes('FROM inventory'))throw new Error('Unexpected SQL')
   if(args[1]!==1)return [[]]
   const names={7:'Gloves',12:'Syringe'}
-  return [names[args[0]]?[{id:args[0],name:names[args[0]],category:'medical',unit:'unit',base_unit:'unit',uom:'unit',archived_at:null}]:[]]
+  return [names[args[0]]?[{id:args[0],name:names[args[0]],category:args[0]===12?'derma':'medical',unit:'unit',base_unit:'unit',uom:'unit',archived_at:null}]:[]]
 }}
 const extra=(reason='')=>[{catalog_service_id:77,quantity:1,usage_change_reason:reason,
   materials:[{inventory_id:7,quantity:1,unit_label:'unit'},{inventory_id:12,quantity:1,unit_label:'unit',consultation_extra:true}]}]
@@ -43,4 +43,8 @@ test('draft rejects invalid inventory even without a reason',async()=>{
 })
 test('draft and finalization are branch-scoped',async()=>{
   await assert.rejects(validate(extra(),executor,2,{requireReason:false}),{code:'SERVICE_NOT_FOUND'})
+})
+test('a service can use medical and dermatology items from the same branch',async()=>{
+  const result=await validate(extra('Shared item used for this treatment.'),executor,1)
+  assert.deepEqual(Array.from(result[0].materials,m=>m.inventory_id),[7,12])
 })

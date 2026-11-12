@@ -10,7 +10,7 @@ const {notifyRoles}=require('../utils/notifications')
 const {broadcast}=require('../utils/sse')
 const {writeAuditLog}=require('../utils/audit')
 const {getOnlineBookingReadiness,applyBranchBookingOfferings}=require('../utils/bookingReadiness')
-const {verifiedPhone,findPhonePatients,readDailyQuota,assertQuota,submissionToken}=require('../utils/guestBookingPolicy')
+const {verifiedPhone,findPhonePatients,readDailyQuota,assertQuota,submissionToken,PHONE_SQL,phoneVariants}=require('../utils/guestBookingPolicy')
 
 const invalid=(status,code,message)=>Object.assign(new Error(message),{statusCode:status,code})
 const ageAtVisit=(birthdate,date,reportedAge)=>{
@@ -146,16 +146,41 @@ const create=async(req,res)=>{
 }
 const status=async(req,res)=>{
   const id=Number(req.params.id),token=String(req.get('x-guest-booking-token')||'')
-  if(!Number.isSafeInteger(id)||id<1||token.length<30||token.length>128)return res.status(404).json({message:'Booking not found or secure access link invalid.'})
-  const hash=crypto.createHash('sha256').update(token).digest('hex')
-  const [[access]]=await db.query('SELECT appointment_id FROM guest_booking_access WHERE appointment_id=? AND token_hash=? AND expires_at>NOW() LIMIT 1',[id,hash])
-  if(!access)return res.status(404).json({message:'Booking not found or secure access link expired.'})
+  res.setHeader('Cache-Control','private, no-store')
+  if(!Number.isSafeInteger(id)||id<1)return res.status(404).json({message:'Booking not found or secure access link invalid.'})
+  const phone=verifiedPhone(req)
+  if(token){
+    if(token.length<30||token.length>128)return res.status(404).json({message:'Booking not found or secure access link invalid.'})
+    const hash=crypto.createHash('sha256').update(token).digest('hex')
+    const [[access]]=await db.query('SELECT appointment_id FROM guest_booking_access WHERE appointment_id=? AND token_hash=? AND expires_at>NOW() LIMIT 1',[id,hash])
+    if(!access)return res.status(404).json({message:'Booking not found or secure access link expired.'})
+  }else if(!phone){
+    throw invalid(403,'GUEST_PHONE_VERIFICATION_REQUIRED','Verify your mobile number by SMS to view this guest appointment.')
+  }
+  const ownership=token?'':` AND ${PHONE_SQL} IN (?,?,?)`
   const [[row]]=await db.query(`SELECT a.id,a.status,DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,a.appointment_time,
     a.requested_service_name_snapshot AS service_name,d.full_name AS doctor_name,b.name AS branch_name
-    FROM appointments a JOIN doctors d ON d.id=a.doctor_id JOIN clinic_branches b ON b.id=a.branch_id WHERE a.id=?`,[id])
+    FROM appointments a JOIN patients p ON p.id=a.patient_id JOIN doctors d ON d.id=a.doctor_id
+    JOIN clinic_branches b ON b.id=a.branch_id WHERE a.id=? AND a.appointment_source='guest_online'${ownership} LIMIT 1`,token?[id]:[id,...phoneVariants(phone)])
   if(!row)return res.status(404).json({message:'Booking no longer exists.'})
-  res.setHeader('Cache-Control','private, no-store')
   res.json({...row,reference:`G-${id}`,notification_method:'in_app_only'})
+}
+const lookup=async(req,res)=>{
+  res.setHeader('Cache-Control','private, no-store')
+  const phone=normalizePhilippinePhone(req.body?.phone)
+  if(!phone||verifiedPhone(req)!==phone)throw invalid(403,'GUEST_PHONE_VERIFICATION_REQUIRED','Verify this mobile number by SMS before finding your appointments.')
+  const rawCursor=req.body?.before_id
+  const cursor=rawCursor==null?null:Number(rawCursor)
+  if(cursor!==null&&(!Number.isSafeInteger(cursor)||cursor<1))throw invalid(400,'INVALID_APPOINTMENT_CURSOR','Refresh your appointments and try again.')
+  const [rows]=await db.query(`SELECT a.id,a.status,DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,a.appointment_time,
+    a.requested_service_name_snapshot AS service_name,d.full_name AS doctor_name,b.name AS branch_name
+    FROM appointments a JOIN patients p ON p.id=a.patient_id JOIN doctors d ON d.id=a.doctor_id
+    JOIN clinic_branches b ON b.id=a.branch_id
+    WHERE a.appointment_source='guest_online' AND ${PHONE_SQL} IN (?,?,?)
+      AND a.status IN ('pending','confirmed','rescheduled','in-progress') AND (? IS NULL OR a.id<?)
+    ORDER BY a.id DESC LIMIT 21`,[...phoneVariants(phone),cursor,cursor])
+  const items=rows.slice(0,20).map(row=>({...row,reference:`G-${row.id}`}))
+  res.json({items,next_cursor:rows.length>20?items.at(-1).id:null})
 }
 const recover=async(req,res)=>{
   const phone=normalizePhilippinePhone(req.body?.phone)
@@ -177,4 +202,4 @@ const recover=async(req,res)=>{
     res.json({id:booking.id,status:booking.status,reference:`G-${booking.id}`,access_token:accessToken})
   }finally{if(acquired)await conn.query('SELECT RELEASE_LOCK(?)',[lockKey]).catch(()=>{});conn.release()}
 }
-module.exports={create,status,recover}
+module.exports={create,status,recover,lookup}

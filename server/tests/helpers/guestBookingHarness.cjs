@@ -40,6 +40,22 @@ function harness(seed = {}) {
     }
     if (sql.startsWith('SELECT p.id')) return [draft.patients.filter(patient => values.includes(String(patient.phone).replace(/\D/g,''))).slice(0,2).map(patient => ({ ...patient, has_password: patient.password ? 1 : 0 }))]
     if (sql.startsWith('SELECT id FROM patients WHERE LOWER')) return [[draft.patients.find(patient => String(patient.email || '').toLowerCase() === String(values[0]).toLowerCase() && patient.id !== values[1])].filter(Boolean)]
+    if (sql.includes('FROM appointments a JOIN patients p') && sql.includes('AS service_name')) {
+      assert.match(sql, /a\.appointment_source='guest_online'/)
+      const single = sql.includes('WHERE a.id=?')
+      const phones = single ? values.slice(1) : values.slice(0, 3)
+      let rows = draft.appointments.filter(appt => appt.source === 'guest_online' && (!single || appt.id === values[0]))
+      if (phones.length) {
+        assert.match(sql, /p\.phone/)
+        rows = rows.filter(appt => draft.patients.some(patient => patient.id === appt.patient_id && phones.includes(String(patient.phone).replace(/\D/g, ''))))
+      }
+      if (!single) {
+        assert.match(sql, /a\.status IN \('pending','confirmed','rescheduled','in-progress'\)/)
+        rows = rows.filter(appt => ['pending', 'confirmed', 'rescheduled', 'in-progress'].includes(appt.status) && (values[3] === null || appt.id < values[3])).sort((a,b) => b.id - a.id).slice(0,21)
+      }
+      return [rows.map(appt => ({ id: appt.id, status: appt.status, appointment_date: appt.appointment_date, appointment_time: appt.appointment_time, service_name: appt.service_name || 'Synthetic Service', doctor_name: appt.doctor_name || 'Synthetic Doctor', branch_name: appt.branch_name || 'Synthetic Branch' }))]
+    }
+    if (sql.startsWith('SELECT appointment_id FROM guest_booking_access WHERE')) return [draft.access.filter(row => row.appointment_id === values[0] && row.token_hash === values[1] && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now()))]
     if (sql.includes('FROM guest_booking_access g')) {
       const access = draft.access.find(row => row.token_hash === values[0])
       return [[access && draft.appointments.find(appt => appt.id === access.appointment_id)].filter(Boolean)]
@@ -94,7 +110,7 @@ function harness(seed = {}) {
     '../utils/date': require('../../utils/date'), '../utils/notifications': { notifyRoles: async (...args) => notifications.push(args) }, '../utils/sse': { broadcast() {} }, '../utils/audit': { writeAuditLog: async () => {} },
     '../utils/bookingReadiness': { getOnlineBookingReadiness: async () => ({}), applyBranchBookingOfferings: () => ({ medical: { bookable: true } }) }, '../utils/guestBookingPolicy': policy })
   const cookies = {}
-  const response = () => ({ statusCode: 200, status(value) { this.statusCode = value; return this }, setHeader() {}, cookie(name, token, options) { cookies[name] = token; this.cookieOptions = options }, json(value) { this.body = value; return this } })
+  const response = () => ({ headers: {}, statusCode: 200, status(value) { this.statusCode = value; return this }, setHeader(name, value) { this.headers[name.toLowerCase()] = String(value) }, cookie(name, token, options) { cookies[name] = token; this.cookieOptions = options }, json(value) { this.body = value; return this } })
   const body = (overrides = {}) => ({ full_name: 'Synthetic Guest', gender: 'Female', reported_age: 35, phone: '09170000001', consent_given: true, branch_id: 1, doctor_id: 8, requested_service_id: 77, clinic_type: 'medical', appointment_date: '2027-02-01', appointment_time: '10:00 AM', reason: 'Other', reason_details: 'Synthetic follow up', ...overrides })
   const request = (payload = {}) => ({ body: payload, cookies: { ...cookies }, ip: '127.0.0.1' })
   const verified = async phone => { const res = response(); await phoneController.requestCode(request({ phone }), res); const result = response(); await phoneController.verifyCode(request({ phone, code: messages.at(-1).code }), result); return result }

@@ -881,7 +881,7 @@ const Doctor_Consultation = () => {
   const replacementIds = new Set((replaceService?.materials || []).filter((_,i)=>i!==replacementTarget?.materialIndex).map(m=>Number(m.inventory_id)))
   const availableExtraConsumables = inventoryItems
     .filter((item) => replacementTarget ? !replacementIds.has(Number(item.id)) : !existingExtraConsumableIds.has(Number(item.id)))
-    .filter((item) => !currentPatient?.type || item.category === currentPatient.type)
+    .filter((item) => !item.archived_at)
     .filter((item) => {
       const needle = extraConsumableSearch.trim().toLowerCase()
       if (!needle) return true
@@ -1914,7 +1914,7 @@ const Doctor_Consultation = () => {
                 {Number(extraConsumableId) === Number(item.id) && <MdCheck className="mt-0.5 shrink-0 text-violet-600" />}
               </button>
             ))}
-            {!availableExtraConsumables.length && <div className="px-4 py-8 text-center text-sm text-slate-400">No matching additional items for this clinic.</div>}
+            {!availableExtraConsumables.length && <div className="px-4 py-8 text-center text-sm text-slate-400">No matching additional inventory items.</div>}
           </div>
           {extraConsumableSelected && (
             <label className="block rounded-2xl border border-slate-200 bg-slate-50 p-4">

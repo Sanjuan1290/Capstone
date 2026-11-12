@@ -34,6 +34,7 @@ const { isOtherVisitReason, withSystemOtherVisitReason } = require('../utils/app
 const { listMyBillingHistory, getMyBillDetails } = require('../utils/patientBillingHistory')
 
 const { claimRegistrationSms } = require('../utils/registrationSmsLimits')
+const { resolveRegistrationPatient } = require('../utils/patientRegistrationIdentity')
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const NORMALIZED_PHONE_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')"
 
@@ -163,8 +164,7 @@ const register = async (req, res) => {
   if (normalizedProfile.email.length > 150) {
     return res.status(400).json({ message: 'Email Address must be 150 characters or fewer.', field: 'Email Address' })
   }
-  const [existingEmail] = await db.query('SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1', [normalizedProfile.email])
-  if (existingEmail.length) return res.status(409).json({ message: 'That email address is already linked to another patient account.' })
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedProfile.email)) return res.status(400).json({ message:'Enter a valid email address.',field:'Email Address' })
 
   const normalizedPhone = normalizePhilippinePhone(phoneInput)
   if (!normalizedPhone) {
@@ -182,21 +182,7 @@ const register = async (req, res) => {
     return res.status(400).json({ message: 'Data privacy consent is required.', field: 'Consent' })
   }
 
-  const existing = await findPatientsByPhone(normalizedPhone, 'id, is_walk_in')
-  if (existing.length > 1) {
-    return res.status(409).json({
-      message: 'Multiple patient records use this phone number. Please contact the clinic to resolve the duplicate records.',
-    })
-  }
-  if (existing.length === 1 && !existing[0].is_walk_in) {
-    return res.status(409).json({ message: 'An account with that phone number already exists.' })
-  }
-
-  const [emailRows] = await db.query(
-    'SELECT id FROM patients WHERE LOWER(email) = LOWER(?) AND COALESCE(is_walk_in, 0) = 0 LIMIT 1',
-    [normalizedProfile.email]
-  )
-  if (emailRows.length) return res.status(409).json({ message: 'An account with that email address already exists.' })
+  const linkedPatient = await resolveRegistrationPatient(db, normalizedPhone, { ...normalizedProfile, full_name: fullName })
 
   await claimRegistrationSms(normalizedPhone)
   const hashedPassword = await bcrypt.hash(password, 10)
@@ -212,6 +198,7 @@ const register = async (req, res) => {
     consent_given: true,
     receive_promotions: normalizedProfile.receive_promotions ? 1 : 0,
     verification_method: method,
+    linked_patient_id: linkedPatient?.id || null,
   })
 
   await db.query(
@@ -285,96 +272,82 @@ const verifyRegistration = async (req, res) => {
   const phoneInput = normalizeText(req.body.phone, { field: 'Mobile Number', required: true, max: 20 })
   const code = normalizeText(req.body.code, { field: 'Verification Code', required: true, max: 6 })
   const normalizedPhone = normalizePhilippinePhone(phoneInput)
-  if (!/^\d{6}$/.test(code)) return res.status(400).json({ message: 'Enter the complete 6-digit verification code.', field: 'Verification Code' })
+  if (!normalizedPhone || !/^\d{6}$/.test(code)) return res.status(400).json({ message: 'Enter your mobile number and the complete 6-digit verification code.' })
 
-  if (!normalizedPhone || !code) {
-    return res.status(400).json({ message: 'Phone number and verification code are required.' })
-  }
-
-  const [rows] = await db.query(
-    'SELECT * FROM patient_phone_verifications WHERE phone = ? AND expires_at > NOW()',
-    [normalizedPhone]
-  )
-
-  if (rows.length === 0) {
-    return res.status(400).json({ message: 'Verification code expired or no pending registration was found.' })
-  }
-
-  const pending = rows[0]
-  if (Number(pending.attempt_count || 0) >= 5 || !timingSafeEqualHash(code, pending.otp_code)) {
-    const nextAttempts = Number(pending.attempt_count || 0) + 1
-    if (nextAttempts >= 5) await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
-    else await db.query('UPDATE patient_phone_verifications SET attempt_count = ? WHERE id = ?', [nextAttempts, pending.id])
-    return res.status(400).json({ message: 'Invalid verification code.' })
-  }
-
-  const existing = await findPatientsByPhone(normalizedPhone, 'id, is_walk_in')
-  if (existing.length > 1) {
-    await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
-    return res.status(409).json({
-      message: 'Multiple patient records use this phone number. Please contact the clinic to resolve the duplicate records.',
-    })
-  }
-  if (existing.length === 1 && !existing[0].is_walk_in) {
-    await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
-    return res.status(409).json({ message: 'An account with that phone number already exists.' })
-  }
-
-  let payload
-  try {
-    payload = parseVerificationPayload(pending.payload)
-  } catch {
-    await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
-    return res.status(500).json({ message: 'Stored verification data is invalid. Please register again.' })
-  }
+  const conn = await db.getConnection()
   let patientId
-  if (existing.length === 1) {
-    await db.query(
-      `UPDATE patients
-       SET full_name = ?, email = ?, phone = ?, birthdate = ?, gender = ?, sex = ?, address = ?, password = ?,
-           civil_status = NULL, consent_given = ?, consent_given_at = ?, receive_promotions = ?, is_profile_complete = 1,
-           email_verified_at = email_verified_at,
-           phone_verified_at = NOW()
-       WHERE id = ?`,
-      [
-        payload.full_name, payload.email, normalizedPhone, payload.birthdate, payload.gender, payload.gender, payload.address,
-        payload.password, payload.consent_given ? 1 : 0, payload.consent_given ? new Date() : null,
-        payload.receive_promotions ? 1 : 0, existing[0].id,
-      ]
+  try {
+    await conn.beginTransaction()
+    // Serialize verification, retries and OTP replacement. Failed attempts are
+    // committed separately, so rolling back an activation cannot reset them.
+    const [rows] = await conn.query(
+      'SELECT * FROM patient_phone_verifications WHERE phone = ? AND expires_at > NOW() FOR UPDATE',
+      [normalizedPhone]
     )
-    patientId = existing[0].id
-  } else {
-    const [result] = await db.query(
-      `INSERT INTO patients
-        (full_name, birthdate, gender, sex, civil_status, phone, address, email, password, consent_given, consent_given_at, receive_promotions, is_profile_complete, email_verified_at, phone_verified_at)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      [
-        payload.full_name, payload.birthdate, payload.gender, payload.gender, normalizedPhone, payload.address, payload.email,
-        payload.password, payload.consent_given ? 1 : 0, payload.consent_given ? new Date() : null,
-        payload.receive_promotions ? 1 : 0,
-        null,
-        new Date(),
-      ]
-    )
-    patientId = result.insertId
-  }
-
-  if (payload.consent_given) {
-    await db.query(
-      'INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)',
-      [patientId, 'data_processing', req.ip || null]
-    )
-  }
-
-  await db.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
+    if (!rows.length) {
+      await conn.rollback()
+      return res.status(400).json({ message: 'Verification code expired or no pending registration was found.' })
+    }
+    const pending = rows[0]
+    if (Number(pending.attempt_count || 0) >= 5 || !timingSafeEqualHash(code, pending.otp_code)) {
+      const attempts = Number(pending.attempt_count || 0) + 1
+      if (attempts >= 5) await conn.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
+      else await conn.query('UPDATE patient_phone_verifications SET attempt_count = ? WHERE id = ?', [attempts, pending.id])
+      await conn.commit()
+      return res.status(400).json({ message: 'Invalid verification code.' })
+    }
+    let payload
+    try { payload = parseVerificationPayload(pending.payload) } catch {
+      await conn.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
+      await conn.commit()
+      return res.status(400).json({ message: 'Stored registration data is invalid. Please register again.' })
+    }
+    if (normalizePhilippinePhone(payload.phone) !== normalizedPhone || !payload.password || !payload.consent_given) {
+      await conn.rollback()
+      return res.status(400).json({ message: 'Stored registration data is invalid. Please register again.' })
+    }
+    const options = { lock: true }
+    if (Object.hasOwn(payload, 'linked_patient_id')) options.expectedPatientId = payload.linked_patient_id
+    const existing = await resolveRegistrationPatient(conn, normalizedPhone, payload, options)
+    if (existing) {
+      const [updated] = await conn.query(
+        `UPDATE patients
+         SET email_verified_at = CASE WHEN LOWER(TRIM(email))=LOWER(?) THEN email_verified_at ELSE NULL END,
+             full_name=?, email=?, phone=?, birthdate=?, gender=?, sex=?, address=?, password=?,
+             consent_given=1, consent_given_at=NOW(), receive_promotions=?, is_profile_complete=1,
+             is_walk_in=0, consent_method='online_registration', phone_verified_at=NOW(),
+             session_version=COALESCE(session_version,1)+1
+         WHERE id=? AND is_walk_in=1 AND TRIM(COALESCE(password,''))='' AND COALESCE(is_banned,0)=0`,
+        [payload.email,payload.full_name,payload.email,normalizedPhone,payload.birthdate,payload.gender,payload.gender,payload.address,
+          payload.password,payload.receive_promotions?1:0,existing.id]
+      )
+      if (Number(updated.affectedRows) !== 1) throw Object.assign(new Error('This patient record changed. Please sign in or restart registration.'), { statusCode: 409, code: 'PATIENT_RECORD_CHANGED' })
+      patientId = existing.id
+      await writeAuditLog({ userId:patientId, userRole:'patient', action:'patient.portal_account_activated', entityType:'patient', entityId:patientId,
+        oldValues:{is_walk_in:1},newValues:{is_walk_in:0,verification_method:'sms'},ipAddress:req.ip||null },conn)
+    } else {
+      const [result] = await conn.query(
+        `INSERT INTO patients
+          (full_name,birthdate,gender,sex,civil_status,phone,address,email,password,consent_given,consent_given_at,
+           receive_promotions,is_profile_complete,email_verified_at,phone_verified_at,is_walk_in,consent_method)
+         VALUES (?,?,?,?,NULL,?,?,?,?,1,NOW(),?,1,NULL,NOW(),0,'online_registration')`,
+        [payload.full_name,payload.birthdate,payload.gender,payload.gender,normalizedPhone,payload.address,payload.email,payload.password,payload.receive_promotions?1:0]
+      )
+      patientId = result.insertId
+    }
+    await conn.query('INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)', [patientId,'data_processing',req.ip||null])
+    await conn.query('DELETE FROM patient_phone_verifications WHERE id = ?', [pending.id])
+    await conn.commit()
+  } catch (error) {
+    await conn.rollback().catch(() => {})
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ code:'PATIENT_CONTACT_IN_USE',message:'That email or mobile number is now linked to another patient account. Please sign in or contact the clinic.' })
+    if (error.statusCode) return res.status(error.statusCode).json({ code:error.code,message:error.message })
+    throw error
+  } finally { conn.release() }
 
   await issuePatientSession(res, patientId)
   const createdPatient = await loadPatientById(patientId)
-
-  res.status(201).json({
-    message: 'Registration successful.',
-    user: buildPatientAuthUser(createdPatient),
-  })
+  res.status(201).json({ message:'Registration successful.',user:buildPatientAuthUser(createdPatient) })
 }
 
 const login = async (req, res) => {

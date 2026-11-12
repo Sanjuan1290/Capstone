@@ -70,8 +70,9 @@ router.get('/guest/doctors/:id/available-slots',(req,res,next)=>{
   Promise.resolve(getDoctorAvailableSlots(req,res)).catch(next)
 })
 router.post('/guest/appointments',guestCreateLimiter,guestResponse(guestBooking.create))
+router.post('/guest/appointments/lookup',guestStatusLimiter,guestResponse(guestBooking.lookup))
 router.post('/guest/appointments/recover',guestStatusLimiter,guestResponse(guestBooking.recover))
-router.get('/guest/appointments/:id',guestStatusLimiter,(req,res,next)=>Promise.resolve(guestBooking.status(req,res)).catch(next))
+router.get('/guest/appointments/:id',guestStatusLimiter,guestResponse(guestBooking.status))
 
 // Public
 router.post('/register',        otpRequestLimiter, register)

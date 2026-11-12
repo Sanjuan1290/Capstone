@@ -44,7 +44,7 @@ const fixture = () => {
     '../middlewares/rateLimit.middleware': { loginLimiter: pass, otpRequestLimiter: pass, otpVerifyLimiter: pass, createRateLimiter: () => pass },
     '../controllers/common.controller': new Proxy({}, { get: () => noop }),
     '../controllers/promotions.controller': { getActivePromotions: (req, res) => res.json([{ id: 5, title: 'Patient offer' }]) },
-    '../controllers/guestBooking.controller': { create: noop, recover: noop, status: noop },
+    '../controllers/guestBooking.controller': { create: noop, recover: noop, status: noop, lookup: noop },
     '../controllers/guestPhoneVerification.controller': { requestCode: noop, verifyCode: noop, status: noop },
   })
   const app = express(); app.use(require('cookie-parser')()); app.use('/api/patient', router)

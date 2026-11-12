@@ -76,7 +76,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     const state = await start(page)
     await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled()
     await verify(page); await review(page)
-    await page.screenshot({ path: `../QA_REPORT/guest-booking-2026-11-12/review-${viewport.width}.png`, fullPage: true })
+    await page.screenshot({ path: `../QA_REPORT/${process.env.CARAIT_GUEST_QA_DIR || 'guest-booking-2026-11-12'}/review-${viewport.width}.png`, fullPage: true })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await page.getByRole('button', { name: 'Request Appointment', exact: true }).click()
     await expect(page).toHaveURL(/\/guest\/appointments\/123#/)
