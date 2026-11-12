@@ -44,6 +44,8 @@ const NotificationBell = ({ role }) => {
     queryFn: () => getNotifications(role),
     enabled: Boolean(role),
     staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: false,
   })
 
   useLayoutEffect(() => {

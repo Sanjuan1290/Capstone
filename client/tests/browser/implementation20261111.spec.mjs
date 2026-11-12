@@ -1,14 +1,14 @@
 import {test,expect} from '@playwright/test'
 import {mockClinic} from './helpers/clinic20261111.mjs'
 
-for(const role of ['admin','staff'])for(const width of [1440,900,390])test(`${role} payment details and summary at ${width}px retain partial payment and receipt`,async({page})=>{
+for(const role of ['admin','staff'])for(const width of [1440,900,390])test(`${role} payment details and summary at ${width}px settle the remaining balance and retain receipts`,async({page})=>{
  await page.setViewportSize({width,height:1000})
- const {state,checkout}=await mockClinic(page,role,{requests:false,bill:{status:'ready'}})
+ const {state,checkout}=await mockClinic(page,role,{requests:false,bill:{status:'partially_paid',paid_amount:305,balance_amount:100}})
  await page.goto(checkout)
  const details=page.getByRole('region',{name:'Payment details',exact:true}),summary=page.getByRole('complementary',{name:'Payment summary',exact:true})
  await expect(details).toBeVisible();await expect(summary).toBeVisible()
  await details.getByRole('button',{name:'Cash',exact:true}).click()
- await details.getByLabel('Payment Amount',{exact:true}).fill('100')
+ await expect(details.getByLabel('Payment Amount',{exact:true})).toHaveCount(0)
  await details.getByLabel('Cash Received',{exact:true}).fill('200')
  await expect(summary).toContainText('Original bill amount');await expect(summary).toContainText('Applied discounts');await expect(summary).toContainText('₱305.00')
  await expect(details).toContainText('₱100.00')
@@ -19,11 +19,11 @@ for(const role of ['admin','staff'])for(const width of [1440,900,390])test(`${ro
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2)).toBeTruthy()
  await page.screenshot({path:`../QA_REPORT/implementation-2026-11-11/browser-artifacts/payment-${role}-${width}.png`,fullPage:true})
  await summary.getByRole('button',{name:'Record Payment',exact:true}).click()
- const modal=page.getByRole('dialog',{name:'Record Partial Payment?'})
- await expect(modal).toContainText('₱305.00')
- await modal.getByRole('button',{name:'Record ₱100.00',exact:true}).click()
+ const modal=page.getByRole('dialog',{name:'Record Payment?'})
+ await expect(modal).toContainText('₱100.00')
+ await modal.getByRole('button',{name:'Confirm Payment ₱100.00',exact:true}).click()
  await expect.poll(()=>state.paymentKeys.size).toBe(1)
- expect(state.bill.balance_amount).toBe(305)
+ expect(state.bill.balance_amount).toBe(0)
  const calls=state.calls.filter(r=>r.method==='POST'&&r.path.endsWith('/pay'))
  expect(calls).toHaveLength(1);expect(calls[0].body.payment_amount).toBe(100);expect(calls[0].body.amount_received).toBe(200)
  await expect(page.getByRole('button',{name:/Print Receipt|Print receipt/i}).first()).toBeVisible()
@@ -34,7 +34,7 @@ test('payment validation keeps invalid tender disabled and QR locking prevents m
  const details=page.getByRole('region',{name:'Payment details'}),summary=page.getByRole('complementary',{name:'Payment summary'})
  await details.getByRole('button',{name:'Cash',exact:true}).click();await details.getByLabel('Cash Received',{exact:true}).fill('1')
  await expect(summary.getByRole('button',{name:'Record Payment',exact:true})).toBeDisabled();await expect(details.getByRole('status')).toContainText('Cash received must cover')
- await details.getByLabel('Payment Amount',{exact:true}).fill('9999');await expect(summary.getByRole('button',{name:'Record Payment',exact:true})).toBeDisabled()
+ await details.getByLabel('Cash Received',{exact:true}).fill('1.234');await expect(summary.getByRole('button',{name:'Record Payment',exact:true})).toBeDisabled()
 })
 
 test('an active QR prevents manual tender or a second payment submission',async({page})=>{
@@ -64,11 +64,11 @@ for(const role of ['admin','staff'])test(`${role} clearing cash and switching fr
 
 for(const role of ['admin','staff'])test(`${role} lost payment response retries the same intent without collecting twice`,async({page})=>{
  const {state,checkout}=await mockClinic(page,role,{requests:false,bill:{status:'ready'},losePaymentResponse:true})
- await page.goto(checkout);await page.getByRole('button',{name:'Cash',exact:true}).click();await page.getByLabel('Payment Amount',{exact:true}).fill('100')
+ await page.goto(checkout);await page.getByRole('button',{name:'Cash',exact:true}).click();await expect(page.getByLabel('Payment Amount',{exact:true})).toHaveCount(0)
  await page.getByRole('button',{name:'Record Payment',exact:true}).click()
- const modal=page.getByRole('dialog',{name:'Record Partial Payment?'})
- await modal.getByRole('button',{name:'Record ₱100.00',exact:true}).click();await expect.poll(()=>state.paymentResponseLost).toBe(true)
- await expect(modal.getByRole('button',{name:'Record ₱100.00',exact:true})).toBeEnabled();await modal.getByRole('button',{name:'Record ₱100.00',exact:true}).click()
+ const modal=page.getByRole('dialog',{name:'Record Payment?'})
+ await modal.getByRole('button',{name:'Confirm Payment ₱405.00',exact:true}).click();await expect.poll(()=>state.paymentResponseLost).toBe(true)
+ await expect(modal.getByRole('button',{name:'Confirm Payment ₱405.00',exact:true})).toBeEnabled();await modal.getByRole('button',{name:'Confirm Payment ₱405.00',exact:true}).click()
  await expect.poll(()=>state.calls.filter(c=>c.path.endsWith('/pay')).length).toBe(2)
- const calls=state.calls.filter(c=>c.path.endsWith('/pay'));expect(calls[0].body.idempotency_key).toBe(calls[1].body.idempotency_key);expect(state.paymentKeys.size).toBe(1);expect(state.bill.balance_amount).toBe(305)
+ const calls=state.calls.filter(c=>c.path.endsWith('/pay'));expect(calls[0].body.idempotency_key).toBe(calls[1].body.idempotency_key);expect(state.paymentKeys.size).toBe(1);expect(state.bill.balance_amount).toBe(0)
 })

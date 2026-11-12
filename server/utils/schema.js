@@ -1038,7 +1038,12 @@ const ensureAppSchema = async () => {
   await ensureColumn('inventory_logs', 'reference_id', 'INT NULL')
   await ensureColumn('inventory_logs', 'batch_id', 'INT NULL')
   await db.query('ALTER TABLE inventory_logs MODIFY COLUMN qty DECIMAL(12,2) NOT NULL').catch(() => {})
-  await db.query('ALTER TABLE queue ADD UNIQUE KEY uniq_queue_doctor_day_number (queue_date, doctor_id, queue_number)').catch(() => {})
+  const { runQueueNumberingStatement } = require('./queueNumberingSchema')
+  for (const statement of [
+    'ALTER TABLE queue ADD UNIQUE KEY uniq_queue_branch_doctor_day_number (branch_id, queue_date, doctor_id, queue_number)',
+    'ALTER TABLE queue ADD KEY idx_queue_branch_department_day (branch_id, queue_date, type, queue_number)',
+    'ALTER TABLE queue DROP INDEX uniq_queue_doctor_day_number',
+  ]) await runQueueNumberingStatement(db, statement)
 
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS supply_request_groups (
@@ -1681,6 +1686,19 @@ const ensureAppSchema = async () => {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `)
 
+  // One in-app inventory reminder per account, branch and Philippine calendar day.
+  await ensureTable(`
+    CREATE TABLE IF NOT EXISTS inventory_daily_alert_deliveries (
+      branch_id INT NOT NULL,
+      alert_date DATE NOT NULL,
+      target_role ENUM('admin','staff') NOT NULL,
+      target_user_id INT NOT NULL,
+      notification_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (branch_id,alert_date,target_role,target_user_id),
+      KEY idx_daily_stock_alert_notice (notification_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `)
   // Automatic in-app publication notices; no email or SMS provider required.
   await ensureTable(`
     CREATE TABLE IF NOT EXISTS clinic_publication_notification_jobs (

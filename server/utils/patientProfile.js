@@ -35,6 +35,15 @@ const validateBirthdate = (birthdate, now = new Date()) => {
   return null
 }
 
+const validateWalkInBirthdate = (birthdate, now = new Date()) => {
+  if (!birthdate) return 'Birthdate is required.'
+  if (!isValidDateOnly(birthdate) || birthdate < '1000-01-01') return 'Enter a valid birthdate.'
+  const today = getTodayDateOnly(now)
+  if (birthdate === today) return 'Birthdate must be before today.'
+  if (birthdate > today) return 'Birthdate cannot be in the future.'
+  return null
+}
+
 const normalizePatientProfileInput = (payload = {}) => {
   const gender = String(payload.gender || payload.sex || '').trim()
   const birthdate = toDateOnly(payload.birthdate)
@@ -78,6 +87,7 @@ module.exports = {
   isValidDateOnly,
   getAgeOnDate,
   validateBirthdate,
+  validateWalkInBirthdate,
   normalizePatientProfileInput,
   getPatientProfileStatus,
 }

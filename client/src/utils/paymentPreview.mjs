@@ -27,3 +27,7 @@ export function calculatePaymentPreview({ bill, draft }) {
     balanceAfter: (balance - payment) / 100,
   }
 }
+
+// Checkout always collects the saved balance. Cash tendered is a separate value.
+export const calculateBalancePaymentPreview = ({ bill, draft }) =>
+  calculatePaymentPreview({ bill, draft: { ...draft, payment_amount: bill?.balance_amount } })

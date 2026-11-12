@@ -34,6 +34,7 @@ const promotionColumns = {
 
 function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, initialPromotionIndex, initialPromotionFk, initialReversalColumns } = {}) {
   const foundation = createFoundationSchemaFixture(foundationOptions)
+  const queueSchema = require('../helpers/queueSchemaFixture.cjs').queueSchemaFixture()
   const applied = new Map()
   const commands = []
   const reversalColumns = new Map(Object.entries(initialReversalColumns || {}))
@@ -51,6 +52,13 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
   let promotionFk = initialPromotionFk ?? initialPromotionState?.appointments === true
   const promotionMetadata = (sql, params) => {
     const table = params?.[0]
+    // Existing eligibility fields are independent of the older Batch 4 columns.
+    // A single-column lookup must not receive the entire Batch 4 metadata list.
+    if (/information_schema\.COLUMNS/i.test(sql) &&
+        ((table === 'clinic_promotions' && params[1] === 'eligibility_type') ||
+         (table === 'appointments' && params[1] === 'promotion_eligibility_snapshot'))) {
+      return [[{ COLUMN_TYPE: 'varchar(24)', IS_NULLABLE: 'NO', COLUMN_DEFAULT: 'all' }]]
+    }
     if (!['appointments', 'billing_records'].includes(table) || !/TABLE_NAME=\?/i.test(sql)) return null
     if (/information_schema\.COLUMNS/i.test(sql)) {
       return [promotionState[table] ? promotionColumns[table].filter(([name], index) => promotionState[table] !== 'partial' || index === 0).map(([COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH]) => ({
@@ -85,7 +93,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
       async beginTransaction() {},
       async query(sql, params = []) {
         commands.push(String(sql))
-        const fixtureResult = reversalMetadata(sql, params) || promotionMetadata(sql, params) || await foundation.db.query(sql, params)
+        const fixtureResult = (sql === 'SHOW INDEX FROM queue' ? await queueSchema.query(sql) : null) || reversalMetadata(sql, params) || promotionMetadata(sql, params) || await foundation.db.query(sql, params)
         if (/SELECT\s+lock_name.+FOR UPDATE/i.test(sql)) {
           await acquireLock()
           holdsLock = true
@@ -95,6 +103,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
           failure = null
           throw new Error('synthetic migration DDL failure')
         }
+        if (/^ALTER TABLE queue (ADD|DROP)/.test(sql)) return queueSchema.query(sql)
         if (/^ALTER TABLE appointments\s/i.test(String(sql))) {
           assert.ok(!(/ADD COLUMN/i.test(sql) && /ADD (INDEX|CONSTRAINT)/i.test(sql)), 'TiDB must never receive combined promotion column/index/FK DDL')
           if (/ADD COLUMN/i.test(sql)) promotionState.appointments = true
@@ -128,7 +137,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
         const hash = applied.get(params[0])
         return hash ? [[{ content_sha256: hash }]] : [[]]
       }
-      return reversalMetadata(sql, params) || promotionMetadata(sql, params) || foundation.db.query(sql, params)
+      return (await queueSchema.query(sql)) || reversalMetadata(sql, params) || promotionMetadata(sql, params) || foundation.db.query(sql, params)
     },
     async getConnection() { return connection() },
   }
@@ -138,7 +147,14 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
-  assert.deepEqual(migrationFiles.slice(-5), ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql'])
+  const historicalTail = ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql']
+  assert.deepEqual(migrationFiles.filter(file => historicalTail.includes(file)), historicalTail)
+  assert.equal(migrationFiles.at(-2), '2026-11-12-daily-stock-alerts.sql')
+  assert.equal(migrationFiles.at(-1), '2026-11-12-queue-daily-department-numbers.sql')
+  const queueSql = fs.readFileSync(path.join(migrationDir, '2026-11-12-queue-daily-department-numbers.sql'), 'utf8').replace(/\r\n/g, '\n')
+  assert.equal(crypto.createHash('sha256').update(queueSql).digest('hex'), '37b80754a001d8fd32de0c45e9b430a2ab3eb90fcb462b4849c94ffb8f120005')
+  const stockSql = fs.readFileSync(path.join(migrationDir, '2026-11-12-daily-stock-alerts.sql'), 'utf8').replace(/\r\n/g, '\n')
+  assert.ok(acceptedContentHashes(stockSql).has('ea98f27b46b6d4cbda33c50674ab7965fd31e4cb2abdb19bbbe54cea7ea35f81'))
   const failureSql = fs.readFileSync(path.join(migrationDir, '2026-11-05-billing-failure-history.sql'), 'utf8').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   assert.equal(crypto.createHash('sha256').update(failureSql).digest('hex'), 'ca694239471fcc47f20c1ad93b96216e0eb1d0fe825cb3c61fe4e65568abe675')
   for (const file of migrationFiles) assert.ok(fs.existsSync(path.join(migrationDir, file)), `Registered migration missing: ${file}`)
@@ -225,6 +241,22 @@ test('failed migration is not recorded and an idempotent retry completes it', as
     if (previousProvider === undefined) delete process.env.DB_PROVIDER
     else process.env.DB_PROVIDER = previousProvider
   }
+})
+
+test('daily stock ledger resumes a failed CREATE and clean reruns keep historical checksums intact', async () => {
+  const file = '2026-11-12-daily-stock-alerts.sql'
+  const db = createMockDb({ failOnceOn: 'CREATE TABLE IF NOT EXISTS inventory_daily_alert_deliveries' })
+  await assert.rejects(runBranchMigrations(db), /synthetic migration DDL failure/)
+  assert.equal(db.applied.has(file), false)
+  const historical = [...db.applied.entries()]
+  await runBranchMigrations(db)
+  assert.equal(db.applied.has(file), true)
+  assert.deepEqual([...db.applied.entries()].filter(([name]) => historical.some(([oldName]) => oldName === name)), historical)
+  const attempts = db.commands.filter(sql => sql.includes('CREATE TABLE IF NOT EXISTS inventory_daily_alert_deliveries')).length
+  assert.equal(attempts, 2)
+  await runBranchMigrations(db)
+  assert.equal(db.commands.filter(sql => sql.includes('CREATE TABLE IF NOT EXISTS inventory_daily_alert_deliveries')).length, attempts)
+  assert.ok(!db.commands.some(sql => /DELETE FROM schema_migrations|TRUNCATE/i.test(sql)))
 })
 
 test('incomplete foundation constraints are never recorded as an applied migration', async () => {

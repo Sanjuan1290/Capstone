@@ -22,6 +22,7 @@ import {
   addToQueue,
   createWalkInPatient,
   getAppointmentReasons,
+  getBookingServices,
   lookupWalkInPatients,
   getQueue,
   getQueuePrecheck,
@@ -30,11 +31,11 @@ import {
 } from '../../services/staff.service'
 import { printWalkInIntakeForm } from '../../utils/printWalkInIntakeForm'
 import { getLocalDateOnly } from '../../utils/date'
-import { getMaxPatientBirthdate, getMinPatientBirthdate } from '../../utils/patientBirthdate.mjs'
+import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patientBirthdate.mjs'
 import { formatQueueLabel } from '../../utils/queueLabel.mjs'
 
-const maxPatientBirthdate = getMaxPatientBirthdate
-const minPatientBirthdate = getMinPatientBirthdate
+const maxPatientBirthdate = getMaxWalkInBirthdate
+const minPatientBirthdate = getMinWalkInBirthdate
 const clinicLabel = (value) => value === 'derma' ? 'Dermatology' : 'General Medicine'
 
 const QueueCard = ({ entry, onCall, onReturn, onRemove }) => {
@@ -106,12 +107,14 @@ const WalkInModal = ({ onClose, onSuccess }) => {
   const [reasonOptions, setReasonOptions] = useState([])
   const [loadingReasons, setLoadingReasons] = useState(false)
   const [doctors, setDoctors] = useState([])
+  const [bookingServices, setBookingServices] = useState([])
+  const [serviceError, setServiceError] = useState('')
   const [loadingDoctors, setLoadingDoctors] = useState(false)
   const [doctorError, setDoctorError] = useState('')
   const [reasonError, setReasonError] = useState('')
   const [form, setForm] = useState({
     full_name: '', phone: '', email: '', birthdate: '', sex: '',
-    clinic_type: 'medical', doctor_id: '', reason: '', reason_notes: '',
+    clinic_type: 'medical', requested_service_id: '', doctor_id: '', reason: '', reason_notes: '',
     consent_given: false, consent_method: 'Signed Intake Form',
   })
 
@@ -142,6 +145,14 @@ const WalkInModal = ({ onClose, onSuccess }) => {
       clearTimeout(timer)
     }
   }, [mode, patient, search])
+
+  useEffect(() => {
+    let active = true
+    setBookingServices([]); setServiceError('')
+    getBookingServices(form.clinic_type).then(rows => { if (active) setBookingServices(Array.isArray(rows) ? rows : []) })
+      .catch(err => { if (active) setServiceError(err.message || 'Unable to load services. Reopen this form to retry.') })
+    return () => { active = false }
+  }, [form.clinic_type])
 
   const loadVisitOptions = useCallback(async (clinicType) => {
     setLoadingReasons(true)
@@ -207,14 +218,16 @@ const WalkInModal = ({ onClose, onSuccess }) => {
   }
 
   const changeClinic = (clinicType) => {
-    setForm((prev) => ({ ...prev, clinic_type: clinicType, doctor_id: '', reason: '' }))
+    setForm((prev) => ({ ...prev, clinic_type: clinicType, requested_service_id: '', doctor_id: '', reason: '' }))
     setReviewing(false)
   }
 
   const validateWalkIn = () => {
     if (mode === 'existing' && !patient?.id) return 'Select an existing patient first.'
     if (mode === 'new' && (!form.full_name.trim() || !form.phone.trim() || !form.birthdate)) return 'Full name, mobile number, and birthdate are required for a new patient.'
+    if (mode === 'new' && validateWalkInBirthdate(form.birthdate)) return validateWalkInBirthdate(form.birthdate)
     if (mode === 'new' && !form.consent_given) return 'Confirm that the patient provided data-processing consent.'
+    if (!bookingServices.some(service => Number(service.id) === Number(form.requested_service_id))) return 'Select an available service.'
     if (!form.reason.trim()) return 'Select a reason for visit.'
     if (form.reason === 'Other' && !form.reason_notes.trim()) return 'Describe the reason for visit when selecting Other.'
     if (!Number(form.doctor_id)) return 'Select an available doctor.'
@@ -264,6 +277,7 @@ const WalkInModal = ({ onClose, onSuccess }) => {
             patient_name: target.full_name || target.name,
             doctor_id: Number(form.doctor_id),
             type: form.clinic_type,
+            requested_service_id: Number(form.requested_service_id),
             reason,
             ...(precheck?.today_appointment?.id ? { allow_separate_walkin: true } : {}),
           }
@@ -293,19 +307,20 @@ const WalkInModal = ({ onClose, onSuccess }) => {
       {error && <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div>}
 
       {reviewing ? <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Patient</p><p className="mt-1 font-black text-slate-900">{patientName}</p><p className="mt-1 text-xs text-slate-500">{mode === 'existing' ? 'Existing patient' : 'New patient'}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Clinic</p><p className="mt-1 font-black text-slate-900">{clinicLabel(form.clinic_type)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Reason for Visit</p><p className="mt-1 font-black text-slate-900">{reasonLabel}</p></div><div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase text-emerald-700">Doctor</p><p className="mt-1 font-black text-slate-900">{selectedDoctor?.full_name || selectedDoctor?.name}</p><p className="mt-1 text-xs text-slate-600">Next open slot: {selectedDoctor?.next_available_slot || '—'} · Queue {selectedDoctor?.active_queue_count || 0}</p></div></div>
+        <p className="rounded-xl bg-sky-50 p-3 text-sm"><strong>Service:</strong> {bookingServices.find(service => Number(service.id) === Number(form.requested_service_id))?.service_name}</p><div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Patient</p><p className="mt-1 font-black text-slate-900">{patientName}</p><p className="mt-1 text-xs text-slate-500">{mode === 'existing' ? 'Existing patient' : 'New patient'}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Clinic</p><p className="mt-1 font-black text-slate-900">{clinicLabel(form.clinic_type)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-400">Reason for Visit</p><p className="mt-1 font-black text-slate-900">{reasonLabel}</p></div><div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase text-emerald-700">Doctor</p><p className="mt-1 font-black text-slate-900">{selectedDoctor?.full_name || selectedDoctor?.name}</p><p className="mt-1 text-xs text-slate-600">Next open slot: {selectedDoctor?.next_available_slot || '—'} · Queue {selectedDoctor?.active_queue_count || 0}</p></div></div>
         {upcoming && <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800"><strong>Future appointment preserved:</strong> {upcoming.appointment_date} at {upcoming.appointment_time} with {upcoming.doctor_name}.</div>}
         <div className="flex justify-end gap-2"><button className="button-secondary" disabled={saving} onClick={() => setReviewing(false)}>Back</button><button className="button-primary" disabled={saving} onClick={() => submit()}>{saving ? 'Adding…' : 'Add to Walk-in Queue'}</button></div>
       </div> : <>
         <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1 text-sm font-bold"><button className={`rounded-xl px-3 py-2.5 ${mode === 'existing' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`} onClick={() => { setMode('existing'); setError('') }}>Existing Patient</button><button className={`rounded-xl px-3 py-2.5 ${mode === 'new' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`} onClick={() => { setMode('new'); setPatient(null); setPrecheck(null); setError('') }}>New Patient</button></div>
 
         <div className="mt-5 space-y-5">
-          {mode === 'existing' ? <PatientSearch search={search} setSearch={setSearch} results={results} loading={searchLoading} patient={patient} choosePatient={choosePatient} changePatient={changePatient} switchToNew={() => { setMode('new'); setError('') }} /> : <div className="grid gap-4 sm:grid-cols-2"><label><span className="form-label">Full Name *</span><input className="form-control mt-1.5" value={form.full_name} onChange={(e) => update('full_name', e.target.value)} /></label><label><span className="form-label">Mobile Number *</span><input className="form-control mt-1.5" value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="09XXXXXXXXX" /></label><label><span className="form-label">Birthdate *</span><input type="date" min={minPatientBirthdate()} max={maxPatientBirthdate()} className="form-control mt-1.5" value={form.birthdate} onChange={(e) => update('birthdate', e.target.value)} /></label><label><span className="form-label">Sex</span><select className="form-control mt-1.5" value={form.sex} onChange={(e) => update('sex', e.target.value)}><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></label><label className="sm:col-span-2"><span className="form-label">Email</span><input type="email" className="form-control mt-1.5" value={form.email} onChange={(e) => update('email', e.target.value)} placeholder="Optional" /></label><label className="sm:col-span-2 flex items-start gap-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700"><input type="checkbox" className="mt-1" checked={form.consent_given} onChange={(e) => update('consent_given', e.target.checked)} /><span><strong>Patient privacy consent received *</strong><span className="mt-1 block text-xs text-slate-500">Confirm only after the patient has provided consent using the clinic intake process.</span></span></label></div>}
+          {mode === 'existing' ? <PatientSearch search={search} setSearch={setSearch} results={results} loading={searchLoading} patient={patient} choosePatient={choosePatient} changePatient={changePatient} switchToNew={() => { setMode('new'); setError('') }} /> : <div className="grid gap-4 sm:grid-cols-2"><label><span className="form-label">Full Name *</span><input className="form-control mt-1.5" value={form.full_name} onChange={(e) => update('full_name', e.target.value)} /></label><label><span className="form-label">Mobile Number *</span><input className="form-control mt-1.5" value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="09XXXXXXXXX" /></label><label><span className="form-label">Birthdate *</span><input type="date" required min={minPatientBirthdate()} max={maxPatientBirthdate()} className="form-control mt-1.5" value={form.birthdate} onChange={(e) => update('birthdate', e.target.value)} /></label><label><span className="form-label">Sex</span><select className="form-control mt-1.5" value={form.sex} onChange={(e) => update('sex', e.target.value)}><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></label><label className="sm:col-span-2"><span className="form-label">Email</span><input type="email" className="form-control mt-1.5" value={form.email} onChange={(e) => update('email', e.target.value)} placeholder="Optional" /></label><label className="sm:col-span-2 flex items-start gap-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700"><input type="checkbox" className="mt-1" checked={form.consent_given} onChange={(e) => update('consent_given', e.target.checked)} /><span><strong>Patient privacy consent received *</strong><span className="mt-1 block text-xs text-slate-500">Confirm only after the patient has provided consent using the clinic intake process.</span></span></label></div>}
 
           {todayAppointment && mode === 'existing' && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase text-sky-700">Scheduled Appointment Today</p><p className="mt-1 font-black text-slate-900">{todayAppointment.doctor_name} · {todayAppointment.appointment_time}</p><p className="mt-1 text-xs text-slate-600">{clinicLabel(todayAppointment.clinic_type)} · {todayAppointment.reason || 'Appointment'}</p></div><MdEventAvailable className="text-2xl text-sky-600" /></div><button className="button-primary mt-3" disabled={saving} onClick={() => submit({ checkIn: true })}>{saving ? 'Checking in…' : 'Check In for Scheduled Appointment'}</button><p className="mt-2 text-xs text-slate-500">Use the walk-in fields below only if the patient needs a separate visit today.</p></div>}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label><span className="form-label">Clinic *</span><select className="form-control mt-1.5" value={form.clinic_type} onChange={(e) => changeClinic(e.target.value)}><option value="medical">General Medicine</option><option value="derma">Dermatology</option></select></label>
+            <label className="sm:col-span-2"><span className="form-label">Service *</span><select required className="form-control mt-1.5" value={form.requested_service_id} onChange={e => update('requested_service_id', e.target.value)}><option value="">Select service</option>{bookingServices.map(service => <option key={service.id} value={service.id}>{service.service_name} - PHP {Number(service.default_price || 0).toFixed(2)}</option>)}</select>{serviceError && <p role="alert" className="mt-1 text-sm text-rose-700">{serviceError}</p>}</label>
             <label><span className="form-label">Reason for Visit *</span><select className="form-control mt-1.5" value={form.reason} disabled={loadingReasons || Boolean(reasonError) || reasonOptions.length === 0} onChange={(e) => update('reason', e.target.value)}><option value="">{loadingReasons ? 'Loading reasons…' : reasonError ? 'Could not load reasons' : reasonOptions.length ? 'Select reason' : 'Loading fallback reason…'}</option>{reasonOptions.map((reason) => <option key={reason.id} value={reason.label}>{reason.label}</option>)}</select>{reasonError ? <p className="mt-1 text-xs font-semibold text-rose-700">{reasonError} <button type="button" className="font-black underline" onClick={() => loadVisitOptions(form.clinic_type)}>Try again</button></p> : !loadingReasons && reasonOptions.length === 1 && reasonOptions[0]?.label === 'Other' && <p className="mt-1 text-xs font-semibold text-amber-700">No custom reasons are configured for {clinicLabel(form.clinic_type)}. Other remains available and requires an explanation.</p>}</label>
             <label className="sm:col-span-2"><span className="form-label">Additional Notes</span><input className="form-control mt-1.5" value={form.reason_notes} onChange={(e) => update('reason_notes', e.target.value)} placeholder="Optional symptoms, context, or patient preference" /></label>
             <DoctorPicker doctors={doctors} loading={loadingDoctors} error={doctorError} selectedDoctorId={form.doctor_id} onSelect={(id) => update('doctor_id', id)} onRefresh={() => loadVisitOptions(form.clinic_type)} />

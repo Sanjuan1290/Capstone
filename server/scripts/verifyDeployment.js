@@ -10,6 +10,7 @@ const foundationMigration = fs.readFileSync(
 )
 
 const REQUIRED_TABLES = [
+  'inventory_daily_alert_deliveries',
   'admins', 'staff', 'doctors', 'patients', 'appointments', 'queue', 'consultations',
   'consultation_amendments', 'account_security_codes', 'patient_phone_verifications',
   'password_resets', 'consultation_images', 'billing_service_catalog', 'billing_records', 'billing_items', 'billing_payments',
@@ -20,6 +21,7 @@ const REQUIRED_TABLES = [
 ]
 
 const REQUIRED_COLUMNS = {
+  inventory_daily_alert_deliveries: ['branch_id', 'alert_date', 'target_role', 'target_user_id', 'notification_id'],
   admins: ['session_version', 'must_change_password', 'password_changed_at'],
   staff: ['must_change_password', 'password_changed_at', 'session_version'],
   doctors: ['must_change_password', 'password_changed_at', 'session_version', 'clinic_type'],
@@ -238,6 +240,8 @@ const run = async () => {
     if (Number(uncategorizedServices?.count || 0) > 0) {
       console.warn(`WARNING: ${Number(uncategorizedServices.count)} service(s) are still using a legacy text-only category. Open/edit those services or rerun migration after reviewing category names.`)
     }
+
+    await require('../utils/queueNumberingSchema').verifyQueueNumberingIndexes(db)
 
     // Read-only EXPLAIN of all Reports SQL prevents ambiguous-column regressions.
     const reportsQueries = await require('./verifyBranchReportsSql').verifyBranchReportsSql(db)

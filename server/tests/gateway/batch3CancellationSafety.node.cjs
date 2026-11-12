@@ -18,6 +18,7 @@ function setup({providerStatus='awaiting_next_action',postCancelStatus='cancelle
    throw Error('Unexpected transactional query: '+sql)
  }}
  const db={getConnection:async()=>conn,query:async(sql,params=[])=>{
+   if(sql.includes('FROM branch_payment_settings'))return [[{qrph_enabled:1}]]
    if(sql.includes('TIMESTAMPDIFF(SECOND,a.created_at,NOW())'))return [[{...row}]]
    if(sql.includes('SELECT id FROM billing_records WHERE id=? AND branch_id=?'))return [[Number(params[1])===row.branch_id?{id:55}:undefined].filter(Boolean)]
    if(sql.includes('FROM payment_gateway_attempts WHERE id=?') && sql.includes('billing_id=?'))return [[{...row}]]

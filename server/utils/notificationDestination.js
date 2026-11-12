@@ -8,6 +8,16 @@ async function notificationDestination({id,role,userId,branchId,superadmin=false
  if(!Number.isSafeInteger(Number(id))||Number(id)<=0)throw fail(404,'Notification not found.')
  const [[n]]=await executor.query(`SELECT * FROM notifications WHERE id=? AND target_role=? AND (target_user_id IS NULL OR target_user_id=?)${role==='patient'||superadmin?'':' AND branch_id=?'} LIMIT 1`,[id,superadmin?'admin':role,userId,...(role==='patient'||superadmin?[]:[branchId])])
  if(!n)throw fail(404,'Notification not found in this branch.')
+ if(n.reference_type==='inventory_alert'){
+  if(!['admin','staff'].includes(role))throw fail(403,'You do not have access to inventory alerts.')
+  const branch=Number(n.branch_id)
+  if(!Number.isSafeInteger(branch)||branch<=0||Number(n.reference_id)!==branch)throw fail(410,'This inventory alert is no longer available.')
+  const granted=role==='staff'?(permissions||await loadStaffPermissions(userId,executor)):permissions
+  if(!superadmin&&!granted?.includes('inventory'))throw fail(403,'Your account does not have access to inventory.')
+  const [[record]]=await executor.query('SELECT id,is_active FROM clinic_branches WHERE id=? LIMIT 1',[branch])
+  if(!record||!Number(record.is_active))throw fail(410,'This clinic branch is no longer available.')
+  return {path:`${superadmin?`/superadmin/branches/${branch}`:`/${role}`}/inventory`}
+ }
  let type=n.reference_type,ref=Number(n.reference_id)
  if(!references[type]){const legacy=String(n.link||'').match(/^\/(?:admin|staff)\/(?:billing\/)?checkout\/(\d+)$/);if(legacy){type='billing_record';ref=Number(legacy[1])}}
  const mapping=references[type]

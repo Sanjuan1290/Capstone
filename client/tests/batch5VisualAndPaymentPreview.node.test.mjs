@@ -37,7 +37,8 @@ test('both Staff and Admin render the same isolated estimated preview', () => {
     assert.match(source,/<CheckoutPaymentSection bill=\{bill\} draft=\{draft\}/)
   }
   const section=read('components/billing/CheckoutPaymentSection.jsx')
-  assert.match(section,/calculatePaymentPreview\(\{bill,draft\}\)/)
+  assert.match(section,/calculateBalancePaymentPreview\(\{bill,draft\}\)/)
+  assert.doesNotMatch(section,/Payment Amount<input/)
   assert.match(section,/Previously paid amount',bill\.paid_amount/)
   assert.match(section,/preview\.balanceAfter:bill\.balance_amount/)
   assert.doesNotMatch(section,/payBill\(|recordPayment\(/)

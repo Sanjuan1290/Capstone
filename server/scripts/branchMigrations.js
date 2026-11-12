@@ -1,3 +1,4 @@
+const { runQueueNumberingStatement, verifyQueueNumberingIndexes } = require('../utils/queueNumberingSchema')
 'use strict'
 
 const fs = require('fs')
@@ -65,6 +66,8 @@ const migrationFiles = [
   '2026-11-11-doctor-confirmation-notifications.sql',
   '2026-11-12-inventory-excel-undo.sql',
   '2026-11-12-promotion-verified-eligibility.sql',
+  '2026-11-12-daily-stock-alerts.sql',
+  '2026-11-12-queue-daily-department-numbers.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -119,6 +122,7 @@ async function runRegisteredBranchMigrations(db) {
       // matches. Detect drift before later migrations or application startup.
       if (file === migrationFiles[0]) await verifyFoundationSchema(db, sql)
       if (file === promotionMigrationFile) await verifyPromotionSchema(db)
+      if (file === '2026-11-12-queue-daily-department-numbers.sql') await verifyQueueNumberingIndexes(db)
       continue
     }
 
@@ -129,6 +133,9 @@ async function runRegisteredBranchMigrations(db) {
       if (file === promotionMigrationFile) {
         // Metadata-checked, resumable per-table DDL. Never mark an incomplete schema as applied.
         await runSelectedPromotionMigration(connection, statements)
+      } else if (file === '2026-11-12-queue-daily-department-numbers.sql') {
+        for (const statement of statements) await runQueueNumberingStatement(connection, statement)
+        await verifyQueueNumberingIndexes(connection)
       } else if (file === '2026-10-31-doctor-multi-branch.sql') {
         await runDoctorBranchMigration(connection, statements)
       } else if (['2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-02-branch-movement-reasons.sql', '2026-11-09-branch-google-maps-url.sql'].includes(file)) {

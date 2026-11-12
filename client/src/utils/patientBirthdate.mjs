@@ -32,6 +32,10 @@ export const getMinPatientBirthdate = (now = new Date()) => {
   return `${String(Number(today.slice(0, 4)) - 100).padStart(4, '0')}${today.slice(4)}`
 }
 
+export const getMaxWalkInBirthdate = (now = new Date()) =>
+  new Date(Date.parse(`${getClinicToday(now)}T12:00:00Z`) - 86400000).toISOString().slice(0, 10)
+export const getMinWalkInBirthdate = () => '1000-01-01'
+
 export const validatePatientBirthdate = (value, now = new Date()) => {
   if (!value) return 'Birthdate is required.'
   if (!isValidPatientDate(value)) return 'Enter a valid birthdate.'
@@ -42,6 +46,15 @@ export const validatePatientBirthdate = (value, now = new Date()) => {
   const age = todayYear - year - (todayMonth < month || (todayMonth === month && todayDay < day) ? 1 : 0)
   if (age < MIN_PATIENT_AGE) return 'Patients must be at least 18 years old.'
   if (age > 100) return 'Patient age cannot exceed 100 years.'
+  return ''
+}
+
+export const validateWalkInBirthdate = (value, now = new Date()) => {
+  if (!value) return 'Birthdate is required.'
+  if (!isValidPatientDate(value) || value < getMinWalkInBirthdate()) return 'Enter a valid birthdate.'
+  const today = getClinicToday(now)
+  if (value === today) return 'Birthdate must be before today.'
+  if (value > today) return 'Birthdate cannot be in the future.'
   return ''
 }
 

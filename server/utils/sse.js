@@ -58,7 +58,7 @@ const broadcast = (roles, eventName, data, { branchId = null } = {}) => {
     } else if (/^(?:staff|admin|doctor)_\d+$/.test(target)) {
       if (!validBranchId(branchId)) continue
       key = `branch:${Number(branchId)}:${target}`
-    } else if (!/^patient_\d+$/.test(target)) {
+    } else if (!/^(?:patient|superadmin)_\d+$/.test(target)) {
       continue
     }
     sseClients.get(key)?.forEach(client => recipients.add(client))

@@ -275,7 +275,7 @@ const QueueDisplay = () => {
           <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-sky-300">Now Calling</p>
           {queue.serving ? (
             <div className="py-4 text-center">
-              <div className="mx-auto mb-5 flex h-32 w-32 items-center justify-center rounded-[32px] bg-sky-500/15 text-5xl font-black text-sky-300">
+              <div className="mx-auto mb-5 flex min-h-32 w-full max-w-md items-center justify-center rounded-[32px] bg-sky-500/15 text-5xl font-black text-sky-300">
                 {formatQueueLabel(queue.serving)}
               </div>
               <p className="text-xl font-black">{typeLabel(queue.serving.type)}</p>
@@ -300,7 +300,7 @@ const QueueDisplay = () => {
 
           <div className="space-y-3">
             {queue.waiting?.length ? queue.waiting.map((entry, index) => (
-              <div key={`${formatQueueLabel(entry)}-${entry.arrivedAt || index}`} className={`rounded-2xl border px-4 py-3 ${index === 0 ? 'border-amber-400/30 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
+              <div key={`${entry.doctorId || entry.doctor_id || ''}-${formatQueueLabel(entry)}-${index}`} className={`rounded-2xl border px-4 py-3 ${index === 0 ? 'border-amber-400/30 bg-amber-500/10' : 'border-white/10 bg-white/5'}`}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-bold text-slate-200">{typeLabel(entry.type)}</p>

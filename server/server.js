@@ -181,6 +181,7 @@ const start = async () => {
       startReconciliationSweeper()
       require('./utils/marketingCampaigns').startMarketingWorker()
       require('./utils/publicationNotifications').startPublicationNotificationWorker().catch(error => console.error('[publication-notifications] worker disabled until migration is applied:', error.message))
+      require('./utils/dailyStockAlerts').startDailyStockAlertWorker().catch(error => console.error('[daily-stock-alerts] worker disabled until migration is applied:', error.message))
     })
   } catch (err) {
     console.error('Failed to start server:', err)

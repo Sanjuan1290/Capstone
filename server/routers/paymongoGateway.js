@@ -24,10 +24,10 @@ const cancellationEnabled = row => process.env.PAYMONGO_QR_CANCEL_ENABLED === 't
 const canRequestCancel = row => Boolean(row && row.active_bill_id && row.payment_intent_id && !row.provider_payment_id
   && ['pending','review'].includes(row.status) && cancellationEnabled(row))
 const canCollectAlternate = row => !row || (!row.active_bill_id && ['cancelled','expired','failed','refunded','succeeded'].includes(row.status))
-const publicAttempt = row => ({
+const publicAttempt = (row, enabled = false) => ({
   id: Number(row.id), billing_id:Number(row.billing_id), branch_id: Number(row.branch_id),
   mode: String(row.mode || 'test'), current_mode: configuredMode() || null,
-  enabled: configuredMode() === 'test' || isLiveCollectionEnabled(),
+  enabled,
   status: row.status, amount: Number(row.amount_centavos)/100,
   expires_at: row.expires_at, qr_image: row.status === 'pending' ? row.qr_image : null,
   test_url: String(row.mode || 'test') === 'test' && row.status === 'pending' && isTestSimulationUrl(row.test_url) ? row.test_url : null,
@@ -40,16 +40,18 @@ const getLatest = async (billId, branchId) => {
   return row || null
 }
 
+const branchQrEnabled = async (branchId, executor = db, lock = false) => {
+  const [[setting]] = await executor.query('SELECT qrph_enabled FROM branch_payment_settings WHERE branch_id=? LIMIT 1' + (lock ? ' FOR UPDATE' : ''), [branchId])
+  return Number(setting?.qrph_enabled) === 1 && (configuredMode() === 'test' || isLiveCollectionEnabled())
+}
+
 const makeQr = async (req, res) => {
   const { mode } = credentials()
   if (mode === 'live' && !isLiveCollectionEnabled()) throw http('PAYMONGO_LIVE_NOT_ENABLED','Live QR collection is not activated yet.',503)
   if (!String(process.env.PAYMONGO_WEBHOOK_SECRET || '').startsWith('whsk_')) throw http('PAYMONGO_WEBHOOK_NOT_CONFIGURED','Configure the webhook signing secret for the active PayMongo mode.',503)
   const billId = Number(req.params.id), branchId = Number(req.branchId)
   if (!validId(billId) || !validId(branchId)) throw http('BRANCH_REQUIRED','Valid branch and bill are required.',400)
-  if (process.env.CARAIT_ENFORCE_QRPH_BRANCH_TOGGLE === 'true') {
-    const [[setting]] = await db.query('SELECT qrph_enabled FROM branch_payment_settings WHERE branch_id=? LIMIT 1',[branchId])
-    if (Number(setting?.qrph_enabled||0)!==1) throw http('QRPH_DISABLED','QR Ph is disabled for this clinic branch.',409)
-  }
+  if (!await branchQrEnabled(branchId)) throw http('QRPH_DISABLED','QR Ph is disabled for this clinic branch.',409)
   // Never release a bill lock based only on local expiry or missing provider identifiers.
   const [[stale]] = await db.query('SELECT a.id FROM payment_gateway_attempts a JOIN billing_records b ON b.id=a.billing_id WHERE a.active_bill_id=? AND b.branch_id=? LIMIT 1',[billId,branchId])
   if (stale) await reconcileAttempt(stale.id,{force:true}).catch(error=>console.warn('[paymongo-reconciliation] pre-QR check failed',{attemptId:stale.id,code:error.code}))
@@ -60,6 +62,8 @@ const makeQr = async (req, res) => {
     await conn.beginTransaction()
     const [[locked]] = await conn.query('SELECT * FROM billing_records WHERE id=? AND branch_id=? LIMIT 1 FOR UPDATE', [billId,branchId])
     if (!locked) throw http('BILL_NOT_FOUND','Bill not found in this clinic branch.',404)
+    // Serialize creation with settings changes in both TEST and LIVE modes.
+    if (!await branchQrEnabled(branchId, conn, true)) throw http('QRPH_DISABLED','QR Ph is disabled for this clinic branch.',409)
     const [[needsReview]] = await conn.query("SELECT id FROM payment_gateway_attempts WHERE billing_id=? AND status='review' AND provider_payment_id IS NOT NULL LIMIT 1",[billId])
     if (needsReview) throw http('GATEWAY_PAYMENT_NEEDS_REVIEW','A PayMongo payment for this bill is awaiting administrator review. Resolve it before generating another QR.')
     if (!['ready','partially_paid'].includes(locked.status)) throw http('BILL_NOT_READY','Confirm the bill before generating its QR.')
@@ -70,7 +74,7 @@ const makeQr = async (req, res) => {
     if (existing) {
       if (String(existing.mode || 'test') !== mode) throw http('PAYMONGO_MODE_SWITCH_BLOCKED','A payment from the prior PayMongo mode still holds this bill. Resolve it using the original mode before collecting again.',409)
       await conn.commit()
-      return res.json(publicAttempt(existing))
+      return res.json(publicAttempt(existing, true))
     }
     const [created] = await conn.query(`INSERT INTO payment_gateway_attempts
       (billing_id,branch_id,bill_version,amount_centavos,active_bill_id,mode,created_by_role,created_by_id)
@@ -85,7 +89,7 @@ const makeQr = async (req, res) => {
     await db.query(`UPDATE payment_gateway_attempts SET status='pending',payment_intent_id=?,qr_image=?,test_url=?,expires_at=DATE_ADD(NOW(),INTERVAL 30 MINUTE) WHERE id=? AND status='creating'`,
       [qr.intentId,qr.qrImage,mode === 'test' && isTestSimulationUrl(qr.testUrl)?qr.testUrl:null,attempt.id])
     const [[saved]] = await db.query('SELECT * FROM payment_gateway_attempts WHERE id=?',[attempt.id])
-    return res.status(201).json(publicAttempt(saved))
+    return res.status(201).json(publicAttempt(saved, await branchQrEnabled(branchId)))
   } catch (error) {
     // Network errors are indeterminate: hold the attempt for reconciliation rather
     // than allowing a second QR that could charge the patient twice.
@@ -103,7 +107,9 @@ const status = async (req,res) => {
     attempt = await reconcileAttempt(attempt.id,{force:req.query.reconcile==='1'})
       .catch(error=>{console.warn('[paymongo-reconciliation] status check failed',{attemptId:attempt.id,code:error.code});return attempt}) || attempt
   }
-  res.json(attempt ? publicAttempt(attempt) : {status:'not_created',mode:configuredMode() || null,enabled:configuredMode() === 'test' || isLiveCollectionEnabled()})
+  // Disabling new QR collection must not discard existing provider payments.
+  const enabled = await branchQrEnabled(branchId)
+  res.json(attempt ? publicAttempt(attempt, enabled) : {status:'not_created',mode:configuredMode() || null,enabled})
 }
 // Release a lock only after independently retrieved, identity-matched PayMongo
 // evidence that the intent is terminal AND cannot receive another payment.
@@ -158,7 +164,7 @@ const requestCancel = async (req,res) => {
   if (!attempt) throw http('QR_NOT_FOUND','QR attempt not found in this branch.',404)
   if (!sameConfiguredMode(attempt)) throw http('PAYMONGO_MODE_MISMATCH','Use the original PayMongo payment mode to resolve this attempt.')
   if (!cancellationEnabled(attempt)) throw http('QR_CANCELLATION_DISABLED','QR cancellation is not enabled. Ask an administrator to reconcile the pending attempt.',403)
-  if (attempt.status === 'cancelled' && !attempt.active_bill_id) return res.json(publicAttempt(attempt))
+  if (attempt.status === 'cancelled' && !attempt.active_bill_id) return res.json(publicAttempt(attempt, await branchQrEnabled(branchId)))
   if (!canRequestCancel(attempt)) throw http('QR_NOT_CANCELLABLE','This attempt is not available for cashier cancellation. Reconcile it first.')
   let intent = await retrieveIntent(attempt.payment_intent_id)
   assertMatchingIntent(attempt,intent)
@@ -178,7 +184,7 @@ const requestCancel = async (req,res) => {
   }
   const result = await releaseVerifiedCancelled(attempt,intent,{
     userId:req.user.id,userRole:req.adminContext?.account_role || req.user.role,ipAddress:req.ip||null})
-  return res.json(publicAttempt(result))
+  return res.json(publicAttempt(result, await branchQrEnabled(branchId)))
 }
 // Administrator-only resolution for a provider payment that could not be applied
 // (for example the patient paid an old QR after the bill was settled in cash).

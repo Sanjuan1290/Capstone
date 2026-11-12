@@ -32,8 +32,8 @@ test('registration, admin and staff intake use shared clinic-date bounds', () =>
   for(const rel of ['src/pages/auth/Patient/PatientRegister.jsx', 'src/pages/shared/AppointmentCreatePage.jsx','src/pages/staffPage/Staff_WalkInQueue.jsx']){
     const source=fs.readFileSync(path.join(root,rel),'utf8')
     assert.match(source,/patientBirthdate\.mjs/,rel)
-    assert.match(source,/getMaxPatientBirthdate/,rel)
-    assert.match(source,/getMinPatientBirthdate/,rel)
+    assert.match(source,rel.includes('PatientRegister')?/getMaxPatientBirthdate/:/getMaxWalkInBirthdate/,rel)
+    assert.match(source,rel.includes('PatientRegister')?/getMinPatientBirthdate/:/getMinWalkInBirthdate/,rel)
   }
 })
 

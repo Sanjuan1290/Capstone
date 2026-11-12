@@ -1,0 +1,108 @@
+import {test,expect} from '@playwright/test'
+import {mockClinic,baseBill} from './helpers/clinic20261111.mjs'
+const evidence='../QA_REPORT/queue-walkin-charges-qr-2026-11-12/browser-artifacts'
+
+for(const role of ['admin','staff','superadmin'])test(`${role}: walk-in selects an online-style service and submits it with visit notes`,async({page})=>{
+ await page.setViewportSize({width:role==='staff'?390:1440,height:1000})
+ const {root,state}=await mockClinic(page,role)
+ await page.goto(`${root}/appointments/new`)
+ await page.getByRole('button',{name:/^Walk-in Now/}).click()
+ await page.getByPlaceholder(/Search.*patient|Search.*name/i).first().fill('Test')
+ await page.getByRole('button',{name:/Test Patient/}).click()
+ const next=page.getByRole('button',{name:'Continue',exact:true})
+ await next.click()
+ await expect(page.getByRole('heading',{name:'What service do you need?'})).toBeVisible()
+ await expect(next).toBeDisabled()
+ await page.getByRole('button',{name:/General Medicine Wound Dressing/}).click()
+ await expect(next).toBeEnabled()
+ await next.click()
+ await page.getByRole('button',{name:/Dr Test.*Accepting walk-ins/}).click()
+ await page.getByRole('button',{name:'Follow up',exact:true}).click()
+ await page.getByPlaceholder(/Any symptoms/).fill('Synthetic walk-in note')
+ await next.click()
+ await expect(page.getByRole('heading',{name:'Review & Check In'})).toBeVisible()
+ await page.getByRole('checkbox').check()
+ await page.screenshot({path:`${evidence}/walkin-review-${role}.png`,fullPage:true})
+ await page.getByRole('button',{name:'Check In Patient',exact:true}).click()
+ await expect(page.getByRole('heading',{name:'Patient checked in'})).toBeVisible()
+ await expect(page.getByText('MED-001',{exact:true})).toBeVisible()
+ const request=state.calls.find(call=>call.method==='POST'&&call.path.endsWith('/queue'))
+ expect(request.body.requested_service_id).toBe(77)
+ expect(request.body.notes).toBe('Synthetic walk-in note')
+ expect(request.body.doctor_id).toBe(8)
+ expect(request.body.type).toBe('medical')
+})
+
+for(const role of ['admin','staff','superadmin'])test(`${role}: Charge Summary lists the complete service, item and additional breakdown`,async({page})=>{
+ await page.setViewportSize({width:role==='staff'?390:1440,height:1100})
+ const items=[...baseBill().items,
+  {id:2,item_type:'supply',source_type:'consultation_extra',service_name:'Extra medicine',quantity:2,unit_price:10,line_total:20},
+  {id:3,item_type:'custom',source_type:'staff_custom',service_name:'Dressing charge',quantity:1,unit_price:30,line_total:30},
+ ]
+ const {checkout}=await mockClinic(page,role,{requests:false,bill:{status:'draft',items,subtotal:590,total_amount:455,balance_amount:455}})
+ await page.goto(checkout)
+ const summary=page.getByLabel('Charge breakdown',{exact:true})
+ await expect(summary).toContainText('Wound Dressing')
+ await expect(summary).toContainText('Service portion: ₱350.00')
+ await expect(summary).toContainText('Gauze')
+ await expect(summary).toContainText('₱190.00')
+ await expect(summary).toContainText('Extra medicine')
+ await expect(summary).toContainText('₱20.00')
+ await expect(summary).toContainText('Dressing charge')
+ await expect(summary).toContainText('₱30.00')
+ await expect(summary).toContainText('₱590.00')
+ await expect(summary).toContainText('₱135.00')
+ await expect(summary).toContainText('₱455.00')
+ await summary.scrollIntoViewIfNeeded()
+ await page.screenshot({path:`${evidence}/charges-${role}.png`,fullPage:true})
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2)).toBeTruthy()
+})
+
+for(const role of ['admin','staff','superadmin'])for(const mode of ['test','live'])test(`${role}: disabled QR Ph cannot generate a ${mode} QR`,async({page})=>{
+ const {checkout,state}=await mockClinic(page,role,{requests:false,bill:{status:'ready'}})
+ await page.route(/(?:billing-)?payment-settings$/,route=>route.fulfill({json:{cash_enabled:1,qrph_enabled:0}}))
+ await page.route('**/qr-payment/status',route=>route.fulfill({json:{status:'not_created',current_mode:mode,enabled:false,can_collect_alternate:true}}))
+ await page.goto(checkout)
+ await page.getByText('QR Ph is disabled for this branch',{exact:true}).click()
+ await expect(page.getByRole('button',{name:/Generate (Test|LIVE) QR Ph/})).toBeDisabled()
+ await expect(page.getByText(/New QR Ph payments are disabled/)).toBeVisible()
+ expect(state.calls.some(call=>call.method==='POST'&&call.path.endsWith('/qr-payment'))).toBe(false)
+ await expect(page.getByRole('button',{name:'Cash',exact:true})).toBeEnabled()
+})
+
+test('an existing QR still locks cash and offers status/cancellation when the branch disables new QR payments',async({page})=>{
+ const {checkout}=await mockClinic(page,'staff',{requests:false,bill:{status:'ready'}})
+ await page.route(/(?:billing-)?payment-settings$/,route=>route.fulfill({json:{cash_enabled:1,qrph_enabled:0}}))
+ await page.route('**/qr-payment/status',route=>route.fulfill({json:{id:22,status:'pending',mode:'test',enabled:false,amount:405,can_collect_alternate:false,can_request_cancel:true}}))
+ await page.goto(checkout)
+ await expect(page.getByText('Existing QR payment - view status',{exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Refresh status',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Switch to Cash',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Cash',exact:true})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Record Payment',exact:true})).toBeDisabled()
+})
+
+test('enabled branch can generate a QR when server availability also allows it',async({page})=>{
+ let generated=0
+ const {checkout}=await mockClinic(page,'admin',{requests:false,bill:{status:'ready'}})
+ await page.route(/(?:billing-)?payment-settings$/,route=>route.fulfill({json:{cash_enabled:1,qrph_enabled:1}}))
+ await page.route('**/qr-payment/status',route=>route.fulfill({json:{status:'not_created',current_mode:'test',enabled:true,can_collect_alternate:true}}))
+ await page.route('**/qr-payment',route=>{generated++;return route.fulfill({status:201,json:{id:22,status:'pending',mode:'test',enabled:true,amount:405,can_collect_alternate:false}})})
+ await page.goto(checkout)
+ await page.getByText('Pay with QR Ph (optional) - open QR payment',{exact:true}).click()
+ await page.getByRole('button',{name:'Generate Test QR Ph',exact:true}).click()
+ await expect(page.getByText(/Awaiting verified payment/)).toBeVisible()
+ expect(generated).toBe(1)
+ await expect(page.getByRole('button',{name:'Cash',exact:true})).toHaveCount(0)
+})
+
+for(const width of [1440,390])test(`queue display uses MED-001 and DER-002 without doctor IDs at ${width}px`,async({page})=>{
+ await page.setViewportSize({width,height:1000})
+ await page.route('**/api/queue/**',route=>route.fulfill({json:route.request().url().endsWith('/live')?{branch_name:'Synthetic branch',clinicOpen:true,serving:{queueNo:1,type:'medical',doctorId:30002,doctor:'Dr Test'},waiting:[{queueNo:2,type:'derma',doctorId:30003,arrivedAt:'09:03 PM'}]}:[]}))
+ await page.goto('/display/queue')
+ await expect(page.getByText('MED-001',{exact:true})).toBeVisible()
+ await expect(page.getByText('DER-002',{exact:true})).toBeVisible()
+ await expect(page.getByText(/D30002|D30003/)).toHaveCount(0)
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2)).toBeTruthy()
+ await page.screenshot({path:`${evidence}/queue-${width}.png`,fullPage:true})
+})

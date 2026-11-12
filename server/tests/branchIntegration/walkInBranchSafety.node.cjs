@@ -18,6 +18,7 @@ const fakeSse = { broadcast: (...args) => events.push(args) }
 Module._load = function(request,parent,isMain){
  if (parent?.filename === moduleFile) {
   if (request === '../db/connect') return fakeDb
+  if (request === './bookingPolicy') return { loadBookingSettings: async()=>({booking_start_interval_minutes:30}), roundReservedDurationMinutes: value=>Math.ceil(value/30)*30 }
   if (request === './audit') return fakeAudit
   if (request === './doctorAvailabilitySummary') return fakeAvailability
   if (request === './sse') return fakeSse
@@ -56,16 +57,17 @@ test('new walk-in writes its appointment, queue number and audit to the verified
    if(sql.includes('FROM queue q')||sql.includes('FROM appointments a')||sql.includes('FROM queue WHERE appointment_id'))return [[]]
    if(sql.startsWith('INSERT INTO appointments'))return [{insertId:71}]
    if(sql.startsWith('SELECT GET_LOCK'))return [[{acquired:1}]]
-   if(sql.startsWith('SELECT COALESCE(MAX(queue_number)'))return [[{maxQ:4}]]
+   if(sql.startsWith('SELECT queue_number'))return [[{queue_number:4}]]
+   if(sql.includes('FROM billing_service_catalog'))return [[{id:77,clinic_type:'medical',default_price:500,service_name:'Consultation',average_duration_minutes:60}]]
    if(sql.startsWith('INSERT INTO queue'))return [{insertId:91}]
    if(sql.startsWith('SELECT RELEASE_LOCK'))return [[{ok:1}]]
    throw new Error(`Unexpected query: ${sql}`)
   }
  }
- const result=await walkIn.addWalkInVisit({patientId:8,patientName:'Patient',doctorId:6,clinicType:'medical',actorRole:'staff',actorId:3,branchId:22})
+ const result=await walkIn.addWalkInVisit({patientId:8,patientName:'Patient',doctorId:6,clinicType:'medical',requestedServiceId:77,actorRole:'staff',actorId:3,branchId:22})
  assert.equal(result.status,201)
  assert.equal(result.body.queue_number,5)
- for(const prefix of ['INSERT INTO appointments','INSERT INTO queue','SELECT COALESCE(MAX(queue_number)']){
+ for(const prefix of ['INSERT INTO appointments','INSERT INTO queue','SELECT queue_number']){
   const [,sql,args]=traces.find(t=>t[0]==='SQL'&&t[1].startsWith(prefix))||[]
   assert.ok(sql,`Missing ${prefix}`)
   assert.match(sql,/branch_id/)

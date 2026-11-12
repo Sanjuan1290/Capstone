@@ -43,7 +43,7 @@ const {
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel, addDaysDateOnly } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
-const { validateBirthdate } = require('../utils/patientProfile')
+const { validateWalkInBirthdate } = require('../utils/patientProfile')
 const { sendPatientAppointmentStatusSms } = require('../utils/smsService')
 const {
   getDoctorUnavailableDate,
@@ -989,6 +989,8 @@ const addToQueue = async (req, res) => {
     doctorId: req.body.doctor_id,
     clinicType: req.body.type,
     reason: req.body.reason,
+    requestedServiceId: req.body.requested_service_id,
+    notes: req.body.notes,
     checkInAppointmentId: req.body.check_in_appointment_id,
     allowSeparateWalkIn: Boolean(req.body.allow_separate_walkin),
     actorRole: 'admin',
@@ -1087,10 +1089,12 @@ const getPatientRecord = async (req, res) => {
 }
 
 const createWalkInPatient = async (req, res) => {
-  const { full_name, phone, email, birthdate, reported_age, sex, consent_given, consent_method = 'signed_intake_form' } = req.body
+  const { full_name, phone, email, birthdate, sex, consent_given, consent_method = 'signed_intake_form' } = req.body
   const name = String(full_name || '').trim()
   if (!name || !String(phone || '').trim()) return res.status(400).json({ message: 'Full name and phone number are required.' })
   if (!consent_given) return res.status(400).json({ message: 'Patient data privacy consent is required.' })
+  const birthdateError = validateWalkInBirthdate(birthdate)
+  if (birthdateError) return res.status(400).json({ message: birthdateError })
   const normalizedPhone = normalizePhilippinePhone(phone)
   if (!normalizedPhone) return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
   const localPhone = `0${normalizedPhone.slice(2)}`
@@ -1102,13 +1106,8 @@ const createWalkInPatient = async (req, res) => {
     if (existingEmail.length) return res.status(409).json({ message: 'A patient with that email already exists.' })
   }
   const normalizedSex = ['Male','Female','Other'].includes(String(sex || '')) ? String(sex) : null
-  const birthdateError = birthdate ? validateBirthdate(String(birthdate)) : null
-  if (birthdateError) return res.status(400).json({ message: birthdateError })
-  const patientAge = birthdate ? null : Number(reported_age)
-  if (!birthdate && (!/^\d{1,3}$/.test(String(reported_age)) || !Number.isSafeInteger(patientAge) || patientAge < 18 || patientAge > 120)) {
-    return res.status(400).json({ message: 'Provide a birthdate for a patient aged 18 or older, or enter a reported age from 18 to 120.' })
-  }
-  const normalizedBirthdate = birthdate ? String(birthdate).slice(0,10) : null
+  const patientAge = null
+  const normalizedBirthdate = birthdate
   const tempPassword = makeTempPassword()
   const hashedPassword = await bcrypt.hash(tempPassword, 10)
   const [result] = await db.query(

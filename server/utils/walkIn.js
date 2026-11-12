@@ -3,6 +3,7 @@ const { getTodayDateOnly, getCurrentTimeLabel } = require('./date')
 const { broadcast } = require('./sse')
 const { writeAuditLog } = require('./audit')
 const { buildWalkInDoctorAvailability } = require('./doctorAvailabilitySummary')
+const { loadBookingSettings, roundReservedDurationMinutes } = require('./bookingPolicy')
 
 const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'rescheduled', 'in-progress']
 
@@ -17,11 +18,10 @@ const formatAppointment = (row) => row ? {
   doctor_name: row.doctor_name,
 } : null
 
-const getWalkInPrecheck = async (patientId, branchId, executor = db) => {
+const getWalkInPrecheck = async (patientId, branchId, executor = db, today = getTodayDateOnly()) => {
   if (!Number.isSafeInteger(Number(branchId)) || Number(branchId) < 1) throw new Error('Verified branch required for walk-in precheck')
   const id = Number(patientId) || 0
   if (!id) return { active_queue: null, today_appointment: null, upcoming_appointment: null }
-  const today = getTodayDateOnly()
 
   const [queueRows] = await executor.query(
     `SELECT q.id, q.queue_number, q.status, q.doctor_id, q.patient_name, d.full_name AS doctor_name
@@ -82,6 +82,8 @@ const addWalkInVisit = async ({
   doctorId,
   clinicType,
   reason,
+  requestedServiceId,
+  notes,
   checkInAppointmentId = null,
   allowSeparateWalkIn = false,
   actorRole,
@@ -109,7 +111,8 @@ const addWalkInVisit = async ({
       throw Object.assign(new Error('Patient check-in is already processing. Please retry.'),{statusCode:409,code:'QUEUE_BUSY'})
     }
     if (ownsConnection) await conn.beginTransaction()
-    const precheck = await getWalkInPrecheck(id, branchId, conn)
+    const today = getTodayDateOnly()
+    const precheck = await getWalkInPrecheck(id, branchId, conn, today)
     if (precheck.active_queue) {
       if (ownsConnection) await conn.rollback()
       return { ok: false, status: 409, body: { code: 'ALREADY_IN_QUEUE', message: 'This patient is already in today’s queue.', ...precheck } }
@@ -119,12 +122,15 @@ const addWalkInVisit = async ({
     let resolvedDoctorId = doctorId
     let resolvedDoctorName = null
     let checkedInExisting = false
+    let resolvedClinicType = clinicType
+    let service = null
 
     if (precheck.today_appointment && Number(checkInAppointmentId) === Number(precheck.today_appointment.id)) {
       appointmentId = precheck.today_appointment.id
       resolvedDoctorId = precheck.today_appointment.doctor_id
       resolvedDoctorName = precheck.today_appointment.doctor_name || null
       checkedInExisting = true
+      resolvedClinicType = precheck.today_appointment.clinic_type
       await conn.query(
         `UPDATE appointments SET checked_in_at = NOW(), status = CASE WHEN status = 'pending' THEN 'confirmed' ELSE status END WHERE id = ? AND branch_id = ?`,
         [appointmentId, branchId]
@@ -141,11 +147,28 @@ const addWalkInVisit = async ({
       }
       resolvedDoctorId = doctorResult.doctor.id
       resolvedDoctorName = doctorResult.doctor.full_name || null
+      const serviceId = Number(requestedServiceId)
+      if (!Number.isSafeInteger(serviceId) || serviceId < 1) {
+        throw Object.assign(new Error('Select a service for this walk-in visit.'), { statusCode: 400, code: 'SERVICE_REQUIRED' })
+      }
+      const [[selectedService]] = await conn.query(
+        'SELECT id,service_name,clinic_type,default_price,average_duration_minutes FROM billing_service_catalog WHERE id=? AND branch_id=? AND is_active=1',
+        [serviceId, branchId]
+      )
+      service = selectedService
+      if (!service || ![clinicType, 'all'].includes(service.clinic_type)) {
+        throw Object.assign(new Error('Select an active service for this clinic branch and department.'), { statusCode: 400, code: 'SERVICE_UNAVAILABLE' })
+      }
+      const duration = Number(service.average_duration_minutes || 60)
+      const settings = await loadBookingSettings(conn, branchId)
+      const reserved = roundReservedDurationMinutes(duration, settings.booking_start_interval_minutes)
       const [appointmentResult] = await conn.query(
         `INSERT INTO appointments
-         (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, status, appointment_source, checked_in_at, branch_id)
-         VALUES (?,?,?,?,?,?, 'confirmed', 'walk_in', NOW(), ?)`,
-        [id, resolvedDoctorId, clinicType, reason || 'General Consultation', getTodayDateOnly(), getCurrentTimeLabel(), branchId]
+         (patient_id, doctor_id, clinic_type, reason, appointment_date, appointment_time, status, appointment_source, checked_in_at, branch_id,
+          requested_service_id, requested_service_name_snapshot, requested_service_price_snapshot, requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot, notes)
+         VALUES (?,?,?,?,?,?, 'confirmed', 'walk_in', NOW(), ?,?,?,?,?,?,?)`,
+        [id, resolvedDoctorId, clinicType, String(reason || 'General Consultation').slice(0, 255), today, getCurrentTimeLabel(), branchId,
+          service.id, service.service_name, service.default_price, duration, reserved, String(notes || '').slice(0, 2000) || null]
       )
       appointmentId = appointmentResult.insertId
     }
@@ -157,25 +180,26 @@ const addWalkInVisit = async ({
       if(ownsConnection)await conn.rollback()
       return {ok:false,status:409,body:{code:'APPOINTMENT_ALREADY_CHECKED_IN',message:'This appointment already has a queue entry.'}}
     }
-    const today = getTodayDateOnly()
-    lockKey = `queue:${branchId}:${today}:${resolvedDoctorId}`
+    lockKey = `queue:${branchId}:${today}:${resolvedClinicType}`
     const [[queueLock]] = await conn.query('SELECT GET_LOCK(?, 5) AS acquired', [lockKey])
     if (Number(queueLock?.acquired) !== 1) {
-      const error = new Error('The doctor queue is being updated. Please try again.')
+      const error = new Error('The clinic queue is being updated. Please try again.')
       error.statusCode = 409
       error.code = 'QUEUE_BUSY'
       throw error
     }
-    const [[{ maxQ }]] = await conn.query(
-      'SELECT COALESCE(MAX(queue_number), 0) AS maxQ FROM queue WHERE branch_id = ? AND queue_date = ? AND doctor_id = ?',
-      [branchId, today, resolvedDoctorId]
+    // Locking read sees the latest committed number even if precheck established
+    // an earlier transaction snapshot while another patient was checking in.
+    const [[lastQueue]] = await conn.query(
+      'SELECT queue_number FROM queue WHERE branch_id = ? AND queue_date = ? AND type = ? ORDER BY queue_number DESC LIMIT 1 FOR UPDATE',
+      [branchId, today, resolvedClinicType]
     )
-    const queueNumber = Number(maxQ || 0) + 1
+    const queueNumber = Number(lastQueue?.queue_number || 0) + 1
     const [queueResult] = await conn.query(
       `INSERT INTO queue
        (patient_id, doctor_id, queue_number, patient_name, type, status, queue_date, appointment_id, branch_id)
        VALUES (?,?,?,?,?,'waiting',?,?,?)`,
-      [id, resolvedDoctorId, queueNumber, patientName || 'Walk-in', clinicType, today, appointmentId, branchId]
+      [id, resolvedDoctorId, queueNumber, patientName || 'Walk-in', resolvedClinicType, today, appointmentId, branchId]
     )
     // Queue-number lock remains held until after commit to prevent MAX()+1 races.
 
@@ -190,7 +214,8 @@ const addWalkInVisit = async ({
         doctor_id: resolvedDoctorId,
         appointment_id: appointmentId,
         queue_number: queueNumber,
-        clinic_type: clinicType,
+        clinic_type: resolvedClinicType,
+        requested_service_id: service?.id || null,
         reason: reason || 'General Consultation',
         appointment_source: checkedInExisting ? 'online' : 'walk_in',
         separate_from_existing_today: Boolean(precheck.today_appointment && !checkedInExisting),
@@ -215,6 +240,7 @@ const addWalkInVisit = async ({
       body: {
         id: queueResult.insertId,
         queue_number: queueNumber,
+        type: resolvedClinicType,
         appointment_id: appointmentId,
         doctor_id: Number(resolvedDoctorId),
         doctor_name: resolvedDoctorName,

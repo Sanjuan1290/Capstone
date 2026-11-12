@@ -1,3 +1,4 @@
+import ChargeSummaryBreakdown from '../../components/billing/ChargeSummaryBreakdown'
 import {useAuth} from '../../context/AuthContext'
 import {paymentRequestKey} from '../../utils/paymentRequest.mjs'
 import ChargeAdjustmentsPanel from '../../components/billing/ChargeAdjustmentsPanel'
@@ -537,7 +538,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
   }
 
   const requestPay = () => {
-    const amount = Number(draft.payment_amount || 0)
+    const amount = Number(bill.balance_amount || 0)
     if (!draft.payment_method) return toast.error('Select a payment method.')
     if (amount <= 0 || amount > Number(bill.balance_amount || 0) + 0.001) return toast.error('Enter a valid payment amount.')
     if (draft.payment_method !== 'cash' && !String(draft.reference_number || '').trim()) return toast.error('Enter the payment reference number.')
@@ -550,7 +551,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
     paymentSubmitting.current=true
     setPaying(true)
     try {
-      const signature=JSON.stringify([billingId,bill.version,bill.balance_amount,draft.payment_method,Number(draft.payment_amount),Number(draft.amount_received),String(draft.reference_number||'').trim()])
+      const signature=JSON.stringify([billingId,bill.version,bill.balance_amount,draft.payment_method,Number(bill.balance_amount),Number(draft.amount_received),String(draft.reference_number||'').trim()])
       const storageKey=`carait:payment:${targetBase}:${user?.id}:${billingId}`
       if(paymentIntent.current?.signature!==signature){
         const key=paymentRequestKey(window.sessionStorage,storageKey,signature,()=>`checkout-${billingId}-${globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`}`)
@@ -558,7 +559,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
       }
       const updated = await payBill(billingId, {
         payment_method: draft.payment_method,
-        payment_amount: Number(draft.payment_amount || 0),
+        payment_amount: Number(bill.balance_amount || 0),
         amount_received: Number(draft.amount_received || 0),
         reference_number: String(draft.reference_number || '').trim() || null,
         payment_notes: String(draft.payment_notes || '').trim() || null,
@@ -751,7 +752,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
           <aside className="lg:sticky lg:top-24 lg:self-start">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
               <h2 className="font-black text-slate-900">Charge Summary</h2>
-              <div className="mt-4 space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong></div><div className="flex justify-between border-t border-slate-100 pt-3 text-lg"><span className="font-black">Current Total</span><strong>{formatMoney(totals.total)}</strong></div></div>
+              <ChargeSummaryBreakdown items={draft.items} totals={totals} />
               <button className="button-primary mt-5 w-full justify-center" disabled={draft.items.length === 0} onClick={proceedToReview}>Continue to Confirm Bill →</button>
               <button className="button-secondary mt-2 w-full justify-center" disabled={saving || !dirty} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button>
             </div>
@@ -784,7 +785,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
               </button>
             </div>
           )}
-          <CheckoutPaymentSection bill={bill} draft={draft} setDraft={setDraft} paymentMethods={paymentMethods} paymentSettings={paymentSettings} qrPending={qrPending} paying={paying} requestPay={requestPay} printReceipt={printReceipt} qrPayment={<QrPhPaymentPanel billId={billingId} remainingBalance={bill.balance_amount} getStatus={getStaffQrStatus} createQr={createStaffQrPayment} cancelQr={cancelStaffQrPayment} onPaid={() => load({ preserveStep: true })} onPendingChange={(locked) => {
+          <CheckoutPaymentSection bill={bill} draft={draft} setDraft={setDraft} paymentMethods={paymentMethods} paymentSettings={paymentSettings} qrPending={qrPending} paying={paying} requestPay={requestPay} printReceipt={printReceipt} qrPayment={<QrPhPaymentPanel branchEnabled={Number(paymentSettings.qrph_enabled) === 1} billId={billingId} remainingBalance={bill.balance_amount} getStatus={getStaffQrStatus} createQr={createStaffQrPayment} cancelQr={cancelStaffQrPayment} onPaid={() => load({ preserveStep: true })} onPendingChange={(locked) => {
               setQrPending(locked)
               if (locked) setDraft(current => current?.payment_method ? { ...current, payment_method: '', reference_number: '' } : current)
             }} onSwitchToCash={async () => {
@@ -807,7 +808,7 @@ createStaffQrPayment,getStaffQrStatus,cancelStaffQrPayment}=services
         </div>}
       </Modal>
 
-      <ConfirmDialog open={paymentConfirm} title={Number(draft.payment_amount || 0) < Number(bill.balance_amount || 0) ? 'Record Partial Payment?' : 'Record Payment?'} message={`${paymentMethodLabel(draft.payment_method)} payment: ${formatMoney(draft.payment_amount)}. ${Number(draft.payment_amount || 0) < Number(bill.balance_amount || 0) ? `Remaining balance after payment: ${formatMoney(Number(bill.balance_amount || 0) - Number(draft.payment_amount || 0))}. ` : ''}${draft.payment_method === 'cash' ? `Cash received: ${formatMoney(draft.amount_received)}; change: ${formatMoney(Math.max(0, Number(draft.amount_received || 0) - Number(draft.payment_amount || 0)))}.` : `Reference: ${draft.reference_number || '—'}.`}${Number(draft.payment_amount || 0) >= Number(bill.balance_amount || 0) && directCheckoutSupplyCount > 0 ? ` This final payment will automatically stock out ${directCheckoutSupplyCount} added Medicine / Supply item${directCheckoutSupplyCount === 1 ? '' : 's'} from the selected batch${directCheckoutSupplyCount === 1 ? '' : 'es'}.` : ''} Confirm that the payment was actually received before recording it.`} confirmLabel={paying ? 'Recording…' : `Confirm Payment ${formatMoney(draft.payment_amount)}`} tone="primary" loading={paying} onCancel={() => !paying && setPaymentConfirm(false)} onConfirm={recordPayment} />
+      <ConfirmDialog open={paymentConfirm} title="Record Payment?" message={`${paymentMethodLabel(draft.payment_method)} payment: ${formatMoney(bill.balance_amount)}. ${draft.payment_method === 'cash' ? `Cash received: ${formatMoney(draft.amount_received)}; change: ${formatMoney(Math.max(0, Number(draft.amount_received || 0) - Number(bill.balance_amount || 0)))}.` : `Reference: ${draft.reference_number || '—'}.`}${directCheckoutSupplyCount > 0 ? ` This final payment will automatically stock out ${directCheckoutSupplyCount} added Medicine / Supply item${directCheckoutSupplyCount === 1 ? '' : 's'} from the selected batch${directCheckoutSupplyCount === 1 ? '' : 'es'}.` : ''} Confirm that the payment was actually received before recording it.`} confirmLabel={paying ? 'Recording…' : `Confirm Payment ${formatMoney(bill.balance_amount)}`} tone="primary" loading={paying} onCancel={() => !paying && setPaymentConfirm(false)} onConfirm={recordPayment} />
     </main>
   )
 }

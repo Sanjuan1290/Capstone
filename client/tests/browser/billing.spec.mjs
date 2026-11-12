@@ -143,21 +143,21 @@ for(const role of ['admin','superadmin','staff'])test(`${role}: walk-in submissi
  await expect(page.getByRole('heading',{name:/Patient Checked In|Walk-in Checked In|Checked In|Patient is checked in/i})).toBeVisible()
 })
 
-test('lost partial payment response retries the same key and preserves the remaining balance',async({page})=>{
+test('lost balance payment response retries the same key and settles the remaining balance',async({page})=>{
  const {state,checkout}=await mockClinic(page,'staff',{requests:false,bill:{status:'ready'},losePaymentResponse:true})
  await page.goto(checkout)
- await page.getByRole('button',{name:'Cash',exact:true}).click();await page.getByLabel('Payment Amount',{exact:true}).fill('100')
- await page.getByRole('button',{name:'Confirm Payment ₱100.00',exact:true}).click()
+ await page.getByRole('button',{name:'Cash',exact:true}).click();await expect(page.getByLabel('Payment Amount',{exact:true})).toHaveCount(0)
+ await page.getByRole('button',{name:'Record Payment',exact:true}).click()
  const confirmation=page.getByRole('dialog')
- await confirmation.getByRole('button',{name:'Confirm Payment ₱100.00',exact:true}).click()
+ await confirmation.getByRole('button',{name:'Confirm Payment ₱405.00',exact:true}).click()
  await expect.poll(()=>state.paymentResponseLost).toBe(true)
- await expect(confirmation.getByRole('button',{name:'Confirm Payment ₱100.00',exact:true})).toBeEnabled()
- await confirmation.getByRole('button',{name:'Confirm Payment ₱100.00',exact:true}).click()
+ await expect(confirmation.getByRole('button',{name:'Confirm Payment ₱405.00',exact:true})).toBeEnabled()
+ await confirmation.getByRole('button',{name:'Confirm Payment ₱405.00',exact:true}).click()
  await expect.poll(()=>state.calls.filter(c=>c.path.endsWith('/billing/6/pay')).length).toBe(2)
  const calls=state.calls.filter(c=>c.path.endsWith('/billing/6/pay'))
  expect(calls[0].body.idempotency_key).toBe(calls[1].body.idempotency_key)
- expect(state.paymentKeys.size).toBe(1);expect(state.bill.balance_amount).toBe(305)
- await page.reload();await expect(page.getByText('₱305.00',{exact:true}).first()).toBeVisible();expect(state.paymentKeys.size).toBe(1)
+ expect(state.paymentKeys.size).toBe(1);expect(state.bill.balance_amount).toBe(0)
+ await page.reload();await expect(page.getByRole('button',{name:'Record Payment',exact:true})).toHaveCount(0);expect(state.paymentKeys.size).toBe(1)
 })
 test('a paid bill opens its saved receipt with the promotion total',async({page})=>{
  const payment={id:1,amount:405,payment_method:'cash',status:'completed',refund_amount:0,receipt_number:'OR-TEST-PAID',paid_at:'2026-11-05T11:00:00+08:00'}

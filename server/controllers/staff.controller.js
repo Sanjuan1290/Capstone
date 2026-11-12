@@ -25,7 +25,7 @@ const {
 const { broadcast } = require('../utils/sse')
 const { getTodayDateOnly, getCurrentTimeLabel, getClinicDateTimeSql } = require('../utils/date')
 const { normalizePhilippinePhone } = require('../utils/phone')
-const { validateBirthdate } = require('../utils/patientProfile')
+const { validateWalkInBirthdate } = require('../utils/patientProfile')
 const { sendPatientAppointmentStatusSms } = require('../utils/smsService')
 const { getDoctorUnavailableDate, getDoctorUnavailableDates } = require('../utils/doctorAvailability')
 const { loadImagesForConsultationIds } = require('../utils/consultationImages')
@@ -702,6 +702,8 @@ const addToQueue = async (req, res) => {
     doctorId: req.body.doctor_id,
     clinicType: req.body.type,
     reason: req.body.reason,
+    requestedServiceId: req.body.requested_service_id,
+    notes: req.body.notes,
     checkInAppointmentId: req.body.check_in_appointment_id,
     allowSeparateWalkIn: Boolean(req.body.allow_separate_walkin),
     actorRole: 'staff',
@@ -765,16 +767,15 @@ const lookupWalkInPatients = async (req, res) => {
 }
 
 const createWalkInPatient = async (req, res) => {
-  const {full_name,phone,email,address,birthdate,reported_age,sex,consent_given,consent_method='signed_intake_form'} = req.body || {}
+  const {full_name,phone,email,address,birthdate,sex,consent_given,consent_method='signed_intake_form'} = req.body || {}
   const name = String(full_name || '').trim()
   if (!name || name.length>150) return res.status(400).json({message:'Enter a patient full name (up to 150 characters).'})
   if (!consent_given) return res.status(400).json({message:'Record appropriate patient privacy consent before continuing.'})
   const gender=String(sex||'')
   if (!['Male','Female','Other'].includes(gender)) return res.status(400).json({message:'Choose the patient gender.'})
-  const birthdateError=birthdate?validateBirthdate(String(birthdate)):null
+  const birthdateError=validateWalkInBirthdate(birthdate)
   if (birthdateError) return res.status(400).json({message:birthdateError})
-  const age=birthdate?null:Number(reported_age)
-  if (!birthdate && (!/^\d{1,3}$/.test(String(reported_age)) || !Number.isSafeInteger(age) || age<18 || age>120)) return res.status(400).json({message:'Enter an age from 18 to 120 when birthdate is unavailable.'})
+  const age=null
   const normalizedPhone=String(phone||'').trim()?normalizePhilippinePhone(phone):null
   if (String(phone||'').trim() && !normalizedPhone) return res.status(400).json({message:'Enter a valid mobile number or leave it blank.'})
   if (normalizedPhone) {

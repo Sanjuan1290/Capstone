@@ -34,7 +34,7 @@ test('scheduled flow uses the Patient Portal components and the same four bookin
   assert.match(page, /availableSlots\.includes\(form\.time\)/)
 })
 test('walk-in has a shorter flow and checks for duplicate queues and existing appointments', () => {
-  assert.match(page, /\['Patient', 'Visit Details', 'Review'\]/)
+  assert.match(page, /\['Patient', 'Service', 'Visit Details', 'Review'\]/)
   assert.match(page, /services\.getQueuePrecheck\(savedPatientId\)/)
   assert.match(page, /if \(verified\?\.active_queue\)/)
   assert.match(page, /check_in_appointment_id: existing\.id/)
@@ -67,7 +67,9 @@ test('requires visit reason, patient privacy consent, and explicit review acknow
   assert.match(page, /reason === 'Other'/)
   assert.match(page, /reasonDetails\.trim\(\)\.length >= 2/)
   assert.match(page, /patientFields\.consent_given/)
-  assert.match(page, /validatePatientBirthdate/)
+  assert.match(page, /validateWalkInBirthdate/)
+  assert.match(page, /label="Birthdate" type="date" required/)
+  assert.doesNotMatch(page, /reported_age|Age \(Required without birthdate/)
   assert.match(page, /informedPatient/)
 })
 test('failed submissions preserve the form; prior no-shows require a deliberate override', () => {
