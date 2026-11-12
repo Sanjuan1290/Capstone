@@ -41,7 +41,7 @@ export const SuperAdminDashboard = () => {
   {label:'Needs Setup',value:readiness===null?'—':whole(attention.length),icon:MdWarningAmber},
  ]
  return <div className="space-y-6">
-  <PageHead title="All Branches Overview" description="Monitor clinic branch status, appointments, collections and booking readiness from one place." action={<SecondaryButton onClick={reload} disabled={loading}><MdRefresh/> Refresh</SecondaryButton>}/>
+  <PageHead title="All Branches Overview" description="Monitor clinic branch status, appointments, collections and booking readiness from one place." action={<></>}/>
   <Card><Filters range={range} setRange={setRange} from={from} setFrom={setFrom} to={to} setTo={setTo} branchFilter={false}/></Card>
   {errors.period&&<Banner onRetry={reload}>{errors.period}</Banner>}
   {errors.overview&&<Banner onRetry={reload}>{errors.overview}</Banner>}

@@ -16,6 +16,9 @@ const formatAppointment = (row) => row ? {
   appointment_time: row.appointment_time,
   doctor_id: row.doctor_id,
   doctor_name: row.doctor_name,
+  requested_service_id: row.requested_service_id,
+  requested_service_name_snapshot: row.requested_service_name_snapshot,
+  requested_service_price_snapshot: row.requested_service_price_snapshot,
 } : null
 
 const getWalkInPrecheck = async (patientId, branchId, executor = db, today = getTodayDateOnly()) => {
@@ -26,7 +29,7 @@ const getWalkInPrecheck = async (patientId, branchId, executor = db, today = get
   const [queueRows] = await executor.query(
     `SELECT q.id, q.queue_number, q.status, q.doctor_id, q.patient_name, d.full_name AS doctor_name
      FROM queue q
-     JOIN doctors d ON d.id = q.doctor_id AND d.branch_id = q.branch_id
+     JOIN doctors d ON d.id = q.doctor_id
      WHERE q.patient_id = ? AND q.branch_id = ? AND q.queue_date = ? AND q.status IN ('waiting','called','in_consultation')
      ORDER BY q.id DESC LIMIT 1`,
     [id, branchId, today]
@@ -35,9 +38,10 @@ const getWalkInPrecheck = async (patientId, branchId, executor = db, today = get
   const [appointmentRows] = await executor.query(
     `SELECT a.id, a.status, a.clinic_type, a.reason,
             DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
-            a.appointment_time, a.doctor_id, d.full_name AS doctor_name
+            a.appointment_time, a.doctor_id, d.full_name AS doctor_name,
+            a.requested_service_id, a.requested_service_name_snapshot, a.requested_service_price_snapshot
      FROM appointments a
-     JOIN doctors d ON d.id = a.doctor_id AND d.branch_id = a.branch_id
+     JOIN doctors d ON d.id = a.doctor_id
      WHERE a.patient_id = ? AND a.branch_id = ?
        AND a.status IN (${ACTIVE_APPOINTMENT_STATUSES.map(() => '?').join(',')})
        AND a.appointment_date >= ?

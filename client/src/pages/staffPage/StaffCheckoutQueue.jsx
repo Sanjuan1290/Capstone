@@ -58,7 +58,7 @@ const StaffCheckoutQueue = () => {
     <div className="w-full space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h2 className="text-lg font-bold text-slate-900">Choose a patient to collect payment</h2><p className="mt-1 text-sm text-slate-500">Start with Ready for Payment. If charges aren't confirmed, open Check Bill First.</p></div>
-        <button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh List</button>
+        <></>
       </div>
       <div className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm sm:grid-cols-3">
         {['1. Find the patient', '2. Check and confirm charges', '3. Collect payment and issue receipt'].map(label => <p key={label} className="font-semibold text-slate-700">{label}</p>)}

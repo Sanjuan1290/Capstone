@@ -122,7 +122,7 @@ export default function Admin_Promotions({ onComposePost, onPromotionsChanged })
         <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-slate-600"><MdMap /> {branchName}</p>
         <p className="mt-1 text-xs text-slate-500">Linked service discounts apply automatically when the booked service is billed.</p>
       </div>
-      <div className="flex gap-2"><button type="button" onClick={load} className="button-secondary"><MdRefresh /> Refresh</button><button type="button" onClick={() => open()} className="button-primary"><MdAdd /> Add Promotion</button></div>
+      <div className="flex gap-2"><></><button type="button" onClick={() => open()} className="button-primary"><MdAdd /> Add Promotion</button></div>
     </header>
     {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
     {editing !== null && <form onSubmit={save} className="space-y-4 rounded-2xl border border-emerald-200 bg-white p-5">

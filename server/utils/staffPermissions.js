@@ -3,6 +3,7 @@ const db = require('../db/connect')
 const STAFF_PERMISSION_KEYS = Object.freeze([
   'dashboard',
   'appointments',
+  'walk_in_queue',
   'patient_records',
   'doctor_schedules',
   'checkout',
@@ -22,6 +23,7 @@ const STAFF_PERMISSION_SET = new Set(STAFF_PERMISSION_KEYS)
 const DEFAULT_STAFF_PERMISSIONS = Object.freeze([
   'dashboard',
   'appointments',
+  'walk_in_queue',
   'patient_records',
   'doctor_schedules',
   'checkout',

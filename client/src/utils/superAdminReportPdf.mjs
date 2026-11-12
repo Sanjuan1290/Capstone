@@ -5,7 +5,6 @@ const money = value => new Intl.NumberFormat('en-PH', { style: 'currency', curre
 const number = value => Number(value || 0)
 const moneyMetrics = new Set(['Gross Billed', 'Net Billed', 'Discounts', 'Promotion Discounts', 'Gross Received', 'Voided', 'Refunded', 'Net Collected', 'Outstanding', 'Outstanding Balance', 'Estimated Selling Value'])
 const formatCell = (value, table, row, index) => {
-  if (typeof value !== 'number') return escapeHtml(value)
   const currency = (table.name === 'Payment Methods' && index >= 2)
     || (table.name === 'Branch Comparison' && index >= 3)
     || (table.name === 'Inventory by Category' && index === 2)
@@ -13,6 +12,10 @@ const formatCell = (value, table, row, index) => {
     || (table.name === 'Promotions' && index === 3)
     || (index === 2 && (row[0] === 'Revenue Trend' || moneyMetrics.has(row[1])))
   const percent = index === 2 && String(row[1]).endsWith('Rate')
+  if (typeof value !== 'number') {
+    if ((currency || percent) && value != null && String(value).trim() !== '' && Number.isFinite(Number(value))) value = Number(value)
+    else return escapeHtml(value)
+  }
   return escapeHtml(currency ? money(value) : percent ? `${value.toFixed(1)}%` : value.toLocaleString('en-PH', { maximumFractionDigits: 2 }))
 }
 

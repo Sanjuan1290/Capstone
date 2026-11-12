@@ -1,3 +1,5 @@
+const { ensureOperationalActorColumns, definitions: actorColumns } = require('../utils/operationalActors')
+const { ensureInventoryActivityColumns } = require('../utils/inventoryActivity')
 const { runQueueNumberingStatement, verifyQueueNumberingIndexes } = require('../utils/queueNumberingSchema')
 'use strict'
 
@@ -68,6 +70,9 @@ const migrationFiles = [
   '2026-11-12-promotion-verified-eligibility.sql',
   '2026-11-12-daily-stock-alerts.sql',
   '2026-11-12-queue-daily-department-numbers.sql',
+  '2026-11-13-inventory-movement-balances.sql',
+  '2026-11-13-walk-in-queue-permission.sql',
+  '2026-11-13-shared-operation-actors.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -123,6 +128,8 @@ async function runRegisteredBranchMigrations(db) {
       if (file === migrationFiles[0]) await verifyFoundationSchema(db, sql)
       if (file === promotionMigrationFile) await verifyPromotionSchema(db)
       if (file === '2026-11-12-queue-daily-department-numbers.sql') await verifyQueueNumberingIndexes(db)
+      if (file === '2026-11-13-shared-operation-actors.sql') await ensureOperationalActorColumns(db)
+      if (file === '2026-11-13-inventory-movement-balances.sql') await ensureInventoryActivityColumns(db)
       continue
     }
 
@@ -133,6 +140,14 @@ async function runRegisteredBranchMigrations(db) {
       if (file === promotionMigrationFile) {
         // Metadata-checked, resumable per-table DDL. Never mark an incomplete schema as applied.
         await runSelectedPromotionMigration(connection, statements)
+      } else if (file === '2026-11-13-shared-operation-actors.sql') {
+        const expected = actorColumns.map(([table,column,operation])=>`ALTER TABLE ${table} ${operation} ${column} INT NULL`)
+        if (JSON.stringify(statements)!==JSON.stringify(expected)) throw new Error('Unexpected actor migration statements')
+        await ensureOperationalActorColumns(connection,true)
+      } else if (file === '2026-11-13-inventory-movement-balances.sql') {
+        const expected = ['quantity_before', 'quantity_after'].map(column => `ALTER TABLE inventory_logs ADD COLUMN ${column} DECIMAL(12,2) NULL`)
+        if (JSON.stringify(statements) !== JSON.stringify(expected)) throw new Error('Unexpected inventory movement migration statements')
+        await ensureInventoryActivityColumns(connection, true)
       } else if (file === '2026-11-12-queue-daily-department-numbers.sql') {
         for (const statement of statements) await runQueueNumberingStatement(connection, statement)
         await verifyQueueNumberingIndexes(connection)

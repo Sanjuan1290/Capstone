@@ -466,7 +466,7 @@ const Admin_SystemSetup = () => {
           <h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdSettings className="text-amber-500" /> System Setup</h1>
           <p className="mt-1 text-sm text-slate-500">Manage patient visit options, cancellation reasons, services and pricing setup, service categories, reusable inventory reference data, and Stock In / Stock Out movement reasons from one place.</p>
         </div>
-        {!['visits', 'stock_rooms', 'queue_security'].includes(tab) && <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>}
+        {!['visits', 'stock_rooms', 'queue_security'].includes(tab) && <></>}
       </div>
 
       <SystemSetupTabs />

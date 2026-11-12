@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { MdClose, MdDownload, MdFileDownload, MdFileUpload, MdEditNote, MdHistory } from 'react-icons/md'
@@ -61,6 +62,8 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
       setUploadError('')
     } catch(e) {setUploadError(e.message||'Excel import history is unavailable.')}
   }
+  useClinicRefresh(() => loadUploads(historyPage), [], { fallbackMs: 60000 })
+
   useEffect(()=>{if(historyOpen)void loadUploads(historyPage)},[historyOpen,historyPage]) // eslint-disable-line react-hooks/exhaustive-deps
   const undoUpload = async (upload) => {
     if(!services.undoInventoryExcelUpload || undoing) return
@@ -219,7 +222,7 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     {showTools && services.getInventoryExcelUploads && <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3"><div><h3 className="flex items-center gap-2 font-bold text-slate-900"><MdHistory/> Excel Import History</h3><p className="text-xs text-slate-500">Undo new-item uploads or item edits only when the affected records have not been used or changed.</p></div><button type="button" className="button-secondary" onClick={()=>setHistoryOpen(v=>!v)}>{historyOpen?'Hide History':'Show History'}</button></div>
       {historyOpen && <div className="mt-3 space-y-2">
-        <button type="button" className="button-secondary" onClick={()=>loadUploads(historyPage)}>Refresh History</button>
+        <></>
         {uploadError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{uploadError}</p>}
         {uploads.length===0 && <p className="text-sm text-slate-500">No recent Excel uploads recorded.</p>}
         {uploads.map(upload=><div key={upload.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div><p className="text-sm font-bold">Upload #{upload.id} · {upload.upload_type==='new_items'?'New Items':'Item Edits'}</p><p className="text-xs text-slate-500">{upload.created_at?new Date(upload.created_at).toLocaleString('en-PH'):'Date unavailable'} · {upload.undone_at?'Undone':'Saved'}</p></div><button type="button" className="button-secondary" disabled={Boolean(upload.undone_at)||Boolean(undoing)||busy} onClick={()=>undoUpload(upload)}>{undoing===upload.id?'Checking…':upload.undone_at?'Already Undone':'Undo Upload'}</button></div>)}

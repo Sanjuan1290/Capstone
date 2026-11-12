@@ -13,7 +13,7 @@ const makeHarness=(items=[original])=>{
   if(sql.includes('FROM inventory_suppliers WHERE id=?'))return [[params[0]==17&&params[1]==1?{id:17,name:'Supplier A',category:'medical,derma'}:null]]
   if(sql.includes('FROM inventory_locations WHERE id=?'))return [[params[0]==1&&params[1]==1?{id:1}:null]]
   if(sql.includes('FROM billing_service_materials'))return [[{n:current.linkedServices||0}]]
-  if(sql.includes('SELECT id FROM inventory WHERE branch_id=?'))return [[current.items.find(i=>i.branch_id===Number(params[0])&&i.name.toLowerCase()===String(sql.includes('id<>?')?params[2]:params[1]).toLowerCase())||null]]
+  if(sql.includes('SELECT id FROM inventory WHERE branch_id=?')||sql.includes('SELECT id,archived_at FROM inventory WHERE branch_id=?'))return [[current.items.find(i=>i.branch_id===Number(params[0])&&i.name.toLowerCase()===String(sql.includes('id<>?')?params[2]:params[1]).toLowerCase())||null]]
   if(sql.startsWith('UPDATE inventory SET ')){
     assert.ok(!/\b(stock|stock_base|name|barcode|supplier_id|default_location_id|category)\s*=/.test(sql),'protected inventory columns changed')
     const id=params[params.length-2],branch=params[params.length-1]
@@ -28,6 +28,7 @@ const makeHarness=(items=[original])=>{
     current.items.push({id,branch_id,barcode,name,category,item_type,stock:0,stock_base:0,threshold,price:price1,selling_price:price2,supplier:supplierName,supplier_id,default_location_id:location})
     return [{insertId:id}]
   }
+  if(sql.startsWith('INSERT INTO inventory_excel_uploads'))return [{insertId:1}]
   throw Error('Unexpected query: '+sql.slice(0,150))
  }
  const db={getConnection:async()=>{
@@ -35,6 +36,7 @@ const makeHarness=(items=[original])=>{
   return {beginTransaction:async()=>{},query:(sql,params)=>query(draft,sql,params),commit:async()=>{commits++;state=draft},rollback:async()=>{rollbacks++},release:()=>{}}
  }}
  const requireMock=name=>{
+  if(name==='../utils/inventoryActivity')return require('../helpers/inventoryActivityHarness.cjs').loadActivity()
   if(name==='../db/connect')return db
   if(name==='../utils/clinicEvents')return {afterSuccessfulMutation:()=>handler=>handler}
   if(name==='../utils/audit')return {writeAuditLog:async(args,conn)=>{state.audit.push(args)}}

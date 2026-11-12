@@ -1,3 +1,5 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
+import StockAlertBanner from '../../components/StockAlertBanner'
 // client/src/pages/staffPage/Staff_Dashboard.jsx
 // REDESIGNED: Hero banner, icon stat cards, appointment list, mobile-first
 
@@ -42,6 +44,8 @@ const Staff_Dashboard = () => {
       .catch(err => console.error("Dashboard Load Error:", err))
       .finally(() => setLoading(false))
   }
+  useClinicRefresh(load, [], { fallbackMs: 60000 })
+
 
   useEffect(() => { load() }, [today, canAppointments]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -84,16 +88,14 @@ const Staff_Dashboard = () => {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button onClick={load}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
-              <MdRefresh className="text-[18px]" />
-            </button>
+            <></>
             {canAppointments && <NavLink to="/staff/appointments" className="hidden sm:flex items-center gap-2 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors"><MdEventAvailable className="text-[15px]" /> Appointments</NavLink>}
           </div>
         </div>
       </div>
 
       {/* ── Stat cards ────────────────────────────────────────────────────── */}
+      <StockAlertBanner count={stats?.lowStock} to={quickLinks.some(link => link.path === '/staff/inventory') ? '/staff/inventory?status=alerts' : undefined} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         {[
           { label: "Today's Appts",   value: appointments.length,      sub: `${confirmedCount} confirmed`, icon: MdEventAvailable, color: "text-sky-600",     bg: "bg-sky-50",     border: "border-sky-200"     },

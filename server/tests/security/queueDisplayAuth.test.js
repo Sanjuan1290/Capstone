@@ -28,7 +28,7 @@ describe('queue display access control', () => {
   })
 
   it('issues a branch-bound HttpOnly session for the correct PIN', async () => {
-    const query = vi.spyOn(db, 'query').mockResolvedValue([[{ id: 1, name: 'Laguna Clinic Branch' }]])
+    const query = vi.spyOn(db, 'query').mockImplementation(async sql => sql.includes('FROM branch_queue_display_security') ? [[]] : [[{ id: 1, name: 'Laguna Clinic Branch' }]])
     const response = await request(app).post('/api/queue/display/unlock').send({ pin: '654321', branch_id: 1 })
     expect(response.status).toBe(200)
     expect(query).toHaveBeenCalledWith(

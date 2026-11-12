@@ -1,3 +1,4 @@
+const { availableStockSql } = require('./inventoryReportStock')
 // Isolate independent dashboard queries so one broken or temporarily unavailable
 // TiDB query does not turn the entire branch dashboard into an HTTP 500.
 // All SQL remains strictly scoped to the authenticated branch id.
@@ -21,7 +22,7 @@ const loadBranchDashboard = async ({ db, branchId, getBookingReadiness, onSectio
   const queries = [
     ['pendingApprovals', () => db.query("SELECT COUNT(*) AS pendingApprovals FROM appointments WHERE branch_id=? AND status='pending'", [branchId]).then(([rows]) => requiredCount(rows, 'pendingApprovals'))],
     ['totalPatients', () => db.query('SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM appointments WHERE branch_id=?', [branchId]).then(([rows]) => requiredCount(rows, 'totalPatients'))],
-    ['lowStockCount', () => db.query('SELECT COUNT(*) AS lowStockCount FROM inventory WHERE branch_id=? AND stock<=threshold', [branchId]).then(([rows]) => requiredCount(rows, 'lowStockCount'))],
+    ['lowStockCount', () => db.query(`SELECT COUNT(*) AS lowStockCount FROM inventory WHERE branch_id=? AND archived_at IS NULL AND ${availableStockSql('inventory')}<=threshold`, [branchId]).then(([rows]) => requiredCount(rows, 'lowStockCount'))],
     ['doctorStatus', () => db.query("SELECT d.id,d.full_name,d.clinic_type,CASE WHEN d.is_active=1 THEN 'available' ELSE 'inactive' END AS status FROM doctors d WHERE d.branch_id=? ORDER BY d.full_name", [branchId]).then(([rows]) => rows)],
     ['bookingReadiness', () => getBookingReadiness(db, branchId)],
   ]

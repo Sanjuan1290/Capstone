@@ -424,9 +424,7 @@ const Appointments = ({ services }) => {
         </div>
         <div className="flex flex-wrap gap-2">
             <a href="/display/queue" target="_blank" rel="noopener noreferrer" aria-label="Open Queue Display in a new tab" className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Open Queue Display <span aria-hidden="true">↗</span></a>
-          <button type="button" disabled={loading} onClick={loadAppointments} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-            <MdRefresh /> Refresh
-          </button>
+          <></>
           {services.createAppointment && (
             <button onClick={() => navigate(`${location.pathname.replace(/\/$/, '')}/new`)} className="inline-flex items-center gap-2 rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white">
               <MdAdd /> New Appointment

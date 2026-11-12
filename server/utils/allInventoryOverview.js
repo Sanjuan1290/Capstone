@@ -3,7 +3,7 @@
 const dateOnly = v => v instanceof Date ? (Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0,10)) : v ? String(v).slice(0,10) : null
 const positive = n => Math.max(0,Number(n)||0)
 const statusFor = (row, today, cutoff) => {
-  const quantity=Number(row.quantity_base ?? row.stock_base ?? row.stock ?? 0)
+  const quantity=Number(row.available_stock ?? row.quantity_base ?? row.stock_base ?? row.stock ?? 0)
   const expiry=dateOnly(row.nearest_expiry)
   const threshold=Number(row.threshold)||0
   return {

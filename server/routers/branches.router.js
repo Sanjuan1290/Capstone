@@ -19,7 +19,7 @@ const { cloneDefaultBookingPolicyDocument, normalizeBookingPolicyDocument, parse
 const { provisionBranch } = require('../utils/branchProvisioning')
 const { validateBranchContact } = require('../utils/philippinePhone')
 const router = express.Router()
-const PERMISSIONS = ['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','accounts','system_setup','reports','audit_logs']
+const PERMISSIONS = ['dashboard','appointments','walk_in_queue','patient_records','doctor_schedules','billing','inventory','accounts','system_setup','reports','audit_logs']
 const forbidden = (res) => res.status(403).json({ code: 'BRANCH_ACCESS_DENIED', message: 'You do not have access to this branch or feature.' })
 const validId = (v) => Number.isSafeInteger(Number(v)) && Number(v) > 0
 const permissionsFromBody = (value) => {
@@ -544,7 +544,7 @@ router.get('/analytics/all',requireSuper,async(req,res)=>{
   (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='completed') AS completed,
   (SELECT COUNT(*) FROM appointments a WHERE a.branch_id=b.id AND a.appointment_date BETWEEN ? AND ? AND a.status='no_show') AS no_shows,
   (SELECT COUNT(*) FROM doctors d JOIN doctor_branch_assignments a ON a.doctor_id=d.id AND a.branch_id=b.id AND a.is_active=1 WHERE d.is_active=1) AS doctors,
-  (SELECT COALESCE(SUM(r.total_amount),0) FROM billing_records r WHERE r.branch_id=b.id AND r.status NOT IN ('draft','voided') AND DATE(COALESCE(r.finalized_at,r.created_at)) BETWEEN ? AND ?) AS billed
+  (SELECT COALESCE(SUM(r.total_amount),0) FROM billing_records r WHERE r.branch_id=b.id AND r.status NOT IN ('draft','pending','voided') AND DATE(COALESCE(r.finalized_at,r.created_at)) BETWEEN ? AND ?) AS billed
   FROM clinic_branches b ORDER BY b.created_at,b.id`,[from,to,from,to,from,to,from,to,from,to])
  // Use event-dated entries so refunds/voids posted this month do not revise
  // last month's collections. This matches Branch Admin financial reporting.
@@ -603,7 +603,7 @@ router.get('/audit/all',requireSuper,async(req,res)=>{
  const requested=Number(req.query.branch_id||0)
  if(requested && !validId(requested))return res.status(400).json({message:'Invalid branch.'})
  const page=Math.max(1,Math.min(100000,Number.parseInt(req.query.page,10)||1)),limit=Math.min(100,Math.max(10,Number.parseInt(req.query.limit,10)||25))
- const allowedActions=['create','update','delete','auth','branch','service','booking','account','appointment']
+ const allowedActions=['create','update','delete','auth','branch','service','booking','account','appointment','inventory']
  const action=String(req.query.action||'').trim()
  if(action && !allowedActions.includes(action))return res.status(400).json({message:'Invalid activity filter.'})
  const search=String(req.query.search||'').trim().slice(0,100)
@@ -722,17 +722,17 @@ const originalInventory=async(req,res)=>{
 for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   router.get(`${prefix}/dashboard`,...middle,requirePermission('dashboard'),originalDashboard)
   router.get(`${prefix}/appointments`,...middle,requirePermission('appointments'),originalAppointments)
-  router.get(`${prefix}/patients`,...middle,allowAnyPermission('patient_records','appointments'),originalPatients)
+  router.get(`${prefix}/patients`,...middle,allowAnyPermission('patient_records','appointments','walk_in_queue'),originalPatients)
   router.get(`${prefix}/patients/directory`,...middle,requirePermission('patient_records'),branchPatientDirectory)
   router.get(`${prefix}/patients/:id`,...middle,requirePermission('patient_records'),originalPatientDetails)
-  router.get(`${prefix}/walk-in/doctors`,...middle,requirePermission('appointments'),async(req,res,next)=>{
+  router.get(`${prefix}/walk-in/doctors`,...middle,requirePermission('walk_in_queue'),async(req,res,next)=>{
     try{
       const {buildWalkInDoctorAvailability}=require('../utils/doctorAvailabilitySummary')
       res.json(await buildWalkInDoctorAvailability({clinicType:String(req.query.clinic_type||''),branchId:req.branchId}))
     }catch(error){next(error)}
   })
-  router.get(`${prefix}/doctors`,...middle,allowAnyPermission('doctor_schedules','accounts','appointments'),originalDoctors)
-  router.get(`${prefix}/doctors/:id/schedules`,...middle,allowAnyPermission('appointments','doctor_schedules'),originalDoctorSchedules)
+  router.get(`${prefix}/doctors`,...middle,allowAnyPermission('doctor_schedules','accounts','appointments','walk_in_queue'),originalDoctors)
+  router.get(`${prefix}/doctors/:id/schedules`,...middle,allowAnyPermission('appointments','doctor_schedules','walk_in_queue'),originalDoctorSchedules)
   router.get(`${prefix}/staff`,...middle,requirePermission('accounts'),originalStaff)
   const validateDelegation=(req,res,next)=>{
     if(req.adminContext.account_role==='superadmin')return next()
@@ -761,7 +761,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
   router.get(`${prefix}/doctors/:id/walk-ins/acceptance`,...ownedPerson('doctors','doctor_schedules',require('../utils/walkInAcceptance').handler()))
   router.put(`${prefix}/doctors/:id/walk-ins/acceptance`,...ownedPerson('doctors','doctor_schedules',require('../utils/walkInAcceptance').handler({editable:true})))
   router.put(`${prefix}/doctors/:id/schedules`,afterSuccessfulMutation('schedule.updated'),...ownedPerson('doctors','doctor_schedules',oldAdmin.saveDaySchedule))
-  router.get(`${prefix}/doctors/:id/unavailable-dates`,...middle,allowAnyPermission('appointments','doctor_schedules'),async(req,res,next)=>{
+  router.get(`${prefix}/doctors/:id/unavailable-dates`,...middle,allowAnyPermission('appointments','doctor_schedules','walk_in_queue'),async(req,res,next)=>{
     const id=Number(req.params.id)
     if(!validId(id))return res.status(400).json({message:'Invalid doctor.'})
     try{
@@ -770,7 +770,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
       return await oldAdmin.getDoctorUnavailableDatesAdmin(req,res)
     }catch(error){next(error)}
   })
-  router.get(`${prefix}/doctors/:id/available-slots`,...middle,allowAnyPermission('appointments','doctor_schedules'),async(req,res,next)=>{
+  router.get(`${prefix}/doctors/:id/available-slots`,...middle,allowAnyPermission('appointments','doctor_schedules','walk_in_queue'),async(req,res,next)=>{
     const id=Number(req.params.id)
     if(!validId(id))return res.status(400).json({message:'Invalid doctor.'})
     try{
@@ -791,7 +791,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
     const [rows]=await db.query(`SELECT id,label,is_active,created_at FROM appointment_cancellation_reasons WHERE branch_id=? ORDER BY created_at,id`,[req.branchId]);res.json(rows)
   })
 
-  router.get(`${prefix}/billing/catalog`,...middle,allowAnyPermission('system_setup','appointments','billing'),originalServices)
+  router.get(`${prefix}/billing/catalog`,...middle,allowAnyPermission('system_setup','appointments','walk_in_queue','billing'),originalServices)
   router.get(`${prefix}/inventory`,...middle,allowAnyPermission('inventory','billing'),originalInventory)
   router.get(`${prefix}/reminder-settings`,...middle,requirePermission('system_setup'),reminderEndpoints.ensureBranch,reminderEndpoints.get)
   router.put(`${prefix}/reminder-settings`,...middle,requirePermission('system_setup'),reminderEndpoints.ensureBranch,reminderEndpoints.put)

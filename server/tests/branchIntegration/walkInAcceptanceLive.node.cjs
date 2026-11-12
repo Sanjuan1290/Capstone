@@ -50,7 +50,7 @@ test('walk-in endpoints and service selection are connected across roles',()=>{
  }
  const doc=fs.readFileSync(path.join(root,'controllers/doctor.controller.js'),'utf8');assert.match(doc,/SERVICE_REQUIRED/)
  const consultation=fs.readFileSync(path.join(root,'../client/src/pages/doctorPage/Doctor_Consultation.jsx'),'utf8');
- assert.match(consultation,/Add a service performed/);assert.match(consultation,/Select at least one service actually performed/)
+ assert.match(fs.readFileSync(path.join(root,'../client/src/pages/shared/AppointmentCreatePage.jsx'),'utf8'),/StepService/);assert.match(consultation,/Select at least one service actually performed/)
 })
 
 test('blocked date without a reason and opted-out doctor remain unselectable',async()=>{

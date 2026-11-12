@@ -60,7 +60,7 @@ const Admin_BillingReceiptSettings = () => {
   })
 
   return <div className="mx-auto w-full max-w-7xl space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdReceiptLong className="text-amber-500" /> Receipt Settings</h1><p className="mt-1 text-sm text-slate-500">Configure receipt-specific wording without silently changing the clinic's shared identity.</p></div><button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div><BillingSetupNav />
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdReceiptLong className="text-amber-500" /> Receipt Settings</h1><p className="mt-1 text-sm text-slate-500">Configure receipt-specific wording without silently changing the clinic's shared identity.</p></div><></></div><BillingSetupNav />
     {loading ? <LoadingState label="Loading receipt settings..." /> : error ? <ErrorState message={error} onRetry={load} /> : <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
       <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div><h2 className="font-black text-slate-900">Clinic Information</h2><p className="mt-1 text-sm text-slate-500">These details are shared across the system and are read-only here.</p></div>

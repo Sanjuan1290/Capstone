@@ -1,3 +1,4 @@
+const { writeInventoryActivity } = require('../utils/inventoryActivity')
 // Branch-owned inventory master records. Stock movements MUST go through the
 // existing batch receipt / manual-stock-out engine; an item edit never updates stock.
 const db = require('../db/connect')
@@ -7,6 +8,9 @@ const { nextInventoryBarcode } = require('../utils/barcodes')
 const { receiveInventoryBatch, syncInventorySnapshot, attachBatchesToInventory } = require('../utils/inventoryBatches')
 const { resolveMainStockroom } = require('../utils/inventoryLocations')
 
+const isStaff = req => req.user?.role === 'staff'
+const adminId = req => isStaff(req) ? null : req.user.id
+const actorColumn = req => isStaff(req) ? 'staff_id' : 'admin_id'
 const fail = (status, code, message) => Object.assign(new Error(message), { statusCode:status, code })
 const positiveId = value => Number.isSafeInteger(Number(value)) && Number(value)>0
 const oneOf = (value, allowed) => allowed.includes(value)
@@ -25,7 +29,7 @@ const normalize = body => {
     measurement_unit:clean(body.measurement_unit,30)||null,
     default_location_id:Number(body.default_location_id),supplier_id:body.supplier_id?Number(body.supplier_id):null,
     threshold:number(body.threshold,'Low Stock Alert'),
-    selling_price:number(body.selling_price??body.price,'Selling Price',{min:0.01,max:99999999}),
+    selling_price:number(body.selling_price==null||body.selling_price===''?(body.price==null||body.price===''?0:body.price):body.selling_price,'Selling Price',{min:0,max:99999999}),
   }
   if(!p.name||p.name.length>150||!oneOf(p.category,['medical','derma'])||!oneOf(p.item_type,['medicine','supplies']))throw fail(400,'INVALID_ITEM','Enter a name, clinic category and item type.')
   if(!positiveId(p.default_location_id))throw fail(400,'INVALID_STOCK_ROOM','Select an active Stock Room.')
@@ -61,11 +65,10 @@ async function createItem(req,res){
   let conn
   try{
     const p=normalize(req.body||{})
-    const qty=number(req.body.stock,'Opening Quantity',{min:0})
-    if(!Number.isInteger(qty))throw fail(400,'INVALID_QUANTITY','Opening quantity must be a whole number.')
+    const qty=number(req.body.stock==null||req.body.stock===''?0:req.body.stock,'Quantity',{min:0})
+    if(!Number.isInteger(qty))throw fail(400,'INVALID_QUANTITY','Quantity must be a whole number.')
     const expiry=clean(req.body.expiration_date,10)
-    if(qty>0 && p.item_type==='medicine'&&!/^\d{4}-\d{2}-\d{2}$/.test(expiry))throw fail(400,'INVALID_EXPIRY','Opening stock for medicine requires a YYYY-MM-DD expiry.')
-    if(qty>0 && p.item_type==='supplies'&&!expiry&&!req.body.no_expiry)throw fail(400,'INVALID_EXPIRY','Choose an expiry or No expiry for supplies.')
+    if(expiry&&(!/^\d{4}-\d{2}-\d{2}$/.test(expiry)||!Number.isFinite(Date.parse(expiry))||new Date(expiry).toISOString().slice(0,10)!==expiry))throw fail(400,'INVALID_EXPIRY','Enter a valid batch expiry date, or leave it blank.')
     conn=await db.getConnection();await conn.beginTransaction()
     const supplier=await validateReferences(conn,req.branchId,p)
     const barcode=p.barcode||await nextInventoryBarcode(p.category,req.branchId,conn)
@@ -79,13 +82,13 @@ async function createItem(req,res){
     if(qty>0){
       const [[room]]=await conn.query('SELECT id,name FROM inventory_locations WHERE id=? AND branch_id=? AND is_active=1',[p.default_location_id,req.branchId])
       if(!room)throw fail(409,'NO_STOCKROOM','Select an active Stock Room.')
-      if(!supplier)throw fail(400,'SUPPLIER_REQUIRED','Select an active supplier for opening stock.')
+      if(!supplier)throw fail(400,'SUPPLIER_REQUIRED','Select an active supplier for this quantity.')
       received=await receiveInventoryBatch(result.insertId,{quantity:qty,expiration_date:expiry||null,supplier_id:p.supplier_id,
         supplier_lot_number:clean(req.body.supplier_lot_number,120)||null,
-        unit_cost:number(req.body.unit_cost??0,'Unit Cost'),location_id:room.id,note:'Opening stock'},conn)
+        unit_cost:number(req.body.unit_cost??0,'Unit Cost'),location_id:room.id,note:'Stock added with new item'},conn)
       await syncInventorySnapshot(result.insertId,conn)
-      await conn.query(`INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id)
-        VALUES (?,?,'in',?,'Opening stock','received',?,?,?)`,[result.insertId,req.user.id,qty,received.batch_id,received.location,req.branchId])
+      await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id,${actorColumn(req)},type,qty,note,movement_type,batch_id,to_location,branch_id)
+        VALUES (?,?,'in',?,'Stock added with new item','received',?,?,?)`,[result.insertId,req.user.id,qty,received.batch_id,received.location,req.branchId], received)
     }
     await audit(req,conn,'inventory.item_created',result.insertId,null,{...p,barcode,opening_quantity:qty,opening_batch_id:received?.batch_id||null})
     await conn.commit();conn.release();conn=null
@@ -127,7 +130,7 @@ async function archiveItem(req,res){
     if(prior.archived_at)throw fail(409,'INVENTORY_ARCHIVED','Item is already archived.')
     if(Number(prior.stock)>0)throw fail(409,'INVENTORY_STOCK_REMAINS','Stock must be 0 before archiving. This item still has stock. Record a valid Stock Out, transfer, or dispensing first.')
     const reason=clean(req.body?.reason,255)||'Archived by branch administrator'
-    await conn.query('UPDATE inventory SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=? AND branch_id=?',[req.user.id,reason,prior.id,req.branchId])
+    await conn.query('UPDATE inventory SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=? AND branch_id=?',[adminId(req),reason,prior.id,req.branchId])
     await audit(req,conn,'inventory.item_archived',prior.id,prior,{archived:true,reason})
     await conn.commit();conn.release();conn=null
     return res.json({archived:true,message:'Item archived. Historical inventory activity remains available.'})
@@ -218,8 +221,8 @@ async function bulkCreateItems(req,res) {
       for(const batch of (row.opening_batches||[])){
         const {room,supplier:batchSupplier}=await getValidReceivingRefs(conn,req.branchId,p.category,batch)
         const receipt=await receiveInventoryBatch(result.insertId,{quantity:batch.quantity,expiration_date:batch.expiration_date,location_id:room.id,supplier_id:batchSupplier.id,supplier_lot_number:batch.supplier_lot_number||null,unit_cost:batch.unit_cost,note:'Excel opening stock'},conn)
-        await conn.query(`INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id)
-          VALUES (?,?,'in',?,'Excel opening stock','received',?,?,?)`,[result.insertId,req.user.id,batch.quantity,receipt.batch_id,room.name,req.branchId])
+        await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id,${actorColumn(req)},type,qty,note,movement_type,batch_id,to_location,branch_id)
+          VALUES (?,?,'in',?,'Excel opening stock','received',?,?,?)`,[result.insertId,req.user.id,batch.quantity,receipt.batch_id,room.name,req.branchId], receipt)
         openingQuantity+=batch.quantity
         receivedBatchIds.push({id:receipt.batch_id,quantity:Number(batch.quantity)})
       }
@@ -230,8 +233,8 @@ async function bulkCreateItems(req,res) {
         selling_price:Number(p.selling_price),threshold:Number(p.threshold)})
     }
     const [savedUpload]=await conn.query(`INSERT INTO inventory_excel_uploads
-      (branch_id,upload_type,changes_json,created_by_admin_id) VALUES (?,?,?,?)`,
-      [req.branchId,'new_items',JSON.stringify(created),req.user.id])
+      (branch_id,upload_type,changes_json,created_by_admin_id,created_by_staff_id) VALUES (?,?,?,?,?)`,
+      [req.branchId,'new_items',JSON.stringify(created),adminId(req),isStaff(req)?req.user.id:null])
     await conn.commit();conn.release();conn=null
     return res.status(201).json({created:created.length,updated:0,items:created,upload_id:savedUpload.insertId,
       message:'New items and opening batches were saved. Stock balances match the received batches.'})
@@ -261,11 +264,11 @@ async function bulkReceiveItems(req,res){
    // requests from recording the same external stock delivery twice.
    const [[existing]]=await conn.query('SELECT id FROM inventory_excel_receipts WHERE branch_id=? AND receipt_reference=? LIMIT 1',[req.branchId,row.receipt_reference])
    if(existing)throw fail(409,'RECEIPT_ALREADY_IMPORTED',`Receipt ${row.receipt_reference} was already imported. No additional stock was received.`)
-   await conn.query('INSERT INTO inventory_excel_receipts (branch_id,receipt_reference,inventory_id,created_by_admin_id) VALUES (?,?,?,?)',[req.branchId,row.receipt_reference,item.id,req.user.id])
+   await conn.query('INSERT INTO inventory_excel_receipts (branch_id,receipt_reference,inventory_id,created_by_admin_id,created_by_staff_id) VALUES (?,?,?,?,?)',[req.branchId,row.receipt_reference,item.id,adminId(req),isStaff(req)?req.user.id:null])
    const {room,supplier}=await getValidReceivingRefs(conn,req.branchId,item.category,row)
    const receipt=await receiveInventoryBatch(item.id,{quantity:row.quantity,expiration_date:row.expiration_date,location_id:room.id,supplier_id:supplier.id,supplier_lot_number:row.supplier_lot_number||null,unit_cost:row.unit_cost,note:`Excel Stock In ${row.receipt_reference}`},conn)
    await syncInventorySnapshot(item.id,conn)
-   await conn.query(`INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id) VALUES (?,?,'in',?,?,'received',?,?,?)`,[item.id,req.user.id,row.quantity,`Excel Stock In ${row.receipt_reference}`,receipt.batch_id,room.name,req.branchId])
+   await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id,${actorColumn(req)},type,qty,note,movement_type,batch_id,to_location,branch_id) VALUES (?,?,'in',?,?,'received',?,?,?)`,[item.id,req.user.id,row.quantity,`Excel Stock In ${row.receipt_reference}`,receipt.batch_id,room.name,req.branchId], receipt)
    await conn.query('UPDATE inventory_excel_receipts SET batch_id=? WHERE branch_id=? AND receipt_reference=?',[receipt.batch_id,req.branchId,row.receipt_reference])
    await audit(req,conn,'inventory.bulk_stock_received',item.id,null,{receipt_reference:row.receipt_reference,quantity:row.quantity,batch_id:receipt.batch_id,location:room.name,supplier:supplier.name})
    received.push({id:item.id,batch_id:receipt.batch_id,receipt_reference:row.receipt_reference,quantity:row.quantity})
@@ -341,8 +344,8 @@ async function bulkUpdateItems(req,res) {
     let uploadId=null
     if(updated.length){
       const [savedUpload]=await conn.query(`INSERT INTO inventory_excel_uploads
-        (branch_id,upload_type,changes_json,created_by_admin_id) VALUES (?,?,?,?)`,
-        [req.branchId,'item_edits',JSON.stringify(updated),req.user.id])
+        (branch_id,upload_type,changes_json,created_by_admin_id,created_by_staff_id) VALUES (?,?,?,?,?)`,
+        [req.branchId,'item_edits',JSON.stringify(updated),adminId(req),isStaff(req)?req.user.id:null])
       uploadId=savedUpload.insertId
     }
     await conn.commit();conn.release();conn=null
@@ -360,7 +363,7 @@ async function listExcelUploads(req,res){
   const total = Number(count?.total || 0)
   const totalPages = Math.max(1,Math.ceil(total/limit))
   const safePage = Math.min(page,totalPages)
-  const [rows]=await db.query(`SELECT id,upload_type,created_at,created_by_admin_id,undone_at,undone_by_admin_id
+  const [rows]=await db.query(`SELECT id,upload_type,created_at,created_by_admin_id,created_by_staff_id,undone_at,undone_by_admin_id,undone_by_staff_id
     FROM inventory_excel_uploads WHERE branch_id=? ORDER BY id DESC LIMIT ? OFFSET ?`,[req.branchId,limit,(safePage-1)*limit])
   return res.json({items:rows,pagination:{page:safePage,limit,total,totalPages}})
 }
@@ -429,8 +432,8 @@ async function undoExcelUpload(req,res){
         await audit(req,conn,'inventory.excel_edit_undone',item.id,item.after,{...item.before,upload_id:upload.id,reason})
       }
     } else throw fail(409,'UNDO_NOT_SUPPORTED','This Excel upload type cannot be undone automatically.')
-    await conn.query('UPDATE inventory_excel_uploads SET undone_at=NOW(),undone_by_admin_id=?,undo_reason=? WHERE id=? AND branch_id=?',
-      [req.user.id,reason,upload.id,req.branchId])
+    await conn.query('UPDATE inventory_excel_uploads SET undone_at=NOW(),undone_by_admin_id=?,undone_by_staff_id=?,undo_reason=? WHERE id=? AND branch_id=?',
+      [adminId(req),isStaff(req)?req.user.id:null,reason,upload.id,req.branchId])
     await conn.commit();conn.release();conn=null
     return res.json({undone:true,message:`Excel upload #${upload.id} was undone. All affected items were checked.`})
   }catch(error){if(conn){await conn.rollback().catch(()=>{});conn.release()}return errorResponse(error,res)}

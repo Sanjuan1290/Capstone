@@ -14,6 +14,7 @@ function harness(){
  const mock={query:async(sql,args)=>{queries.push(sql);if(sql.includes('FROM clinic_branches'))return [[{id:1,name:'Laguna',is_active:1},{id:2,name:'Tagaytay',is_active:1}]];if(sql.includes('FROM inventory i'))return [inventory];throw new Error('Unexpected DB read '+sql)}}
  const module={exports:{}}
  vm.runInNewContext(src,{module,exports:module.exports,require:name=>{
+  if(name==='../utils/inventoryReportStock')return require('../../utils/inventoryReportStock')
   if(name==='../db/connect')return mock
   if(name==='../utils/date')return {getTodayDateOnly:()=> '2026-11-03',addDaysDateOnly:()=> '2026-12-03'}
   if(name==='../utils/allInventoryOverview')return metrics

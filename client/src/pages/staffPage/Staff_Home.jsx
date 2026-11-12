@@ -5,6 +5,7 @@ import Staff_Dashboard from './Staff_Dashboard'
 
 const PRIORITY = [
   ['appointments', '/staff/appointments'],
+  ['walk_in_queue', '/staff/walkin'],
   ['patient_records', '/staff/patient-records'],
   ['checkout', '/staff/checkout'],
   ['billing', '/staff/billing'],

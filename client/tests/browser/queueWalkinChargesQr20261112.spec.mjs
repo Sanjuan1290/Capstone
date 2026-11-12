@@ -73,10 +73,13 @@ for(const role of ['admin','staff','superadmin'])for(const mode of ['test','live
 test('an existing QR still locks cash and offers status/cancellation when the branch disables new QR payments',async({page})=>{
  const {checkout}=await mockClinic(page,'staff',{requests:false,bill:{status:'ready'}})
  await page.route(/(?:billing-)?payment-settings$/,route=>route.fulfill({json:{cash_enabled:1,qrph_enabled:0}}))
- await page.route('**/qr-payment/status',route=>route.fulfill({json:{id:22,status:'pending',mode:'test',enabled:false,amount:405,can_collect_alternate:false,can_request_cancel:true}}))
+ await page.clock.install()
+ let statusReads=0
+ await page.route('**/qr-payment/status',route=>{statusReads++;return route.fulfill({json:{id:22,status:'pending',mode:'test',enabled:false,amount:405,can_collect_alternate:false,can_request_cancel:true}})})
  await page.goto(checkout)
  await expect(page.getByText('Existing QR payment - view status',{exact:true})).toBeVisible()
- await expect(page.getByRole('button',{name:'Refresh status',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Refresh status',exact:true})).toHaveCount(0)
+ const reads=statusReads;await page.clock.fastForward(4000);await expect.poll(()=>statusReads).toBeGreaterThan(reads)
  await expect(page.getByRole('button',{name:'Switch to Cash',exact:true})).toBeVisible()
  await expect(page.getByRole('button',{name:'Cash',exact:true})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'Record Payment',exact:true})).toBeDisabled()

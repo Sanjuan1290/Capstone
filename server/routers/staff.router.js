@@ -97,6 +97,8 @@ const safeSettingsWriteUnavailable=(req,res)=>res.status(403).json({code:'BRANCH
 
 
 // ── Auth / universal account utilities ───────────────────────────────────────
+require('./staffOperationalRoutes')(router,{auth,can,canAny,ownAssignedDoctor,staff:staffCtrl,admin:adminCtrl})
+
 router.post('/login',     loginLimiter, staffCtrl.login)
 router.get('/check-auth', staffCtrl.checkAuth)
 router.post('/logout',    staffCtrl.logout)
@@ -120,23 +122,23 @@ router.get('/dashboard', ...auth, can('dashboard'), staffCtrl.getDashboard)
 // ── Appointments + Walk-in Queue (one permission) ────────────────────────────
 router.get('/appointments',                  ...auth, can('appointments'), staffCtrl.getAppointments)
 router.post('/appointments',                 ...auth, can('appointments'), staffCtrl.createAppointment)
-router.get('/appointments/booking-services', ...auth, can('appointments'), staffCtrl.getBillingCatalogForStaff)
+router.get('/appointments/booking-services', ...auth, canAny('appointments','walk_in_queue'), staffCtrl.getBillingCatalogForStaff)
 router.get('/appointments/:id/inventory-readiness', ...auth, can('appointments'), staffCtrl.getAppointmentInventoryReadinessForPortal)
 router.patch('/appointments/:id/confirm',    ...auth, can('appointments'), ownAppointment, staffCtrl.confirmAppointment)
 router.patch('/appointments/:id/cancel',     ...auth, can('appointments'), ownAppointment, staffCtrl.cancelAppointment)
 router.patch('/appointments/:id/no-show',    ...auth, can('appointments'), ownAppointment, staffCtrl.markAppointmentNoShow)
 router.patch('/appointments/:id/reschedule', ...auth, can('appointments'), ownAppointment, staffCtrl.rescheduleAppointment)
-router.get('/appointment-reasons',           ...auth, can('appointments'), staffCtrl.getAppointmentReasons)
+router.get('/appointment-reasons',           ...auth, canAny('appointments','walk_in_queue'), staffCtrl.getAppointmentReasons)
 router.get('/appointment-cancellation-reasons', ...auth, can('appointments'), staffCtrl.getAppointmentCancellationReasons)
-router.get('/queue',                         ...auth, can('appointments'), staffCtrl.getQueue)
-router.get('/queue/precheck/:patientId',     ...auth, can('appointments'), staffCtrl.getQueuePrecheck)
-router.post('/queue',                        ...auth, can('appointments'), staffCtrl.addToQueue)
-router.patch('/queue/:id/status',            ...auth, can('appointments'), staffCtrl.updateQueueStatus)
+router.get('/queue',                         ...auth, can('walk_in_queue'), staffCtrl.getQueue)
+router.get('/queue/precheck/:patientId',     ...auth, can('walk_in_queue'), staffCtrl.getQueuePrecheck)
+router.post('/queue',                        ...auth, can('walk_in_queue'), staffCtrl.addToQueue)
+router.patch('/queue/:id/status',            ...auth, can('walk_in_queue'), staffCtrl.updateQueueStatus)
 
 // Patient search is also needed by the Walk-in Queue, so either feature may use it.
-router.get('/patients', ...auth, canAny('appointments', 'patient_records'), staffCtrl.getPatients)
-router.get('/patients/walk-in-lookup', ...auth, can('appointments'), staffCtrl.lookupWalkInPatients)
-router.post('/patients/walk-in', ...auth, can('appointments'), staffCtrl.createWalkInPatient)
+router.get('/patients', ...auth, canAny('appointments','walk_in_queue', 'patient_records'), staffCtrl.getPatients)
+router.get('/patients/walk-in-lookup', ...auth, canAny('appointments','walk_in_queue'), staffCtrl.lookupWalkInPatients)
+router.post('/patients/walk-in', ...auth, canAny('appointments','walk_in_queue'), staffCtrl.createWalkInPatient)
 router.get('/patients/directory', ...auth, can('patient_records'), async(req,res)=>res.json(await listBranchPatients({branchId:req.branchId,search:req.query.search,page:req.query.page,limit:req.query.limit})))
 router.get('/patients/:id', ...auth, can('patient_records'), staffCtrl.getPatientRecord)
 
@@ -177,14 +179,14 @@ router.put('/inventory/:id',          ...auth, can('inventory'), staffCtrl.updat
 router.delete('/inventory/:id',       ...auth, can('inventory'), staffCtrl.deleteInventoryItem)
 
 // Doctor availability is required by Appointments; the schedules page also uses it.
-router.get('/doctors', ...auth, canAny('appointments', 'doctor_schedules'), staffCtrl.getDoctors)
-router.get('/walk-in/doctors', ...auth, can('appointments'), staffCtrl.getWalkInDoctors)
-router.get('/doctors/:id/walk-ins/acceptance', ...auth, canAny('appointments','doctor_schedules'), ownAssignedDoctor, require('../utils/walkInAcceptance').handler())
+router.get('/doctors', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), staffCtrl.getDoctors)
+router.get('/walk-in/doctors', ...auth, canAny('appointments','walk_in_queue'), staffCtrl.getWalkInDoctors)
+router.get('/doctors/:id/walk-ins/acceptance', ...auth, canAny('appointments','walk_in_queue','doctor_schedules'), ownAssignedDoctor, require('../utils/walkInAcceptance').handler())
 router.put('/doctors/:id/walk-ins/acceptance', ...auth, can('doctor_schedules'), ownAssignedDoctor, require('../utils/walkInAcceptance').handler({editable:true}))
-router.get('/doctors/:id/schedules', ...auth, canAny('appointments', 'doctor_schedules'), staffCtrl.getDoctorSchedules)
-router.get('/doctors/:id/availability', ...auth, canAny('appointments', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorAvailabilityForStaff)
-router.get('/doctors/:id/unavailable-dates', ...auth, canAny('appointments', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorUnavailableDatesForStaff)
-router.get('/doctors/:id/available-slots', ...auth, canAny('appointments', 'doctor_schedules'), ownDoctor, staffCtrl.getAppointmentAvailableSlotsForStaff)
+router.get('/doctors/:id/schedules', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), staffCtrl.getDoctorSchedules)
+router.get('/doctors/:id/availability', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorAvailabilityForStaff)
+router.get('/doctors/:id/unavailable-dates', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownDoctor, staffCtrl.getDoctorUnavailableDatesForStaff)
+router.get('/doctors/:id/available-slots', ...auth, canAny('appointments','walk_in_queue', 'doctor_schedules'), ownDoctor, staffCtrl.getAppointmentAvailableSlotsForStaff)
 
 
 // ── Accounts directory (Staff is read-only; permission changes stay Admin-only) ──

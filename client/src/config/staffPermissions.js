@@ -12,7 +12,8 @@ export const STAFF_PERMISSION_GROUPS = [
     label: 'Clinic Operations',
     description: 'Access appointments, patient information, and doctor scheduling.',
     permissions: [
-      { key: 'appointments', label: 'Appointments', short: 'Appointments + Walk-in Queue', description: 'View and manage scheduled appointments, patient check-ins, and the Walk-in Queue.' },
+      { key: 'appointments', label: 'Appointments', short: 'Scheduled appointments', description: 'View and manage scheduled appointments.' },
+      { key: 'walk_in_queue', label: 'Walk-in Queue', short: 'Check-in and queue management', description: 'Register walk-in patients, select services and accepting doctors, print intake forms and manage the queue.' },
       { key: 'patient_records', label: 'Patient Records', short: 'Patient profiles and history', description: 'Search and view patient profiles, contact information, appointment history, and permitted patient records.' },
       { key: 'doctor_schedules', label: 'Doctor Schedules', short: 'Availability and schedules', description: 'View doctor schedules, clinic hours, availability, and unavailable dates.' },
     ],
@@ -55,6 +56,7 @@ export const STAFF_PERMISSION_KEYS = STAFF_PERMISSIONS.map((item) => item.key)
 export const DEFAULT_STAFF_PERMISSIONS = Object.freeze([
   'dashboard',
   'appointments',
+  'walk_in_queue',
   'patient_records',
   'doctor_schedules',
   'checkout',

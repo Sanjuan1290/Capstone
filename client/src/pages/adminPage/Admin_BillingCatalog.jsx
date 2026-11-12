@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useMemo, useState } from 'react'
 import { portalBaseForPath, canManageServicePricingAtPath } from '../../utils/branchPortalPath.mjs'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
@@ -52,6 +53,8 @@ const Admin_BillingCatalog = () => {
       setLoading(false)
     }
   }
+  useClinicRefresh(load, [], { fallbackMs: 60000 })
+
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPage(1) }, [filter, search])
@@ -98,7 +101,7 @@ const Admin_BillingCatalog = () => {
         <p className="mt-1 text-xs text-slate-500">Services linked to appointments, bills, or promotions can be deactivated to retain history. Unused services can be deleted.</p>
       </div>
       <div className="flex gap-2">
-        <button className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>
+        <></>
         {canEditPricing && <Link className="button-primary" to={`${portalBase}/system-setup/billing/services/new`}><MdAdd /> Add Service</Link>}
       </div>
     </div>

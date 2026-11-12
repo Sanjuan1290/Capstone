@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useState } from 'react'
 import { MdPayments, MdQrCode2, MdRefresh } from 'react-icons/md'
 import { getBillingPaymentSettings, updateBillingPaymentSettings } from '../../services/admin.service'
@@ -27,13 +28,15 @@ const Admin_BillingPaymentMethods = () => {
     const data=await getBillingPaymentSettings();setSettings(data||{});setCash(Number(data?.cash_enabled??1)===1);setQrph(Number(data?.qrph_enabled||0)===1);setQrphSupported(data?.qrph_enabled!==undefined);setDirty(false)
   }catch(e){setError(e.message||'Unable to load payment settings.')}
   finally{setLoading(false)}}
+  useClinicRefresh(load, [], { fallbackMs: 60000, skip: () => dirty || saving })
+
   useEffect(()=>{load()},[])
   const save=async()=>{if(!cash&&!qrph)return toast.error('Enable Cash or QR Ph before saving.')
     setSaving(true);try{await updateBillingPaymentSettings({ ...settings, cash_enabled:cash?1:0, qrph_enabled:qrph?1:0, gcash_enabled:0,maya_enabled:0,bank_transfer_enabled:0 });await load();toast.success('Payment settings saved.')}
     catch(e){toast.error(e.message||'Could not save payment settings.')}
     finally{setSaving(false)}}
   return <div className="mx-auto w-full max-w-7xl space-y-5">
-    <div className="flex items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPayments className="text-amber-500"/> Payment Methods</h1><p className="text-sm text-slate-500">New payments support Cash and gateway-verified QR Ph only.</p></div><button className="button-secondary" disabled={loading||saving} onClick={load}><MdRefresh/> Refresh</button></div>
+    <div className="flex items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdPayments className="text-amber-500"/> Payment Methods</h1><p className="text-sm text-slate-500">New payments support Cash and gateway-verified QR Ph only.</p></div><></></div>
     <BillingSetupNav/>
     {loading?<LoadingState label="Loading payment methods..."/>:error?<ErrorState message={error} onRetry={load}/>:<>
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm flex items-start justify-between gap-4"><div><h2 className="font-bold text-slate-900">Cash</h2><p className="text-sm text-slate-500">Cash collection and change calculation.</p></div><Toggle checked={cash} label="Enable Cash" onChange={v=>{setCash(v);setDirty(true)}}/></div>

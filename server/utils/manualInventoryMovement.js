@@ -1,3 +1,4 @@
+const { writeInventoryActivity } = require('./inventoryActivity')
 const {
   MAIN_LOCATION,
   getInventoryLocationById,
@@ -140,11 +141,9 @@ const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, 
     // inventory.price is a legacy compatibility mirror of Selling Price.
     await executor.query('UPDATE inventory SET price=selling_price WHERE id=?', [inventoryId])
     await syncInventorySnapshot(inventoryId, executor)
-    await executor.query(
-      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, to_location, branch_id)
+    await writeInventoryActivity(executor, `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, to_location, branch_id)
        VALUES (?, ?, 'in', ?, ?, ?, ?, ?, ?)`,
-      [inventoryId, actorId, qty, note || null, movementType, received.batch_id, received.location, branchId]
-    )
+      [inventoryId, actorId, qty, note || null, movementType, received.batch_id, received.location, branchId], received)
     auditValues = {
       type: 'in', movement_type: movementType, quantity: qty,
       batch_id: received.batch_id, batch_code: received.batch_code || null,
@@ -198,11 +197,9 @@ const applyManualInventoryMovement = async ({ branchId, inventoryId, body = {}, 
     await syncLocationSnapshot(inventoryId, executor)
     const movementReason = await resolveConfiguredMovementReason('out', body.movement_reason, executor, branchId)
     const movementType = movementReason.code
-    await executor.query(
-      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, from_location, branch_id)
+    await writeInventoryActivity(executor, `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, batch_id, from_location, branch_id)
        VALUES (?, ?, 'out', ?, ?, ?, ?, ?, ?)`,
-      [inventoryId, actorId, quantity, note || null, movementType, batch.batch_id || batch.id, batch.location || 'Main Stockroom', branchId]
-    )
+      [inventoryId, actorId, quantity, note || null, movementType, batch.batch_id || batch.id, batch.location || 'Main Stockroom', branchId], batch)
     auditValues = {
       type: 'out', movement_type: movementType, quantity,
       batch_id: batch.batch_id || batch.id,

@@ -12,7 +12,7 @@ const router=read('server','routers','branchInventoryItems.js')
 const admin=read('server','controllers','admin.controller.js')
 const fail=(status,code,message)=>Object.assign(new Error(message),{statusCode:status,code})
 const res=()=>({statusCode:200,status(n){this.statusCode=n;return this},json(data){this.data=data;return this}})
-const context={fail,positiveId:x=>Number(x)>0,clean:(s,n)=>String(s||'').trim().slice(0,n),priceMatch:(x,y)=>Number(x).toFixed(2)===Number(y).toFixed(2),audit:async()=>{},errorResponse:(err,r)=>r.status(err.statusCode||500).json({code:err.code,message:err.message})}
+const context={adminId:req=>req.user.id,isStaff:()=>false,fail,positiveId:x=>Number(x)>0,clean:(s,n)=>String(s||'').trim().slice(0,n),priceMatch:(x,y)=>Number(x).toFixed(2)===Number(y).toFixed(2),audit:async()=>{},errorResponse:(err,r)=>r.status(err.statusCode||500).json({code:err.code,message:err.message})}
 const undoSource=router.slice(router.indexOf('async function undoExcelUpload'),router.indexOf('function registerBranchInventoryItems'))
 const makeUndo=(upload,queries)=>{
  const calls=[]

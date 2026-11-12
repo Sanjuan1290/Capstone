@@ -63,7 +63,7 @@ async function save(req,res){
    }
   }
   const cols=['cash_enabled','qrph_enabled','gcash_enabled','maya_enabled','bank_transfer_enabled','gcash_qr_url','maya_qr_url','gcash_qr_mode','maya_qr_mode','gcash_qr_scan_status','maya_qr_scan_status','bank_name','bank_account_name','bank_account_number']
-  await conn.query(`INSERT INTO branch_payment_settings (branch_id,${cols.join(',')},updated_by_admin_id) VALUES (${Array(cols.length+2).fill('?').join(',')}) ON DUPLICATE KEY UPDATE ${cols.map(k=>`${k}=VALUES(${k})`).join(',')},updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,...cols.map(k=>changes[k]),req.user.id])
+  await conn.query(`INSERT INTO branch_payment_settings (branch_id,${cols.join(',')},updated_by_admin_id) VALUES (${Array(cols.length+2).fill('?').join(',')}) ON DUPLICATE KEY UPDATE ${cols.map(k=>`${k}=VALUES(${k})`).join(',')},updated_by_admin_id=VALUES(updated_by_admin_id)`,[req.branchId,...cols.map(k=>changes[k]),req.user?.role==='staff'?null:req.user.id])
   await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role||'admin',action:'billing.payment_settings_updated',entityType:'branch_payment_settings',entityId:req.branchId,branchId:req.branchId,oldValues:prior||null,newValues:changes,ipAddress:req.ip},conn)
   await conn.commit();conn.release();conn=null
   return read(req,res)

@@ -21,6 +21,7 @@ const testBatchHelper = ({ batchRow, branchId = 5 } = {}) => {
     normalizeBatchCode: x=>String(x||'').trim()||null,
     normalizeSupplierLotNumber: x=>String(x||'').trim()||null,
     normalizeExpiryDate: x=>String(x||'').trim().slice(0,10)||null,
+    readPhysicalInventoryQuantity: async()=>Number(batch?.quantity || 0),
     syncLocationSnapshot: async()=>{events.push('syncLocationSnapshot')},
     generateNextBatchCode: async()=> 'B1-003',
     addInventoryBatch: async()=>{events.push('addInventoryBatch'); return 42},
@@ -98,17 +99,16 @@ test('manual stock-in requires original batch for returned unused items', async(
   assert.match(source,/existing_batch_id: isExisting \? existingBatchId : null/)
   assert.doesNotMatch(source,/Every Stock In is a new receipt/)
 })
-test('inventory setup hides internal codes and per-reason checkbox',()=>{
+test('inventory setup hides internal codes and keeps protected corrections and receipt fields',()=>{
   const ui=src('client/src/pages/adminPage/Admin_SystemSetup.jsx')
   assert.doesNotMatch(ui,/Internal code:/)
   assert.doesNotMatch(ui,/Require exact batch selection/)
   assert.doesNotMatch(ui,/>Batch Rule</)
   const inventory=src('client/src/pages/shared/Inventory.jsx')
-  assert.match(inventory,/Create New Batch/)
-  assert.match(inventory,/Add to Existing Batch/)
-  assert.match(inventory,/Receiving Stock Room/)
-  assert.match(inventory,/existing_batch_id: stockInMode/)
-  assert.doesNotMatch(inventory,/Correct Quantity/)
+  assert.match(inventory,/Every Stock In creates a new batch automatically/)
+  assert.match(inventory,/Stock Room \*/ )
+  assert.match(inventory,/ProtectedBatchActionModal/)
+  assert.match(inventory,/Verify Password & Send Code/)
 })
 test('doctor migration keeps existing doctor records and adds database uniqueness',()=>{
   const migration=src('server/migrations/manual/20261112_doctor_identity_unique_FIX11.STAGING_ONLY.sql')
@@ -122,12 +122,13 @@ test('manual returned-unused stock-in skips new expiry/supplier entry and links 
   const segment=source.slice(source.indexOf('const resolveConfiguredMovementReason = async'),source.indexOf('module.exports ='))
   const calls=[]
   const scope={
+    writeInventoryActivity:require('../helpers/inventoryActivityHarness.cjs').loadActivity().writeInventoryActivity,
     MAIN_LOCATION:'Main Stockroom',
     normalizeStockMovementType:(_type,reason)=>reason,
     normalizeNumber:value=>Number(value),
     normalizeOptionalText:value=>String(value||'').trim(),
     resolveManualStockOutSelection:()=>{throw Error('Stock Out path not expected')},
-    receiveInventoryBatch:async(_item,payload)=>{calls.push({received:payload});return {batch_id:33,batch_code:'B33-001',supplier_id:8,expiration_date:'2028-10-10',location:'Treatment Room',existing:true,previous_quantity:5,new_quantity:7}},
+    receiveInventoryBatch:async(_item,payload)=>{calls.push({received:payload});return {batch_id:33,batch_code:'B33-001',supplier_id:8,expiration_date:'2028-10-10',location:'Treatment Room',existing:true,previous_quantity:5,new_quantity:7,quantityBefore:5,quantityAfter:7}},
     syncInventorySnapshot:async()=>{calls.push('syncInventory')},
     syncLocationSnapshot:async()=>{calls.push('syncLocation')},
     writeAuditLog:async()=>{calls.push('audit')},

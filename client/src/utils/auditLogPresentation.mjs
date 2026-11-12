@@ -42,7 +42,7 @@ export const eventOutcome = (row) => {
 const SAFE_FIELDS = new Set([
   'status','is_active','clinic_type','category','category_name','service_name','item_name','name',
   'price','default_price','selling_price','unit_price','low_stock_threshold','low_stock_alert',
-  'quantity','qty','qty_requested','old_quantity','new_quantity','minimum_stock','uom',
+  'movement_type','moved_quantity','from_location','to_location','quantity','qty','qty_requested','old_quantity','new_quantity','minimum_stock','uom',
   'payment_method','payment_amount','amount','refund_delta','refund_amount',
   'discount_amount','discount_percent','discount_type','sub_total','total_amount',
   'appointment_date','appointment_time','unavailable_date','start_time','end_time','day_of_week',
@@ -52,7 +52,7 @@ const SAFE_FIELDS = new Set([
 ])
 const SENSITIVE = /(?:password|secret|token|email|phone|address|diagnos|symptom|medical|prescription|patient_name|contact|history|notes?|message|reason$|image|file|document_body|signature|cookie|session|key|otp)/i
 const labels = {
-  status:'Status',is_active:'Active',name:'Name',category:'Category',default_price:'Starting Price',
+  quantity:'Item total quantity',moved_quantity:'Quantity moved',status:'Status',is_active:'Active',name:'Name',category:'Category',default_price:'Starting Price',
   selling_price:'Selling Price',unit_price:'Unit Price',low_stock_threshold:'Low Stock Alert',
   low_stock_alert:'Low Stock Alert',qty:'Quantity',qty_requested:'Quantity Requested',
   payment_method:'Payment Method',payment_amount:'Payment Amount',appointment_date:'Appointment Date',

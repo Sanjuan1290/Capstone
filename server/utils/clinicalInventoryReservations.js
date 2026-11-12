@@ -1,3 +1,4 @@
+const { writeInventoryActivity, readPhysicalInventoryQuantity } = require('./inventoryActivity')
 // Deferred clinical stock-out.  No live data is changed by importing this file.
 // Requires the 2026-11-11-billing-stock-reservations.sql migration and feature flag.
 const {
@@ -58,7 +59,10 @@ const postClinicalReservations = async ({ billId, branchId, actorRole, actorId, 
     [branchId, branchId, billId]
   )
   const inventoryIds = new Set()
+  const balances = new Map()
   for (const entry of rows) {
+    if (!balances.has(entry.inventory_id)) balances.set(entry.inventory_id, await readPhysicalInventoryQuantity(entry.inventory_id, executor))
+    const quantityBefore = balances.get(entry.inventory_id)
     const quantity = Number(entry.package_quantity)
     if (!Number.isFinite(quantity) || quantity <= 0) throw Object.assign(new Error('Stored pending usage is invalid.'), {statusCode:409,code:'CLINICAL_USAGE_INVALID'})
     // The posted quantities are already held. They must be removed once from
@@ -80,20 +84,19 @@ const postClinicalReservations = async ({ billId, branchId, actorRole, actorId, 
        VALUES (?,?,?,?,?,?,?)`,
       [entry.consultation_usage_id,entry.batch_id,quantity,entry.usage_quantity,entry.unit_label,entry.source_location,entry.location_id]
     )
-    await executor.query(
-      `INSERT INTO inventory_logs
+    await writeInventoryActivity(executor, `INSERT INTO inventory_logs
        (inventory_id,doctor_id,staff_id,admin_id,type,qty,note,movement_type,reference_type,reference_id,batch_id,from_location,branch_id)
        VALUES (?,?,?,?, 'out',?,?,'clinical_use','billing_record',?,?,?,?)`,
       [entry.inventory_id,entry.recorded_by_doctor_id || null,actorRole === 'staff' ? actorId : null,actorRole === 'admin' ? actorId : null,quantity,
         `${entry.batch_code || `Batch #${entry.batch_id}`} clinic use settled ${status === 'unpaid_posted' ? 'without payment' : 'after full payment'}`,
-        billId,entry.batch_id,entry.source_location,branchId]
-    )
+        billId,entry.batch_id,entry.source_location,branchId], {quantityBefore,quantityAfter:quantityBefore-quantity})
     await executor.query(
       `UPDATE clinical_inventory_reservations
        SET status=?,posted_at=NOW(),posted_by_role=?,posted_by_user_id=?
        WHERE id=? AND status='pending'`,
       [status,actorRole,actorId || null,entry.id]
     )
+    balances.set(entry.inventory_id, quantityBefore - quantity)
     inventoryIds.add(entry.inventory_id)
   }
   for (const inventoryId of inventoryIds) {

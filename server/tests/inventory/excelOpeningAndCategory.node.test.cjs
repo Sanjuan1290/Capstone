@@ -20,11 +20,13 @@ function harness({breakSecondBatch=false,linked=0}={}){
   if(sql.startsWith('SELECT id,name,clinic_type,is_active,branch_id FROM billing_service_categories'))return [[p[0]===8&&p[1]===1?draft.category:null]]
   if(sql.includes('FROM billing_service_catalog WHERE category_id=?'))return [[{total:linked}]]
   if(sql.startsWith('DELETE FROM billing_service_categories')){draft.category=null;return [{affectedRows:1}]}
+  if(sql.startsWith('INSERT INTO inventory_excel_uploads'))return [{insertId:1}]
   throw Error('Unexpected SQL: '+sql.slice(0,140))
  }
  const db={getConnection:async()=>{const d=structuredClone(state);return {beginTransaction:async()=>{},query:(s,p)=>query(d,s,p),commit:async()=>{commits++;state=d},rollback:async()=>{rollbacks++},release:()=>{}}}}
  const mock=(name)=>{
   if(name==='../utils/systemSetupRemoval')return {removeBranchReference:async()=>{}}
+  if(name==='../utils/inventoryActivity')return require('../helpers/inventoryActivityHarness.cjs').loadActivity()
   if(name==='../db/connect')return db
   if(name==='../utils/clinicEvents')return {afterSuccessfulMutation:()=>fn=>fn}
   if(name==='../utils/audit')return {writeAuditLog:async(args,conn)=>{ /* audit is transactional in real DB; mocked here */ }}
@@ -34,7 +36,8 @@ function harness({breakSecondBatch=false,linked=0}={}){
   throw Error('Unexpected module '+name)
  }
  // Use a separate stub that has no extra SQL side effects.
- const mockSafe=name=>name==='../utils/inventoryBatches'?{receiveInventoryBatch:async(id,b)=>{if(breakSecondBatch&&b.supplier_lot_number==='LOT-B')throw Error('simulated second-batch failure');return {batch_id:b.supplier_lot_number==='LOT-B'?42:41,location:'Main Stockroom'}},syncInventorySnapshot:async()=>{},attachBatchesToInventory:async rows=>rows}:mock(name)
+ const receiptBalances=new Map()
+ const mockSafe=name=>name==='../utils/inventoryBatches'?{receiveInventoryBatch:async(id,b)=>{if(breakSecondBatch&&b.supplier_lot_number==='LOT-B')throw Error('simulated second-batch failure');const quantityBefore=receiptBalances.get(id)||0;receiptBalances.set(id,quantityBefore+Number(b.quantity));return {quantityBefore,quantityAfter:quantityBefore+Number(b.quantity),batch_id:b.supplier_lot_number==='LOT-B'?42:41,location:'Main Stockroom'}},syncInventorySnapshot:async()=>{},attachBatchesToInventory:async rows=>rows}:mock(name)
  const exportsOf=src=>{const mod={exports:{}};vm.runInNewContext(src,{module:mod,exports:mod.exports,require:mockSafe,console,Date,Set,Number,Object,String,Error,RegExp}, {filename:'server.js'});return mod.exports}
  const moduleItems=exportsOf(source),moduleCats=exportsOf(categories)
  const call=async(name,items,branch=1)=>{let response={statusCode:200,payload:null,status(n){this.statusCode=n;return this},json(v){this.payload=v;return this}};await moduleItems[name]({body:{items},branchId:branch,user:{id:7},adminContext:{account_role:'admin'},ip:'127.0.0.1'},response);return response}

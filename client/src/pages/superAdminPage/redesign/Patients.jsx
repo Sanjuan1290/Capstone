@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import {
   MdPeople, MdPersonSearch, MdRefresh, MdVisibility, MdPhone, MdEmail,
@@ -104,6 +105,8 @@ export default function SuperAdminPatients() {
       setLoading(false)
     }
   }, [search, status, page, pageSize])
+  useClinicRefresh(loadList, [], { fallbackMs: 60000 })
+
 
   useEffect(() => {
     const timer = window.setTimeout(loadList, search ? 300 : 0)
@@ -181,7 +184,7 @@ export default function SuperAdminPatients() {
       <PageHead
         title="Patient Directory"
         description="View registered and guest patients across all clinic branches, review appointment attendance and manage registered account access."
-        action={<SecondaryButton onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}><MdRefresh /> Refresh</SecondaryButton>}
+        action={<></>}
       />
 
       {notice && <Banner type="success" title="Account status updated" onDismiss={() => setNotice('')}>{notice}</Banner>}

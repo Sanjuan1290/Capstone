@@ -84,7 +84,7 @@ const Admin_BillingReconciliation = () => {
         </div>
         <div className="flex items-end gap-2">
           <label><span className="form-label">Date</span><input type="date" className="form-control mt-1.5" value={date} max={getLocalDateOnly()} onChange={(e) => setDate(e.target.value)} /></label>
-          <button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button>
+          <></>
         </div>
       </div>
       <AdminBillingNav pendingApprovals={pendingApprovals} />

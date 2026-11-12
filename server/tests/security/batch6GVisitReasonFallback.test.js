@@ -45,8 +45,8 @@ describe('Batch 6G visit reason fallback', () => {
   })
 
   it('requires an explanation for Other in staff walk-in intake too', () => {
-    const staffUi = read('client', 'src', 'pages', 'staffPage', 'Staff_WalkInQueue.jsx')
-    expect(staffUi).toContain("form.reason === 'Other' && !form.reason_notes.trim()")
-    expect(staffUi).toContain('Other remains available and requires an explanation.')
+    const staffUi = read('client', 'src', 'pages', 'shared', 'AppointmentCreatePage.jsx')
+    expect(staffUi).toContain("form.reason !== 'Other' || form.reasonDetails.trim().length >= 2")
+    expect(staffUi).toContain("setReasons([{ id: 'other', label: 'Other' }])")
   })
 })

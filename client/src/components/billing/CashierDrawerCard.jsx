@@ -78,7 +78,7 @@ const CashierDrawerCard = ({ loadDrawer, closeDrawer }) => {
             <p className="text-xs font-bold text-slate-400">Expected cash</p>
             <p className="text-2xl font-black text-slate-900">{formatMoney(expected)}</p>
           </div>
-          <button type="button" className="button-secondary px-3" onClick={load} aria-label="Refresh cash drawer"><MdRefresh /></button>
+          <></>
         </div>
       </div>
 

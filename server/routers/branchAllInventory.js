@@ -1,3 +1,4 @@
+const { availableStockSql } = require('../utils/inventoryReportStock')
 // Super Admin only. All endpoints are read-only and branch-scoped via the request's Super Admin guard.
 const db = require('../db/connect')
 const { getTodayDateOnly, addDaysDateOnly } = require('../utils/date')
@@ -32,7 +33,7 @@ function registerAllInventory(router,requireSuper) {
   if(category){conditions.push('i.category=?');args.push(category)}
   if(itemType){conditions.push('i.item_type=?');args.push(itemType)}
   if(search){conditions.push('LOWER(CONCAT_WS(\' \',i.name,i.barcode,i.strength,i.dosage_form)) LIKE ?');args.push(`%${search}%`)}
-  const [items]=await db.query(`SELECT i.*,b.name AS branch_name,b.code AS branch_code,
+  const [items]=await db.query(`SELECT i.*,${availableStockSql()} AS available_stock,b.name AS branch_name,b.code AS branch_code,
     (SELECT MIN(batch.expiration_date) FROM inventory_batches batch WHERE batch.inventory_id=i.id
        AND batch.branch_id=i.branch_id AND batch.quantity>0 AND batch.archived_at IS NULL) AS nearest_expiry
     FROM inventory i JOIN clinic_branches b ON b.id=i.branch_id

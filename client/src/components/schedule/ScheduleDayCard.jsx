@@ -31,8 +31,8 @@ const ScheduleDayCard = ({ day, schedule, onSave, onSaved }) => {
   const [form, setForm] = useState(() => scheduleToForm(schedule))
 
   useEffect(() => {
-    setForm(scheduleToForm(schedule))
-  }, [schedule])
+    if (!editing && !saving) setForm(scheduleToForm(schedule))
+  }, [schedule, editing, saving])
 
   const cancelEditing = () => {
     setForm(scheduleToForm(schedule))

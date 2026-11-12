@@ -40,7 +40,7 @@ function OverviewReport({data,branches,trends,error,refresh}) {
    valueBox('Outstanding',money(t.outstanding),'Current unpaid balances',MdPayments),
   ]}/>
   <div className="grid gap-5 lg:grid-cols-2">
-   <Card title="Appointment Activity" description="Counted by appointment date">{trends===null?<Banner onRetry={refresh}>{error||'Appointment trend could not load.'}</Banner>:<LineChart data={(trends||[]).slice(-20).map(r=>({label:String(r.date).slice(5),value:num(r.appointments)}))} />}</Card>
+   <Card title="Appointment Activity" description="Counted by appointment date">{trends===null?<Banner onRetry={refresh}>{error||'Appointment trend could not load.'}</Banner>:<LineChart data={(trends||[]).map(r=>({label:String(r.date).slice(5),value:num(r.appointments)}))} />}</Card>
    <Card title="Net Collections Trend" description="Money received and adjusted during the selected period"><LineChart data={(data.revenue_trend||[]).map(r=>({label:r.month||r.ym,value:num(r.revenue)}))} valueFormatter={money}/></Card>
   </div>
   <div className="grid gap-3 sm:grid-cols-2"><StatCard label="Low Stock (Current)" value={whole(t.low_stock)} icon={MdInventory2}/><StatCard label="Out of Stock (Current)" value={whole(t.out_of_stock)} icon={MdInventory2}/></div>
@@ -91,14 +91,14 @@ function FinancialReport({data}) {
 function ServicesReport({data}) {
  return <div className="space-y-5">
   <div className="grid gap-5 lg:grid-cols-2"><Card title="Doctor Workload"><HorizontalBarChart data={(data.doctors||[]).slice(0,12).map(r=>({label:`${r.name} · ${r.branch_name}`,value:num(r.completed)}))}/></Card><Card title="Top Billed Services"><HorizontalBarChart data={(data.services||[]).slice(0,12).map(r=>({label:r.name,value:num(r.gross_billed)}))} valueFormatter={money}/></Card></div>
-  <Card title="Doctors" description="Each row represents a doctor working at one branch"><DataTable columns={[
+  <Card title="Doctors" description="Up to 50 doctors; each row represents activity at one branch"><DataTable columns={[
    {label:'Doctor',key:'name'},{label:'Branch',key:'branch_name'},
    {label:'Bookings',right:true,render:r=>whole(r.appointments)},
    {label:'Patients',right:true,render:r=>whole(r.patients)},
    {label:'Completed',right:true,render:r=>whole(r.completed)},
    {label:'No-show',right:true,render:r=>whole(r.no_show)},
   ]} rows={data.doctors}/></Card>
-  <Card title="Services" description="Billed services only; medicine and supplies are excluded"><DataTable columns={[
+  <Card title="Services" description="Top 50 billed services before discounts; medicine and supplies are excluded"><DataTable columns={[
    {label:'Service',key:'name'},{label:'Branch',key:'branch_name'},
    {label:'Bills',right:true,render:r=>whole(r.bills)},
    {label:'Quantity',right:true,render:r=>whole(r.quantity)},
@@ -120,7 +120,7 @@ function InventoryReport({data}) {
    valueBox('Out of Stock',whole(s.out_of_stock),null,MdInventory2),
    valueBox('Low Stock',whole(s.low_stock),null,MdInventory2),
    valueBox('Expired Batches',whole(s.expired),null,MdInventory2),
-   valueBox('Expiring in 30 Days',whole(s.expiring_soon),null,MdCalendarMonth),
+   valueBox('Expiring Batches (30 Days)',whole(s.expiring_soon),null,MdCalendarMonth),
    valueBox('Selling-value Estimate',money(s.estimated_selling_value),'Not purchase cost or profit',MdPayments),
   ]}/>
   <div className="grid gap-5 lg:grid-cols-2"><Card title="Inventory by Category"><DataTable columns={[
@@ -140,7 +140,7 @@ function InventoryReport({data}) {
   ]} rows={data.stockrooms}/></Card>
   <Card title="Most Used Medicines & Supplies"><DataTable columns={[
    {label:'Item',key:'name'},{label:'Unit',key:'unit'},
-   {label:'Branch',right:true,key:'branch_id'},
+   {label:'Branch',render:r=>r.branch_name||r.branch_id},
    {label:'Net Used',right:true,render:r=>Number(r.quantity||0).toLocaleString('en-PH',{maximumFractionDigits:2})},
   ]} rows={data.most_used}/></Card>
   <Note>As of {data.as_of}. {data.note}</Note>
@@ -192,7 +192,7 @@ export default function ReportsPage(){
  const Report=RENDERS[section]
  return <div id="super-admin-report" className="space-y-6">
   <PageHead title="Reports & Analytics" description="View clinic operations, collections, consultations and inventory across all branches or one clinic." action={<div className="flex flex-wrap items-center gap-2" data-report-actions>
-   <SecondaryButton onClick={refresh} disabled={loading||detailsLoading}><MdRefresh/> Refresh</SecondaryButton>
+   <></>
    <SecondaryButton onClick={exportPdf} disabled={!valid||exportBusy||loading||detailsLoading||!details||rows===null}><MdPictureAsPdf/> {exportBusy?'Preparing PDF…':'Print / Save PDF'}</SecondaryButton>
   </div>}/>
   <Card className="print:shadow-none" ><div data-report-controls className="flex flex-wrap items-end gap-4">

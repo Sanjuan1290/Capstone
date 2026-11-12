@@ -79,7 +79,7 @@ export default function BillingWorkspace({ role = 'admin' }) {
   return <main className="mx-auto w-full max-w-7xl space-y-5" aria-label="Billing workspace">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-2xl font-black text-slate-900">Billing</h1><p className="mt-1 text-sm text-slate-500">Review bills, collect payments and find receipts in one place.</p></div>
-      <button type="button" onClick={() => void load()} className="button-secondary"><MdRefresh/> Refresh</button>
+      <></>
     </header>
     <nav aria-label="Billing sections" className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
       {sections.filter(tab => !(staff && !canCheckout && tab.id === 'payments')).map(tab => {

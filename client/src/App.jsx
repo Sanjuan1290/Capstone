@@ -63,6 +63,7 @@ import Admin_StaffAccount    from './pages/adminPage/Admin_StaffAccount'
 import Admin_Accounts         from './pages/adminPage/Admin_Accounts'
 import Admin_DoctorAccount   from './pages/adminPage/Admin_DoctorAccount'
 import Admin_DoctorSchedules from './pages/adminPage/Admin_DoctorSchedules'
+import Admin_WalkInQueue from './pages/adminPage/Admin_WalkInQueue'
 import Admin_Appointments    from './pages/adminPage/Admin_Appointments'
 import Admin_NewAppointment from './pages/adminPage/Admin_NewAppointment'
 import Admin_PatientRecord    from './pages/adminPage/Admin_PatientRecord'
@@ -166,8 +167,8 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/staff' element={<StaffRoute><StaffLayout /></StaffRoute>}>
         <Route index element={<Staff_Home />} />
         <Route path='appointments' element={<StaffPermissionRoute permission="appointments"><Staff_Appointments /></StaffPermissionRoute>} />
-        <Route path='appointments/new' element={<StaffPermissionRoute permission="appointments"><Staff_NewAppointment /></StaffPermissionRoute>} />
-        <Route path='walkin' element={<StaffPermissionRoute permission="appointments"><Staff_WalkInQueue /></StaffPermissionRoute>} />
+        <Route path='appointments/new' element={<StaffPermissionRoute permissions={['appointments','walk_in_queue']}><Staff_NewAppointment /></StaffPermissionRoute>} />
+        <Route path='walkin' element={<StaffPermissionRoute permission="walk_in_queue"><Staff_WalkInQueue /></StaffPermissionRoute>} />
         <Route path='patient-records' element={<StaffPermissionRoute permission="patient_records"><Staff_PatientRecord /></StaffPermissionRoute>} />
         <Route path='doctor-schedules' element={<StaffPermissionRoute permission="doctor_schedules"><Staff_DoctorSchedules /></StaffPermissionRoute>} />
         <Route path='checkout' element={<StaffPermissionRoute permission="checkout"><Staff_Billing /></StaffPermissionRoute>} />
@@ -242,6 +243,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/superadmin/branches/:branchId' element={<SuperAdminRoute><BranchOperationsLayout /></SuperAdminRoute>} errorElement={<PortalErrorPage />}>
         <Route index element={<Admin_Dashboard />} />
         <Route path='appointments' element={<Admin_Appointments />} />
+        <Route path='walkin' element={<Admin_WalkInQueue />} />
         <Route path='appointments/new' element={<Admin_NewAppointment />} />
         <Route path='patient-records' element={<Admin_PatientRecord />} />
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />
@@ -279,6 +281,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path='/admin' element={<AdminRoute><BranchOperationsLayout admin /></AdminRoute>} errorElement={<PortalErrorPage />}>
         <Route index element={<Admin_Dashboard />} />
         <Route path='appointments' element={<Admin_Appointments />} />
+        <Route path='walkin' element={<Admin_WalkInQueue />} />
         <Route path='appointments/new' element={<Admin_NewAppointment />} />
         <Route path='patient-records' element={<Admin_PatientRecord />} />
         <Route path='doctor-schedules' element={<Admin_DoctorSchedules />} />

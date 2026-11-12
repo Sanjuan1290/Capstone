@@ -241,6 +241,7 @@ const run = async () => {
       console.warn(`WARNING: ${Number(uncategorizedServices.count)} service(s) are still using a legacy text-only category. Open/edit those services or rerun migration after reviewing category names.`)
     }
 
+    await require('../utils/inventoryActivity').ensureInventoryActivityColumns(db)
     await require('../utils/queueNumberingSchema').verifyQueueNumberingIndexes(db)
 
     // Read-only EXPLAIN of all Reports SQL prevents ambiguous-column regressions.

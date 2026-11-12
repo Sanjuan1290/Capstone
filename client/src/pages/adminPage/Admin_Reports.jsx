@@ -138,7 +138,7 @@ const MostUsedTable = ({ rows, kindLabel }) => {
             <th className="px-3 py-3 text-right">In Consultations</th>
             <th className="px-3 py-3 text-right">Dispensed at Checkout</th>
             <th className="px-3 py-3 text-right">Returned</th>
-            <th className="px-3 py-3 text-right">Visits</th>
+            <th className="px-3 py-3 text-right">Usage Records</th>
             <th className="px-3 py-3 text-right">Billed</th>
           </tr>
         </thead>
@@ -318,10 +318,10 @@ const Admin_Reports = () => {
       <h2>5. Doctor Activity</h2><table><thead><tr><th>Doctor</th><th>Clinic Assignment</th><th>Appointments</th><th>Unique Patients</th><th>Completed</th><th>Completion</th></tr></thead><tbody>${doctorRows || '<tr><td colspan="6">No doctor activity.</td></tr>'}</tbody></table>
       <h2>6. Billing Detail</h2><table><thead><tr><th>Payment Method</th><th>Transactions</th><th>Collected</th></tr></thead><tbody>${paymentRows || '<tr><td colspan="3">No payments.</td></tr>'}</tbody></table>
       <h2>Top Services by Gross Billed Amount</h2><table><thead><tr><th>Service</th><th>Bills</th><th>Qty</th><th>Gross Billed</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="4">No billed services.</td></tr>'}</tbody></table>
-      <h2>7. Most Used Medicines</h2><table><thead><tr><th>#</th><th>Medicine</th><th>Total Used</th><th>In Consultations</th><th>Dispensed at Checkout</th><th>Visits</th><th>Billed</th></tr></thead><tbody>${medicineRows || '<tr><td colspan="7">No medicines used in this period.</td></tr>'}</tbody></table>
-      <h2>Most Used Supplies</h2><table><thead><tr><th>#</th><th>Supply</th><th>Total Used</th><th>In Consultations</th><th>Dispensed at Checkout</th><th>Visits</th><th>Billed</th></tr></thead><tbody>${supplyRows || '<tr><td colspan="7">No supplies used in this period.</td></tr>'}</tbody></table>
+      <h2>7. Most Used Medicines</h2><table><thead><tr><th>#</th><th>Medicine</th><th>Total Used</th><th>In Consultations</th><th>Dispensed at Checkout</th><th>Usage Records</th><th>Billed</th></tr></thead><tbody>${medicineRows || '<tr><td colspan="7">No medicines used in this period.</td></tr>'}</tbody></table>
+      <h2>Most Used Supplies</h2><table><thead><tr><th>#</th><th>Supply</th><th>Total Used</th><th>In Consultations</th><th>Dispensed at Checkout</th><th>Usage Records</th><th>Billed</th></tr></thead><tbody>${supplyRows || '<tr><td colspan="7">No supplies used in this period.</td></tr>'}</tbody></table>
       <h2>8. Inventory Movement</h2><table><thead><tr><th>Movement</th><th>Actions</th><th>Quantity</th></tr></thead><tbody>${inventoryRows || '<tr><td colspan="3">No stock movement.</td></tr>'}</tbody></table>
-      <p class="note"><strong>Current inventory snapshot:</strong> ${report.inventory.total_items || 0} items · value at cost ${escapeHtml(formatMoney(report.inventory.cost_value))} · value at selling price ${escapeHtml(formatMoney(report.inventory.retail_value))} · ${report.inventory.out_of_stock || 0} out of stock · ${report.inventory.low_stock || 0} low stock · ${report.inventory.expired || 0} expired · ${report.inventory.expiring_soon || 0} expiring within 30 days. Current values are not historical balances for the selected period.</p>
+      <p class="note"><strong>Current inventory snapshot:</strong> ${report.inventory.total_items || 0} items · selling-value estimate ${escapeHtml(formatMoney(report.inventory.retail_value))} · ${report.inventory.out_of_stock || 0} out of stock · ${report.inventory.low_stock || 0} low stock · ${report.inventory.expired || 0} expired · ${report.inventory.expiring_soon || 0} expiring within 30 days. Current values are not historical balances for the selected period.</p>
       <footer>${escapeHtml(clinic.report_footer || clinic.clinic_name || 'CARAIT MEDICAL AND DERMATOLOGY CLINIC')} · ${escapeHtml(rangeLabel)}</footer>
     </body></html>`
 
@@ -353,7 +353,7 @@ const Admin_Reports = () => {
           <p className="mt-1 text-sm text-slate-500">Financial and clinic activity for the selected period, with a separate current operational snapshot.</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={load} className="button-secondary"><MdRefresh /> Refresh</button>
+          <></>
           <button onClick={handleExportPdf} className="button-secondary"><MdPictureAsPdf className="text-rose-500" /> Print / Save PDF</button>
         </div>
       </div>
@@ -412,7 +412,7 @@ const Admin_Reports = () => {
           <StatCard label="Appointments" value={report.totalAppointments} helper={`${report.appointmentSummary.unique_patients || 0} unique patients`} icon={MdCalendarToday} />
           <StatCard label="Completion Rate" value={formatPercent(report.completionRate)} helper={`${report.completed} completed`} icon={MdChecklist} />
           <StatCard label="Cancelled / No-show" value={report.cancelled + report.noShow} helper={`${report.cancelled} cancelled · ${report.noShow} no-show`} icon={MdWarningAmber} />
-          <StatCard label="Patient Mix" value={`${report.appointmentSummary.new_patients || 0} new`} helper={`${report.appointmentSummary.returning_patients || 0} returning`} icon={MdGroups} />
+          <StatCard label="Patient Mix" value={`${report.appointmentSummary.new_patients || 0} new`} helper={`${report.appointmentSummary.returning_patients || 0} returning; based on first appointment at this branch`} icon={MdGroups} />
         </div>
       </div>
 
@@ -472,7 +472,7 @@ const Admin_Reports = () => {
 
       <Section
         title={usageKind === 'medicine' ? 'Most Used Medicines' : 'Most Used Supplies'}
-        subtitle="Ranked by quantity that left stock for patients in the selected period: used during consultations plus dispensed at Checkout, minus anything returned. Visits counts consultations and paid bills."
+        subtitle="Ranked by quantity that left stock for patients in the selected period: used during consultations plus dispensed at Checkout, minus anything returned. Usage Records counts distinct consultation or bill references; a visit can have both."
         action={(
           <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Item type">
             {[['medicine', 'Medicines'], ['supplies', 'Supplies']].map(([value, label]) => (
@@ -502,7 +502,7 @@ const Admin_Reports = () => {
                     <p className="text-xs font-bold text-emerald-700">{usageKind === 'medicine' ? 'Most used medicine' : 'Most used supply'}</p>
                     <p className="truncate text-xl font-black text-emerald-900">{top.name}</p>
                   </div>
-                  <p className="text-right text-emerald-900"><span className="text-3xl font-black">{formatQty(top.total_used)}</span> <span className="text-sm font-semibold">{top.unit} across {top.visits} visit{top.visits === 1 ? '' : 's'}</span></p>
+                  <p className="text-right text-emerald-900"><span className="text-3xl font-black">{formatQty(top.total_used)}</span> <span className="text-sm font-semibold">{top.unit} across {top.visits} usage record{top.visits === 1 ? '' : 's'}</span></p>
                 </div>
               )}
               <HorizontalBarChart
@@ -529,15 +529,15 @@ const Admin_Reports = () => {
       <Section title="Current Inventory Health" subtitle="Current stock snapshot. Batch expiry is tracked separately; this section does not pretend to be the inventory balance for the selected historical period.">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard
-            label="Inventory Value (Cost)"
-            value={formatMoney(report.inventory.cost_value ?? report.inventory.total_value)}
-            helper={`${formatMoney(report.inventory.retail_value)} at selling price${Number(report.inventory.batches_without_cost || 0) > 0 ? ` · ${report.inventory.batches_without_cost} of ${report.inventory.batches_on_hand} batches have no unit cost` : ''}`}
+            label="Inventory Selling-value Estimate"
+            value={formatMoney(report.inventory.retail_value)}
+            helper="Physical stock at current selling prices; not purchase cost or profit."
             icon={MdInventory2}
           />
           <StatCard label="Out of Stock" value={report.inventory.out_of_stock || 0} tone="border-rose-200 bg-rose-50 text-rose-800" />
           <StatCard label="Low Stock" value={report.inventory.low_stock || 0} tone="border-amber-200 bg-amber-50 text-amber-800" />
-          <StatCard label="Expired" value={report.inventory.expired || 0} tone="border-red-200 bg-red-50 text-red-800" />
-          <StatCard label="Expiring in 30 Days" value={report.inventory.expiring_soon || 0} tone="border-violet-200 bg-violet-50 text-violet-800" />
+          <StatCard label="Expired Batches" value={report.inventory.expired || 0} tone="border-red-200 bg-red-50 text-red-800" />
+          <StatCard label="Expiring Batches (30 Days)" value={report.inventory.expiring_soon || 0} tone="border-violet-200 bg-violet-50 text-violet-800" />
         </div>
       </Section>
 

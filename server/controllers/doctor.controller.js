@@ -1,3 +1,4 @@
+const { writeInventoryActivity } = require('../utils/inventoryActivity')
 const {getAssignments,readSelectedBranch,setSelectedBranch,clearSelectedBranch} = require('../utils/doctorBranches')
 // server/controllers/doctor.controller.js
 
@@ -212,8 +213,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [usageId, batch.batch_id, Number(batch.quantity || 0), allocatedUsage, entry.unit_label || inventory.unit, batch.location || preferredLocation, batch.location_id || null]
       )
-      await conn.query(
-        `INSERT INTO inventory_logs
+      await writeInventoryActivity(conn, `INSERT INTO inventory_logs
          (inventory_id, doctor_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location, branch_id)
          VALUES (?, ?, 'out', ?, ?, 'clinical_use', 'consultation', ?, ?, ?, ?)`,
         [
@@ -225,8 +225,7 @@ const consumeClinicalInventory = async ({ billing, consultationId, doctorId, app
           batch.batch_id,
           batch.location || preferredLocation,
           appointment.branch_id,
-        ]
-      )
+        ], batch)
     }
   }
 

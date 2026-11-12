@@ -1,3 +1,5 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
+import StockAlertBanner from '../../components/StockAlertBanner'
 // client/src/pages/adminPage/Admin_Dashboard.jsx
 // REDESIGNED: Hero banner, stat grid, today's appointments, doctor status, quick links
 
@@ -133,6 +135,8 @@ const Admin_Dashboard = () => {
       setLastUpdated(result.dashboard || result.appointments ? new Date() : null)
     }).finally(() => setLoading(false))
   }, [todayISO])
+  useClinicRefresh(load, [], { fallbackMs: 60000 })
+
 
   usePolling(load, POLL_MS)
 
@@ -187,10 +191,7 @@ const Admin_Dashboard = () => {
             </p>
             <div className="mt-2"><LiveDot lastUpdated={lastUpdated} /></div>
           </div>
-          <button onClick={load}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors shrink-0 mt-1">
-            <MdRefresh className="text-[18px]" />
-          </button>
+          <></>
         </div>
       </div>
 
@@ -288,21 +289,7 @@ const Admin_Dashboard = () => {
           </div>
 
           {/* Low stock alert */}
-          {(dashStats?.lowStockCount ?? dashStats?.lowStock ?? 0) > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-center gap-3">
-              <MdWarning className="text-amber-500 text-[20px] shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-amber-800">
-                  {dashStats?.lowStockCount ?? dashStats?.lowStock} items low on stock
-                </p>
-                <p className="text-xs text-amber-600 mt-0.5">Consider restocking soon.</p>
-              </div>
-              <NavLink to={portalPath('/admin/inventory')}
-                className="text-xs font-bold text-amber-700 bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-xl hover:bg-amber-200 transition-colors shrink-0">
-                View
-              </NavLink>
-            </div>
-          )}
+          <StockAlertBanner count={dashStats?.lowStockCount ?? dashStats?.lowStock} to={portalPath(cardDestinations.stock)} />
         </div>
       </div>
 

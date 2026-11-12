@@ -627,10 +627,10 @@ const Admin_CheckoutDetail = () => {
           </div>
           <p className="mt-1 text-sm text-slate-500">{bill.doctor_name} · {bill.appointment_reason || 'Consultation'} · Bill #{bill.id} · Version {bill.version || 1}</p>
         </div>
-        <button className="button-secondary transition-colors duration-200" disabled={saving || finalizing || paying || reopening} onClick={() => dirty ? setExternalUpdate(true) : load({ preserveStep: true })}><MdRefresh /> Refresh</button>
+        <></>
       </div>
 
-      {externalUpdate && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><div><strong>Refresh requires confirmation.</strong><p className="mt-1">Your unsaved changes are still on this page. Reloading will replace them with the saved bill.</p></div><button className="button-secondary" onClick={() => { if (!dirty || window.confirm('Discard your unsaved changes and load the latest bill?')) load({ preserveStep: true }) }}>Review Latest Version</button></div>}
+      {externalUpdate && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><div><strong>A newer bill version is available.</strong><p className="mt-1">Your unsaved changes are still on this page. Reloading will replace them with the saved bill.</p></div><button className="button-secondary" onClick={() => { if (!dirty || window.confirm('Discard your unsaved changes and load the latest bill?')) load({ preserveStep: true }) }}>Review Latest Version</button></div>}
       {versionConflict && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><div><strong>This bill changed while you were working on it.</strong><p className="mt-1">The system blocked the stale save so another Staff member's changes were not overwritten.</p></div><button className="button-secondary" onClick={() => load({ preserveStep: true })}>Review Latest Bill</button></div>}
 
       <section aria-label="Patient and consultation details" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">

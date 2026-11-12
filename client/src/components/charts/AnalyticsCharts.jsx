@@ -1,3 +1,4 @@
+import { chartDomain, chartFraction } from '../../utils/chartScale.mjs'
 const safeNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : 0
 const clampMax = (values) => Math.max(...values.map(safeNumber), 1)
 const shortNumber = (value) => new Intl.NumberFormat('en-PH', { notation: 'compact', maximumFractionDigits: 1 }).format(safeNumber(value))
@@ -8,12 +9,12 @@ const EmptyChart = ({ message = 'No data available.' }) => (
   </div>
 )
 
-const GridLines = ({ left = 54, right = 16, top = 18, bottom = 42, width = 720, height = 260, maxValue = 1, formatter = shortNumber }) => {
+const GridLines = ({ left = 54, right = 16, top = 18, bottom = 42, width = 720, height = 260, maxValue = 1, minValue = 0, formatter = shortNumber }) => {
   const plotHeight = height - top - bottom
   return Array.from({ length: 5 }, (_, index) => {
     const ratio = index / 4
     const y = top + ratio * plotHeight
-    const value = maxValue * (1 - ratio)
+    const value = minValue + (maxValue - minValue) * (1 - ratio)
     return (
       <g key={index}>
         <line x1={left} y1={y} x2={width - right} y2={y} stroke="currentColor" className="text-slate-200" strokeWidth="1" />
@@ -28,15 +29,16 @@ export const LineChart = ({ data = [], xKey = 'label', yKey = 'value', valueForm
   const width = 720, height = 260, left = 58, right = 18, top = 18, bottom = 44
   const plotWidth = width - left - right
   const plotHeight = height - top - bottom
-  const maxValue = clampMax(data.map((row) => row[yKey]))
+  const domain = chartDomain(data.map((row) => row[yKey]))
+  const maxValue = domain.max, minValue = domain.min
   const x = (index) => left + (data.length === 1 ? plotWidth / 2 : (index / (data.length - 1)) * plotWidth)
-  const y = (value) => top + plotHeight - (safeNumber(value) / maxValue) * plotHeight
+  const y = (value) => top + plotHeight - chartFraction(safeNumber(value), domain) * plotHeight
   const points = data.map((row, index) => `${x(index)},${y(row[yKey])}`).join(' ')
 
   return (
     <div className="overflow-x-auto">
       <svg viewBox={`0 0 ${width} ${height}`} className="h-64 min-w-[620px] w-full" role="img" aria-label="Line chart">
-        <GridLines {...{ left, right, top, bottom, width, height, maxValue, formatter: valueFormatter }} />
+        <GridLines {...{ left, right, top, bottom, width, height, maxValue, minValue, formatter: valueFormatter }} />
         <polyline points={points} fill="none" stroke="currentColor" className="text-emerald-500" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
         {data.map((row, index) => (
           <g key={`${row[xKey]}-${index}`}>
@@ -99,11 +101,11 @@ export const ComboChart = ({ data = [], xKey = 'label', columnKey = 'columns', l
   const plotWidth = width - left - right
   const plotHeight = height - top - bottom
   const maxColumn = clampMax(data.map((row) => row[columnKey]))
-  const maxLine = clampMax(data.map((row) => row[lineKey]))
+  const lineDomain = chartDomain(data.map((row) => row[lineKey]))
   const groupWidth = plotWidth / Math.max(data.length, 1)
   const barWidth = Math.min(42, groupWidth * 0.48)
   const pointX = (index) => left + index * groupWidth + groupWidth / 2
-  const lineY = (value) => top + plotHeight - (safeNumber(value) / maxLine) * plotHeight
+  const lineY = (value) => top + plotHeight - chartFraction(safeNumber(value), lineDomain) * plotHeight
   const linePoints = data.map((row, index) => `${pointX(index)},${lineY(row[lineKey])}`).join(' ')
 
   return (
@@ -118,7 +120,7 @@ export const ComboChart = ({ data = [], xKey = 'label', columnKey = 'columns', l
           {Array.from({ length: 5 }, (_, index) => {
             const ratio = index / 4
             const y = top + ratio * plotHeight
-            return <text key={index} x={width - right + 8} y={y + 4} textAnchor="start" className="fill-emerald-600 text-[10px]">{lineFormatter(maxLine * (1 - ratio))}</text>
+            return <text key={index} x={width - right + 8} y={y + 4} textAnchor="start" className="fill-emerald-600 text-[10px]">{lineFormatter(lineDomain.min + (lineDomain.max - lineDomain.min) * (1 - ratio))}</text>
           })}
           {data.map((row, index) => {
             const value = safeNumber(row[columnKey])
@@ -142,19 +144,21 @@ export const ComboChart = ({ data = [], xKey = 'label', columnKey = 'columns', l
 
 export const HorizontalBarChart = ({ data = [], labelKey = 'label', valueKey = 'value', valueFormatter = shortNumber, emptyMessage }) => {
   if (!data.length) return <EmptyChart message={emptyMessage} />
-  const maxValue = clampMax(data.map((row) => row[valueKey]))
+  const domain = chartDomain(data.map((row) => row[valueKey]))
+  const zero = chartFraction(0, domain) * 100
   return (
     <div className="space-y-4">
       {data.map((row, index) => {
         const value = safeNumber(row[valueKey])
-        const width = Math.max(value > 0 ? 3 : 0, (value / maxValue) * 100)
+        const position = chartFraction(value, domain) * 100
+        const width = Math.abs(position - zero)
         return (
           <div key={`${row[labelKey]}-${index}`} title={`${String(row[labelKey] ?? '')}: ${valueFormatter(value)}`}>
             <div className="mb-1.5 flex items-center justify-between gap-4 text-sm">
               <span className="truncate font-semibold text-slate-700">{row[labelKey]}</span>
               <span className="shrink-0 font-black text-slate-900">{valueFormatter(value)}</span>
             </div>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-sky-500" style={{ width: `${width}%` }} /></div>
+            <div className="relative h-3 overflow-hidden rounded-full bg-slate-100"><span className="absolute inset-y-0 border-l border-slate-500" style={{left: `${zero}%`}} /><div className={`absolute h-full rounded-full ${value < 0 ? 'bg-rose-600' : 'bg-sky-500'}`} style={{ left: `${Math.min(position,zero)}%`, width: `${width}%` }} /></div>
           </div>
         )
       })}

@@ -37,8 +37,12 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
   const queueSchema = require('../helpers/queueSchemaFixture.cjs').queueSchemaFixture()
   const applied = new Map()
   const commands = []
+  const actorColumns = new Map([['inventory_excel_uploads.created_by_admin_id',{COLUMN_TYPE:'int',IS_NULLABLE:'NO'}]])
+  const movementColumns = new Map()
   const reversalColumns = new Map(Object.entries(initialReversalColumns || {}))
   const reversalMetadata = (sql, params) => {
+    if (/information_schema\.COLUMNS/i.test(sql) && ['inventory_excel_uploads','inventory_excel_receipts'].includes(params?.[0])) {const row=actorColumns.get(params[0]+'.'+params[1]);return [row?[row]:[]]}
+    if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'inventory_logs' && ['quantity_before','quantity_after'].includes(params[1])) return [movementColumns.has(params[1]) ? [movementColumns.get(params[1])] : []]
     if (!/information_schema\.COLUMNS/i.test(sql) || params?.[0] !== 'billing_charge_adjustments') return null
     const existing = reversalColumns.get(params[1])
     return [existing ? [existing] : []]
@@ -111,6 +115,10 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
           if (/ADD CONSTRAINT/i.test(sql)) { assert.equal(promotionState.appointments, true); promotionFk = true }
         }
         if (/^ALTER TABLE billing_records\s/i.test(String(sql))) promotionState.billing_records = true
+        const actorDdl = /^ALTER TABLE (inventory_excel_uploads|inventory_excel_receipts) (?:ADD|MODIFY) COLUMN ([a-z_]+) INT NULL$/i.exec(sql)
+        if(actorDdl)actorColumns.set(actorDdl[1]+'.'+actorDdl[2],{COLUMN_TYPE:'int',IS_NULLABLE:'YES'})
+        const movementColumn = /^ALTER TABLE inventory_logs ADD COLUMN (quantity_before|quantity_after) DECIMAL\(12,2\) NULL$/i.exec(sql)
+        if (movementColumn) {assert.equal(movementColumns.has(movementColumn[1]), false);movementColumns.set(movementColumn[1], { COLUMN_TYPE: 'decimal(12,2)', IS_NULLABLE: 'YES' })}
         const reversalColumn = /^ALTER TABLE billing_charge_adjustments ADD COLUMN (reversed_at|reversed_by_admin_id|reversal_reason) (DATETIME|INT|VARCHAR\(255\)) NULL$/i.exec(String(sql))
         if (reversalColumn) {
           assert.equal(reversalColumns.has(reversalColumn[1]), false, 'An existing reversal column must never be added again')
@@ -149,8 +157,12 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
   const historicalTail = ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql']
   assert.deepEqual(migrationFiles.filter(file => historicalTail.includes(file)), historicalTail)
-  assert.equal(migrationFiles.at(-2), '2026-11-12-daily-stock-alerts.sql')
-  assert.equal(migrationFiles.at(-1), '2026-11-12-queue-daily-department-numbers.sql')
+  assert.equal(migrationFiles.at(-5), '2026-11-12-daily-stock-alerts.sql')
+  assert.equal(migrationFiles.at(-4), '2026-11-12-queue-daily-department-numbers.sql')
+  assert.equal(migrationFiles.at(-3), '2026-11-13-inventory-movement-balances.sql')
+  assert.deepEqual(migrationFiles.slice(-2),['2026-11-13-walk-in-queue-permission.sql','2026-11-13-shared-operation-actors.sql'])
+  const balanceSql = fs.readFileSync(path.join(migrationDir, '2026-11-13-inventory-movement-balances.sql'), 'utf8').replace(/\r\n/g, '\n')
+  assert.equal(crypto.createHash('sha256').update(balanceSql).digest('hex'), '424fe528d3718b2e90e65b63133b34f7f8375fbe0c7f5168d8c52c14db089732')
   const queueSql = fs.readFileSync(path.join(migrationDir, '2026-11-12-queue-daily-department-numbers.sql'), 'utf8').replace(/\r\n/g, '\n')
   assert.equal(crypto.createHash('sha256').update(queueSql).digest('hex'), '37b80754a001d8fd32de0c45e9b430a2ab3eb90fcb462b4849c94ffb8f120005')
   const stockSql = fs.readFileSync(path.join(migrationDir, '2026-11-12-daily-stock-alerts.sql'), 'utf8').replace(/\r\n/g, '\n')

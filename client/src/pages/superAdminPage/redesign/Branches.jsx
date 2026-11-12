@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../../hooks/useClinicRefresh'
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {NavLink} from 'react-router-dom'
 import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'
@@ -28,6 +29,8 @@ export const SuperAdminBranches=()=>{
   else {setReady([]);setReadinessError(messageOf(readinessResult.reason,'Branch readiness is temporarily unavailable.'))}
   setLoading(false)
  },[])
+  useClinicRefresh(load, [], { fallbackMs: 60000, skip: () => open || saving })
+
  useEffect(()=>{load()},[load])
 
  const check=useCallback(id=>ready.find(v=>Number(v.id)===Number(id)),[ready])
@@ -81,7 +84,7 @@ export const SuperAdminBranches=()=>{
  }
 
  return <div className="space-y-6">
-  <PageHead title="Clinic Branches" description="Manage clinic locations, contact information, services and online booking readiness." action={<><SecondaryButton onClick={load} disabled={loading}><MdRefresh/> Refresh</SecondaryButton><PrimaryButton onClick={()=>open()}><MdAdd/> Create Branch</PrimaryButton></>}/>
+  <PageHead title="Clinic Branches" description="Manage clinic locations, contact information, services and online booking readiness." action={<><></><PrimaryButton onClick={()=>open()}><MdAdd/> Create Branch</PrimaryButton></>}/>
 
   <div className="grid gap-3 grid-cols-2 xl:grid-cols-5">
    <Card><p className="text-xs font-semibold text-slate-500">Total Branches</p><p className="mt-1 text-2xl font-black tabular-nums">{countLabel(counts.total)}</p></Card>

@@ -86,7 +86,7 @@ export const SuperAdminSystemSetup = () => {
           {credits?.checked_at && <p className="mt-2 text-xs text-slate-500">Last checked: {new Date(credits.checked_at).toLocaleString('en-PH',{timeZone:'Asia/Manila'})}</p>}
           {creditsError && <p className="mt-2 text-xs text-rose-700" role="alert">{creditsError}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className="button-secondary" onClick={()=>{void loadCredits(true)}} disabled={creditsLoading}>{creditsLoading?'Checking…':'Refresh Balance'}</button>
+
             <a href={SEMAPHORE_URL} target="_blank" rel="noopener noreferrer" className="button-secondary inline-flex items-center justify-center">Buy SMS Credits on Semaphore</a>
           </div>
           <p className="mt-2 text-xs text-slate-500">Balance checks are limited to reduce API requests. OTP messages may use more than one credit.</p>

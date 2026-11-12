@@ -1,0 +1,87 @@
+import {test,expect} from '@playwright/test'
+import {mockClinic} from './helpers/clinic20261111.mjs'
+const permissions=['dashboard','appointments','walk_in_queue','inventory','doctor_schedules','system_setup','accounts','audit_logs','reports','billing','checkout']
+async function inventoryApi(page){
+ const writes=[]
+ await page.route('**/api/**/inventory',route=>{
+  if(route.request().method()==='POST'){writes.push(route.request().postDataJSON());return route.fulfill({status:201,json:{id:11,...writes.at(-1)}})}
+  return route.fulfill({json:[]})
+ })
+ await page.route('**/inventory/master-data*',route=>route.fulfill({json:{suppliers:[{id:3,name:'Supplier',category:'medical',is_active:1}],location_types:[],movement_reasons:[]}}))
+ await page.route('**/inventory/locations',route=>route.fulfill({json:[{id:2,name:'Main Stockroom',is_active:1,is_main_stockroom:1,location_type:'stockroom'}]}))
+ await page.route('**/inventory/archived',route=>route.fulfill({json:[]}))
+ await page.route('**/inventory/logs?*',route=>route.fulfill({json:{items:[],pagination:{page:1,limit:10,total:0,totalPages:1}}}))
+ return writes
+}
+for(const role of ['admin','staff','superadmin'])test(`${role}: Add Item accepts blank optional fields and stocked items without expiry`,async({page})=>{
+ const {root}=await mockClinic(page,role,{permissions});const writes=await inventoryApi(page)
+ await page.goto(root+'/inventory')
+ await page.getByRole('button',{name:'Add Item',exact:true}).click()
+ const form=page.getByRole('dialog',{name:'Add Item',exact:true})
+ await expect(form.getByText('Add Item',{exact:true}).first()).toBeVisible()
+ await expect(form.getByText('Add Medicine',{exact:true})).toHaveCount(0)
+ await form.getByLabel('Item Name *',{exact:true}).fill('Tissue')
+ await form.getByLabel('Stock Room *',{exact:true}).selectOption('2')
+ await form.getByLabel('Supplier *',{exact:true}).selectOption('3')
+ await form.getByLabel('Quantity (optional)',{exact:true}).fill('')
+ await form.getByLabel('Selling Price (optional)',{exact:true}).fill('')
+ await expect(form.getByRole('button',{name:'Add Item',exact:true})).toBeEnabled()
+ await form.getByRole('button',{name:'Add Item',exact:true}).click()
+ await expect.poll(()=>writes.length).toBe(1)
+ expect(writes[0]).toMatchObject({stock:0,selling_price:0,expiration_date:''})
+ await page.getByRole('button',{name:'Add Item',exact:true}).click()
+ const next=page.getByRole('dialog',{name:'Add Item',exact:true})
+ await next.getByLabel('Item Name *',{exact:true}).fill('Tissue pack')
+ await next.getByLabel('Stock Room *',{exact:true}).selectOption('2')
+ await next.getByLabel('Supplier *',{exact:true}).selectOption('3')
+ await next.getByLabel('Quantity (optional)',{exact:true}).fill('200')
+ await expect(next.getByLabel('Batch Expiry (optional)',{exact:true})).toBeVisible()
+ await expect(next).not.toContainText('Expiry is required')
+ await next.getByRole('button',{name:'Add Item',exact:true}).click()
+ await expect.poll(()=>writes.length).toBe(2)
+ expect(writes[1]).toMatchObject({stock:200,selling_price:0,expiration_date:''})
+ await expect(page.getByRole('heading',{name:'Inventory Activity'})).toBeVisible()
+ await expect(page.getByRole('button',{name:/refresh/i})).toHaveCount(0)
+})
+for(const role of ['admin','staff','superadmin'])test(`${role}: same schedule editor saves through its own branch API`,async({page})=>{
+ const {root}=await mockClinic(page,role,{permissions});const writes=[]
+ await page.route('**/api/**/doctors/8/schedules',route=>{
+  if(route.request().method()==='PUT'){writes.push({url:route.request().url(),body:route.request().postDataJSON()});return route.fulfill({json:{success:true}})}
+  return route.fulfill({json:[{day_of_week:'Monday',start_time:'08:00',end_time:'18:00',is_active:1}]})
+ })
+ await page.goto(root+'/doctor-schedules')
+ await page.getByRole('button',{name:/Dr Test/}).last().click()
+ await expect(page.getByText('Specific Date Unavailable',{exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Edit Schedule',exact:true}).first().click()
+ const times=page.locator('input[type=time]');await times.first().fill('09:00')
+ await page.getByRole('button',{name:/Save/}).first().click()
+ await expect.poll(()=>writes.length).toBe(1)
+ expect(writes[0].body.start_time).toBe('09:00')
+ expect(writes[0].url).toContain(role==='staff'?'/api/staff/admin-access/':role==='admin'?'/api/branches/my/legacy/':'/api/branches/workspace/1/legacy/')
+ await expect(page.getByRole('button',{name:/refresh/i})).toHaveCount(0)
+})
+test('Staff queue-only grant opens queue and walk-in creation without granting scheduled appointments',async({page})=>{
+ await mockClinic(page,'staff',{permissions:['walk_in_queue']})
+ await page.goto('/staff/walkin')
+ await expect(page.getByRole('heading',{name:'Walk-in Queue',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Add Walk-in Visit',exact:true}).click()
+ await expect(page.getByRole('button',{name:/Walk-in Now/})).toBeVisible()
+ await expect(page.getByRole('button',{name:/Scheduled Appointment/})).toHaveCount(0)
+ await page.goto('/staff/appointments')
+ await expect(page.getByText('You do not have access to this feature.',{exact:true})).toBeVisible()
+})
+test('Appointments grant does not implicitly grant Staff queue access',async({page})=>{
+ await mockClinic(page,'staff',{permissions:['appointments']})
+ await page.goto('/staff/walkin')
+ await expect(page.getByText('You do not have access to this feature.',{exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Add Walk-in Visit',exact:true})).toHaveCount(0)
+})
+test('Staff shared inventory updates on focus without replacing a draft item',async({page})=>{
+ const {root}=await mockClinic(page,'staff',{permissions});await inventoryApi(page)
+ await page.goto(root+'/inventory');await page.getByRole('button',{name:'Add Item',exact:true}).click()
+ const form=page.getByRole('dialog',{name:'Add Item',exact:true})
+ await form.getByLabel('Item Name *',{exact:true}).fill('Unsaved tissue')
+ await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+ await expect(form.getByLabel('Item Name *',{exact:true})).toHaveValue('Unsaved tissue')
+ await expect(page.getByRole('button',{name:/refresh/i})).toHaveCount(0)
+})

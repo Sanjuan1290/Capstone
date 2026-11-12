@@ -7,7 +7,7 @@ import { useSSE } from '../../hooks/useSSE'
 import { playNotificationSound } from '../../utils/notificationSound'
 import { getDashboard, getBills } from '../../services/admin.service'
 import {
-  MdDashboard, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
+  MdDashboard, MdQueuePlayNext, MdEventAvailable, MdPeople, MdMedicalServices, MdCalendarToday, MdInventory2,
   MdBarChart, MdChevronLeft, MdLogout, MdAdminPanelSettings, MdMenu, MdClose, MdSettings,
   MdLanguage, MdEdit, MdPayments, MdHistory, MdTune, MdCampaign,
 } from 'react-icons/md'
@@ -16,6 +16,7 @@ const GROUPS = [
   { label: 'Overview', items: [{ name: 'Dashboard', path: '/admin', icon: MdDashboard, short: 'Home' }] },
   { label: 'Clinic Operations', items: [
     { name: 'Appointments', path: '/admin/appointments', icon: MdEventAvailable, short: 'Appts', badge: 'pending' },
+    { name: 'Walk-in Queue', path: '/admin/walkin', icon: MdQueuePlayNext, short: 'Queue' },
     { name: 'Patient Records', path: '/admin/patient-records', icon: MdPeople, short: 'Patients' },
     { name: 'Doctor Schedules', path: '/admin/doctor-schedules', icon: MdCalendarToday, short: 'Schedule' },
   ] },
@@ -87,7 +88,7 @@ const AdminLayout = ({ base = '/admin', branch = null, superBranch = false, perm
     if (branch && item.path === '/admin/landingpage') return false
     if (!branch || superBranch || !permissions) return true
     const key = item.path === '/admin' ? 'dashboard' : ({
-      '/admin/appointments':'appointments','/admin/patient-records':'patient_records',
+      '/admin/appointments':'appointments','/admin/walkin':'walk_in_queue','/admin/patient-records':'patient_records',
       '/admin/doctor-schedules':'doctor_schedules','/admin/billing':'billing',
       '/admin/inventory':'inventory',
       '/admin/accounts':'accounts','/admin/system-setup':'system_setup','/admin/announcements':'system_setup',

@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { MdRefresh, MdWarningAmber } from 'react-icons/md'
@@ -20,6 +21,8 @@ export default function Admin_PaymentIssues() {
     catch(err){setMessage(err.message||'Could not load payment issues.')}
     finally {setLoading(false)}
   },[])
+  useClinicRefresh(load, [], { fallbackMs: 60000 })
+
   useEffect(()=>{void load()},[load])
   const perform = async (row,action) => {
     if (busy) return
@@ -41,7 +44,7 @@ export default function Admin_PaymentIssues() {
   return <main className="space-y-5">
     <AdminBillingNav />
     <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-xl font-black"><MdWarningAmber className="text-amber-500"/> Payment Problems</h1><p className="mt-1 text-sm text-slate-600">Help patients whose QR payment is pending, failed, or needs verification.</p></div><button type="button" className="button-secondary" onClick={load}><MdRefresh/> Refresh</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-xl font-black"><MdWarningAmber className="text-amber-500"/> Payment Problems</h1><p className="mt-1 text-sm text-slate-600">Help patients whose QR payment is pending, failed, or needs verification.</p></div><></></div>
       <p className="mt-3 text-xs font-semibold text-amber-800">First check the PayMongo status. You can accept cash only after the server confirms that the QR has been cancelled and releases the payment lock. QR image expiry alone is not enough.</p>
     </section>
     {message && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">{message}</p>}

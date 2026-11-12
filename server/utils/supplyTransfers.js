@@ -1,3 +1,4 @@
+const { writeInventoryActivity } = require('./inventoryActivity')
 const db = require('../db/connect')
 const { writeAuditLog } = require('./audit')
 const { broadcast } = require('./sse')
@@ -249,12 +250,10 @@ const resolveSupplyTransfer = async ({ requestId, branchId, status, actorRole, a
         const actorColumn = actorRole === 'admin' ? 'admin_id' : 'staff_id'
         for (const batch of movement.transferred) {
           const label = batch.batch_code || `Batch #${batch.batch_id}`
-          await conn.query(
-            `INSERT INTO inventory_logs
+          await writeInventoryActivity(conn, `INSERT INTO inventory_logs
              (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id, branch_id)
              VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'supply_request', ?, ?, ?)`,
-            [line.inventory_id, actorId, batch.quantity, `${label} moved from ${mainName} to ${destination} for stock transfer request #${group.id} (line #${line.id})`, mainName, destination, line.id, batch.batch_id, branchId]
-          )
+            [line.inventory_id, actorId, batch.quantity, `${label} moved from ${mainName} to ${destination} for stock transfer request #${group.id} (line #${line.id})`, mainName, destination, line.id, batch.batch_id, branchId], batch)
         }
 
         itemResults.push({

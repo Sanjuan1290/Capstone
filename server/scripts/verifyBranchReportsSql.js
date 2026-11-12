@@ -17,6 +17,7 @@ const collectBranchReportQueries = async () => {
     '../db/connect': fakeDb,
     '../utils/reportRange': { resolveReportRange: () => ({ startDate: '1926-04-15', endDate: '1926-10-15' }) },
     '../utils/date': { getTodayDateOnly: () => '1926-10-15', addDaysDateOnly: () => '1926-11-14' },
+    '../utils/inventoryReportStock': require('../utils/inventoryReportStock'),
     '../utils/audit': { writeAuditLog: async () => {} },
   }
   const source = fs.readFileSync(path.join(__dirname, '../routers/branchReports.js'), 'utf8')

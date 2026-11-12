@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { formatQueueLabel } from '../../utils/queueLabel.mjs'
 // client/src/pages/doctorPage/Doctor_Dashboard.jsx
 // REDESIGNED: Mobile-first, hero banner, live polling, improved appointment + queue display
@@ -58,6 +59,8 @@ const Doctor_Dashboard = () => {
       })
       .catch(err => console.error('Doctor Dashboard error:', err))
   }, [todayISO])
+  useClinicRefresh(load, [], { fallbackMs: 60000 })
+
 
   usePolling(load, POLL_MS)
 
@@ -106,10 +109,7 @@ const Doctor_Dashboard = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <button onClick={load} title="Refresh"
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
-              <MdRefresh className="text-[18px]" />
-            </button>
+            <></>
             <NavLink to="/doctor/appointments"
               className="hidden sm:flex items-center gap-2 bg-violet-500 hover:bg-violet-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
               <MdCalendarToday className="text-[15px]" /> View Schedule

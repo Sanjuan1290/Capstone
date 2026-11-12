@@ -83,7 +83,7 @@ export default function Staff_BillingRecords({ embedded = false, canCheckout = f
           {embedded ? <h2 className="text-lg font-bold text-slate-900">{paymentHelp ? 'Find a bill to inspect' : 'Bills & Receipts'}</h2> : <h1 className="text-2xl font-bold text-slate-900">Bills & Receipts</h1>}
           <p className="mt-1 text-sm text-slate-500">Search recorded bills, payments and balances. Billing history is read-only here.</p>
         </div>
-        <button type="button" onClick={load} className="button-secondary"><MdRefresh /> Refresh List</button>
+        <></>
       </div>
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

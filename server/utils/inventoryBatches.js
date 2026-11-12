@@ -1,3 +1,4 @@
+const { readPhysicalInventoryQuantity } = require('./inventoryActivity')
 const { assertLegacyBatchMode } = require('./inventoryModeSafety')
 const db = require('../db/connect')
 const { resolveMainStockroom } = require('./inventoryLocations')
@@ -243,6 +244,7 @@ const receiveInventoryBatch = async (
   const batchQty = toPositiveNumber(quantity)
   if (batchQty <= 0) throw Object.assign(new Error('Quantity must be greater than zero.'), { statusCode: 400 })
 
+  const quantityBefore = await readPhysicalInventoryQuantity(inventoryId, executor)
   const branchId = await getInventoryBranchId(inventoryId, executor)
   const explicitLocation = location_id ? await getInventoryLocationById(location_id, executor, branchId) : null
   if (location_id && !explicitLocation) throw Object.assign(new Error('Selected storage location is unavailable.'), { statusCode: 400 })
@@ -286,6 +288,7 @@ const receiveInventoryBatch = async (
       expiration_date: normalizeExpiryDate(batch.expiration_date instanceof Date ? batch.expiration_date.toISOString().slice(0,10) : batch.expiration_date),
       unit_cost: Number(batch.unit_cost || 0),
       quantity_added: batchQty,
+      quantityBefore, quantityAfter: quantityBefore + batchQty,
       previous_quantity: Number(batch.quantity || 0),
       new_quantity: Number(batch.quantity || 0) + batchQty,
       existing: true,
@@ -329,6 +332,7 @@ const receiveInventoryBatch = async (
     expiration_date: normalizeExpiryDate(expiration_date),
     unit_cost: Math.max(0, Number(unit_cost) || 0),
     quantity_added: batchQty,
+    quantityBefore, quantityAfter: quantityBefore + batchQty,
     previous_quantity: 0,
     new_quantity: batchQty,
     existing: false,
@@ -397,6 +401,8 @@ const consumeInventoryFromLocationFEFO = async (
     return { ok: false, message: 'Quantity must be greater than zero.', shortage: 0, consumed: [] }
   }
 
+  await ensureInventoryLocationAllocations(inventoryId, executor)
+  let quantityBefore = await readPhysicalInventoryQuantity(inventoryId, executor)
   let remaining = requestedQty
   const consumed = []
   const candidateLocations = [locationName]
@@ -432,11 +438,12 @@ const consumeInventoryFromLocationFEFO = async (
         id: batch.id,
         batch_id: batch.id,
         batch_code: batch.batch_code || null,
-        quantity: used,
+        quantity: used, quantityBefore, quantityAfter: quantityBefore - used,
         expiration_date: batch.expiration_date || null,
         location: resolvedName || candidate,
         location_id: locationId,
       })
+      quantityBefore -= used
       remaining -= used
     }
   }
@@ -472,6 +479,7 @@ const consumeInventoryFromLocationByBatches = async (
   }
 
   await ensureInventoryLocationAllocations(inventoryId, executor)
+  let quantityBefore = await readPhysicalInventoryQuantity(inventoryId, executor)
   const branchId = await getInventoryBranchId(inventoryId, executor)
   const resolvedLocation = await resolveLocation(locationName, executor, { branchId })
   if (!resolvedLocation) {
@@ -516,7 +524,8 @@ const consumeInventoryFromLocationByBatches = async (
     if (Number(locationUpdate.affectedRows || 0) !== 1) throw Object.assign(new Error('Selected batch stock changed. Please reload and retry.'), { statusCode: 409 })
     const [batchUpdate] = await executor.query('UPDATE inventory_batches SET quantity = quantity - ? WHERE id = ? AND quantity >= ?', [selection.quantity, batch.id, selection.quantity])
     if (Number(batchUpdate.affectedRows || 0) !== 1) throw Object.assign(new Error('Selected batch stock changed. Please reload and retry.'), { statusCode: 409 })
-    consumed.push({ id: batch.id, batch_id: batch.id, batch_code: batch.batch_code || null, quantity: selection.quantity, expiration_date: batch.expiration_date || null, location: locationName, location_id: locationId })
+    consumed.push({ id: batch.id, batch_id: batch.id, batch_code: batch.batch_code || null, quantity: selection.quantity, quantityBefore, quantityAfter: quantityBefore - selection.quantity, expiration_date: batch.expiration_date || null, location: locationName, location_id: locationId })
+    quantityBefore -= selection.quantity
   }
 
   await syncInventorySnapshot(inventoryId, executor)
@@ -548,6 +557,7 @@ const transferInventoryBatchesFEFO = async (
   }
 
   await ensureInventoryLocationAllocations(inventoryId, executor)
+  const quantityBefore = await readPhysicalInventoryQuantity(inventoryId, executor)
   const { locationId: fromId, rows } = await loadLocationBatches(inventoryId, fromLocation, executor)
   const branchId = await getInventoryBranchId(inventoryId, executor)
   const toId = await getLocationId(toLocation, executor, { branchId })
@@ -570,7 +580,7 @@ const transferInventoryBatchesFEFO = async (
        ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`,
       [toId, inventoryId, batch.id, moved]
     )
-    transferred.push({ batch_id: batch.id, batch_code: batch.batch_code || null, quantity: moved, expiration_date: batch.expiration_date || null })
+    transferred.push({ batch_id: batch.id, batch_code: batch.batch_code || null, quantity: moved, quantityBefore, quantityAfter: quantityBefore, expiration_date: batch.expiration_date || null })
     remaining -= moved
   }
 
@@ -589,6 +599,7 @@ const returnQuantityToBatch = async (inventoryId, batchId, locationId, quantity,
   await assertLegacyBatchMode(executor)
   const qty = toPositiveNumber(quantity)
   if (qty <= 0) throw Object.assign(new Error('Return quantity must be greater than zero.'), { statusCode: 400 })
+  const quantityBefore = await readPhysicalInventoryQuantity(inventoryId, executor)
   const [[batch]] = await executor.query(
     'SELECT id, batch_code, archived_at FROM inventory_batches WHERE id = ? AND inventory_id = ? LIMIT 1 FOR UPDATE',
     [batchId, inventoryId]
@@ -611,12 +622,13 @@ const returnQuantityToBatch = async (inventoryId, batchId, locationId, quantity,
   )
   await syncInventorySnapshot(inventoryId, executor)
   await syncLocationSnapshot(inventoryId, executor)
-  return { batch_id: batch.id, batch_code: batch.batch_code || null, quantity: qty, location_id: target.id, location: target.name, batch_archived: Boolean(batch.archived_at) }
+  return { quantityBefore, quantityAfter: quantityBefore + (batch.archived_at ? 0 : qty), batch_id: batch.id, batch_code: batch.batch_code || null, quantity: qty, location_id: target.id, location: target.name, batch_archived: Boolean(batch.archived_at) }
 }
 
 // Moves one exact batch between two locations without changing clinic-wide stock.
 const moveBatchBetweenLocations = async (inventoryId, batchId, fromLocationId, toLocationId, quantity, executor = db) => {
   await assertLegacyBatchMode(executor)
+  const quantityBefore = await readPhysicalInventoryQuantity(inventoryId, executor)
   const qty = toPositiveNumber(quantity)
   if (qty <= 0) throw Object.assign(new Error('Quantity must be greater than zero.'), { statusCode: 400 })
   if (Number(fromLocationId) === Number(toLocationId)) throw Object.assign(new Error('Source and destination must be different locations.'), { statusCode: 400 })
@@ -655,7 +667,7 @@ const moveBatchBetweenLocations = async (inventoryId, batchId, fromLocationId, t
     [to.id, inventoryId, batchId, qty]
   )
   await syncLocationSnapshot(inventoryId, executor)
-  return { batch_id: Number(batchId), batch_code: row?.batch_code || null, expiration_date: row?.expiration_date || null, quantity: qty, from, to }
+  return { quantityBefore, quantityAfter: quantityBefore, batch_id: Number(batchId), batch_code: row?.batch_code || null, expiration_date: row?.expiration_date || null, quantity: qty, from, to }
 }
 
 const attachBatchesToInventory = async (items, executor = db) => {

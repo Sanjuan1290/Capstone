@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import { MdBlock, MdInventory2, MdKeyboardReturn, MdLockOpen, MdReplay } from 'react-icons/md'
 import Modal from '../ui/Modal'
@@ -33,6 +34,8 @@ const BillCorrectionsPanel = ({ bill, onBillChanged }) => {
       setUsageError(err.message || 'Could not load stock usage for this bill.')
     }
   }, [bill.id])
+  useClinicRefresh(loadUsage, [], { fallbackMs: 60000 })
+
 
   useEffect(() => { loadUsage() }, [loadUsage, bill.version, bill.status])
 
@@ -132,7 +135,7 @@ const BillCorrectionsPanel = ({ bill, onBillChanged }) => {
             <h2 className="flex items-center gap-2 font-black text-slate-900"><MdInventory2 className="text-sky-500" /> Stock Used on This Bill</h2>
             <p className="mt-1 text-xs text-slate-500">Exact batches deducted for this visit.</p>
           </div>
-          <button type="button" className="button-secondary px-3" onClick={loadUsage} aria-label="Reload stock usage"><MdReplay /></button>
+          <></>
         </div>
         {usageError && <p className="mt-3 text-xs font-semibold text-rose-700">{usageError}</p>}
 

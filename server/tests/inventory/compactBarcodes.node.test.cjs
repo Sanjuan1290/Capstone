@@ -8,6 +8,7 @@ const { nextInventoryBarcode } = require('../../utils/barcodes')
 function loadIsolated(relative, dependencies) {
   const filename = path.join(__dirname, '../..', relative)
   const module = { exports: {} }
+  dependencies['./inventoryActivity'] = dependencies['../utils/inventoryActivity'] = require('../helpers/inventoryActivityHarness.cjs').loadActivity()
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { module, exports: module.exports, require(name) {
     assert.ok(Object.hasOwn(dependencies, name), `Unexpected dependency ${name}`)
     return dependencies[name]

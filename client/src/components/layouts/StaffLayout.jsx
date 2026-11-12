@@ -19,7 +19,7 @@ const NAV_GROUPS = [
   ] },
   { label: 'Clinic Operations', items: [
     { permission: 'appointments', name: 'Appointments', path: '/staff/appointments', icon: MdEventAvailable, short: 'Appts', badge: 'pending' },
-    { permission: 'appointments', name: 'Walk-in Queue', path: '/staff/walkin', icon: MdQueuePlayNext, short: 'Queue', description: 'Walk-in patient check-in and queue management. Included with Appointments access.' },
+    { permission: 'walk_in_queue', name: 'Walk-in Queue', path: '/staff/walkin', icon: MdQueuePlayNext, short: 'Queue', description: 'Walk-in patient check-in and queue management.' },
     { permission: 'patient_records', name: 'Patient Records', path: '/staff/patient-records', icon: MdPeople, short: 'Patients' },
     { permission: 'doctor_schedules', name: 'Doctor Schedules', path: '/staff/doctor-schedules', icon: MdCalendarToday, short: 'Doctors' },
   ] },

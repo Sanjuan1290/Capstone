@@ -1,3 +1,4 @@
+import StockAlertBanner from '../../components/StockAlertBanner'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import { selectRearCamera } from '../../utils/scannerCamera.mjs'
@@ -8,7 +9,6 @@ import {
   MdQrCodeScanner, MdRefresh, MdSave, MdSearch, MdWarningAmber, MdDownload, MdRestore,
   MdCheckCircle, MdLocationOn, MdCalendarToday, MdFlashOn, MdCameraswitch, MdUploadFile, MdSwapHoriz,
 } from 'react-icons/md'
-import { useToast } from '../../components/ui/ToastProvider'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import InventoryExcelTools from '../../components/system/InventoryExcelTools'
 import { inventoryStockCount as getPackageCount, matchesInventoryStatus } from '../../utils/inventoryStatus.mjs'
@@ -451,10 +451,10 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
     : null
   const sellingPrice = Number(form.selling_price)
   const thresholdValid = form.threshold !== '' && Number.isFinite(Number(form.threshold)) && Number(form.threshold) >= 0 && Number.isInteger(Number(form.threshold))
-  const sellingPriceValid = Number.isFinite(sellingPrice) && sellingPrice > 0
+  const sellingPriceValid = Number.isFinite(sellingPrice) && sellingPrice >= 0
   const openingQuantity = Math.max(0, Number(form.stock) || 0)
-  const openingQuantityValid = isEditing || (form.stock !== '' && Number.isFinite(Number(form.stock)) && Number(form.stock) >= 0 && Number.isInteger(Number(form.stock)))
-  const openingExpiryValid = isEditing || openingQuantity <= 0 || Boolean(noExpiry || form.expiration_date)
+  const openingQuantityValid = isEditing || (Number.isFinite(Number(form.stock)) && Number(form.stock) >= 0 && Number.isInteger(Number(form.stock)))
+  const openingExpiryValid = !form.expiration_date || /^\d{4}-\d{2}-\d{2}$/.test(form.expiration_date)
   const canSaveDetails = Boolean(
     form.name.trim()
     && form.category
@@ -537,11 +537,11 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
   }
 
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-2 py-2 sm:px-4">
-    <div role="dialog" aria-modal="true" aria-label={title} className="flex w-full max-w-2xl max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[min(92dvh,850px)] sm:rounded-3xl">
+    <div role="dialog" aria-modal="true" aria-label={isEditing ? title : 'Add Item'} className="flex w-full max-w-2xl max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[min(92dvh,850px)] sm:rounded-3xl">
       <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
         <div>
-          <p className="text-base font-bold text-slate-900">{isEditing ? title : 'Add Medicine'}</p>
-          <p className="mt-0.5 text-sm text-slate-500">{isEditing ? 'Edit product-level details only. Batch quantity and expiry are managed in Manage Batches.' : 'Create the inventory item and opening stock. The first batch is generated automatically.'}</p>
+          <p className="text-base font-bold text-slate-900">{isEditing ? title : 'Add Item'}</p>
+          <p className="mt-0.5 text-sm text-slate-500">{isEditing ? 'Edit product-level details only. Batch quantity and expiry are managed in Manage Batches.' : 'Create an inventory item. Quantity, batch expiry and selling price can be added now or later.'}</p>
         </div>
         <button type="button" onClick={onClose} disabled={submitting} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100" aria-label="Close"><MdClose/></button>
       </div>
@@ -563,16 +563,16 @@ const ItemFormModal = ({ title, initialItem, initialBarcode = '', onClose, onSub
           </div>
           <Field label="Stock Room *"><select value={form.default_location_id} onChange={update('default_location_id')} className={inputClass} disabled={!activeStockRooms.length}><option value="">{activeStockRooms.length ? 'Select stock room' : 'No active stock rooms configured'}</option>{activeStockRooms.map((entry)=><option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></Field>
           <Field label="Supplier *"><select value={supplierChoice} onChange={(e)=>setSupplierChoice(e.target.value)} className={`${inputClass} ${!supplierChoice ? 'border-amber-300 bg-amber-50' : ''}`} disabled={!categorySuppliers.length}><option value="">{categorySuppliers.length ? 'Select supplier' : 'No suppliers configured for this category'}</option>{categorySuppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>{!supplierChoice && categorySuppliers.length > 0 && <p className="mt-1 text-xs font-semibold text-amber-700">Select a supplier.</p>}</Field>
-          {!isEditing && <Field label="Opening Quantity *"><input type="text" inputMode="numeric" pattern="[0-9]*" value={form.stock} onChange={update('stock')} className={`${inputClass} ${!openingQuantityValid ? 'border-amber-300 bg-amber-50' : ''}`}/>{!openingQuantityValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter a whole-number opening quantity of 0 or greater.</p>}</Field>}
-          {!isEditing && openingQuantity > 0 && <div><Field label={`Opening Batch Expiry${form.item_type === 'medicine' ? ' *' : ''}`}><input type="date" value={form.expiration_date} onChange={update('expiration_date')} disabled={noExpiry} className={`${inputClass} ${!openingExpiryValid ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{form.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setForm((v)=>({...v,expiration_date:''}))}}/> No expiry / Not applicable</label>}{!openingExpiryValid && <p className="mt-1 text-xs font-semibold text-amber-700">{form.item_type === 'medicine' ? 'Expiry is required for medicines with opening stock.' : 'Enter an expiry date or choose No expiry / Not applicable.'}</p>}</div>}
+          {!isEditing && <Field label="Quantity (optional)"><input type="text" inputMode="numeric" pattern="[0-9]*" value={form.stock} onChange={update('stock')} className={`${inputClass} ${!openingQuantityValid ? 'border-amber-300 bg-amber-50' : ''}`}/>{!openingQuantityValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter a whole-number quantity of 0 or greater.</p>}</Field>}
+          {!isEditing && openingQuantity > 0 && <div><Field label={'Batch Expiry (optional)'}><input type="date" value={form.expiration_date} onChange={update('expiration_date')} disabled={noExpiry} className={`${inputClass} ${!openingExpiryValid ? 'border-amber-300 bg-amber-50' : ''}`}/></Field>{form.item_type === 'supplies' && <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={noExpiry} onChange={(e)=>{setNoExpiry(e.target.checked);if(e.target.checked)setForm((v)=>({...v,expiration_date:''}))}}/> No expiry / Not applicable</label>}{!openingExpiryValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter a valid batch expiry date, or leave it blank.</p>}</div>}
           <Field label="Low Stock Alert *"><input type="text" inputMode="numeric" pattern="[0-9]*" value={form.threshold} onChange={update('threshold')} className={`${inputClass} ${!thresholdValid ? 'border-amber-300 bg-amber-50' : ''}`}/>{!thresholdValid && <p className="mt-1 text-xs font-semibold text-amber-700">Enter a whole-number low-stock alert quantity of 0 or greater.</p>}</Field>
-          {canManageSellingPrice ? <Field label="Selling Price *"><input type="number" inputMode="decimal" min="0.01" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={`${inputClass} ${!sellingPriceValid ? 'border-red-300 bg-red-50' : ''}`} placeholder="e.g. 10.00"/>{!sellingPriceValid ? <p className="mt-1 text-xs font-semibold text-red-700">Selling Price is required and must be greater than ₱0.00.</p> : <p className="mt-1 text-xs text-slate-400">Admin-only pricing. Changing this value recalculates every linked service total.</p>}</Field> : <Field label="Selling Price"><input readOnly value={Number(initialItem?.selling_price || 0) > 0 ? `PHP ${Number(initialItem.selling_price).toFixed(2)}` : 'Not set'} className={`${inputClass} bg-slate-100 text-slate-500`} /><p className="mt-1 text-xs text-slate-400">Only Admin can change inventory pricing.</p></Field>}
+          {canManageSellingPrice ? <Field label="Selling Price (optional)"><input type="number" inputMode="decimal" min="0" step="0.01" value={form.selling_price} onChange={update('selling_price')} className={`${inputClass} ${!sellingPriceValid ? 'border-red-300 bg-red-50' : ''}`} placeholder="e.g. 10.00"/>{!sellingPriceValid ? <p className="mt-1 text-xs font-semibold text-red-700">Selling Price is required and must be greater than ₱0.00.</p> : <p className="mt-1 text-xs text-slate-400">Leave blank for now, or enter a selling price. Price changes recalculate linked service totals.</p>}</Field> : <Field label="Selling Price"><input readOnly value={Number(initialItem?.selling_price || 0) > 0 ? `PHP ${Number(initialItem.selling_price).toFixed(2)}` : 'Not set'} className={`${inputClass} bg-slate-100 text-slate-500`} /><p className="mt-1 text-xs text-slate-400">Only Admin can change inventory pricing.</p></Field>}
         </div>
       </div>
 
       <div className="flex shrink-0 gap-3 border-t border-slate-100 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
         <button type="button" onClick={onClose} disabled={submitting} className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button>
-        <button type="button" onClick={handleSubmit} disabled={!canSaveDetails || submitting} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? (isEditing ? 'Saving…' : 'Adding…') : (isEditing ? 'Save Item Details' : 'Add Medicine')}</button>
+        <button type="button" onClick={handleSubmit} disabled={!canSaveDetails || submitting} className="flex-1 rounded-2xl bg-[#0b1a2c] py-3 text-sm font-semibold text-white disabled:opacity-50"><MdSave className="inline mr-2"/>{submitting ? (isEditing ? 'Saving…' : 'Adding…') : (isEditing ? 'Save Item Details' : 'Add Item')}</button>
       </div>
     </div>
     {barcodeScannerOpen && <CameraScanner onDetected={handleScannedBarcode} onClose={()=>setBarcodeScannerOpen(false)} />}
@@ -699,7 +699,7 @@ const ProtectedBatchActionModal = ({ item, batch, action, onClose, onRequest, on
   const [expiry,setExpiry]=useState(batch?.expiration_date ? String(batch.expiration_date).slice(0,10) : '')
   const labels={correct_quantity:'Correct Quantity',correct_details:'Edit Batch',archive:'Archive Batch',restore:'Restore Batch',delete:'Delete Batch'}
   const submitRequest=async()=>{
-    if(reason.trim().length<5 || !password) return setError('Enter a reason (at least 5 characters) and your Admin password.')
+    if(reason.trim().length<5 || !password) return setError('Enter a reason (at least 5 characters) and your account password.')
     setBusy(true);setError('')
     try{
       const payload={action,password,reason:reason.trim()}
@@ -723,8 +723,8 @@ const ProtectedBatchActionModal = ({ item, batch, action, onClose, onRequest, on
         {action==='restore'&&<div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800">Restoring makes this batch visible again for future stock operations.</div>}
         {action==='delete'&&<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Hard delete is allowed only when the batch has zero stock and absolutely no inventory, clinical, billing, or transfer history. Otherwise the backend will require Archive instead.</div>}
         <Field label="Reason *"><textarea rows={3} value={reason} onChange={e=>setReason(e.target.value)} className={inputClass} placeholder="Explain why this correction/action is required."/></Field>
-        <Field label="Admin Password *"><input type="password" value={password} onChange={e=>setPassword(e.target.value)} className={inputClass} autoComplete="current-password"/></Field>
-      </>:<div className="space-y-4"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">Password verified. Enter the 6-digit code sent to your administrator email.</div><Field label="6-Digit Email Verification Code *"><input value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))} inputMode="numeric" maxLength={6} className={`${inputClass} text-center text-lg font-black tracking-[.35em]`} placeholder="000000"/></Field></div>}
+        <Field label="Account Password *"><input type="password" value={password} onChange={e=>setPassword(e.target.value)} className={inputClass} autoComplete="current-password"/></Field>
+      </>:<div className="space-y-4"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">Password verified. Enter the 6-digit code sent to your account email.</div><Field label="6-Digit Email Verification Code *"><input value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))} inputMode="numeric" maxLength={6} className={`${inputClass} text-center text-lg font-black tracking-[.35em]`} placeholder="000000"/></Field></div>}
       {error&&<p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
     </div>
     <div className="flex gap-2 border-t border-slate-100 p-5"><button className="button-secondary flex-1" disabled={busy} onClick={onClose}>Cancel</button>{step==='details'?<button className="button-primary flex-1" disabled={busy||reason.trim().length<5||!password||(action==='correct_details'&&!expiry)} onClick={submitRequest}>{busy?'Checking...':'Verify Password & Send Code'}</button>:<button className="button-primary flex-1" disabled={busy||code.length!==6} onClick={confirm}>{busy?'Applying...':'Verify & Apply'}</button>}</div>
@@ -818,7 +818,6 @@ const BatchManagerModal = ({ item, onClose, onRequestAction, onConfirmAction, on
 }
 
 const Inventory = ({ services, canManageSellingPrice = false }) => {
-  const toast = useToast()
   const { search: routeSearch } = useLocation()
   const { getInventory, getArchivedInventoryItems, restoreInventoryItem, updateStock, addInventoryItem, updateInventoryItem, deleteInventoryItem, getInventoryMasterData, requestInventoryBatchActionCode, confirmInventoryBatchAction, getInventoryBatchHistory, moveInventoryStock, getInventoryLocations } = services
   const [items, setItems] = useState([])
@@ -1043,7 +1042,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
           <p className="text-sm text-slate-500 mt-1">Inventory with Stock Rooms configured in System Setup, generated barcodes, and whole-unit stock tracking.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="w-10 h-10 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center"><MdRefresh className="text-[18px]" /></button>
+          <></>
           <button onClick={() => { setScanProblem(null); setScannedItem(null); setScannerOpen(true) }} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 flex items-center gap-2"><MdQrCodeScanner /> Scan Barcode</button>
           {getArchivedInventoryItems && <button type="button" onClick={()=>setShowArchived(v=>!v)} className="button-secondary"><MdRestore/> {showArchived?'Active Inventory':`Archived Items (${archivedItems.length})`}</button>}
           <button title={hasActiveStockRoom ? 'Add inventory item' : 'Configure at least one active Stock Room in System Setup first'} disabled={!hasActiveStockRoom} onClick={() => { setNewItemBarcode(''); setShowAdd(true) }} className="rounded-2xl bg-[#0b1a2c] px-4 py-3 text-sm font-semibold text-white flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"><MdAdd /> Add Item</button>
@@ -1067,6 +1066,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       {!hasActiveStockRoom && <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><strong>Inventory setup required.</strong> Add at least one active Stock Room in Admin → System Setup before creating items.</div>}
 
       {!showArchived && <>
+      {!showArchived && <StockAlertBanner count={summary.low + summary.out} onReview={() => setStatusFilter('alerts')} />}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: 'Tracked Items', filter: 'All', value: summary.total, tone: 'text-slate-800' },
@@ -1074,7 +1074,7 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
           { label: 'Out of Stock', filter: 'out', value: summary.out, tone: 'text-red-600' },
           { label: 'Expiring in 30 Days', filter: 'expiring', value: summary.expiring, tone: 'text-violet-600' },
         ].map((card) => (
-          <button type="button" key={card.label} aria-label={`${card.label}: ${card.value}`} aria-pressed={statusFilter === card.filter} onClick={() => setStatusFilter(card.filter)} className={`rounded-3xl border bg-white p-5 text-left shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500 ${statusFilter === card.filter ? 'border-sky-400 ring-1 ring-sky-400' : 'border-slate-200 hover:border-sky-300'}`}>
+          <button type="button" key={card.label} aria-label={`${card.label}: ${card.value}`} aria-pressed={statusFilter === card.filter} onClick={() => setStatusFilter(card.filter)} className={`rounded-3xl border-2 p-5 text-left shadow-sm ${card.value > 0 && ['low','out'].includes(card.filter) ? card.filter === 'out' ? 'bg-rose-50 border-rose-500' : 'bg-amber-50 border-orange-500' : 'bg-white'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500 ${statusFilter === card.filter ? 'border-sky-400 ring-1 ring-sky-400' : 'border-slate-200 hover:border-sky-300'}`}>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{card.label}</p>
             <p className={`mt-3 text-3xl font-black ${card.tone}`}>{card.value}</p>
           </button>
@@ -1109,12 +1109,12 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       <div className="grid gap-4">
         {paginated.map(item => {
           const activeBatches = (Array.isArray(item.batches)?item.batches:[]).filter((batch)=>!batch.archived_at&&Number(batch.quantity||0)>0)
-          return <div key={item.id} className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+          return <div key={item.id} className={`border-2 rounded-3xl p-5 shadow-sm ${getPackageCount(item) === 0 ? 'bg-rose-50/60 border-rose-400 border-l-8 border-l-rose-600' : getPackageCount(item) <= Number(item.threshold || 0) ? 'bg-amber-50/60 border-orange-400 border-l-8 border-l-orange-600' : 'bg-white border-slate-200'}`}>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-lg font-bold text-slate-800">{item.name}</p>
-                  <span className={`text-xs font-bold border px-2 py-1 rounded-full ${getStockBadge(item)}`}>{getPackageCount(item) === 0 ? 'Out' : getPackageCount(item) <= Number(item.threshold || 0) ? 'Low' : 'OK'}</span>
+                  <span className={`text-xs font-bold border px-2 py-1 rounded-full ${getStockBadge(item)}`}>{getPackageCount(item) === 0 ? 'Out of stock' : getPackageCount(item) <= Number(item.threshold || 0) ? 'Low stock - restock' : 'OK'}</span>
                 </div>
                 <p className="text-sm text-slate-500">{CATEGORIES.find(x=>x.value===item.category)?.label || item.category} · {(ITEM_TYPES.find(x=>x.value===item.item_type)?.label || item.item_type || 'Supplies')} · {item.supplier || 'No supplier'}</p>
                 <p className="text-sm text-slate-600">

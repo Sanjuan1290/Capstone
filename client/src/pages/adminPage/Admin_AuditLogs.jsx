@@ -1,3 +1,4 @@
+import InventoryQuantityChange from '../../components/InventoryQuantityChange'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import { MdArchive, MdHistory, MdRefresh, MdSearch, MdVisibility, MdEventAvailable, MdInventory2, MdSwapHoriz, MdCalendarMonth, MdPayments, MdSettings, MdSecurity, MdFileDownload } from 'react-icons/md'
@@ -366,7 +367,7 @@ const Admin_AuditLogs = () => {
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdHistory className="text-amber-500" /> Audit Logs</h1>
           <p className="mt-1 text-sm text-slate-500">See who changed what, when it happened, and which clinic record was affected. Sensitive technical verification events remain outside this activity list.</p>
         </div>
-        <div className="flex flex-wrap gap-2"><Link className="button-secondary" to={`${portalBase}/audit-logs/archive`}><MdArchive /> Older Activity</Link><button type="button" className="button-secondary" onClick={() => exportAuditSummary(filters).then(()=>toast.success('Audit summary downloaded.')).catch(error=>toast.error(error.message||'Export failed.'))}><MdFileDownload /> Download Summary</button><button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
+        <div className="flex flex-wrap gap-2"><Link className="button-secondary" to={`${portalBase}/audit-logs/archive`}><MdArchive /> Older Activity</Link><button type="button" className="button-secondary" onClick={() => exportAuditSummary(filters).then(()=>toast.success('Audit summary downloaded.')).catch(error=>toast.error(error.message||'Export failed.'))}><MdFileDownload /> Download Summary</button><></></div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -401,7 +402,7 @@ const Admin_AuditLogs = () => {
                 return (
                   <tr key={row.id} className="hover:bg-slate-50">
                     <td className="whitespace-nowrap px-3 py-4 text-slate-500">{formatDateTime(row.created_at)}</td>
-                    <td className="max-w-[430px] px-3 py-4"><p className="font-semibold leading-relaxed text-slate-900">{presentation.description}</p><p className="mt-1 text-xs text-slate-500">{simpleActionLabel(row.action)}</p></td><td className="px-3 py-4 text-xs font-medium text-slate-700">{recordTitle(row)}</td>
+                    <td className="max-w-[430px] px-3 py-4"><p className="font-semibold leading-relaxed text-slate-900">{presentation.description}</p><p className="mt-1 text-xs text-slate-500">{simpleActionLabel(row.action)}</p><InventoryQuantityChange row={row} /></td><td className="px-3 py-4 text-xs font-medium text-slate-700">{recordTitle(row)}</td>
                     <td className="px-3 py-4"><span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600"><Icon className="text-sm" />{presentation.label}</span></td>
                     <td className="px-3 py-4"><p className="font-medium text-slate-700">{row.performed_by || 'System'}</p><p className="text-xs text-slate-400">{roleLabel(row.user_role || 'system')}</p><span className={`mt-1 inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ${outcomeTone(eventOutcome(row))}`}>{outcomeLabel(eventOutcome(row))}</span></td>
                     <td className="px-3 py-4 text-right"><button type="button" className="button-secondary" onClick={() => setSelected(row)}><MdVisibility /> Details</button></td>
@@ -435,6 +436,7 @@ const Admin_AuditLogs = () => {
           </section>
           <section className="rounded-2xl border border-slate-200 p-4">
             <h3 className="mb-3 text-sm font-bold text-slate-900">What Changed?</h3>
+            <InventoryQuantityChange row={selected} />
             {selectedChanges.length ? <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="border-b border-slate-200 text-xs text-slate-500"><th className="py-2 pr-3">Field</th><th className="py-2 pr-3">Before</th><th className="py-2">After</th></tr></thead><tbody>{selectedChanges.map(change=><tr className="border-b border-slate-100 last:border-0" key={change.field}><td className="py-2 pr-3 font-semibold">{change.label}</td><td className="py-2 pr-3 text-slate-500">{formatAuditValue(change.before)}</td><td className="py-2 font-semibold text-slate-800">{formatAuditValue(change.after)}</td></tr>)}</tbody></table></div> : <p className="text-sm text-slate-500">This activity does not include a recorded change to a displayable field. Older logs may not contain before-and-after values.</p>}
             <p className="mt-3 text-xs text-slate-500">Medical notes, credentials, and private document contents are not shown.</p>
           </section>

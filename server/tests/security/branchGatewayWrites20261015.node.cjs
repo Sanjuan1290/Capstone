@@ -22,13 +22,14 @@ function makeHarness(query,getConnection){
   }finally{Module._load=original;delete require.cache[target]}
 }
 function response(){return {code:200,data:null,status(code){this.code=code;return this},json(data){this.data=data;return this}}}
-test('branch queue list always filters queue and joined doctor by the trusted session branch',async()=>{
+test('branch queue list always filters the physical branch while retaining shared doctors',async()=>{
   let query,params
   const handler=makeHarness(async(q,p)=>{query=q;params=p;return [[{id:42}]]}).readQueue
   const res=response()
   await handler({branchId:2,query:{date:'2026-10-15'}},res)
   assert.match(query,/q\.branch_id=\?/)
-  assert.match(query,/d\.branch_id=q\.branch_id/)
+  assert.match(query,/d\.id=q\.doctor_id/)
+  assert.doesNotMatch(query,/d\.branch_id=q\.branch_id/)
   assert.deepEqual(params,[2,'2026-10-15'])
   assert.deepEqual(res.data,[{id:42}])
 })

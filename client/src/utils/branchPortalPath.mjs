@@ -14,4 +14,4 @@ export const portalBaseForPath = (pathname = '') => {
   if (match) return `/superadmin/branches/${match[1]}`
   return /^\/staff(?=\/|$)/.test(pathname) ? '/staff' : '/admin'
 }
-export const canManageServicePricingAtPath = (pathname = '') => portalBaseForPath(pathname) !== '/staff'
+export const canManageServicePricingAtPath = (pathname = '') => /^\/(?:staff|admin|superadmin\/branches\/\d+)(?:\/|$)/.test(pathname)

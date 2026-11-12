@@ -235,7 +235,7 @@ const History = () => {
     setRequestedVisitJump(Number(appointmentId))
   }
   return <div className="mx-auto max-w-6xl space-y-5 pb-10">
-    <header className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 lg:text-2xl"><MdHistory className="text-slate-500" /> Visit & Billing History</h1><p className="mt-1 text-sm text-slate-500">Review your previous clinic visits, charges, payments and receipts.</p></div><button type="button" onClick={() => { setHistoryRequest(n => n + 1); setBillingRequest(n => n + 1) }} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"><MdRefresh /> Refresh</button></header>
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 lg:text-2xl"><MdHistory className="text-slate-500" /> Visit & Billing History</h1><p className="mt-1 text-sm text-slate-500">Review your previous clinic visits, charges, payments and receipts.</p></div><></></header>
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <div className="rounded-2xl border border-slate-200 bg-white p-4"><MdHistory className="text-slate-500"/><p className="mt-2 text-2xl font-bold text-slate-900">{historyLoading ? '—' : history.length}</p><p className="text-xs text-slate-500">Total Visits</p></div>
       <div className="rounded-2xl border border-slate-200 bg-white p-4"><MdCheckCircle className="text-emerald-600"/><p className="mt-2 text-2xl font-bold text-slate-900">{historyLoading ? '—' : completedCount}</p><p className="text-xs text-slate-500">Completed Visits</p></div>

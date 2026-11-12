@@ -25,6 +25,7 @@ function mockInventory(query = {}) {
   }}
   const {module: moduleObject, exports} = {module: {exports: {}}, exports: {}}
   const sandbox = {module: moduleObject, exports: moduleObject.exports, require(name) {
+    if(name==='../utils/inventoryReportStock')return require('../../utils/inventoryReportStock')
     if (name === '../db/connect') return db
     if (name === '../utils/date') return {getTodayDateOnly: () => '2026-11-05', addDaysDateOnly: () => '2026-12-05'}
     if (name === '../utils/allInventoryOverview') return require(path.join(server, 'utils/allInventoryOverview.js'))

@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useMemo, useState } from 'react'
 import Pagination from '../../components/ui/Pagination'
 import SetupTableActions, { SETUP_ACTION_BUTTON } from '../../components/system/SetupTableActions'
@@ -103,6 +104,8 @@ const Admin_PatientBooking = () => {
       setLoading(false)
     }
   }
+  useClinicRefresh(loadReasons, [], { fallbackMs: 60000, skip: () => saving })
+
 
   const loadPolicy = async () => {
     try {
@@ -354,12 +357,7 @@ const Admin_PatientBooking = () => {
             Manage the reason options patients see in Book Appointment.
           </p>
         </div>
-        <button
-          onClick={() => { loadReasons(); loadPolicy(); loadPolicyDocument() }}
-          className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-        >
-          <MdRefresh className="text-[16px]" /> Refresh
-        </button>
+        <></>
       </div>
 
 

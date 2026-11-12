@@ -70,7 +70,7 @@ export function reportTables(reports,{branchName,from,to,branches=[]}={}) {
   sheet('Services',['Branch','Service','Bills','Quantity','Billed'],(s.services||[]).map(r=>[r.branch_name,r.name,r.bills,r.quantity,r.gross_billed])),
   sheet('Promotions',['Branch','Promotion','Bills','Savings'],(s.promotions||[]).map(r=>[r.branch_name,r.name,r.bills,r.discounts])),
   sheet('Inventory',['Group','Metric','Value'],sectionRows('inventory',i)),
-  sheet('Stock Usage',['Branch ID','Item','Unit','Quantity Used'],(i.most_used||[]).map(r=>[r.branch_id,r.name,r.unit,r.quantity])),
+  sheet('Stock Usage',['Branch','Item','Unit','Quantity Used'],(i.most_used||[]).map(r=>[r.branch_name||r.branch_id,r.name,r.unit,r.quantity])),
   sheet('Stock Movements',['Type','Actions','Quantity'],(i.movements||[]).map(r=>[r.name,r.actions,r.quantity])),
   sheet('Stock Rooms',['Branch','Room','Type','Products','Current Quantity'],(i.stockrooms||[]).map(r=>[r.branch_name,r.name,r.location_type,r.products,r.quantity])),
  ]

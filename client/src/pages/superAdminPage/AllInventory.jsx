@@ -1,3 +1,4 @@
+import StockAlertBanner from '../../components/StockAlertBanner'
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {NavLink} from 'react-router-dom'
 import {
@@ -16,7 +17,7 @@ const initialFilters = {
   page: 1, limit: 10
 }
 const statuses = [
-  ['', 'All statuses'], ['in_stock', 'In stock'], ['low', 'Low stock'],
+  ['', 'All statuses'], ['alerts', 'Stock alerts'], ['in_stock', 'In stock'], ['low', 'Low stock'],
   ['out', 'Out of stock'], ['expiring', 'Expiring soon'], ['expired', 'Expired']
 ]
 const colors = {
@@ -39,7 +40,7 @@ const Summary = ({label, value, Icon, description, tone = 'slate'}) => <div clas
 </div>
 
 export default function SuperAdminAllInventory() {
-  const [filters, setFilters] = useState(initialFilters)
+  const [filters, setFilters] = useState(() => ({...initialFilters,status:new URLSearchParams(window.location.search).get('status') === 'alerts' ? 'alerts' : ''}))
   const [searchInput, setSearchInput] = useState('')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -143,13 +144,14 @@ export default function SuperAdminAllInventory() {
     <PageHead title="All Inventory" description="Individual inventory items for every clinic branch. Stock and selling values are read-only." action={<div className="flex flex-wrap items-center gap-2">
       <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"><MdLockOutline/> Read-only</span>
       <button type="button" className="button-secondary inline-flex items-center gap-2" disabled={exportBusy || loading || !data} onClick={exportExcel}><MdFileDownload/> {exportBusy ? 'Preparing Excel…' : 'Export Excel (.xlsx)'}</button>
-      <button type="button" className="button-secondary inline-flex items-center gap-2" onClick={() => setRefresh(value => value + 1)}><MdRefresh/> Refresh</button>
+      <></>
     </div>}/>
 
+    {data && <StockAlertBanner count={Number(summary.low_stock||0)+Number(summary.out_of_stock||0)} onReview={() => update('status','alerts')} />}
     {!data && loading ? <Loading cards={4}/> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Summary label="Inventory Items" value={whole(summary.total_items || 0)} Icon={MdInventory2} description="Separate inventory records in the selected branches"/>
-      <Summary label="Total Selling Value" value={money(summary.total_selling_value)} Icon={MdStorefront} description="Estimated value at current selling prices; not revenue"/>
-      <Summary label="Low Stock" value={whole(summary.low_stock || 0)} Icon={MdWarningAmber} tone="amber" description="Branch-item records at or below their stock alert"/>
+      <Summary label="Total Selling Value" value={money(summary.total_selling_value)} Icon={MdStorefront} description="Physical stock at current selling prices; not revenue"/>
+      <Summary label="Low Stock" value={whole(summary.low_stock || 0)} Icon={MdWarningAmber} tone="amber" description="Available stock at or below its alert threshold"/>
       <Summary label="Out of Stock" value={whole(summary.out_of_stock || 0)} Icon={MdOutlineInventory} tone="rose" description="Branch-item records with zero stock"/>
     </div>}
 
@@ -188,7 +190,7 @@ export default function SuperAdminAllInventory() {
         <table className="w-full min-w-[950px] text-left text-sm">
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-600"><tr>
             <th scope="col" className="px-3 py-3">Product</th>
-            <th scope="col" className="px-3 py-3">Stock</th>
+            <th scope="col" className="px-3 py-3">Physical Stock</th>
             <th scope="col" className="px-3 py-3">Selling Price</th>
             <th scope="col" className="px-3 py-3">Branch</th>
             <th scope="col" className="px-3 py-3">Total Selling Value</th>
@@ -198,7 +200,7 @@ export default function SuperAdminAllInventory() {
           <tbody className="divide-y divide-slate-100">
             {data.rows.map(row => <tr key={`${row.branch_id}-${row.id}`} className="hover:bg-slate-50">
               <td className="max-w-[250px] px-3 py-3"><p className="font-bold text-slate-900">{row.name}</p><p className="mt-1 text-xs text-slate-500">{[row.category === 'derma' ? 'Dermatology' : row.category === 'medical' ? 'General Medicine' : row.category, row.item_type].filter(Boolean).join(' · ')}</p><p className="mt-1 text-[11px] text-slate-400">{row.barcode || `Inventory ID ${row.id}`}</p></td>
-              <td className="px-3 py-3 font-semibold tabular-nums text-slate-800">{number(row.quantity_base)}<span className="block text-[11px] font-normal text-slate-500">{row.base_unit || 'base units'}</span></td>
+              <td className="px-3 py-3 font-semibold tabular-nums text-slate-800">{number(row.quantity_base)}<span className="block text-[11px] font-normal text-slate-500">{row.base_unit || 'base units'}</span>{row.available_stock != null && <span className="mt-1 block text-xs font-semibold text-orange-800">Available: {number(row.available_stock)} {row.unit || 'units'}</span>}</td>
               <td className="px-3 py-3 text-xs font-semibold text-slate-800">{row.selling_price == null ? 'Not set' : money(row.selling_price)}</td>
               <td className="px-3 py-3 text-sm font-semibold text-slate-700">{row.branch_name || `Branch ${row.branch_id}`}</td>
               <td className="px-3 py-3 font-bold tabular-nums text-slate-900">{money(row.selling_value)}</td>

@@ -14,7 +14,8 @@ function setup(){
   }}
   const mod={exports:{}}
   vm.runInNewContext(source,{module:mod,exports:mod.exports,require:name=>{
-    if(name==='../db/connect')return database
+    if(name==='../utils/inventoryReportStock')return require('../../utils/inventoryReportStock')
+  if(name==='../db/connect')return database
     if(name==='../utils/date')return {getTodayDateOnly:()=> '2026-11-12',addDaysDateOnly:()=> '2026-12-12'}
     if(name==='../utils/allInventoryOverview')return metrics
     throw new Error('Unexpected import '+name)

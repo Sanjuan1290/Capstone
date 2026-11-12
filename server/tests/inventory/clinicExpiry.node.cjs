@@ -8,6 +8,7 @@ test('cross-branch inventory expiry uses the Manila date at the UTC boundary',as
   class BoundaryDate extends Date{constructor(...args){super(...(args.length?args:['2026-10-27T16:05:00Z']))}static now(){return Date.parse('2026-10-27T16:05:00Z')}}
   const mod={exports:{}}
   vm.runInNewContext(`(function(require,module,exports){${fs.readFileSync(file,'utf8')}\n})`,{Date:BoundaryDate},{filename:file})(name=>{
+    if(name==='../utils/inventoryReportStock')return require('../../utils/inventoryReportStock')
     if(name==='../db/connect')return db
     if(name==='../utils/date')return {getTodayDateOnly:()=> '2026-10-28',addDaysDateOnly}
     if(name==='../utils/allInventoryOverview')return require('../../utils/allInventoryOverview')

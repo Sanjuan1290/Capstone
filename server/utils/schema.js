@@ -1030,6 +1030,7 @@ const ensureAppSchema = async () => {
   await ensureColumn('billing_payments', 'refund_reason', 'TEXT NULL')
   await ensureColumn('billing_payments', 'refunded_by_admin_id', 'INT NULL')
 
+  await require('./inventoryActivity').ensureInventoryActivityColumns(db, true)
   await ensureColumn('inventory_logs', 'movement_type', "VARCHAR(80) NOT NULL DEFAULT 'adjustment'")
   await db.query("ALTER TABLE inventory_logs MODIFY COLUMN movement_type VARCHAR(80) NOT NULL DEFAULT 'adjustment'")
   await ensureColumn('inventory_logs', 'from_location', 'VARCHAR(120) NULL')

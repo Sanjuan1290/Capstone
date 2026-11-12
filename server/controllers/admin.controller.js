@@ -1,3 +1,4 @@
+const { writeInventoryActivity, readPhysicalInventoryQuantity } = require('../utils/inventoryActivity')
 const { notifyDoctorOnConfirmation } = require('../utils/doctorConfirmationNotifications')
 // server/controllers/admin.controller.js
 // FIXES:
@@ -1535,7 +1536,7 @@ const saveDaySchedule = async (req, res) => {
       doctorId: req.params.id,
       branchId:req.branchId,
       body: req.body,
-      actorRole: 'admin',
+      actorRole: req.user?.role === 'staff' ? 'staff' : 'admin',
       actorId: req.user.id,
       ipAddress: req.ip,
     })
@@ -1636,12 +1637,12 @@ const saveDoctorUnavailableDateAdmin = async (req, res) => {
 
   await db.query(
     `INSERT INTO doctor_unavailable_dates (doctor_id, branch_id, unavailable_date, reason, created_by_role, created_by_user_id)
-     VALUES (?, ?, ?, ?, 'admin', ?)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        reason = VALUES(reason),
-       created_by_role = 'admin',
+       created_by_role = VALUES(created_by_role),
        created_by_user_id = VALUES(created_by_user_id)`,
-    [doctorId,req.branchId,unavailableDate,reason,req.user.id]
+    [doctorId,req.branchId,unavailableDate,reason,req.user?.role==='staff'?'staff':'admin',req.user.id]
   )
   const [doctorRows] = await db.query('SELECT full_name FROM doctors WHERE id = ? LIMIT 1', [doctorId])
   await writeAuditLog({
@@ -2776,8 +2777,7 @@ const addInventoryItem = async (req, res) => {
     }
     await syncInventorySnapshot(result.insertId, conn)
     if (stock > 0 && openingBatchId) {
-      await conn.query(
-        `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, to_location, branch_id)
+      await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, batch_id, to_location, branch_id)
          VALUES (?, ?, 'in', ?, ?, 'received', ?, ?, ?)`,
         [
           result.insertId,
@@ -2787,8 +2787,7 @@ const addInventoryItem = async (req, res) => {
           openingBatchId,
           openingLocation,
           req.branchId,
-        ]
-      )
+        ], {quantityBefore:0,quantityAfter:stock})
     }
     await writeAuditLog({
       userId: req.user.id,
@@ -3171,12 +3170,13 @@ const requestInventoryBatchActionCode = async (req, res) => {
     }
   }
 
-  const [[admin]] = await db.query('SELECT id,full_name,email,password FROM admins WHERE id=? LIMIT 1', [req.user.id])
-  if (!admin) return res.status(404).json({ message: 'Administrator account not found.' })
-  if (!String(req.body?.password || '')) return res.status(400).json({ message: 'Admin password is required.' })
+  const role = req.user?.role === 'staff' ? 'staff' : 'admin'
+  const [[admin]] = await db.query(`SELECT id,full_name,email,password FROM ${role === 'staff' ? 'staff' : 'admins'} WHERE id=? LIMIT 1`, [req.user.id])
+  if (!admin) return res.status(404).json({ message: 'Account not found.' })
+  if (!String(req.body?.password || '')) return res.status(400).json({ message: 'Your account password is required.' })
   const passwordMatches = await bcrypt.compare(String(req.body.password), admin.password)
-  if (!passwordMatches) return res.status(401).json({ message: 'Admin password is incorrect.' })
-  if (!admin.email) return res.status(400).json({ message: 'The administrator account needs an email address for verification.' })
+  if (!passwordMatches) return res.status(401).json({ message: 'Your account password is incorrect.' })
+  if (!admin.email) return res.status(400).json({ message: 'Your account needs an email address for verification.' })
 
   const authorizationPayload = {
     action,
@@ -3197,7 +3197,7 @@ const requestInventoryBatchActionCode = async (req, res) => {
 
   try {
     const code = await createSecurityCode({
-      role: 'admin', accountId: req.user.id, purpose: INVENTORY_BATCH_ACTION_PURPOSE, payload: authorizationPayload,
+      role, accountId: req.user.id, purpose: INVENTORY_BATCH_ACTION_PURPOSE, payload: authorizationPayload,
     })
     await sendAccountSecurityOtp(admin.email, admin.full_name, code)
     await writeAuditLog({
@@ -3217,7 +3217,7 @@ const confirmInventoryBatchAction = async (req, res) => {
 
   let verified
   try {
-    verified = await verifySecurityCode({ role:'admin', accountId:req.user.id, purpose:INVENTORY_BATCH_ACTION_PURPOSE, code })
+    verified = await verifySecurityCode({ role:req.user?.role==='staff'?'staff':'admin', accountId:req.user.id, purpose:INVENTORY_BATCH_ACTION_PURPOSE, code })
   } catch (error) {
     return res.status(400).json({ message: error.message || 'Invalid or expired verification code.' })
   }
@@ -3254,6 +3254,8 @@ const confirmInventoryBatchAction = async (req, res) => {
     const reason = String(requested.reason || '').trim()
 
     if (action === 'correct_quantity') {
+      const inventoryQuantityBefore = await readPhysicalInventoryQuantity(batch.inventory_id, conn)
+      let correctionBalance = inventoryQuantityBefore
       if (batch.archived_at) throw Object.assign(new Error('Restore this archived batch before correcting it.'), { statusCode:409 })
       const target = Number(requested.target_quantity)
       if (!Number.isFinite(target) || target < 0) throw Object.assign(new Error('Correct quantity is invalid.'), { statusCode:400 })
@@ -3298,11 +3300,9 @@ const confirmInventoryBatchAction = async (req, res) => {
            VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+VALUES(quantity)`,
           [targetLocation.location_id,batch.inventory_id,batch.id,delta]
         )
-        await conn.query(
-          `INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,to_location,branch_id)
+        await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id,${req.user?.role==='staff'?'staff_id':'admin_id'},type,qty,note,movement_type,batch_id,to_location,branch_id)
            VALUES (?,?,'in',?,?, 'correction_in',?,?,?)`,
-          [batch.inventory_id,req.user.id,delta,reason,batch.id,targetLocation.name || null,req.branchId]
-        )
+          [batch.inventory_id,req.user.id,delta,reason,batch.id,targetLocation.name || null,req.branchId], {quantityBefore:inventoryQuantityBefore,quantityAfter:inventoryQuantityBefore+delta})
       } else {
         let remaining = Math.abs(delta)
         for (const allocation of allocationRows) {
@@ -3311,11 +3311,9 @@ const confirmInventoryBatchAction = async (req, res) => {
           if (available <= 0) continue
           const take = Math.min(available, remaining)
           await conn.query('UPDATE inventory_location_batches SET quantity=quantity-? WHERE location_id=? AND batch_id=? AND quantity>=?', [take,allocation.location_id,batch.id,take])
-          await conn.query(
-            `INSERT INTO inventory_logs (inventory_id,admin_id,type,qty,note,movement_type,batch_id,from_location,branch_id)
+          await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id,${req.user?.role==='staff'?'staff_id':'admin_id'},type,qty,note,movement_type,batch_id,from_location,branch_id)
              VALUES (?,?,'out',?,?, 'adjustment_out',?,?,?)`,
-            [batch.inventory_id,req.user.id,take,reason,batch.id,allocation.name || null,req.branchId]
-          )
+            [batch.inventory_id,req.user.id,take,reason,batch.id,allocation.name || null,req.branchId], {quantityBefore:correctionBalance,quantityAfter:(correctionBalance-=take)})
           remaining -= take
         }
         if (remaining > 0.0001) throw Object.assign(new Error('The batch location balances are insufficient for this correction.'), { statusCode:409 })
@@ -3327,7 +3325,7 @@ const confirmInventoryBatchAction = async (req, res) => {
       await writeAuditLog({
         userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_quantity_corrected',entityType:'inventory_batch',entityId:batch.id,
         oldValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:current },
-        newValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:target,adjustment:delta,reason,authorization:'admin_password_email_code' },
+        newValues:{ item_name:batch.item_name,batch_code:batch.batch_code,quantity:target,adjustment:delta,reason,authorization:'account_password_email_code' },
         branchId:req.branchId,ipAddress:req.ip||null,
       },conn)
     } else if (action === 'correct_details') {
@@ -3338,23 +3336,23 @@ const confirmInventoryBatchAction = async (req, res) => {
       await writeAuditLog({
         userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_expiry_corrected',entityType:'inventory_batch',entityId:batch.id,
         oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,expiration_date:currentExpiry},
-        newValues:{item_name:batch.item_name,batch_code:batch.batch_code,expiration_date:requested.expiration_date,reason,authorization:'admin_password_email_code'},
+        newValues:{item_name:batch.item_name,batch_code:batch.batch_code,expiration_date:requested.expiration_date,reason,authorization:'account_password_email_code'},
         branchId:req.branchId,ipAddress:req.ip||null,
       },conn)
     } else if (action === 'archive') {
       if (Number(batch.quantity||0)>0) throw Object.assign(new Error('Only a zero-stock batch can be archived.'), { statusCode:409 })
       if (batch.archived_at) throw Object.assign(new Error('This batch is already archived.'), { statusCode:409 })
-      await conn.query('UPDATE inventory_batches SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=?', [req.user.id,reason,batch.id])
-      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_archived',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:null},newValues:{batch_code:batch.batch_code,archived_at:'now',reason,authorization:'admin_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
+      await conn.query('UPDATE inventory_batches SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=?', [req.user?.role==='staff'?null:req.user.id,reason,batch.id])
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_archived',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:null},newValues:{batch_code:batch.batch_code,archived_at:'now',reason,authorization:'account_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
     } else if (action === 'restore') {
       if (!batch.archived_at) throw Object.assign(new Error('This batch is not archived.'), { statusCode:409 })
       await conn.query('UPDATE inventory_batches SET archived_at=NULL,archived_by_admin_id=NULL,archive_reason=NULL WHERE id=?', [batch.id])
-      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_restored',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:batch.archived_at,archive_reason:batch.archive_reason},newValues:{batch_code:batch.batch_code,archived_at:null,reason,authorization:'admin_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_restored',entityType:'inventory_batch',entityId:batch.id,oldValues:{batch_code:batch.batch_code,archived_at:batch.archived_at,archive_reason:batch.archive_reason},newValues:{batch_code:batch.batch_code,archived_at:null,reason,authorization:'account_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
     } else if (action === 'delete') {
       if (Number(batch.quantity||0)>0) throw Object.assign(new Error('A batch with remaining stock cannot be deleted.'), { statusCode:409 })
       const references = await getInventoryBatchReferenceCounts(batch.id, conn)
       if (batchHasProtectedHistory(references)) throw Object.assign(new Error('This batch has transaction history and cannot be hard deleted. Archive it instead.'), { statusCode:409, code:'BATCH_HAS_HISTORY' })
-      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_deleted',entityType:'inventory_batch',entityId:batch.id,oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,quantity:Number(batch.quantity||0),expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),reason,authorization:'admin_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
+      await writeAuditLog({userId:req.user.id,userRole:req.user?.role || 'admin',action:'inventory.batch_deleted',entityType:'inventory_batch',entityId:batch.id,oldValues:{item_name:batch.item_name,batch_code:batch.batch_code,quantity:Number(batch.quantity||0),expiration_date:currentExpiry,unit_cost:Number(batch.unit_cost||0),reason,authorization:'account_password_email_code'},branchId:req.branchId,ipAddress:req.ip||null},conn)
       await conn.query('DELETE FROM inventory_batches WHERE id=?', [batch.id])
       await syncInventorySnapshot(batch.inventory_id, conn)
       await syncLocationSnapshot(batch.inventory_id, conn)

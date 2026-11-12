@@ -4,21 +4,21 @@ const path = require('path')
 const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', '..', '..', ...parts), 'utf8')
 
 describe('Staff permission access control', () => {
-  it('defines all requested feature permissions and groups Walk-in Queue with Appointments', () => {
+  it('defines all requested feature permissions and separates Walk-in Queue from Appointments', () => {
     const config = read('client', 'src', 'config', 'staffPermissions.js')
-    ;['dashboard','appointments','patient_records','doctor_schedules','checkout','billing','inventory','accounts','system_setup','reports','audit_logs']
+    ;['dashboard','appointments','walk_in_queue','patient_records','doctor_schedules','checkout','billing','inventory','accounts','system_setup','reports','audit_logs']
       .forEach((key) => expect(config).toContain(`key: '${key}'`))
     expect(config).not.toContain("key: 'landing_page'")
     expect(read('server', 'utils', 'staffPermissions.js')).not.toContain("'landing_page'")
     expect(read('client', 'src', 'components', 'layouts', 'StaffLayout.jsx')).not.toContain("permission: 'landing_page'")
-    expect(config).toContain('Appointments + Walk-in Queue')
-    expect(config).toContain('patient check-ins, and the Walk-in Queue')
+    expect(config).toContain("key: 'walk_in_queue', label: 'Walk-in Queue'")
+    expect(config).toContain('Check-in and queue management')
   })
 
   it('enforces Staff permissions at the API layer instead of only hiding navigation', () => {
     const router = read('server', 'routers', 'staff.router.js')
     expect(router).toContain("can('appointments'), staffCtrl.getAppointments")
-    expect(router).toContain("can('appointments'), staffCtrl.getQueue")
+    expect(router).toContain("can('walk_in_queue'), staffCtrl.getQueue")
     expect(router).toContain("can('checkout'), ownBill, staffCtrl.payBill")
     expect(router).toContain("can('inventory'), staffCtrl.getInventory")
     expect(router).not.toContain("can('stock_transfers')")
@@ -42,7 +42,7 @@ describe('Staff permission access control', () => {
     expect(controller).toContain('const permissions = await loadStaffPermissions(staff.id)')
     expect(controller).toContain("role: 'staff', permissions")
     expect(layout).toContain('hasStaffPermission(user, item.permission)')
-    expect(layout).toContain("permission: 'appointments', name: 'Walk-in Queue'")
+    expect(layout).toContain("permission: 'walk_in_queue', name: 'Walk-in Queue'")
   })
 
   it('shows clear permission descriptions with hover/tap help in Staff account creation', () => {
@@ -61,7 +61,7 @@ describe('Staff permission access control', () => {
     const serverPermissions = read('server', 'utils', 'staffPermissions.js')
     const admin = read('server', 'controllers', 'admin.controller.js')
     const migration = read('server', 'db', 'migrations', '2026-09-26-staff-permissions.sql')
-    const defaults = ['dashboard','appointments','patient_records','doctor_schedules','checkout','inventory']
+    const defaults = ['dashboard','appointments','walk_in_queue','patient_records','doctor_schedules','checkout','inventory']
     expect(config).toContain('DEFAULT_STAFF_PERMISSIONS')
     expect(account).toContain('permissions: [...DEFAULT_STAFF_PERMISSIONS]')
     expect(serverPermissions).toContain('const DEFAULT_STAFF_PERMISSIONS = Object.freeze([')
@@ -70,7 +70,8 @@ describe('Staff permission access control', () => {
     defaults.forEach((key) => {
       expect(config).toContain(`'${key}'`)
       expect(serverPermissions).toContain(`'${key}'`)
-      expect(migration).toContain(`SELECT '${key}'`)
+      if(key==='walk_in_queue')expect(read('server','db','migrations','2026-11-13-walk-in-queue-permission.sql')).toContain("SELECT staff_id,'walk_in_queue',1")
+      else expect(migration).toContain(`SELECT '${key}'`)
     })
   })
 

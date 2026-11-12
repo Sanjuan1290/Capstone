@@ -1,3 +1,5 @@
+const { availableStockSql } = require('../utils/inventoryReportStock')
+const { writeInventoryActivity } = require('../utils/inventoryActivity')
 const { notifyDoctorOnConfirmation } = require('../utils/doctorConfirmationNotifications')
 const { isUnifiedBillingStockOut, postClinicalReservations, assertNoUnpostedStockWithFeatureOff } = require('../utils/clinicalInventoryReservations')
 // server/controllers/staff.controller.js
@@ -319,7 +321,7 @@ const getDashboard = async (req, res) => {
   const [[{ totalToday }]] = await db.query('SELECT COUNT(*) AS totalToday FROM appointments WHERE branch_id=? AND appointment_date=?',[req.branchId,today])
   const [[{ pendingCount }]] = await db.query("SELECT COUNT(*) AS pendingCount FROM appointments WHERE branch_id=? AND status='pending'",[req.branchId])
   const [[{ queueCount }]] = await db.query("SELECT COUNT(*) AS queueCount FROM queue WHERE branch_id=? AND queue_date=? AND status IN ('waiting','called','in_consultation')",[req.branchId,today])
-  const [[{ lowStock }]] = await db.query('SELECT COUNT(*) AS lowStock FROM inventory WHERE branch_id=? AND archived_at IS NULL AND stock<=threshold',[req.branchId])
+  const [[{ lowStock }]] = await db.query(`SELECT COUNT(*) AS lowStock FROM inventory WHERE branch_id=? AND archived_at IS NULL AND ${availableStockSql('inventory')}<=threshold`,[req.branchId])
   const [[{ totalPatients }]] = await db.query('SELECT COUNT(DISTINCT patient_id) AS totalPatients FROM appointments WHERE branch_id=?',[req.branchId])
   res.json({totalToday,pendingCount,queueCount,lowStock,totalPatients})
 }
@@ -683,7 +685,7 @@ const getQueue = async (req, res) => {
     `SELECT q.*, d.full_name AS doctor_name
      FROM queue q
      JOIN doctors d ON q.doctor_id = d.id
-     WHERE q.branch_id = ? AND d.branch_id = q.branch_id AND q.queue_date = ?
+     WHERE q.branch_id = ?  AND q.queue_date = ?
      ORDER BY q.queue_number ASC`,
     [req.branchId, today]
   )
@@ -1106,11 +1108,9 @@ const dispenseCheckoutSupplies = async ({ bill, actorRole, userId, executor, bra
          VALUES (?, ?, ?, ?, ?, ?, ?, 'dispensed', ?, ?)`,
         [bill.id, item.id || null, inventoryItem.id, batch.batch_id, Number(batch.quantity || 0), batchUsageQty, details.unit || inventoryItem.unit, canonicalSourceLocation, sourceLocationId]
       )
-      await executor.query(
-        `INSERT INTO inventory_logs (inventory_id, staff_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location, branch_id)
+      await writeInventoryActivity(executor, `INSERT INTO inventory_logs (inventory_id, staff_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, from_location, branch_id)
          VALUES (?, ?, ?, 'out', ?, ?, 'dispensed', 'billing_record', ?, ?, ?, ?)`,
-        [inventoryItem.id, isAdminActor ? null : userId, isAdminActor ? userId : null, Number(batch.quantity || 0), `${batch.batch_code || `Batch #${batch.batch_id}`} dispensed after full payment for billing record ${bill.id}: ${item.service_name}`, String(bill.id), batch.batch_id, canonicalSourceLocation, branchId]
-      )
+        [inventoryItem.id, isAdminActor ? null : userId, isAdminActor ? userId : null, Number(batch.quantity || 0), `${batch.batch_code || `Batch #${batch.batch_id}`} dispensed after full payment for billing record ${bill.id}: ${item.service_name}`, String(bill.id), batch.batch_id, canonicalSourceLocation, branchId], batch)
       dispensed.push({ billing_item_id: item.id, inventory_id: inventoryItem.id, batch_id: batch.batch_id, quantity: Number(batch.quantity || 0), source_location: canonicalSourceLocation, source_location_id: sourceLocationId })
     }
   }
@@ -1837,8 +1837,7 @@ const addInventoryItem = async (req, res) => {
     }
     await syncInventorySnapshot(result.insertId, conn)
     if (stock > 0 && openingBatchId) {
-      await conn.query(
-        `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, batch_id, to_location, branch_id)
+      await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id, staff_id, type, qty, note, movement_type, batch_id, to_location, branch_id)
          VALUES (?, ?, 'in', ?, ?, 'received', ?, ?, ?)`,
         [
           result.insertId,
@@ -1848,8 +1847,7 @@ const addInventoryItem = async (req, res) => {
           openingBatchId,
           openingLocation,
           req.branchId,
-        ]
-      )
+        ], {quantityBefore:0,quantityAfter:stock})
     }
     await writeAuditLog({
       userId: req.user.id,

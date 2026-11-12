@@ -173,10 +173,7 @@ const loadCollectionLedger = async ({ startDate, endDate, branchId = null }, exe
      FROM (${scoped ? branchLedgerSql() : LEDGER_SQL}) ledger
      WHERE event_date BETWEEN ? AND ?`,
     scoped ? [branchId, branchId, branchId, startDate, endDate] : [startDate, endDate]
-  ).catch((error) => {
-    if (error.code === 'ER_NO_SUCH_TABLE') return [[]]
-    throw error
-  })
+  )
 
   const byMethodMap = new Map()
   const byMonthMap = new Map()

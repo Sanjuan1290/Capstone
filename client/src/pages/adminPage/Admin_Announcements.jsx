@@ -225,7 +225,7 @@ const Admin_Announcements = () => {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div><h1 className="flex items-center gap-2 text-2xl font-black text-slate-900"><MdCampaign className="text-amber-500"/> Announcements & Campaigns</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Create clinic news and offers, manage published posts, and send optional patient emails.</p></div>
-        <div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={refresh}><MdRefresh/> Refresh</button><button type="button" className="button-primary" onClick={()=>edit(null)}><MdAdd/> Create Post</button></div>
+        <div className="flex flex-wrap gap-2"><></><button type="button" className="button-primary" onClick={()=>edit(null)}><MdAdd/> Create Post</button></div>
       </div>
       <nav className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4" aria-label="Announcement sections">
         {[['posts','Posts'],['offers','Special Offers'],['emails','Email Campaigns']].map(([id,label])=><button type="button" key={id} aria-current={workspaceTab===id?'page':undefined} onClick={()=>{setWorkspaceTab(id);setMenuPost(null)}} className={`min-h-11 rounded-xl px-4 text-sm font-bold transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-700 ${workspaceTab===id?'bg-slate-900 text-white':'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}>{label}</button>)}

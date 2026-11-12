@@ -1,3 +1,4 @@
+import { formatInventoryQuantity } from '../../utils/inventoryQuantity.mjs'
 import { useCallback, useEffect, useState } from 'react'
 import {
   MdChevronLeft,
@@ -92,7 +93,7 @@ const getMovementLabel = (log = {}) => {
     received: 'Stock In', returned: 'Returned to Stock', correction_in: 'Correction (+)',
     adjustment_out: 'Correction (-)', expired: 'Expired Stock', damaged: 'Damaged Stock',
     wastage: 'Wastage / Spillage', returned_to_supplier: 'Returned to Supplier',
-    clinical_use: 'Clinical Use', dispensing: 'Dispensing', transfer_out: 'Transfer Out', transfer_in: 'Transfer In',
+    clinical_use: 'Clinical Use', dispensing: 'Dispensing', dispensed: 'Dispensed at Checkout', clinical_return: 'Clinical Return', dispense_return: 'Returned Medicine', transfer_out: 'Transfer Out', transfer_in: 'Transfer In',
   }
   return labels[movement] || (String(log.type || '').toLowerCase() === 'in' ? 'Stock In' : 'Stock Out')
 }
@@ -107,6 +108,7 @@ const ACTIVITY_TABS = [
 
 const AdminInventory = () => {
   const [logs, setLogs] = useState([])
+  const [logsError, setLogsError] = useState('')
   const [loadingLogs, setLoadingLogs] = useState(true)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState({
@@ -124,9 +126,10 @@ const AdminInventory = () => {
         limit: pagination.limit,
         ...filters,
       })
-      setLogs(Array.isArray(response?.items) ? response.items : [])
+      if (!Array.isArray(response?.items)) throw new Error('Inventory activity returned an invalid response. Try again.')
+      setLogs(response.items); setLogsError('')
       setPagination(response?.pagination || DEFAULT_PAGINATION)
-    } finally {
+    } catch (error) { setLogsError(error.message || 'Inventory activity could not load. Try again.') } finally {
       setLoadingLogs(false)
     }
   }, [filters, page, pagination.limit])
@@ -161,15 +164,10 @@ const AdminInventory = () => {
           <div>
             <h2 className="text-lg font-bold text-slate-800">Inventory Activity</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Review stock receipts, clinical/dispensing movements, transfers, adjustments, and the exact batch involved.
+              Review each stock movement and its batch. Item totals are physical stock across all rooms; older balances may not have been recorded.
             </p>
           </div>
-          <button
-            onClick={loadLogs}
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-          >
-            <MdRefresh /> Refresh
-          </button>
+          <></>
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -211,7 +209,7 @@ const AdminInventory = () => {
           </button>
         </div>
 
-        {loadingLogs ? (
+        {logsError ? <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">{logsError} <button type="button" className="ml-2 font-bold underline" onClick={loadLogs}>Try again</button></p> : loadingLogs ? (
           <div className="flex h-40 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" />
           </div>
@@ -237,7 +235,7 @@ const AdminInventory = () => {
                     <th className="px-3 py-3">Item Name</th>
                     <th className="px-3 py-3">Type</th>
                     <th className="px-3 py-3">Movement</th>
-                    <th className="px-3 py-3">Quantity</th>
+                    <th className="px-3 py-3">Quantity moved</th><th className="px-3 py-3">Item total before</th><th className="px-3 py-3">Item total after</th>
                     <th className="px-3 py-3">Batch / Lot</th>
                     <th className="px-3 py-3">Performed By</th>
                     <th className="px-3 py-3">Note</th>
@@ -254,7 +252,7 @@ const AdminInventory = () => {
                         </span>
                       </td>
                       <td className="px-3 py-3 font-semibold text-slate-700">{getMovementLabel(log)}</td>
-                      <td className="px-3 py-3">{log.qty}</td>
+                      <td className="px-3 py-3">{formatInventoryQuantity(log.qty)}</td><td className="px-3 py-3 tabular-nums">{formatInventoryQuantity(log.quantity_before)}</td><td className="px-3 py-3 font-semibold tabular-nums">{formatInventoryQuantity(log.quantity_after)}</td>
                       <td className="px-3 py-3">{log.batch_code || (log.batch_id ? `Batch #${log.batch_id}` : '—')}{log.supplier_lot_number ? <span className="block text-xs text-slate-400">Supplier Lot: {log.supplier_lot_number}</span> : null}</td>
                       <td className="px-3 py-3">
                         <div className="flex flex-col">

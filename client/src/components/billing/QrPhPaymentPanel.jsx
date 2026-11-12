@@ -74,7 +74,7 @@ export default function QrPhPaymentPanel({ billId, remainingBalance, branchEnabl
         <p className="text-sm font-bold">Awaiting verified payment — ₱{Number(attempt.amount || 0).toFixed(2)}</p>
         {attempt.expires_at && <p className="text-xs text-slate-500">QR expiry: {String(attempt.expires_at).replace('T',' ').slice(0,19)}</p>}
         {attempt.mode === 'test' && attempt.test_url && <a href={attempt.test_url} rel="noopener noreferrer" target="_blank" className="button-primary">Open PayMongo Test Simulator</a>}
-        <button type="button" className="button-secondary" onClick={readStatus}><MdRefresh /> Refresh status</button>
+        <></>
         {attempt?.can_request_cancel && cancelQr && <button type="button" className="button-secondary" disabled={busy} onClick={requestCancellation}>{busy ? 'Checking PayMongo…' : 'Switch to Cash'}</button>}
         <p className="text-xs text-slate-500">Manual payments and bill edits are locked while this payment is pending.</p>
       </div>}

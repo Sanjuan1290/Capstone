@@ -18,7 +18,7 @@ async function readQueue(req,res){
  const date=String(req.query.date||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()))
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return res.status(400).json({message:'Invalid queue date.'})
  const [rows]=await db.query(`SELECT q.*, d.full_name AS doctor_name FROM queue q
- JOIN doctors d ON d.id=q.doctor_id AND d.branch_id=q.branch_id
+ JOIN doctors d ON d.id=q.doctor_id
  WHERE q.branch_id=? AND q.queue_date=? ORDER BY q.queue_number`,[req.branchId,date]);res.json(rows)
 }
 async function supplier(req,res){
@@ -131,7 +131,7 @@ async function updateStock(req,res){
   await conn.beginTransaction()
   const [[item]]=await conn.query('SELECT id FROM inventory WHERE id=? AND branch_id=? AND archived_at IS NULL FOR UPDATE',[req.params.id,req.branchId])
   if(!item){await conn.rollback();return res.status(404).json({message:'Item not found in your branch.'})}
-  await applyManualInventoryMovement({branchId:req.branchId,inventoryId:item.id,body:req.body,actorRole:'admin',actorId:req.user.id,ipAddress:req.ip,executor:conn})
+  await applyManualInventoryMovement({branchId:req.branchId,inventoryId:item.id,body:req.body,actorRole:req.user?.role==='staff'?'staff':'admin',actorId:req.user.id,ipAddress:req.ip,executor:conn})
   await conn.commit()
   const [rows]=await db.query('SELECT * FROM inventory WHERE id=? AND branch_id=?',[item.id,req.branchId]);const inventory=await attachBatchesToInventory(rows,db);res.json(inventory[0])
  }catch(e){await conn.rollback();if(e.statusCode)return res.status(e.statusCode).json({message:e.message,code:e.code});throw e}finally{conn.release()}
@@ -139,12 +139,12 @@ async function updateStock(req,res){
 const safeLegacy=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next)
 function registerBranchQueueInventoryWrites(router,{requireSuper,branchContext,requirePermission,allowAnyPermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
-  const reg=(method,route,permission,handler,...guards)=>router[method](`${prefix}${route}`,...middle,requirePermission(permission),...guards,handler)
-  reg('get','/queue','appointments',readQueue)
-  reg('get','/queue/precheck/:patientId','appointments',safeLegacy(admin.getQueuePrecheck))
-  reg('post','/queue','appointments',safeLegacy(admin.addToQueue))
-  reg('patch','/queue/:id/status','appointments',safeLegacy(admin.updateQueueStatus),owner('queue'))
-  reg('post','/patients/walk-in','appointments',safeLegacy(admin.createWalkInPatient))
+  const reg=(method,route,permission,handler,...guards)=>router[method](`${prefix}${route}`,...middle,(permission==='patient_intake'?allowAnyPermission('appointments','walk_in_queue'):requirePermission(permission)),...guards,handler)
+  reg('get','/queue','walk_in_queue',readQueue)
+  reg('get','/queue/precheck/:patientId','walk_in_queue',safeLegacy(admin.getQueuePrecheck))
+  reg('post','/queue','walk_in_queue',safeLegacy(admin.addToQueue))
+  reg('patch','/queue/:id/status','walk_in_queue',safeLegacy(admin.updateQueueStatus),owner('queue'))
+  reg('post','/patients/walk-in','patient_intake',safeLegacy(admin.createWalkInPatient))
   reg('get','/appointments/:id/inventory-readiness','appointments',safeLegacy(admin.getAppointmentInventoryReadinessForPortal))
   reg('post','/inventory/suppliers','inventory',supplier)
   router.post(`${prefix}/inventory/locations`,...middle,allowAnyPermission('inventory','system_setup'),afterSuccessfulMutation('settings.updated'),createLocation)

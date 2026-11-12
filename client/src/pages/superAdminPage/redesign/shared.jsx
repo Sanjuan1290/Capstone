@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react'
 import {MdClose,MdInfoOutline,MdErrorOutline,MdCheckCircle,MdWarningAmber,MdRefresh,MdInbox,MdSearch} from 'react-icons/md'
-export const PERMISSIONS=['dashboard','appointments','patient_records','doctor_schedules','billing','inventory','accounts','system_setup','reports','audit_logs']
-export const LABEL={dashboard:'Dashboard',appointments:'Appointments',patient_records:'Patient Records',doctor_schedules:'Doctor Schedules',billing:'Billing',inventory:'Inventory',accounts:'Accounts',system_setup:'System Setup',reports:'Reports',audit_logs:'Audit Logs'}
+export const PERMISSIONS=['dashboard','appointments','walk_in_queue','patient_records','doctor_schedules','billing','inventory','accounts','system_setup','reports','audit_logs']
+export const LABEL={dashboard:'Dashboard',appointments:'Appointments',walk_in_queue:'Walk-in Queue',patient_records:'Patient Records',doctor_schedules:'Doctor Schedules',billing:'Billing',inventory:'Inventory',accounts:'Accounts',system_setup:'System Setup',reports:'Reports',audit_logs:'Audit Logs'}
 export const pesos=(n)=>new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP',maximumFractionDigits:2}).format(Number(n)||0)
 export const whole=n=>new Intl.NumberFormat('en-PH').format(Number(n)||0)
 export const localDate=(date)=>date?new Date(date).toLocaleString('en-PH',{dateStyle:'medium',timeStyle:'short'}):'—'

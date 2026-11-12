@@ -1,3 +1,4 @@
+const { writeInventoryActivity } = require('../utils/inventoryActivity')
 // Billing corrections, stock returns and cashier closing (2026-10-04).
 //
 // Bill lifecycle additions
@@ -109,11 +110,9 @@ const reverseCheckoutDispensing = async ({ billingId, adminId, reason, executor,
        WHERE id = ?`,
       [adminId || null, String(reason || '').slice(0, 255) || null, row.id]
     )
-    await executor.query(
-      `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, to_location, branch_id)
+    await writeInventoryActivity(executor, `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, to_location, branch_id)
        VALUES (?, ?, 'in', ?, ?, 'dispense_return', 'billing_record', ?, ?, ?, ?)`,
-      [row.inventory_id, adminId || null, qty, `${result.batch_code || `Batch #${row.batch_id}`} returned from billing record ${billingId}: ${reason}`, billingId, row.batch_id, result.location,branchId]
-    )
+      [row.inventory_id, adminId || null, qty, `${result.batch_code || `Batch #${row.batch_id}`} returned from billing record ${billingId}: ${reason}`, billingId, row.batch_id, result.location,branchId], result)
     returned.push({ usage_id: row.id, inventory_id: row.inventory_id, batch_id: row.batch_id, quantity: qty, location: result.location })
   }
   return returned
@@ -272,11 +271,9 @@ const returnConsultationConsumable = async (req, res) => {
       'UPDATE consultation_inventory_usage_batches SET returned_quantity = returned_quantity + ?, last_returned_at = NOW() WHERE id = ?',
       [quantity, row.id]
     )
-    await conn.query(
-      `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, to_location, branch_id)
+    await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id, admin_id, type, qty, note, movement_type, reference_type, reference_id, batch_id, to_location, branch_id)
        VALUES (?, ?, 'in', ?, ?, 'clinical_return', 'consultation', ?, ?, ?, ?)`,
-      [row.inventory_id, req.user.id, quantity, `${result.batch_code || `Batch #${row.batch_id}`} unused consumable returned (billing record ${billingId}): ${reason}`, row.consultation_id, row.batch_id, result.location,req.branchId]
-    )
+      [row.inventory_id, req.user.id, quantity, `${result.batch_code || `Batch #${row.batch_id}`} unused consumable returned (billing record ${billingId}): ${reason}`, row.consultation_id, row.batch_id, result.location,req.branchId], result)
     await writeAuditLog({
       userId: req.user.id, userRole: 'admin', action: 'inventory.consultation_consumable_returned', entityType: 'billing_record', entityId: billingId,
       newValues: { usage_batch_id: row.id, consultation_id: row.consultation_id, inventory_id: row.inventory_id, batch_id: row.batch_id, quantity, location: result.location, reason },
@@ -334,11 +331,9 @@ const moveStockBetweenLocations = async (req, res) => {
       'INSERT INTO inventory_transfer_batches (transfer_id, batch_id, quantity, expiration_date) VALUES (?, ?, ?, ?)',
       [transfer.insertId, batchId, quantity, moved.expiration_date || null]
     )
-    await conn.query(
-      `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id, branch_id)
+    await writeInventoryActivity(conn, `INSERT INTO inventory_logs (inventory_id, ${actorColumn}, type, qty, note, movement_type, from_location, to_location, reference_type, reference_id, batch_id, branch_id)
        VALUES (?, ?, 'out', ?, ?, 'transfer_out', ?, ?, 'inventory_transfer', ?, ?, ?)`,
-      [inventoryId, req.user.id, quantity, `${label} moved from ${moved.from.name} to ${moved.to.name}${note ? `: ${note}` : ''}`, moved.from.name, moved.to.name, transfer.insertId, batchId, req.branchId]
-    )
+      [inventoryId, req.user.id, quantity, `${label} moved from ${moved.from.name} to ${moved.to.name}${note ? `: ${note}` : ''}`, moved.from.name, moved.to.name, transfer.insertId, batchId, req.branchId], moved)
     await writeAuditLog({
       userId: req.user.id, userRole: actorRole, action: 'inventory.location_move', entityType: 'inventory_item', entityId: inventoryId,
       newValues: { batch_id: batchId, quantity, from: moved.from.name, to: moved.to.name, note: note || null },

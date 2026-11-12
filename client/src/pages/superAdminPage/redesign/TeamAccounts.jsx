@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../../hooks/useClinicRefresh'
 import {useCallback,useEffect,useMemo,useState} from 'react'
 import {MdPeople,MdRefresh} from 'react-icons/md'
 import {Banner,Card,Empty,Loading,Modal,PageHead,PrimaryButton,SecondaryButton,fetchJson} from './shared'
@@ -20,6 +21,8 @@ export default function TeamAccounts({branches=[]}) {
     catch(e){setError(e.message)}
     finally{setLoading(false)}
   },[])
+  useClinicRefresh(reload, [], { fallbackMs: 60000, skip: () => open || saving })
+
   useEffect(()=>{reload()},[reload])
   const rows=useMemo(()=>accounts.filter(a=>
     (role==='all'||a.role===role) &&
@@ -41,7 +44,7 @@ export default function TeamAccounts({branches=[]}) {
     finally{setSaving(false)}
   }
   return <section className="mt-8 space-y-4" aria-label="Staff and doctor accounts">
-    <PageHead title="Staff & Doctor Accounts" description="View operational accounts from all clinic branches and safely reassign their branch." action={<SecondaryButton onClick={reload}><MdRefresh/> Refresh</SecondaryButton>}/>
+    <PageHead title="Staff & Doctor Accounts" description="View operational accounts from all clinic branches and safely reassign their branch." action={<></>}/>
     {message&&<Banner type="success" title="Account updated" onDismiss={()=>setMessage('')}>{message}</Banner>}
     {error&&!selected&&<Banner onRetry={reload}>{error}</Banner>}
     <Card><div className="grid gap-3 md:grid-cols-3">

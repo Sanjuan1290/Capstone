@@ -1,3 +1,4 @@
+import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { MdArrowBack, MdBlock, MdLock, MdMail, MdOpenInNew, MdPayments, MdPrint, MdReceiptLong, MdRefresh, MdUndo } from 'react-icons/md'
@@ -53,6 +54,8 @@ const Admin_BillingTransactionDetail = () => {
       setError(message); toast.error(message)
     } finally { setLoading(false) }
   }, [billingId, toast, validBillingId])
+  useClinicRefresh(load, [], { fallbackMs: 60000 })
+
 
   useEffect(() => { if (validBillingId) load(); else setLoading(false) }, [load, validBillingId])
 
@@ -102,7 +105,7 @@ const Admin_BillingTransactionDetail = () => {
     <div className="mx-auto w-full max-w-7xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><Link to={portalPath('/admin/billing/transactions')} className="mb-2 inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-slate-800"><MdArrowBack /> Back to Transactions</Link><div className="flex flex-wrap items-center gap-3"><h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdReceiptLong className="text-amber-500" /> Bill #{bill.id}</h1><BillingStatusBadge status={bill.status} /></div><p className="mt-1 text-sm text-slate-500">Complete financial record for {bill.patient_name}.</p></div>
-        <div className="flex flex-wrap items-center gap-2">{['draft','pending'].includes(bill.status) && <Link to={portalPath(`/admin/billing/checkout/${bill.id}`)} className="button-primary"><MdPayments /> Open in Checkout</Link>}{['ready','partially_paid'].includes(bill.status) && Number(bill.balance_amount || 0) > 0 && <Link to={portalPath(`/admin/billing/checkout/${bill.id}`)} className="button-primary"><MdPayments /> {bill.status === 'partially_paid' ? 'Continue Payment' : 'Collect Payment'}</Link>}<button type="button" className="button-secondary" onClick={load}><MdRefresh /> Refresh</button></div>
+        <div className="flex flex-wrap items-center gap-2">{['draft','pending'].includes(bill.status) && <Link to={portalPath(`/admin/billing/checkout/${bill.id}`)} className="button-primary"><MdPayments /> Open in Checkout</Link>}{['ready','partially_paid'].includes(bill.status) && Number(bill.balance_amount || 0) > 0 && <Link to={portalPath(`/admin/billing/checkout/${bill.id}`)} className="button-primary"><MdPayments /> {bill.status === 'partially_paid' ? 'Continue Payment' : 'Collect Payment'}</Link>}<></></div>
       </div>
       <AdminBillingNav pendingApprovals={pendingApprovals} />
 
