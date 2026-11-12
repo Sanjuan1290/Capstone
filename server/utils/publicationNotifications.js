@@ -70,14 +70,16 @@ const processJob = async job => {
   if (!await claimJob(job)) return
   try {
     const table=job.kind==='promotion'?'clinic_promotions':'clinic_announcements'
-    const [[item]]=await db.query(`SELECT title,${job.kind==='promotion'?'description':'caption AS description'},${job.kind==='promotion'?'id':'slug'} FROM ${table} WHERE id=? AND branch_id=?`,[job.entity_id,job.branch_id])
+    const [[item]]=await db.query(`SELECT title,${job.kind==='promotion'?'description,eligibility_type':'caption AS description'},${job.kind==='promotion'?'id':'slug'} FROM ${table} WHERE id=? AND branch_id=?`,[job.entity_id,job.branch_id])
     if(!item) {await db.query("UPDATE clinic_publication_notification_jobs SET status='completed',completed_at=NOW() WHERE id=?",[job.id]);return}
     const ledger=job.kind==='promotion'?'clinic_promotion_notifications':'clinic_announcement_notifications'
     const foreign=job.kind==='promotion'?'promotion_id':'announcement_id'
     const [patients]=await db.query(`SELECT p.id FROM patients p WHERE p.receive_promotions=1 AND COALESCE(p.is_walk_in,0)=0
       AND EXISTS(SELECT 1 FROM appointments ap WHERE ap.patient_id=p.id AND ap.branch_id=?)
+      AND (?='announcement' OR ?='all' OR (p.email_verified_at IS NOT NULL AND p.phone_verified_at IS NOT NULL
+        AND p.password IS NOT NULL AND p.password<>''))
       AND NOT EXISTS(SELECT 1 FROM ${ledger} d WHERE d.${foreign}=? AND d.patient_id=p.id)
-      ORDER BY p.id LIMIT ?`,[job.branch_id,job.entity_id,BATCH_SIZE])
+      ORDER BY p.id LIMIT ?`,[job.branch_id,job.kind,job.kind==='promotion' ? (item.eligibility_type||'all') : 'all',job.entity_id,BATCH_SIZE])
     const content={title:item.title,description:item.description,
       link:job.kind==='promotion'?`/patient/book?branch_id=${job.branch_id}&promotion_id=${job.entity_id}`:`/news/${job.branch_id}/${encodeURIComponent(item.slug)}`}
     let failed=0
@@ -112,3 +114,4 @@ const startPublicationNotificationWorker = async () => {
 }
 
 module.exports={queuePublication,runPublicationNotifications,startPublicationNotificationWorker,eligibleJobsSql}
+

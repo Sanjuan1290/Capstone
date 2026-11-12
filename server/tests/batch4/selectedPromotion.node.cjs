@@ -26,7 +26,7 @@ test('rejects invalid and forged promotion IDs',()=>{
 })
 test('saves trusted branch/service/date/terms snapshot, not client-supplied terms',async()=>{
  const r=await resolveSelectedPromotion(executor(),input)
- assert.deepEqual(r,{id:12,title:promo.title,terms:promo.description,badge:promo.badge_text,starts_on:promo.starts_on,ends_on:promo.ends_on,service_id:99,discount_type:'percentage',discount_value:25,discount_amount:387.5})
+ assert.deepEqual(r,{id:12,title:promo.title,terms:promo.description,badge:promo.badge_text,starts_on:promo.starts_on,ends_on:promo.ends_on,service_id:99,discount_type:'percentage',discount_value:25,eligibility_type:'all',discount_amount:387.5})
 })
 test('rejects inactive, expired and wrong-branch offers',async()=>{
  for(const p of [{...promo,is_active:0},{...promo,ends_on:'2026-10-25'},null]){
@@ -75,3 +75,4 @@ test('offer deep-link and patient form pass only selected promotion ID',()=>{
  assert.match(form,/onPromotionChange=\{setSelectedPromotionId\}/)
  assert.doesNotMatch(card,/discount_amount|billing_payments/)
 })
+

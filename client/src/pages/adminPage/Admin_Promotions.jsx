@@ -10,7 +10,7 @@ import VisibilitySwitch from '../../components/ui/VisibilitySwitch'
 
 const newPromotion = () => ({
   title: '', description: '', badge_text: 'Special offer', starts_on: '', ends_on: '',
-  is_active: true, show_on_dashboard: true, featured_order: 0, discount_type:'none',discount_value:0,
+  is_active: true, show_on_dashboard: true, featured_order: 0, discount_type:'none',discount_value:0, eligibility_type:'all',
   image_url: '', image_token: '', clear_image: false, service_ids: [],
 })
 
@@ -134,6 +134,13 @@ export default function Admin_Promotions({ onComposePost, onPromotionsChanged })
         <label><span className="form-label">Start Date *</span><input className="form-control mt-1" type="date" required value={form.starts_on} onChange={e => update('starts_on', e.target.value)} /></label>
         <label><span className="form-label">End Date *</span><input className="form-control mt-1" type="date" required min={form.starts_on || undefined} value={form.ends_on} onChange={e => update('ends_on', e.target.value)} /></label>
       </div>
+      <fieldset className="rounded-xl border border-slate-200 p-4">
+        <legend className="px-1 text-sm font-bold text-slate-900">Promotion Eligibility</legend>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-slate-50 p-3 text-sm"><input className="mt-1" type="radio" name="eligibility_type" value="all" checked={form.eligibility_type==='all'} onChange={()=>update('eligibility_type','all')} /><span><strong className="block">All Patients</strong>Guests and registered patients can use the offer when its other terms are met.</span></label>
+          <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-slate-50 p-3 text-sm"><input className="mt-1" type="radio" name="eligibility_type" value="verified" checked={form.eligibility_type==='verified'} onChange={()=>update('eligibility_type','verified')} /><span><strong className="block">Verified Patients Only</strong>Requires a registered account plus verified email and mobile number.</span></label>
+        </div>
+      </fieldset>
       <div className="space-y-2 rounded-xl border border-dashed border-slate-300 p-4">
         <p className="form-label">Promotion Photo (Optional)</p>
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-bold"><MdCloudUpload /> Choose Photo<input className="sr-only" type="file" accept="image/jpeg,image/png" disabled={saving} onChange={e => { void uploadImage(e.target.files?.[0]); e.target.value = '' }} /></label>
@@ -181,7 +188,7 @@ export default function Admin_Promotions({ onComposePost, onPromotionsChanged })
           {promo.image_url && <img alt="" src={promo.image_url} loading="lazy" className="h-44 w-full object-cover sm:h-auto sm:w-48" />}
           <div className="min-w-0 flex-1 p-4"><div className="flex flex-wrap items-start justify-between gap-3">
             <div><div className="flex items-center gap-2"><h3 className="font-bold">{promo.title}</h3><span className={`rounded-full px-2 py-0.5 text-xs ${live ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{live ? 'Showing' : !promo.is_active ? 'Hidden' : promo.starts_on > today ? 'Upcoming' : 'Ended'}</span></div>
-              <p className="mt-1 text-sm text-slate-600">{promo.description}</p><p className="mt-2 text-xs text-slate-500">{promo.branch_name || branchName} · {promo.starts_on} to {promo.ends_on}{promo.service_ids?.length ? ` · ${promo.service_ids.length} selected service(s)` : ' · General offer'}{promo.discount_type==='percentage'?` · ${promo.discount_value}% off`:promo.discount_type==='fixed'?` · ₱${Number(promo.discount_value).toFixed(2)} off`:''}</p>
+              <p className="mt-1 text-sm text-slate-600">{promo.description}</p><p className="mt-2 text-xs text-slate-500">{promo.branch_name || branchName} · {promo.starts_on} to {promo.ends_on}{promo.service_ids?.length ? ` · ${promo.service_ids.length} selected service(s)` : ' · General offer'} · {promo.eligibility_type==='verified' ? 'Verified Patients Only' : 'All Patients'}{promo.discount_type==='percentage'?` · ${promo.discount_value}% off`:promo.discount_type==='fixed'?` · ₱${Number(promo.discount_value).toFixed(2)} off`:''}</p>
             </div><div className="flex flex-wrap gap-2">
               {onComposePost && <button type="button" className="button-secondary" onClick={()=>onComposePost(promo)}>Create Promo Post</button>}
               <button type="button" className="button-secondary" onClick={() => open(promo)}><MdEdit /> Edit</button><VisibilitySwitch checked={Boolean(promo.is_active)} onChange={visible=>setVisibility(promo,visible)} label="Show promotion" disabled={saving} /></div>

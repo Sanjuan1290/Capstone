@@ -664,7 +664,11 @@ const getBookingServices = async (req, res) => {
   const [offers]=await db.query(`SELECT ps.service_id,p.id,p.title,p.discount_type,p.discount_value
     FROM clinic_promotion_services ps JOIN clinic_promotions p ON p.id=ps.promotion_id
     WHERE p.branch_id=? AND p.is_active=1 AND p.starts_on<=CURDATE() AND p.ends_on>=CURDATE()
-      AND p.discount_type IN ('percentage','fixed') ORDER BY p.id ASC`,[branch.id])
+      AND p.discount_type IN ('percentage','fixed')
+      AND (p.eligibility_type='all' OR EXISTS(SELECT 1 FROM patients pv WHERE pv.id=? AND COALESCE(pv.is_walk_in,0)=0
+        AND pv.email IS NOT NULL AND pv.email<>'' AND pv.phone IS NOT NULL AND pv.phone<>''
+       AND pv.email_verified_at IS NOT NULL AND pv.phone_verified_at IS NOT NULL AND pv.password IS NOT NULL AND pv.password<>''))
+      ORDER BY p.id ASC`,[branch.id,req.user.id])
   const {priceFor}=require('../utils/promotionPricing')
   res.json(visibleRows.map((service) => ({
     id: service.id,
@@ -785,7 +789,7 @@ const createAppointment = async (req, res) => {
       if (connection) await connection.beginTransaction()
       const selected = selectedPromotionId ? await resolveSelectedPromotion(executor, {
         promotionId:selectedPromotionId, branchId:branch.id, serviceId:requestedService.id,
-        appointmentDate:normalizedDate, servicePrice:requestedService.default_price, lock:true,
+        appointmentDate:normalizedDate, servicePrice:requestedService.default_price, patientId:req.user.id, lock:true,
       }) : null
       const cols = `patient_id, doctor_id, clinic_type, requested_service_id, requested_service_name_snapshot,
         requested_service_price_snapshot, requested_service_duration_minutes_snapshot, reserved_duration_minutes_snapshot,
@@ -796,11 +800,11 @@ const createAppointment = async (req, res) => {
       const sql = selected ? `INSERT INTO appointments (${cols}, promotion_id, promotion_title_snapshot,
         promotion_terms_snapshot, promotion_badge_snapshot, promotion_starts_on_snapshot, promotion_ends_on_snapshot,
         promotion_selected_for_service_id, promotion_selected_at,
-        promotion_discount_type_snapshot,promotion_discount_value_snapshot,promotion_discount_amount_snapshot)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00'),?,?,?)`
+        promotion_discount_type_snapshot,promotion_discount_value_snapshot,promotion_discount_amount_snapshot,promotion_eligibility_snapshot)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00'),?,?,?,?)`
         : `INSERT INTO appointments (${cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', ?)`
       const params = selected ? [...values, selected.id, selected.title, selected.terms, selected.badge,
-        selected.starts_on, selected.ends_on, selected.service_id,selected.discount_type,selected.discount_value,selected.discount_amount] : values
+        selected.starts_on, selected.ends_on, selected.service_id,selected.discount_type,selected.discount_value,selected.discount_amount,selected.eligibility_type] : values
       const [inserted] = await executor.query(sql, params)
       if (connection) await connection.commit()
       return inserted

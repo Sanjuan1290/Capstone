@@ -12,7 +12,7 @@ const selectFieldsByRole = {
   admin: 'id, full_name, email, phone, phone_verified_at, theme_preference, profile_image_url',
   staff: 'id, full_name, email, phone, phone_verified_at, theme_preference, profile_image_url',
   doctor: 'id, full_name, email, phone, phone_verified_at, clinic_type, theme_preference, profile_image_url',
-  patient: 'id, full_name, email, email_verified_at, phone, address, COALESCE(gender, sex) AS gender, COALESCE(gender, sex) AS sex, DATE_FORMAT(birthdate, "%Y-%m-%d") AS birthdate, receive_promotions, is_profile_complete, theme_preference, profile_image_url',
+  patient: 'id, full_name, email, email_verified_at, phone, phone_verified_at, is_walk_in, address, COALESCE(gender, sex) AS gender, COALESCE(gender, sex) AS sex, DATE_FORMAT(birthdate, "%Y-%m-%d") AS birthdate, receive_promotions, is_profile_complete, theme_preference, profile_image_url',
 }
 
 const getSettings = async (role, id) => {
@@ -123,3 +123,4 @@ module.exports = {
   getSettings,
   updateSettings,
 }
+

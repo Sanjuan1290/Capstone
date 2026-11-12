@@ -64,6 +64,7 @@ const migrationFiles = [
   '2026-11-11-billing-stock-reservations.sql',
   '2026-11-11-doctor-confirmation-notifications.sql',
   '2026-11-12-inventory-excel-undo.sql',
+  '2026-11-12-promotion-verified-eligibility.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -148,6 +149,15 @@ async function runRegisteredBranchMigrations(db) {
               continue
             }
           }
+          if (file === '2026-11-12-promotion-verified-eligibility.sql') {
+            const match = /^ALTER TABLE (clinic_promotions|appointments) ADD COLUMN (eligibility_type|promotion_eligibility_snapshot) VARCHAR\(24\) NOT NULL DEFAULT 'all'$/i.exec(statement)
+            if (!match) throw new Error('Unexpected promotion eligibility migration statement')
+            const [[existing]] = await connection.query('SELECT COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? LIMIT 1', [match[1], match[2]])
+            if (existing) {
+              if (String(existing.COLUMN_TYPE).toLowerCase()!=='varchar(24)' || existing.IS_NULLABLE!=='NO' || existing.COLUMN_DEFAULT!=='all') throw new Error('Incompatible promotion eligibility column: '+match[2])
+              continue
+            }
+          }
           if (file === '2026-11-05-promotion-pricing.sql') {
             const match = /^ALTER TABLE (clinic_promotions|appointments|billing_records) ADD COLUMN ([a-z_]+) /i.exec(statement)
             if (!match) throw new Error('Unexpected promotion pricing migration statement')
@@ -201,4 +211,5 @@ module.exports = {
   acceptedContentHashes,
   migrationFiles,
 }
+
 

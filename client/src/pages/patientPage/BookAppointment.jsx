@@ -487,6 +487,7 @@ const BookAppointment = () => {
   const [slotsError, setSlotsError] = useState('')
   const { user, setUser } = useAuth()
   const [emailStatus, setEmailStatus] = useState('checking')
+  const [mobileVerified, setMobileVerified] = useState(false)
   const [emailStatusError, setEmailStatusError] = useState('')
   const emailStatusRequestId = useRef(0)
   const [activeVisits, setActiveVisits] = useState([])
@@ -539,12 +540,14 @@ const BookAppointment = () => {
       const current = await getSettings('patient')
       const status = getVerifiedPatientAccount(current, patientId)
       if (requestId !== emailStatusRequestId.current) return
+      setMobileVerified(Boolean(current.phone_verified_at))
       setUser((prev) => isSamePatientAccount(current, prev?.id)
-        ? { ...prev, email: current.email, email_verified_at: current.email_verified_at || null }
+        ? { ...prev, email: current.email, email_verified_at: current.email_verified_at || null, phone_verified_at: current.phone_verified_at || null }
         : prev)
       setEmailStatus(status)
     } catch (error) {
       if (requestId !== emailStatusRequestId.current) return
+      setMobileVerified(false)
       setEmailStatusError(error.message || 'Unable to confirm email status.')
       setEmailStatus('error')
     }
@@ -606,6 +609,11 @@ const BookAppointment = () => {
     }
     return () => { readinessRequestId.current += 1 }
   }, [branchId])
+  // Exclusive offers never affect the displayed or submitted price until the
+  // signed-in account has *both* verified contact methods. The API rechecks.
+  const qualifiesForExclusiveOffers=Boolean(patientId && !Number(user?.is_walk_in||0) && emailStatus==='verified' && mobileVerified)
+  const bookablePromotions=promotions.filter(p=>p.eligibility_type!=='verified' || qualifiesForExclusiveOffers)
+
   const loadPromotions=()=>{
     const requestId=++promotionsRequestId.current
     const requestedBranch=branchId
@@ -620,19 +628,19 @@ const BookAppointment = () => {
   useEffect(() => {setPromotions([]);setSelectedPromotionId(null);void loadPromotions();return ()=>{promotionsRequestId.current+=1}}, [branchId])
   useEffect(()=>{
     if(!form.service){setSelectedPromotionId(null);return}
-    const applicable=eligibleBookingPromotions(promotions,{branchId,serviceId:form.service.id,date:form.date || getLocalDateOnly()})
+    const applicable=eligibleBookingPromotions(bookablePromotions,{branchId,serviceId:form.service.id,date:form.date || getLocalDateOnly()})
       .filter(p=>Number(p.is_active ?? 1)!==0 && p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly())
     setSelectedPromotionId(current=>{
       if(current && applicable.some(p=>Number(p.id)===Number(current)))return current
       if(!linkedPromotionConsumed.current && linkedPromotionId && applicable.some(p=>Number(p.id)===linkedPromotionId)){linkedPromotionConsumed.current=true;return linkedPromotionId}
       return selectBookingPrice(form.service,applicable,{branchId,date:form.date || getLocalDateOnly()}).promotion?.id || null
     })
-  },[form.service?.id,form.date,branchId,promotions])
+  },[form.service?.id,form.date,branchId,promotions,qualifiesForExclusiveOffers])
   useEffect(()=>{
     if(!form.date || !selectedPromotionId)return
-    const offer=promotions.find(p=>Number(p.id)===Number(selectedPromotionId))
+    const offer=bookablePromotions.find(p=>Number(p.id)===Number(selectedPromotionId))
     if(!offer || form.date<offer.starts_on || form.date>offer.ends_on || offer.starts_on>getLocalDateOnly() || offer.ends_on<getLocalDateOnly())setSelectedPromotionId(null)
-  },[form.date,selectedPromotionId,promotions])
+  },[form.date,selectedPromotionId,promotions,qualifiesForExclusiveOffers])
   useClinicRefresh(loadPromotions,['promotion.updated','service.updated'],{fallbackMs:90000})
 
   const loadDoctors = async () => {
@@ -829,7 +837,7 @@ const BookAppointment = () => {
 
   const handleConfirm = async () => {
     if (bookingSubmissionLock.current || submitting || promotionsLoading || (promotionsError && form.service?.current_offer) || !policyAccepted || !form.reason || !form.date || !form.time || !timeSlots.includes(form.time) || !form.doctor || !form.service || !bookingReadiness?.[form.clinicType]?.bookable || readinessError) return
-    const effective = eligibleBookingPromotions(promotions,{branchId,serviceId:form.service.id,date:form.date})
+    const effective = eligibleBookingPromotions(bookablePromotions,{branchId,serviceId:form.service.id,date:form.date})
       .filter(p=>p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly())
     if(selectedPromotionId && !effective.some(p=>Number(p.id)===Number(selectedPromotionId))){
       setBookingNotice('The selected offer is no longer available on this appointment date. Please review your service and date.');setSelectedPromotionId(null);return
@@ -894,10 +902,10 @@ const BookAppointment = () => {
   if(!branchId)return <div className="max-w-2xl mx-auto space-y-4">{emailVerificationNotice}<h1 className="text-2xl font-bold text-slate-800">Choose a Clinic Branch</h1><p className="text-sm text-slate-500">Choose where you would like your appointment. Doctors, services, pricing and availability are specific to each branch.</p>{branches.map(b=><button type="button" key={b.id} className="w-full rounded-2xl border-2 bg-white p-5 text-left shadow-sm hover:border-emerald-500" onClick={()=>{selectBranch(String(b.id));setSelectedPromotionId(null);setForm({clinicType:'',service:null,doctor:null,date:null,time:'',reason:'',reasonDetails:'',notes:''});setStep(0)}}><b className="block text-slate-900">{b.name}</b><span className="text-sm text-slate-500">{b.address||'Address available from the clinic'}</span></button>)}{branchError&&<p className="text-red-600">{branchError}</p>}{!branches.length&&!branchError&&<p className="text-sm text-slate-500">Loading branches…</p>}</div>
 
   const branchName = branches.find(b=>String(b.id)===String(branchId))?.name || 'Selected Clinic Branch'
-  const effectivePromotions = eligibleBookingPromotions(promotions,{branchId,serviceId:form.service?.id,date:form.date || getLocalDateOnly()})
+  const effectivePromotions = eligibleBookingPromotions(bookablePromotions,{branchId,serviceId:form.service?.id,date:form.date || getLocalDateOnly()})
     .filter(p=>p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly())
   const selectedPromotion = effectivePromotions.find(p=>Number(p.id)===Number(selectedPromotionId)) || null
-  const hasCurrentServiceOffer = promotions.some(p=>Number(p.branch_id)===Number(branchId) && Number(p.is_active ?? 1)!==0 && p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly() && p.service_ids?.some(id=>Number(id)===Number(form.service?.id)) && ['percentage','fixed'].includes(p.discount_type))
+  const hasCurrentServiceOffer = bookablePromotions.some(p=>Number(p.branch_id)===Number(branchId) && Number(p.is_active ?? 1)!==0 && p.starts_on<=getLocalDateOnly() && p.ends_on>=getLocalDateOnly() && p.service_ids?.some(id=>Number(id)===Number(form.service?.id)) && ['percentage','fixed'].includes(p.discount_type))
   return (
     <div className="mx-auto max-w-6xl space-y-5 px-1 pb-8 sm:px-3">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -914,6 +922,12 @@ const BookAppointment = () => {
         </a>
       </div>
       {emailVerificationNotice}
+      {!qualifiesForExclusiveOffers && promotions.some(p=>p.eligibility_type==='verified' && Number(p.branch_id)===Number(branchId)) &&
+        <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-bold">Exclusive offers require a verified patient account</p>
+          <p className="mt-1">You can book at the regular price. To use verified-patient offers, verify your email and mobile number in Settings. The discount will only appear when your account qualifies.</p>
+          <NavLink to="/patient/settings" className="mt-2 inline-block font-semibold underline">Manage verification in Settings</NavLink>
+        </div>}
       {promotionsError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
         <span>{promotionsError}</span>
         <button type="button" onClick={()=>void loadPromotions()} className="min-h-10 rounded-lg border border-amber-300 bg-white px-3 font-bold text-amber-900">Retry Offers</button>
@@ -930,11 +944,11 @@ const BookAppointment = () => {
             {done ? <SuccessScreen onReset={handleReset} form={form} branchName={branchName} selectedPromotion={selectedPromotion} /> : <>
               <div ref={bookingContentRef} tabIndex={-1} className="outline-none" aria-label={STEPS[step]}>
                 {step===0 && <StepService category={serviceCategory} onCategoryChange={selectCategory} value={form.service} onChange={selectService}
-                  services={services} promotions={promotions} promotionsLoading={promotionsLoading} branchId={branchId} readiness={bookingReadiness} readinessLoading={loadingReadiness} readinessError={readinessError}
+                  services={services} promotions={bookablePromotions} promotionsLoading={promotionsLoading} branchId={branchId} readiness={bookingReadiness} readinessLoading={loadingReadiness} readinessError={readinessError}
                   loading={loadingServices} error={serviceError} onRetry={loadServices} onRetryReadiness={loadBookingReadiness} />}
                 {step===1 && <StepDoctor clinicType={form.clinicType} service={form.service} promotion={selectedPromotion} value={form.doctor} onChange={selectDoctorSafely} doctorList={doctorList} loadingDoctors={loadingDoctors} doctorError={doctorError} onRetry={loadDoctors} />}
                 {step===2 && <StepSchedule date={form.date} time={form.time} service={form.service} promotion={selectedPromotion} hasCurrentServiceOffer={hasCurrentServiceOffer} onDateChange={set('date')} onTimeChange={set('time')} timeSlots={timeSlots} doctorSchedules={doctorSchedules} unavailableDates={doctorUnavailableDates} loadingSlots={loadingSlots} slotsError={slotsError} />}
-                {step===3 && <StepReview form={{...form,branchId}} branchName={branchName} promotions={promotions} selectedPromotionId={selectedPromotionId} onPromotionChange={setSelectedPromotionId}
+                {step===3 && <StepReview form={{...form,branchId}} branchName={branchName} promotions={bookablePromotions} selectedPromotionId={selectedPromotionId} onPromotionChange={setSelectedPromotionId}
                   reasonOptions={reasonOptions} loadingReasons={loadingReasons} onReasonChange={(nextReason)=>setForm(current=>({...current,reason:nextReason,reasonDetails:nextReason==='Other'?current.reasonDetails:''}))}
                   onReasonDetailsChange={set('reasonDetails')} onNotesChange={set('notes')} policyAccepted={policyAccepted} onPolicyAcceptedChange={setPolicyAccepted} />}
               </div>

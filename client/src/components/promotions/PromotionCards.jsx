@@ -26,6 +26,7 @@ export function PromotionCard({ promotion: p, directory = null }) {
     <div className="flex flex-1 flex-col gap-2 p-4">
       <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">{p.badge_text || 'Special offer'}</span>
       <h3 className="text-base font-black text-slate-900">{p.title}</h3>
+      {p.eligibility_type==='verified' && <p className="text-xs font-semibold text-amber-800">Registered account + verified email and mobile required</p>}
       {offerLabel && <p className="text-sm font-bold text-emerald-700">{offerLabel}</p>}
       <p className="line-clamp-4 text-sm text-slate-600">{p.description}</p>
       <p className="mt-auto pt-2 text-xs text-slate-500">{endDate ? `Valid until ${endDate} · ` : ''}{p.branch_name || 'Selected branch'}</p>
@@ -75,3 +76,4 @@ export function FeaturedOffers({ promotions = [] }) {
     </div>
   </section>
 }
+

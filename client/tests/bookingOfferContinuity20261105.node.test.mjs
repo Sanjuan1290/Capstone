@@ -11,6 +11,7 @@ const doctorLayout=read('../src/components/layouts/DoctorLayout.jsx')
 const superLayout=read('../src/pages/superAdminPage/BranchPortals.jsx')
 const portalService=read('../src/services/portal.service.js')
 const serverBilling=read('../../server/utils/billing.js')
+const promotionEngine=read('../../server/utils/billingServicePromotions.js')
 const staffBilling=read('../../server/controllers/staff.controller.js')
 const patientBooking=read('../../server/controllers/patient.controller.js')
 
@@ -36,10 +37,10 @@ test('server-calculated current offer can display while offers are still loading
  assert.equal(selectBookingPrice(svc,[],{branchId:1,date:'2026-12-31'}).promotion,null)
 })
 test('all four booking screens and confirmation display promotion price or selected date rules',()=>{
- for(const marker of ['preview.quote?.discount > 0','<BookingPriceNotice service={service} promotion={promotion} />','<BookingPriceNotice service={service} promotion={promotion} date={date} />','<StepReview form={{...form,branchId}}','selectedPromotion={selectedPromotion} />','Service discount:'])assert.ok(booking.includes(marker),marker)
+ for(const marker of ['preview.quote?.discount > 0','<BookingPriceNotice service={service} promotion={promotion} />','<BookingPriceNotice service={service} promotion={promotion} date={date} />','<StepReview form={{...form,branchId}}','selectedPromotion={selectedPromotion} />','Expected discounted service price'])assert.ok(booking.includes(marker),marker)
  assert.match(booking,/selectedPromotionId && !effective.some/)
  assert.match(booking,/promotion_id: selectedPromotionId \|\| undefined/)
- assert.match(booking,/\['Service Price',form.service \? \(hasDiscount \? peso\(quote.current\)/)
+ assert.match(booking,/\['Expected Service Price',form.service \? \(hasDiscount \? peso\(quote.current\)/)
 })
 test('all role headers expose a persistent notification bell, including branch admin and central superadmin',()=>{
  assert.match(adminLayout,/<NotificationBell role=\{superBranch \? "superadmin" : "admin"\} \/>/)
@@ -52,8 +53,10 @@ test('all role headers expose a persistent notification bell, including branch a
 })
 test('backend snapshots discounts at booking and charges them once in consultation and staff checkout',()=>{
  for(const item of ['resolveSelectedPromotion(executor','promotion_discount_amount_snapshot','promotion_discount_type_snapshot'])assert.ok(patientBooking.includes(item),item)
- for(const item of ['promotion_selected_for_service_id','promotion_discount_amount_snapshot','item.source_type===\'consultation\'','promotion_discount_amount=?','selected_promotion:'])assert.ok(serverBilling.includes(item),item)
+ for(const item of ['promotion_selected_for_service_id','promotion_discount_amount_snapshot','promotion_discount_amount=?','selected_promotion:'])assert.ok(serverBilling.includes(item),item)
+ assert.match(promotionEngine,/item\.source_type==='consultation'/)
  assert.match(serverBilling,/Math\.max\(0,Number\(existing\.discount_amount\|\|0\)-Number\(existing\.promotion_discount_amount\|\|0\)\)\+promotionDiscount/)
  assert.match(staffBilling,/const combinedDiscount=toMoney\(discount.amount\+courtesyTotal\+promotionDiscount\)/)
  assert.match(staffBilling,/discount_amount = \?,promotion_discount_amount=\?/)
 })
+
