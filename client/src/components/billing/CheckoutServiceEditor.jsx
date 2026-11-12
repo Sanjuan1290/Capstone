@@ -1,17 +1,27 @@
 import {formatMoney} from '../../utils/billingUi'
 
 // Billing-only service charge. This never edits the doctor's record or uses inventory.
-export default function CheckoutServiceEditor({item,services=[],promotions=[],onSelect,onPromotion,onNotes}){
+export default function CheckoutServiceEditor({item,services=[],promotions=[],loadError="",loading=false,onRetry,onSelect,onPromotion,onNotes}){
  const chosen=services.find(service=>Number(service.id)===Number(item.catalog_service_id))
  const offers=promotions.filter(p=>Number(p.service_id)===Number(item.catalog_service_id))
  return <div className="mt-4 space-y-3">
   <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
    This adds a service charge to the bill only. It does not change the doctor's consultation record or deduct included inventory items. Confirm the service was performed and enter a reason.
   </div>
-  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
+  {loadError ? (
+  <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+   <span>Could not load available clinic services: {loadError}</span>
+   {onRetry && <button type="button" className="button-secondary" onClick={onRetry}>Retry</button>}
+  </div>
+ ) : !loading && services.length===0 ? (
+  <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+   No active services are available for this appointment's clinic at the selected branch.
+  </p>
+ ) : null}
+ <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
    <label><span className="form-label">Clinic Service *</span>
-    <select className="form-control mt-1" value={item.catalog_service_id||''} onChange={e=>onSelect(e.target.value)}>
-     <option value="">Select a service</option>
+    <select className="form-control mt-1" value={item.catalog_service_id||''} onChange={e=>onSelect(e.target.value)} disabled={loading || Boolean(loadError) || services.length===0}>
+     <option value="">{loading ? "Loading services..." : "Select a service"}</option>
      {services.map(service=><option key={service.id} value={service.id}>{service.service_name}</option>)}
     </select>
    </label>
@@ -30,3 +40,4 @@ export default function CheckoutServiceEditor({item,services=[],promotions=[],on
   </label>
  </div>
 }
+

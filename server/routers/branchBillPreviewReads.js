@@ -1,5 +1,6 @@
 const db=require('../db/connect')
 const staff=require('../controllers/staff.controller')
+const {forBill: readAvailableBillingServices} = require('../utils/billingPromotionEndpoints')
 const safeId=value=>Number.isSafeInteger(Number(value))&&Number(value)>0
 const ownsBill=async(req,res,next)=>{
  if(!safeId(req.params.id))return res.status(400).json({message:'Invalid bill ID.'})
@@ -17,8 +18,13 @@ async function adjustments(req,res){
 }
 function registerBranchBillPreviewReads(router,{requireSuper,branchContext,requirePermission}){
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
+  // Checkout loads its service-charge catalog and eligible promotions from this endpoint.
+  // Both branch Admin and Super Admin workspace URLs must expose the same
+  // branch-scoped route as the original Admin/Staff portals.
+  router.get(`${prefix}/billing/:id/available-promotions`,...middle,requirePermission('billing'),ownsBill,safeLegacy(readAvailableBillingServices))
   router.get(`${prefix}/billing/:id/finalize-preview`,...middle,requirePermission('billing'),ownsBill,safeLegacy(staff.getFinalizePreview))
   router.get(`${prefix}/billing/:id/adjustment-requests`,...middle,requirePermission('billing'),ownsBill,adjustments)
  }
 }
 module.exports={registerBranchBillPreviewReads,ownsBill,adjustments}
+

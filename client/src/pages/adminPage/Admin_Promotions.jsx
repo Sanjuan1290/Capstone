@@ -14,7 +14,7 @@ const newPromotion = () => ({
   image_url: '', image_token: '', clear_image: false, service_ids: [],
 })
 
-export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
+export default function Admin_Promotions({ onComposePost, onPromotionsChanged }) {
   const toast = useToast()
   const [promotions, setPromotions] = useState([])
   const [services, setServices] = useState([])
@@ -73,6 +73,7 @@ export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
       toast.success('Promotion saved.')
       setEditing(null)
       await load()
+      await onPromotionsChanged?.()
     } catch (err) { setError(err.message || 'Could not save promotion.') }
     finally { setSaving(false) }
   }
@@ -82,6 +83,7 @@ export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
       await saveAdminPromotion({ ...promo, is_active: visible }, promo.id)
       toast.success(visible ? 'Promotion is visible.' : 'Promotion hidden.')
       await load()
+      await onPromotionsChanged?.()
     } catch (err) { setError(err.message || 'Could not update promotion visibility.') }
     finally { setSaving(false) }
   }
@@ -182,11 +184,12 @@ export default function Admin_Promotions({ onComposePost, onEmailOffer }) {
               <p className="mt-1 text-sm text-slate-600">{promo.description}</p><p className="mt-2 text-xs text-slate-500">{promo.branch_name || branchName} · {promo.starts_on} to {promo.ends_on}{promo.service_ids?.length ? ` · ${promo.service_ids.length} selected service(s)` : ' · General offer'}{promo.discount_type==='percentage'?` · ${promo.discount_value}% off`:promo.discount_type==='fixed'?` · ₱${Number(promo.discount_value).toFixed(2)} off`:''}</p>
             </div><div className="flex flex-wrap gap-2">
               {onComposePost && <button type="button" className="button-secondary" onClick={()=>onComposePost(promo)}>Create Promo Post</button>}
-              {onEmailOffer && <button type="button" className="button-secondary" onClick={()=>onEmailOffer(promo)}>Email Patients</button>}<button type="button" className="button-secondary" onClick={() => open(promo)}><MdEdit /> Edit</button><VisibilitySwitch checked={Boolean(promo.is_active)} onChange={visible=>setVisibility(promo,visible)} label="Show promotion" disabled={saving} /></div>
+              <button type="button" className="button-secondary" onClick={() => open(promo)}><MdEdit /> Edit</button><VisibilitySwitch checked={Boolean(promo.is_active)} onChange={visible=>setVisibility(promo,visible)} label="Show promotion" disabled={saving} /></div>
           </div></div>
         </article>
       })}
     </div>}
   </div>
 }
+
 

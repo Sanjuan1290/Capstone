@@ -27,7 +27,7 @@ const validatePost = body => {
   if(publishAt===undefined||expiresAt===undefined|| (publishAt&&expiresAt&&expiresAt<=publishAt))throw bad('Invalid publication or expiration date.')
   if(status==='scheduled'&&!publishAt)throw bad('Schedule requires a publication date.')
   const promotionId = body.promotion_id == null || body.promotion_id === '' ? null : Number(body.promotion_id)
-  if (promotionId !== null && (!idOk(promotionId) || kind !== 'promotion')) throw bad('Choose a valid clinic promotion for a promotional post.')
+  if (promotionId !== null && !idOk(promotionId)) throw bad('Choose a valid clinic promotion for the booking button.')
   const rawUrl = clean(body.cta_url,600)
   let bookingUrl = null
   if (rawUrl) {
@@ -87,7 +87,7 @@ const save = async(req,res)=>{
     params.set('branch_id',String(req.branchId))
     values.cta_url=`/patient/book?${params.toString()}`
   }
-  if(values.promotion_id && !values.cta_url)values.cta_url=`/patient/book?branch_id=${req.branchId}`
+  if(values.promotion_id && !values.cta_url)values.cta_url=`/patient/book?branch_id=${req.branchId}&promotion_id=${values.promotion_id}`
   const old=id?(await db.query('SELECT * FROM clinic_announcements WHERE id=? AND branch_id=?',[id,req.branchId]))[0][0]:null
   if(id){const [[campaign]]=await db.query("SELECT id FROM marketing_campaigns WHERE announcement_id=? AND branch_id=? AND status IN ('queued','sending','paused') LIMIT 1",[id,req.branchId]);if(campaign)throw bad('Pause/cancel the active email campaign before changing the announcement.',409)}
   if(id&&!old)return res.status(404).json({message:'Announcement not found in this branch.'})
@@ -271,19 +271,14 @@ publicRouter.get('/',async(req,res)=>{
   if(branch!==null&&!idOk(branch))throw bad('Invalid branch ID.')
   const type=String(req.query.type||'all')
   if(!['all','promotion','news','article'].includes(type))throw bad('Invalid news category.')
-  res.setHeader('Cache-Control','private, no-store')
-  const promotionsAllowed=await require('../utils/patientPromotionAccess').canViewPatientPromotions(req)
-  if(type==='promotion'&&!promotionsAllowed)return res.status(403).json({code:'PATIENT_ACCOUNT_REQUIRED',message:'Sign in with a patient account to view promotions.'})
   const [rows]=await db.query(`SELECT a.id,a.branch_id,a.title,a.slug,a.caption,a.type,a.cover_image_url,a.publish_at,a.expires_at,cb.name AS branch_name FROM clinic_announcements a INNER JOIN clinic_branches cb ON cb.id=a.branch_id AND cb.is_active=1
-    WHERE a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (a.expires_at IS NULL OR a.expires_at>CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (? IS NULL OR a.branch_id=?) AND (?='all' OR a.type=?) AND (?=1 OR (a.type<>'promotion' AND a.promotion_id IS NULL)) ORDER BY a.publish_at DESC,a.id DESC LIMIT 100`,[branch,branch,type,type,Number(promotionsAllowed)])
+    WHERE a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (a.expires_at IS NULL OR a.expires_at>CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (? IS NULL OR a.branch_id=?) AND (?='all' OR a.type=?) ORDER BY a.publish_at DESC,a.id DESC LIMIT 100`,[branch,branch,type,type])
   res.json(rows)
 })
 publicRouter.get('/:branchId/:slug',async(req,res)=>{
   const branchId=Number(req.params.branchId),path=slug(req.params.slug)
   if(!idOk(branchId)||path!==req.params.slug)throw bad('Invalid news URL.')
-  res.setHeader('Cache-Control','private, no-store')
-  const promotionsAllowed=await require('../utils/patientPromotionAccess').canViewPatientPromotions(req)
-  const [[article]]=await db.query(`SELECT a.id,a.branch_id,a.promotion_id,a.title,a.slug,a.caption,a.body,a.type,a.cover_image_url,a.cta_label,a.cta_url,a.publish_at,a.expires_at,cb.name AS branch_name FROM clinic_announcements a INNER JOIN clinic_branches cb ON cb.id=a.branch_id AND cb.is_active=1 WHERE a.branch_id=? AND a.slug=? AND a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (a.expires_at IS NULL OR a.expires_at>CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (?=1 OR (a.type<>'promotion' AND a.promotion_id IS NULL))`,[branchId,path,Number(promotionsAllowed)])
+  const [[article]]=await db.query(`SELECT a.id,a.branch_id,a.promotion_id,a.title,a.slug,a.caption,a.body,a.type,a.cover_image_url,a.cta_label,a.cta_url,a.publish_at,a.expires_at,cb.name AS branch_name FROM clinic_announcements a INNER JOIN clinic_branches cb ON cb.id=a.branch_id AND cb.is_active=1 WHERE a.branch_id=? AND a.slug=? AND a.status IN ('published','scheduled') AND (a.publish_at IS NULL OR a.publish_at<=CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')) AND (a.expires_at IS NULL OR a.expires_at>CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00'))`,[branchId,path])
   if(!article)return res.status(404).json({message:'This article is not available.'})
   res.json({...article,...await resolvePublicBooking(article)})
 })
@@ -297,6 +292,7 @@ publicRouter.post('/unsubscribe',unsubscribe)
 // RFC 8058 one-click unsubscribe: POST only; GET never modifies consent.
 publicRouter.post('/unsubscribe-one-click',unsubscribe)
 module.exports={registerBranchAnnouncements,publicRouter,validatePost,slug,dateTime}
+
 
 
 

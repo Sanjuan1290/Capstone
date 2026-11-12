@@ -125,6 +125,8 @@ const Admin_CheckoutDetail = () => {
   const [draft, setDraft] = useState(null)
   const [inventory, setInventory] = useState([])
   const [serviceOptions,setServiceOptions] = useState({services:[],promotions:[]})
+  const [serviceOptionsError,setServiceOptionsError] = useState('')
+  const [serviceOptionsLoading,setServiceOptionsLoading] = useState(false)
   const [paymentSettings, setPaymentSettings] = useState({})
   const [discounts, setDiscounts] = useState([])
   const [adjustments, setAdjustments] = useState([])
@@ -194,18 +196,35 @@ const Admin_CheckoutDetail = () => {
     setDiscountReason('')
   }
 
+  // Reload the catalog separately so a retry never discards unsaved bill edits.
+  const refreshServiceOptions = async () => {
+    setServiceOptionsLoading(true)
+    setServiceOptionsError('')
+    try {
+      const result = await getBillingPromotionOptions(billingId)
+      if (!Array.isArray(result?.services) || !Array.isArray(result?.promotions)) {
+        throw new Error('The clinic service list returned an invalid response.')
+      }
+      setServiceOptions(result)
+    } catch (err) {
+      setServiceOptions({services:[],promotions:[]})
+      setServiceOptionsError(err?.message || 'Could not load clinic services. Please try again.')
+    } finally {
+      setServiceOptionsLoading(false)
+    }
+  }
+
   const load = async ({ preserveStep = false } = {}) => {
     setLoading(true)
     setError('')
     try {
       const current = await getBillById(billingId)
-      const [items, settings, presets, requests, clinic, availableServices] = await Promise.all([
+      const [items, settings, presets, requests, clinic] = await Promise.all([
         getInventory(),
         getBillingPaymentSettings(),
         getDiscountPresets(),
         getBillingAdjustmentRequests(billingId),
         getClinicSettings(),
-        getBillingPromotionOptions(billingId).catch(()=>({services:[],promotions:[]})),
       ])
       setBill(current)
       setDraft(normalizeBill(current))
@@ -214,7 +233,8 @@ const Admin_CheckoutDetail = () => {
       setDiscounts(Array.isArray(presets) ? presets : [])
       setAdjustments(Array.isArray(requests) ? requests : [])
       setClinicSettings(clinic || {})
-      setServiceOptions(availableServices || {services:[],promotions:[]})
+      // The catalog is optional to loading a bill, but never hide its failures.
+      await refreshServiceOptions()
       restoreAdjustmentState(current, requests, presets)
       if (!preserveStep || initialLoadRef.current) {
         setStep(['ready', 'partially_paid'].includes(current.status) ? 3 : current.status === 'paid' ? 3 : 1)
@@ -679,7 +699,7 @@ const Admin_CheckoutDetail = () => {
                         <div><span className="form-label">{item.item_type === 'service' ? 'Service Price' : 'Item Price'}</span><div className="mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">{formatMoney(item.unit_price)}</div></div>
                       </div>
                     ) : item.item_type === 'service' ? (
-                      <CheckoutServiceEditor item={item} services={serviceOptions.services} promotions={serviceOptions.promotions}
+                      <CheckoutServiceEditor item={item} services={serviceOptions.services} promotions={serviceOptions.promotions} loadError={serviceOptionsError} loading={serviceOptionsLoading} onRetry={refreshServiceOptions}
                         onSelect={value=>selectService(index,value)}
                         onPromotion={value=>updateItem(index,'promotion_id',value)}
                         onNotes={value=>updateItem(index,'notes',value)}/>
@@ -809,3 +829,4 @@ const Admin_CheckoutDetail = () => {
 }
 
 export default Admin_CheckoutDetail
+

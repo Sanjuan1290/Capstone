@@ -118,7 +118,28 @@ const Admin_Announcements = () => {
   },[])
   useEffect(()=>{void refresh()},[refresh])
   useClinicRefresh(refresh,['promotion.updated'],{fallbackMs:120000,skip:()=>editing!==null||busy})
-  const edit = useCallback(post => {setWorkspaceTab('posts');setEditing(post?.id||'new');setScan(null);setMenuPost(null);setError('');setForm(post?{...post,publish_at:fmt(post.publish_at),expires_at:fmt(post.expires_at),cover_image_token:''}:blank())},[])
+  const refreshBookingOptions = useCallback(async () => {
+    try {
+      const options = await getAnnouncementBookingOptions()
+      setBookingOptions(options)
+      setSectionErrors(previous => {
+        const updated = { ...previous }
+        delete updated.booking
+        return updated
+      })
+    } catch {
+      setSectionErrors(previous => ({ ...previous, booking: 'Unable to refresh booking destinations. Try Refresh.' }))
+    }
+  }, [])
+  const edit = useCallback(post => {
+    setWorkspaceTab('posts')
+    setEditing(post?.id || 'new')
+    setScan(null)
+    setMenuPost(null)
+    setError('')
+    setForm(post ? { ...post, publish_at: fmt(post.publish_at), expires_at: fmt(post.expires_at), cover_image_token: '' } : blank())
+    void refreshBookingOptions()
+  }, [refreshBookingOptions])
   const openedAnnouncement=useRef(null)
   useEffect(()=>{
     const id=new URLSearchParams(notificationLocation.search).get('announcement_id')
@@ -128,14 +149,14 @@ const Admin_Announcements = () => {
     if(post)edit(post)
     else setError('This post is no longer available in this branch.')
   },[posts,loading,notificationLocation.search,notificationLocation.key,edit])
-  const update=(key,value)=>setForm(s=>({...s,[key]:value,...(key==='type'&&value!=='promotion'?{promotion_id:null}:{})}))
+  const update=(key,value)=>setForm(current=>({...current,[key]:value}))
   const selectBooking=(choice)=>setForm(current=>{
     if(choice==='none')return {...current,cta_url:'',promotion_id:null}
     const branch=Number(bookingOptions?.branch_id)
     if(!Number.isSafeInteger(branch)||branch<1)return current
     if(choice==='general')return {...current,cta_url:`/patient/book?branch_id=${branch}`,promotion_id:null}
     const [type,id]=choice.split(':')
-    if(type==='promotion'&&current.type==='promotion'&&bookingOptions?.promotions?.some(p=>Number(p.id)===Number(id)))return {...current,cta_url:`/patient/book?branch_id=${branch}`,promotion_id:Number(id)}
+    if(type==='promotion'&&bookingOptions?.promotions?.some(p=>Number(p.id)===Number(id)))return {...current,cta_url:`/patient/book?branch_id=${branch}&promotion_id=${Number(id)}`,promotion_id:Number(id)}
     const service=bookingOptions?.services?.find(s=>Number(s.id)===Number(id))
     if(type==='service'&&service)return {...current,cta_url:`/patient/book?branch_id=${branch}&clinic=${service.clinic_type}&service_id=${service.id}`,promotion_id:null}
     return current
@@ -183,11 +204,6 @@ const Admin_Announcements = () => {
     setWorkspaceTab('posts');setEditing('new');setMenuPost(null);setError('')
     setForm({...blank(),type:'promotion',title:promo.title,caption:promo.description,
       promotion_id:promo.id,cta_url:`/patient/book?branch_id=${branch}&promotion_id=${promo.id}`})
-  }
-  const emailPromotion = promo => {
-    const post=posts.find(p=>Number(p.promotion_id)===Number(promo.id) && p.type==='promotion' && announcementDisplayStatus(p)==='published')
-    if(!post){setError('Publish a Promotion post linked to this offer before sending promotional emails. Use Create Promo Post.');setWorkspaceTab('posts');return}
-    setCampaignPost(post);setWorkspaceTab('emails');setError('')
   }
   const queue=async()=>{
     if(campaignPost && announcementDisplayStatus(campaignPost)==='expired'){setError('This post has expired. Extend the end date before sending email.');return}
@@ -244,7 +260,7 @@ const Admin_Announcements = () => {
             <option value="none">No booking button</option>
             <option value="general">General booking — choose service later</option>
             <optgroup label="Book a specific service">{(bookingOptions?.services||[]).map(s=><option key={s.id} value={`service:${s.id}`}>{s.service_name} ({s.clinic_type==='derma'?'Dermatology':'General Medicine'})</option>)}</optgroup>
-            {form.type==='promotion'&&<optgroup label="Link a clinic promotion">{(bookingOptions?.promotions||[]).map(p=><option key={p.id} value={`promotion:${p.id}`}>{p.title}{!p.is_active?' (inactive)':''}</option>)}</optgroup>}
+            <optgroup label="Book with a clinic promotion">{(bookingOptions?.promotions||[]).map(p=><option key={p.id} value={`promotion:${p.id}`}>{p.title}{!p.is_active?' (inactive)':''}</option>)}</optgroup>
           </select>
         </label>
         {form.promotion_id&&<p className="text-xs text-slate-700">The booking page will show this offer only when it is active and the patient selects an eligible service and date.</p>}
@@ -265,9 +281,9 @@ const Admin_Announcements = () => {
     <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Manage Posts</h2><div className="flex flex-wrap gap-2">{[['all','All'],['published','Published'],['scheduled','Scheduled'],['expired','Expired'],['draft','Drafts'],['archived','Unpublished']].map(([key,label])=><button key={key} type="button" onClick={()=>chooseFilter(key)} aria-pressed={postsTab===key} className={`min-h-10 rounded-xl px-3 text-xs font-bold transition-colors ${postsTab===key?'bg-slate-900 text-white':'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}</div></div>
       <div className="flex flex-wrap items-end gap-3"><label className="relative flex-1 min-w-[220px]"><span className="mb-1 block text-sm font-medium text-slate-700">Find a post</span><MdSearch className="absolute bottom-3 left-3 text-slate-400"/><input className="form-control pl-10" placeholder="Search by title or post type" value={postSearch} onChange={e=>{setPostSearch(e.target.value);setPostPage(1)}}/></label><label className="text-sm font-medium text-slate-700">Posts per page<select className="form-control mt-1" value={rowsPerPage} onChange={e=>{setRowsPerPage(Number(e.target.value));setPostPage(1)}}>{[5,10,20].map(n=><option key={n} value={n}>{n}</option>)}</select></label></div>
-      {loading?<p role="status" className="p-6 text-slate-500">Loading posts…</p>:!filteredPosts.length?<div className="rounded-xl bg-slate-50 p-8 text-center"><h3 className="font-bold text-slate-800">No matching posts</h3><p className="mt-1 text-sm text-slate-500">Try another filter or create a new post.</p><button type="button" className="button-secondary mt-4" onClick={()=>{setPostSearch('');chooseFilter('all')}}>Clear Filters</button></div>:<div className="grid gap-3">{pagePosts.map(post=><article key={post.id} className="carait-editor-card rounded-2xl border border-slate-200 p-4 sm:p-5"><div className="flex flex-wrap items-start gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-bold text-slate-900">{post.title}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${announcementDisplayStatus(post)==='published'?'bg-emerald-50 text-emerald-700':announcementDisplayStatus(post)==='expired'?'bg-rose-50 text-rose-700':announcementDisplayStatus(post)==='draft'?'bg-slate-100 text-slate-600':announcementDisplayStatus(post)==='scheduled'?'bg-sky-50 text-sky-700':'bg-amber-50 text-amber-700'}`}>{announcementDisplayStatus(post)==='archived'?'Unpublished':announcementDisplayStatus(post)}</span></div><p className="mt-1 text-sm text-slate-600">{post.caption}</p><p className="mt-2 text-xs text-slate-500">{post.type==='promotion'?'Promotion':post.type==='article'?'Health Article':'Clinic News'} · {post.publish_at?`Publish: ${fmt(post.publish_at)}`:'Not scheduled'}{post.expires_at?` · Ends: ${fmt(post.expires_at)}`:''}</p></div><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>setPreviewPost(post)}>Preview</button><button type="button" className="button-secondary" onClick={()=>edit(post)}>Edit</button>{announcementDisplayStatus(post)==='published'&&<button type="button" className="button-secondary" onClick={()=>{setCampaignPost(post);setWorkspaceTab('emails')}}><MdSend/> Email Patients</button>}<button type="button" className="button-secondary" onClick={()=>setMenuPost(menuPost===post.id?null:post.id)} aria-expanded={menuPost===post.id} aria-label={`More actions for ${post.title}`}>More Actions</button></div></div>{menuPost===post.id&&<div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">{['published','archived'].includes(announcementDisplayStatus(post)) ?
+      {loading?<p role="status" className="p-6 text-slate-500">Loading posts…</p>:!filteredPosts.length?<div className="rounded-xl bg-slate-50 p-8 text-center"><h3 className="font-bold text-slate-800">No matching posts</h3><p className="mt-1 text-sm text-slate-500">Try another filter or create a new post.</p><button type="button" className="button-secondary mt-4" onClick={()=>{setPostSearch('');chooseFilter('all')}}>Clear Filters</button></div>:<div className="grid gap-3">{pagePosts.map(post=><article key={post.id} className="carait-editor-card rounded-2xl border border-slate-200 p-4 sm:p-5"><div className="flex flex-wrap items-start gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-bold text-slate-900">{post.title}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${announcementDisplayStatus(post)==='published'?'bg-emerald-50 text-emerald-700':announcementDisplayStatus(post)==='expired'?'bg-rose-50 text-rose-700':announcementDisplayStatus(post)==='draft'?'bg-slate-100 text-slate-600':announcementDisplayStatus(post)==='scheduled'?'bg-sky-50 text-sky-700':'bg-amber-50 text-amber-700'}`}>{announcementDisplayStatus(post)==='archived'?'Unpublished':announcementDisplayStatus(post)}</span></div><p className="mt-1 text-sm text-slate-600">{post.caption}</p><p className="mt-2 text-xs text-slate-500">{post.type==='promotion'?'Promotion':post.type==='article'?'Health Article':'Clinic News'} · {post.publish_at?`Publish: ${fmt(post.publish_at)}`:'Not scheduled'}{post.expires_at?` · Ends: ${fmt(post.expires_at)}`:''}</p></div><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" onClick={()=>setPreviewPost(post)}>Preview</button><button type="button" className="button-secondary" onClick={()=>edit(post)}>Edit</button><button type="button" className="button-secondary" onClick={()=>setMenuPost(menuPost===post.id?null:post.id)} aria-expanded={menuPost===post.id} aria-label={`More actions for ${post.title}`}>More Actions</button></div></div>{menuPost===post.id&&<div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">{['published','archived'].includes(announcementDisplayStatus(post)) ?
             <VisibilitySwitch checked={announcementDisplayStatus(post)==='published'} label="Show post" disabled={busy} onChange={()=>{togglePost(post);setMenuPost(null)}} /> :
-            <button type="button" disabled={busy||announcementDisplayStatus(post)==='expired'} className="button-secondary" onClick={()=>{togglePost(post);setMenuPost(null)}}>{announcementDisplayStatus(post)==='expired'?'Edit end date to republish':'Publish'}</button>}<button type="button" className="button-secondary" disabled={!audience?.provider_ready||announcementDisplayStatus(post)!=='published'} onClick={()=>{setCampaignPost(post);setWorkspaceTab('emails');setMenuPost(null)}}><MdSend/> Send by Email</button><button type="button" disabled={busy} className="button-secondary text-rose-700" onClick={()=>{removePost(post);setMenuPost(null)}}>Delete</button></div>}</article>)}</div>}
+            <button type="button" disabled={busy||announcementDisplayStatus(post)==='expired'} className="button-secondary" onClick={()=>{togglePost(post);setMenuPost(null)}}>{announcementDisplayStatus(post)==='expired'?'Edit end date to republish':'Publish'}</button>}<button type="button" disabled={busy} className="button-secondary text-rose-700" onClick={()=>{removePost(post);setMenuPost(null)}}>Delete</button></div>}</article>)}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="text-sm text-slate-600">{filteredPosts.length?`Showing ${(currentPage-1)*rowsPerPage+1}–${Math.min(currentPage*rowsPerPage,filteredPosts.length)} of ${filteredPosts.length}`:'0 posts'} </p><div className="flex flex-wrap gap-2"><button type="button" className="button-secondary" disabled={currentPage===1} onClick={()=>setPostPage(currentPage-1)}>Previous</button>{Array.from({length:totalPages},(_,i)=>i+1).filter(i=>totalPages<=7||i===1||i===totalPages||Math.abs(i-currentPage)<=1).map(i=><button key={i} type="button" onClick={()=>setPostPage(i)} aria-current={i===currentPage?'page':undefined} className={`min-w-10 rounded-lg border px-3 text-sm font-bold ${i===currentPage?'border-slate-900 bg-slate-900 text-white':'border-slate-200 bg-white text-slate-700'}`}>{i}</button>)}<button type="button" className="button-secondary" disabled={currentPage===totalPages} onClick={()=>setPostPage(currentPage+1)}>Next</button></div></div>
     </div>
     {previewPost && <AnnouncementPreview
@@ -277,7 +293,7 @@ const Admin_Announcements = () => {
       onClose={() => setPreviewPost(null)}
     />}
     </>}
-    {workspaceTab==='offers'&&<Admin_Promotions onComposePost={composePromotionPost} onEmailOffer={emailPromotion} />}
+    {workspaceTab==='offers'&&<Admin_Promotions onComposePost={composePromotionPost} onPromotionsChanged={refreshBookingOptions} />}
     {workspaceTab==='emails'&&<>
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-bold text-slate-900">Email Campaigns</h2><p className="mt-1 text-sm text-slate-500">Only verified patients who agreed to receive marketing emails and visited this branch can be selected. Publishing a post does not send an email.</p><div className="mt-4 flex flex-wrap gap-2"><span className="rounded-xl bg-sky-50 px-3 py-2 text-sm text-sky-800">Patients eligible for email: {audience?.eligible??'Unavailable'}</span><span className={`rounded-xl px-3 py-2 text-sm ${audience?.provider_ready?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800'}`}>Email Service: {audience?.provider_ready?'Ready':'Unavailable'}</span></div></div>
     <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
@@ -306,6 +322,7 @@ const Admin_Announcements = () => {
   </section>
 }
 export default Admin_Announcements
+
 
 
 
