@@ -48,17 +48,17 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     const controller = read('server', 'controllers', 'admin.controller.js')
     const inventory = read('client', 'src', 'pages', 'shared', 'Inventory.jsx')
     expect(source).toContain('Quantity Used *')
-    expect(source).toContain('Whole units only.')
-    expect(source).toContain('Item Price')
+    expect(source).toContain('whole units')
+    expect(source).toContain('Consumable Price')
     expect(source).toContain('Total Patient Price')
     expect(source).toContain('consultation_fee: servicePrice')
     expect(source).not.toContain('Unit of Measure')
     expect(source).not.toContain('uom_allow_decimal')
     expect(controller).toContain('applyServiceConsumablePricing')
     expect(controller).toContain('payload.default_price = Math.round((baseServicePrice + consumablesTotal) * 100) / 100')
-    expect(controller).toContain('SERVICE_CONSUMABLE_UNAVAILABLE')
+    expect(controller).not.toContain('SERVICE_CONSUMABLE_CLINIC_MISMATCH')
     expect(source).toContain("materials: []")
-    expect(source).toContain('Choose items from either General Medicine or Dermatology inventory in this branch.')
+    expect(source).toContain('filterServiceConsumables(inventory')
     expect(inventory).not.toContain('Use Auto Code')
   })
 
@@ -100,5 +100,6 @@ describe('September 28 Batch 2 — inventory semantics, services setup, and pres
     expect(print).toContain('r.quantity??r.dosage')
   })
 })
+
 
 

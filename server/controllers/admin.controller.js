@@ -71,7 +71,6 @@ const { getAppointmentInventoryReadiness } = require('../utils/inventoryReadines
 const { resolveMainStockroom, normalizeClinicType } = require('../utils/inventoryLocations')
 const { loadMostUsedMedicines, loadInventoryValuation, loadCollectionLedger, summarizeLedgerRows } = require('../utils/reportMetrics')
 const { applyManualInventoryMovement } = require('../utils/manualInventoryMovement')
-const { normalizePrcLicense, normalizeDoctorEmail, findDoctorIdentityConflict, handleDoctorUniqueIndexError } = require('../utils/doctorIdentity')
 const { getOnlineBookingReadiness } = require('../utils/bookingReadiness')
 const { isOtherVisitReason } = require('../utils/appointmentReasons')
 const { isValidQueueStatus } = require('../utils/workflowValidation')
@@ -302,6 +301,8 @@ const applyServiceConsumablePricing = async (payload, executor = db) => {
       error.code = 'SERVICE_CONSUMABLE_UNAVAILABLE'
       throw error
     }
+    // Item category describes the product; it does not restrict which service
+    // clinic may use the item. Archive and Selling Price rules still apply.
     const quantity = Number(material.quantity || 0)
     if (!(quantity > 0) || !Number.isInteger(quantity)) {
       const error = new Error(`Consumable quantity for ${item.name} must be a whole number greater than zero.`)
@@ -1086,38 +1087,35 @@ const getPatientRecord = async (req, res) => {
 }
 
 const createWalkInPatient = async (req, res) => {
-  const { full_name, phone, email, address, birthdate, reported_age, sex, consent_given, consent_method = 'signed_intake_form' } = req.body || {}
+  const { full_name, phone, email, birthdate, sex, consent_given, consent_method = 'signed_intake_form' } = req.body
   const name = String(full_name || '').trim()
-  if (!name || name.length > 150) return res.status(400).json({message:'Enter a full name (up to 150 characters).'})
-  if (!consent_given) return res.status(400).json({message:'Record appropriate patient privacy consent before continuing.'})
-  const gender = String(sex || '')
-  if (!['Male','Female','Other'].includes(gender)) return res.status(400).json({message:'Choose the patient gender.'})
-  const birthdateError = birthdate ? validateBirthdate(String(birthdate)) : null
-  if (birthdateError) return res.status(400).json({message:birthdateError})
-  const age = birthdate ? null : Number(reported_age)
-  if (!birthdate && (!/^\d{1,3}$/.test(String(reported_age)) || !Number.isSafeInteger(age) || age > 120)) return res.status(400).json({message:'Enter a valid age between 0 and 120 when birthdate is unavailable.'})
-  const normalizedPhone = String(phone || '').trim() ? normalizePhilippinePhone(phone) : null
-  if (String(phone || '').trim() && !normalizedPhone) return res.status(400).json({message:'Enter a valid Philippine mobile number or leave it blank.'})
-  if (normalizedPhone) {
-    const local = `0${normalizedPhone.slice(2)}`
-    const [same] = await db.query(`SELECT id FROM patients WHERE ${NORMALIZED_PHONE_SQL} IN (?, ?) LIMIT 1`,[normalizedPhone,local])
-    if (same.length) return res.status(409).json({message:'This mobile number already belongs to a patient. Find and select their existing record.'})
-  }
+  if (!name || !String(phone || '').trim()) return res.status(400).json({ message: 'Full name and phone number are required.' })
+  if (!consent_given) return res.status(400).json({ message: 'Patient data privacy consent is required.' })
+  const normalizedPhone = normalizePhilippinePhone(phone)
+  if (!normalizedPhone) return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
+  const localPhone = `0${normalizedPhone.slice(2)}`
+  const [existingPhone] = await db.query(`SELECT id FROM patients WHERE ${NORMALIZED_PHONE_SQL} IN (?, ?) LIMIT 1`, [normalizedPhone, localPhone])
+  if (existingPhone.length) return res.status(409).json({ message: 'A patient with that phone number already exists. Search and select the existing patient instead.' })
   const normalizedEmail = String(email || '').trim() || null
-  if (normalizedEmail && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length>150)) return res.status(400).json({message:'Enter a valid email or leave it blank.'})
   if (normalizedEmail) {
-    const [same] = await db.query('SELECT id FROM patients WHERE LOWER(email)=LOWER(?) LIMIT 1',[normalizedEmail])
-    if (same.length) return res.status(409).json({message:'This email already belongs to a patient. Find and select their existing record.'})
+    const [existingEmail] = await db.query('SELECT id FROM patients WHERE email = ? LIMIT 1', [normalizedEmail])
+    if (existingEmail.length) return res.status(409).json({ message: 'A patient with that email already exists.' })
   }
-  const cleanAddress = String(address || '').trim() || null
-  if (cleanAddress && cleanAddress.length>500) return res.status(400).json({message:'Address is too long.'})
-  const [inserted] = await db.query(`INSERT INTO patients
-    (full_name,birthdate,reported_age,gender,sex,phone,address,email,password,is_walk_in,consent_given,consent_given_at,consent_method,receive_promotions,is_profile_complete)
-    VALUES (?,?,?,?,?,?,?,?,NULL,1,1,NOW(),?,0,0)`,
-    [name,birthdate?String(birthdate).slice(0,10):null,age,gender,gender,normalizedPhone,cleanAddress,normalizedEmail,String(consent_method||'signed_intake_form')])
-  await db.query('INSERT INTO patient_consents (patient_id,consent_type,ip_address) VALUES (?, ?, ?)',[inserted.insertId,'data_processing',req.ip||null])
-  await writeAuditLog({userId:req.user.id,userRole:req.user?.role||'admin',action:'patient.walkin_registered',entityType:'patient',entityId:inserted.insertId,newValues:{full_name:name,has_phone:Boolean(normalizedPhone),reported_age:age,sex:gender},ipAddress:req.ip||null})
-  return res.status(201).json({id:inserted.insertId,full_name:name,phone:normalizedPhone,email:normalizedEmail,birthdate:birthdate||null,reported_age:age,sex:gender})
+  const normalizedSex = ['Male','Female','Other'].includes(String(sex || '')) ? String(sex) : null
+  const birthdateError = birthdate ? validateBirthdate(String(birthdate)) : null
+  if (birthdateError) return res.status(400).json({ message: birthdateError })
+  const normalizedBirthdate = birthdate ? String(birthdate).slice(0,10) : null
+  const tempPassword = makeTempPassword()
+  const hashedPassword = await bcrypt.hash(tempPassword, 10)
+  const [result] = await db.query(
+    `INSERT INTO patients
+     (full_name, birthdate, gender, sex, phone, email, password, is_walk_in, consent_given, consent_given_at, consent_method, receive_promotions, is_profile_complete)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, NOW(), ?, 0, 0)`,
+    [name, normalizedBirthdate, normalizedSex, normalizedSex, normalizedPhone, normalizedEmail, hashedPassword, String(consent_method || 'signed_intake_form')]
+  )
+  await db.query('INSERT INTO patient_consents (patient_id, consent_type, ip_address) VALUES (?, ?, ?)', [result.insertId, 'data_processing', req.ip || null])
+  await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'patient.walkin_registered', entityType: 'patient', entityId: result.insertId, newValues: { full_name: name, phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex, consent_method }, ipAddress: req.ip || null })
+  res.status(201).json({ id: result.insertId, full_name: name, phone: normalizedPhone, email: normalizedEmail, birthdate: normalizedBirthdate, sex: normalizedSex })
 }
 
 
@@ -1259,46 +1257,37 @@ const getDoctors = async (req, res) => {
 }
 
 const createDoctor = async (req, res) => {
-  const { full_name, email, phone, clinic_type, prc_license } = req.body || {}
-  const cleanEmail = normalizeDoctorEmail(email)
-  const cleanPrc = normalizePrcLicense(prc_license)
-  if (!String(full_name || '').trim() || !cleanEmail || !phone || !cleanPrc)
-    return res.status(400).json({ message: 'Name, email, mobile number, and PRC license number are required.' })
+  const { full_name, email, phone, clinic_type, prc_license } = req.body
+  if (!full_name || !email || !phone)
+    return res.status(400).json({ message: 'Name, email, and phone number are required.' })
   const normalizedPhone = normalizePhilippinePhone(phone)
   if (!normalizedPhone)
     return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
   if (!DOCTOR_CLINIC_TYPES.has(String(clinic_type || '')))
     return res.status(400).json({ message: 'Clinic assignment must be General Medicine or Dermatology.' })
-  if (String(full_name).trim().length > 150 || cleanEmail.length > 150 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) || cleanPrc.length > 50)
-    return res.status(400).json({ message: 'Check the doctor name, email address, and PRC license number.' })
-  const conflict = await findDoctorIdentityConflict(db, { email: cleanEmail, phone: normalizedPhone, prc_license: cleanPrc })
-  if (conflict) return res.status(409).json({ code:'DOCTOR_IDENTIFIER_IN_USE', ...conflict })
+  const [existing] = await db.query('SELECT id FROM doctors WHERE email = ?', [email])
+  if (existing.length > 0)
+    return res.status(409).json({ message: 'Email already exists.' })
   const tempPassword = makeTempPassword()
   const hashed = await bcrypt.hash(tempPassword, 10)
-  let result
-  try {
-    ;[result] = await db.query(
+  const [result] = await db.query(
     // FIX 3: save prc_license (requires migration_add_prc_license.sql)
     req.branchId
       ? 'INSERT INTO doctors (full_name, email, phone, clinic_type, prc_license, password, must_change_password, branch_id) VALUES (?, ?, ?, ?, ?, ?, 1, ?)'
       : 'INSERT INTO doctors (full_name, email, phone, clinic_type, prc_license, password, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
     req.branchId
-      ? [full_name.trim(), cleanEmail, normalizedPhone, clinic_type, cleanPrc, hashed, req.branchId]
-      : [full_name.trim(), cleanEmail, normalizedPhone, clinic_type, cleanPrc, hashed]
+      ? [full_name, email, normalizedPhone, clinic_type, prc_license || null, hashed, req.branchId]
+      : [full_name, email, normalizedPhone, clinic_type, prc_license || null, hashed]
   )
-  } catch (error) {
-    if (handleDoctorUniqueIndexError(error, res)) return
-    throw error
-  }
   const doctorBranch=req.branchId||Number((await db.query('SELECT branch_id FROM doctors WHERE id=?',[result.insertId]))[0][0]?.branch_id)
   if(doctorBranch)await db.query('INSERT IGNORE INTO doctor_branch_assignments (doctor_id,branch_id) VALUES (?,?)',[result.insertId,doctorBranch])
   const [rows] = await db.query(
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?', [result.insertId]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name:full_name.trim(),email:cleanEmail,phone:normalizedPhone,clinic_type,prc_license:cleanPrc,is_active:true,must_change_password:true},branchId:req.branchId||null,ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_created',entityType:'doctor',entityId:result.insertId,newValues:{full_name,email,phone:normalizedPhone,clinic_type,prc_license,is_active:true,must_change_password:true},branchId:req.branchId||null,ipAddress:req.ip||null }).catch(() => {})
   try {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/doctor/login`
-    await sendTempPassword(cleanEmail, full_name, 'Doctor', tempPassword, loginUrl)
+    await sendTempPassword(email, full_name, 'Doctor', tempPassword, loginUrl)
   } catch (err) {
     console.error('⚠️ Doctor email failed:', err.message)
   }
@@ -1338,39 +1327,31 @@ const toggleDoctor = async (req, res) => {
 }
 
 const updateDoctor = async (req, res) => {
-  const { full_name, email, phone, clinic_type, prc_license } = req.body || {}
-  const cleanEmail = normalizeDoctorEmail(email)
-  const cleanPrc = normalizePrcLicense(prc_license)
-  if (!String(full_name || '').trim() || !cleanEmail || !phone || !cleanPrc)
-    return res.status(400).json({ message: 'Name, email, mobile number, and PRC license number are required.' })
+  const { full_name, email, phone, clinic_type, prc_license } = req.body
+  if (!full_name || !email || !phone)
+    return res.status(400).json({ message: 'Name, email, and phone number are required.' })
   const normalizedPhone = normalizePhilippinePhone(phone)
   if (!normalizedPhone)
     return res.status(400).json({ message: 'Enter a valid Philippine mobile number.' })
   if (!DOCTOR_CLINIC_TYPES.has(String(clinic_type || '')))
     return res.status(400).json({ message: 'Clinic assignment must be General Medicine or Dermatology.' })
-  if (String(full_name).trim().length > 150 || cleanEmail.length > 150 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) || cleanPrc.length > 50)
-    return res.status(400).json({ message: 'Check the doctor name, email address, and PRC license number.' })
 
   const [rows] = await db.query('SELECT id FROM doctors WHERE id = ?', [req.params.id])
   if (rows.length === 0) return res.status(404).json({ message: 'Doctor account not found.' })
 
-  const conflict = await findDoctorIdentityConflict(db, { email: cleanEmail, phone: normalizedPhone, prc_license: cleanPrc }, req.params.id)
-  if (conflict) return res.status(409).json({ code:'DOCTOR_IDENTIFIER_IN_USE', ...conflict })
+  const [existing] = await db.query('SELECT id FROM doctors WHERE email = ? AND id <> ?', [email, req.params.id])
+  if (existing.length > 0)
+    return res.status(409).json({ message: 'That email is already in use by another doctor account.' })
 
-  try {
-    await db.query(
+  await db.query(
     'UPDATE doctors SET phone_verified_at = IF(phone <=> ?, phone_verified_at, NULL), full_name = ?, email = ?, phone = ?, clinic_type = ?, prc_license = ? WHERE id = ?',
-    [normalizedPhone, full_name.trim(), cleanEmail, normalizedPhone, clinic_type, cleanPrc, req.params.id]
+    [normalizedPhone, full_name.trim(), email.trim(), normalizedPhone, clinic_type, prc_license?.trim() || null, req.params.id]
   )
-  } catch (error) {
-    if (handleDoctorUniqueIndexError(error, res)) return
-    throw error
-  }
   const [updated] = await db.query(
     'SELECT id, full_name, email, phone, specialty, clinic_type, clinic_type AS type, prc_license, is_active, created_at FROM doctors WHERE id = ?',
     [req.params.id]
   )
-  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name:full_name.trim(),email:cleanEmail,phone:normalizedPhone,clinic_type,prc_license:cleanPrc},branchId:req.branchId||null,ipAddress:req.ip||null }).catch(() => {})
+  await writeAuditLog({ userId:req.user.id,userRole:req.user?.role || 'admin',action:'account.doctor_updated',entityType:'doctor',entityId:req.params.id,newValues:{full_name,email,phone:normalizedPhone,clinic_type,prc_license},branchId:req.branchId||null,ipAddress:req.ip||null }).catch(() => {})
   res.json(updated[0])
 }
 
@@ -3022,48 +3003,6 @@ const getInventoryBatchHistory = async (req, res) => {
   })
 }
 
-// Simple zero-stock batch removal. Historical batches are archived, never deleted.
-// Call only from authenticated branch-scoped inventory routes.
-const removeInventoryBatch = async (req, res) => {
-  const batchId = Number(req.params.batchId)
-  const branchId = Number(req.branchId)
-  if (!Number.isSafeInteger(batchId) || batchId < 1 || !Number.isSafeInteger(branchId) || branchId < 1) {
-    return res.status(400).json({code:'INVALID_BATCH',message:'Choose a valid batch in your branch.'})
-  }
-  if (req.body?.confirmation !== 'REMOVE') return res.status(400).json({code:'CONFIRM_REQUIRED',message:'Confirm the batch removal.'})
-  const conn = await db.getConnection()
-  try {
-    await conn.beginTransaction()
-    const batch = await getInventoryBatchForAction(batchId,conn,true,branchId)
-    if (!batch) return await conn.rollback().then(() => res.status(404).json({code:'BATCH_NOT_FOUND',message:'Batch not found in this branch.'}))
-    if (Number(batch.quantity) !== 0) return await conn.rollback().then(() => res.status(409).json({code:'BATCH_HAS_STOCK',message:'Stock out the remaining units before removing this batch.'}))
-    const [[allocated]] = await conn.query('SELECT COALESCE(SUM(quantity),0) AS total FROM inventory_location_batches WHERE batch_id=?',[batchId])
-    if (Number(allocated?.total || 0) !== 0) return await conn.rollback().then(() => res.status(409).json({code:'BATCH_LOCATION_MISMATCH',message:'Location balances must be zero before removing a batch.'}))
-    const refs = await getInventoryBatchReferenceCounts(batchId,conn)
-    // Pending clinical reservations may exist even when the stock snapshot says zero.
-    const [[reservations]] = await conn.query('SELECT COUNT(*) AS total FROM clinical_inventory_reservations WHERE batch_id=?',[batchId])
-    const [[receipts]] = await conn.query('SELECT COUNT(*) AS total FROM inventory_excel_receipts WHERE batch_id=?',[batchId])
-    const hasHistory = batchHasProtectedHistory(refs) || Number(reservations?.total || 0)>0 || Number(receipts?.total || 0)>0
-    let outcome
-    if (hasHistory) {
-      if (!batch.archived_at) await conn.query('UPDATE inventory_batches SET archived_at=NOW(),archived_by_admin_id=?,archive_reason=? WHERE id=? AND branch_id=?',[req.user.id,'Removed from active batches',batchId,branchId])
-      outcome = 'archived'
-    } else {
-      await conn.query('DELETE FROM inventory_batches WHERE id=? AND branch_id=?',[batchId,branchId])
-      await syncInventorySnapshot(batch.inventory_id,conn)
-      await syncLocationSnapshot(batch.inventory_id,conn)
-      outcome = 'deleted'
-    }
-    await writeAuditLog({userId:req.user.id,userRole:req.adminContext?.account_role || 'admin',action:`inventory.batch_${outcome}`,entityType:'inventory_batch',entityId:batchId,oldValues:{batch_code:batch.batch_code,quantity:0,archived_at:batch.archived_at},newValues:{outcome,authorization:'branch_admin_confirmation'},branchId,ipAddress:req.ip || null},conn)
-    await conn.commit()
-    return res.json({outcome,message:outcome==='archived'?'Batch removed from active inventory. Its transaction history is preserved.':'Unused batch permanently deleted.'})
-  } catch (error) {
-    await conn.rollback().catch(()=>{})
-    if (error.code==='ER_ROW_IS_REFERENCED_2') return res.status(409).json({code:'BATCH_HAS_HISTORY',message:'This batch has protected references. It cannot be permanently deleted.'})
-    return res.status(error.statusCode || 500).json({code:error.code || 'BATCH_REMOVE_FAILED',message:error.statusCode?error.message:'Batch removal failed. No changes were saved.'})
-  } finally {conn.release()}
-}
-
 const INVENTORY_BATCH_ACTION_PURPOSE = 'inventory_batch_action'
 const BILLING_PAYMENT_ACTION_PURPOSE = 'billing_payment_action'
 const BILLING_PAYMENT_ACTIONS = new Set(['void', 'refund'])
@@ -4148,7 +4087,7 @@ const saveInventoryMovementReason = async (req, res) => {
   const id = Number(req.params.id || 0)
   const name = normalizeText(req.body?.name, { field: 'Movement Reason name', required: true, max: 120 })
   const requestedType = ['in','out'].includes(String(req.body?.movement_type || '')) ? String(req.body.movement_type) : null
-  const requiresBatch = 1 // All manual stock movements are recorded against an exact batch
+  const requiresBatch = req.body?.requires_batch === true || Number(req.body?.requires_batch) === 1 ? 1 : 0
   const isActive = req.body?.is_active === false || Number(req.body?.is_active) === 0 ? 0 : 1
   if (!name || !requestedType) return res.status(400).json({ message: 'Movement reason name and movement type are required.' })
 
@@ -4437,7 +4376,7 @@ module.exports = {
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, exportAuditSummary, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
   getSystemSetup, saveAppointmentCancellationReason, deleteAppointmentCancellationReason, saveBillingServiceCategory, deleteBillingServiceCategory, saveInventoryUom, deleteInventoryUom, saveInventorySupplier, saveInventoryLocationType, saveInventoryMovementReason, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,
   getReports, recordReportExport, getInventoryLogs, getInventoryBatchHistory,
-  getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, removeInventoryBatch, requestInventoryBatchActionCode, confirmInventoryBatchAction,
+  getInventory, getInventoryMasterData, createInventoryLocation, createInventorySupplier, addInventoryItem, updateInventoryItem, deleteInventoryItem, updateStock, requestInventoryBatchActionCode, confirmInventoryBatchAction,
   getSupplyRequests, resolveSupplyRequest,
 }
 
