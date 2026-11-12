@@ -7,6 +7,7 @@ const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
 const { loginLimiter, otpRequestLimiter, otpVerifyLimiter, createRateLimiter } = require('../middlewares/rateLimit.middleware')
 const guestBooking=require('../controllers/guestBooking.controller')
+const guestPhone=require('../controllers/guestPhoneVerification.controller')
 const {
   register, verifyRegistration, resendRegistrationVerification, login, checkAuth, logout,
   getProfileStatus, updateProfile,
@@ -44,8 +45,20 @@ router.get('/booking-policy', async(req,res)=>{
 // They expose only public availability, never patient/account details.
 const guestCreateLimiter=createRateLimiter({name:'guest-create-appointment',windowMs:60*60*1000,max:8})
 const guestStatusLimiter=createRateLimiter({name:'guest-booking-status',windowMs:60*1000,max:60})
+const guestResponse = handler => (req,res,next) => Promise.resolve(handler(req,res)).catch(error=>{
+  if(error.statusCode){
+    res.setHeader('Cache-Control','no-store')
+    if(error.details?.resets_at)res.setHeader('Retry-After',String(Math.max(1,Math.ceil((Date.parse(error.details.resets_at)-Date.now())/1000))))
+    else if(error.retryAfterSeconds)res.setHeader('Retry-After',String(error.retryAfterSeconds))
+    return res.status(error.statusCode).json({code:error.code,message:error.message,details:error.details||null,retry_after_seconds:error.retryAfterSeconds||undefined})
+  }
+  next(error)
+})
+router.post('/guest/phone/request-code',otpRequestLimiter,guestResponse(guestPhone.requestCode))
+router.post('/guest/phone/verify-code',otpVerifyLimiter,guestResponse(guestPhone.verifyCode))
+router.get('/guest/phone/status',guestStatusLimiter,guestResponse(guestPhone.status))
 router.get('/guest/booking-readiness',getBookingReadiness)
-router.get('/guest/booking-services',getBookingServices)
+router.get('/guest/booking-services',guestResponse((req,res)=>getBookingServices(req,res,{includePromotions:false})))
 router.get('/guest/appointment-reasons',getAppointmentReasons)
 router.get('/guest/doctors',getDoctors)
 router.get('/guest/doctors/availability',getDoctorsAvailability)
@@ -56,10 +69,8 @@ router.get('/guest/doctors/:id/available-slots',(req,res,next)=>{
   req.user={id:0}
   Promise.resolve(getDoctorAvailableSlots(req,res)).catch(next)
 })
-router.post('/guest/appointments',guestCreateLimiter,(req,res,next)=>Promise.resolve(guestBooking.create(req,res)).catch(error=>{
-  if(error.statusCode)return res.status(error.statusCode).json({code:error.code,message:error.message})
-  next(error)
-}))
+router.post('/guest/appointments',guestCreateLimiter,guestResponse(guestBooking.create))
+router.post('/guest/appointments/recover',guestStatusLimiter,guestResponse(guestBooking.recover))
 router.get('/guest/appointments/:id',guestStatusLimiter,(req,res,next)=>Promise.resolve(guestBooking.status(req,res)).catch(next))
 
 // Public

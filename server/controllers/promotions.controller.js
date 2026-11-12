@@ -58,7 +58,12 @@ const getActivePromotions = async (req, res) => {
   if (!Number.isSafeInteger(branchId) || branchId < 1) return res.status(400).json({message:'Select a valid clinic branch to view promotions.'})
   res.json(await readCurrentPromotions(branchId))
 }
-const getPublicPromotions = async (_req, res) => res.json(await readCurrentPromotions())
+// Keep the landing-page URL compatible, but offers require a patient session.
+const getPublicPromotions = async (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store')
+  const allowed = await require('../utils/patientPromotionAccess').canViewPatientPromotions(req)
+  res.json(allowed ? await readCurrentPromotions() : [])
+}
 
 const validate = (body) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw Object.assign(new Error('Invalid promotion.'), {status: 400})

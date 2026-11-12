@@ -510,7 +510,7 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
        DATE_FORMAT(a.appointment_date, '%Y-%m-%d') AS appointment_date,
        a.appointment_time,
        a.reason AS appointment_reason,
-       a.clinic_type,
+       a.clinic_type, a.appointment_source,
        a.promotion_id, a.promotion_title_snapshot, a.promotion_terms_snapshot,
        a.promotion_badge_snapshot, a.promotion_selected_for_service_id,
        a.promotion_discount_type_snapshot,a.promotion_discount_value_snapshot,a.promotion_discount_amount_snapshot,a.requested_service_price_snapshot,

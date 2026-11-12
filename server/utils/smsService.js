@@ -92,6 +92,12 @@ const sendPatientRegistrationOtp = async ({ phone, code, fullName }) => {
   }, fallbackLabel)
 }
 
+const sendGuestBookingOtp = async ({ phone, code }) => {
+  const number = normalizePhilippinePhone(phone)
+  if (!number) throw new Error('A valid Philippine mobile number is required.')
+  return sendSemaphore('/otp', { number, code, message: 'Carait Clinic guest booking code: {otp}. It expires in 10 minutes. Do not share this code.' }, 'Guest booking verification SMS')
+}
+
 const sendPatientPasswordResetOtp = async ({ phone, code, fullName }) => {
   const normalized = normalizePhilippinePhone(phone)
   if (!normalized) throw new Error('A valid Philippine mobile number is required.')
@@ -180,6 +186,7 @@ module.exports = {
   isSmsConfigured,
   sendPatientAppointmentReminderSms,
   sendPatientRegistrationOtp,
+  sendGuestBookingOtp,
   sendPatientPasswordResetOtp,
   sendPatientPhoneChangeOtp,
   sendDoctorAppointmentSms,

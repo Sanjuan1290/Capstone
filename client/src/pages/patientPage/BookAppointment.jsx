@@ -68,7 +68,7 @@ export const StepBar = ({ current, labels = STEPS }) => (
 )
 
 // ── Step 1: Category and service selection in one screen ────────────────────
-export const StepService = ({ category, onCategoryChange, value, onChange, services, promotions = [], promotionsLoading = false, branchId, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness }) => {
+export const StepService = ({ category, onCategoryChange, value, onChange, services, promotions = [], promotionsLoading = false, branchId, readiness, readinessLoading, readinessError, loading, error, onRetry, onRetryReadiness, allowPromotions = true }) => {
   const [query, setQuery] = useState('')
   const filtered = services.filter(service =>
     (category === 'all' || service.booking_clinic_type === category) &&
@@ -108,7 +108,7 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
         const selected = Number(value?.id)===Number(service.id) && value?.booking_clinic_type===service.booking_clinic_type
         const clinic = CLINIC_TYPES.find(c=>c.id===service.booking_clinic_type)
         const bookable = !readinessError && Boolean(readiness?.[service.booking_clinic_type]?.bookable)
-        const preview = selectBookingPrice(service, promotions, { branchId, date: getLocalDateOnly(), fallbackCurrentOffer: promotionsLoading })
+        const preview = allowPromotions ? selectBookingPrice(service, promotions, { branchId, date: getLocalDateOnly(), fallbackCurrentOffer: promotionsLoading }) : {}
         return <button key={`${service.booking_clinic_type}:${service.id}`} type="button" disabled={!bookable} aria-pressed={selected}
           onClick={() => onChange(service)} className={`flex min-h-40 flex-col rounded-2xl border-2 p-4 text-left transition-all duration-200 motion-reduce:transition-none ${!bookable ? 'cursor-not-allowed opacity-60' : 'hover:shadow-md'} ${selected ? 'border-emerald-600 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:border-emerald-300'}`}>
           <div className="flex w-full items-start justify-between gap-2">
@@ -129,7 +129,7 @@ export const StepService = ({ category, onCategoryChange, value, onChange, servi
         </button>
       })}
     </div>
-    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Selected service: <strong>{value.service_name}</strong>. The service discount shown above is subject to your appointment date. Additional treatment or supplies, if approved, may affect the final bill.</p>}
+    {value && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Selected service: <strong>{value.service_name}</strong>. {allowPromotions ? 'The service discount shown above is subject to your appointment date.' : 'The regular service price applies to guest bookings.'} Additional treatment or supplies, if approved, may affect the final bill.</p>}
   </div>
 }
 
@@ -340,7 +340,7 @@ export const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadi
         <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
           Please Describe Your Reason <span className="text-red-400">*</span>
         </label>
-        <textarea value={reasonDetails} onChange={e => onReasonDetailsChange(e.target.value)} rows={3}
+        <textarea aria-label="Describe your reason" value={reasonDetails} onChange={e => onReasonDetailsChange(e.target.value)} rows={3}
           maxLength={180}
           placeholder="Briefly describe what you would like the doctor to check…"
           className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/10 transition-all resize-none" />
@@ -351,7 +351,7 @@ export const StepDetails = ({ reason, reasonDetails, notes, reasonOptions, loadi
       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
         Additional Notes <span className="normal-case font-normal text-slate-300">(optional)</span>
       </label>
-      <textarea value={notes} onChange={e => onNotesChange(e.target.value)} rows={3}
+      <textarea aria-label="Additional notes" maxLength={2000} value={notes} onChange={e => onNotesChange(e.target.value)} rows={3}
         placeholder="Any symptoms, concerns, or information the doctor should know…"
         className="w-full text-sm text-slate-700 placeholder-slate-300 bg-slate-50 border-2 border-slate-200
           rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-400 focus:ring-2

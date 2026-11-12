@@ -654,17 +654,17 @@ const getBookingReadiness = async (req, res) => {
   res.json(applyBranchBookingOfferings(readiness,branch))
 }
 
-const getBookingServices = async (req, res) => {
+const getBookingServices = async (req, res, { includePromotions = true } = {}) => {
   const clinicType = String(req.query.clinic_type || '').trim()
   if (clinicType && !['medical', 'derma'].includes(clinicType)) {
     return res.status(400).json({ message: 'Invalid clinic type.' })
   }
   const branch=await validatePatientBranch(req,res);if(!branch)return
   const visibleRows = await listBillingCatalog({ clinicType: clinicType || undefined, branchId: branch.id })
-  const [offers]=await db.query(`SELECT ps.service_id,p.id,p.title,p.discount_type,p.discount_value
+  const [offers]=includePromotions ? await db.query(`SELECT ps.service_id,p.id,p.title,p.discount_type,p.discount_value
     FROM clinic_promotion_services ps JOIN clinic_promotions p ON p.id=ps.promotion_id
     WHERE p.branch_id=? AND p.is_active=1 AND p.starts_on<=CURDATE() AND p.ends_on>=CURDATE()
-      AND p.discount_type IN ('percentage','fixed') ORDER BY p.id ASC`,[branch.id])
+      AND p.discount_type IN ('percentage','fixed') ORDER BY p.id ASC`,[branch.id]) : [[]]
   const {priceFor}=require('../utils/promotionPricing')
   res.json(visibleRows.map((service) => ({
     id: service.id,
@@ -672,11 +672,11 @@ const getBookingServices = async (req, res) => {
     service_name: service.service_name,
     clinic_type: service.clinic_type,
     default_price: service.default_price == null ? null : Number(service.default_price),
-    current_offer: offers.map(p=>({...p,discount_value:Number(p.discount_value)}))
+    ...(includePromotions ? { current_offer: offers.map(p=>({...p,discount_value:Number(p.discount_value)}))
       .filter(p=>Number(p.service_id)===Number(service.id))
       .map(p=>({...p,quote:priceFor(service.default_price,p.discount_type,p.discount_value)}))
       .filter(p=>p.quote?.discount>0)
-      .sort((a,b)=>b.quote.discount-a.quote.discount||a.id-b.id)[0]||null,
+      .sort((a,b)=>b.quote.discount-a.quote.discount||a.id-b.id)[0]||null } : {}),
     average_duration_minutes: Number(service.average_duration_minutes || 60),
     reserved_duration_minutes: roundReservedDurationMinutes(Number(service.average_duration_minutes || 60)),
   })))

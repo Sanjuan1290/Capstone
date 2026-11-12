@@ -24,6 +24,12 @@ const listEligiblePromotions = async (executor, branchId, appointmentDate, servi
 }
 const applyServicePromotions = async (items, appointment, executor, branchId) => {
  const serviceItems=items.filter(item=>item.item_type==='service' && ['consultation','staff_service'].includes(item.source_type))
+ if(appointment.appointment_source==='guest_online'){
+  if(Number(appointment.promotion_id)>0 || Number(appointment.promotion_discount_amount_snapshot)>0 || serviceItems.some(item=>Number(detailsFor(item).requested_promotion_id)>0))
+   throw fail('Guest bookings use regular service prices. Promotions require a registered patient account.','GUEST_PROMOTIONS_NOT_ALLOWED')
+  for(const item of serviceItems)item.details_json=JSON.stringify({...detailsFor(item),applied_promotion:null})
+  return {total:0,applied:[],offers:[]}
+ }
  const ids=serviceItems.map(item=>Number(item.catalog_service_id))
  const offers=await listEligiblePromotions(executor,branchId,appointment.appointment_date,ids)
  const eligible=new Map(offers.map(offer=>[`${offer.service_id}:${offer.id}`,offer]))
