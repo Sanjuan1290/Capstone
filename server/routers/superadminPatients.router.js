@@ -8,12 +8,13 @@ const {
   parseDirectoryPagination,
   buildPatientDirectoryWhere,
   parseBanState,
+  REGISTERED_PATIENT_SQL, GUEST_PATIENT_SQL, DIRECTORY_PATIENT_SQL, PATIENT_TYPE_SQL,
 } = require('../utils/superadminPatientDirectory')
 
 const router = express.Router()
 
 // This router is intentionally Super Admin only. It is not branch-scoped because
-// the directory is a system-wide view of registered patient accounts.
+// the directory is a system-wide view of registered and guest patients.
 router.use(authenticate('superadmin_token'))
 
 const validId = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0
@@ -21,7 +22,7 @@ const validId = (value) => Number.isSafeInteger(Number(value)) && Number(value) 
 router.get('/', async (req, res) => {
   const { page, pageSize, offset } = parseDirectoryPagination(req.query.page, req.query.page_size)
   const search = String(req.query.search || '').trim().slice(0, 100)
-  const status = ['all', 'active', 'banned'].includes(String(req.query.status || 'all'))
+  const status = ['all', 'active', 'banned', 'registered', 'guest'].includes(String(req.query.status || 'all'))
     ? String(req.query.status || 'all')
     : 'all'
   const { whereSql, params } = buildPatientDirectoryWhere({ search, status })
@@ -32,14 +33,16 @@ router.get('/', async (req, res) => {
   )
   const [[summary]] = await db.query(
     `SELECT
-       COUNT(*) AS total_registered,
-       COALESCE(SUM(COALESCE(p.is_banned, 0) = 0), 0) AS active_accounts,
-       COALESCE(SUM(COALESCE(p.is_banned, 0) = 1), 0) AS banned_accounts,
+       COUNT(*) AS total_patients,
+       COALESCE(SUM(${REGISTERED_PATIENT_SQL}), 0) AS total_registered,
+       COALESCE(SUM(${GUEST_PATIENT_SQL}), 0) AS total_guests,
+       COALESCE(SUM(${REGISTERED_PATIENT_SQL} AND COALESCE(p.is_banned, 0) = 0), 0) AS active_accounts,
+       COALESCE(SUM(${REGISTERED_PATIENT_SQL} AND COALESCE(p.is_banned, 0) = 1), 0) AS banned_accounts,
        (SELECT COUNT(*) FROM appointments a
-        JOIN patients registered ON registered.id = a.patient_id
-        WHERE COALESCE(registered.is_walk_in, 0) = 0 AND a.status = 'no_show') AS total_no_shows
+        JOIN patients visible_patient ON visible_patient.id = a.patient_id
+        WHERE ${DIRECTORY_PATIENT_SQL.replaceAll('p.', 'visible_patient.')} AND a.status = 'no_show') AS total_no_shows
      FROM patients p
-     WHERE COALESCE(p.is_walk_in, 0) = 0`,
+     WHERE ${DIRECTORY_PATIENT_SQL}`,
   )
   const [items] = await db.query(
     `SELECT
@@ -47,6 +50,7 @@ router.get('/', async (req, res) => {
        p.full_name,
        p.phone,
        p.email,
+       ${PATIENT_TYPE_SQL} AS account_type,
        COALESCE(p.is_banned, 0) AS is_banned,
        p.created_at,
        (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.id) AS total_appointments,
@@ -64,7 +68,9 @@ router.get('/', async (req, res) => {
   return res.json({
     items,
     summary: {
+      total_patients: Number(summary?.total_patients || 0),
       total_registered: Number(summary?.total_registered || 0),
+      total_guests: Number(summary?.total_guests || 0),
       active_accounts: Number(summary?.active_accounts || 0),
       banned_accounts: Number(summary?.banned_accounts || 0),
       total_no_shows: Number(summary?.total_no_shows || 0),
@@ -85,18 +91,19 @@ router.get('/:patientId', async (req, res) => {
        p.id, p.full_name, p.phone, p.email,
        COALESCE(NULLIF(p.gender, ''), p.sex) AS gender,
        p.address, p.created_at,
+       ${PATIENT_TYPE_SQL} AS account_type,
        COALESCE(p.is_banned, 0) AS is_banned,
        p.banned_at,
        (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.id) AS total_appointments,
        (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.id AND a.status = 'completed') AS completed_appointments,
        (SELECT COUNT(*) FROM appointments a WHERE a.patient_id = p.id AND a.status = 'no_show') AS no_show_count
      FROM patients p
-     WHERE p.id = ? AND COALESCE(p.is_walk_in, 0) = 0
+     WHERE p.id = ? AND ${DIRECTORY_PATIENT_SQL}
      LIMIT 1`,
     [patientId],
   )
 
-  if (!patient) return res.status(404).json({ code: 'PATIENT_NOT_FOUND', message: 'Registered patient account not found.' })
+  if (!patient) return res.status(404).json({ code: 'PATIENT_NOT_FOUND', message: 'Patient not found.' })
 
   const { page, pageSize, offset } = parseDirectoryPagination(req.query.history_page, req.query.history_page_size || 10)
   const [[historyCount]] = await db.query(
@@ -148,12 +155,13 @@ router.patch('/:patientId/ban', async (req, res) => {
 
   const patientId = Number(req.params.patientId)
   const [[existing]] = await db.query(
-    'SELECT id, COALESCE(is_banned, 0) AS is_banned, COALESCE(is_walk_in, 0) AS is_walk_in FROM patients WHERE id = ? LIMIT 1',
+    `SELECT p.id, COALESCE(p.is_banned, 0) AS is_banned, ${PATIENT_TYPE_SQL} AS account_type FROM patients p WHERE p.id = ? AND ${DIRECTORY_PATIENT_SQL} LIMIT 1`,
     [patientId],
   )
-  if (!existing || Number(existing.is_walk_in)) {
-    return res.status(404).json({ code: 'PATIENT_NOT_FOUND', message: 'Registered patient account not found.' })
+  if (!existing) {
+    return res.status(404).json({ code: 'PATIENT_NOT_FOUND', message: 'Patient not found.' })
   }
+  if (existing.account_type === 'guest') return res.status(409).json({ code:'GUEST_HAS_NO_PORTAL_ACCOUNT',message:'Guest patients do not have portal sign-in access to ban or unban.' })
 
   const wasBanned = Number(existing.is_banned) === 1
   if (wasBanned === banned) {
@@ -164,12 +172,12 @@ router.patch('/:patientId/ban', async (req, res) => {
   }
 
   const [updated] = await db.query(
-    `UPDATE patients
+    `UPDATE patients p
      SET is_banned = ?,
          banned_at = ?,
          banned_by_admin_id = ?,
          session_version = COALESCE(session_version, 1) + 1
-     WHERE id = ? AND COALESCE(is_banned, 0) = ?`,
+     WHERE p.id = ? AND COALESCE(is_banned, 0) = ? AND ${REGISTERED_PATIENT_SQL}`,
     [banned ? 1 : 0, banned ? new Date() : null, banned ? req.user.id : null, patientId, wasBanned ? 1 : 0],
   )
   if (!Number(updated?.affectedRows || 0)) {

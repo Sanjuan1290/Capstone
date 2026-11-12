@@ -39,6 +39,17 @@ function harness(seed = {}) {
       return [[{ used: draft.appointments.filter(appt => appt.source === 'guest_online' && appt.created_at >= from && appt.created_at < to && draft.patients.some(patient => patient.id === appt.patient_id && [a,b,c].includes(String(patient.phone).replace(/\D/g,'')))).length }]]
     }
     if (sql.startsWith('SELECT p.id')) return [draft.patients.filter(patient => values.includes(String(patient.phone).replace(/\D/g,''))).slice(0,2).map(patient => ({ ...patient, has_password: patient.password ? 1 : 0 }))]
+    if (sql.startsWith('SELECT phone,email FROM patients WHERE id=? FOR UPDATE')) return [draft.patients.filter(patient => patient.id === values[0]).map(patient => ({ phone: patient.phone, email: patient.email }))]
+    if (sql.startsWith('UPDATE patients') && sql.includes("consent_method='guest_online' AND password IS NULL")) {
+      const patient = draft.patients.find(patient => patient.id === values[4] && patient.consent_method === 'guest_online' && !patient.password)
+      if (!patient) return [{ affectedRows: 0 }]
+      patient.phone = values[0]
+      patient.email = values[1] ?? patient.email
+      patient.address = values[2] ?? patient.address
+      patient.birthdate = patient.birthdate ?? values[3]
+      patient.reported_age = null
+      return [{ affectedRows: 1 }]
+    }
     if (sql.startsWith('SELECT id FROM patients WHERE LOWER')) return [[draft.patients.find(patient => String(patient.email || '').toLowerCase() === String(values[0]).toLowerCase() && patient.id !== values[1])].filter(Boolean)]
     if (sql.includes('FROM appointments a JOIN patients p') && sql.includes('AS service_name')) {
       assert.match(sql, /a\.appointment_source='guest_online'/)

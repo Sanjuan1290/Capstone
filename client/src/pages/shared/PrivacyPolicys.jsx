@@ -41,7 +41,7 @@ const PrivacyPolicys = () => {
         <Section title="1. Information We Collect">
           <p>We collect the following categories of personal information when you register and use the portal:</p>
           <ul className="list-disc list-inside space-y-1 pl-2">
-            <li><strong>Personal Identifiers:</strong> Full name, birthdate, sex, civil status.</li>
+            <li><strong>Personal Identifiers:</strong> Full name, birthdate, sex.</li>
             <li><strong>Contact Information:</strong> Phone number, email address, home address.</li>
             <li><strong>Account Credentials:</strong> Email and encrypted password.</li>
             <li><strong>Medical Information:</strong> Appointment records, consultation notes, diagnoses, prescriptions, and health history as documented by clinic staff and doctors.</li>

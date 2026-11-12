@@ -30,7 +30,7 @@ async function listBranchPatients({ branchId, search = '', page = 1, limit = 10,
 async function getBranchPatientRecord({ branchId, patientId, canViewBilling = true, executor = db }) {
   if (!validId(branchId) || !validId(patientId)) return null
   const [[patient]] = await executor.query(
-    `SELECT p.id,p.full_name,p.email,p.phone,p.sex,p.civil_status,p.address,
+    `SELECT p.id,p.full_name,p.email,p.phone,p.sex,p.address,
             DATE_FORMAT(p.birthdate,'%Y-%m-%d') AS birthdate
      FROM patients p WHERE p.id=? AND EXISTS
        (SELECT 1 FROM appointments a WHERE a.patient_id=p.id AND a.branch_id=?)`,

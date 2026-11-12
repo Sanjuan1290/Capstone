@@ -2,6 +2,13 @@
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
+// Older activated accounts can still have is_walk_in=1. Credentials identify
+// those as registered; guest records remain distinct from portal accounts.
+const REGISTERED_PATIENT_SQL = "(COALESCE(p.is_walk_in, 0) = 0 OR TRIM(COALESCE(p.password, '')) <> '')"
+const GUEST_PATIENT_SQL = `(NOT ${REGISTERED_PATIENT_SQL} AND (p.consent_method = 'guest_online' OR EXISTS (SELECT 1 FROM appointments guest_visit WHERE guest_visit.patient_id=p.id AND guest_visit.appointment_source='guest_online')))`
+const DIRECTORY_PATIENT_SQL = `(${REGISTERED_PATIENT_SQL} OR ${GUEST_PATIENT_SQL})`
+const PATIENT_TYPE_SQL = `CASE WHEN ${REGISTERED_PATIENT_SQL} THEN 'registered' ELSE 'guest' END`
+
 const parseDirectoryPagination = (pageValue, pageSizeValue) => {
   const rawPage = Number(pageValue)
   const rawSize = Number(pageSizeValue)
@@ -11,7 +18,7 @@ const parseDirectoryPagination = (pageValue, pageSizeValue) => {
 }
 
 const buildPatientDirectoryWhere = ({ search = '', status = 'all' } = {}) => {
-  const clauses = ['COALESCE(p.is_walk_in, 0) = 0']
+  const clauses = [DIRECTORY_PATIENT_SQL]
   const params = []
   const term = String(search || '').trim().slice(0, 100)
 
@@ -36,8 +43,10 @@ const buildPatientDirectoryWhere = ({ search = '', status = 'all' } = {}) => {
     clauses.push(`(${searchParts.join(' OR ')})`)
   }
 
-  if (status === 'active') clauses.push('COALESCE(p.is_banned, 0) = 0')
-  else if (status === 'banned') clauses.push('COALESCE(p.is_banned, 0) = 1')
+  if (status === 'active') clauses.push(REGISTERED_PATIENT_SQL, 'COALESCE(p.is_banned, 0) = 0')
+  else if (status === 'banned') clauses.push(REGISTERED_PATIENT_SQL, 'COALESCE(p.is_banned, 0) = 1')
+  else if (status === 'registered') clauses.push(REGISTERED_PATIENT_SQL)
+  else if (status === 'guest') clauses.push(GUEST_PATIENT_SQL)
 
   return { whereSql: clauses.join(' AND '), params }
 }
@@ -57,4 +66,8 @@ module.exports = {
   parseDirectoryPagination,
   buildPatientDirectoryWhere,
   parseBanState,
+  REGISTERED_PATIENT_SQL,
+  GUEST_PATIENT_SQL,
+  DIRECTORY_PATIENT_SQL,
+  PATIENT_TYPE_SQL,
 }

@@ -64,9 +64,9 @@ async function review(page) {
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
   await page.getByLabel('Full name *', { exact: true }).fill('Synthetic Guest')
   await page.getByLabel('Gender', { exact: true }).selectOption('Female')
-  await page.getByLabel('Age (required without birthdate)', { exact: true }).fill('35')
+  await page.getByLabel(/^Birthdate \*/).fill('1990-01-01')
   await page.getByRole('button', { name: 'Follow up', exact: true }).click()
-  await page.getByLabel('Additional notes').fill('Synthetic note')
+  await page.getByPlaceholder(/^Any symptoms, concerns, or information/).fill('Synthetic note')
   await page.getByRole('checkbox').check()
 }
 
@@ -136,4 +136,14 @@ test('public offers explain that a registered patient must sign in', async ({ pa
   await page.goto('/news?type=promotion')
   await expect(page.getByRole('heading', { name: 'Patient account required', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Sign in to view offers', exact: true })).toHaveAttribute('href', /\/patient\/login/)
+})
+test('guest booking automatically loads branch availability without a date-helper reference error', async ({ page }) => {
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  const state = await clinic(page)
+  await page.route('**/api/patient/branches', route => route.fulfill({ json: [{ id: 1, name: 'Synthetic Branch' }] }))
+  await page.goto('/guest/book')
+  await expect.poll(() => state.calls.some(call => call.path.endsWith('/doctors/availability'))).toBe(true)
+  await expect(page.getByRole('heading', { name: 'Guest Online Appointment', exact: true })).toBeVisible()
+  expect(errors).toEqual([])
 })

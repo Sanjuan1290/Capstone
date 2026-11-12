@@ -157,10 +157,6 @@ export function printWalkInIntakeForm() {
               <span class="field-label">Sex</span>
               <div class="line"></div>
             </div>
-            <div>
-              <span class="field-label">Civil Status</span>
-              <div class="line"></div>
-            </div>
             <div class="full">
               <span class="field-label">Home Address</span>
               <div class="line"></div>

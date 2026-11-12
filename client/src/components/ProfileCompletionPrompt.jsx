@@ -25,7 +25,6 @@ const ProfileCompletionPrompt = ({ initialProfile, missingFields = [], onComplet
     phone: initialProfile?.phone || '',
     birthdate: initialProfile?.birthdate || '',
     gender: initialProfile?.gender || '',
-    civil_status: initialProfile?.civil_status || '',
     address: initialProfile?.address || '',
     email: initialProfile?.email || '',
     receive_promotions: Boolean(initialProfile?.receive_promotions),
@@ -131,17 +130,6 @@ const ProfileCompletionPrompt = ({ initialProfile, missingFields = [], onComplet
                 className={`${INPUT_CLASS} resize-none pl-11`}
               />
             </div>
-          </label>
-
-          <label className="space-y-1.5">
-            <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Civil Status</span>
-            <select value={form.civil_status} onChange={updateField('civil_status')} className={INPUT_CLASS}>
-              <option value="">Prefer not to say</option>
-              <option value="Single">Single</option>
-              <option value="Married">Married</option>
-              <option value="Widowed">Widowed</option>
-              <option value="Divorced">Divorced</option>
-            </select>
           </label>
 
           <label className="space-y-1.5">

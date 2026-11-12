@@ -31,7 +31,7 @@ async function requestJson(path, options = {}) {
   const contentType = response.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('application/json')) {
     if (response.status === 401) throw new Error('Your Super Admin session has expired. Sign in again to continue.')
-    if (response.status === 403) throw new Error('Super Admin access is required to view registered patients.')
+    if (response.status === 403) throw new Error('Super Admin access is required to view patients.')
     throw new Error('The server returned an unexpected response. Check the backend API and try again.')
   }
 
@@ -99,7 +99,7 @@ export default function SuperAdminPatients() {
       setData(result)
       if (page > Number(result.pagination?.total_pages || 1)) setPage(Number(result.pagination?.total_pages || 1))
     } catch (loadError) {
-      setError(loadError.message || 'Unable to load registered patients.')
+      setError(loadError.message || 'Unable to load patients.')
     } finally {
       setLoading(false)
     }
@@ -174,31 +174,35 @@ export default function SuperAdminPatients() {
   const patient = detail?.patient
   const history = detail?.history || { items: [], page: 1, page_size: 10, total: 0, total_pages: 1 }
   const isBanned = Boolean(Number(patient?.is_banned))
+  const isGuest = patient?.account_type === 'guest'
 
   return (
     <div className="space-y-6">
       <PageHead
         title="Patient Directory"
-        description="View registered patient accounts across all clinic branches, review appointment attendance and manage account access."
+        description="View registered and guest patients across all clinic branches, review appointment attendance and manage registered account access."
         action={<SecondaryButton onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}><MdRefresh /> Refresh</SecondaryButton>}
       />
 
       {notice && <Banner type="success" title="Account status updated" onDismiss={() => setNotice('')}>{notice}</Banner>}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Registered Patients" value={whole(summary.total_registered)} icon={MdPeople} helper="Excludes walk-in-only records" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Registered Patients" value={whole(summary.total_registered)} icon={MdPeople} helper="Patient portal accounts" />
+        <StatCard label="Guest Patients" value={whole(summary.total_guests)} icon={MdPersonSearch} helper="Booked without an account" />
         <StatCard label="Active Accounts" value={whole(summary.active_accounts)} icon={MdCheckCircle} helper="Can sign in" />
         <StatCard label="Banned Accounts" value={whole(summary.banned_accounts)} icon={MdBlock} helper="Sign-in blocked" />
-        <StatCard label="Total No-Shows" value={whole(summary.total_no_shows)} icon={MdCalendarMonth} helper="Across registered accounts" />
+        <StatCard label="Total No-Shows" value={whole(summary.total_no_shows)} icon={MdCalendarMonth} helper="Across registered and guest patients" />
       </div>
 
-      <Card title="Registered Patient Accounts" description="Search by full name, email address or mobile number. Select View More to see account details and appointment history.">
+      <Card title="Registered & Guest Patients" description="Search by full name, email address or mobile number. Select View More to see patient details and appointment history.">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_190px_140px]">
           <SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1) }} placeholder="Search name, email or contact number..." />
           <select aria-label="Filter patient accounts by status" className="form-control" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}>
-            <option value="all">All Accounts</option>
-            <option value="active">Active</option>
-            <option value="banned">Banned</option>
+            <option value="all">All Patients</option>
+            <option value="registered">Registered Patients</option>
+            <option value="guest">Guest Patients</option>
+            <option value="active">Active Accounts</option>
+            <option value="banned">Banned Accounts</option>
           </select>
           <select aria-label="Rows per page" className="form-control" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}>
             <option value={10}>10 per page</option>
@@ -207,7 +211,7 @@ export default function SuperAdminPatients() {
           </select>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-          <span>{loading ? 'Loading patient accounts…' : `${whole(pagination.total)} registered account${Number(pagination.total) === 1 ? '' : 's'} found`}</span>
+          <span>{loading ? 'Loading patients…' : `${whole(pagination.total)} patient${Number(pagination.total) === 1 ? '' : 's'} found`}</span>
           <span>Patient details and appointment history are visible to Super Admin only.</span>
         </div>
 
@@ -221,18 +225,18 @@ export default function SuperAdminPatients() {
               <tbody>
                 {(data?.items || []).map((row) => (
                   <tr key={row.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/80">
-                    <td className="px-4 py-4"><p className="font-semibold text-slate-900">{row.full_name}</p><p className="mt-1 text-xs text-slate-500">Registered {displayDate(row.created_at)}</p></td>
+                    <td className="px-4 py-4"><p className="font-semibold text-slate-900">{row.full_name}</p><p className="mt-1 text-xs text-slate-500">{row.account_type === 'guest' ? 'Guest patient' : 'Registered patient'} · Added {displayDate(row.created_at)}</p></td>
                     <td className="px-4 py-4 text-slate-700">{displayValue(row.phone)}</td>
                     <td className="px-4 py-4 text-slate-700">{displayValue(row.email)}</td>
                     <td className="px-4 py-4"><Pill tone={Number(row.no_show_count) > 0 ? 'warning' : 'neutral'}>{whole(row.no_show_count || 0)}</Pill></td>
-                    <td className="px-4 py-4"><Pill tone={Number(row.is_banned) ? 'danger' : 'success'}>{Number(row.is_banned) ? 'Banned' : 'Active'}</Pill></td>
+                    <td className="px-4 py-4"><Pill tone={row.account_type === 'guest' ? 'info' : Number(row.is_banned) ? 'danger' : 'success'}>{row.account_type === 'guest' ? 'Guest' : Number(row.is_banned) ? 'Banned' : 'Active'}</Pill></td>
                     <td className="px-4 py-4"><SecondaryButton onClick={() => openDetails(row.id)}><MdVisibility /> View More</SecondaryButton></td>
                   </tr>
                 ))}
               </tbody>
             </table>
             {!loading && (data?.items || []).length === 0 && (
-              <Empty icon={MdPersonSearch} title={search || status !== 'all' ? 'No matching patient accounts' : 'No registered patients yet'} description={search || status !== 'all' ? 'Try another name, email address, mobile number or account status.' : 'Registered patient accounts will appear here. Walk-in-only records are managed in branch patient records.'} />
+              <Empty icon={MdPersonSearch} title={search || status !== 'all' ? 'No matching patients' : 'No patients yet'} description={search || status !== 'all' ? 'Try another name, email address, mobile number or patient filter.' : 'Registered accounts and guest booking patients will appear here.'} />
             )}
           </div>
         )}
@@ -252,19 +256,20 @@ export default function SuperAdminPatients() {
         open={detailOpen}
         wide
         title={patient?.full_name || 'Patient Details'}
-        description="Registered patient account information and appointment attendance history."
+        description={isGuest ? 'Guest patient information and appointment attendance history.' : 'Registered patient account information and appointment attendance history.'}
         onClose={closeDetails}
       >
         {detailLoading && !detail ? <Loading cards={3} /> : detailError && !detail ? <Banner onRetry={() => setDetailRefreshKey((value) => value + 1)}>{detailError}</Banner> : patient && (
           <div className="space-y-5">
             {detailError && <Banner onRetry={() => setDetailRefreshKey((value) => value + 1)}>{detailError}</Banner>}
-            {isBanned && <Banner type="warning" title="This patient account is banned">The patient cannot sign in while this restriction is active. Their appointment and billing history remain unchanged.</Banner>}
+            {!isGuest && isBanned && <Banner type="warning" title="This patient account is banned">The patient cannot sign in while this restriction is active. Their appointment and billing history remain unchanged.</Banner>}
+            {isGuest && <Banner type="info" title="Guest patient">This patient booked without creating a portal account. Their guest appointment history is shown below.</Banner>}
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Mobile Number</p><p className="mt-1 flex items-center gap-2 break-all text-sm font-semibold"><MdPhone className="shrink-0 text-slate-400"/>{displayValue(patient.phone)}</p></div>
               <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Email Address</p><p className="mt-1 flex items-center gap-2 break-all text-sm font-semibold"><MdEmail className="shrink-0 text-slate-400"/>{displayValue(patient.email)}</p></div>
               <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Gender</p><p className="mt-1 flex items-center gap-2 text-sm font-semibold"><MdWc className="text-slate-400"/>{displayValue(patient.gender)}</p></div>
-              <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Registered</p><p className="mt-1 flex items-center gap-2 text-sm font-semibold"><MdCalendarMonth className="text-slate-400"/>{displayDate(patient.created_at)}</p></div>
+              <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">{isGuest ? 'Guest record added' : 'Registered'}</p><p className="mt-1 flex items-center gap-2 text-sm font-semibold"><MdCalendarMonth className="text-slate-400"/>{displayDate(patient.created_at)}</p></div>
             </div>
 
             <div className="rounded-xl border border-slate-200 p-4">
@@ -278,7 +283,7 @@ export default function SuperAdminPatients() {
               <StatCard label="Did Not Arrive" value={whole(patient.no_show_count)} icon={MdWarningAmber} helper="Recorded no-show appointments"/>
             </div>
 
-            <section className="rounded-xl border border-slate-200 p-4">
+            {!isGuest && <section className="rounded-xl border border-slate-200 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><h3 className="font-bold text-slate-900">Account Access</h3><p className="mt-1 text-xs text-slate-500">Banning blocks patient sign-in and revokes existing sessions. It does not delete records.</p></div>
                 <div className="flex items-center gap-3">
@@ -300,7 +305,7 @@ export default function SuperAdminPatients() {
                   </div>
                 </div>
               )}
-            </section>
+            </section>}
 
             <section>
               <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="flex items-center gap-2 font-bold text-slate-900"><MdHistory/> Appointment History</h3><p className="mt-1 text-xs text-slate-500">{whole(history.total)} recorded appointment{history.total === 1 ? '' : 's'} · Latest first</p></div></div>
@@ -319,7 +324,7 @@ export default function SuperAdminPatients() {
                     </tr>
                   ))}</tbody>
                 </table>
-                {history.items.length === 0 && <Empty icon={MdHistory} title="No appointment history" description="This registered patient has no recorded appointments yet."/>}
+                {history.items.length === 0 && <Empty icon={MdHistory} title="No appointment history" description="This patient has no recorded appointments yet."/>}
               </div>
               {history.total > 10 && <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">History page {history.page} of {history.total_pages}</p><div className="flex gap-2"><SecondaryButton disabled={history.page <= 1 || detailLoading} onClick={() => setHistoryPage((value) => Math.max(1, value - 1))}><MdChevronLeft/> Previous</SecondaryButton><SecondaryButton disabled={history.page >= history.total_pages || detailLoading} onClick={() => setHistoryPage((value) => Math.min(history.total_pages, value + 1))}>Next <MdChevronRight/></SecondaryButton></div></div>}
             </section>

@@ -30,9 +30,11 @@ test('invalid and unsafe page values fall back safely', () => {
   assert.equal(parseDirectoryPagination('2.5', '10').page, 1)
 })
 
-test('directory always excludes walk-in-only records', () => {
+test('directory includes registered accounts and guest bookings, with explicit patient types', () => {
   const result = buildPatientDirectoryWhere()
   assert.match(result.whereSql, /COALESCE\(p\.is_walk_in, 0\) = 0/)
+  assert.match(result.whereSql, /p\.consent_method = 'guest_online'/)
+  assert.match(result.whereSql, /guest_visit\.appointment_source='guest_online'/)
   assert.deepEqual(result.params, [])
 })
 
@@ -58,6 +60,8 @@ test('status filters distinguish active and banned accounts', () => {
   assert.match(buildPatientDirectoryWhere({ status: 'active' }).whereSql, /is_banned, 0\) = 0/)
   assert.match(buildPatientDirectoryWhere({ status: 'banned' }).whereSql, /is_banned, 0\) = 1/)
   assert.doesNotMatch(buildPatientDirectoryWhere({ status: 'all' }).whereSql, /is_banned/)
+  assert.match(buildPatientDirectoryWhere({ status: 'guest' }).whereSql, /NOT \(COALESCE/)
+  assert.match(buildPatientDirectoryWhere({ status: 'registered' }).whereSql, /TRIM\(COALESCE\(p\.password/)
 })
 
 test('ban request accepts only a boolean', () => {
