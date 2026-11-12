@@ -1,0 +1,391 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config",
+      "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\receipt-amounts-2026-11-13\\playwright.config.mjs"
+    ],
+    "configFile": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\receipt-amounts-2026-11-13\\playwright.config.mjs",
+    "rootDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/client/tests/browser",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/receipt-amounts-2026-11-13/browser-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/client/tests/browser",
+        "testIgnore": [],
+        "testMatch": [
+          "receiptAmounts20261113.spec.mjs"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\receipt-amounts-2026-11-13\\browser-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "",
+        "testDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser",
+        "snapshotDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser",
+        "testIgnore": [],
+        "testMatch": [
+          "receiptAmounts20261113.spec.mjs"
+        ],
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:4178",
+          "headless": true,
+          "launchOptions": {
+            "executablePath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+          },
+          "screenshot": "only-on-failure",
+          "timezoneId": "Asia/Manila"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": ""
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\receipt-amounts-2026-11-13\\browser-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "receiptAmounts20261113.spec.mjs",
+      "file": "receiptAmounts20261113.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "admin history and printed cash receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 696,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T19:17:58.606Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-1907fcf25a11a7a28e1d",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "admin history and printed qrph receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 612,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T19:17:59.698Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-d9deb0cde367f483a653",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "superadmin history and printed cash receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2737,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T19:18:00.318Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-4fe38728ffb20111cbe5",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "superadmin history and printed qrph receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 581,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T19:18:03.062Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-134fd62d292a93e0a67d",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "staff history and printed cash receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 638,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T19:18:03.655Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-2e68bdd3e85186088367",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "staff history and printed qrph receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 598,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T19:18:04.301Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-d3d8697911a2ec6c0195",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "legacy cash receipt displays unrecorded tender and change without inventing amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 474,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T19:18:04.908Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-183ed4de04e438983af7",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 49,
+          "column": 1
+        },
+        {
+          "title": "history list hides balances for partial payments while collection retains amount due",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 550,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-12T19:18:05.392Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-81bdcd9ad118c80291c7",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 57,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-12T19:17:58.022Z",
+    "duration": 8180.729000000001,
+    "expected": 8,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

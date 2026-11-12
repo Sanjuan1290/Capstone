@@ -37,21 +37,43 @@ test('hides n/a fields, escapes untrusted values, no duplicates',()=>{
   assert.ok(!s.includes('<script>'))
   assert.ok(!s.includes('>n/a<'))
 })
-test('partial payment is not falsely marked as paid and shows exact balance',()=>{
+test('partial payment keeps its state without printing a remaining balance',()=>{
   const s=html({...baseBill,paid_amount:100,balance_amount:372},{...payment,amount:100})
   assert.match(s,/PARTIAL PAYMENT/)
-  assert.match(s,/Remaining balance/)
-  assert.match(s,/₱372.00/)
-  assert.match(s,/This payment/)
+  assert.doesNotMatch(s,/Remaining balance|Paid to date|₱372.00/)
+  assert.match(s,/Amount Paid/)
+  assert.match(s,/₱100.00/)
 })
 test('refunds, partial refunds and voids show their own payment state',()=>{
   assert.match(html(baseBill,{...payment,refund_amount:472}),/\bREFUNDED\b/)
   const part=html(baseBill,{...payment,refund_amount:100,refund_reason:'Duplicate charge'})
   assert.match(part,/PARTIALLY REFUNDED/)
-  assert.match(part,/Original payment/)
+  assert.match(part,/Amount Paid/)
   assert.match(part,/Net this payment/)
   assert.match(part,/Refund reason/)
   assert.match(html(baseBill,{...payment,status:'voided',void_reason:'Wrong method'}),/VOIDED/)
+})
+
+test('cash receipt prints saved amount paid, tender and change',()=>{
+  const s=html(baseBill,{...payment,amount_received:'500.00',change_amount:'28.00'})
+  assert.match(s,/Amount Paid<\/span><strong>₱472.00/)
+  assert.match(s,/Cash Received<\/span><strong>₱500.00/)
+  assert.match(s,/Change<\/span><strong>₱28.00/)
+  assert.doesNotMatch(s,/Remaining balance/)
+})
+
+test('online receipts omit cash received and change even when the fields are populated',()=>{
+  for (const payment_method of ['qrph','gcash','maya','bank_transfer']) {
+    const s=html(baseBill,{...payment,payment_method,amount_received:500,change_amount:28})
+    assert.match(s,/Amount Paid<\/span><strong>₱472.00/)
+    assert.doesNotMatch(s,/Cash Received|>Change<|Remaining balance/)
+  }
+})
+
+test('legacy cash receipts do not invent missing tender or change',()=>{
+  const s=html(baseBill,{...payment,amount_received:null,change_amount:null})
+  assert.match(s,/Cash Received<\/span><strong>Not recorded/)
+  assert.match(s,/Change<\/span><strong>Not recorded/)
 })
 test('many items remain printable across pages and use header-repeat table rules',()=>{
   const big={...baseBill,items:Array.from({length:50},(_,i)=>({service_name:`Service ${i} ${'long '.repeat(7)}`,quantity:1,unit_price:2,line_total:2}))}

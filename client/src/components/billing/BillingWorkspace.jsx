@@ -115,7 +115,7 @@ export default function BillingWorkspace({ role = 'admin' }) {
                 {status === 'failed' && section === 'payments' && <p className="mt-2 max-w-lg text-xs text-rose-700">{failure(bill)}</p>}
                 {settled(bill) && <p className="mt-1 text-xs text-slate-500">{(Array.isArray(bill.payment_methods) ? bill.payment_methods : []).map(paymentMethodLabel).join(', ')}</p>}
               </div>
-              <div className="flex flex-wrap items-center gap-3 sm:gap-5"><div className="text-right"><p className="text-xs text-slate-500">{section === 'history' && settled(bill) ? 'Total' : 'Balance due'}</p><p className="text-lg font-black tabular-nums text-slate-900">{formatMoney(section === 'history' && settled(bill) ? bill.total_amount : amountDue)}</p></div>
+              <div className="flex flex-wrap items-center gap-3 sm:gap-5"><div className="text-right"><p className="text-xs text-slate-500">{section === 'history' ? 'Bill Total' : 'Balance due'}</p><p className="text-lg font-black tabular-nums text-slate-900">{formatMoney(section === 'history' ? bill.total_amount : amountDue)}</p>{section === 'history' && <p className="text-xs text-slate-500">Net paid: <span className="font-semibold tabular-nums">{formatMoney(bill.paid_amount)}</span></p>}</div>
                 <Link to={to} className="button-secondary inline-flex items-center gap-1">{section === 'history' || status === 'paid' || !canCheckout ? 'View Bill' : status === 'failed' ? 'Review Payment' : 'Bill Checkout'} <MdArrowForward/></Link></div>
             </article>
           })}</div>}
