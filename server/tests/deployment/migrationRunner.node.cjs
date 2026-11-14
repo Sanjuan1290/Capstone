@@ -32,7 +32,7 @@ const promotionColumns = {
   ],
 }
 
-function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, initialPromotionIndex, initialPromotionFk, initialReversalColumns, initialDoctorFee } = {}) {
+function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, initialPromotionIndex, initialPromotionFk, initialReversalColumns, initialDoctorFee, initialStatutoryCategory } = {}) {
   const foundation = createFoundationSchemaFixture(foundationOptions)
   const queueSchema = require('../helpers/queueSchemaFixture.cjs').queueSchemaFixture()
   const applied = new Map()
@@ -41,7 +41,9 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
   const movementColumns = new Map()
   const reversalColumns = new Map(Object.entries(initialReversalColumns || {}))
   const feeColumns = new Map(initialDoctorFee ? [['doctor_fee_percentage', initialDoctorFee]] : [])
+  const statutoryColumns = new Map(initialStatutoryCategory ? [['statutory_category',initialStatutoryCategory]] : [])
   const reversalMetadata = (sql, params) => {
+    if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'discount_presets' && params[1] === 'statutory_category') return [statutoryColumns.has(params[1]) ? [statutoryColumns.get(params[1])] : []]
     if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'billing_service_catalog' && params[1] === 'doctor_fee_percentage') return [feeColumns.has(params[1]) ? [feeColumns.get(params[1])] : []]
     if (/information_schema\.COLUMNS/i.test(sql) && ['inventory_excel_uploads','inventory_excel_receipts'].includes(params?.[0])) {const row=actorColumns.get(params[0]+'.'+params[1]);return [row?[row]:[]]}
     if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'inventory_logs' && ['quantity_before','quantity_after'].includes(params[1])) return [movementColumns.has(params[1]) ? [movementColumns.get(params[1])] : []]
@@ -121,6 +123,10 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
           assert.equal(feeColumns.size, 0, 'Never re-add an existing fee column')
           feeColumns.set('doctor_fee_percentage', {COLUMN_TYPE:'decimal(5,2)',IS_NULLABLE:'NO',COLUMN_DEFAULT:'0.00'})
         }
+        if(sql === "ALTER TABLE discount_presets ADD COLUMN statutory_category VARCHAR(12) NOT NULL DEFAULT 'other'"){
+          assert.equal(statutoryColumns.size,0,'Never re-add the existing category column')
+          statutoryColumns.set('statutory_category',{COLUMN_TYPE:'varchar(12)',IS_NULLABLE:'NO',COLUMN_DEFAULT:'other'})
+        }
         const actorDdl = /^ALTER TABLE (inventory_excel_uploads|inventory_excel_receipts) (?:ADD|MODIFY) COLUMN ([a-z_]+) INT NULL$/i.exec(sql)
         if(actorDdl)actorColumns.set(actorDdl[1]+'.'+actorDdl[2],{COLUMN_TYPE:'int',IS_NULLABLE:'YES'})
         const movementColumn = /^ALTER TABLE inventory_logs ADD COLUMN (quantity_before|quantity_after) DECIMAL\(12,2\) NULL$/i.exec(sql)
@@ -146,6 +152,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
     commands,
     promotionState,
     feeColumns,
+    statutoryColumns,
     async query(sql, params = []) {
       commands.push(String(sql))
       if (/SELECT content_sha256 FROM schema_migrations/i.test(sql)) {
@@ -162,7 +169,7 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
-  assert.deepEqual(migrationFiles.slice(-3),['2026-11-14-consultation-followups.sql','2026-11-14-billing-financial-snapshots.sql','2026-11-14-branch-tax-policy.sql'])
+  assert.deepEqual(migrationFiles.slice(-4),['2026-11-14-consultation-followups.sql','2026-11-14-billing-financial-snapshots.sql','2026-11-14-branch-tax-policy.sql','2026-11-14-simplify-tax-settings.sql'])
   const historicalTail = ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql']
   assert.deepEqual(migrationFiles.filter(file => historicalTail.includes(file)), historicalTail)
   const historicalFiles=migrationFiles.filter(file=>!file.startsWith('2026-11-14-'))
@@ -391,7 +398,7 @@ test('Batch 4 recovers manually applied complete columns while adding only the m
 test('November 14 migrations add only schema, preserve financial records and run once', async () => {
   const db=createMockDb()
   await runBranchMigrations(db)
-  const newFiles=migrationFiles.filter(file=>file.startsWith('2026-11-14-'))
+  const newFiles=migrationFiles.filter(file=>file.startsWith('2026-11-14-')&&file!=='2026-11-14-simplify-tax-settings.sql')
   for(const file of newFiles){
     const statements=require('../../scripts/branchMigrations').splitMysqlMigration(fs.readFileSync(path.join(migrationDir,file),'utf8'))
     assert.ok(statements.every(sql=>/^CREATE TABLE IF NOT EXISTS|^ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage/.test(sql)))
@@ -423,6 +430,29 @@ test('interrupted snapshot DDL resumes without re-adding the committed fee colum
   await runBranchMigrations(db)
   assert.equal(db.commands.filter(sql=>/^ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage/.test(sql)).length,1)
   assert.ok(db.applied.has('2026-11-14-billing-financial-snapshots.sql'))
+})
+
+test('tax simplification resumes safely and touches only current settings and discount metadata',async()=>{
+  const db=createMockDb({failOnceOn:'UPDATE branch_billing_settings'})
+  await assert.rejects(runBranchMigrations(db),/synthetic migration DDL failure/)
+  assert.equal(db.applied.has('2026-11-14-simplify-tax-settings.sql'),false)
+  await runBranchMigrations(db)
+  const adds=()=>db.commands.filter(sql=>sql.startsWith('ALTER TABLE discount_presets ADD COLUMN statutory_category')).length
+  assert.equal(adds(),1);assert.ok(db.applied.has('2026-11-14-simplify-tax-settings.sql'))
+  await runBranchMigrations(db);assert.equal(adds(),1)
+  const statements=require('../../scripts/branchMigrations').splitMysqlMigration(fs.readFileSync(path.join(migrationDir,'2026-11-14-simplify-tax-settings.sql'),'utf8'))
+  assert.equal(statements.length,3)
+  assert.ok(statements.slice(1).every(sql=>/^UPDATE (discount_presets|branch_billing_settings)\b/.test(sql)))
+  assert.ok(statements.every(sql=>!/billing_records|billing_financial_snapshots|DROP\s/i.test(sql)))
+})
+
+test('tax simplification skips a compatible existing category column and rejects incompatible metadata',async()=>{
+  const compatible=createMockDb({initialStatutoryCategory:{COLUMN_TYPE:'varchar(12)',IS_NULLABLE:'NO',COLUMN_DEFAULT:'other'}})
+  await runBranchMigrations(compatible)
+  assert.equal(compatible.commands.some(sql=>sql.startsWith('ALTER TABLE discount_presets ADD COLUMN statutory_category')),false)
+  const incompatible=createMockDb({initialStatutoryCategory:{COLUMN_TYPE:'int',IS_NULLABLE:'YES',COLUMN_DEFAULT:null}})
+  await assert.rejects(runBranchMigrations(incompatible),/Incompatible statutory discount/)
+  assert.equal(incompatible.applied.has('2026-11-14-simplify-tax-settings.sql'),false)
 })
 
 

@@ -2,6 +2,8 @@
 
 Date: 14 November 2026, Asia/Manila. Starting repository: `6f937c6`.
 
+**Tax Settings update:** the later user-requested two-field configuration supersedes Batch 4's expanded settings screen/storage. See [the updated report](../tax-settings-simplified-2026-11-14/RESULTS.md).
+
 All nine batches are implemented in the working tree. No deployment, production SQL, real payment, SMS/email delivery or live Cloudinary upload was performed. Automated tests use synthetic records and mocked providers. Full regression runs use `network-guard.cjs`, a dummy loopback database and provider configuration. An untouched export of the starting commit was tested with the same guard for comparison.
 
 ## Batch 1 — Recommended Follow-Up During Consultation

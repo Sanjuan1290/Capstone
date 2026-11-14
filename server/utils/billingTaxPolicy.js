@@ -2,6 +2,24 @@ const {percentage}=require('./billingMoney')
 const fail=message=>Object.assign(new Error(message),{statusCode:400,code:'INVALID_TAX_POLICY'})
 const disabledPolicy=()=>({enabled:false,tax_name:'VAT',tax_rate:0,tax_mode:'inclusive',rules:[],discount_categories:{},version:0})
 const parse=value=>typeof value==='string'?JSON.parse(value):value
+function normalizeTaxSettings(body){
+ if(!body||typeof body!=='object'||Array.isArray(body))throw fail('Enter a tax name and percentage.')
+ if(typeof body.tax_name!=='string')throw fail('Enter a text tax name.')
+ const tax_name=body.tax_name.trim()
+ if(!tax_name||tax_name.length>80||/[<>\x00-\x1f]/.test(tax_name))throw fail('Enter a tax name of 1–80 characters.')
+ if(body.tax_percentage==null||body.tax_percentage==='')throw fail('Enter a tax percentage from 0 to 100.')
+ return {tax_name,tax_percentage:percentage(body.tax_percentage)}
+}
+function settingsFromStoredPolicy(raw){
+ const stored=parse(raw)
+ if(Object.prototype.hasOwnProperty.call(stored||{},'tax_percentage'))return normalizeTaxSettings(stored)
+ const legacy=normalizePolicy(stored)
+ return normalizeTaxSettings({tax_name:legacy.tax_name,tax_percentage:legacy.enabled?legacy.tax_rate:0})
+}
+async function loadTaxSettings(branchId,conn){
+ const [[row]]=await conn.query('SELECT policy_json,version FROM branch_billing_settings WHERE branch_id=?',[branchId])
+ return row?{...settingsFromStoredPolicy(row.policy_json),version:Number(row.version)}:{tax_name:'VAT',tax_percentage:0,version:0}
+}
 function normalizePolicy(body){
  if(!body||typeof body!=='object'||Array.isArray(body))throw fail('Enter a billing tax configuration.')
  if(typeof body.enabled!=='boolean')throw fail('Choose whether tax is enabled.')
@@ -27,6 +45,13 @@ function normalizePolicy(body){
 }
 async function loadTaxPolicy(branchId,conn){
  const [[row]]=await conn.query('SELECT policy_json,version FROM branch_billing_settings WHERE branch_id=?',[branchId])
- return row?{...normalizePolicy(parse(row.policy_json)),version:Number(row.version)}:disabledPolicy()
+ const stored=row?parse(row.policy_json):null
+ // Old bill policies keep their original classifications. New two-field
+ // settings use the existing inclusive-price convention for all charges.
+ if(stored&&!Object.prototype.hasOwnProperty.call(stored,'tax_percentage'))return {...normalizePolicy(stored),version:Number(row.version)}
+ const settings=stored?normalizeTaxSettings(stored):{tax_name:'VAT',tax_percentage:0}
+ const [presets]=await conn.query("SELECT id,statutory_category FROM discount_presets WHERE branch_id=? AND statutory_category IN ('senior','pwd')",[branchId])
+ const discount_categories=Object.fromEntries(presets.filter(p=>['senior','pwd'].includes(p.statutory_category)).map(p=>[p.id,p.statutory_category]))
+ return {...disabledPolicy(),tax_name:settings.tax_name,tax_rate:settings.tax_percentage,enabled:settings.tax_percentage>0,simple_tax:true,discount_categories,version:Number(row?.version||0)}
 }
-module.exports={disabledPolicy,normalizePolicy,loadTaxPolicy,parse}
+module.exports={disabledPolicy,normalizePolicy,loadTaxPolicy,parse,normalizeTaxSettings,settingsFromStoredPolicy,loadTaxSettings}

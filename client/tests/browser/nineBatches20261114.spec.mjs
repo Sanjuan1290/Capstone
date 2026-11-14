@@ -93,24 +93,30 @@ for(const role of ['admin','superadmin','staff'])test(`${role}: service fee prev
  if(role==='staff')expect(saved[0]).not.toHaveProperty('doctor_fee_percentage');else expect(saved[0].doctor_fee_percentage).toBe(20)
 })
 
-for(const role of ['admin','superadmin','staff'])test(`${role}: tax settings are explicit and branch scoped`,async({page})=>{
+for(const role of ['admin','superadmin','staff'])test(`${role}: tax settings show only name and percentage and stay branch scoped`,async({page})=>{
  const {root}=await mockClinic(page,role);const saves=[]
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname
   if(path.endsWith('/billing/settings')){
-   if(route.request().method()==='PUT'){saves.push({path,body:route.request().postDataJSON()});return route.fulfill({json:{policy:{...saves[0].body.policy,version:2}}})}
-   return route.fulfill({json:{policy:{...policy,enabled:false},services:[{id:77,name:'Wound Dressing'}],inventory:[{id:7,name:'Gauze'}],discounts:[]}})
+   if(route.request().method()==='PUT'){saves.push({path,body:route.request().postDataJSON()});return route.fulfill({json:{tax_name:saves[0].body.tax_name,tax_percentage:Number(saves[0].body.tax_percentage),version:2}})}
+   return route.fulfill({json:{tax_name:'VAT',tax_percentage:0,version:1}})
   }
   if(path.endsWith('/system-setup'))return route.fulfill({json:{}})
   return route.fallback()
  })
  await page.goto(root+'/system-setup?tab=tax_discounts')
- if(role==='staff'){await expect(page.getByText('Tax and discount configuration is managed by authorized Admins.')).toBeVisible();expect(saves).toHaveLength(0);return}
- const enable=page.getByRole('checkbox',{name:'Enable configured tax on new bills',exact:true});await expect(enable).not.toBeChecked();await enable.check()
- await page.getByRole('spinbutton',{name:'Tax Percentage',exact:true}).fill('12')
- await page.getByRole('combobox',{name:'Tax treatment for Gauze',exact:true}).selectOption('vat_exempt')
- await page.getByRole('button',{name:'Save Tax & Discount Configuration',exact:true}).click()
- await expect(page.getByRole('status').filter({hasText:'Saved.'})).toBeVisible()
+ if(role==='staff'){await expect(page.getByText('Tax settings are managed by authorized Admins.')).toBeVisible();expect(saves).toHaveLength(0);return}
+ const settings=page.getByRole('region',{name:'Tax Settings',exact:true})
+ await expect(settings.locator('input')).toHaveCount(2)
+ await expect(settings.getByRole('combobox')).toHaveCount(0)
+ await expect(settings.getByRole('checkbox')).toHaveCount(0)
+ await expect(settings).not.toContainText(/Charge Classification|Discount Categories|Authorized Discount Preset|Tax Treatment/)
+ await settings.getByRole('textbox',{name:'Tax Name',exact:true}).fill('Clinic VAT')
+ await settings.getByRole('spinbutton',{name:'Tax Percentage',exact:true}).fill('12')
+ await settings.getByRole('button',{name:'Save Tax Settings',exact:true}).click()
+ await expect(settings.getByRole('status')).toHaveText('Tax settings saved.')
+ expect(saves[0].body).toEqual({tax_name:'Clinic VAT',tax_percentage:'12',expected_version:1})
+ if(role==='superadmin')await settings.screenshot({path:'../QA_REPORT/tax-settings-simplified-2026-11-14/tax-settings.png'})
  expect(saves).toHaveLength(1);expect(saves[0].body.expected_version).toBe(1);expect(saves[0].path).toContain(role==='superadmin'?'/1/':'/my/')
 })
 

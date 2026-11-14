@@ -1,30 +1,34 @@
 import {useCallback,useEffect,useState} from 'react'
 import {useLocation} from 'react-router-dom'
-import {getBillingTaxSettings,saveBillingTaxSettings,saveDiscountPreset} from '../../services/admin.service'
+import {getBillingTaxSettings,saveBillingTaxSettings} from '../../services/admin.service'
 
 export default function BillingTaxSettings(){
- const location=useLocation(),staff=location.pathname.startsWith('/staff')
- const [data,setData]=useState(null),[policy,setPolicy]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[saved,setSaved]=useState(false),[query,setQuery]=useState('')
- const [discount,setDiscount]=useState({label:'',discount_type:'percentage',value:20,requires_reference:true,requires_admin_approval:false,is_active:1})
- const load=useCallback(async()=>{setError('');try{const result=await getBillingTaxSettings();setData(result);setPolicy(result.policy)}catch(e){setError(e.message)}},[])
- useEffect(()=>{if(!staff)void load()},[load,staff])
- if(staff)return <p className="rounded-2xl border bg-white p-5">Tax and discount configuration is managed by authorized Admins.</p>
- const update=patch=>{setPolicy(p=>({...p,...patch}));setSaved(false)}
- const updateRule=(kind,id,patch)=>{const prior=policy.rules.find(row=>row.kind===kind&&row.id===id)||{kind,id,treatment:'out_of_scope',statutory_eligible:false};update({rules:[...policy.rules.filter(row=>row.kind!==kind||row.id!==id),{...prior,...patch}]})}
- return <section className="space-y-5 rounded-2xl border bg-white p-5" aria-label="Tax and Discount Configuration"><h2 className="text-xl font-bold">Tax & Discount Configuration</h2>
-  {error&&<p role="alert" className="text-rose-700">{error} <button type="button" className="underline" onClick={load}>Reload Configuration</button></p>}
-  {!policy?<p role="status">Loading billing configuration...</p>:<>
-   <p className="text-sm text-slate-600">Settings apply to new bills only. Confirm the branch’s tax registration and each charge’s treatment before enabling tax. Medical services, professional services and medicines can have different treatment.</p>
-   <div className="grid gap-4 sm:grid-cols-2"><label className="flex items-center gap-2"><input type="checkbox" checked={policy.enabled} onChange={e=>update({enabled:e.target.checked})}/>Enable configured tax on new bills</label>
-    <label><span className="form-label">Tax Name</span><input className="form-control" maxLength={80} value={policy.tax_name} onChange={e=>update({tax_name:e.target.value})}/></label>
-    <label><span className="form-label">Tax Percentage</span><input className="form-control" type="number" min="0" max="100" step="0.01" value={policy.tax_rate} onChange={e=>update({tax_rate:e.target.value})}/></label>
-    <label><span className="form-label">Tax Treatment</span><select className="form-control" value={policy.tax_mode} onChange={e=>update({tax_mode:e.target.value})}><option value="inclusive">Prices include applicable VAT</option><option value="exclusive">Add applicable VAT to prices</option></select></label></div>
-   <div><h3 className="font-bold">Charge Classification</h3><p className="mt-1 text-sm text-slate-500">Classify the service fee and each included or additional item separately. Unclassified charges are blocked when tax is enabled. Statutory eligibility applies only to qualifying purchases.</p><input type="search" aria-label="Search tax classifications" placeholder="Search services and items" className="form-control my-3" value={query} onChange={e=>setQuery(e.target.value)}/>
-    <div className="max-h-96 space-y-2 overflow-y-auto">{[['service_fee',data.services],['inventory',data.inventory],['additional',[{id:1,name:'Additional custom charges'}]]].flatMap(([kind,rows])=>rows.filter(row=>row.name.toLowerCase().includes(query.toLowerCase())).map(row=>{const rule=policy.rules.find(r=>r.kind===kind&&r.id===row.id);return <div key={`${kind}:${row.id}`} className="grid items-center gap-3 rounded-xl border p-3 text-sm sm:grid-cols-[1fr_180px_160px]"><span>{row.name}<small className="block text-slate-500">{kind==='service_fee'?'Service fee':kind==='inventory'?'Inventory item':'Custom charge'}</small></span><select aria-label={`Tax treatment for ${row.name}`} className="form-control" value={rule?.treatment||''} onChange={e=>{if(e.target.value)updateRule(kind,row.id,{treatment:e.target.value});else update({rules:policy.rules.filter(r=>r.kind!==kind||r.id!==row.id)})}}><option value="">Unclassified</option><option value="taxable">Taxable</option><option value="vat_exempt">VAT exempt</option><option value="out_of_scope">Outside VAT scope</option></select><label className="flex items-center gap-2"><input type="checkbox" checked={rule?.statutory_eligible||false} onChange={e=>updateRule(kind,row.id,{statutory_eligible:e.target.checked})}/>Eligible Senior/PWD</label></div>}))}</div></div>
-   <div><h3 className="font-bold">Discount Categories</h3><p className="mt-1 text-sm text-slate-500">Senior/PWD presets must be 20%. Staff must verify eligibility in person. Statutory and promotional discounts cannot be stacked.</p><div className="mt-3 space-y-2">{data.discounts.map(preset=><label key={preset.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><span>{preset.label} ({preset.value}{preset.discount_type==='percentage'?'%':' PHP'}){preset.requires_admin_approval?' · Approval required':''}</span><select className="form-control w-48" value={policy.discount_categories[preset.id]||'other'} onChange={e=>update({discount_categories:{...policy.discount_categories,[preset.id]:e.target.value}})}><option value="other">Other authorized discount</option><option value="senior">Senior Citizen</option><option value="pwd">PWD</option></select></label>)}</div></div>
-   <button type="button" className="button-primary" disabled={saving} onClick={async()=>{setSaving(true);setError('');setSaved(false);try{const result=await saveBillingTaxSettings({policy,expected_version:data.policy.version});setData(p=>({...p,policy:result.policy}));setPolicy(result.policy);setSaved(true)}catch(e){setError(e.message)}finally{setSaving(false)}}}>{saving?'Saving...':'Save Tax & Discount Configuration'}</button>
-   {saved&&<p role="status" className="text-sm text-emerald-700">Saved. Confirmed bills and existing bill policies remain unchanged.</p>}
-   <details className="rounded-xl border p-4"><summary className="cursor-pointer font-bold">Add Authorized Discount Preset</summary><div className="mt-3 grid gap-3 sm:grid-cols-2"><label>Name<input className="form-control" maxLength={120} value={discount.label} onChange={e=>setDiscount(p=>({...p,label:e.target.value}))}/></label><label>Type<select className="form-control" value={discount.discount_type} onChange={e=>setDiscount(p=>({...p,discount_type:e.target.value}))}><option value="percentage">Percentage</option><option value="fixed">Fixed amount</option></select></label><label>Value<input type="number" min="0" step="0.01" max={discount.discount_type==='percentage'?100:99999999} className="form-control" value={discount.value} onChange={e=>setDiscount(p=>({...p,value:e.target.value}))}/></label><label><input type="checkbox" checked={discount.requires_admin_approval} onChange={e=>setDiscount(p=>({...p,requires_admin_approval:e.target.checked}))}/>Requires approval</label></div><button type="button" className="button-secondary mt-3" disabled={saving||!discount.label.trim()} onClick={async()=>{setSaving(true);setError('');try{await saveDiscountPreset(discount);await load()}catch(e){setError(e.message)}finally{setSaving(false)}}}>Add Discount Preset</button></details>
-  </>}
- </section>
+  const location=useLocation(),staff=location.pathname.startsWith('/staff')
+  const [settings,setSettings]=useState(null),[error,setError]=useState(''),[saving,setSaving]=useState(false),[saved,setSaved]=useState(false)
+  const load=useCallback(async()=>{
+    setError('')
+    try{setSettings(await getBillingTaxSettings())}catch(e){setError(e.message||'Unable to load tax settings.')}
+  },[])
+  useEffect(()=>{if(!staff)void load()},[load,staff])
+  if(staff)return <p className="rounded-2xl border bg-white p-5">Tax settings are managed by authorized Admins.</p>
+  const update=patch=>{setSettings(current=>({...current,...patch}));setSaved(false)}
+  const save=async event=>{
+    event.preventDefault();setSaving(true);setError('');setSaved(false)
+    try{
+      const result=await saveBillingTaxSettings({tax_name:settings.tax_name.trim(),tax_percentage:settings.tax_percentage,expected_version:settings.version})
+      setSettings(result);setSaved(true)
+    }catch(e){setError(e.message||'Unable to save tax settings.')}finally{setSaving(false)}
+  }
+  return <section className="max-w-3xl space-y-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" aria-label="Tax Settings">
+    <div><h2 className="text-xl font-bold text-slate-900">Tax Settings</h2><p className="mt-1 text-sm text-slate-500">Applies to new bills. Set the percentage to 0 for no tax.</p></div>
+    {error&&<p role="alert" className="text-sm text-rose-700">{error}{!settings&&<button type="button" className="ml-2 underline" onClick={load}>Try Again</button>}</p>}
+    {!settings?!error&&<p role="status" className="text-sm text-slate-500">Loading tax settings...</p>:<form onSubmit={save} className="space-y-5">
+      <fieldset disabled={saving} className="grid gap-4 sm:grid-cols-2">
+        <label><span className="form-label">Tax Name</span><input required className="form-control mt-1.5" maxLength={80} value={settings.tax_name} onChange={event=>update({tax_name:event.target.value})}/></label>
+        <label><span className="form-label">Tax Percentage</span><input required className="form-control mt-1.5" type="number" min="0" max="100" step="0.01" value={settings.tax_percentage} onChange={event=>update({tax_percentage:event.target.value})}/></label>
+      </fieldset>
+      <button type="submit" className="button-primary" disabled={saving}>{saving?'Saving...':'Save Tax Settings'}</button>
+      {saved&&<p role="status" className="text-sm text-emerald-700">Tax settings saved.</p>}
+    </form>}
+  </section>
 }

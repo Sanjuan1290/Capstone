@@ -76,6 +76,7 @@ const migrationFiles = [
   '2026-11-14-consultation-followups.sql',
   '2026-11-14-billing-financial-snapshots.sql',
   '2026-11-14-branch-tax-policy.sql',
+  '2026-11-14-simplify-tax-settings.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -101,6 +102,26 @@ async function ensureDoctorFeeColumn(connection, addIfMissing = false) {
   }
   if (!addIfMissing) throw new Error('Missing doctor fee percentage column')
   await connection.query('ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage DECIMAL(5,2) NOT NULL DEFAULT 0')
+}
+
+async function ensureStatutoryCategoryColumn(connection, addIfMissing=false) {
+  const [[column]]=await connection.query('SELECT COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',['discount_presets','statutory_category'])
+  if(column){
+    if(String(column.COLUMN_TYPE).toLowerCase()!=='varchar(12)'||column.IS_NULLABLE!=='NO'||column.COLUMN_DEFAULT!=='other')throw new Error('Incompatible statutory discount category column')
+    return
+  }
+  if(!addIfMissing)throw new Error('Missing statutory discount category column')
+  await connection.query("ALTER TABLE discount_presets ADD COLUMN statutory_category VARCHAR(12) NOT NULL DEFAULT 'other'")
+}
+
+async function validateStoredTaxSettings(connection,{simpleOnly=false}={}) {
+  const [rows]=await connection.query('SELECT branch_id,policy_json FROM branch_billing_settings ORDER BY branch_id')
+  const {settingsFromStoredPolicy,parse}=require('../utils/billingTaxPolicy')
+  for(const row of rows){
+    settingsFromStoredPolicy(row.policy_json)
+    const stored=parse(row.policy_json)
+    if(simpleOnly&&(Object.keys(stored).length!==2||!Object.prototype.hasOwnProperty.call(stored,'tax_percentage')))throw new Error('Tax settings migration is incomplete for branch '+row.branch_id)
+  }
 }
 
 async function runBranchMigrations(db) {
@@ -144,6 +165,10 @@ async function runRegisteredBranchMigrations(db) {
       if (file === '2026-11-13-shared-operation-actors.sql') await ensureOperationalActorColumns(db)
       if (file === '2026-11-13-inventory-movement-balances.sql') await ensureInventoryActivityColumns(db)
       if (file === '2026-11-14-billing-financial-snapshots.sql') await ensureDoctorFeeColumn(db)
+      if (file === '2026-11-14-simplify-tax-settings.sql') {
+        await ensureStatutoryCategoryColumn(db)
+        await validateStoredTaxSettings(db,{simpleOnly:true})
+      }
       continue
     }
 
@@ -151,7 +176,13 @@ async function runRegisteredBranchMigrations(db) {
     try {
       // MySQL DDL auto-commits; reruns are made safe by guarded, idempotent SQL.
       const statements = splitMysqlMigration(sql)
-      if (file === promotionMigrationFile) {
+      if(file==='2026-11-14-simplify-tax-settings.sql'){
+        if(statements.length!==3||statements[0]!=="ALTER TABLE discount_presets ADD COLUMN statutory_category VARCHAR(12) NOT NULL DEFAULT 'other'"||!statements[1].startsWith('UPDATE discount_presets p\nJOIN branch_billing_settings')||!statements[2].startsWith('UPDATE branch_billing_settings\nSET policy_json=JSON_OBJECT('))throw new Error('Unexpected tax simplification migration statements')
+        await validateStoredTaxSettings(connection)
+        await ensureStatutoryCategoryColumn(connection,true)
+        for(const statement of statements.slice(1))await connection.query(statement)
+        await validateStoredTaxSettings(connection,{simpleOnly:true})
+      } else if (file === promotionMigrationFile) {
         // Metadata-checked, resumable per-table DDL. Never mark an incomplete schema as applied.
         await runSelectedPromotionMigration(connection, statements)
       } else if (file === '2026-11-13-shared-operation-actors.sql') {

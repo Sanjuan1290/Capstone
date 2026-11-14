@@ -45,3 +45,14 @@ test('a reversal on a legacy bill does not create a new policy or reprice it',as
  assert.equal(await h.refreshDraftFinancialTotals(7,1,h.conn,{preserveLegacy:true}),null)
  assert.equal(h.writes.length,0);assert.equal(JSON.stringify(h.bill),before);assert.equal(h.policyReads,0)
 })
+
+test('a simplified inclusive tax policy is frozen per bill and never adds tax to existing prices',async()=>{
+ const h=fixture();h.setPolicy({...disabledPolicy(),simple_tax:true,enabled:true,tax_name:'VAT',tax_rate:12})
+ await h.ensureBillPolicy(7,1,h.conn,{newBill:true})
+ let result=await h.refreshDraftFinancialTotals(7,1,h.conn)
+ assert.equal(result.total_amount,100);assert.equal(result.tax.amount,10.71)
+ h.setPolicy({...disabledPolicy(),simple_tax:true,enabled:true,tax_rate:20})
+ result=await h.refreshDraftFinancialTotals(7,1,h.conn)
+ assert.equal(result.tax.rate,12);assert.equal(result.total_amount,100);assert.equal(h.policyReads,1)
+ await h.confirmFinancialSnapshot(h.bill,h.conn);assert.ok(h.snapshot.confirmed_at)
+})

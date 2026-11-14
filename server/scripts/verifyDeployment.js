@@ -27,6 +27,7 @@ const REQUIRED_COLUMNS = {
   appointment_followup_links:['appointment_id','followup_id'],
   billing_financial_snapshots:['billing_id','branch_id','policy_json','calculation_json','confirmed_at'],
   branch_billing_settings:['branch_id','policy_json','version','updated_by_admin_id'],
+  discount_presets:['statutory_category'],
   billing_service_catalog:['doctor_fee_percentage'],
   inventory_daily_alert_deliveries: ['branch_id', 'alert_date', 'target_role', 'target_user_id', 'notification_id'],
   admins: ['session_version', 'must_change_password', 'password_changed_at'],

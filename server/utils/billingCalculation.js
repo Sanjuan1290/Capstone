@@ -46,7 +46,7 @@ function calculateFinancialBill({items=[],policy=disabledPolicy(),discounts=[]})
  const components=billingComponents(items),rules=new Map((policy.rules||[]).map(rule=>[`${rule.kind}:${rule.id}`,rule]))
  const rate=M.percentage(policy.tax_rate||0),subtotal=components.reduce((s,row)=>s+row.amount,0n)
  const rows=components.map(row=>{
-  const rule=rules.get(`${row.kind}:${row.charge_id}`)
+  const rule=rules.get(`${row.kind}:${row.charge_id}`)||(policy.simple_tax?{treatment:'taxable',statutory_eligible:true}:null)
   if(policy.enabled&&row.amount>0n&&!rule)throw fail(`Classify ${row.name} in the saved tax policy before billing it.`,'TAX_CLASSIFICATION_REQUIRED')
   return {...row,remaining:row.amount,treatment:rule?.treatment||'out_of_scope',statutory_eligible:rule?.statutory_eligible||false,discount:0n,vat_relief:0n}
  })
