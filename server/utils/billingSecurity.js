@@ -46,6 +46,7 @@ const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal
     ? roundMoney(Number(subtotal || 0) * (Number(preset.value || 0) / 100))
     : Math.max(0, roundMoney(Number(preset.value || 0)))
 
+  let approvalRecord=null
   const requiresApproval = Number(preset.requires_admin_approval) === 1 || (preset.discount_type === 'fixed' && Number(preset.value || 0) <= 0)
   if (requiresApproval && !options.allowDirectAdmin) {
     const approval = await getApprovedAdjustment({ billingId, billVersion, requestType: 'discount', discountPresetId: preset.id }, executor)
@@ -55,6 +56,7 @@ const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal
       err.code = 'DISCOUNT_APPROVAL_REQUIRED'
       throw err
     }
+    approvalRecord={request_id:approval.id,admin_id:approval.resolved_by_admin_id||null}
     amount = Math.max(0, roundMoney(Number(approval.requested_amount || requestedAmount || amount) || 0))
   }
 
@@ -67,6 +69,7 @@ const resolveDiscountForDraft = async ({ billingId, billVersion = null, subtotal
     label: preset.label,
     amount: Math.min(Math.max(0, Number(subtotal || 0)), amount),
     preset,
+    approval:approvalRecord,
   }
 }
 

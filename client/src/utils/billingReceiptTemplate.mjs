@@ -1,3 +1,4 @@
+import { receiptPaymentTimeline } from './receiptPaymentTimeline.mjs'
 /** Shared, print-only A5 payment receipt. Keep monetary values from the saved bill ledger. */
 import { paymentReceiptAmounts } from './paymentReceiptAmounts.mjs'
 const money = value => new Intl.NumberFormat('en-PH', {style:'currency', currency:'PHP'}).format(Number(value) || 0)
@@ -50,11 +51,14 @@ const receiptState = (bill,payment) => {
 export function buildBillingReceiptHtml({bill,payment,clinicSettings={},logoUrl='/logo.png'}) {
   if (!bill || !payment) throw new Error('A saved bill and payment are required to print a receipt.')
   const breakdown = getReceiptBreakdown(bill)
-  const state = receiptState(bill,payment)
+  const timeline = receiptPaymentTimeline(bill,payment)
+  const state = receiptState({...bill,balance_amount:timeline.balance},payment)
+  const calculation = bill.financial_calculation
   const originalPayment = Math.max(0,asNumber(payment.amount))
   const refunded = Math.max(0,asNumber(payment.refund_amount))
   const items = Array.isArray(bill.items) ? bill.items : []
-  const itemRows = items.map(item=> `<tr><td class="item-name">${escapeHtml(visible(item.service_name) || 'Service / item')}</td><td class="numeric">${escapeHtml(asNumber(item.quantity).toLocaleString('en-PH',{maximumFractionDigits:3}))}</td><td class="numeric">${escapeHtml(money(item.unit_price))}</td><td class="numeric">${escapeHtml(money(item.line_total))}</td></tr>`).join('')
+  const printableItems = calculation?.components?.length ? calculation.components.map(row=>({service_name:`${row.name}${row.included?' (Included)':''}`,quantity:row.quantity,unit_price:row.unit_price,line_total:row.amount})) : items
+  const itemRows = printableItems.map(item=> `<tr><td class="item-name">${escapeHtml(visible(item.service_name) || 'Service / item')}</td><td class="numeric">${escapeHtml(asNumber(item.quantity).toLocaleString('en-PH',{maximumFractionDigits:3}))}</td><td class="numeric">${escapeHtml(money(item.unit_price))}</td><td class="numeric">${escapeHtml(money(item.line_total))}</td></tr>`).join('')
   const promotionLabel = visible(bill.promotion_title_snapshot || bill.selected_promotion?.title_at_booking)
   const title = visible(clinicSettings.receipt_title) || 'PAYMENT RECEIPT'
   const branchName = visible(clinicSettings.branch_name || clinicSettings.clinic_name) || 'Carait Clinic'
@@ -72,7 +76,20 @@ export function buildBillingReceiptHtml({bill,payment,clinicSettings={},logoUrl=
       : line(label,amount,label === 'Amount Paid' || label === 'Voided Amount' ? 'this-payment' : '')),
     refunded > 0 ? adjustmentRow('Refunded amount',refunded) : '',
     refunded > 0 ? line('Net this payment', Math.max(0,originalPayment-refunded),'this-payment') : '',
+    timeline.previous_paid > 0 ? line('Previous payments',timeline.previous_paid) : '',
+    timeline.previous_paid > 0 || timeline.balance > 0 ? line('Total paid',timeline.paid_through) : '',
+    timeline.balance > 0 ? line('Remaining balance',timeline.balance) : '',
   ].join('')
+  const savedFinancialLines = calculation ? [
+    line('Base Subtotal',calculation.subtotal),
+    ...(calculation.discounts||[]).map(discount=>adjustmentRow(`${discount.name}${discount.mode==='percentage'?` (${discount.type==='pwd'||discount.type==='senior'?20:discount.value}%)`:discount.configured_mode==='percentage'?` (${discount.configured_value}%)`:''} - eligible ${money(discount.eligible_amount)}`,discount.actual_deduction)),
+    line('Total Discounts',calculation.discount_amount),
+    calculation.tax?.vat_relief>0?adjustmentRow('VAT exemption deduction',calculation.tax.vat_relief):'',
+    calculation.tax?.enabled?line(`${calculation.tax.name} (${calculation.tax.rate}%, ${calculation.tax.mode}${calculation.tax.mode==='inclusive'?', included':''})`,calculation.tax.amount):'<p class="note">Tax not applied.</p>',
+    calculation.tax?.enabled?line('Taxable amount',calculation.tax.taxable_amount):'',
+    calculation.tax?.vat_exempt_amount>0?line('VAT-exempt amount',calculation.tax.vat_exempt_amount):'',
+    ...(calculation.doctor_fees||[]).map(fee=>`<p class="note"><strong>Doctor's Fee (${escapeHtml(fee.percentage)}%): ${escapeHtml(money(fee.doctor_fee_amount))} - Included in Subtotal</strong><br>${escapeHtml(fee.service_name)}; original subtotal ${escapeHtml(money(fee.original_subtotal))}</p>`),
+  ].join('') : line('Subtotal',breakdown.subtotal)+adjustments
   const secondary = [
     visible(payment.reference_number) ? metadata('Payment reference',payment.reference_number) : '',
     visible(bill.appointment_date) ? metadata('Visit date',bill.appointment_date) : '',
@@ -106,7 +123,7 @@ export function buildBillingReceiptHtml({bill,payment,clinicSettings={},logoUrl=
 <section class="details" aria-label="Payment information">${metadata('Payment date',dateInManila(payment.paid_at))}${metadata('Payment method',methodName(payment.payment_method))}${metadata('Patient',bill.patient_name)}${metadata('Doctor',bill.doctor_name)}${metadata('Bill number',bill.id)}${secondary}</section>
 <h2 class="section-heading">Services &amp; Charges</h2>
 <table class="items"><colgroup><col style="width:45%"><col style="width:10%"><col style="width:22%"><col style="width:23%"></colgroup><thead><tr><th>Item</th><th class="numeric">Qty</th><th class="numeric">Unit Price</th><th class="numeric">Amount</th></tr></thead><tbody>${itemRows || '<tr><td colspan="4">No line items recorded.</td></tr>'}</tbody></table>
-<section class="amounts" aria-label="Bill calculations">${line('Subtotal',breakdown.subtotal)}${adjustments}<div class="amount-row bill-total"><span>Bill Total</span><strong>${escapeHtml(money(bill.total_amount))}</strong></div></section>
+<section class="amounts" aria-label="Bill calculations">${savedFinancialLines}<div class="amount-row bill-total"><span>Bill Total</span><strong>${escapeHtml(money(bill.total_amount))}</strong></div></section>
 <section class="payment-summary" aria-label="Payment summary"><h2>Payment Summary</h2>${paymentLines}</section>
 ${payment.refund_reason ? `<p class="note"><strong>Refund reason:</strong> ${escapeHtml(payment.refund_reason)}</p>` : ''}${payment.void_reason ? `<p class="note"><strong>Void reason:</strong> ${escapeHtml(payment.void_reason)}</p>` : ''}
 <footer class="foot"><strong>${escapeHtml(footerText)}</strong></footer>

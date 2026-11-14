@@ -1,3 +1,4 @@
+import BillingTaxSettings from '../../components/system/BillingTaxSettings'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'
@@ -473,7 +474,7 @@ const Admin_SystemSetup = () => {
 
       {loaded && loading && <p role="status" className="text-xs text-slate-500">Updating list…</p>}
       {loaded && error && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{error} <button type="button" className="underline" onClick={load}>Retry</button></div>}
-      {tab === 'visits' ? (
+      {tab === 'tax_discounts' ? <BillingTaxSettings/> : tab === 'visits' ? (
         <Admin_PatientBooking embedded />
       ) : tab === 'stock_rooms' ? (
         <StockRoomsManager />

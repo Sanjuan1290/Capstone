@@ -15,6 +15,7 @@ Module._load=originalLoad
 const materials=[{id:1,billing_service_id:77,inventory_id:7,material_name:'Gloves',quantity:1,unit_label:'unit',unit_cost_override:null,sort_order:0},{id:2,billing_service_id:77,inventory_id:8,material_name:'Saline',quantity:1,unit_label:'unit',unit_cost_override:null,sort_order:1}]
 const stock=[{id:7,name:'Gloves',category:'medical',unit:'unit',base_unit:'unit',uom:'unit',unit_size:1,selling_price:40},{id:8,name:'Saline',category:'medical',unit:'unit',base_unit:'unit',uom:'unit',unit_size:1,selling_price:65},{id:9,name:'Alternate Saline',category:'medical',unit:'unit',base_unit:'unit',uom:'unit',unit_size:1,selling_price:80}]
 const executor={query:async(sql,params)=>{
+  if(sql.includes('FROM billing_financial_snapshots'))return [[]]
   if(sql.includes('FROM billing_service_catalog bsc'))return [[{id:77,branch_id:1,service_name:'Wound Dressing',category:'General Medicine',default_price:455,consultation_fee:350,is_active:1}]]
   if(sql.includes('FROM billing_service_materials m'))return [materials]
   if(sql.includes('FROM inventory')&&sql.includes('WHERE id IN'))return [stock.filter(item=>params.includes(item.id))]
@@ -48,6 +49,7 @@ function setup(){
  const stored={bill:{id:6,branch_id:1,status:'draft',version:1,subtotal:455,discount_amount:0,total_amount:455,consultation_id:11},requests:[],clinical:{status:'finalized'},logs:[],audit:[]}
  const serviceItem={id:90,billing_id:6,item_type:'service',source_type:'consultation',catalog_service_id:77,service_name:'Wound Dressing',quantity:1,line_total:455,details_json:JSON.stringify({pricing:{consultation_fee:350},materials:[{inventory_id:7,material_name:'Gloves',quantity:1,charge_total:40},{inventory_id:8,material_name:'Saline',quantity:1,charge_total:65}]})}
  const conn={query:async(sql,args=[])=>{
+  if(sql.includes('FROM billing_financial_snapshots'))return [[]]
   stored.logs.push(sql)
   if(sql.startsWith('SELECT full_name FROM'))return [[{full_name:'Synthetic actor'}]]
   if(sql.startsWith('INSERT INTO audit_logs')){stored.audit.push(args);return [{insertId:stored.audit.length,affectedRows:1}]}

@@ -1,3 +1,4 @@
+import FinancialAllocationReport from '../../components/billing/FinancialAllocationReport'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -347,6 +348,7 @@ const Admin_Reports = () => {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
+      <FinancialAllocationReport from={appliedRange.startDate} to={appliedRange.endDate}/>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900"><MdAssessment className="text-sky-500" /> Reports & Analytics</h1>

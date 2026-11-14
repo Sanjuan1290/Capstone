@@ -9,9 +9,9 @@ describe('discount proof upload security', () => {
   })
 
   it('scopes the signed upload to the billing record and uploader', () => {
-    const signed = createDiscountProofUploadSignature({ actorId: 5, actorRole: 'staff', billingId: 22 })
-    expect(signed.folder).toContain('discount-proofs/bill_22/staff-5')
-    expect(signed.public_id).toMatch(/^discount-proof-/)
+    const signed = createDiscountProofUploadSignature({ actorId: 5, actorRole: 'staff', billingId: 22, branchId: 3 })
+    expect(signed.folder).toContain('discount-proofs/branch_3/bill_22/staff_5')
+    expect(signed).not.toHaveProperty('moderation')
     expect(signed.signature).toBeTruthy()
   })
 

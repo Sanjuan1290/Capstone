@@ -51,12 +51,13 @@ test('saving a service persists the two consumable rows and the 455 patient pric
   if(sql.includes('SELECT id,name,is_active FROM billing_service_categories'))return [[{id:2,name:'Medical Consultation',is_active:1}]]
   if(sql.includes('SELECT id,name,category,selling_price,archived_at FROM inventory'))return [[{id:args[0],category:'medical',selling_price:Number(args[0])===10?40:65,name:Number(args[0])===10?'Gloves':'Sodium Chloride',archived_at:null}]]
   if(sql.includes('INSERT INTO billing_service_catalog')){updatedPrice=args[4];return [{insertId:71}]}
+  if(sql.startsWith('UPDATE billing_service_catalog SET doctor_fee_percentage=')){assert.equal(args[0],0);return [{affectedRows:1}]}
   if(sql.includes('INSERT INTO billing_service_materials')){saved.push(args);return [{}]}
   if(sql.startsWith('DELETE m FROM billing_service_materials'))return [{}]
   throw new Error('Unexpected SQL: '+sql)
  }}
  const writer={exports:{}}
- vm.runInNewContext(writerSource,{require:id=>id==='../db/connect'?{getConnection:async()=>conn}:id==='../utils/billing'?billingModule.exports:id==='../utils/bookingPolicy'?{validateAverageDurationMinutes:n=>n}:id==='../utils/audit'?{writeAuditLog:async()=>{}}:id==='../utils/clinicEvents'?{afterSuccessfulMutation:()=>()=>{}}:{},module:writer,exports:writer.exports,console})
+ vm.runInNewContext(writerSource,{require:id=>id==='../utils/billingMoney'?require('../utils/billingMoney'):id==='../db/connect'?{getConnection:async()=>conn}:id==='../utils/billing'?billingModule.exports:id==='../utils/bookingPolicy'?{validateAverageDurationMinutes:n=>n}:id==='../utils/audit'?{writeAuditLog:async()=>{}}:id==='../utils/clinicEvents'?{afterSuccessfulMutation:()=>()=>{}}:{},module:writer,exports:writer.exports,console})
  const response={statusCode:200,body:null,status(code){this.statusCode=code;return this},json(data){this.body=data;return this}}
  await writer.exports.saveService({params:{},branchId:1,user:{id:1},adminContext:{account_role:'admin'},body:{category_id:2,service_name:'Minor Wound Cleaning',clinic_type:'medical',consultation_fee:350,average_duration_minutes:30,materials:[{inventory_id:10,material_name:'Gloves',quantity:1},{inventory_id:11,material_name:'Sodium Chloride',quantity:1}]}},response)
  assert.equal(response.statusCode,201)

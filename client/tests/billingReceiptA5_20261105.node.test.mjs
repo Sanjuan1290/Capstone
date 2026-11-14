@@ -37,10 +37,11 @@ test('hides n/a fields, escapes untrusted values, no duplicates',()=>{
   assert.ok(!s.includes('<script>'))
   assert.ok(!s.includes('>n/a<'))
 })
-test('partial payment keeps its state without printing a remaining balance',()=>{
+test('partial payment identifies the amount received and the outstanding balance',()=>{
   const s=html({...baseBill,paid_amount:100,balance_amount:372},{...payment,amount:100})
   assert.match(s,/PARTIAL PAYMENT/)
-  assert.doesNotMatch(s,/Remaining balance|Paid to date|₱372.00/)
+  assert.match(s,/Remaining balance/)
+  assert.match(s,/₱372.00/)
   assert.match(s,/Amount Paid/)
   assert.match(s,/₱100.00/)
 })

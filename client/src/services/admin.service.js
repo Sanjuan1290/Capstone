@@ -1,4 +1,4 @@
-import { makeSecurityScanError, waitForSecurityScan } from './cloudinaryScan'
+import { uploadValidatedImage } from './imageUpload'
 import { uploadDiscountProofViaApi } from './discountProofUpload'
 // client/src/services/admin.service.js
 
@@ -40,13 +40,8 @@ export const saveAdminPromotion = (payload, id = null) => requestJson(`${getAdmi
 export const deleteAdminPromotion = (id) => requestJson(`${getAdminApiBase()}/promotions/${id}`, { method:'DELETE' })
 export const notifyAdminPromotion = (id) => requestJson(`${getAdminApiBase()}/promotions/${id}/notify`, { method:'POST' })
 
-export const uploadPromotionImage = async file => {
-  const res=await fetch(`${getAdminApiBase()}/promotions/image`,{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file})
-  const data=await res.json().catch(()=>({}))
-  if(!res.ok)throw new Error(data.message||'Promotion image upload failed.')
-  return data
-}
-export const checkPromotionImage = token => requestJson(`${getAdminApiBase()}/promotions/image/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scan_token:token})})
+export const uploadPromotionImage = file => uploadValidatedImage(file,`${getAdminApiBase()}/promotions/image`)
+
 
 // Branch-scoped announcements and opt-in campaign administration.
 export const listAnnouncements = () => requestJson(`${getAdminApiBase()}/announcements`)
@@ -54,13 +49,8 @@ export const getAnnouncementBookingOptions = () => requestJson(`${getAdminApiBas
 export const deleteAnnouncement = id => requestJson(`${getAdminApiBase()}/announcements/${id}`, {method:'DELETE'})
 export const setAnnouncementStatus = (id,status) => requestJson(`${getAdminApiBase()}/announcements/${id}/status`, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})})
 export const saveAnnouncement = (payload,id=null) => requestJson(`${getAdminApiBase()}/announcements${id?`/${id}`:''}`, { method:id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
-export const uploadAnnouncementCover = async file => {
-  const res=await fetch(`${getAdminApiBase()}/announcements/image`,{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file})
-  const data=await res.json().catch(()=>({}))
-  if(!res.ok)throw new Error(data.message||'Cover upload failed.')
-  return data
-}
-export const checkAnnouncementCover = token => requestJson(`${getAdminApiBase()}/announcements/image/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scan_token:token})})
+export const uploadAnnouncementCover = file => uploadValidatedImage(file,`${getAdminApiBase()}/announcements/image`)
+
 export const getCampaignAudience = () => requestJson(`${getAdminApiBase()}/announcements/audience`)
 export const listMarketingCampaigns = () => requestJson(`${getAdminApiBase()}/announcements/campaigns`)
 export const listCampaignRecipients = (id,page=1) => requestJson(`${getAdminApiBase()}/announcements/campaigns/${id}/recipients?page=${page}`)
@@ -208,78 +198,7 @@ export const deleteBillingCatalogService = (id) =>
 export const getBillingPaymentSettings = () =>
   requestJson(`${getAdminApiBase()}/billing/payment-settings`)
 
-const uploadPaymentQrToServer = async (file, provider, scanMode = 'scan', bypassToken = '') => {
-  const params = new URLSearchParams({ provider, scan_mode: scanMode })
-  if (bypassToken) params.set('bypass_token', bypassToken)
-  const response = await fetch(`${getAdminApiBase()}/billing/payment-settings/upload?${params}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': file.type,
-      'X-File-Name': file.name || `${provider}-qr`,
-    },
-    body: file,
-  })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.message || 'QR image upload failed.')
-  return data
-}
-
-export const getPaymentQrUploadScanStatus = (provider, assetId, scanToken) =>
-  requestJson(`${getAdminApiBase()}/billing/payment-settings/upload-status`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, asset_id: assetId, scan_token: scanToken }),
-  })
-
-export const uploadPaymentQrImage = async (file, provider, { scanMode = 'scan', bypassToken = '', onStatus } = {}) => {
-  if (!file) throw new Error('Select an image to upload.')
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-    throw new Error('QR image must be PNG, JPG, or WEBP.')
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error('QR image must be 5 MB or smaller.')
-  }
-
-  onStatus?.({ phase: 'uploading', tone: 'info', message: scanMode === 'bypass' ? 'Uploading trusted image without malware scanning…' : 'Uploading image securely…' })
-  const uploaded = await uploadPaymentQrToServer(file, provider, scanMode, bypassToken)
-
-  if (uploaded.status === 'unavailable') {
-    const limitReached = uploaded.reason === 'usage_limit_reached'
-    throw makeSecurityScanError(
-      limitReached ? 'SCAN_LIMIT_REACHED' : 'SCAN_UNAVAILABLE',
-      uploaded.message || 'The malware scanner is currently unavailable.',
-      { reason: uploaded.reason, bypass_token: uploaded.bypass_token }
-    )
-  }
-
-  if (scanMode === 'bypass' || uploaded.status === 'bypassed') {
-    onStatus?.({ phase: 'bypassed', tone: 'warning', message: 'Uploaded without malware scanning.' })
-    return uploaded
-  }
-
-  if (!uploaded.asset_id || !uploaded.scan_token) throw new Error('The server did not return scan verification for this upload.')
-  try {
-    const scan = await waitForSecurityScan(
-      () => getPaymentQrUploadScanStatus(provider, uploaded.asset_id, uploaded.scan_token),
-      { onStatus }
-    )
-    return {
-      url: scan.secure_url || uploaded.url,
-      scan_status: 'approved',
-      asset_id: uploaded.asset_id,
-      public_id: scan.public_id || uploaded.public_id,
-      security_token: scan.security_token,
-      scan_token: uploaded.scan_token,
-    }
-  } catch (error) {
-    error.asset_id = uploaded.asset_id
-    error.public_id = uploaded.public_id
-    error.url = uploaded.url
-    error.scan_token = uploaded.scan_token
-    throw error
-  }
-}
+export const uploadPaymentQrImage = (file,provider,options={}) => uploadValidatedImage(file,`${getAdminApiBase()}/billing/payment-settings/upload?${new URLSearchParams({provider})}`,options)
 
 export const updateBillingPaymentSettings = (payload) =>
   requestJson(`${getAdminApiBase()}/billing/payment-settings`, {
@@ -561,7 +480,6 @@ export const getAdminCheckoutCatalog = (clinicType='') => getBillingCatalog({ cl
 export const uploadAdminDiscountProofImage = (file, billingId, options = {}) => uploadDiscountProofViaApi({
   file, billingId, ...options,
   uploadUrl: `${getAdminApiBase()}/billing/discount-proof/upload`,
-  statusUrl: `${getAdminApiBase()}/billing/discount-proof/upload-status`,
 })
 
 
@@ -615,3 +533,12 @@ export const getAdminPaymentIssues = () => requestJson(`${getAdminApiBase()}/bil
 
 export const getQueueDisplaySecurity = () => requestJson(`${getAdminApiBase()}/queue-display-security`)
 export const generateQueueDisplayPin = () => requestJson(`${getAdminApiBase()}/queue-display-security/generate`,{method:'POST'})
+
+export const getBillingTaxSettings = () => requestJson(`${getAdminApiBase()}/billing/settings`)
+export const saveBillingTaxSettings = body => requestJson(`${getAdminApiBase()}/billing/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+
+export const getFinancialAllocationReport = async ({from,to,global=false,branchId='all'}) => {
+  const data=await requestJson(`${global?'/api/branches/analytics/financial-allocations':`${getAdminApiBase()}/billing/financial-report`}?${new URLSearchParams({from,to,...(global?{branch_id:branchId}:{})})}`)
+  if(!data || !Array.isArray(data.rows) || !data.totals || typeof data.totals!=='object')throw new Error('The allocation report returned incomplete data. Try again later.')
+  return data
+}

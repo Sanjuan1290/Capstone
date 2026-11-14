@@ -175,3 +175,5 @@ export const updatePatientProfile = async (payload) => {
   return parseJson(res)
 }
 
+
+export const getRecommendedFollowups = async () => parseJson(await fetch(`${BASE}/follow-ups`,{credentials:'include'}))

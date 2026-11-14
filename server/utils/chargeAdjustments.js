@@ -77,6 +77,7 @@ async function request({billingId,branchId,actorRole,actorId,targetType,serviceI
     await conn.query("UPDATE billing_adjustment_requests SET bill_version=? WHERE billing_id=? AND bill_version=? AND status='pending'",[Number(bill.version)+1,billingId,bill.version])
   }
   const [created]=await conn.query(`INSERT INTO billing_charge_adjustments (branch_id,billing_id,bill_version,target_type,catalog_service_id,inventory_id,requested_amount,original_charge_snapshot,reason,status,requester_role,requester_user_id,approved_by_admin_id,resolved_at,admin_note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[branchId,billingId,bill.version,targetType,serviceId,inventoryId||null,requested,target.original_charge,explanation,direct?'approved':'pending',actorRole,actorId,direct?actorId:null,direct?new Date():null,direct?'Authorized direct adjustment':null])
+  if(direct)await require('./billingFinancialSnapshot').refreshDraftFinancialTotals(billingId,branchId,conn,{preserveLegacy:true})
   await writeAuditLog({userId:actorId,userRole:actorRole,branchId,action:direct?'billing.charge_adjustment_applied':'billing.charge_adjustment_requested',entityType:'billing_charge_adjustment',entityId:created.insertId,newValues:{billing_id:billingId,target_type:targetType,catalog_service_id:serviceId,inventory_id:inventoryId||null,requested_amount:requested,reason:explanation,status:direct?'approved':'pending'}},conn)
   return created.insertId
 }
@@ -112,6 +113,7 @@ async function resolve({billingId,branchId,requestId,adminId,actorRole='admin',s
     await conn.query(`UPDATE billing_adjustment_requests SET bill_version=? WHERE billing_id=? AND status='pending'`,[Number(bill.version)+1,billingId])
   }
   await conn.query(`UPDATE billing_charge_adjustments SET status=?,resolved_at=NOW(),approved_by_admin_id=?,admin_note=? WHERE id=? AND status='pending'`,[status,status==='approved'?adminId:null,String(note||'').trim().slice(0,255)||null,requestId])
+  if(status==='approved')await require('./billingFinancialSnapshot').refreshDraftFinancialTotals(billingId,branchId,conn,{preserveLegacy:true})
   await writeAuditLog({userId:adminId,userRole:'admin',branchId,action:`billing.charge_adjustment_${status}`,entityType:'billing_charge_adjustment',entityId:requestId,oldValues:{status:'pending'},newValues:{status,billing_id:billingId,amount:entry.requested_amount,reason:entry.reason}},conn)
   return {status,discount_amount:status==='approved'?money(Number(bill.discount_amount)+Number(entry.requested_amount)):Number(bill.discount_amount)}
 }
@@ -154,8 +156,9 @@ async function reverse({billingId,branchId,requestId,adminId,actorRole,reason},c
   const [reversed]=await conn.query("UPDATE billing_charge_adjustments SET status='reversed',reversed_at=NOW(),reversed_by_admin_id=?,reversal_reason=? WHERE id=? AND billing_id=? AND branch_id=? AND status='approved'",[adminId,explanation,requestId,billingId,branchId])
   if(Number(reversed.affectedRows)!==1)throw fail(409,'REDUCTION_ALREADY_REVERSED','This reduction has already been reversed. Reload the bill.')
   for(const table of ['billing_charge_adjustments','billing_adjustment_requests'])await conn.query(`UPDATE ${table} SET bill_version=? WHERE billing_id=? AND bill_version=? AND status='pending'`,[Number(bill.version)+1,billingId,bill.version])
-  await writeAuditLog({userId:adminId,userRole:actorRole,branchId,action:'billing.charge_adjustment_reversed',entityType:'billing_charge_adjustment',entityId:requestId,oldValues:{status:'approved',billing_id:billingId,discount_amount:Number(bill.discount_amount),total_amount:Number(bill.total_amount),version:Number(bill.version)},newValues:{status:'reversed',billing_id:billingId,discount_amount:discount,total_amount:total,version:Number(bill.version)+1,reversal:{explanation,actor_id:adminId,at:new Date().toISOString()}}},conn)
-  return {status:'reversed',discount_amount:discount,total_amount:total,version:Number(bill.version)+1,message:'Charge reduction reversed.'}
+  const financial=await require('./billingFinancialSnapshot').refreshDraftFinancialTotals(billingId,branchId,conn,{preserveLegacy:true})
+  await writeAuditLog({userId:adminId,userRole:actorRole,branchId,action:'billing.charge_adjustment_reversed',entityType:'billing_charge_adjustment',entityId:requestId,oldValues:{status:'approved',billing_id:billingId,discount_amount:Number(bill.discount_amount),total_amount:Number(bill.total_amount),version:Number(bill.version)},newValues:{status:'reversed',billing_id:billingId,discount_amount:financial?.discount_amount??discount,total_amount:financial?.total_amount??total,version:Number(bill.version)+1,reversal:{explanation,actor_id:adminId,at:new Date().toISOString()}}},conn)
+  return {status:'reversed',discount_amount:financial?.discount_amount??discount,total_amount:financial?.total_amount??total,version:Number(bill.version)+1,message:'Charge reduction reversed.'}
 }
 module.exports={getTargets,approvedTotal,list,request,resolve,reverse,money,requestedPresetDiscount,canAdjustDirectly,cancel}
 

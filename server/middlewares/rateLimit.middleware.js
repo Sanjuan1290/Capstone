@@ -182,15 +182,6 @@ const clinicalUploadDoctorLimiter = createRateLimiter({
 })
 const clinicalUploadLimiter = combineLimiters(clinicalUploadIpLimiter, clinicalUploadDoctorLimiter)
 
-// Scan status is polled by the client, so it receives a much larger but still bounded allowance.
-const clinicalUploadStatusLimiter = createRateLimiter({
-  name: 'clinical-upload-status',
-  windowMs: 15 * 60 * 1000,
-  max: 180,
-  keyGenerator: clinicalUploadKey,
-  message: 'Too many clinical image scan checks. Please wait before trying again.',
-})
-
 const resetRateLimitStores = () => {
   for (const store of stores.values()) store.clear()
 }
@@ -203,7 +194,6 @@ module.exports = {
   otpVerifyLimiter,
   queueDisplayLimiter,
   clinicalUploadLimiter,
-  clinicalUploadStatusLimiter,
   getClientIp,
   resetRateLimitStores,
 }

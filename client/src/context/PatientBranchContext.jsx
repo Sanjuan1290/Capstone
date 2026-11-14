@@ -1,9 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { getActiveBranches } from '../services/patient.service'
+import { useLocation } from 'react-router-dom'
 
 const PatientBranchContext = createContext(null)
 const keyFor = (patientId) => `carait:selected-branch:${patientId}`
 export const PatientBranchProvider = ({ patientId, children }) => {
+  const location = useLocation()
   const [branches, setBranches] = useState([])
   const [branchId, setBranchId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -32,6 +34,13 @@ export const PatientBranchProvider = ({ patientId, children }) => {
     return true
   }, [branches, patientId])
   const clearBranch = useCallback(() => selectBranch(''), [selectBranch])
+  useEffect(() => {
+    if (location.pathname !== '/patient/book' || loading) return
+    const requested = new URLSearchParams(location.search).get('branch_id')
+    if (requested && /^[1-9]\d*$/.test(requested) && branches.some(branch => String(branch.id) === requested)) {
+      selectBranch(requested)
+    }
+  }, [location.pathname, location.search, loading, branches, selectBranch])
   const selectedBranch = useMemo(() => branches.find(b => String(b.id) === branchId) || null, [branches, branchId])
   return <PatientBranchContext.Provider value={{ branches, branchId, selectedBranch, selectBranch, clearBranch, loading, error, refreshBranches }}>{children}</PatientBranchContext.Provider>
 }

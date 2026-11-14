@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { getMyAppointments } from '../src/services/patient.service.js'
 const source=readFileSync(new URL('../src/services/portal.service.js',import.meta.url),'utf8')
-  .replace("'./cloudinaryScan'",JSON.stringify(new URL('../src/services/cloudinaryScan.js',import.meta.url).href))
+  .replace("'./imageUpload'",JSON.stringify(new URL('../src/services/imageUpload.js',import.meta.url).href))
 const {getNotifications}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
 test('patient and notification failures retain the backend explanation and request reference',async t=>{

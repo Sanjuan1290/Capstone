@@ -43,8 +43,8 @@ const save=async(req,res)=>{
   const [[oldImage]]=id?await conn.query('SELECT id,image_url,image_asset_id FROM clinic_promotions WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId]):[[]]
   let imageUrl=oldImage?.image_url||null,imageAssetId=oldImage?.image_asset_id||null
   if(req.body.clear_image===true){imageUrl=null;imageAssetId=null}
-  else if(req.body.image_token){const accepted=cloud.verifyUploadSecurityToken(req.body.image_token,{stage:'accepted',role:(req.adminContext?.account_role || 'staff'),user_id:req.user.id,context_type:'promotion',context_id:req.branchId,scan_status:'approved',url:req.body.image_url});imageUrl=accepted.url;imageAssetId=accepted.asset_id}
-  else if(req.body.image_url && req.body.image_url!==imageUrl){await conn.rollback();return res.status(400).json({message:'Upload and approve the promotional image before saving.'})}
+  else if(req.body.image_token){const accepted=cloud.verifyUploadSecurityToken(req.body.image_token,{stage:'accepted',role:(req.adminContext?.account_role || 'staff'),user_id:req.user.id,context_type:'promotion',context_id:req.branchId,validation:'image_validated',branch_id:req.branchId,url:req.body.image_url});imageUrl=accepted.url;imageAssetId=accepted.asset_id}
+  else if(req.body.image_url && req.body.image_url!==imageUrl){await conn.rollback();return res.status(400).json({message:'Upload the promotional image before saving.'})}
   if(id){const [[old]]=await conn.query('SELECT id FROM clinic_promotions WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId]);if(!old){await conn.rollback();return res.status(404).json({message:'Promotion not found in this branch.'})}
     await conn.query('UPDATE clinic_promotions SET title=?,description=?,badge_text=?,starts_on=?,ends_on=?,is_active=?,show_on_dashboard=?,image_url=?,image_asset_id=?,featured_order=?,discount_type=?,discount_value=?,eligibility_type=? WHERE id=? AND branch_id=?',[data.title,data.description,data.badge_text,data.starts_on,data.ends_on,data.is_active,data.show_on_dashboard,imageUrl,imageAssetId,data.featured_order,data.discount_type,data.discount_value,data.eligibility_type,id,req.branchId]);await conn.query('DELETE FROM clinic_promotion_services WHERE promotion_id=?',[id])
   }else{const [created]=await conn.query('INSERT INTO clinic_promotions (title,description,badge_text,starts_on,ends_on,is_active,show_on_dashboard,created_by_admin_id,branch_id,image_url,image_asset_id,featured_order,discount_type,discount_value,eligibility_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[data.title,data.description,data.badge_text,data.starts_on,data.ends_on,data.is_active,data.show_on_dashboard,(req.adminContext ? req.user.id : null),req.branchId,imageUrl,imageAssetId,data.featured_order,data.discount_type,data.discount_value,data.eligibility_type]);savedId=created.insertId}
@@ -73,29 +73,18 @@ const notify=async(req,res)=>{
  await audit(req,db,'promotion.notifications_sent',id,{delivered,failed});res.json({message:`${delivered} opted-in patient notification(s) delivered.`,delivered,failed,more_possible:patients.length>=500})
 }
 
-// Per-promotion image workflow uses the same Cloudinary malware moderation as Announcements,
+// Per-promotion image workflow uses the same Cloudinary image validation as Announcements,
 // but a different signed context: announcement approvals cannot attach to a promotion.
 const uploadImage=async(req,res)=>{
- if(!Buffer.isBuffer(req.body)||!req.body.length||req.body.length>5*1024*1024||!cloud.detectImageMime(req.body))return res.status(400).json({message:'Choose a valid JPG or PNG image up to 5 MB.'})
- const cloudName=process.env.CLOUDINARY_CLOUD_NAME,apiKey=process.env.CLOUDINARY_API_KEY,apiSecret=process.env.CLOUDINARY_API_SECRET
- if(!cloudName||!apiKey||!apiSecret)return res.status(503).json({message:'Secure image uploads are not configured.'})
- const timestamp=Math.floor(Date.now()/1000),folder=`carait-clinic/promotions/branch_${req.branchId}`
- const signed={cloud_name:cloudName,api_key:apiKey,timestamp,folder,moderation:'perception_point',scan_mode:'scan',signature:cloud.makeCloudinarySignature({folder,moderation:'perception_point',timestamp},apiSecret)}
- const uploaded=await cloud.cloudinaryUploadBuffer({buffer:req.body,mimeType:cloud.detectImageMime(req.body),fileName:'promotion-cover',signed})
- res.json({status:'pending',url:uploaded.secure_url,scan_token:cloud.issueScanPendingToken({role:(req.adminContext?.account_role || 'staff'),userId:req.user.id,contextType:'promotion',contextId:req.branchId,assetId:uploaded.asset_id,url:uploaded.secure_url,publicId:uploaded.public_id,fileHash:cloud.hashUploadBuffer(req.body)})})
+ const role=req.adminContext?.account_role||req.user?.role||'admin'
+ const signed=cloud.createImageUploadSignature({folder:`carait-clinic/promotions/branch_${req.branchId}`})
+ const uploaded=await cloud.cloudinaryUploadBuffer({buffer:req.body,mimeType:req.get('content-type'),fileName:'promotion-cover',signed})
+ const security_token=cloud.issueAcceptedUploadToken({role,userId:req.user.id,branchId:req.branchId,contextType:'promotion',contextId:req.branchId,assetId:uploaded.asset_id,url:uploaded.secure_url,publicId:uploaded.public_id})
+ res.json({status:'uploaded',url:uploaded.secure_url,asset_id:uploaded.asset_id,security_token})
 }
-const imageStatus=async(req,res)=>{
- const pending=cloud.verifyUploadSecurityToken(req.body?.scan_token,{stage:'scan_pending',role:(req.adminContext?.account_role || 'staff'),user_id:req.user.id,context_type:'promotion',context_id:req.branchId})
- const scan=await cloud.getPerceptionPointScanStatus(pending.asset_id)
- if(scan.secure_url&&scan.secure_url!==pending.url)return res.status(409).json({message:'Uploaded image identity mismatch.'})
- if(scan.status!=='approved')return res.json({status:scan.status,message:scan.message||null})
- res.json({status:'approved',url:pending.url,security_token:cloud.issueAcceptedUploadToken({role:(req.adminContext?.account_role || 'staff'),userId:req.user.id,contextType:'promotion',contextId:req.branchId,status:'approved',assetId:pending.asset_id,url:pending.url,publicId:pending.public_id})})
-}
-
 const registerBranchPromotions=(router,{requireSuper,branchContext,requirePermission})=>{
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   router.post(`${prefix}/promotions/image`,...middle,requirePermission('system_setup'),express.raw({type:['image/png','image/jpeg','application/octet-stream'],limit:'5mb'}),uploadImage)
-  router.post(`${prefix}/promotions/image/status`,...middle,requirePermission('system_setup'),imageStatus)
   router.get(`${prefix}/promotions`,...middle,requirePermission('system_setup'),list)
   router.post(`${prefix}/promotions`,...middle,requirePermission('system_setup'),save)
   router.put(`${prefix}/promotions/:id`,...middle,requirePermission('system_setup'),save)
@@ -103,7 +92,7 @@ const registerBranchPromotions=(router,{requireSuper,branchContext,requirePermis
   router.post(`${prefix}/promotions/:id/notify`,...middle,requirePermission('system_setup'),notify)
  }
 }
-module.exports={registerBranchPromotions,validate,list,save,deactivate,uploadImage,imageStatus}
+module.exports={registerBranchPromotions,validate,list,save,deactivate,uploadImage}
 
 
 

@@ -1,0 +1,1218 @@
+{
+  "frontend": {
+    "current": {
+      "summary": {
+        "tests": 460,
+        "pass": 428,
+        "fail": 32,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "name": "AuthContext preserves a session on unavailable checks and revalidates on tab return",
+          "location": "client/tests/authSessionGuard.node.test.mjs:22:1",
+          "error": "|-\n    The input did not match the regular expression /const orderedRoles = hint \\? \\[hint\\] : Object\\.keys\\(ENDPOINT_MAP\\)/. Input:\n    \n    \"import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'\\n\" +\n      \"import { logoutRoleSession } from '../utils/sessionLogout.mjs'\\n\" +\n      \"import { authCheckOutcome } from '../utils/authCheckResponse.mjs'\\n\" +\n      '\\n' +\n      'const AuthContext = createContext()\\n' +\n      '\\n' +\n      'const ENDPOINT_MAP = {\\n' +\n      \"  superadmin: '/api/admin/check-auth?portal=superadmin',\\n\" +\n      \"  admin: '/api/admin/check-auth',\\n\" +\n      \"  staff: '/api/staff/check-auth',\\n\" +\n      \"  doctor: '/api/doctor/check-auth',\\n\" +\n      \"  patient: '/api/patient/check-auth',\\n\" +\n      '}\\n' +\n      '\\n' +\n      \"const roleFromPath = (pathname = '') => {\\n\" +\n      \"  const first = String(pathname || '').split('/').filter(Boolean)[0]\\n\" +\n      '  // The public policy page is part of the patient booking flow. A new tab has\\n' +\n      '  // its own sessionStorage, so identify it by route and check the patient cookie first.\\n' +\n      \"  if (first === 'booking-policy' || first === 'login') return 'patient'\\n\" +\n "
+        },
+        {
+          "name": "patient guards show a retry state instead of redirecting on an unavailable auth check",
+          "location": "client/tests/authSessionGuard.node.test.mjs:32:1",
+          "error": "|-\n    The input did not match the regular expression /authCheckError && !user/. Input:\n    \n    '// client/src/components/PatientRoute.jsx\\n' +\n      \"import { Navigate, useLocation } from 'react-router-dom'\\n\" +\n      \"import { useAuth } from '../context/AuthContext'\\n\" +\n      \"import AuthCheckFallback from './AuthCheckFallback'\\n\" +\n      '\\n' +\n      'const PatientRoute = ({ children }) => {\\n' +\n      '  const location = useLocation()\\n' +\n      '  const { user, role, ready, authCheckError, checkAuth } = useAuth()\\n' +\n      '  if (!ready) return (\\n' +\n      '    <div className=\"flex items-center justify-center h-screen\">\\n' +\n      '      <div className=\"w-8 h-8 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin\" />\\n' +\n      '    </div>\\n' +\n      '  )\\n' +\n      \"  if (authCheckError && role !== 'patient') return <AuthCheckFallback onRetry={() => checkAuth()} />\\n\" +\n      \"  if (!user || role !== 'patient') {\\n\" +\n      '    const requested = location.pathname + location.search\\n' +\n      \"    const next = requested.startsWith('/patient/book') ? `?next=${encodeURIComponent(requested)}` : ''\\n\" +\n      '    return <Navigate to={`/patient/login${next"
+        },
+        {
+          "name": "walk-in now is an explicit choice; scheduled booking remains the default",
+          "location": "client/tests/batch2WalkInWorkflow.node.test.mjs:7:1",
+          "error": "|-\n    The input did not match the regular expression /useState\\('scheduled'\\)/. Input:\n    \n    \"import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatQueueLabel } from '../../utils/queueLabel.mjs'\\r\\n\" +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useBlocker, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdArrowBack, MdArrowForward, MdCheck, MdCheckCircle,\\r\\n' +\n      '  MdOpenInNew, MdSearch,\\r\\n' +\n      '  MdWarningAmber,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary,\\r\\n' +\n      \"} from '../patientPage/BookAppointment'\\r\\n\" +\n      \"import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patientBirthda"
+        },
+        {
+          "name": "newly created patient is reused after a failed queue attempt; receipt displays its queue number",
+          "location": "client/tests/batch2WalkInWorkflow.node.test.mjs:34:1",
+          "error": "|-\n    The input did not match the regular expression /success\\.receipt\\?\\.queue_number/. Input:\n    \n    \"import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatQueueLabel } from '../../utils/queueLabel.mjs'\\r\\n\" +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useBlocker, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdArrowBack, MdArrowForward, MdCheck, MdCheckCircle,\\r\\n' +\n      '  MdOpenInNew, MdSearch,\\r\\n' +\n      '  MdWarningAmber,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary,\\r\\n' +\n      \"} from '../patientPage/BookAppointment'\\r\\n\" +\n      \"import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patie"
+        },
+        {
+          "name": "branch form includes blank, standard, copy, preview and creation guidance",
+          "location": "client/tests/batch3BranchSetup.node.test.mjs:5:1",
+          "error": "|-\n    The input did not match the regular expression /Source Branch \\*/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\n\" +\n      \"import {useCallback,useEffect,useMemo,useRef,useState} from 'react'\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\n\" +\n      \"import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'\\n\" +\n      \"import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'\\n\" +\n      \"import {useToast} from '../../../components/ui/ToastProvider'\\n\" +\n      \"import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'\\n\" +\n      '\\n' +\n      \"const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})\\n\" +\n      'const messageOf=(error,fallback)=>error?.message||fallback\\n' +\n      \"const countLabel=(value)=>Number(value||0).toLocaleString('en-PH')\\n\" +\n      'const previewMapsUrl=(value)=>{try{return"
+        },
+        {
+          "name": "dark-mode components explicitly handle translucent and weekday surfaces",
+          "location": "client/tests/batch5VisualAndPaymentPreview.node.test.mjs:47:1",
+          "error": "|-\n    The input did not match the regular expression /bg-sky-50\\/60 dark:bg-sky-950\\/50/. Input:\n    \n    \"import { useLocation, useNavigate } from 'react-router-dom'\\n\" +\n      \"import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'\\n\" +\n      \"import { createPortal } from 'react-dom'\\n\" +\n      \"import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'\\n\" +\n      \"import { MdDone, MdNotifications } from 'react-icons/md'\\n\" +\n      'import {\\n' +\n      '  getNotifications,\\n' +\n      '  getNotificationDestination,\\n' +\n      '  markNotificationRead,\\n' +\n      '  readAllNotifications,\\n' +\n      \"} from '../services/portal.service'\\n\" +\n      \"import { getNotificationPopoverPosition } from './notificationPopoverPosition.mjs'\\n\" +\n      '\\n' +\n      'const PANEL_WIDTH = 320\\n' +\n      'const PANEL_HEIGHT = 384\\n' +\n      'const VIEWPORT_EDGE = 12\\n' +\n      '\\n' +\n      'const readVisibleViewport = () => {\\n' +\n      '  const viewport = window.visualViewport\\n' +\n      '  return {\\n' +\n      '    left: viewport?.offsetLeft ?? 0,\\n' +\n      '    top: viewport?.offsetTop ?? 0,\\n' +\n      '    width: viewport?.width ?? document.docume"
+        },
+        {
+          "name": "doctor availability sorts weekdays while preserving booking routes",
+          "location": "client/tests/batch5VisualAndPaymentPreview.node.test.mjs:52:1",
+          "error": "|-\n    The input did not match the regular expression /WEEKDAY_ORDER = \\['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'\\]/. Input:\n    \n    \"import { usePatientBranch } from '../../context/PatientBranchContext'\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\n\" +\n      \"import { useCallback, useEffect, useState } from 'react'\\n\" +\n      \"import { NavLink } from 'react-router-dom'\\n\" +\n      \"import { buildSlotBookingPath } from '../../utils/bookingHandoff.mjs'\\n\" +\n      \"import { MdCalendarToday, MdChevronLeft, MdChevronRight, MdEventBusy, MdRefresh } from 'react-icons/md'\\n\" +\n      \"import { getDoctorsAvailability } from '../../services/patient.service'\\n\" +\n      \"import { getLocalDateOnly } from '../../utils/date'\\n\" +\n      \"import { scheduleSummary } from '../../utils/schedule'\\n\" +\n      \"import { doctorClinicLabel } from '../../utils/doctor'\\n\" +\n      'import {\\n' +\n      '  availableSlotsForDay, calendarDayState, monthAvailabilityRequests,\\n' +\n      '  monthDateList, monthKeyFromDate, monthSundayOffset, shiftMonth, unavailableDayReason,\\n' +\n      \"} from '../../utils/doctorAvailabilityCalendar.mjs'\\n\" +\n      '\\n' +\n     "
+        },
+        {
+          "name": "featured offers preserve selected promotion while providing bounded scroll controls",
+          "location": "client/tests/batch5VisualAndPaymentPreview.node.test.mjs:58:1",
+          "error": "|-\n    The input did not match the regular expression /promotion_id=\\$\\{encodeURIComponent\\(p\\.id\\)\\}/. Input:\n    \n    \"import { useCallback, useEffect, useRef, useState } from 'react'\\n\" +\n      \"import { NavLink } from 'react-router-dom'\\n\" +\n      \"import { MdChevronLeft, MdChevronRight, MdArrowForward } from 'react-icons/md'\\n\" +\n      \"import { visiblePromotions } from '../../utils/promotionPresentation.mjs'\\n\" +\n      \"import { promotionBookingPath } from '../../utils/promotionBookingPath.mjs'\\n\" +\n      'export { visiblePromotions }\\n' +\n      '\\n' +\n      'const formatOfferEndDate = (value) => {\\n' +\n      \"  const match = /^(\\\\d{4})-(\\\\d{2})-(\\\\d{2})/.exec(String(value || ''))\\n\" +\n      '  if (!match) return null\\n' +\n      '  const [, year, month, day] = match\\n' +\n      '  const date = new Date(Number(year), Number(month) - 1, Number(day))\\n' +\n      '  if (date.getFullYear() !== Number(year) || date.getMonth() + 1 !== Number(month) || date.getDate() !== Number(day)) return null\\n' +\n      \"  return date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })\\n\" +\n      '}\\n' +\n      '\\n' +\n      'export function PromotionCard({ promotion: p, d"
+        },
+        {
+          "name": "registration, admin and staff intake use shared clinic-date bounds",
+          "location": "client/tests/batch6PatientBirthdate.node.test.mjs:31:1",
+          "error": "'src/pages/staffPage/Staff_WalkInQueue.jsx'"
+        },
+        {
+          "name": "whole quantities and configured fractional precision are validated consistently",
+          "location": "client/tests/billingRedesign20261105.node.test.mjs:17:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'Use a positive whole number.'\n    - ''"
+        },
+        {
+          "name": "included usage changes keep service charge stable, while promotion and explicit extras remain itemized",
+          "location": "client/tests/billingRedesign20261105.node.test.mjs:23:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      {\n    +   materialAdjustment: 5,\n        promotion: 135,\n    +   service: 545,\n    -   service: 540,\n        supplies: 0,\n    +   total: 410\n    -   total: 405\n      }"
+        },
+        {
+          "name": "Staff and Admin wrappers bind one shared checkout to their own permitted APIs",
+          "location": "client/tests/billingRedesign20261105.node.test.mjs:50:1",
+          "error": "|-\n    The input did not match the regular expression /<BillCheckout services=\\{services\\} admin/. Input:\n    \n    \"import FinancialBillBreakdown from '../../components/billing/FinancialBillBreakdown'\\r\\n\" +\n      \"import ChargeSummaryBreakdown from '../../components/billing/ChargeSummaryBreakdown'\\r\\n\" +\n      \"import {useAuth} from '../../context/AuthContext'\\r\\n\" +\n      \"import {paymentRequestKey} from '../../utils/paymentRequest.mjs'\\r\\n\" +\n      \"import ChargeAdjustmentsPanel from '../../components/billing/ChargeAdjustmentsPanel'\\r\\n\" +\n      \"import { CheckoutProgress, CheckoutStatus, CheckoutOverview } from '../../components/billing/CheckoutExperience'\\r\\n\" +\n      \"import { useEffect, useMemo, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useNavigate, useParams, useLocation } from 'react-router-dom'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdAdd, MdArrowBack, MdCheck, MdDeleteOutline,\\r\\n' +\n      '  MdLocalPharmacy, MdLock, MdPayments, MdPrint, MdRefresh, MdWarning,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  finalizeAdminCheckoutBill as finalizeBill,\\r\\n' +\n      '  getAdminCheckoutBill as getBillById,\\r\\n' +\n      '  getAdminBillA"
+        },
+        {
+          "name": "measured extra-supply estimates round half cents the same way as backend billing",
+          "location": "client/tests/billingRedesign20261105.node.test.mjs:58:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n    + null\n    - {\n    -   promotion: 135,\n    -   service: 540,\n    -   supplies: 0.04,\n    -   total: 405.04\n    - }"
+        },
+        {
+          "name": "pending clinical adjustments are reviewed on bill, not by a Doctor",
+          "location": "client/tests/billingReplacement20261105.node.test.mjs:42:1",
+          "error": "|-\n    The input did not match the regular expression /staffOnly && <div className/. Input:\n    \n    \"import {useCallback,useEffect,useRef,useState} from 'react'\\r\\n\" +\n      \"import { MdCheckCircle, MdHourglassEmpty, MdInfoOutline, MdPayments, MdWarningAmber } from 'react-icons/md'\\r\\n\" +\n      \"import Modal from '../ui/Modal'\\r\\n\" +\n      \"const money=n=>`₱${(Number(n)||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`\\r\\n\" +\n      'const base=()=>{\\r\\n' +\n      '  const path=window.location.pathname\\r\\n' +\n      '  const branch=path.match(/^\\\\/superadmin\\\\/branches\\\\/(\\\\d+)(?:\\\\/|$)/)\\r\\n' +\n      '  if(branch)return `/api/branches/workspace/${branch[1]}/legacy`\\r\\n' +\n      \"  if(path.startsWith('/staff'))return '/api/staff'\\r\\n\" +\n      \"  return '/api/branches/my/legacy'\\r\\n\" +\n      '}\\r\\n' +\n      'const fetchJson=async(url,options={})=>{\\r\\n' +\n      \" const response=await fetch(url,{credentials:'include',...options,headers:{...(window.location.pathname.startsWith('/superadmin')?{'X-Admin-Portal':'superadmin'}:{}),...(options.headers||{})}})\\r\\n\" +\n      ' const data=await response.json().catch(()=>({}))\\r\\n' +\n      ' if(!response.ok){\\r\\n' +\n"
+        },
+        {
+          "name": "shared Billing navigation and action links retain the selected physical branch",
+          "location": "client/tests/branchPortalNavigation20261022.node.test.mjs:17:1",
+          "error": "|-\n    The input did not match the regular expression /api.portal.base/. Input:\n    \n    \"import { useCallback, useEffect, useMemo, useRef, useState } from 'react'\\r\\n\" +\n      \"import { Link, useLocation, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import { MdArrowForward, MdClose, MdPayments, MdReceiptLong, MdRefresh, MdSearch } from 'react-icons/md'\\r\\n\" +\n      \"import { getBills as getAdminBills } from '../../services/admin.service'\\r\\n\" +\n      \"import { getBills as getStaffBills } from '../../services/staff.service'\\r\\n\" +\n      \"import { useAuth } from '../../context/AuthContext'\\r\\n\" +\n      \"import { hasStaffPermission } from '../../config/staffPermissions'\\r\\n\" +\n      \"import { branchPortalPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatMoney, paymentMethodLabel } from '../../utils/billingUi'\\r\\n\" +\n      \"import BillingStatusBadge from './BillingStatusBadge'\\r\\n\" +\n      \"import Pagination from '../ui/Pagination'\\r\\n\" +\n      \"import { normalizedBillingTab, statusQueryFor } from './billingWorkspaceModel.mjs'\\r\\n\" +\n      \"import { EmptyState, ErrorState, LoadingState } from '../ui/PageState'\\r\\n\" +\n      '\\r\\n' +\n      \"const sec"
+        },
+        {
+          "name": "charge adjustment UI preserves approval, reason and stock separation notices",
+          "location": "client/tests/checkoutPresentation.node.test.mjs:49:1",
+          "error": "'approved reductions'"
+        },
+        {
+          "name": "registration and staff-assisted forms limit date selection, and age-only intake starts at 18",
+          "location": "client/tests/fix17AdultForms.node.test.mjs:28:1",
+          "error": "|-\n    The input did not match the regular expression /getMaxPatientBirthdate/. Input:\n    \n    \"import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatQueueLabel } from '../../utils/queueLabel.mjs'\\r\\n\" +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useBlocker, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdArrowBack, MdArrowForward, MdCheck, MdCheckCircle,\\r\\n' +\n      '  MdOpenInNew, MdSearch,\\r\\n' +\n      '  MdWarningAmber,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary,\\r\\n' +\n      \"} from '../patientPage/BookAppointment'\\r\\n\" +\n      \"import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patientBirthdat"
+        },
+        {
+          "name": "service editor and permissions have item search",
+          "location": "client/tests/fix4Workflow20261111.node.test.mjs:21:1",
+          "error": "|-\n    The input did not match the regular expression /inv\\.barcode/. Input:\n    \n    \"import {useAuth} from '../../context/AuthContext'\\r\\n\" +\n      \"import { useEffect, useMemo, useState } from 'react'\\r\\n\" +\n      \"import { portalBaseForPath, canManageServicePricingAtPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import { MdAdd, MdArrowBack, MdCheck, MdClose, MdDelete, MdLock, MdPayments } from 'react-icons/md'\\r\\n\" +\n      \"import { createBillingCatalogService, deleteBillingCatalogService, getBillingCatalog, getInventory, getSystemSetup, updateBillingCatalogService } from '../../services/admin.service'\\r\\n\" +\n      \"import { useToast } from '../../components/ui/ToastProvider'\\r\\n\" +\n      \"import ConfirmDialog from '../../components/ui/ConfirmDialog'\\r\\n\" +\n      \"import { LoadingState, ErrorState } from '../../components/ui/PageState'\\r\\n\" +\n      \"import { formatMoney } from '../../utils/billingUi'\\r\\n\" +\n      \"import { isSelectableServiceConsumable, filterServiceConsumables } from '../../utils/serviceConsumableEligibility.mjs'\\r\\n\" +\n      '\\r\\n' +\n      \"cons"
+        },
+        {
+          "name": "booking never submits unverified email, stale slots or missing policy acceptance",
+          "location": "client/tests/patientBookingFourStep.node.test.mjs:36:1",
+          "error": "|-\n    The input did not match the regular expression /emailStatus !== 'verified'/. Input:\n    \n    \"import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { usePatientBranch } from '../../context/PatientBranchContext'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      '// client/src/pages/patientPage/BookAppointment.jsx\\r\\n' +\n      '// Four-step patient-facing flow. Existing backend validation is authoritative.\\r\\n' +\n      '\\r\\n' +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { NavLink, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      'import {\\r\\n' +\n      '  getMyAppointments, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,\\r\\n' +\n      \"} from '../../services/patient.service'\\r\\n\" +\n      \"import { doctorClinicLabel } from '../../utils/doctor'\\r\\n\" +\n      \"import { useAuth } from '../../context/AuthContext'"
+        },
+        {
+          "name": "printed walk-in intake omits civil status and retains required patient contact fields",
+          "location": "client/tests/patientCivilStatusRemoval20261112.node.test.mjs:5:1",
+          "error": "'Full Name'"
+        },
+        {
+          "name": "unapproved catalog prices and placeholders are not presented as public prices",
+          "location": "client/tests/patientDashboardRedesign.node.test.mjs:49:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    \n    1 !== null"
+        },
+        {
+          "name": "redesigned dashboard retains live services, offers, announcements, and booking paths",
+          "location": "client/tests/patientDashboardRedesign.node.test.mjs:55:1",
+          "error": "|-\n    The input did not match the regular expression /publicServicePrice\\(service\\)/. Input:\n    \n    \"import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'\\n\" +\n      \"import { NavLink } from 'react-router-dom'\\n\" +\n      \"import { MdArrowForward, MdMedicalServices, MdFace, MdRefresh } from 'react-icons/md'\\n\" +\n      \"import { getBookingServices } from '../../services/patient.service'\\n\" +\n      \"import { formatPublicServicePrice, listServicesForCategory } from '../../utils/patientServicePresentation.mjs'\\n\" +\n      \"import { paginatePatientServices } from '../../utils/patientServicePagination.mjs'\\n\" +\n      \"import Pagination from '../ui/Pagination'\\n\" +\n      \"import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'\\n\" +\n      '\\n' +\n      \"const clinicLabel = value => value === 'derma' ? 'Dermatology' : value === 'medical' ? 'General Medicine' : 'Clinic Service'\\n\" +\n      \"const motion = 'transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none'\\n\" +\n      'export const serviceBookingPath = (service, branchId) => {\\n' +\n      '  const params = new "
+        },
+        {
+          "name": "booking shows service price in selection, review, and success",
+          "location": "client/tests/portraitPrescriptionPricingSchedules20261102.node.test.mjs:41:1",
+          "error": "|-\n    The input did not match the regular expression /Service price: \\{formatPublicServicePrice\\(service\\)\\}/. Input:\n    \n    \"import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { usePatientBranch } from '../../context/PatientBranchContext'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      '// client/src/pages/patientPage/BookAppointment.jsx\\r\\n' +\n      '// Four-step patient-facing flow. Existing backend validation is authoritative.\\r\\n' +\n      '\\r\\n' +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { NavLink, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      'import {\\r\\n' +\n      '  getMyAppointments, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,\\r\\n' +\n      \"} from '../../services/patient.service'\\r\\n\" +\n      \"import { doctorClinicLabel } from '../../utils/doctor'\\r\\n\" +\n      \"import { useAuth } from"
+        },
+        {
+          "name": "prescription prints as two landscape pads without signature box",
+          "location": "client/tests/prescriptionPad20261102.node.test.mjs:10:1",
+          "error": "|-\n    The input did not match the regular expression /@page\\{size:letter landscape/. Input:\n    \n    '<!doctype html><html><head><meta charset=\"utf-8\">\\n' +\n      '    <title>Prescription - Demo Patient</title>\\n' +\n      '    <style>\\n' +\n      '      @page{size:A5 portrait;margin:0}\\n' +\n      '      *{box-sizing:border-box}\\n' +\n      '      html,body{width:148mm;margin:0;padding:0;color:#000;font-family:Arial,Helvetica,sans-serif;background:#fff}\\n' +\n      '      .sheet{width:148mm;height:210mm;position:relative;break-after:page;page-break-after:always}\\n' +\n      '      .sheet:last-child{break-after:auto;page-break-after:auto}\\n' +\n      '      .pad{position:absolute;top:8mm;left:13.1mm;width:121.8mm;height:190mm;overflow:visible;break-inside:avoid}\\n' +\n      '      .pad-header{position:relative;height:29.5mm}\\n' +\n      '      .manilamed-info{position:absolute;left:0;top:0;width:47.5mm;font-size:6pt;font-weight:600;line-height:1.38}\\n' +\n      '      .manilamed-info img{display:block;width:25.35mm;height:6.7mm;object-fit:contain;object-position:left center}\\n' +\n      '      .manilamed-name{font-size:8.2pt;letter-spacing:-.22px;white-space:nowrap;line-height:1.12;margin:.3"
+        },
+        {
+          "name": "existing fields print and duplicate across pads",
+          "location": "client/tests/prescriptionPad20261102.node.test.mjs:16:1",
+          "error": "|-\n    November 2, 2026\n    \n    1 !== 2"
+        },
+        {
+          "name": "long prescription continues on extra sheet without dropping medicine entries",
+          "location": "client/tests/prescriptionPad20261102.node.test.mjs:46:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    \n    0 !== 3"
+        },
+        {
+          "name": "staff with Checkout and Billing sees the same four billing tasks as Admin",
+          "location": "client/tests/staffBillingUnified.node.test.mjs:10:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      [\n    +   'payments',\n    +   'history'\n    -   'checkout',\n    -   'transactions',\n    -   'payment-issues',\n    -   'cash'\n      ]"
+        },
+        {
+          "name": "billing-only staff cannot reach payment or cashier tools via query parameter",
+          "location": "client/tests/staffBillingUnified.node.test.mjs:15:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'payments'\n    - 'transactions'"
+        },
+        {
+          "name": "checkout-only staff can still read branch-owned bills but does not gain Admin approvals",
+          "location": "client/tests/staffBillingUnified.node.test.mjs:22:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      [\n    +   'payments',\n    +   'history'\n    -   'checkout',\n    -   'transactions',\n    -   'payment-issues',\n    -   'cash'\n      ]"
+        },
+        {
+          "name": "dashboard and reports never display zero-valued KPIs on request failure",
+          "location": "client/tests/superAdminDesign.node.test.mjs:23:1",
+          "error": "|-\n    The input did not match the regular expression /rows === null \\? <Banner/. Input:\n    \n    \"import InventoryPulse from '../InventoryPulse'\\n\" +\n      \"import {useEffect,useState} from 'react'\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\n\" +\n      \"import {MdBusiness,MdCalendarMonth,MdPendingActions,MdPayments,MdCheckCircle,MdPersonOff,MdRefresh,MdArrowForward,MdPeople,MdHistory,MdWarningAmber,MdBlock} from 'react-icons/md'\\n\" +\n      \"import {fetchJson,Card,PageHead,StatCard,Pill,Banner,Loading,Empty,pesos,whole,todayISO,beforeISO,SecondaryButton} from './shared'\\n\" +\n      \"import {isValidReportPeriod,sumBranchMetric} from './reportFormat'\\n\" +\n      \"import {loadOverviewSections} from './overviewData.mjs'\\n\" +\n      '\\n' +\n      'const sum=sumBranchMetric\\n' +\n      \"const cols=['Branch','Appointments','Pending','Completed','Did Not Arrive','Doctors','Billed','Collected']\\n\" +\n      'export const BranchPerformance=({rows=[]})=><div className=\"overflow-x-auto\"><table className=\"w-full min-w-[900px] text-left text-sm\"><thead><tr className=\"border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500\">{cols.map(h=><th key={h} scope=\""
+        },
+        {
+          "name": "branch activation retains the confirmation flow and readiness details",
+          "location": "client/tests/superAdminDesign.node.test.mjs:32:1",
+          "error": "|-\n    The input did not match the regular expression /setConfirm\\(b\\)/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\n\" +\n      \"import {useCallback,useEffect,useMemo,useRef,useState} from 'react'\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\n\" +\n      \"import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'\\n\" +\n      \"import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'\\n\" +\n      \"import {useToast} from '../../../components/ui/ToastProvider'\\n\" +\n      \"import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'\\n\" +\n      '\\n' +\n      \"const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})\\n\" +\n      'const messageOf=(error,fallback)=>error?.message||fallback\\n' +\n      \"const countLabel=(value)=>Number(value||0).toLocaleString('en-PH')\\n\" +\n      'const previewMapsUrl=(value)=>{try{return "
+        },
+        {
+          "name": "branch and super admin explicitly return permanent deletion on successful delete",
+          "location": "client/tests/systemSetupCategoryRefresh.node.test.mjs:18:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(route.includes(\"withSetup('/system-setup/service-categories/:id','delete',deleteCategory)\"))"
+        }
+      ]
+    },
+    "baseline": {
+      "summary": {
+        "tests": 447,
+        "pass": 412,
+        "fail": 35,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "name": "AuthContext preserves a session on unavailable checks and revalidates on tab return",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/authSessionGuard.node.test.mjs:22:1",
+          "error": "|-\n    The input did not match the regular expression /const orderedRoles = hint \\? \\[hint\\] : Object\\.keys\\(ENDPOINT_MAP\\)/. Input:\n    \n    \"import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'\\r\\n\" +\n      \"import { logoutRoleSession } from '../utils/sessionLogout.mjs'\\r\\n\" +\n      \"import { authCheckOutcome } from '../utils/authCheckResponse.mjs'\\r\\n\" +\n      '\\r\\n' +\n      'const AuthContext = createContext()\\r\\n' +\n      '\\r\\n' +\n      'const ENDPOINT_MAP = {\\r\\n' +\n      \"  superadmin: '/api/admin/check-auth?portal=superadmin',\\r\\n\" +\n      \"  admin: '/api/admin/check-auth',\\r\\n\" +\n      \"  staff: '/api/staff/check-auth',\\r\\n\" +\n      \"  doctor: '/api/doctor/check-auth',\\r\\n\" +\n      \"  patient: '/api/patient/check-auth',\\r\\n\" +\n      '}\\r\\n' +\n      '\\r\\n' +\n      \"const roleFromPath = (pathname = '') => {\\r\\n\" +\n      \"  const first = String(pathname || '').split('/').filter(Boolean)[0]\\r\\n\" +\n      '  // The public policy page is part of the patient booking flow. A new tab has\\r\\n' +\n      '  // its own sessionStorage, so identify it by route and check the patient cookie first.\\r\\n' +\n      \"  if (first === 'booking-policy' || first "
+        },
+        {
+          "name": "patient guards show a retry state instead of redirecting on an unavailable auth check",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/authSessionGuard.node.test.mjs:32:1",
+          "error": "|-\n    The input did not match the regular expression /authCheckError && !user/. Input:\n    \n    '// client/src/components/PatientRoute.jsx\\r\\n' +\n      \"import { Navigate, useLocation } from 'react-router-dom'\\r\\n\" +\n      \"import { useAuth } from '../context/AuthContext'\\r\\n\" +\n      \"import AuthCheckFallback from './AuthCheckFallback'\\r\\n\" +\n      '\\r\\n' +\n      'const PatientRoute = ({ children }) => {\\r\\n' +\n      '  const location = useLocation()\\r\\n' +\n      '  const { user, role, ready, authCheckError, checkAuth } = useAuth()\\r\\n' +\n      '  if (!ready) return (\\r\\n' +\n      '    <div className=\"flex items-center justify-center h-screen\">\\r\\n' +\n      '      <div className=\"w-8 h-8 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin\" />\\r\\n' +\n      '    </div>\\r\\n' +\n      '  )\\r\\n' +\n      \"  if (authCheckError && role !== 'patient') return <AuthCheckFallback onRetry={() => checkAuth()} />\\r\\n\" +\n      \"  if (!user || role !== 'patient') {\\r\\n\" +\n      '    const requested = location.pathname + location.search\\r\\n' +\n      \"    const next = requested.startsWith('/patient/book') ? `?next=${encodeURIComponent(requested)}` : ''\\r\\n\" +\n      '    return <"
+        },
+        {
+          "name": "walk-in now is an explicit choice; scheduled booking remains the default",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/batch2WalkInWorkflow.node.test.mjs:7:1",
+          "error": "|-\n    The input did not match the regular expression /useState\\('scheduled'\\)/. Input:\n    \n    \"import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatQueueLabel } from '../../utils/queueLabel.mjs'\\r\\n\" +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useBlocker, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdArrowBack, MdArrowForward, MdCheck, MdCheckCircle,\\r\\n' +\n      '  MdOpenInNew, MdSearch,\\r\\n' +\n      '  MdWarningAmber,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary,\\r\\n' +\n      \"} from '../patientPage/BookAppointment'\\r\\n\" +\n      \"import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patientBirthda"
+        },
+        {
+          "name": "newly created patient is reused after a failed queue attempt; receipt displays its queue number",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/batch2WalkInWorkflow.node.test.mjs:34:1",
+          "error": "|-\n    The input did not match the regular expression /success\\.receipt\\?\\.queue_number/. Input:\n    \n    \"import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatQueueLabel } from '../../utils/queueLabel.mjs'\\r\\n\" +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useBlocker, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdArrowBack, MdArrowForward, MdCheck, MdCheckCircle,\\r\\n' +\n      '  MdOpenInNew, MdSearch,\\r\\n' +\n      '  MdWarningAmber,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary,\\r\\n' +\n      \"} from '../patientPage/BookAppointment'\\r\\n\" +\n      \"import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patie"
+        },
+        {
+          "name": "branch form includes blank, standard, copy, preview and creation guidance",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/batch3BranchSetup.node.test.mjs:5:1",
+          "error": "|-\n    The input did not match the regular expression /Source Branch \\*/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\r\\n\" +\n      \"import {useCallback,useEffect,useMemo,useRef,useState} from 'react'\\r\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\r\\n\" +\n      \"import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'\\r\\n\" +\n      \"import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'\\r\\n\" +\n      \"import {useToast} from '../../../components/ui/ToastProvider'\\r\\n\" +\n      \"import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'\\r\\n\" +\n      '\\r\\n' +\n      \"const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})\\r\\n\" +\n      'const messageOf=(error,fallback)=>error?.message||fallback\\r\\n' +\n      \"const countLabel=(value)=>Number(value||0).toLocaleString('en-PH')\\r\\n\" +\n      'const previewMapsUr"
+        },
+        {
+          "name": "both Staff and Admin render the same isolated estimated preview",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/batch5VisualAndPaymentPreview.node.test.mjs:33:1",
+          "error": "|-\n    The input did not match the regular expression /Previously paid amount',bill\\.paid_amount/. Input:\n    \n    \"import { calculateBalancePaymentPreview } from '../../utils/paymentPreview.mjs'\\r\\n\" +\n      \"import { formatMoney, paymentMethodLabel } from '../../utils/billingUi'\\r\\n\" +\n      '\\r\\n' +\n      '// Presentation only. Each portal retains its existing authorization, confirmation,\\r\\n' +\n      '// idempotency key, QR lifecycle and server-ledger payment handlers.\\r\\n' +\n      'export default function CheckoutPaymentSection({bill,draft,setDraft,paymentMethods,paymentSettings,qrPending,paying,requestPay,printReceipt,qrPayment}){\\r\\n' +\n      ' const preview=calculateBalancePaymentPreview({bill,draft})\\r\\n' +\n      ' const selected=Boolean(draft.payment_method)\\r\\n' +\n      ' const row=(label,value,emphasized=false)=><div className={`flex justify-between gap-4 ${emphasized?\\'border-t border-slate-200 pt-3 font-bold\\':\\'\\'}`}><dt>{label}</dt><dd className=\"shrink-0 font-semibold tabular-nums\">{formatMoney(value)}</dd></div>\\r\\n' +\n      ' return <div className=\"grid min-w-0 gap-6 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 xl:grid-cols-[minmax(0,1fr)_minmax(280px,"
+        },
+        {
+          "name": "dark-mode components explicitly handle translucent and weekday surfaces",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/batch5VisualAndPaymentPreview.node.test.mjs:47:1",
+          "error": "|-\n    The input did not match the regular expression /bg-sky-50\\/60 dark:bg-sky-950\\/50/. Input:\n    \n    \"import { useLocation, useNavigate } from 'react-router-dom'\\r\\n\" +\n      \"import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'\\r\\n\" +\n      \"import { createPortal } from 'react-dom'\\r\\n\" +\n      \"import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'\\r\\n\" +\n      \"import { MdDone, MdNotifications } from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  getNotifications,\\r\\n' +\n      '  getNotificationDestination,\\r\\n' +\n      '  markNotificationRead,\\r\\n' +\n      '  readAllNotifications,\\r\\n' +\n      \"} from '../services/portal.service'\\r\\n\" +\n      \"import { getNotificationPopoverPosition } from './notificationPopoverPosition.mjs'\\r\\n\" +\n      '\\r\\n' +\n      'const PANEL_WIDTH = 320\\r\\n' +\n      'const PANEL_HEIGHT = 384\\r\\n' +\n      'const VIEWPORT_EDGE = 12\\r\\n' +\n      '\\r\\n' +\n      'const readVisibleViewport = () => {\\r\\n' +\n      '  const viewport = window.visualViewport\\r\\n' +\n      '  return {\\r\\n' +\n      '    left: viewport?.offsetLeft ?? 0,\\r\\n' +\n      '    top: viewport?.offsetTop ?? 0,\\r\\n' +\n      ' "
+        },
+        {
+          "name": "doctor availability sorts weekdays while preserving booking routes",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/batch5VisualAndPaymentPreview.node.test.mjs:52:1",
+          "error": "|-\n    The input did not match the regular expression /WEEKDAY_ORDER = \\['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'\\]/. Input:\n    \n    \"import { usePatientBranch } from '../../context/PatientBranchContext'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      \"import { useCallback, useEffect, useState } from 'react'\\r\\n\" +\n      \"import { NavLink } from 'react-router-dom'\\r\\n\" +\n      \"import { buildSlotBookingPath } from '../../utils/bookingHandoff.mjs'\\r\\n\" +\n      \"import { MdCalendarToday, MdChevronLeft, MdChevronRight, MdEventBusy, MdRefresh } from 'react-icons/md'\\r\\n\" +\n      \"import { getDoctorsAvailability } from '../../services/patient.service'\\r\\n\" +\n      \"import { getLocalDateOnly } from '../../utils/date'\\r\\n\" +\n      \"import { scheduleSummary } from '../../utils/schedule'\\r\\n\" +\n      \"import { doctorClinicLabel } from '../../utils/doctor'\\r\\n\" +\n      'import {\\r\\n' +\n      '  availableSlotsForDay, calendarDayState, monthAvailabilityRequests,\\r\\n' +\n      '  monthDateList, monthKeyFromDate, monthSundayOffset, shiftMonth, unavailableDayReason,\\r\\n' +\n      \"} from '../../utils/doctorAvailabilityCalendar.mj"
+        },
+        {
+          "name": "featured offers preserve selected promotion while providing bounded scroll controls",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/batch5VisualAndPaymentPreview.node.test.mjs:58:1",
+          "error": "|-\n    The input did not match the regular expression /promotion_id=\\$\\{encodeURIComponent\\(p\\.id\\)\\}/. Input:\n    \n    \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { NavLink } from 'react-router-dom'\\r\\n\" +\n      \"import { MdChevronLeft, MdChevronRight, MdArrowForward } from 'react-icons/md'\\r\\n\" +\n      \"import { visiblePromotions } from '../../utils/promotionPresentation.mjs'\\r\\n\" +\n      \"import { promotionBookingPath } from '../../utils/promotionBookingPath.mjs'\\r\\n\" +\n      'export { visiblePromotions }\\r\\n' +\n      '\\r\\n' +\n      'const formatOfferEndDate = (value) => {\\r\\n' +\n      \"  const match = /^(\\\\d{4})-(\\\\d{2})-(\\\\d{2})/.exec(String(value || ''))\\r\\n\" +\n      '  if (!match) return null\\r\\n' +\n      '  const [, year, month, day] = match\\r\\n' +\n      '  const date = new Date(Number(year), Number(month) - 1, Number(day))\\r\\n' +\n      '  if (date.getFullYear() !== Number(year) || date.getMonth() + 1 !== Number(month) || date.getDate() !== Number(day)) return null\\r\\n' +\n      \"  return date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })\\r\\n\" +\n      '}\\r\\n' +\n      '\\r\\n' +\n      'export function"
+        },
+        {
+          "name": "registration, admin and staff intake use shared clinic-date bounds",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/batch6PatientBirthdate.node.test.mjs:31:1",
+          "error": "'src/pages/staffPage/Staff_WalkInQueue.jsx'"
+        },
+        {
+          "name": "whole quantities and configured fractional precision are validated consistently",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/billingRedesign20261105.node.test.mjs:17:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'Use a positive whole number.'\n    - ''"
+        },
+        {
+          "name": "included usage changes keep service charge stable, while promotion and explicit extras remain itemized",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/billingRedesign20261105.node.test.mjs:23:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      {\n    +   materialAdjustment: 5,\n        promotion: 135,\n    +   service: 545,\n    -   service: 540,\n        supplies: 0,\n    +   total: 410\n    -   total: 405\n      }"
+        },
+        {
+          "name": "Staff and Admin wrappers bind one shared checkout to their own permitted APIs",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/billingRedesign20261105.node.test.mjs:50:1",
+          "error": "|-\n    The input did not match the regular expression /<BillCheckout services=\\{services\\} admin/. Input:\n    \n    \"import ChargeSummaryBreakdown from '../../components/billing/ChargeSummaryBreakdown'\\r\\n\" +\n      \"import {useAuth} from '../../context/AuthContext'\\r\\n\" +\n      \"import {paymentRequestKey} from '../../utils/paymentRequest.mjs'\\r\\n\" +\n      \"import ChargeAdjustmentsPanel from '../../components/billing/ChargeAdjustmentsPanel'\\r\\n\" +\n      \"import { CheckoutProgress, CheckoutStatus, CheckoutOverview } from '../../components/billing/CheckoutExperience'\\r\\n\" +\n      \"import { useEffect, useMemo, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useNavigate, useParams, useLocation } from 'react-router-dom'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdAdd, MdArrowBack, MdCheck, MdDeleteOutline,\\r\\n' +\n      '  MdLocalPharmacy, MdLock, MdPayments, MdPrint, MdRefresh, MdWarning,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  finalizeAdminCheckoutBill as finalizeBill,\\r\\n' +\n      '  getAdminCheckoutBill as getBillById,\\r\\n' +\n      '  getAdminBillAdjustmentRequests as getBillingAdjustmentRequests,\\r\\n' +\n      '  getBillingPaymentSettings,\\r\\n' "
+        },
+        {
+          "name": "measured extra-supply estimates round half cents the same way as backend billing",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/billingRedesign20261105.node.test.mjs:58:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n    + null\n    - {\n    -   promotion: 135,\n    -   service: 540,\n    -   supplies: 0.04,\n    -   total: 405.04\n    - }"
+        },
+        {
+          "name": "pending clinical adjustments are reviewed on bill, not by a Doctor",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/billingReplacement20261105.node.test.mjs:42:1",
+          "error": "|-\n    The input did not match the regular expression /staffOnly && <div className/. Input:\n    \n    \"import {useCallback,useEffect,useRef,useState} from 'react'\\r\\n\" +\n      \"import { MdCheckCircle, MdHourglassEmpty, MdInfoOutline, MdPayments, MdWarningAmber } from 'react-icons/md'\\r\\n\" +\n      \"import Modal from '../ui/Modal'\\r\\n\" +\n      \"const money=n=>`₱${(Number(n)||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`\\r\\n\" +\n      'const base=()=>{\\r\\n' +\n      '  const path=window.location.pathname\\r\\n' +\n      '  const branch=path.match(/^\\\\/superadmin\\\\/branches\\\\/(\\\\d+)(?:\\\\/|$)/)\\r\\n' +\n      '  if(branch)return `/api/branches/workspace/${branch[1]}/legacy`\\r\\n' +\n      \"  if(path.startsWith('/staff'))return '/api/staff'\\r\\n\" +\n      \"  return '/api/branches/my/legacy'\\r\\n\" +\n      '}\\r\\n' +\n      'const fetchJson=async(url,options={})=>{\\r\\n' +\n      \" const response=await fetch(url,{credentials:'include',...options,headers:{...(window.location.pathname.startsWith('/superadmin')?{'X-Admin-Portal':'superadmin'}:{}),...(options.headers||{})}})\\r\\n\" +\n      ' const data=await response.json().catch(()=>({}))\\r\\n' +\n      ' if(!response.ok){\\r\\n' +\n"
+        },
+        {
+          "name": "shared Billing navigation and action links retain the selected physical branch",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/branchPortalNavigation20261022.node.test.mjs:17:1",
+          "error": "|-\n    The input did not match the regular expression /api.portal.base/. Input:\n    \n    \"import { useCallback, useEffect, useMemo, useRef, useState } from 'react'\\r\\n\" +\n      \"import { Link, useLocation, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import { MdArrowForward, MdClose, MdPayments, MdReceiptLong, MdRefresh, MdSearch } from 'react-icons/md'\\r\\n\" +\n      \"import { getBills as getAdminBills } from '../../services/admin.service'\\r\\n\" +\n      \"import { getBills as getStaffBills } from '../../services/staff.service'\\r\\n\" +\n      \"import { useAuth } from '../../context/AuthContext'\\r\\n\" +\n      \"import { hasStaffPermission } from '../../config/staffPermissions'\\r\\n\" +\n      \"import { branchPortalPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatMoney, paymentMethodLabel } from '../../utils/billingUi'\\r\\n\" +\n      \"import BillingStatusBadge from './BillingStatusBadge'\\r\\n\" +\n      \"import Pagination from '../ui/Pagination'\\r\\n\" +\n      \"import { normalizedBillingTab, statusQueryFor } from './billingWorkspaceModel.mjs'\\r\\n\" +\n      \"import { EmptyState, ErrorState, LoadingState } from '../ui/PageState'\\r\\n\" +\n      '\\r\\n' +\n      \"const sec"
+        },
+        {
+          "name": "charge adjustment UI preserves approval, reason and stock separation notices",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/checkoutPresentation.node.test.mjs:49:1",
+          "error": "'approved reductions'"
+        },
+        {
+          "name": "tests\\\\cloudflareProxy.node.test.mjs",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/cloudflareProxy.node.test.mjs:1:1",
+          "error": "'test failed'"
+        },
+        {
+          "name": "app runs in light mode without saved dark preference",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/doctorNotificationsLightMode20261111.node.test.mjs:27:1",
+          "error": "\"ENOENT: no such file or directory, open 'D:\\\\Programming IDE_Codes\\\\ALLPROGRAMMING_FILES_CODES\\\\CAPSTONE\\\\QA_REPORT\\\\nine-batches-2026-11-14\\\\baseline\\\\client\\\\tailwind.config.js'\""
+        },
+        {
+          "name": "registration and staff-assisted forms limit date selection, and age-only intake starts at 18",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/fix17AdultForms.node.test.mjs:28:1",
+          "error": "|-\n    The input did not match the regular expression /getMaxPatientBirthdate/. Input:\n    \n    \"import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatQueueLabel } from '../../utils/queueLabel.mjs'\\r\\n\" +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useBlocker, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdArrowBack, MdArrowForward, MdCheck, MdCheckCircle,\\r\\n' +\n      '  MdOpenInNew, MdSearch,\\r\\n' +\n      '  MdWarningAmber,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary,\\r\\n' +\n      \"} from '../patientPage/BookAppointment'\\r\\n\" +\n      \"import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patientBirthdat"
+        },
+        {
+          "name": "service editor and permissions have item search",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/fix4Workflow20261111.node.test.mjs:21:1",
+          "error": "|-\n    The input did not match the regular expression /inv\\.barcode/. Input:\n    \n    \"import { useEffect, useMemo, useState } from 'react'\\r\\n\" +\n      \"import { portalBaseForPath, canManageServicePricingAtPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import { MdAdd, MdArrowBack, MdCheck, MdClose, MdDelete, MdLock, MdPayments } from 'react-icons/md'\\r\\n\" +\n      \"import { createBillingCatalogService, deleteBillingCatalogService, getBillingCatalog, getInventory, getSystemSetup, updateBillingCatalogService } from '../../services/admin.service'\\r\\n\" +\n      \"import { useToast } from '../../components/ui/ToastProvider'\\r\\n\" +\n      \"import ConfirmDialog from '../../components/ui/ConfirmDialog'\\r\\n\" +\n      \"import { LoadingState, ErrorState } from '../../components/ui/PageState'\\r\\n\" +\n      \"import { formatMoney } from '../../utils/billingUi'\\r\\n\" +\n      \"import { isSelectableServiceConsumable, filterServiceConsumables } from '../../utils/serviceConsumableEligibility.mjs'\\r\\n\" +\n      '\\r\\n' +\n      \"const CLINIC_TYPES = [{ value: 'medical', label: 'General Medicine' "
+        },
+        {
+          "name": "booking never submits unverified email, stale slots or missing policy acceptance",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/patientBookingFourStep.node.test.mjs:36:1",
+          "error": "|-\n    The input did not match the regular expression /emailStatus !== 'verified'/. Input:\n    \n    \"import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { usePatientBranch } from '../../context/PatientBranchContext'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      '// client/src/pages/patientPage/BookAppointment.jsx\\r\\n' +\n      '// Four-step patient-facing flow. Existing backend validation is authoritative.\\r\\n' +\n      '\\r\\n' +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { NavLink, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      'import {\\r\\n' +\n      '  getMyAppointments, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,\\r\\n' +\n      \"} from '../../services/patient.service'\\r\\n\" +\n      \"import { doctorClinicLabel } from '../../utils/doctor'\\r\\n\" +\n      \"import { useAuth } from '../../context/AuthContext'"
+        },
+        {
+          "name": "printed walk-in intake omits civil status and retains required patient contact fields",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/patientCivilStatusRemoval20261112.node.test.mjs:5:1",
+          "error": "'Full Name'"
+        },
+        {
+          "name": "unapproved catalog prices and placeholders are not presented as public prices",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/patientDashboardRedesign.node.test.mjs:49:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    \n    1 !== null"
+        },
+        {
+          "name": "redesigned dashboard retains live services, offers, announcements, and booking paths",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/patientDashboardRedesign.node.test.mjs:55:1",
+          "error": "|-\n    The input did not match the regular expression /publicServicePrice\\(service\\)/. Input:\n    \n    \"import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { NavLink } from 'react-router-dom'\\r\\n\" +\n      \"import { MdArrowForward, MdMedicalServices, MdFace, MdRefresh } from 'react-icons/md'\\r\\n\" +\n      \"import { getBookingServices } from '../../services/patient.service'\\r\\n\" +\n      \"import { formatPublicServicePrice, listServicesForCategory } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { paginatePatientServices } from '../../utils/patientServicePagination.mjs'\\r\\n\" +\n      \"import Pagination from '../ui/Pagination'\\r\\n\" +\n      \"import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'\\r\\n\" +\n      '\\r\\n' +\n      \"const clinicLabel = value => value === 'derma' ? 'Dermatology' : value === 'medical' ? 'General Medicine' : 'Clinic Service'\\r\\n\" +\n      \"const motion = 'transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none'\\r\\n\" +\n      'export const serviceBookingPath = (service, branchId) => {\\r\\n' +\n    "
+        },
+        {
+          "name": "booking shows service price in selection, review, and success",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/portraitPrescriptionPricingSchedules20261102.node.test.mjs:41:1",
+          "error": "|-\n    The input did not match the regular expression /Service price: \\{formatPublicServicePrice\\(service\\)\\}/. Input:\n    \n    \"import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { usePatientBranch } from '../../context/PatientBranchContext'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      '// client/src/pages/patientPage/BookAppointment.jsx\\r\\n' +\n      '// Four-step patient-facing flow. Existing backend validation is authoritative.\\r\\n' +\n      '\\r\\n' +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { NavLink, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      'import {\\r\\n' +\n      '  getMyAppointments, getAppointmentReasons, getBookingReadiness, getBookingServices, getCurrentPromotions, getDoctorsAvailability, getDoctorSchedule, getDoctorAvailableSlots, getDoctorUnavailableDates, bookAppointment,\\r\\n' +\n      \"} from '../../services/patient.service'\\r\\n\" +\n      \"import { doctorClinicLabel } from '../../utils/doctor'\\r\\n\" +\n      \"import { useAuth } from"
+        },
+        {
+          "name": "prescription prints as two landscape pads without signature box",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/prescriptionPad20261102.node.test.mjs:10:1",
+          "error": "|-\n    The input did not match the regular expression /@page\\{size:letter landscape/. Input:\n    \n    '<!doctype html><html><head><meta charset=\"utf-8\">\\n' +\n      '    <title>Prescription - Demo Patient</title>\\n' +\n      '    <style>\\n' +\n      '      @page{size:A5 portrait;margin:0}\\n' +\n      '      *{box-sizing:border-box}\\n' +\n      '      html,body{width:148mm;margin:0;padding:0;color:#000;font-family:Arial,Helvetica,sans-serif;background:#fff}\\n' +\n      '      .sheet{width:148mm;height:210mm;position:relative;break-after:page;page-break-after:always}\\n' +\n      '      .sheet:last-child{break-after:auto;page-break-after:auto}\\n' +\n      '      .pad{position:absolute;top:8mm;left:13.1mm;width:121.8mm;height:190mm;overflow:visible;break-inside:avoid}\\n' +\n      '      .pad-header{position:relative;height:29.5mm}\\n' +\n      '      .manilamed-info{position:absolute;left:0;top:0;width:47.5mm;font-size:6pt;font-weight:600;line-height:1.38}\\n' +\n      '      .manilamed-info img{display:block;width:25.35mm;height:6.7mm;object-fit:contain;object-position:left center}\\n' +\n      '      .manilamed-name{font-size:8.2pt;letter-spacing:-.22px;white-space:nowrap;line-height:1.12;margin:.3"
+        },
+        {
+          "name": "existing fields print and duplicate across pads",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/prescriptionPad20261102.node.test.mjs:16:1",
+          "error": "|-\n    November 2, 2026\n    \n    1 !== 2"
+        },
+        {
+          "name": "long prescription continues on extra sheet without dropping medicine entries",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/prescriptionPad20261102.node.test.mjs:46:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    \n    0 !== 3"
+        },
+        {
+          "name": "staff with Checkout and Billing sees the same four billing tasks as Admin",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/staffBillingUnified.node.test.mjs:10:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      [\n    +   'payments',\n    +   'history'\n    -   'checkout',\n    -   'transactions',\n    -   'payment-issues',\n    -   'cash'\n      ]"
+        },
+        {
+          "name": "billing-only staff cannot reach payment or cashier tools via query parameter",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/staffBillingUnified.node.test.mjs:15:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'payments'\n    - 'transactions'"
+        },
+        {
+          "name": "checkout-only staff can still read branch-owned bills but does not gain Admin approvals",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/staffBillingUnified.node.test.mjs:22:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      [\n    +   'payments',\n    +   'history'\n    -   'checkout',\n    -   'transactions',\n    -   'payment-issues',\n    -   'cash'\n      ]"
+        },
+        {
+          "name": "dashboard and reports never display zero-valued KPIs on request failure",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/superAdminDesign.node.test.mjs:23:1",
+          "error": "|-\n    The input did not match the regular expression /rows === null \\? <Banner/. Input:\n    \n    \"import InventoryPulse from '../InventoryPulse'\\r\\n\" +\n      \"import {useEffect,useState} from 'react'\\r\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\r\\n\" +\n      \"import {MdBusiness,MdCalendarMonth,MdPendingActions,MdPayments,MdCheckCircle,MdPersonOff,MdRefresh,MdArrowForward,MdPeople,MdHistory,MdWarningAmber,MdBlock} from 'react-icons/md'\\r\\n\" +\n      \"import {fetchJson,Card,PageHead,StatCard,Pill,Banner,Loading,Empty,pesos,whole,todayISO,beforeISO,SecondaryButton} from './shared'\\r\\n\" +\n      \"import {isValidReportPeriod,sumBranchMetric} from './reportFormat'\\r\\n\" +\n      \"import {loadOverviewSections} from './overviewData.mjs'\\r\\n\" +\n      '\\r\\n' +\n      'const sum=sumBranchMetric\\r\\n' +\n      \"const cols=['Branch','Appointments','Pending','Completed','Did Not Arrive','Doctors','Billed','Collected']\\r\\n\" +\n      'export const BranchPerformance=({rows=[]})=><div className=\"overflow-x-auto\"><table className=\"w-full min-w-[900px] text-left text-sm\"><thead><tr className=\"border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500\">{cols.map(h="
+        },
+        {
+          "name": "branch activation retains the confirmation flow and readiness details",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/superAdminDesign.node.test.mjs:32:1",
+          "error": "|-\n    The input did not match the regular expression /setConfirm\\(b\\)/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\r\\n\" +\n      \"import {useCallback,useEffect,useMemo,useRef,useState} from 'react'\\r\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\r\\n\" +\n      \"import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'\\r\\n\" +\n      \"import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'\\r\\n\" +\n      \"import {useToast} from '../../../components/ui/ToastProvider'\\r\\n\" +\n      \"import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'\\r\\n\" +\n      '\\r\\n' +\n      \"const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})\\r\\n\" +\n      'const messageOf=(error,fallback)=>error?.message||fallback\\r\\n' +\n      \"const countLabel=(value)=>Number(value||0).toLocaleString('en-PH')\\r\\n\" +\n      'const previewMapsUrl"
+        },
+        {
+          "name": "branch and super admin explicitly return permanent deletion on successful delete",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/client/tests/systemSetupCategoryRefresh.node.test.mjs:18:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(route.includes(\"withSetup('/system-setup/service-categories/:id','delete',deleteCategory)\"))"
+        }
+      ]
+    },
+    "introduced_failures": [],
+    "baseline_failures_absent_from_final": [
+      "app runs in light mode without saved dark preference",
+      "both Staff and Admin render the same isolated estimated preview",
+      "tests\\\\cloudflareProxy.node.test.mjs"
+    ]
+  },
+  "backend_node": {
+    "current": {
+      "summary": {
+        "tests": 980,
+        "pass": 908,
+        "fail": 72,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "name": "non promotional news cannot claim a promotion",
+          "location": "server/tests/announcementBookingValidation.node.test.cjs:26:1",
+          "error": "'Missing expected exception.'"
+        },
+        {
+          "name": "manual reminder explains unverified email and disabled SMS, without sending",
+          "location": "server/tests/appointments/pdfReviewFixes20261029.node.test.cjs:30:1",
+          "error": "'Only future, confirmed appointments can receive a reminder.'"
+        },
+        {
+          "name": "manual reminder explains unverified SMS number",
+          "location": "server/tests/appointments/pdfReviewFixes20261029.node.test.cjs:35:1",
+          "error": "'Only future, confirmed appointments can receive a reminder.'"
+        },
+        {
+          "name": "manual reminder explains SMS provider unavailable",
+          "location": "server/tests/appointments/pdfReviewFixes20261029.node.test.cjs:40:1",
+          "error": "'Only future, confirmed appointments can receive a reminder.'"
+        },
+        {
+          "name": "saves trusted branch/service/date/terms snapshot, not client-supplied terms",
+          "location": "server/tests/batch4/selectedPromotion.node.cjs:27:1",
+          "error": "'Promotions require a registered patient account. Guests can book at the regular price.'"
+        },
+        {
+          "name": "rejects promotion not linked to active branch-owned service",
+          "location": "server/tests/batch4/selectedPromotion.node.cjs:40:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      Comparison {\n    +   code: 'PROMOTION_ACCOUNT_REQUIRED',\n    +   status: 403\n    -   code: 'PROMOTION_SERVICE_MISMATCH',\n    -   status: 409\n      }"
+        },
+        {
+          "name": "complete consultation with none reduction decision preserves promotion and actual consumption",
+          "location": "server/tests/billing/consultationLifecycle20261105.node.test.cjs:46:54",
+          "error": "'saveFollowup is not defined'"
+        },
+        {
+          "name": "complete consultation with approved reduction decision preserves promotion and actual consumption",
+          "location": "server/tests/billing/consultationLifecycle20261105.node.test.cjs:46:54",
+          "error": "'saveFollowup is not defined'"
+        },
+        {
+          "name": "complete consultation with rejected reduction decision preserves promotion and actual consumption",
+          "location": "server/tests/billing/consultationLifecycle20261105.node.test.cjs:46:54",
+          "error": "'saveFollowup is not defined'"
+        },
+        {
+          "name": "quantity-only changes alter inventory consumption without changing service price or fee",
+          "location": "server/tests/billing/quantitiesAndLedger20261105.node.test.cjs:14:1",
+          "error": "'Liquid requires a positive whole number of ml.'"
+        },
+        {
+          "name": "fractional included or extra discrete items are rejected, measured extras bill once",
+          "location": "server/tests/billing/quantitiesAndLedger20261105.node.test.cjs:21:1",
+          "error": "'Liquid requires a positive whole number of ml.'"
+        },
+        {
+          "name": "fractional supply currency rounds half-cent products consistently with the client estimate",
+          "location": "server/tests/billing/quantitiesAndLedger20261105.node.test.cjs:58:1",
+          "error": "'Liquid requires a positive whole number of ml.'"
+        },
+        {
+          "name": "booked and eligible added service both receive Christmas 25%; stock items do not",
+          "location": "server/tests/billing/servicePromotions20261111.node.test.cjs:15:1",
+          "error": "'This offer requires a registered patient account. Guests cannot receive promotional discounts.'"
+        },
+        {
+          "name": "non-eligible added services receive no booked promotion",
+          "location": "server/tests/billing/servicePromotions20261111.node.test.cjs:25:1",
+          "error": "'This offer requires a registered patient account. Guests cannot receive promotional discounts.'"
+        },
+        {
+          "name": "deleting the live booked promotion preserves its saved discount only on the booked service",
+          "location": "server/tests/billing/servicePromotions20261111.node.test.cjs:56:1",
+          "error": "'This offer requires a registered patient account. Guests cannot receive promotional discounts.'"
+        },
+        {
+          "name": "deleted booked promotion remains capped and is not counted twice on repeated saves",
+          "location": "server/tests/billing/servicePromotions20261111.node.test.cjs:70:1",
+          "error": "'This offer requires a registered patient account. Guests cannot receive promotional discounts.'"
+        },
+        {
+          "name": "readiness obtains branch-scoped accurate counts with 4 parameterized grouped queries",
+          "location": "server/tests/booking/batch12Readiness.node.cjs:24:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(seen.every(({ sql, params }) => sql.includes('branch_id = ?') && params.length === 1 && params[0] === 7))"
+        },
+        {
+          "name": "legacy organization-level readiness still works without a branch filter",
+          "location": "server/tests/booking/batch12Readiness.node.cjs:54:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(seen.every(({ sql, params }) => !sql.includes('branch_id = ?') && params.length === 0))"
+        },
+        {
+          "name": "branch slot read allows appointment privilege but not doctor schedule modification",
+          "location": "server/tests/branchIntegration/batch2AppointmentWorkflows.node.cjs:53:1",
+          "error": "|-\n    The input did not match the regular expression /available-slots`,\\.\\.\\.middle,allowAnyPermission\\('appointments','doctor_schedules'\\)/. Input:\n    \n    \"const { listBranchPatients, getBranchPatientRecord } = require('../utils/patientRecordView')\\r\\n\" +\n      \"const {afterSuccessfulMutation}=require('../utils/clinicEvents')\\r\\n\" +\n      \"const {attachBatchesToInventory}=require('../utils/inventoryBatches')\\r\\n\" +\n      \"const {hydrateBillingCatalogRows}=require('../utils/billing')\\r\\n\" +\n      \"const {loadSuperAdminReport,SECTIONS}=require('../utils/superAdminReports')\\r\\n\" +\n      '// Physical-branch management. Unlike the legacy admin controller, every data\\r\\n' +\n      '// query here contains an explicit authorized physical-branch predicate.\\r\\n' +\n      \"const express = require('express')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const {randomBytes} = require('crypto')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const authenticate = require('../middlewares/auth.middleware')\\r\\n\" +\n      \"const commonCtrl = require('../controllers/common.controller')\\r\\n\" +\n      \"const { writeAuditLog } = require('../utils/audit')\\r\\n\" +\n      \"const"
+        },
+        {
+          "name": "walk-in mode uses existing authorized queue endpoint and receipt instead of scheduled booking",
+          "location": "server/tests/branchIntegration/batch2AppointmentWorkflows.node.cjs:58:1",
+          "error": "|-\n    The input did not match the regular expression /success\\.receipt\\?\\.queue_number/. Input:\n    \n    \"import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatQueueLabel } from '../../utils/queueLabel.mjs'\\r\\n\" +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useBlocker, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdArrowBack, MdArrowForward, MdCheck, MdCheckCircle,\\r\\n' +\n      '  MdOpenInNew, MdSearch,\\r\\n' +\n      '  MdWarningAmber,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary,\\r\\n' +\n      \"} from '../patientPage/BookAppointment'\\r\\n\" +\n      \"import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patie"
+        },
+        {
+          "name": "branch doctor schedule endpoint uses weekday order and retains doctor ownership",
+          "location": "server/tests/branchIntegration/batch5WeekdayOrder.node.cjs:10:1",
+          "error": "|-\n    The input did not match the regular expression /SELECT \\* FROM doctor_schedules WHERE doctor_id=\\? ORDER BY FIELD\\(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'\\)/. Input:\n    \n    \"const { listBranchPatients, getBranchPatientRecord } = require('../utils/patientRecordView')\\r\\n\" +\n      \"const {afterSuccessfulMutation}=require('../utils/clinicEvents')\\r\\n\" +\n      \"const {attachBatchesToInventory}=require('../utils/inventoryBatches')\\r\\n\" +\n      \"const {hydrateBillingCatalogRows}=require('../utils/billing')\\r\\n\" +\n      \"const {loadSuperAdminReport,SECTIONS}=require('../utils/superAdminReports')\\r\\n\" +\n      '// Physical-branch management. Unlike the legacy admin controller, every data\\r\\n' +\n      '// query here contains an explicit authorized physical-branch predicate.\\r\\n' +\n      \"const express = require('express')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const {randomBytes} = require('crypto')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const authenticate = require('../middlewares/auth.middleware')\\r\\n\" +\n      \"const commonCtrl = require('../controllers/common.controller')\\r\\n\" +\n      \"const"
+        },
+        {
+          "name": "deactivated branch is denied",
+          "location": "server/tests/branchIntegration/multibranchAdditions.node.cjs:24:1",
+          "error": "'should not call next'"
+        },
+        {
+          "name": "all branch report operational queries use the authorized branch",
+          "location": "server/tests/branchIntegration/multibranchPhaseOne.node.cjs:5:1",
+          "error": "'Missing test mock: ../utils/inventoryReportStock'"
+        },
+        {
+          "name": "billing settings are registered before dynamic bill id",
+          "location": "server/tests/branchIntegration/multibranchPhaseOne.node.cjs:15:1",
+          "error": "'Missing test mock: ../utils/branchStockRoomSummary'"
+        },
+        {
+          "name": "inactive branch operational actions are disabled while status switch remains accessible",
+          "location": "server/tests/branches/branchReactivation.node.test.cjs:138:1",
+          "error": "|-\n    The input did not match the regular expression /disabled\\s+aria-label=\\{`Manage \\$\\{b\\.name\\} \\(inactive\\)`\\}/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\n\" +\n      \"import {useCallback,useEffect,useMemo,useRef,useState} from 'react'\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\n\" +\n      \"import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'\\n\" +\n      \"import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'\\n\" +\n      \"import {useToast} from '../../../components/ui/ToastProvider'\\n\" +\n      \"import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'\\n\" +\n      '\\n' +\n      \"const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})\\n\" +\n      'const messageOf=(error,fallback)=>error?.message||fallback\\n' +\n      \"const countLabel=(value)=>Number(value||0).toLocaleString('en-PH')\\n\" +\n   "
+        },
+        {
+          "name": "active/inactive status filter compares strings correctly",
+          "location": "server/tests/branches/branchReactivation.node.test.cjs:145:1",
+          "error": "|-\n    The input did not match the regular expression /filter===\\(Number\\(b\\.is_active\\)\\?'active':'inactive'\\)/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\n\" +\n      \"import {useCallback,useEffect,useMemo,useRef,useState} from 'react'\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\n\" +\n      \"import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'\\n\" +\n      \"import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'\\n\" +\n      \"import {useToast} from '../../../components/ui/ToastProvider'\\n\" +\n      \"import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'\\n\" +\n      '\\n' +\n      \"const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})\\n\" +\n      'const messageOf=(error,fallback)=>error?.message||fallback\\n' +\n      \"const countLabel=(value)=>Number(value||0).toLocaleString('en-PH')\\n\" +\n      'c"
+        },
+        {
+          "name": "public navigation is responsive and routes back to anchored home sections",
+          "location": "server/tests/branching/branchAdminCreate20261017.node.cjs:111:1",
+          "error": "|-\n    The input did not match the regular expression /className=\"sticky top-0 z-50/. Input:\n    \n    '// client/src/components/layouts/Layout.jsx\\n' +\n      '// UPDATED:\\n' +\n      '//  1. Footer is no longer \"fixed\" — it stays at bottom of page content naturally.\\n' +\n      '//  2. Footer now shows Terms of Service and Privacy Policy links (read from CMS).\\n' +\n      '//  3. Footer links are hidden when their URL is blank (admin can toggle them by clearing the field).\\n' +\n      '//  4. Facebook icon replaced with FaFacebook from react-icons (was already there — kept).\\n' +\n      '\\n' +\n      \"import { useEffect, useState } from 'react'\\n\" +\n      \"import { NavLink, Outlet, useLocation } from 'react-router-dom'\\n\" +\n      \"import { MdClose, MdMenu } from 'react-icons/md'\\n\" +\n      \"import { FaFacebook } from 'react-icons/fa'\\n\" +\n      \"import { getPublicLandingPage } from '../../services/landing.service'\\n\" +\n      \"import { isExternalPath, normalizeAppPath } from '../../utils/navigation'\\n\" +\n      \"import { useAuth } from '../../context/AuthContext'\\n\" +\n      \"import SeoManager from '../SeoManager'\\n\" +\n      '\\n' +\n      '// ── Defaults (match DB content) ──────────────────"
+        },
+        {
+          "name": "stock requests are confined to the requested branch",
+          "location": "server/tests/branching/branchReadContracts.node.cjs:145:1",
+          "error": "'x.api.readTransferGroups is not a function'"
+        },
+        {
+          "name": "pending usage checks available stock and picks the next stockroom if needed",
+          "location": "server/tests/clinicalReservations20261111.node.cjs:17:1",
+          "error": "\"Cannot destructure property 'writeInventoryActivity' of 'require(...)' as it is null.\""
+        },
+        {
+          "name": "pending usage refuses an item without enough stock",
+          "location": "server/tests/clinicalReservations20261111.node.cjs:27:1",
+          "error": "\"Cannot destructure property 'writeInventoryActivity' of 'require(...)' as it is null.\""
+        },
+        {
+          "name": "failure history migration adds one nullable field without touching existing records",
+          "location": "server/tests/deployment/billingFailureMigration20261105.node.test.cjs:23:1",
+          "error": "'Daily queue migration required: uniq_queue_branch_doctor_day_number'"
+        },
+        {
+          "name": "migration resumes when TiDB DDL succeeded before the migration record was written",
+          "location": "server/tests/deployment/billingFailureMigration20261105.node.test.cjs:29:1",
+          "error": "'Daily queue migration required: uniq_queue_branch_doctor_day_number'"
+        },
+        {
+          "name": "walk-in age validation requires 18+ at server level",
+          "location": "server/tests/fix17AdultPolicy.node.cjs:58:1",
+          "error": "|-\n    The input did not match the regular expression /age<18 \\|\\| age>120/. Input:\n    \n    \"const { availableStockSql } = require('../utils/inventoryReportStock')\\r\\n\" +\n      \"const { writeInventoryActivity } = require('../utils/inventoryActivity')\\r\\n\" +\n      \"const { notifyDoctorOnConfirmation } = require('../utils/doctorConfirmationNotifications')\\r\\n\" +\n      \"const { isUnifiedBillingStockOut, postClinicalReservations, assertNoUnpostedStockWithFeatureOff } = require('../utils/clinicalInventoryReservations')\\r\\n\" +\n      '// server/controllers/staff.controller.js\\r\\n' +\n      \"// FIX 1: getDoctors now returns the 'type' field so Walk-in Queue doctor filter works\\r\\n\" +\n      '// FIX 2: Added updateInventoryItem and deleteInventoryItem\\r\\n' +\n      \"// FIX 3: getPatients returns 'name' alias so AddModal dropdown shows patient names\\r\\n\" +\n      '\\r\\n' +\n      \"const { nextInventoryBarcode } = require('../utils/barcodes')\\r\\n\" +\n      \"const db           = require('../db/connect')\\r\\n\" +\n      \"const bcrypt       = require('bcrypt')\\r\\n\" +\n      \"const jwt          = require('jsonwebtoken')\\r\\n\" +\n      \"const generateCookie = require('../utils/generateCookie')\\r\\n\" +\n      \"c"
+        },
+        {
+          "name": "one recipient is notified once after repeated worker runs, from the same DB transaction as the delivery ledger",
+          "location": "server/tests/gateway/automaticInappPublications20261105.node.test.cjs:25:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'pending'\n    - 'completed'"
+        },
+        {
+          "name": "every inventory log INSERT contains the physical branch",
+          "location": "server/tests/gateway/paymongoQr.node.cjs:54:1",
+          "error": "'routers/branchInventoryItems.js has unscoped stock log SQL'"
+        },
+        {
+          "name": "homepage offers are hidden for anonymous, guest-verified and invalid patient sessions",
+          "location": "server/tests/guestPromotions20261112.node.cjs:76:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n    + [\n    +   {\n    +     branch_id: 1,\n    +     discount_type: 'percentage',\n    +     discount_value: 20,\n    +     eligibility_type: 'all',\n    +     featured_order: 0,\n    +     id: 5,\n    +     is_active: true,\n    +     service_ids: [\n    +       77\n    +     ],\n    +     show_on_dashboard: false,\n    +     title: 'Patient offer'\n    +   }\n    + ]\n    - []"
+        },
+        {
+          "name": "public news excludes promotional posts and direct promotion requests cannot bypass sign-in",
+          "location": "server/tests/guestPromotions20261112.node.cjs:90:1",
+          "error": "'expected 200 \"OK\", got 500 \"Internal Server Error\"'"
+        },
+        {
+          "name": "registered patients retain promotional news lists and details",
+          "location": "server/tests/guestPromotions20261112.node.cjs:99:1",
+          "error": "'expected 200 \"OK\", got 500 \"Internal Server Error\"'"
+        },
+        {
+          "name": "draft announcement accepts plain-text content",
+          "location": "server/tests/marketing/announcements.node.cjs:18:1",
+          "error": "'URL is not defined'"
+        },
+        {
+          "name": "rejects unsafe external CTA URLs",
+          "location": "server/tests/marketing/announcements.node.cjs:20:1",
+          "error": "|-\n    The input did not match the regular expression /internal/i. Input:\n    \n    'Error: Choose a clinic booking destination from the list.'"
+        },
+        {
+          "name": "rejects protocol-relative redirects",
+          "location": "server/tests/marketing/announcements.node.cjs:21:1",
+          "error": "|-\n    The input did not match the regular expression /internal/i. Input:\n    \n    'Error: Choose a clinic booking destination from the list.'"
+        },
+        {
+          "name": "uses Manila date during UTC previous day and accepts newborns",
+          "location": "server/tests/patients/batch6Birthdates.node.cjs:18:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'Patients must be at least 18 years old.'\n    - null"
+        },
+        {
+          "name": "respects birthday-specific age-100 boundary and does not block infants",
+          "location": "server/tests/patients/batch6Birthdates.node.cjs:25:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'Patients must be at least 18 years old.'\n    - null"
+        },
+        {
+          "name": "billing and all reschedule paths preserve selected promotional discount boundaries",
+          "location": "server/tests/promotions/promotionPricing20261105.node.cjs:25:1",
+          "error": "|-\n    The input did not match the regular expression /item\\.source_type==='consultation'/. Input:\n    \n    \"const db = require('../db/connect')\\r\\n\" +\n      \"const { validateSupplyQuantity } = require('./supplyQuantity')\\r\\n\" +\n      \"const { normalizeText, normalizeOptionalText, normalizeNumber, makeValidationError } = require('./inputValidation')\\r\\n\" +\n      '\\r\\n' +\n      'const roundMoney = (value) => Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100\\r\\n' +\n      '\\r\\n' +\n      'const getInventoryBaseUnitCost = () => 0\\r\\n' +\n      '\\r\\n' +\n      '// CARAIT no longer treats Inventory Selling Price as acquisition/material cost.\\r\\n' +\n      '// Service pricing is configured explicitly; consumables affect stock only.\\r\\n' +\n      'const getServiceMaterialUnitCost = () => 0\\r\\n' +\n      '\\r\\n' +\n      'const parseJsonSafe = (value, fallback = null) => {\\r\\n' +\n      '  if (!value) return fallback\\r\\n' +\n      \"  if (typeof value === 'object') return value\\r\\n\" +\n      '  try {\\r\\n' +\n      '    return JSON.parse(value)\\r\\n' +\n      '  } catch {\\r\\n' +\n      '    return fallback\\r\\n' +\n      '  }\\r\\n' +\n      '}\\r\\n' +\n      '\\r\\n' +\n      'const collectInventoryUsa"
+        },
+        {
+          "name": "first-login schema, invitation, login, password reset and UI all use the same flag",
+          "location": "server/tests/security/adminFirstLogin20261022.node.cjs:56:1",
+          "error": "|-\n    The input did not match the regular expression /\\['staff', 'doctor', 'admin'\\]/. Input:\n    \n    \"const db = require('../db/connect')\\n\" +\n      \"const bcrypt = require('bcrypt')\\n\" +\n      \"const { sendPasswordResetOtp } = require('../utils/emailService')\\n\" +\n      \"const { normalizePhilippinePhone } = require('../utils/phone')\\n\" +\n      \"const { sendPatientPasswordResetOtp } = require('../utils/smsService')\\n\" +\n      \"const { validatePassword } = require('../utils/accountSecurity')\\n\" +\n      \"const { makeNumericCode, makeRandomToken, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')\\n\" +\n      \"const { revokeSessions } = require('../utils/sessionSecurity')\\n\" +\n      '\\n' +\n      `const NORMALIZED_PHONE_SQL = \"REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')\"\\n` +\n      'const MAX_OTP_ATTEMPTS = 5\\n' +\n      '\\n' +\n      'const ROLE_CONFIG = {\\n' +\n      \"  patient: { table: 'patients' },\\n\" +\n      \"  doctor: { table: 'doctors', where: 'email = ? AND is_active = 1' },\\n\" +\n      `  staff: { table: 'staff', where: \"email = ? AND status = 'active'\" },\\n` +\n      `  admin: { table: 'admins', where: \"emai"
+        },
+        {
+          "name": "new additive migration stores draft and published policy separately",
+          "location": "server/tests/security/bookingPolicyContent.node.test.cjs:57:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(migrations.includes(\"'2026-11-01-booking-policy-content.sql'\"))"
+        },
+        {
+          "name": "public page is routed, linked from the footer, and opened from the booking flow",
+          "location": "server/tests/security/bookingPolicyContent.node.test.cjs:68:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(booking.includes('/booking-policy?branch_id='))"
+        },
+        {
+          "name": "appointment validates the doctor and service inside the requested branch transaction",
+          "location": "server/tests/security/branchWriteRemediation20261015.node.cjs:76:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(calls.some(([sql,args])=>sql.includes('FROM doctors')&&sql.includes('branch_id=?')&&args[1]===2))"
+        },
+        {
+          "name": "patient booking explicitly requires branch-owned doctor and service",
+          "location": "server/tests/security/multiBranch20261009.node.cjs:32:1",
+          "error": "|-\n    The input did not match the regular expression /FROM doctors WHERE id=\\? AND is_active=1 AND branch_id=\\?/. Input:\n    \n    \"const db = require('../db/connect')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const jwt = require('jsonwebtoken')\\r\\n\" +\n      \"const generateCookie = require('../utils/generateCookie')\\r\\n\" +\n      \"const { issueSession, verifySessionToken, invalidateRequestSession } = require('../utils/sessionSecurity')\\r\\n\" +\n      \"const { validatePassword } = require('../utils/accountSecurity')\\r\\n\" +\n      \"const { makeNumericCode, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')\\r\\n\" +\n      \"const { sendAppointmentStatusEmail } = require('../utils/emailService')\\r\\n\" +\n      \"const { notifyRoles, createNotification } = require('../utils/notifications')\\r\\n\" +\n      \"const { markOverdueAppointments } = require('../utils/appointments')\\r\\n\" +\n      \"const { broadcast } = require('../utils/sse')\\r\\n\" +\n      \"const { getTodayDateOnly } = require('../utils/date')\\r\\n\" +\n      \"const { parsePromotionId, resolveSelectedPromotion } = require('../utils/promotionEligibility')\\r\\n\" +\n      \"const { normalizePhilippinePhone } = req"
+        },
+        {
+          "name": "Patient promotion API rejects absent branch and cannot return other branch offers",
+          "location": "server/tests/security/oct28StaffAndPatientBranches.node.cjs:49:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    \n    undefined !== 2"
+        },
+        {
+          "name": "new compatibility endpoints have branch predicates, not JS-only list filtering",
+          "location": "server/tests/security/originalAdminPortalBranch20261009.node.cjs:20:1",
+          "error": "|-\n    The input did not match the regular expression /WHERE p\\.id=\\? AND EXISTS/. Input:\n    \n    \"const { listBranchPatients, getBranchPatientRecord } = require('../utils/patientRecordView')\\r\\n\" +\n      \"const {afterSuccessfulMutation}=require('../utils/clinicEvents')\\r\\n\" +\n      \"const {attachBatchesToInventory}=require('../utils/inventoryBatches')\\r\\n\" +\n      \"const {hydrateBillingCatalogRows}=require('../utils/billing')\\r\\n\" +\n      \"const {loadSuperAdminReport,SECTIONS}=require('../utils/superAdminReports')\\r\\n\" +\n      '// Physical-branch management. Unlike the legacy admin controller, every data\\r\\n' +\n      '// query here contains an explicit authorized physical-branch predicate.\\r\\n' +\n      \"const express = require('express')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const {randomBytes} = require('crypto')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const authenticate = require('../middlewares/auth.middleware')\\r\\n\" +\n      \"const commonCtrl = require('../controllers/common.controller')\\r\\n\" +\n      \"const { writeAuditLog } = require('../utils/audit')\\r\\n\" +\n      \"const { makeTemporaryPassword } = require('../utils/securityCrypt"
+        },
+        {
+          "name": "patient doctor schedules require branch-scoped active doctor",
+          "location": "server/tests/security/patientBranchIsolation20261009.node.cjs:7:1",
+          "error": "|-\n    The input did not match the regular expression /d\\.id = \\? AND d\\.branch_id = \\?/. Input:\n    \n    \"const db = require('../db/connect')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const jwt = require('jsonwebtoken')\\r\\n\" +\n      \"const generateCookie = require('../utils/generateCookie')\\r\\n\" +\n      \"const { issueSession, verifySessionToken, invalidateRequestSession } = require('../utils/sessionSecurity')\\r\\n\" +\n      \"const { validatePassword } = require('../utils/accountSecurity')\\r\\n\" +\n      \"const { makeNumericCode, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')\\r\\n\" +\n      \"const { sendAppointmentStatusEmail } = require('../utils/emailService')\\r\\n\" +\n      \"const { notifyRoles, createNotification } = require('../utils/notifications')\\r\\n\" +\n      \"const { markOverdueAppointments } = require('../utils/appointments')\\r\\n\" +\n      \"const { broadcast } = require('../utils/sse')\\r\\n\" +\n      \"const { getTodayDateOnly } = require('../utils/date')\\r\\n\" +\n      \"const { parsePromotionId, resolveSelectedPromotion } = require('../utils/promotionEligibility')\\r\\n\" +\n      \"const { normalizePhilippinePhone } = require('../utils/phone')\\r\\"
+        },
+        {
+          "name": "queue display unlock refuses an invalid branch",
+          "location": "server/tests/security/queueDisplayBranch20261015.node.cjs:65:1",
+          "error": "'Unexpected query: SELECT pin_hash,pin_version,updated_at,updated_by_admin_id FROM branch_queue_display_security WHERE branch_id=? LIMIT 1'"
+        },
+        {
+          "name": "queue display session is HttpOnly, branch-bound, and live queue queries enforce that branch",
+          "location": "server/tests/security/queueDisplayBranch20261015.node.cjs:72:1",
+          "error": "'Unexpected query: SELECT pin_hash,pin_version,updated_at,updated_by_admin_id FROM branch_queue_display_security WHERE branch_id=? LIMIT 1'"
+        },
+        {
+          "name": "dashboard and reports separate billed from collected and have date selectors",
+          "location": "server/tests/security/superAdminRedesign20261009.node.cjs:16:1",
+          "error": "|-\n    The input did not match the regular expression /Billed Amount/. Input:\n    \n    \"import InventoryPulse from '../InventoryPulse'\\n\" +\n      \"import {useEffect,useState} from 'react'\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\n\" +\n      \"import {MdBusiness,MdCalendarMonth,MdPendingActions,MdPayments,MdCheckCircle,MdPersonOff,MdRefresh,MdArrowForward,MdPeople,MdHistory,MdWarningAmber,MdBlock} from 'react-icons/md'\\n\" +\n      \"import {fetchJson,Card,PageHead,StatCard,Pill,Banner,Loading,Empty,pesos,whole,todayISO,beforeISO,SecondaryButton} from './shared'\\n\" +\n      \"import {isValidReportPeriod,sumBranchMetric} from './reportFormat'\\n\" +\n      \"import {loadOverviewSections} from './overviewData.mjs'\\n\" +\n      '\\n' +\n      'const sum=sumBranchMetric\\n' +\n      \"const cols=['Branch','Appointments','Pending','Completed','Did Not Arrive','Doctors','Billed','Collected']\\n\" +\n      'export const BranchPerformance=({rows=[]})=><div className=\"overflow-x-auto\"><table className=\"w-full min-w-[900px] text-left text-sm\"><thead><tr className=\"border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500\">{cols.map(h=><th key={h} scope=\"col\" classN"
+        },
+        {
+          "name": "Super Admin credits API is protected and never exposes key",
+          "location": "server/tests/semaphoreBalance20261111.node.cjs:27:1",
+          "error": "|-\n    The input did not match the regular expression /Refresh Balance/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\r\\n\" +\n      \"import { useEffect, useState } from 'react'\\r\\n\" +\n      \"import { PageHead, Banner, Card } from './shared'\\r\\n\" +\n      '\\r\\n' +\n      \"const ENDPOINT = '/api/admin/system-setup/doctor-notifications'\\r\\n\" +\n      \"const CREDITS_ENDPOINT = '/api/admin/system-setup/sms-credits'\\r\\n\" +\n      \"const SEMAPHORE_URL = 'https://semaphore.co/'\\r\\n\" +\n      'const initial = { send_email: true, send_sms: false }\\r\\n' +\n      'const loadJson = async (options) => {\\r\\n' +\n      '  const response = await fetch(ENDPOINT, {\\r\\n' +\n      \"    credentials: 'include',\\r\\n\" +\n      '    ...options,\\r\\n' +\n      \"    headers: { 'X-Admin-Portal':'superadmin', ...(options?.body ? {'Content-Type':'application/json'} : {}) },\\r\\n\" +\n      '  })\\r\\n' +\n      '  const data = await response.json().catch(() => ({}))\\r\\n' +\n      '  if (!response.ok) throw new Error(data.message || `Request failed (${response.status}).`)\\r\\n' +\n      '  return data\\r\\n' +\n      '}\\r\\n' +\n      '\\r\\n' +\n      'export const SuperAdminSystemSetup = () => {\\r\\n' +\n  "
+        },
+        {
+          "name": "branch payment setting and gateway never enable QR Ph automatically",
+          "location": "server/tests/simplification/stockRoomMigrationFollowup.node.test.cjs:30:1",
+          "error": "|-\n    The input did not match the regular expression /CARAIT_ENFORCE_QRPH_BRANCH_TOGGLE/. Input:\n    \n    \"'use strict'\\r\\n\" +\n      \"const express = require('express')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const { createQr, retrieveIntent, retrieveRefund, cancelIntent, credentials, fail } = require('../utils/paymongoClient')\\r\\n\" +\n      \"const { assertVerifiedQrRefund } = require('../utils/paymongoRefundVerification')\\r\\n\" +\n      \"const { verifyPaymongoSignature } = require('../utils/paymongoWebhookSignature')\\r\\n\" +\n      \"const { getBillingRecordWithItems } = require('../utils/billing')\\r\\n\" +\n      \"const { writeAuditLog } = require('../utils/audit')\\r\\n\" +\n      \"const staffCtrl = require('../controllers/staff.controller')\\r\\n\" +\n      \"const { broadcast } = require('../utils/sse')\\r\\n\" +\n      \"const { configuredMode, expectedLive, supportsMode, isLiveCollectionEnabled, sameConfiguredMode } = require('../utils/paymongoMode')\\r\\n\" +\n      '\\r\\n' +\n      'const apiRouter = express.Router()\\r\\n' +\n      \"const knownStatus = new Set(['creating','pending','succeeded','failed','expired','review','refunded','cancelled'])\\r\\n\" +\n      'const http = (code,"
+        },
+        {
+          "name": "branch and Staff System Setup use the same physical stock allocation summary",
+          "location": "server/tests/stockRoomPdfFix.node.test.cjs:37:1",
+          "error": "|-\n    The input did not match the regular expression /getBranchStockRooms\\(db, req.branchId\\)/. Input:\n    \n    \"const { listBranchPatients } = require('../utils/patientRecordView')\\r\\n\" +\n      \"const reminderRoutes=require('./appointmentReminderRoutes')\\r\\n\" +\n      '// server/routers/staff.router.js\\r\\n' +\n      \"const express    = require('express')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const {listBillingCatalog} = require('../utils/billing')\\r\\n\" +\n      \"const {validateBookingSettings,normalizeBookingSettings,withBookingTestingCapability}=require('../utils/bookingPolicy')\\r\\n\" +\n      \"const {cloneDefaultBookingPolicyDocument,normalizeBookingPolicyDocument,parseStoredBookingPolicyDocument}=require('../utils/bookingPolicyDocument')\\r\\n\" +\n      \"const {writeAuditLog}=require('../utils/audit')\\r\\n\" +\n      'const router     = express.Router()\\r\\n' +\n      \"const staffCtrl  = require('../controllers/staff.controller')\\r\\n\" +\n      \"const adminCtrl  = require('../controllers/admin.controller')\\r\\n\" +\n      \"const staffAccessCtrl = require('../controllers/staffAccess.controller')\\r\\n\" +\n      \"const {readBranchReport, recordBranchExport} = require('./bra"
+        },
+        {
+          "name": "walk-in email can register and SMS activation upgrades the same patient without changing visit or financial history",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:6:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "registration normalizes case and phone formatting when linking the walk-in record",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:28:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "real patient accounts remain protected even when an old is_walk_in flag is still 1",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:33:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "an email-only match with a different or missing mobile cannot claim a walk-in history",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:40:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "identity mismatches and banned walk-ins do not overwrite the patient record",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:48:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "a different registered patient owning the requested email blocks registration",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:55:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "invalid and expired OTPs do not activate credentials; five wrong attempts invalidate the code",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:61:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "verification rechecks credentials and email ownership changed after sending the OTP",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:73:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "activation and OTP consumption roll back if consent, audit or uniqueness checks fail",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:82:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "simultaneous verification cannot activate twice or issue a second session",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:92:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "a new patient without a matching walk-in still registers normally",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:98:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "an unused email may replace the walk-in email only after verified mobile ownership",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:105:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "missing legacy demographics can be completed while an unchanged verified email remains verified",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:112:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "a patient record introduced after the OTP request cannot silently change the activation target",
+          "location": "server/tests/walkInRegistration20261112.node.cjs:119:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        }
+      ]
+    },
+    "baseline": {
+      "summary": {
+        "tests": 924,
+        "pass": 850,
+        "fail": 74,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "failures": [
+        {
+          "name": "non promotional news cannot claim a promotion",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/announcementBookingValidation.node.test.cjs:26:1",
+          "error": "'Missing expected exception.'"
+        },
+        {
+          "name": "manual reminder explains unverified email and disabled SMS, without sending",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/appointments/pdfReviewFixes20261029.node.test.cjs:30:1",
+          "error": "'Only future, confirmed appointments can receive a reminder.'"
+        },
+        {
+          "name": "manual reminder explains unverified SMS number",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/appointments/pdfReviewFixes20261029.node.test.cjs:35:1",
+          "error": "'Only future, confirmed appointments can receive a reminder.'"
+        },
+        {
+          "name": "manual reminder explains SMS provider unavailable",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/appointments/pdfReviewFixes20261029.node.test.cjs:40:1",
+          "error": "'Only future, confirmed appointments can receive a reminder.'"
+        },
+        {
+          "name": "saves trusted branch/service/date/terms snapshot, not client-supplied terms",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/batch4/selectedPromotion.node.cjs:27:1",
+          "error": "'Promotions require a registered patient account. Guests can book at the regular price.'"
+        },
+        {
+          "name": "rejects promotion not linked to active branch-owned service",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/batch4/selectedPromotion.node.cjs:40:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      Comparison {\n    +   code: 'PROMOTION_ACCOUNT_REQUIRED',\n    +   status: 403\n    -   code: 'PROMOTION_SERVICE_MISMATCH',\n    -   status: 409\n      }"
+        },
+        {
+          "name": "approved image binds promotion, actor and current branch and saves only verified asset",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/batch79/promotionImage.node.cjs:36:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'none'\n    - 'https://res.cloudinary.com/demo/image/upload/approved.jpg'"
+        },
+        {
+          "name": "complete consultation with none reduction decision preserves promotion and actual consumption",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/consultationLifecycle20261105.node.test.cjs:46:54",
+          "error": "|-\n    Unexpected SQL SELECT id FROM patients\n        WHERE id=? AND COALESCE(is_walk_in,0)=0 AND password IS NOT NULL AND password<>'' LIMIT 1"
+        },
+        {
+          "name": "complete consultation with approved reduction decision preserves promotion and actual consumption",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/consultationLifecycle20261105.node.test.cjs:46:54",
+          "error": "|-\n    Unexpected SQL SELECT id FROM patients\n        WHERE id=? AND COALESCE(is_walk_in,0)=0 AND password IS NOT NULL AND password<>'' LIMIT 1"
+        },
+        {
+          "name": "complete consultation with rejected reduction decision preserves promotion and actual consumption",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/consultationLifecycle20261105.node.test.cjs:46:54",
+          "error": "|-\n    Unexpected SQL SELECT id FROM patients\n        WHERE id=? AND COALESCE(is_walk_in,0)=0 AND password IS NOT NULL AND password<>'' LIMIT 1"
+        },
+        {
+          "name": "quantity-only changes alter inventory consumption without changing service price or fee",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/quantitiesAndLedger20261105.node.test.cjs:14:1",
+          "error": "'Liquid requires a positive whole number of ml.'"
+        },
+        {
+          "name": "fractional included or extra discrete items are rejected, measured extras bill once",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/quantitiesAndLedger20261105.node.test.cjs:21:1",
+          "error": "'Liquid requires a positive whole number of ml.'"
+        },
+        {
+          "name": "fractional supply currency rounds half-cent products consistently with the client estimate",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/quantitiesAndLedger20261105.node.test.cjs:58:1",
+          "error": "'Liquid requires a positive whole number of ml.'"
+        },
+        {
+          "name": "booked and eligible added service both receive Christmas 25%; stock items do not",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/servicePromotions20261111.node.test.cjs:15:1",
+          "error": "'This offer requires a registered patient account. Guests cannot receive promotional discounts.'"
+        },
+        {
+          "name": "non-eligible added services receive no booked promotion",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/servicePromotions20261111.node.test.cjs:25:1",
+          "error": "'This offer requires a registered patient account. Guests cannot receive promotional discounts.'"
+        },
+        {
+          "name": "deleting the live booked promotion preserves its saved discount only on the booked service",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/servicePromotions20261111.node.test.cjs:56:1",
+          "error": "'This offer requires a registered patient account. Guests cannot receive promotional discounts.'"
+        },
+        {
+          "name": "deleted booked promotion remains capped and is not counted twice on repeated saves",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/billing/servicePromotions20261111.node.test.cjs:70:1",
+          "error": "'This offer requires a registered patient account. Guests cannot receive promotional discounts.'"
+        },
+        {
+          "name": "readiness obtains branch-scoped accurate counts with 4 parameterized grouped queries",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/booking/batch12Readiness.node.cjs:24:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(seen.every(({ sql, params }) => sql.includes('branch_id = ?') && params.length === 1 && params[0] === 7))"
+        },
+        {
+          "name": "legacy organization-level readiness still works without a branch filter",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/booking/batch12Readiness.node.cjs:54:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(seen.every(({ sql, params }) => !sql.includes('branch_id = ?') && params.length === 0))"
+        },
+        {
+          "name": "branch slot read allows appointment privilege but not doctor schedule modification",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branchIntegration/batch2AppointmentWorkflows.node.cjs:53:1",
+          "error": "|-\n    The input did not match the regular expression /available-slots`,\\.\\.\\.middle,allowAnyPermission\\('appointments','doctor_schedules'\\)/. Input:\n    \n    \"const { listBranchPatients, getBranchPatientRecord } = require('../utils/patientRecordView')\\r\\n\" +\n      \"const {afterSuccessfulMutation}=require('../utils/clinicEvents')\\r\\n\" +\n      \"const {attachBatchesToInventory}=require('../utils/inventoryBatches')\\r\\n\" +\n      \"const {hydrateBillingCatalogRows}=require('../utils/billing')\\r\\n\" +\n      \"const {loadSuperAdminReport,SECTIONS}=require('../utils/superAdminReports')\\r\\n\" +\n      '// Physical-branch management. Unlike the legacy admin controller, every data\\r\\n' +\n      '// query here contains an explicit authorized physical-branch predicate.\\r\\n' +\n      \"const express = require('express')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const {randomBytes} = require('crypto')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const authenticate = require('../middlewares/auth.middleware')\\r\\n\" +\n      \"const commonCtrl = require('../controllers/common.controller')\\r\\n\" +\n      \"const { writeAuditLog } = require('../utils/audit')\\r\\n\" +\n      \"const"
+        },
+        {
+          "name": "walk-in mode uses existing authorized queue endpoint and receipt instead of scheduled booking",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branchIntegration/batch2AppointmentWorkflows.node.cjs:58:1",
+          "error": "|-\n    The input did not match the regular expression /success\\.receipt\\?\\.queue_number/. Input:\n    \n    \"import { portalBaseForPath } from '../../utils/branchPortalPath.mjs'\\r\\n\" +\n      \"import { formatQueueLabel } from '../../utils/queueLabel.mjs'\\r\\n\" +\n      \"import { useCallback, useEffect, useRef, useState } from 'react'\\r\\n\" +\n      \"import { useBlocker, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'\\r\\n\" +\n      \"import useClinicRefresh from '../../hooks/useClinicRefresh'\\r\\n\" +\n      'import {\\r\\n' +\n      '  MdArrowBack, MdArrowForward, MdCheck, MdCheckCircle,\\r\\n' +\n      '  MdOpenInNew, MdSearch,\\r\\n' +\n      '  MdWarningAmber,\\r\\n' +\n      \"} from 'react-icons/md'\\r\\n\" +\n      'import {\\r\\n' +\n      '  StepBar, StepService, StepDoctor, StepSchedule, StepDetails, BookingSummary,\\r\\n' +\n      \"} from '../patientPage/BookAppointment'\\r\\n\" +\n      \"import { normalizeBookingServiceResults } from '../../utils/patientBookingFlow.mjs'\\r\\n\" +\n      \"import { formatPublicServicePrice } from '../../utils/patientServicePresentation.mjs'\\r\\n\" +\n      \"import { getMaxWalkInBirthdate, getMinWalkInBirthdate, validateWalkInBirthdate } from '../../utils/patie"
+        },
+        {
+          "name": "branch doctor schedule endpoint uses weekday order and retains doctor ownership",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branchIntegration/batch5WeekdayOrder.node.cjs:10:1",
+          "error": "|-\n    The input did not match the regular expression /SELECT \\* FROM doctor_schedules WHERE doctor_id=\\? ORDER BY FIELD\\(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'\\)/. Input:\n    \n    \"const { listBranchPatients, getBranchPatientRecord } = require('../utils/patientRecordView')\\r\\n\" +\n      \"const {afterSuccessfulMutation}=require('../utils/clinicEvents')\\r\\n\" +\n      \"const {attachBatchesToInventory}=require('../utils/inventoryBatches')\\r\\n\" +\n      \"const {hydrateBillingCatalogRows}=require('../utils/billing')\\r\\n\" +\n      \"const {loadSuperAdminReport,SECTIONS}=require('../utils/superAdminReports')\\r\\n\" +\n      '// Physical-branch management. Unlike the legacy admin controller, every data\\r\\n' +\n      '// query here contains an explicit authorized physical-branch predicate.\\r\\n' +\n      \"const express = require('express')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const {randomBytes} = require('crypto')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const authenticate = require('../middlewares/auth.middleware')\\r\\n\" +\n      \"const commonCtrl = require('../controllers/common.controller')\\r\\n\" +\n      \"const"
+        },
+        {
+          "name": "deactivated branch is denied",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branchIntegration/multibranchAdditions.node.cjs:24:1",
+          "error": "'should not call next'"
+        },
+        {
+          "name": "all branch report operational queries use the authorized branch",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branchIntegration/multibranchPhaseOne.node.cjs:5:1",
+          "error": "'Missing test mock: ../utils/inventoryReportStock'"
+        },
+        {
+          "name": "billing settings are registered before dynamic bill id",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branchIntegration/multibranchPhaseOne.node.cjs:15:1",
+          "error": "'Missing test mock: ../utils/branchStockRoomSummary'"
+        },
+        {
+          "name": "inactive branch operational actions are disabled while status switch remains accessible",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branches/branchReactivation.node.test.cjs:138:1",
+          "error": "|-\n    The input did not match the regular expression /disabled\\s+aria-label=\\{`Manage \\$\\{b\\.name\\} \\(inactive\\)`\\}/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\r\\n\" +\n      \"import {useCallback,useEffect,useMemo,useRef,useState} from 'react'\\r\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\r\\n\" +\n      \"import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'\\r\\n\" +\n      \"import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'\\r\\n\" +\n      \"import {useToast} from '../../../components/ui/ToastProvider'\\r\\n\" +\n      \"import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'\\r\\n\" +\n      '\\r\\n' +\n      \"const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})\\r\\n\" +\n      'const messageOf=(error,fallback)=>error?.message||fallback\\r\\n' +\n      \"const countLabel=(value)=>Number(value||0).toLocaleStri"
+        },
+        {
+          "name": "active/inactive status filter compares strings correctly",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branches/branchReactivation.node.test.cjs:145:1",
+          "error": "|-\n    The input did not match the regular expression /filter===\\(Number\\(b\\.is_active\\)\\?'active':'inactive'\\)/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\r\\n\" +\n      \"import {useCallback,useEffect,useMemo,useRef,useState} from 'react'\\r\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\r\\n\" +\n      \"import {MdAdd,MdRefresh,MdBusiness,MdEdit,MdChevronRight,MdWarningAmber,MdPhone,MdEmail,MdLocationOn,MdMedicalServices,MdMap} from 'react-icons/md'\\r\\n\" +\n      \"import {fetchJson,PageHead,Card,Pill,Modal,Field,Banner,Empty,Loading,SearchInput,PrimaryButton,SecondaryButton} from './shared'\\r\\n\" +\n      \"import {useToast} from '../../../components/ui/ToastProvider'\\r\\n\" +\n      \"import {normalizePhilippinePhone,validateBranchForm,normalizeGoogleMapsUrl} from '../../../utils/philippinePhone'\\r\\n\" +\n      '\\r\\n' +\n      \"const initial=()=>({name:'',address:'',google_maps_url:'',phone:'',email:'',offers_medical:true,offers_derma:true,is_active:true,copy_setup_from_branch_id:null,setup_mode:'standard'})\\r\\n\" +\n      'const messageOf=(error,fallback)=>error?.message||fallback\\r\\n' +\n      \"const countLabel=(value)=>Number(value||0).toLocaleString('e"
+        },
+        {
+          "name": "public navigation is responsive and routes back to anchored home sections",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branching/branchAdminCreate20261017.node.cjs:111:1",
+          "error": "|-\n    The input did not match the regular expression /className=\"sticky top-0 z-50/. Input:\n    \n    '// client/src/components/layouts/Layout.jsx\\r\\n' +\n      '// UPDATED:\\r\\n' +\n      '//  1. Footer is no longer \"fixed\" — it stays at bottom of page content naturally.\\r\\n' +\n      '//  2. Footer now shows Terms of Service and Privacy Policy links (read from CMS).\\r\\n' +\n      '//  3. Footer links are hidden when their URL is blank (admin can toggle them by clearing the field).\\r\\n' +\n      '//  4. Facebook icon replaced with FaFacebook from react-icons (was already there — kept).\\r\\n' +\n      '\\r\\n' +\n      \"import { useEffect, useState } from 'react'\\r\\n\" +\n      \"import { NavLink, Outlet, useLocation } from 'react-router-dom'\\r\\n\" +\n      \"import { MdClose, MdMenu } from 'react-icons/md'\\r\\n\" +\n      \"import { FaFacebook } from 'react-icons/fa'\\r\\n\" +\n      \"import { getPublicLandingPage } from '../../services/landing.service'\\r\\n\" +\n      \"import { isExternalPath, normalizeAppPath } from '../../utils/navigation'\\r\\n\" +\n      \"import { useAuth } from '../../context/AuthContext'\\r\\n\" +\n      \"import SeoManager from '../SeoManager'\\r\\n\" +\n      '\\r\\n' +\n      '// ── Defaults (matc"
+        },
+        {
+          "name": "stock requests are confined to the requested branch",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/branching/branchReadContracts.node.cjs:145:1",
+          "error": "'x.api.readTransferGroups is not a function'"
+        },
+        {
+          "name": "pending usage checks available stock and picks the next stockroom if needed",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/clinicalReservations20261111.node.cjs:17:1",
+          "error": "\"Cannot destructure property 'writeInventoryActivity' of 'require(...)' as it is null.\""
+        },
+        {
+          "name": "pending usage refuses an item without enough stock",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/clinicalReservations20261111.node.cjs:27:1",
+          "error": "\"Cannot destructure property 'writeInventoryActivity' of 'require(...)' as it is null.\""
+        },
+        {
+          "name": "failure history migration adds one nullable field without touching existing records",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/deployment/billingFailureMigration20261105.node.test.cjs:23:1",
+          "error": "'Daily queue migration required: uniq_queue_branch_doctor_day_number'"
+        },
+        {
+          "name": "migration resumes when TiDB DDL succeeded before the migration record was written",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/deployment/billingFailureMigration20261105.node.test.cjs:29:1",
+          "error": "'Daily queue migration required: uniq_queue_branch_doctor_day_number'"
+        },
+        {
+          "name": "walk-in age validation requires 18+ at server level",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/fix17AdultPolicy.node.cjs:58:1",
+          "error": "|-\n    The input did not match the regular expression /age<18 \\|\\| age>120/. Input:\n    \n    \"const { availableStockSql } = require('../utils/inventoryReportStock')\\r\\n\" +\n      \"const { writeInventoryActivity } = require('../utils/inventoryActivity')\\r\\n\" +\n      \"const { notifyDoctorOnConfirmation } = require('../utils/doctorConfirmationNotifications')\\r\\n\" +\n      \"const { isUnifiedBillingStockOut, postClinicalReservations, assertNoUnpostedStockWithFeatureOff } = require('../utils/clinicalInventoryReservations')\\r\\n\" +\n      '// server/controllers/staff.controller.js\\r\\n' +\n      \"// FIX 1: getDoctors now returns the 'type' field so Walk-in Queue doctor filter works\\r\\n\" +\n      '// FIX 2: Added updateInventoryItem and deleteInventoryItem\\r\\n' +\n      \"// FIX 3: getPatients returns 'name' alias so AddModal dropdown shows patient names\\r\\n\" +\n      '\\r\\n' +\n      \"const { nextInventoryBarcode } = require('../utils/barcodes')\\r\\n\" +\n      \"const db           = require('../db/connect')\\r\\n\" +\n      \"const bcrypt       = require('bcrypt')\\r\\n\" +\n      \"const jwt          = require('jsonwebtoken')\\r\\n\" +\n      \"const generateCookie = require('../utils/generateCookie')\\r\\n\" +\n      \"c"
+        },
+        {
+          "name": "one recipient is notified once after repeated worker runs, from the same DB transaction as the delivery ledger",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/gateway/automaticInappPublications20261105.node.test.cjs:25:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'pending'\n    - 'completed'"
+        },
+        {
+          "name": "every inventory log INSERT contains the physical branch",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/gateway/paymongoQr.node.cjs:54:1",
+          "error": "'routers/branchInventoryItems.js has unscoped stock log SQL'"
+        },
+        {
+          "name": "homepage offers are hidden for anonymous, guest-verified and invalid patient sessions",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/guestPromotions20261112.node.cjs:76:1",
+          "error": "|-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n    + [\n    +   {\n    +     branch_id: 1,\n    +     discount_type: 'percentage',\n    +     discount_value: 20,\n    +     eligibility_type: 'all',\n    +     featured_order: 0,\n    +     id: 5,\n    +     is_active: true,\n    +     service_ids: [\n    +       77\n    +     ],\n    +     show_on_dashboard: false,\n    +     title: 'Patient offer'\n    +   }\n    + ]\n    - []"
+        },
+        {
+          "name": "public news excludes promotional posts and direct promotion requests cannot bypass sign-in",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/guestPromotions20261112.node.cjs:90:1",
+          "error": "'expected 200 \"OK\", got 500 \"Internal Server Error\"'"
+        },
+        {
+          "name": "registered patients retain promotional news lists and details",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/guestPromotions20261112.node.cjs:99:1",
+          "error": "'expected 200 \"OK\", got 500 \"Internal Server Error\"'"
+        },
+        {
+          "name": "Pages proxy reaches a real local Express service over HTTPS with signed visitor IP and forwarded session/body",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/hosting/cloudflareLocalIntegration.node.cjs:36:1",
+          "error": "\"Cannot find module 'D:\\\\Programming IDE_Codes\\\\ALLPROGRAMMING_FILES_CODES\\\\CAPSTONE\\\\QA_REPORT\\\\nine-batches-2026-11-14\\\\baseline\\\\client\\\\functions\\\\api\\\\[[path]].js' imported from D:\\\\Programming IDE_Codes\\\\ALLPROGRAMMING_FILES_CODES\\\\CAPSTONE\\\\QA_REPORT\\\\nine-batches-2026-11-14\\\\baseline\\\\server\\\\tests\\\\hosting\\\\cloudflareLocalIntegration.node.cjs\""
+        },
+        {
+          "name": "draft announcement accepts plain-text content",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/marketing/announcements.node.cjs:18:1",
+          "error": "'URL is not defined'"
+        },
+        {
+          "name": "rejects unsafe external CTA URLs",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/marketing/announcements.node.cjs:20:1",
+          "error": "|-\n    The input did not match the regular expression /internal/i. Input:\n    \n    'Error: Choose a clinic booking destination from the list.'"
+        },
+        {
+          "name": "rejects protocol-relative redirects",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/marketing/announcements.node.cjs:21:1",
+          "error": "|-\n    The input did not match the regular expression /internal/i. Input:\n    \n    'Error: Choose a clinic booking destination from the list.'"
+        },
+        {
+          "name": "uses Manila date during UTC previous day and accepts newborns",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/patients/batch6Birthdates.node.cjs:18:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'Patients must be at least 18 years old.'\n    - null"
+        },
+        {
+          "name": "respects birthday-specific age-100 boundary and does not block infants",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/patients/batch6Birthdates.node.cjs:25:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    + actual - expected\n    \n    + 'Patients must be at least 18 years old.'\n    - null"
+        },
+        {
+          "name": "billing and all reschedule paths preserve selected promotional discount boundaries",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/promotions/promotionPricing20261105.node.cjs:25:1",
+          "error": "|-\n    The input did not match the regular expression /item\\.source_type==='consultation'/. Input:\n    \n    \"const db = require('../db/connect')\\r\\n\" +\n      \"const { validateSupplyQuantity } = require('./supplyQuantity')\\r\\n\" +\n      \"const { normalizeText, normalizeOptionalText, normalizeNumber, makeValidationError } = require('./inputValidation')\\r\\n\" +\n      '\\r\\n' +\n      'const roundMoney = (value) => Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100\\r\\n' +\n      '\\r\\n' +\n      'const getInventoryBaseUnitCost = () => 0\\r\\n' +\n      '\\r\\n' +\n      '// CARAIT no longer treats Inventory Selling Price as acquisition/material cost.\\r\\n' +\n      '// Service pricing is configured explicitly; consumables affect stock only.\\r\\n' +\n      'const getServiceMaterialUnitCost = () => 0\\r\\n' +\n      '\\r\\n' +\n      'const parseJsonSafe = (value, fallback = null) => {\\r\\n' +\n      '  if (!value) return fallback\\r\\n' +\n      \"  if (typeof value === 'object') return value\\r\\n\" +\n      '  try {\\r\\n' +\n      '    return JSON.parse(value)\\r\\n' +\n      '  } catch {\\r\\n' +\n      '    return fallback\\r\\n' +\n      '  }\\r\\n' +\n      '}\\r\\n' +\n      '\\r\\n' +\n      'const collectInventoryUsa"
+        },
+        {
+          "name": "first-login schema, invitation, login, password reset and UI all use the same flag",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/adminFirstLogin20261022.node.cjs:56:1",
+          "error": "|-\n    The input did not match the regular expression /\\['staff', 'doctor', 'admin'\\]/. Input:\n    \n    \"const db = require('../db/connect')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const { sendPasswordResetOtp } = require('../utils/emailService')\\r\\n\" +\n      \"const { normalizePhilippinePhone } = require('../utils/phone')\\r\\n\" +\n      \"const { sendPatientPasswordResetOtp } = require('../utils/smsService')\\r\\n\" +\n      \"const { validatePassword } = require('../utils/accountSecurity')\\r\\n\" +\n      \"const { makeNumericCode, makeRandomToken, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')\\r\\n\" +\n      \"const { revokeSessions } = require('../utils/sessionSecurity')\\r\\n\" +\n      '\\r\\n' +\n      `const NORMALIZED_PHONE_SQL = \"REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')\"\\r\\n` +\n      'const MAX_OTP_ATTEMPTS = 5\\r\\n' +\n      '\\r\\n' +\n      'const ROLE_CONFIG = {\\r\\n' +\n      \"  patient: { table: 'patients' },\\r\\n\" +\n      \"  doctor: { table: 'doctors', where: 'email = ? AND is_active = 1' },\\r\\n\" +\n      `  staff: { table: 'staff', where: \"email = ? AND status = 'active'\" },\\r\\n` +\n      `  admin:"
+        },
+        {
+          "name": "new additive migration stores draft and published policy separately",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/bookingPolicyContent.node.test.cjs:57:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(migrations.includes(\"'2026-11-01-booking-policy-content.sql'\"))"
+        },
+        {
+          "name": "public page is routed, linked from the footer, and opened from the booking flow",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/bookingPolicyContent.node.test.cjs:68:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(booking.includes('/booking-policy?branch_id='))"
+        },
+        {
+          "name": "appointment validates the doctor and service inside the requested branch transaction",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/branchWriteRemediation20261015.node.cjs:76:1",
+          "error": "|-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(calls.some(([sql,args])=>sql.includes('FROM doctors')&&sql.includes('branch_id=?')&&args[1]===2))"
+        },
+        {
+          "name": "patient booking explicitly requires branch-owned doctor and service",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/multiBranch20261009.node.cjs:32:1",
+          "error": "|-\n    The input did not match the regular expression /FROM doctors WHERE id=\\? AND is_active=1 AND branch_id=\\?/. Input:\n    \n    \"const db = require('../db/connect')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const jwt = require('jsonwebtoken')\\r\\n\" +\n      \"const generateCookie = require('../utils/generateCookie')\\r\\n\" +\n      \"const { issueSession, verifySessionToken, invalidateRequestSession } = require('../utils/sessionSecurity')\\r\\n\" +\n      \"const { validatePassword } = require('../utils/accountSecurity')\\r\\n\" +\n      \"const { makeNumericCode, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')\\r\\n\" +\n      \"const { sendAppointmentStatusEmail } = require('../utils/emailService')\\r\\n\" +\n      \"const { notifyRoles, createNotification } = require('../utils/notifications')\\r\\n\" +\n      \"const { markOverdueAppointments } = require('../utils/appointments')\\r\\n\" +\n      \"const { broadcast } = require('../utils/sse')\\r\\n\" +\n      \"const { getTodayDateOnly } = require('../utils/date')\\r\\n\" +\n      \"const { parsePromotionId, resolveSelectedPromotion } = require('../utils/promotionEligibility')\\r\\n\" +\n      \"const { normalizePhilippinePhone } = req"
+        },
+        {
+          "name": "Patient promotion API rejects absent branch and cannot return other branch offers",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/oct28StaffAndPatientBranches.node.cjs:49:1",
+          "error": "|-\n    Expected values to be strictly equal:\n    \n    undefined !== 2"
+        },
+        {
+          "name": "new compatibility endpoints have branch predicates, not JS-only list filtering",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/originalAdminPortalBranch20261009.node.cjs:20:1",
+          "error": "|-\n    The input did not match the regular expression /WHERE p\\.id=\\? AND EXISTS/. Input:\n    \n    \"const { listBranchPatients, getBranchPatientRecord } = require('../utils/patientRecordView')\\r\\n\" +\n      \"const {afterSuccessfulMutation}=require('../utils/clinicEvents')\\r\\n\" +\n      \"const {attachBatchesToInventory}=require('../utils/inventoryBatches')\\r\\n\" +\n      \"const {hydrateBillingCatalogRows}=require('../utils/billing')\\r\\n\" +\n      \"const {loadSuperAdminReport,SECTIONS}=require('../utils/superAdminReports')\\r\\n\" +\n      '// Physical-branch management. Unlike the legacy admin controller, every data\\r\\n' +\n      '// query here contains an explicit authorized physical-branch predicate.\\r\\n' +\n      \"const express = require('express')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const {randomBytes} = require('crypto')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const authenticate = require('../middlewares/auth.middleware')\\r\\n\" +\n      \"const commonCtrl = require('../controllers/common.controller')\\r\\n\" +\n      \"const { writeAuditLog } = require('../utils/audit')\\r\\n\" +\n      \"const { makeTemporaryPassword } = require('../utils/securityCrypt"
+        },
+        {
+          "name": "patient doctor schedules require branch-scoped active doctor",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/patientBranchIsolation20261009.node.cjs:7:1",
+          "error": "|-\n    The input did not match the regular expression /d\\.id = \\? AND d\\.branch_id = \\?/. Input:\n    \n    \"const db = require('../db/connect')\\r\\n\" +\n      \"const bcrypt = require('bcrypt')\\r\\n\" +\n      \"const jwt = require('jsonwebtoken')\\r\\n\" +\n      \"const generateCookie = require('../utils/generateCookie')\\r\\n\" +\n      \"const { issueSession, verifySessionToken, invalidateRequestSession } = require('../utils/sessionSecurity')\\r\\n\" +\n      \"const { validatePassword } = require('../utils/accountSecurity')\\r\\n\" +\n      \"const { makeNumericCode, hashSecret, timingSafeEqualHash } = require('../utils/securityCrypto')\\r\\n\" +\n      \"const { sendAppointmentStatusEmail } = require('../utils/emailService')\\r\\n\" +\n      \"const { notifyRoles, createNotification } = require('../utils/notifications')\\r\\n\" +\n      \"const { markOverdueAppointments } = require('../utils/appointments')\\r\\n\" +\n      \"const { broadcast } = require('../utils/sse')\\r\\n\" +\n      \"const { getTodayDateOnly } = require('../utils/date')\\r\\n\" +\n      \"const { parsePromotionId, resolveSelectedPromotion } = require('../utils/promotionEligibility')\\r\\n\" +\n      \"const { normalizePhilippinePhone } = require('../utils/phone')\\r\\"
+        },
+        {
+          "name": "queue display unlock refuses an invalid branch",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/queueDisplayBranch20261015.node.cjs:65:1",
+          "error": "'Unexpected query: SELECT pin_hash,pin_version,updated_at,updated_by_admin_id FROM branch_queue_display_security WHERE branch_id=? LIMIT 1'"
+        },
+        {
+          "name": "queue display session is HttpOnly, branch-bound, and live queue queries enforce that branch",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/queueDisplayBranch20261015.node.cjs:72:1",
+          "error": "'Unexpected query: SELECT pin_hash,pin_version,updated_at,updated_by_admin_id FROM branch_queue_display_security WHERE branch_id=? LIMIT 1'"
+        },
+        {
+          "name": "dashboard and reports separate billed from collected and have date selectors",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/superAdminRedesign20261009.node.cjs:16:1",
+          "error": "|-\n    The input did not match the regular expression /Billed Amount/. Input:\n    \n    \"import InventoryPulse from '../InventoryPulse'\\r\\n\" +\n      \"import {useEffect,useState} from 'react'\\r\\n\" +\n      \"import {NavLink} from 'react-router-dom'\\r\\n\" +\n      \"import {MdBusiness,MdCalendarMonth,MdPendingActions,MdPayments,MdCheckCircle,MdPersonOff,MdRefresh,MdArrowForward,MdPeople,MdHistory,MdWarningAmber,MdBlock} from 'react-icons/md'\\r\\n\" +\n      \"import {fetchJson,Card,PageHead,StatCard,Pill,Banner,Loading,Empty,pesos,whole,todayISO,beforeISO,SecondaryButton} from './shared'\\r\\n\" +\n      \"import {isValidReportPeriod,sumBranchMetric} from './reportFormat'\\r\\n\" +\n      \"import {loadOverviewSections} from './overviewData.mjs'\\r\\n\" +\n      '\\r\\n' +\n      'const sum=sumBranchMetric\\r\\n' +\n      \"const cols=['Branch','Appointments','Pending','Completed','Did Not Arrive','Doctors','Billed','Collected']\\r\\n\" +\n      'export const BranchPerformance=({rows=[]})=><div className=\"overflow-x-auto\"><table className=\"w-full min-w-[900px] text-left text-sm\"><thead><tr className=\"border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500\">{cols.map(h=><th key={h"
+        },
+        {
+          "name": "Super Admin credits API is protected and never exposes key",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/semaphoreBalance20261111.node.cjs:27:1",
+          "error": "|-\n    The input did not match the regular expression /Refresh Balance/. Input:\n    \n    \"import useClinicRefresh from '../../../hooks/useClinicRefresh'\\r\\n\" +\n      \"import { useEffect, useState } from 'react'\\r\\n\" +\n      \"import { PageHead, Banner, Card } from './shared'\\r\\n\" +\n      '\\r\\n' +\n      \"const ENDPOINT = '/api/admin/system-setup/doctor-notifications'\\r\\n\" +\n      \"const CREDITS_ENDPOINT = '/api/admin/system-setup/sms-credits'\\r\\n\" +\n      \"const SEMAPHORE_URL = 'https://semaphore.co/'\\r\\n\" +\n      'const initial = { send_email: true, send_sms: false }\\r\\n' +\n      'const loadJson = async (options) => {\\r\\n' +\n      '  const response = await fetch(ENDPOINT, {\\r\\n' +\n      \"    credentials: 'include',\\r\\n\" +\n      '    ...options,\\r\\n' +\n      \"    headers: { 'X-Admin-Portal':'superadmin', ...(options?.body ? {'Content-Type':'application/json'} : {}) },\\r\\n\" +\n      '  })\\r\\n' +\n      '  const data = await response.json().catch(() => ({}))\\r\\n' +\n      '  if (!response.ok) throw new Error(data.message || `Request failed (${response.status}).`)\\r\\n' +\n      '  return data\\r\\n' +\n      '}\\r\\n' +\n      '\\r\\n' +\n      'export const SuperAdminSystemSetup = () => {\\r\\n' +\n  "
+        },
+        {
+          "name": "branch payment setting and gateway never enable QR Ph automatically",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/simplification/stockRoomMigrationFollowup.node.test.cjs:30:1",
+          "error": "|-\n    The input did not match the regular expression /CARAIT_ENFORCE_QRPH_BRANCH_TOGGLE/. Input:\n    \n    \"'use strict'\\r\\n\" +\n      \"const express = require('express')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const { createQr, retrieveIntent, retrieveRefund, cancelIntent, credentials, fail } = require('../utils/paymongoClient')\\r\\n\" +\n      \"const { assertVerifiedQrRefund } = require('../utils/paymongoRefundVerification')\\r\\n\" +\n      \"const { verifyPaymongoSignature } = require('../utils/paymongoWebhookSignature')\\r\\n\" +\n      \"const { getBillingRecordWithItems } = require('../utils/billing')\\r\\n\" +\n      \"const { writeAuditLog } = require('../utils/audit')\\r\\n\" +\n      \"const staffCtrl = require('../controllers/staff.controller')\\r\\n\" +\n      \"const { broadcast } = require('../utils/sse')\\r\\n\" +\n      \"const { configuredMode, expectedLive, supportsMode, isLiveCollectionEnabled, sameConfiguredMode } = require('../utils/paymongoMode')\\r\\n\" +\n      '\\r\\n' +\n      'const apiRouter = express.Router()\\r\\n' +\n      \"const knownStatus = new Set(['creating','pending','succeeded','failed','expired','review','refunded','cancelled'])\\r\\n\" +\n      'const http = (code,"
+        },
+        {
+          "name": "branch and Staff System Setup use the same physical stock allocation summary",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/stockRoomPdfFix.node.test.cjs:37:1",
+          "error": "|-\n    The input did not match the regular expression /getBranchStockRooms\\(db, req.branchId\\)/. Input:\n    \n    \"const { listBranchPatients } = require('../utils/patientRecordView')\\r\\n\" +\n      \"const reminderRoutes=require('./appointmentReminderRoutes')\\r\\n\" +\n      '// server/routers/staff.router.js\\r\\n' +\n      \"const express    = require('express')\\r\\n\" +\n      \"const db = require('../db/connect')\\r\\n\" +\n      \"const {listBillingCatalog} = require('../utils/billing')\\r\\n\" +\n      \"const {validateBookingSettings,normalizeBookingSettings,withBookingTestingCapability}=require('../utils/bookingPolicy')\\r\\n\" +\n      \"const {cloneDefaultBookingPolicyDocument,normalizeBookingPolicyDocument,parseStoredBookingPolicyDocument}=require('../utils/bookingPolicyDocument')\\r\\n\" +\n      \"const {writeAuditLog}=require('../utils/audit')\\r\\n\" +\n      'const router     = express.Router()\\r\\n' +\n      \"const staffCtrl  = require('../controllers/staff.controller')\\r\\n\" +\n      \"const adminCtrl  = require('../controllers/admin.controller')\\r\\n\" +\n      \"const staffAccessCtrl = require('../controllers/staffAccess.controller')\\r\\n\" +\n      \"const {readBranchReport, recordBranchExport} = require('./bra"
+        },
+        {
+          "name": "walk-in email can register and SMS activation upgrades the same patient without changing visit or financial history",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:6:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "registration normalizes case and phone formatting when linking the walk-in record",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:28:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "real patient accounts remain protected even when an old is_walk_in flag is still 1",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:33:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "an email-only match with a different or missing mobile cannot claim a walk-in history",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:40:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "identity mismatches and banned walk-ins do not overwrite the patient record",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:48:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "a different registered patient owning the requested email blocks registration",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:55:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "invalid and expired OTPs do not activate credentials; five wrong attempts invalidate the code",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:61:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "verification rechecks credentials and email ownership changed after sending the OTP",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:73:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "activation and OTP consumption roll back if consent, audit or uniqueness checks fail",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:82:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "simultaneous verification cannot activate twice or issue a second session",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:92:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "a new patient without a matching walk-in still registers normally",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:98:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "an unused email may replace the walk-in email only after verified mobile ownership",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:105:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "missing legacy demographics can be completed while an unchanged verified email remains verified",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:112:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        },
+        {
+          "name": "a patient record introduced after the OTP request cannot silently change the activation target",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/walkInRegistration20261112.node.cjs:119:1",
+          "error": "'Unexpected synthetic registration query: SELECT id FROM patients WHERE LOWER(email) = LOWER(?) LIMIT 1'"
+        }
+      ]
+    },
+    "introduced_failures": [],
+    "baseline_failures_absent_from_final": [
+      "Pages proxy reaches a real local Express service over HTTPS with signed visitor IP and forwarded session/body",
+      "approved image binds promotion, actor and current branch and saves only verified asset"
+    ]
+  },
+  "vitest": {
+    "current": {
+      "summary": {
+        "tests": 259,
+        "pass": 252,
+        "fail": 7
+      },
+      "failures": [
+        {
+          "name": "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity tracks service consumables as generic whole units and adds their Selling Price to the Service Price",
+          "location": "server/tests/security/batch2InventorySemantics.test.js",
+          "error": "AssertionError: expected 'import {useAuth} from \\'../../context…' to contain 'whole units'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/tests/security/batch2InventorySemantics.test.js:51:20\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///D:/"
+        },
+        {
+          "name": "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity uses prescription quantity while keeping legacy dosage readable",
+          "location": "server/tests/security/batch2InventorySemantics.test.js",
+          "error": "AssertionError: expected 'import FinancialBillBreakdown from \\'…' to contain 'rx.quantity ?? rx.dosage'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/tests/security/batch2InventorySemantics.test.js:99:28\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    a"
+        },
+        {
+          "name": "Batch 5 deferred inventory deduction workflow does not cap actual consumable entry to pre-checked treatment-room stock",
+          "location": "server/tests/security/batch5InventoryWorkflow.test.js",
+          "error": "AssertionError: expected 'import RecommendedFollowupEditor from…' to contain 'Actual service supplies and any Extra…'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/tests/security/batch5InventoryWorkflow.test.js:57:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2"
+        },
+        {
+          "name": "September 29 Batch 6C — Doctor Account classification cleanup does not write specialty from Admin doctor create/update payloads",
+          "location": "server/tests/security/batch6CDoctorAccounts.test.js",
+          "error": "AssertionError: expected 'const { writeInventoryActivity, readP…' to contain 'const { full_name, email, phone, clin…'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/tests/security/batch6CDoctorAccounts.test.js:27:20\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:227"
+        },
+        {
+          "name": "billing checkout follow-up regressions uses clinic-facing billing statuses and provides a return path to payment",
+          "location": "server/tests/security/billingCheckoutFollowup20260930.test.js",
+          "error": "AssertionError: expected 'import { useCallback, useEffect, useM…' to contain 'Open Bill'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/tests/security/billingCheckoutFollowup20260930.test.js:17:18\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:/"
+        },
+        {
+          "name": "September 30 consultation workflow UX allows patient-specific substitutions while keeping the booked service, branch inventory and completion lock",
+          "location": "server/tests/security/consultationWorkflowUx20260930.test.js",
+          "error": "AssertionError: expected 'import RecommendedFollowupEditor from…' to contain 'Supplies Actually Used'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/tests/security/consultationWorkflowUx20260930.test.js:24:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n "
+        },
+        {
+          "name": "Batch 1 recovery and consultation autosave regressions keeps draft saving independent from treatment-room stock and autosaves without a manual Save Draft button",
+          "location": "server/tests/security/recoveryAutosave20260928.test.js",
+          "error": "AssertionError: expected 'import RecommendedFollowupEditor from…' to contain 'Actual service supplies and any Extra…'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/tests/security/recoveryAutosave20260928.test.js:55:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:"
+        }
+      ]
+    },
+    "baseline": {
+      "summary": {
+        "tests": 263,
+        "pass": 256,
+        "fail": 7
+      },
+      "failures": [
+        {
+          "name": "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity tracks service consumables as generic whole units and adds their Selling Price to the Service Price",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/batch2InventorySemantics.test.js",
+          "error": "AssertionError: expected 'import { useEffect, useMemo, useState…' to contain 'whole units'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/batch2InventorySemantics.test.js:51:20\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/ch"
+        },
+        {
+          "name": "September 28 Batch 2 — inventory semantics, services setup, and prescription quantity uses prescription quantity while keeping legacy dosage readable",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/batch2InventorySemantics.test.js",
+          "error": "AssertionError: expected 'import { useLocation } from \\'react-r…' to contain 'rx.quantity ?? rx.dosage'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/batch2InventorySemantics.test.js:99:28\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/r"
+        },
+        {
+          "name": "Batch 5 deferred inventory deduction workflow does not cap actual consumable entry to pre-checked treatment-room stock",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/batch5InventoryWorkflow.test.js",
+          "error": "AssertionError: expected 'import { estimateConsultationServiceP…' to contain 'Actual service supplies and any Extra…'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/batch5InventoryWorkflow.test.js:57:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modu"
+        },
+        {
+          "name": "September 29 Batch 6C — Doctor Account classification cleanup does not write specialty from Admin doctor create/update payloads",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/batch6CDoctorAccounts.test.js",
+          "error": "AssertionError: expected 'const { writeInventoryActivity, readP…' to contain 'const { full_name, email, phone, clin…'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/batch6CDoctorAccounts.test.js:27:20\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_module"
+        },
+        {
+          "name": "billing checkout follow-up regressions uses clinic-facing billing statuses and provides a return path to payment",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/billingCheckoutFollowup20260930.test.js",
+          "error": "AssertionError: expected 'import { useCallback, useEffect, useM…' to contain 'Open Bill'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/billingCheckoutFollowup20260930.test.js:17:18\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/di"
+        },
+        {
+          "name": "September 30 consultation workflow UX allows patient-specific substitutions while keeping the booked service, branch inventory and completion lock",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/consultationWorkflowUx20260930.test.js",
+          "error": "AssertionError: expected 'import { estimateConsultationServiceP…' to contain 'Supplies Actually Used'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/consultationWorkflowUx20260930.test.js:23:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vite"
+        },
+        {
+          "name": "Batch 1 recovery and consultation autosave regressions keeps draft saving independent from treatment-room stock and autosaves without a manual Save Draft button",
+          "location": "QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/recoveryAutosave20260928.test.js",
+          "error": "AssertionError: expected 'import { estimateConsultationServiceP…' to contain 'Actual service supplies and any Extra…'\n    at D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/baseline/server/tests/security/recoveryAutosave20260928.test.js:55:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///D:/Programming%20IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/server/node_mod"
+        }
+      ]
+    },
+    "introduced_failures": [],
+    "baseline_failures_absent_from_final": []
+  }
+}

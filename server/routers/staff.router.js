@@ -208,7 +208,6 @@ router.post('/admin-access/promotions', ...auth, can('system_setup'), branchProm
 router.put('/admin-access/promotions/:id', ...auth, can('system_setup'), branchPromotions.save)
 router.delete('/admin-access/promotions/:id', ...auth, can('system_setup'), branchPromotions.deactivate)
 router.post('/admin-access/promotions/image', ...auth, can('system_setup'), express.raw({type:['image/png','image/jpeg','application/octet-stream'],limit:'5mb'}), branchPromotions.uploadImage)
-router.post('/admin-access/promotions/image/status', ...auth, can('system_setup'), branchPromotions.imageStatus)
 
 // ── System Setup ─────────────────────────────────────────────────────────────
 router.get('/admin-access/system-setup', ...auth, can('system_setup'), readSystemSetup)
@@ -248,8 +247,7 @@ router.get('/admin-access/billing/discount-presets', ...auth, can('system_setup'
 router.post('/admin-access/billing/discount-presets', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.put('/admin-access/billing/discount-presets/:id', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.get('/admin-access/billing/payment-settings', ...auth, can('system_setup'), readBranchPaymentSettings)
-router.post('/admin-access/billing/payment-settings/upload', ...auth, can('system_setup'), express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '5mb' }), safeSettingsWriteUnavailable)
-router.post('/admin-access/billing/payment-settings/upload-status', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
+router.post('/admin-access/billing/payment-settings/upload', ...auth, can('system_setup'), express.raw({ type: ['image/png', 'image/jpeg', 'application/octet-stream'], limit: '5mb' }), safeSettingsWriteUnavailable)
 router.put('/admin-access/billing/payment-settings', ...auth, can('system_setup'), safeSettingsWriteUnavailable)
 router.get('/admin-access/clinic-settings', ...auth, can('system_setup'), readBranchBrand)
 router.put('/admin-access/clinic-settings', ...auth, can('system_setup'), updateBranchClinicSettings)

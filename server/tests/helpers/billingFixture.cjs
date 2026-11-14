@@ -4,6 +4,7 @@ function billingFixture(){
  state.items=[{id:90,billing_id:6,item_type:'service',source_type:'consultation',catalog_service_id:77,service_name:'Wound Dressing',quantity:1,line_total:455,details_json:JSON.stringify({pricing:{consultation_fee:350},materials:[{inventory_id:7,material_name:'Gloves',quantity:1,charge_total:40},{inventory_id:8,material_name:'Saline',quantity:1,charge_total:65}]})}]
  const conn={query:async(sql,args=[])=>{
   state.logs.push(sql)
+  if(sql.includes('FROM billing_financial_snapshots'))return [[]]
   if(sql.includes('FROM consultations WHERE'))return [[clone(state.clinical)]]
   if(sql.includes('FROM billing_items bi JOIN'))return [clone(state.items)]
   if(sql.includes('FROM billing_records WHERE'))return [[...(Number(args[0])===state.bill.id&&Number(args[1])===state.bill.branch_id?[clone(state.bill)]:[])]]

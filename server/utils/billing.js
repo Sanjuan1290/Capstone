@@ -224,6 +224,7 @@ const listBillingCatalog = async (options = {}, executor = db) => {
        bsc.default_price,
        bsc.consultation_fee,
        bsc.profit_percentage,
+       bsc.doctor_fee_percentage,
        bsc.is_active,
        bsc.sort_order,
        ${options.includeInactive ? `(
@@ -250,17 +251,7 @@ const getBillingCatalogServiceById = async (serviceId, executor = db, branchId =
   return rows[0] || null
 }
 
-const computeBillingTotals = ({ items = [], discount_amount = 0 }) => {
-  const subtotal = roundMoney(items.reduce((sum, item) => sum + roundMoney(item.line_total), 0))
-  const discountAmount = Math.max(0, roundMoney(discount_amount))
-  const totalAmount = Math.max(0, roundMoney(subtotal - discountAmount))
-
-  return {
-    subtotal,
-    discount_amount: discountAmount,
-    total_amount: totalAmount,
-  }
-}
+const computeBillingTotals = require('./billingCalculation').computeSimpleBillingTotals
 
 const normalizeBillingItems = async (items = [], executor = db, branchId = null) => {
   if (!Array.isArray(items)) throw makeValidationError('Billing items must be an array.', 'items')
@@ -389,6 +380,7 @@ const normalizeBillingItems = async (items = [], executor = db, branchId = null)
             price_overridden: adjusted.difference !== 0,
             supply_billing_rule: 'actual_included_delta_extras_separate',
             original_price: catalogPatientPrice,
+            doctor_fee_percentage: Number(service?.doctor_fee_percentage || 0),
             material_adjustment_amount: adjusted.difference,
             material_adjustments: adjusted.adjustments,
             override_reason: usageOverridden ? String(item.usage_change_reason || '').slice(0,255) : null,
@@ -511,6 +503,7 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
   const [records] = await executor.query(
     `SELECT
        b.*,
+       bfs.calculation_json AS financial_calculation_json,bfs.policy_json AS billing_policy_json,bfs.confirmed_at AS financial_confirmed_at,
        (SELECT name FROM clinic_branches WHERE id=b.branch_id) AS branch_name,
        (SELECT address FROM clinic_branches WHERE id=b.branch_id) AS branch_address,
        (SELECT phone FROM clinic_branches WHERE id=b.branch_id) AS branch_phone,
@@ -534,6 +527,7 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
        d.specialty AS doctor_specialty,
        s.full_name AS confirmed_by_staff_name
      FROM billing_records b
+     LEFT JOIN billing_financial_snapshots bfs ON bfs.billing_id=b.id AND bfs.branch_id=b.branch_id
      JOIN appointments a ON a.id = b.appointment_id
      JOIN patients p ON p.id = b.patient_id
      JOIN doctors d ON d.id = b.doctor_id
@@ -607,6 +601,11 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
     throw error
   })
 
+  const financialCalculation=parseJsonSafe(records[0].financial_calculation_json,null)
+  if(financialCalculation?.doctor_fees)financialCalculation.doctor_fees=financialCalculation.doctor_fees.map(({clinic_base_share,...fee})=>fee)
+  const savedBillingPolicy=parseJsonSafe(records[0].billing_policy_json,null)
+  delete records[0].financial_calculation_json
+  delete records[0].billing_policy_json
   const activePayments = payments.filter((payment) => payment.status === 'completed')
   const paidAmount = roundMoney(activePayments.reduce((sum, payment) => sum + Math.max(0, Number(payment.amount) || 0) - Math.max(0, Number(payment.refund_amount) || 0), 0))
   const totalAmount = Math.max(0, Number(records[0].total_amount) || 0)
@@ -614,6 +613,8 @@ const getBillingRecordWithItems = async (billingId, executor = db) => {
 
   return {
     ...records[0],
+    financial_calculation: financialCalculation,
+    billing_policy: savedBillingPolicy,
     selected_promotion: records[0].promotion_title_snapshot ? {
       id: records[0].promotion_id || null,
       title_at_booking: records[0].promotion_title_snapshot,
@@ -822,6 +823,7 @@ const upsertDraftBillingForAppointment = async ({
     )
 
     await saveBillingItems(existing.id, normalizedItems, executor)
+    await require('./billingFinancialSnapshot').refreshDraftFinancialTotals(existing.id,branchId,executor)
     return getBillingRecordWithItems(existing.id, executor)
   }
 
@@ -844,6 +846,8 @@ const upsertDraftBillingForAppointment = async ({
   )
 
   await saveBillingItems(result.insertId, normalizedItems, executor)
+  await require('./billingFinancialSnapshot').ensureBillPolicy(result.insertId,branchId,executor,{newBill:true})
+  await require('./billingFinancialSnapshot').refreshDraftFinancialTotals(result.insertId,branchId,executor)
   return getBillingRecordWithItems(result.insertId, executor)
 }
 

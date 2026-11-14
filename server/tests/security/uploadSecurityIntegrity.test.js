@@ -21,7 +21,7 @@ describe('upload security integrity', () => {
     await expect(authorizeConsultationImages({
       consultationId: 10,
       appointmentId: 20,
-      doctorId: 7,
+      doctorId: 7, branchId:1,
       images: [{ image_url: 'https://res.cloudinary.com/test/image/upload/new.png', security_scan_status: 'approved' }],
       executor,
     })).rejects.toMatchObject({ code: 'CLINICAL_IMAGE_TOKEN_INVALID' })
@@ -30,18 +30,18 @@ describe('upload security integrity', () => {
   it('accepts a new clinical image only with server-signed accepted upload proof', async () => {
     const url = 'https://res.cloudinary.com/test/image/upload/new.png'
     const token = issueAcceptedUploadToken({
-      role: 'doctor', userId: 7, contextType: 'clinical', contextId: 20,
+      role: 'doctor', userId: 7, branchId:1, contextType: 'clinical', contextId: 20,
       status: 'approved', assetId: 'asset-20', url, publicId: 'clinical/new',
     })
     const executor = executorWithExisting([])
     const result = await authorizeConsultationImages({
       consultationId: 10,
       appointmentId: 20,
-      doctorId: 7,
+      doctorId: 7, branchId:1,
       images: [{ image_url: url, security_scan_status: 'legacy', security_token: token }],
       executor,
     })
-    expect(result[0].security_scan_status).toBe('approved')
+    expect(result[0].security_scan_status).toBe('uploaded')
     expect(result[0].security_token).toBeNull()
   })
 
@@ -51,7 +51,7 @@ describe('upload security integrity', () => {
     const result = await authorizeConsultationImages({
       consultationId: 10,
       appointmentId: 20,
-      doctorId: 7,
+      doctorId: 7, branchId:1,
       images: [{ image_url: url, security_scan_status: 'approved' }],
       executor,
     })

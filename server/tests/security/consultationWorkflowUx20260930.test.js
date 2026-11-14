@@ -9,10 +9,11 @@ describe('September 30 consultation workflow UX', () => {
     const consultation = read('client', 'src', 'pages', 'doctorPage', 'Doctor_Consultation.jsx')
     const portal = read('client', 'src', 'services', 'portal.service.js')
     expect(consultation).toContain('Array.from(e.currentTarget.files || [])')
-    expect(consultation).toContain('Upload complete. Security scan passed.')
+    expect(consultation).toContain('Upload complete.')
+    expect(consultation).not.toContain('Security scan passed.')
     expect(consultation).toContain("caption: existing.caption || ''")
     expect(consultation).not.toContain("file?.name?.replace(/\\.[^.]+$/, '')")
-    expect(portal).toContain('Clinical image upload failed (HTTP ${response.status}).')
+    expect(portal).toContain('uploadValidatedImage(file,')
   })
 
   it('allows patient-specific substitutions while keeping the booked service, branch inventory and completion lock', () => {

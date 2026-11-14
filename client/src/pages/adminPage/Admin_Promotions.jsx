@@ -2,7 +2,7 @@ import {useLocation} from 'react-router-dom'
 import useClinicRefresh from '../../hooks/useClinicRefresh'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { MdAdd, MdCampaign, MdEdit, MdRefresh, MdCloudUpload, MdMap } from 'react-icons/md'
-import { getAdminPromotions, saveAdminPromotion, getBillingCatalog, uploadPromotionImage, checkPromotionImage, } from '../../services/admin.service'
+import { getAdminPromotions, saveAdminPromotion, getBillingCatalog, uploadPromotionImage, } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
 import { getLocalDateOnly } from '../../utils/date'
 import {promotionQuote,peso} from '../../utils/promotionPricing.mjs'
@@ -23,7 +23,6 @@ export default function Admin_Promotions({ onComposePost, onPromotionsChanged })
   const [form, setForm] = useState(newPromotion())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [imageScan, setImageScan] = useState(null)
   const [filter, setFilter] = useState('')
   const [branchName, setBranchName] = useState('Your clinic branch')
 
@@ -44,7 +43,6 @@ export default function Admin_Promotions({ onComposePost, onPromotionsChanged })
   const open = useCallback((promo = null) => {
     setEditing(promo?.id || 'new')
     setError('')
-    setImageScan(null)
     setFilter('')
     setForm(promo ? { ...newPromotion(), ...promo, eligibility_type: 'all', image_token: '', clear_image: false, service_ids: promo.service_ids || [] } : newPromotion())
   },[])
@@ -66,7 +64,6 @@ export default function Admin_Promotions({ onComposePost, onPromotionsChanged })
     event.preventDefault()
     if (form.ends_on < form.starts_on) return setError('End date must be on or after the start date.')
     if(form.discount_type!=='none' && (!form.service_ids.length || Number(form.discount_value)<=0 || (form.discount_type==='percentage'&&Number(form.discount_value)>100)))return setError('Select at least one service and enter a valid discount amount.')
-    if (imageScan && imageScan.status !== 'approved') return setError('Please finish checking the photo or remove it before saving.')
     setSaving(true); setError('')
     try {
       await saveAdminPromotion(form, editing === 'new' ? null : editing)
@@ -95,22 +92,8 @@ export default function Admin_Promotions({ onComposePost, onPromotionsChanged })
     setSaving(true); setError('')
     try {
       const uploaded = await uploadPromotionImage(file)
-      setForm(current => ({ ...current, image_url: uploaded.url, image_token: '', clear_image: false }))
-      setImageScan({ status: 'pending', token: uploaded.scan_token })
+      setForm(current => ({ ...current, image_url: uploaded.url, image_token: uploaded.security_token, clear_image: false }))
     } catch (err) { setError(err.message || 'Photo upload failed.') }
-    finally { setSaving(false) }
-  }
-  const verifyImage = async () => {
-    if (!imageScan?.token) return
-    setSaving(true); setError('')
-    try {
-      const result = await checkPromotionImage(imageScan.token)
-      setImageScan(current => ({ ...current, status: result.status }))
-      if (result.status === 'approved') {
-        setForm(current => ({ ...current, image_url: result.url, image_token: result.security_token, clear_image: false }))
-        toast.success('Photo ready.')
-      } else setError('The photo is still being checked. Please try again, or remove it.')
-    } catch (err) { setError(err.message || 'Could not check the photo.') }
     finally { setSaving(false) }
   }
   const today = getLocalDateOnly()
@@ -138,10 +121,8 @@ export default function Admin_Promotions({ onComposePost, onPromotionsChanged })
       <div className="space-y-2 rounded-xl border border-dashed border-slate-300 p-4">
         <p className="form-label">Promotion Photo (Optional)</p>
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-bold"><MdCloudUpload /> Choose Photo<input className="sr-only" type="file" accept="image/jpeg,image/png" disabled={saving} onChange={e => { void uploadImage(e.target.files?.[0]); e.target.value = '' }} /></label>
+        {form.image_url&&<button type="button" className="text-sm text-rose-700 underline" disabled={saving} onClick={()=>setForm(current=>({...current,image_url:'',image_token:'',clear_image:true}))}>Remove Photo</button>}
         {form.image_url && <img alt="Promotion" src={form.image_url} className="max-h-48 w-full rounded-xl object-cover" />}
-        {imageScan?.status === 'pending' && <button type="button" className="button-secondary" disabled={saving} onClick={verifyImage}>Finish Checking Photo</button>}
-        {imageScan?.status === 'approved' && <p className="text-xs font-bold text-emerald-700">Photo is ready.</p>}
-        {form.image_url && <button type="button" className="block text-xs font-bold text-rose-700 underline" onClick={() => { setImageScan(null); setForm(current => ({ ...current, image_url: '', image_token: '', clear_image: true })) }}>Remove Photo</button>}
       </div>
       <div className="grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 sm:grid-cols-2">
         <label className="form-label">Discount type

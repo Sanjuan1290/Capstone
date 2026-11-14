@@ -1234,7 +1234,10 @@ const updateBill = async (req, res) => {
     const discountReferenceImageUrl = null
 
     const {applyServicePromotions}=require('../utils/billingServicePromotions')
-    const {total:promotionDiscount}=await applyServicePromotions(allItems,currentBill,conn,req.branchId)
+    const {ensureBillPolicy}=require('../utils/billingFinancialSnapshot')
+    const financialPolicy=await ensureBillPolicy(billingId,req.branchId,conn)
+    const statutory=['senior','pwd'].includes(financialPolicy.policy.discount_categories?.[discount.preset?.id])
+    const {total:promotionDiscount}=await applyServicePromotions(allItems,currentBill,conn,req.branchId,{suppress:statutory})
     const combinedDiscount=toMoney(discount.amount+courtesyTotal+promotionDiscount)
     if(combinedDiscount>subtotalOnly.subtotal){
       await conn.rollback()
@@ -1283,6 +1286,8 @@ const updateBill = async (req, res) => {
       const err = new Error('This bill changed while it was being saved. Reload the latest version and try again.')
       err.statusCode = 409; err.code = 'BILL_VERSION_CONFLICT'; throw err
     }
+    const savedFinancial=await require('../utils/billingFinancialSnapshot').refreshDraftFinancialTotals(billingId,req.branchId,conn,{preset:discount,verification:{verified:req.body.statutory_verified===true,reference:req.body.discount_reference,actor_id:req.user.id,actor_role:actorRole}})
+    Object.assign(totals,{subtotal:savedFinancial.subtotal,discount_amount:savedFinancial.discount_amount,total_amount:savedFinancial.total_amount})
     if (reviewProvided) {
       await conn.query(`UPDATE billing_records SET promotion_review_outcome=?, promotion_review_note=?,
         promotion_review_by_role=?, promotion_review_by_user_id=?, promotion_reviewed_bill_version=?,
@@ -1455,6 +1460,7 @@ const finalizeBill = async (req, res) => {
     }
 
 
+    await require('../utils/billingFinancialSnapshot').confirmFinancialSnapshot(bill,conn)
     const nextVersion = expectedVersion + 1
     const [updated] = await conn.query(
       `UPDATE billing_records SET status='ready', finalized_at=NOW(), finalized_by_staff_id=?, finalized_by_admin_id=?, version=? WHERE id=? AND version=?`,
@@ -1533,6 +1539,7 @@ const reopenBillForEditing = async (req, res) => {
        WHERE id=? AND status='ready' AND version=?`,
       [billingId, expectedVersion]
     )
+    await conn.query('UPDATE billing_financial_snapshots SET confirmed_at=NULL WHERE billing_id=? AND branch_id=?',[billingId,req.branchId])
     if (Number(updated.affectedRows || 0) !== 1) {
       const error = new Error('The bill changed while reopening. Reload and try again.')
       error.statusCode = 409
@@ -1647,12 +1654,14 @@ const payBill = async (req, res) => {
     const requestedPayment = req.body.payment_amount === '' || req.body.payment_amount === undefined || req.body.payment_amount === null
       ? balance
       : Math.max(0, Number(req.body.payment_amount) || 0)
+    if(!Number.isFinite(requestedPayment)||roundMoney(requestedPayment)!==requestedPayment){await conn.rollback();return res.status(400).json({message:'Payment amounts must have at most two decimal places.'})}
     if (requestedPayment <= 0) { await conn.rollback(); return res.status(400).json({ message: 'Enter a payment amount greater than zero.' }) }
     if (requestedPayment > balance + 0.001) { await conn.rollback(); return res.status(400).json({ message: 'Payment amount cannot exceed the remaining balance.' }) }
 
     const tendered = paymentMethod === 'cash'
       ? Math.max(0, Number(req.body.amount_received ?? requestedPayment) || 0)
       : requestedPayment
+    if(!Number.isFinite(tendered)||roundMoney(tendered)!==tendered){await conn.rollback();return res.status(400).json({message:'Cash received must have at most two decimal places.'})}
     const paymentAmounts = calculatePaymentAmounts({ totalAmount: requestedPayment, amountReceived: tendered })
     if (!paymentAmounts.isSufficient) { await conn.rollback(); return res.status(400).json({ message: 'Amount received cannot be lower than the payment amount.' }) }
 

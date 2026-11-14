@@ -18,9 +18,9 @@ test('post preview handles missing and broken images', () => {
   assert.match(preview, /The cover photo could not be displayed/)
 })
 
-test('post preview keeps scan-pending warning distinct from saved posts', () => {
-  assert.match(preview, /awaitingImageApproval\s*&&\s*coverUrl/)
-  assert.match(source, /previewPost\.id\s*===\s*'draft'/)
+test('post preview has no obsolete scan waiting or approval controls',()=>{
+  assert.doesNotMatch(source,/awaitingImageApproval|checkAnnouncementCover|scan_token/)
+  assert.match(source,/cover_image_token:result.security_token/)
 })
 
 test('both Preview buttons reuse the image-aware modal', () => {

@@ -26,7 +26,7 @@ test('selected Super Admin branch ignores another branch event',()=>{
 })
 test('promotions require accepted, branch-owned upload token, not arbitrary image URLs',()=>{
  const source=read('../../server/routers/branchPromotions.js')
- for(const marker of ["scan_status:'approved'","context_type:'promotion'",'context_id:req.branchId','Upload and approve the promotional image','cloud.getPerceptionPointScanStatus',"requirePermission('system_setup')"])assert.ok(source.includes(marker),marker)
+ for(const marker of ["validation:'image_validated'","context_type:'promotion'",'context_id:req.branchId','Upload the promotional image','cloud.issueAcceptedUploadToken',"requirePermission('system_setup')"])assert.ok(source.includes(marker),marker)
 })
 test('patient offers have a registered route and frontend image does not alter billing',()=>{
  const routes=read('../src/App.jsx'), cards=read('../src/components/promotions/PromotionCards.jsx')

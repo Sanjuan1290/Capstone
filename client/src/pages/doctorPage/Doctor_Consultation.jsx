@@ -1,3 +1,5 @@
+import RecommendedFollowupEditor from '../../components/consultation/RecommendedFollowupEditor'
+import { updateRecommendedFollowup } from '../../services/doctor.service'
 import { estimateConsultationServicePrice } from '../../utils/consultationPricing.mjs'
 import { supplyQuantityError } from '../../utils/supplyQuantity.mjs'
 import DoctorChargeReductionPanel from '../../components/billing/DoctorChargeReductionPanel'
@@ -6,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useSearchParams, NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { uploadClinicalImageSigned, getClinicalImageScanStatus } from '../../services/portal.service'
+import { uploadClinicalImageSigned } from '../../services/portal.service'
 import Modal from '../../components/ui/Modal'
 import {
   saveConsultationDraft,
@@ -92,7 +94,7 @@ const normalizeProgressImages = (images = []) => (
     ? images.map((image) => ({
       image_url: String(image?.image_url || image?.url || '').trim(),
       caption: String(image?.caption || image?.notes || '').trim(),
-      security_scan_status: ['approved', 'bypassed', 'legacy'].includes(String(image?.security_scan_status || '').toLowerCase())
+      security_scan_status: ['uploaded', 'approved', 'bypassed', 'legacy'].includes(String(image?.security_scan_status || '').toLowerCase())
         ? String(image.security_scan_status).toLowerCase()
         : 'legacy',
       security_token: String(image?.security_token || '').trim(),
@@ -216,7 +218,7 @@ const ProgressImageGallery = ({ images = [], emptyText = 'No progress images add
                 {image.caption || 'No caption provided.'}
               </p>
               <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${image.security_scan_status === 'approved' ? 'bg-emerald-50 text-emerald-700' : image.security_scan_status === 'bypassed' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
-                {image.security_scan_status === 'approved' ? 'Security scan passed' : image.security_scan_status === 'bypassed' ? 'Not malware scanned' : 'Legacy image'}
+                Saved image
               </span>
             </div>
             <MdOpenInNew className="mt-0.5 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" />
@@ -243,6 +245,10 @@ const Doctor_Consultation = () => {
   const [loadError, setLoadError] = useState('')
   const [loadAttempt, setLoadAttempt] = useState(0)
 
+  const [followup, setFollowup] = useState(null)
+  const [followupVersion, setFollowupVersion] = useState(0)
+  const [followupSaving, setFollowupSaving] = useState(false)
+  const [followupError, setFollowupError] = useState('')
   const [diagnosis, setDiagnosis] = useState('')
   const [notes, setNotes] = useState('')
   const [prescriptions, setPrescriptions] = useState([])
@@ -261,8 +267,6 @@ const Doctor_Consultation = () => {
   const [clinicSettings, setClinicSettings] = useState(null)
   const [uploadingIndex, setUploadingIndex] = useState(null)
   const [imageUploadStatus, setImageUploadStatus] = useState({})
-  const [scanBypassPrompt, setScanBypassPrompt] = useState(null)
-  const [pendingScanPrompt, setPendingScanPrompt] = useState(null)
   const [consultationStatus, setConsultationStatus] = useState('draft')
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [autoSaveError, setAutoSaveError] = useState('')
@@ -374,6 +378,9 @@ const Doctor_Consultation = () => {
     setAmendments(Array.isArray(consult.amendments) ? consult.amendments : [])
     setDiagnosis(consult.diagnosis || '')
     setNotes(consult.notes || '')
+    setFollowup(consult.follow_up?.status === 'active' ? consult.follow_up : null)
+    setFollowupVersion(Number(consult.follow_up?.version || 0))
+    setFollowupError('')
     setProgressImages(normalizeProgressImages(consult.progress_images))
     try {
       const rx = typeof consult.prescription === 'string'
@@ -426,6 +433,10 @@ const Doctor_Consultation = () => {
     setLoadError('')
     setAutosaveReady(false)
     setIsEditMode(false)
+    setFollowup(null)
+    setFollowupVersion(0)
+    setFollowupSaving(false)
+    setFollowupError('')
     setDiagnosis('')
     setNotes('')
     setPrescriptions([])
@@ -433,8 +444,6 @@ const Doctor_Consultation = () => {
     setProgressImages([])
     setUploadingIndex(null)
     setImageUploadStatus({})
-    setScanBypassPrompt(null)
-    setPendingScanPrompt(null)
     setAddingAmendment(false)
     setAmendmentReason('')
     setAmendmentText('')
@@ -635,7 +644,7 @@ const Doctor_Consultation = () => {
       next[index] = {
         ...existing,
         image_url: result.url || existing.image_url,
-        security_scan_status: result.scan_status || existing.security_scan_status || 'legacy',
+        security_scan_status: 'uploaded',
         security_token: result.security_token || '',
         caption: existing.caption || '',
       }
@@ -677,110 +686,17 @@ const Doctor_Consultation = () => {
     }
   }
 
-  const handleUploadProgressImage = async (index, file) => {
-    const isCurrent = captureCurrentConsultation()
-    if (!isCurrent()) return
-    if (!file) return
-    if (!['image/png','image/jpeg'].includes(String(file.type || '').toLowerCase())) {
-      setClinicalUploadStatus(index, { tone: 'danger', message: 'Select a PNG or JPG image.' })
-      return
-    }
-    if (Number(file.size || 0) > 10 * 1024 * 1024) {
-      setClinicalUploadStatus(index, { tone: 'danger', message: 'Clinical images must be 10 MB or smaller.' })
-      return
-    }
-    setScanBypassPrompt(null)
-    setPendingScanPrompt(null)
-    setUploadingIndex(index)
-    setClinicalUploadStatus(index, { tone: 'info', message: 'Uploading image securely…' })
-    try {
-      const result = await uploadClinicalImageSigned(file, appt?.id, {
-        scanMode: 'scan',
-        onStatus: (status) => { if (isCurrent()) setClinicalUploadStatus(index, status) },
-      })
-      if (!isCurrent()) return
-      applyClinicalUploadResult(index, file, result)
-      setClinicalUploadStatus(index, {
-        tone: result.scan_status === 'bypassed' ? 'warning' : 'success',
-        message: result.scan_status === 'bypassed' ? 'Upload complete without malware scanning.' : 'Upload complete. Security scan passed.',
-      })
-    } catch (err) {
-      if (!isCurrent()) return
-      if (err.code === 'SCAN_UNAVAILABLE' || err.code === 'SCAN_LIMIT_REACHED') {
-        const limitReached = err.code === 'SCAN_LIMIT_REACHED'
-        setClinicalUploadStatus(index, { tone: 'warning', message: limitReached ? 'Security scanner usage limit reached — confirmation required.' : 'Security scanner unavailable — confirmation required.' })
-        setScanBypassPrompt({ index, file, message: err.message, reason: limitReached ? 'usage_limit_reached' : 'scanner_unavailable', bypass_token: err.bypass_token || '' })
-      } else if (err.code === 'SCAN_REJECTED') {
-        setClinicalUploadStatus(index, { tone: 'danger', message: 'Unsafe image detected — upload blocked.' })
-      } else if (err.code === 'SCAN_PENDING') {
-        setClinicalUploadStatus(index, { tone: 'info', message: 'Security scan is taking longer than expected. The image is still quarantined and has not been attached.' })
-        setPendingScanPrompt({ index, file, asset_id: err.asset_id, url: err.url, public_id: err.public_id, scan_token: err.scan_token })
-      } else {
-        setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Failed to upload image.' })
-      }
-    } finally {
-      if (isCurrent()) setUploadingIndex(null)
-    }
-  }
-
-  const checkPendingClinicalScan = async () => {
-    const isCurrent = captureCurrentConsultation()
-    if (!isCurrent()) return
-    if (!pendingScanPrompt?.asset_id || !Number.isInteger(pendingScanPrompt?.index)) return
-    const { index, file, asset_id: assetId, url, scan_token: scanToken } = pendingScanPrompt
-    setUploadingIndex(index)
-    setClinicalUploadStatus(index, { tone: 'info', message: 'Checking security scan status…' })
-    try {
-      const result = await getClinicalImageScanStatus(appt?.id, assetId, scanToken)
-      if (!isCurrent()) return
-      if (result.status === 'approved') {
-        applyClinicalUploadResult(index, file, { url: result.secure_url || url, scan_status: 'approved', asset_id: assetId, security_token: result.security_token })
-        setClinicalUploadStatus(index, { tone: 'success', message: 'Upload complete. Security scan passed.' })
-        setPendingScanPrompt(null)
-      } else if (result.status === 'rejected') {
-        setClinicalUploadStatus(index, { tone: 'danger', message: 'Unsafe image detected — upload blocked.' })
-        setPendingScanPrompt(null)
-      } else if (result.status === 'unavailable') {
-        setPendingScanPrompt(null)
-        setScanBypassPrompt({ index, file, message: result.message, reason: result.reason || 'scanner_unavailable', bypass_token: result.bypass_token || '' })
-        setClinicalUploadStatus(index, { tone: 'warning', message: 'Security scanner unavailable — confirmation required.' })
-      } else {
-        setClinicalUploadStatus(index, { tone: 'info', message: 'Security scan is still in progress. The image remains quarantined.' })
-      }
-    } catch (err) {
-      if (!isCurrent()) return
-      setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Could not check the security scan.' })
-    } finally {
-      if (isCurrent()) setUploadingIndex(null)
-    }
-  }
-
-  const continueClinicalUploadWithoutScan = async () => {
-    const isCurrent = captureCurrentConsultation()
-    if (!isCurrent()) return
-    if (!scanBypassPrompt?.file || !Number.isInteger(scanBypassPrompt?.index)) return
-    const { index, file, bypass_token: bypassToken } = scanBypassPrompt
-    if (!bypassToken) {
-      setClinicalUploadStatus(index, { tone: 'danger', message: 'The server did not authorize an unscanned upload. Retry the security scan.' })
-      return
-    }
-    setScanBypassPrompt(null)
+  const handleUploadProgressImage = async (index,file) => {
+    const isCurrent=captureCurrentConsultation()
+    if(!isCurrent()||!file)return
     setUploadingIndex(index)
     try {
-      const result = await uploadClinicalImageSigned(file, appt?.id, {
-        scanMode: 'bypass',
-        bypassToken,
-        onStatus: (status) => { if (isCurrent()) setClinicalUploadStatus(index, status) },
-      })
-      if (!isCurrent()) return
-      applyClinicalUploadResult(index, file, result)
-      setClinicalUploadStatus(index, { tone: 'warning', message: 'Upload complete without malware scanning.' })
-    } catch (err) {
-      if (!isCurrent()) return
-      setClinicalUploadStatus(index, { tone: 'danger', message: err.message || 'Failed to upload image.' })
-    } finally {
-      if (isCurrent()) setUploadingIndex(null)
-    }
+      const result=await uploadClinicalImageSigned(file,appt.id,{onStatus:status=>{if(isCurrent())setClinicalUploadStatus(index,status)}})
+      if(!isCurrent())return
+      applyClinicalUploadResult(index,file,result)
+      setClinicalUploadStatus(index,{tone:'success',message:'Upload complete.'})
+    }catch(error){if(isCurrent())setClinicalUploadStatus(index,{tone:'danger',message:error.message||'Image upload failed.'})}
+    finally{if(isCurrent())setUploadingIndex(null)}
   }
 
   const updateServiceReason = (serviceId, reason) => {
@@ -948,12 +864,13 @@ const Doctor_Consultation = () => {
     return {
       diagnosis,
       notes,
+      follow_up: followup ? (followup.return_date ? {return_date:followup.return_date,doctor_note:followup.doctor_note} : undefined) : null,
       prescription_status: prescriptionDecision,
       prescription: JSON.stringify(prescriptionItems),
       images: normalizeProgressImages(progressImages).filter((image) => image.image_url),
       billable_services: billableServices,
     }
-  }, [diagnosis, notes, prescriptionDecision, prescriptions, progressImages, billableServices])
+  }, [diagnosis, notes, prescriptionDecision, prescriptions, progressImages, billableServices, followup])
 
   const draftSignature = useMemo(() => JSON.stringify(draftPayload), [draftPayload])
   const appointmentId = appt?.id
@@ -1023,6 +940,7 @@ const Doctor_Consultation = () => {
       window.alert('Describe the skipped part of the service in at least 5 characters.')
       return
     }
+    if (followup && !followup.return_date) { setFollowupError('Select a recommended return date, or remove the recommendation.'); return }
     if (!window.confirm('Complete consultation? This will finalize the clinical record, record the items actually used, update the bill, and mark the appointment completed. Stock handling follows the clinic billing settings. Further changes must be recorded as an amendment.')) return
     const isCurrent = captureCurrentConsultation()
     if (!isCurrent()) return
@@ -1030,10 +948,11 @@ const Doctor_Consultation = () => {
     setSaving(true)
     const finalizingDraft = latestDraftRef.current
     try {
-      await finalizeConsultation(appt.id, { ...finalizingDraft.payload, expected_version: consultationVersionsRef.current.get(String(appt.id)) ?? 0 })
+      const finalizedResult=await finalizeConsultation(appt.id, { ...finalizingDraft.payload, expected_version: consultationVersionsRef.current.get(String(appt.id)) ?? 0 })
       if (!isCurrent()) return
       finalizedAppointmentIdRef.current = appt.id
       autosaveQueueRef.current.reset(appt.id, finalizingDraft.signature)
+      setFollowupVersion(Number(finalizedResult.follow_up?.version||0))
       setConsultationStatus('finalized')
       setIsEditMode(true)
       setLastSavedAt(new Date())
@@ -1249,6 +1168,15 @@ const Doctor_Consultation = () => {
                 <p className="mt-1 text-xs leading-relaxed text-emerald-700">The original diagnosis, notes, prescription, images, and recorded services are preserved. Corrections or additional information must be added as an amendment below.</p>
               </div>
             )}
+            <RecommendedFollowupEditor value={followup} onChange={setFollowup} disabled={saving || followupSaving}/>
+            {followupError && <p role="alert" className="text-sm text-rose-700">{followupError}</p>}
+            {consultationStatus === 'finalized' && <button type="button" className="button-secondary" disabled={followupSaving} onClick={async()=>{
+              const isCurrent = captureCurrentConsultation()
+              if (!isCurrent()) return
+              setFollowupSaving(true); setFollowupError('')
+              try { const result=await updateRecommendedFollowup(appt.id,{follow_up:followup ? {return_date:followup.return_date,doctor_note:followup.doctor_note} : null,expected_version:followupVersion});if(!isCurrent())return;setFollowup(result.follow_up?.status==='active'?result.follow_up:null);setFollowupVersion(Number(result.follow_up?.version||0)) }
+              catch(error){if(isCurrent())setFollowupError(error.message)}finally{if(isCurrent())setFollowupSaving(false)}
+            }}>{followupSaving?'Saving recommendation...':'Save Recommendation'}</button>}
             <fieldset disabled={consultationStatus === 'finalized' || saving} className={`space-y-5 ${consultationStatus === 'finalized' ? 'opacity-90' : ''}`}>
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
               <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -1286,7 +1214,7 @@ const Doctor_Consultation = () => {
                   <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                     <MdImage className="text-violet-500 text-[16px]" /> Progress Images
                   </h2>
-                  <p className="mt-1 text-xs text-slate-500">Upload up to 5 PNG or JPG images for this consultation. Each image is security scanned before it is attached.</p>
+                  <p className="mt-1 text-xs text-slate-500">Upload up to 5 PNG or JPG images for this consultation. PNG or JPG files are validated before upload.</p>
                 </div>
                 <label className={`flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-600 hover:bg-violet-100 ${uploadingIndex !== null || progressImages.length >= 5 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>
                   <MdUpload className="text-[14px]" /> {progressImages.length >= 5 ? '5 Images Uploaded' : 'Upload Progress Images'}
@@ -1377,7 +1305,7 @@ const Doctor_Consultation = () => {
 
                           {!imageUploadStatus[index] && image.image_url && (
                             <p className={`text-[11px] font-semibold ${image.security_scan_status === 'approved' ? 'text-emerald-600' : image.security_scan_status === 'bypassed' ? 'text-amber-700' : 'text-slate-400'}`}>
-                              {image.security_scan_status === 'approved' ? 'Security scan passed.' : image.security_scan_status === 'bypassed' ? 'Uploaded without malware scanning.' : 'Legacy image.'}
+                              Image attached.
                             </p>
                           )}
 
@@ -1945,46 +1873,6 @@ const Doctor_Consultation = () => {
         </div>
       </Modal>
 
-      <Modal
-        open={Boolean(pendingScanPrompt)}
-        onClose={() => uploadingIndex === null && setPendingScanPrompt(null)}
-        closeDisabled={uploadingIndex !== null}
-        title="Security scan still in progress"
-        description="The image remains quarantined and has not been attached to the clinical record."
-        size="md"
-      >
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sm text-sky-900">
-            <p className="font-black">Perception Point is still scanning this image</p>
-            <p className="mt-2 leading-relaxed">You can check the same uploaded image again. This does not create another upload or consume another scan request.</p>
-          </div>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" className="button-secondary" disabled={uploadingIndex !== null} onClick={() => setPendingScanPrompt(null)}>Cancel</button>
-            <button type="button" className="button-primary" disabled={uploadingIndex !== null} onClick={checkPendingClinicalScan}>Check Again</button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal
-        open={Boolean(scanBypassPrompt)}
-        onClose={() => uploadingIndex === null && setScanBypassPrompt(null)}
-        closeDisabled={uploadingIndex !== null}
-        title={scanBypassPrompt?.reason === 'usage_limit_reached' ? 'Security scanner usage limit reached' : 'Security scanner unavailable'}
-        description="This clinical image could not be verified by the malware scanner."
-        size="md"
-      >
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            <p className="font-black">Malware scan was not completed</p>
-            <p className="mt-2 leading-relaxed">{scanBypassPrompt?.message || 'The Perception Point scanner may be temporarily unavailable or its usage allowance may have been reached.'}</p>
-            <p className="mt-2 text-xs font-semibold">Only continue if this image comes from a trusted source. The saved clinical image will be marked as not malware scanned.</p>
-          </div>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" className="button-secondary" disabled={uploadingIndex !== null} onClick={() => setScanBypassPrompt(null)}>Cancel Upload</button>
-            <button type="button" className="button-primary" disabled={uploadingIndex !== null} onClick={continueClinicalUploadWithoutScan}>Continue Without Scan</button>
-          </div>
-        </div>
-      </Modal>
     </>
   )
 }

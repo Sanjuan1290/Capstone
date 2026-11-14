@@ -28,6 +28,6 @@ export function calculatePaymentPreview({ bill, draft }) {
   }
 }
 
-// Checkout always collects the saved balance. Cash tendered is a separate value.
+// Full balance by default; an explicit partial payment preserves its own transaction amount.
 export const calculateBalancePaymentPreview = ({ bill, draft }) =>
-  calculatePaymentPreview({ bill, draft: { ...draft, payment_amount: bill?.balance_amount } })
+  calculatePaymentPreview({ bill, draft: { ...draft, payment_amount: draft?.partial_payment ? draft.payment_amount : bill?.balance_amount } })

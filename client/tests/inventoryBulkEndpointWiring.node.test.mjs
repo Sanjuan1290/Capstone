@@ -19,7 +19,7 @@ test('Admin Inventory passes both bulk methods to Excel Tools', () => {
 test('Excel API methods use the protected branch-scoped routes and wrap arrays as items', async () => {
   const standalone = service
     .replace("from '../utils/manualAppointment.mjs'", `from '${new URL('../src/utils/manualAppointment.mjs', import.meta.url).href}'`)
-    .replace(/^import \{ makeSecurityScanError, waitForSecurityScan \} from ['"]\.\/cloudinaryScan['"]\s*$/m, '')
+    .replace(/^import \{ uploadValidatedImage \} from ['"]\.\/imageUpload['"]\s*$/m, '')
     .replace(/^import \{ uploadDiscountProofViaApi \} from ['"]\.\/discountProofUpload['"]\s*$/m, '')
   const mod = await import(`data:text/javascript;base64,${Buffer.from(standalone).toString('base64')}`)
   const prevFetch = globalThis.fetch

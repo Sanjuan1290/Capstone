@@ -576,6 +576,9 @@ router.get('/analytics/trends',requireSuper,async(req,res)=>{
 })
 // Detailed reports use the same organization-wide/branch selection for every tab.
 // They return aggregates only; no patient contact or clinical note data is exposed.
+router.get('/analytics/financial-allocations',requireSuper,async(req,res)=>{
+ try{const raw=req.query.branch_id;const branchId=!raw||raw==='all'?null:Number(raw);res.json(await require('../utils/financialAllocationReport').financialAllocationReport(db,{from:req.query.from,to:req.query.to,branchId}))}catch(e){if(e.statusCode)return res.status(e.statusCode).json({message:e.message});throw e}
+})
 router.get('/analytics/report-details',requireSuper,async(req,res)=>{
  const {from,to}=reportRange(req)
  const section=String(req.query.section||'overview')
@@ -809,6 +812,7 @@ for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branc
 require('./branchAllInventory').registerAllInventory(router,requireSuper)
 
 // Branch-scoped read handlers preserve the original Admin UI response shapes.
+require('./branchBillingSettings').registerBranchBillingSettings(router,{requireSuper,branchContext,requirePermission})
 require('./branchOperationalReads').registerBranchOperationalReads(router,{requireSuper,branchContext,requirePermission,allowAnyPermission})
 require('./branchReports').registerBranchReports(router,{requireSuper,branchContext,requirePermission})
 require('./branchAudit').registerBranchAudit(router,{requireSuper,branchContext,requirePermission})

@@ -29,6 +29,7 @@ const setup = (options = {}) => {
     release: () => { state.released += 1 },
     query: async (sql, params) => {
       state.queries.push({ sql, params })
+      if(sql.startsWith('UPDATE billing_financial_snapshots'))return [{affectedRows:0}]
       if (sql.startsWith('SELECT * FROM billing_records')) return [options.absent ? [] : [{ ...record }]]
       if (sql.includes('FROM payment_gateway_attempts')) return [options.activeQr ? [{id:42}] : []]
       if (sql.includes('FROM billing_payments')) return [[{ count: options.payments ?? 0 }]]

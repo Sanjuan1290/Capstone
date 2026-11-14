@@ -123,7 +123,7 @@ test('new item still sends opening quantity and expiry', async ({ page }) => {
   expect(state.creates[0].expiration_date).toBe('2028-11-11')
 })
 
-test('short product and batch barcode previews decode at their rendered sizes', async ({ page }) => {
+test('short product barcode decodes at its rendered size and batch code remains a text identifier', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 1000 })
   await inventoryPortal(page)
   await page.getByRole('button', { name: 'Edit Item', exact: true }).first().click()
@@ -144,5 +144,6 @@ test('short product and batch barcode previews decode at their rendered sizes', 
   expect(await decode('Product Barcode Preview: M1-00001')).toBe('M1-00001')
   await page.getByRole('dialog', { name: 'Edit Inventory Item' }).getByRole('button', { name: 'Cancel', exact: true }).click()
   await page.getByRole('button', { name: 'Stock In', exact: true }).first().click()
-  expect(await decode('New Batch: B1-001')).toBe('B1-001')
+  await expect(page.getByText('B1-001',{exact:true})).toBeVisible()
+  await expect(page.getByRole('img',{name:/New Batch:/})).toHaveCount(0)
 })

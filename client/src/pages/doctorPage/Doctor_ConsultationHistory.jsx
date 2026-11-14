@@ -101,6 +101,7 @@ const Doctor_ConsultationHistory = () => {
                         Record {row.consultation_status || 'Available'}
                       </span>
                     </div>
+                    {row.follow_up?.status === 'active' && <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Recommended Follow-Up: {formatDate(row.follow_up.return_date)}</strong><span className="mt-1 block whitespace-pre-wrap">{row.follow_up.doctor_note}</span></p>}
                     <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
                       <p className="flex items-center gap-2"><MdCalendarToday className="text-slate-400" /> {formatDate(row.appointment_date)} · {row.appointment_time || row.time || '—'}</p>
                       <p className="flex items-center gap-2"><MdPerson className="text-slate-400" /> {row.patient_age !== null && row.patient_age !== undefined ? `${row.patient_age} yrs` : 'Age not recorded'}{row.patient_sex ? ` · ${row.patient_sex}` : ''}</p>

@@ -20,6 +20,7 @@ function harness(){
     throw Error('Unexpected query: '+sql.slice(0,120))
   }}
   const imports={
+    './billingCalculation':require('../utils/billingCalculation'),
     '../db/connect':executor,
     './supplyQuantity':require(path.join(root,'utils/supplyQuantity')),
     './consultationMaterialPricing':require(path.join(root,'utils/consultationMaterialPricing')),

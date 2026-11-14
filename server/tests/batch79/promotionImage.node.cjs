@@ -8,7 +8,6 @@ const cloud={
    if(contract.context_type!=='promotion'||contract.context_id!==1)throw new Error('Cross-branch/image-context error')
    return {url:'https://res.cloudinary.com/demo/image/upload/approved.jpg',asset_id:'asset-11'}
  },
- getPerceptionPointScanStatus:async()=>({status:'approved'}),
  issueAcceptedUploadToken:()=> 'approved-token',
 }
 const writes=[], fakeDb={getConnection:async()=>({
@@ -30,16 +29,16 @@ const req=({imageUrl,token})=>({branchId:1,user:{id:3},adminContext:{account_rol
 const res=()=>({statusCode:200,body:null,status(n){this.statusCode=n;return this},json(body){this.body=body;return this}})
 test('unsigned custom promotion image URL is rejected before insert',async()=>{
  const response=res();await routes.get('POST /my/legacy/promotions')(req({imageUrl:'https://attacker.example/img.png'}),response)
- assert.equal(response.statusCode,400);assert.match(response.body.message,/approve/i)
+ assert.equal(response.statusCode,400);assert.match(response.body.message,/upload/i)
  assert.equal(writes.filter(x=>x[0].startsWith('INSERT INTO clinic_promotions')).length,0)
 })
-test('approved image binds promotion, actor and current branch and saves only verified asset',async()=>{
+test('validated image binds promotion, actor and current branch and saves only authorized asset',async()=>{
  const response=res();await routes.get('POST /my/legacy/promotions')(req({imageUrl:'https://res.cloudinary.com/demo/image/upload/approved.jpg',token:'approved-token'}),response)
  assert.equal(response.statusCode,200);assert.equal(response.body.id,19)
- assert.ok(verified.some(c=>c.context_type==='promotion'&&c.context_id===1&&c.user_id===3&&c.scan_status==='approved'))
+ assert.ok(verified.some(c=>c.context_type==='promotion'&&c.context_id===1&&c.user_id===3&&c.branch_id===1&&c.validation==='image_validated'))
  const insert=writes.find(x=>x[0].startsWith('INSERT INTO clinic_promotions'))
- assert.equal(insert[1].at(-3),'https://res.cloudinary.com/demo/image/upload/approved.jpg')
- assert.equal(insert[1].at(-2),'asset-11')
+ assert.equal(insert[1][9],'https://res.cloudinary.com/demo/image/upload/approved.jpg')
+ assert.equal(insert[1][10],'asset-11')
 })
 test('invalid featured order is rejected',()=>{
  assert.match(moduleObj.exports.validate({...req({}).body,featured_order:-1}),/Featured order/)

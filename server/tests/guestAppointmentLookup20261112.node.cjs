@@ -93,7 +93,7 @@ test('existing private links still work without an SMS session and invalid links
 test('the actual guest router wires protected lookup and phone-authenticated status responses', async () => {
   const h = harness({ ...seed(), appointments: [appointment(1)] }); await h.verified(phone)
   const pass = (req,res,next) => next(), noop = (req,res) => res.json({}), callbacks = new Proxy({}, { get: () => noop })
-  const dependencies = { express, '../controllers/guestBooking.controller': h.booking, '../controllers/guestPhoneVerification.controller': h.phoneController, '../controllers/patient.controller': callbacks, '../controllers/common.controller': callbacks, '../controllers/promotions.controller': callbacks,
+  const dependencies = { express, '../utils/consultationFollowups':{listPatientFollowups:noop}, '../controllers/guestBooking.controller': h.booking, '../controllers/guestPhoneVerification.controller': h.phoneController, '../controllers/patient.controller': callbacks, '../controllers/common.controller': callbacks, '../controllers/promotions.controller': callbacks,
     '../middlewares/rateLimit.middleware': { otpRequestLimiter: pass, otpVerifyLimiter: pass, loginLimiter: pass, createRateLimiter: () => pass }, '../middlewares/auth.middleware': () => pass, '../middlewares/role.middleware': () => pass, '../db/connect': h.db }
   const module = { exports: {} }
   vm.runInNewContext(fs.readFileSync(require.resolve('../routers/patient.router.js'), 'utf8'), { module, require: name => dependencies[name] || {}, Date, console })

@@ -11,6 +11,7 @@ const file = path.resolve(__dirname, '../../controllers/doctor.controller.js')
 function controller(db, overrides = {}) {
   const deps = {
     '../db/connect': db,
+    '../utils/consultationFollowups':{saveFollowup:async()=>undefined,readFollowup:async()=>null},
     '../utils/inputValidation': validation,
     '../utils/consultationIntegrity': { assertConsultationEditable, assertConsultationVersion, loadConsultationAmendments: async () => ({}) },
     '../utils/consultationImages': { loadImagesForConsultationIds: async () => ({}) },
@@ -53,7 +54,7 @@ test('former-branch patient relationship cannot authorize medical history', asyn
   assert.equal(calls, 1)
 })
 
-for (const operation of ['uploadClinicalImage', 'getClinicalUploadScanStatus']) {
+for (const operation of ['uploadClinicalImage']) {
   test(`${operation} rejects a former-branch appointment before accessing Cloudinary`, async () => {
     const db = { query: async (sql, params) => {
       assert.ok(sql.includes('branch_id = ?'))

@@ -95,7 +95,7 @@ const save = async(req,res)=>{
   let assetId=old?.cover_image_asset_id||null,img=old?.cover_image_url||null
   if(nextImg && nextImg!==img){
     const token=String(req.body.cover_image_token||'')
-    const claims=cloud.verifyUploadSecurityToken(token,{stage:'accepted',role:'admin',user_id:req.user.id,context_type:'announcement',context_id:req.branchId,scan_status:'approved',url:nextImg})
+    const claims=cloud.verifyUploadSecurityToken(token,{stage:'accepted',role:req.adminContext?.account_role||req.user?.role||'admin',user_id:req.user.id,context_type:'announcement',context_id:req.branchId,validation:'image_validated',branch_id:req.branchId,url:nextImg})
     assetId=claims.asset_id;img=nextImg
   } else if(req.body.clear_cover_image===true){assetId=null;img=null}
   const autoSlug=await uniqueSlug(values.slug,req.branchId,id)
@@ -151,21 +151,11 @@ const changeStatus=async(req,res)=>{
   res.json({message:'Post status updated.',status})
 }
 const uploadImage=async(req,res)=>{
-  if(!Buffer.isBuffer(req.body)||req.body.length>5*1024*1024||!req.body.length)throw bad('Choose a JPG or PNG cover image up to 5 MB.')
-  if(!cloud.detectImageMime(req.body))throw bad('A valid JPG or PNG image is required.')
-  const cloudName=process.env.CLOUDINARY_CLOUD_NAME,apiKey=process.env.CLOUDINARY_API_KEY,apiSecret=process.env.CLOUDINARY_API_SECRET
-  if(!cloudName||!apiKey||!apiSecret)throw bad('Image uploads need Cloudinary configuration.',503)
-  const timestamp=Math.floor(Date.now()/1000),folder=`carait-clinic/announcements/branch_${req.branchId}`
-  const signed={cloud_name:cloudName,api_key:apiKey,timestamp,folder,moderation:'perception_point',scan_mode:'scan',signature:cloud.makeCloudinarySignature({folder,moderation:'perception_point',timestamp},apiSecret)}
-  const result=await cloud.cloudinaryUploadBuffer({buffer:req.body,mimeType:req.get('content-type'),fileName:'announcement-cover',signed})
-  res.json({status:'pending',asset_id:result.asset_id,url:result.secure_url,scan_token:cloud.issueScanPendingToken({role:'admin',userId:req.user.id,contextType:'announcement',contextId:req.branchId,assetId:result.asset_id,url:result.secure_url,publicId:result.public_id,fileHash:cloud.hashUploadBuffer(req.body)})})
-}
-const imageStatus=async(req,res)=>{
-  const pending=cloud.verifyUploadSecurityToken(req.body?.scan_token,{stage:'scan_pending',role:'admin',user_id:req.user.id,context_type:'announcement',context_id:req.branchId})
-  const scan=await cloud.getPerceptionPointScanStatus(pending.asset_id)
-  if(scan.secure_url&&scan.secure_url!==pending.url)throw bad('Uploaded image identity mismatch.',409)
-  if(scan.status!=='approved')return res.json({status:scan.status,message:scan.message||null})
-  return res.json({status:'approved',url:pending.url,security_token:cloud.issueAcceptedUploadToken({role:'admin',userId:req.user.id,contextType:'announcement',contextId:req.branchId,status:'approved',assetId:pending.asset_id,url:pending.url,publicId:pending.public_id})})
+ const role=req.adminContext?.account_role||req.user?.role||'admin'
+ const signed=cloud.createImageUploadSignature({folder:`carait-clinic/announcements/branch_${req.branchId}`})
+ const uploaded=await cloud.cloudinaryUploadBuffer({buffer:req.body,mimeType:req.get('content-type'),fileName:'announcement-cover',signed})
+ const security_token=cloud.issueAcceptedUploadToken({role,userId:req.user.id,branchId:req.branchId,contextType:'announcement',contextId:req.branchId,assetId:uploaded.asset_id,url:uploaded.secure_url,publicId:uploaded.public_id})
+ res.json({status:'uploaded',url:uploaded.secure_url,asset_id:uploaded.asset_id,security_token})
 }
 const countEligible=async(req,res)=>{const audienceArgs=[req.branchId];const [[row]]=await db.query(`SELECT COUNT(*) AS eligible ${eligibleSql}`,audienceArgs);res.json({eligible:Number(row.eligible),provider_ready:configured(),daily_limit:Number(process.env.MARKETING_DAILY_LIMIT)||200,per_minute_limit:Number(process.env.MARKETING_PER_MINUTE_LIMIT)||5})}
 const campaigns=async(req,res)=>{
@@ -243,7 +233,6 @@ const registerBranchAnnouncements=(router,{requireSuper,branchContext,requirePer
     router.delete(`${prefix}/announcements/:id`,...auth,afterSuccessfulMutation('promotion.updated'),deletePost)
     router.patch(`${prefix}/announcements/:id/status`,...auth,afterSuccessfulMutation('promotion.updated'),changeStatus)
     router.post(`${prefix}/announcements/image`,...auth,express.raw({type:['image/png','image/jpeg','application/octet-stream'],limit:'5mb'}),uploadImage)
-    router.post(`${prefix}/announcements/image/status`,...auth,imageStatus)
     router.get(`${prefix}/announcements/audience`,...auth,countEligible)
     router.get(`${prefix}/announcements/campaigns`,...auth,campaigns)
     router.get(`${prefix}/announcements/campaigns/:id/recipients`,...auth,campaignRecipients)

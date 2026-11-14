@@ -1,0 +1,155 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config",
+      "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\nine-batches-2026-11-14\\barcode.playwright.config.mjs",
+      "--grep",
+      "short product"
+    ],
+    "configFile": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\nine-batches-2026-11-14\\barcode.playwright.config.mjs",
+    "rootDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/client/tests/browser",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/barcode-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/client/tests/browser",
+        "testIgnore": [],
+        "testMatch": [
+          "inventory20261111.spec.mjs"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\nine-batches-2026-11-14\\barcode-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "",
+        "testDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser",
+        "snapshotDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser",
+        "testIgnore": [],
+        "testMatch": [
+          "inventory20261111.spec.mjs"
+        ],
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:4178",
+          "headless": true,
+          "launchOptions": {
+            "executablePath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+          },
+          "screenshot": "only-on-failure",
+          "timezoneId": "Asia/Manila"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": ""
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\nine-batches-2026-11-14\\barcode-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "inventory20261111.spec.mjs",
+      "file": "inventory20261111.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "short product barcode decodes at its rendered size and batch code remains a text identifier",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1237,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:32:47.809Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "26d0bc58a543da6b2b25-a0542da74dfc2a817632",
+          "file": "inventory20261111.spec.mjs",
+          "line": 126,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-14T04:32:46.264Z",
+    "duration": 3617.4590000000003,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

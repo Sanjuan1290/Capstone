@@ -45,7 +45,7 @@ test('policy content methods target the existing branch-aware admin API and use 
 test('policy endpoints send authenticated GET/PUT requests and preserve content', async () => {
   const withoutImports = service
     .replace("from '../utils/manualAppointment.mjs'", `from '${new URL('../src/utils/manualAppointment.mjs', import.meta.url).href}'`)
-    .replace(/^import \{ makeSecurityScanError, waitForSecurityScan \} from ['\"]\.\/cloudinaryScan['\"]\s*$/m, '')
+    .replace(/^import \{ uploadValidatedImage \} from ['\"]\.\/imageUpload['\"]\s*$/m, '')
     .replace(/^import \{ uploadDiscountProofViaApi \} from ['\"]\.\/discountProofUpload['\"]\s*$/m, '')
   const mod = await import(`data:text/javascript;base64,${Buffer.from(withoutImports).toString('base64')}`)
   const originalFetch = globalThis.fetch

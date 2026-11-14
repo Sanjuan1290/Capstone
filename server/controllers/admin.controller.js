@@ -14,13 +14,9 @@ const { normalizeOptionalImageUrl } = require('../utils/settingsValidation')
 const {
   createPaymentQrUploadSignature,
   createDiscountProofUploadSignature,
-  getPerceptionPointScanStatus,
   cloudinaryUploadBuffer,
-  issueScanPendingToken,
-  issueBypassAuthorizationToken,
   issueAcceptedUploadToken,
   verifyUploadSecurityToken,
-  hashUploadBuffer,
 } = require('../utils/cloudinarySecurity')
 
 const { nextInventoryBarcode } = require('../utils/barcodes')
@@ -218,6 +214,7 @@ const normalizeBillingCatalogPayload = (body = {}, unchangedLegacyMinutes = null
   consultation_fee: Math.max(0, Number(body.consultation_fee ?? body.base_service_price) || 0),
   average_duration_minutes: validateAverageDurationMinutes(body.average_duration_minutes, { fallback: 60, unchangedLegacyMinutes }),
   profit_percentage: 0,
+  doctor_fee_percentage: require('../utils/billingMoney').percentage(body.doctor_fee_percentage??0),
   is_active: body.is_active === 0 ? 0 : 1,
   sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
   pricing_notes: String(body.pricing_notes || '').trim() || null,
@@ -1754,6 +1751,7 @@ const createBillingCatalogService = async (req, res) => {
         payload.pricing_notes,
       ]
     )
+    await conn.query('UPDATE billing_service_catalog SET doctor_fee_percentage=? WHERE id=?',[payload.doctor_fee_percentage,result.insertId])
     await saveBillingServiceMaterials(result.insertId, payload.materials, conn)
     await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'catalog.service_created', entityType: 'billing_service', entityId: result.insertId, newValues: payload, ipAddress: req.ip || null }, conn)
     await conn.commit()
@@ -1773,8 +1771,8 @@ const createBillingCatalogService = async (req, res) => {
 
 const updateBillingCatalogService = async (req, res) => {
   if (!requireAdminPricingAccess(req, res)) return
-  const [[existingDuration]] = await db.query('SELECT average_duration_minutes FROM billing_service_catalog WHERE id=? LIMIT 1',[req.params.serviceId])
-  const payload = normalizeBillingCatalogPayload(req.body,existingDuration?.average_duration_minutes)
+  const [[existingDuration]] = await db.query('SELECT average_duration_minutes,doctor_fee_percentage FROM billing_service_catalog WHERE id=? LIMIT 1',[req.params.serviceId])
+  const payload = normalizeBillingCatalogPayload({...req.body,doctor_fee_percentage:req.body.doctor_fee_percentage??existingDuration?.doctor_fee_percentage??0},existingDuration?.average_duration_minutes)
   if (!payload.service_name) {
     return res.status(400).json({ message: 'Service name is required.' })
   }
@@ -1816,6 +1814,7 @@ const updateBillingCatalogService = async (req, res) => {
         req.params.serviceId,
       ]
     )
+    await conn.query('UPDATE billing_service_catalog SET doctor_fee_percentage=? WHERE id=?',[payload.doctor_fee_percentage,req.params.serviceId])
     await saveBillingServiceMaterials(req.params.serviceId, payload.materials, conn)
     await writeAuditLog({ userId: req.user.id, userRole: req.user?.role || 'admin', action: 'catalog.service_updated', entityType: 'billing_service', entityId: req.params.serviceId, newValues: payload, ipAddress: req.ip || null }, conn)
     await conn.commit()
@@ -1872,290 +1871,24 @@ const deleteBillingCatalogService = async (req, res) => {
   } finally {conn.release()}
 }
 
-const uploadPaymentQrImageAdmin = async (req, res) => {
-  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
-  const provider = String(req.query?.provider || '').trim().toLowerCase()
-  const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
-  if (!['gcash', 'maya'].includes(provider)) {
-    return res.status(400).json({ message: 'Payment QR provider must be GCash or Maya.' })
-  }
-  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-    return res.status(400).json({ message: 'Select a QR image to upload.' })
-  }
-  const qrContextId = req.branchId ? `${req.branchId}:${provider}` : provider
-  const fileHash = hashUploadBuffer(req.body)
-
-  let bypassReason = null
-  if (scanMode === 'bypass') {
-    try {
-      const bypass = verifyUploadSecurityToken(String(req.query?.bypass_token || ''), {
-        stage: 'bypass_authorized',
-        role: actorRole,
-        user_id: req.user.id,
-        context_type: 'payment_qr',
-        context_id: qrContextId,
-      })
-      if (!bypass.file_sha256 || bypass.file_sha256 !== fileHash) {
-        return res.status(403).json({ message: 'The scanner-bypass authorization is for a different image. Retry the security scan for this file.' })
-      }
-      bypassReason = bypass.reason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-    } catch (error) {
-      return res.status(error.statusCode || 403).json({ message: error.message || 'A valid scanner-unavailable authorization is required before bypassing the malware scan.' })
-    }
-  }
-
-  let uploaded
-  try {
-    const signed = createPaymentQrUploadSignature({ actorRole, actorId: req.user.id, provider, scanMode, branchId: req.branchId })
-    uploaded = await cloudinaryUploadBuffer({
-      buffer: req.body,
-      mimeType: req.get('content-type'),
-      fileName: req.get('x-file-name') || `${provider}-qr`,
-      signed,
-    })
-  } catch (error) {
-    if (scanMode === 'scan' && error.scannerUnavailable) {
-      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-      return res.json({
-        status: 'unavailable',
-        reason,
-        message: reason === 'usage_limit_reached'
-          ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
-          : 'The malware scanner is currently unavailable. Only continue if this QR image comes from a trusted source.',
-        bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId, reason, fileHash }),
-      })
-    }
-    return res.status(error.statusCode || 502).json({ message: error.message || 'QR image upload failed.' })
-  }
-
-  if (scanMode === 'bypass') {
-    const securityToken = issueAcceptedUploadToken({
-      role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId,
-      status: 'bypassed', assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id,
-    })
-    await writeAuditLog({
-      userId: req.user.id,
-      userRole: req.user?.role || 'admin',
-      action: 'security.payment_qr_scan_bypassed',
-      entityType: req.branchId ? 'branch_payment_settings' : 'clinic_payment_settings',
-      entityId: String(req.branchId || 1),
-      branchId: req.branchId || null,
-      newValues: { provider, scan_status: 'bypassed', reason: bypassReason, asset_id: uploaded.asset_id },
-      ipAddress: req.ip || null,
-    }).catch(() => {})
-    return res.json({
-      status: 'bypassed',
-      scan_status: 'bypassed',
-      url: uploaded.secure_url,
-      asset_id: uploaded.asset_id,
-      public_id: uploaded.public_id,
-      security_token: securityToken,
-    })
-  }
-
-  return res.json({
-    status: 'pending',
-    url: uploaded.secure_url,
-    asset_id: uploaded.asset_id,
-    public_id: uploaded.public_id,
-    scan_token: issueScanPendingToken({
-      role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId,
-      assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id, fileHash,
-    }),
-  })
+const uploadPaymentQrImageAdmin = async(req,res) => {
+ const actorRole=req.user?.role==='staff'?'staff':'admin',provider=String(req.query?.provider||'').toLowerCase()
+ if(!['gcash','maya'].includes(provider))return res.status(400).json({message:'Payment QR provider must be GCash or Maya.'})
+ if(!Number(req.branchId))return res.status(403).json({message:'Select the clinic branch before uploading its QR image.'})
+ const signed=createPaymentQrUploadSignature({actorRole,actorId:req.user.id,provider,branchId:req.branchId})
+ const uploaded=await cloudinaryUploadBuffer({buffer:req.body,mimeType:req.get('content-type'),fileName:req.get('x-file-name')||'payment-qr',signed})
+ const security_token=issueAcceptedUploadToken({role:actorRole,userId:req.user.id,branchId:req.branchId,contextType:'payment_qr',contextId:`${req.branchId}:${provider}`,assetId:uploaded.asset_id,url:uploaded.secure_url,publicId:uploaded.public_id})
+ res.json({status:'uploaded',url:uploaded.secure_url,asset_id:uploaded.asset_id,public_id:uploaded.public_id,security_token})
 }
-
-const getPaymentQrUploadScanStatusAdmin = async (req, res) => {
-  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
-  const assetId = String(req.body?.asset_id || '').trim()
-  const provider = String(req.body?.provider || '').trim().toLowerCase()
-  const qrContextId = req.branchId ? `${req.branchId}:${provider}` : provider
-  const scanToken = String(req.body?.scan_token || '').trim()
-  if (!assetId || !['gcash', 'maya'].includes(provider) || !scanToken) {
-    return res.status(400).json({ message: 'Payment provider, Cloudinary asset ID, and scan verification are required.' })
-  }
-
-  let pending
-  try {
-    pending = verifyUploadSecurityToken(scanToken, {
-      stage: 'scan_pending',
-      role: actorRole,
-      user_id: req.user.id,
-      context_type: 'payment_qr',
-      context_id: qrContextId,
-      asset_id: assetId,
-    })
-  } catch (error) {
-    return res.status(error.statusCode || 403).json({ message: error.message || 'The scan verification is invalid.' })
-  }
-
-  const unavailable = (reason, message) => res.json({
-    status: 'unavailable',
-    reason,
-    message,
-    bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId, reason, fileHash: pending.file_sha256 }),
-  })
-
-  try {
-    const result = await getPerceptionPointScanStatus(assetId)
-    if (result.secure_url && pending.url && result.secure_url !== pending.url) {
-      return res.status(409).json({ message: 'The scanned Cloudinary asset does not match this upload.' })
-    }
-    if (result.status === 'approved') {
-      return res.json({
-        ...result,
-        security_token: issueAcceptedUploadToken({
-          role: actorRole, userId: req.user.id, contextType: 'payment_qr', contextId: qrContextId,
-          status: 'approved', assetId, url: result.secure_url || pending.url, publicId: result.public_id || pending.public_id,
-        }),
-      })
-    }
-    if (result.status === 'rejected') {
-      await writeAuditLog({
-        userId: req.user.id,
-        userRole: req.user?.role || 'admin',
-        action: 'security.payment_qr_upload_blocked',
-        entityType: req.branchId ? 'branch_payment_settings' : 'clinic_payment_settings',
-        entityId: String(req.branchId || 1),
-        branchId: req.branchId || null,
-        newValues: { provider, scan_status: 'rejected', asset_id: assetId },
-        ipAddress: req.ip || null,
-      }).catch(() => {})
-      return res.json(result)
-    }
-    if (result.status === 'unavailable') {
-      return unavailable('scanner_unavailable', result.message || 'The malware scanner did not return a usable status.')
-    }
-    return res.json(result)
-  } catch (error) {
-    if (error.scannerUnavailable) {
-      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-      return unavailable(reason, reason === 'usage_limit_reached'
-        ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
-        : 'The malware scanner status is currently unavailable. Only continue if this QR image comes from a trusted source.')
-    }
-    return res.status(error.statusCode || 500).json({ message: error.message || 'Could not check the security scan.' })
-  }
-}
-
-const uploadDiscountProofImageAdmin = async (req, res) => {
-  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
-  const billingId = Number(req.query?.billing_id || 0)
-  const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
-  if (!billingId) return res.status(400).json({ message: 'A valid billing record is required.' })
-  const [[bill]] = await db.query('SELECT id FROM billing_records WHERE id=? LIMIT 1', [billingId])
-  if (!bill) return res.status(404).json({ message: 'Billing record not found.' })
-  if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ message: 'Select a discount proof image to upload.' })
-  const fileHash = hashUploadBuffer(req.body)
-
-  let bypassReason = null
-  if (scanMode === 'bypass') {
-    try {
-      const bypass = verifyUploadSecurityToken(String(req.query?.bypass_token || ''), {
-        stage: 'bypass_authorized', role: actorRole, user_id: req.user.id,
-        context_type: 'discount_proof', context_id: billingId,
-      })
-      if (!bypass.file_sha256 || bypass.file_sha256 !== fileHash) return res.status(403).json({ message: 'The scanner-bypass authorization is for a different image. Retry the security scan for this file.' })
-      bypassReason = bypass.reason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-    } catch (error) {
-      return res.status(error.statusCode || 403).json({ message: error.message || 'A valid scanner-unavailable authorization is required before bypassing the malware scan.' })
-    }
-  }
-
-  let uploaded
-  try {
-    const signed = createDiscountProofUploadSignature({ actorRole, actorId: req.user.id, billingId, scanMode })
-    uploaded = await cloudinaryUploadBuffer({
-      buffer: req.body,
-      mimeType: req.get('content-type'),
-      fileName: req.get('x-file-name') || `discount-proof-${billingId}`,
-      signed,
-    })
-  } catch (error) {
-    if (scanMode === 'scan' && error.scannerUnavailable) {
-      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-      return res.json({
-        status: 'unavailable', reason,
-        message: reason === 'usage_limit_reached'
-          ? 'The malware-scanning usage limit has been reached. Try again later or use the authorized bypass option only for trusted proof images.'
-          : 'The malware scanner is currently unavailable. Only continue if this proof image comes from a trusted source.',
-        bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId, reason, fileHash }),
-      })
-    }
-    return res.status(error.statusCode || 502).json({ message: error.message || 'Discount proof image upload failed.' })
-  }
-
-  if (scanMode === 'bypass') {
-    const securityToken = issueAcceptedUploadToken({
-      role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId,
-      status: 'bypassed', assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id,
-    })
-    await writeAuditLog({
-      userId: req.user.id, userRole: actorRole, action: 'security.discount_proof_scan_bypassed',
-      entityType: 'billing_record', entityId: billingId,
-      newValues: { scan_status: 'bypassed', reason: bypassReason, asset_id: uploaded.asset_id }, ipAddress: req.ip || null,
-    }).catch(() => {})
-    return res.json({ status: 'bypassed', scan_status: 'bypassed', url: uploaded.secure_url, asset_id: uploaded.asset_id, public_id: uploaded.public_id, security_token: securityToken })
-  }
-
-  res.json({
-    status: 'pending', url: uploaded.secure_url, asset_id: uploaded.asset_id, public_id: uploaded.public_id,
-    scan_token: issueScanPendingToken({
-      role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId,
-      assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id, fileHash,
-    }),
-  })
-}
-
-const getDiscountProofUploadScanStatusAdmin = async (req, res) => {
-  const actorRole = req.user?.role === 'staff' ? 'staff' : 'admin'
-  const billingId = Number(req.body?.billing_id || 0)
-  const assetId = String(req.body?.asset_id || '').trim()
-  const scanToken = String(req.body?.scan_token || '').trim()
-  if (!billingId || !assetId || !scanToken) return res.status(400).json({ message: 'Billing record, Cloudinary asset ID, and scan verification are required.' })
-
-  let pending
-  try {
-    pending = verifyUploadSecurityToken(scanToken, {
-      stage: 'scan_pending', role: actorRole, user_id: req.user.id,
-      context_type: 'discount_proof', context_id: billingId, asset_id: assetId,
-    })
-  } catch (error) {
-    return res.status(error.statusCode || 403).json({ message: error.message || 'The scan verification is invalid.' })
-  }
-
-  const unavailable = (reason, message) => res.json({
-    status: 'unavailable', reason, message,
-    bypass_token: issueBypassAuthorizationToken({ role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId, reason, fileHash: pending.file_sha256 }),
-  })
-
-  try {
-    const result = await getPerceptionPointScanStatus(assetId)
-    if (result.secure_url && pending.url && result.secure_url !== pending.url) return res.status(409).json({ message: 'The scanned Cloudinary asset does not match this upload.' })
-    if (result.status === 'approved') {
-      return res.json({
-        ...result,
-        security_token: issueAcceptedUploadToken({
-          role: actorRole, userId: req.user.id, contextType: 'discount_proof', contextId: billingId,
-          status: 'approved', assetId, url: result.secure_url || pending.url, publicId: result.public_id || pending.public_id,
-        }),
-      })
-    }
-    if (result.status === 'rejected') {
-      await writeAuditLog({ userId: req.user.id, userRole: actorRole, action: 'security.discount_proof_upload_blocked', entityType: 'billing_record', entityId: billingId, newValues: { scan_status: 'rejected', asset_id: assetId }, ipAddress: req.ip || null }).catch(() => {})
-      return res.json(result)
-    }
-    if (result.status === 'unavailable') return unavailable('scanner_unavailable', result.message || 'The malware scanner did not return a usable status.')
-    return res.json(result)
-  } catch (error) {
-    if (error.scannerUnavailable) {
-      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-      return unavailable(reason, reason === 'usage_limit_reached'
-        ? 'The malware-scanning usage limit has been reached.'
-        : 'The malware scanner status is currently unavailable.')
-    }
-    return res.status(error.statusCode || 500).json({ message: error.message || 'Could not check the security scan.' })
-  }
+const uploadDiscountProofImageAdmin = async(req,res) => {
+ const billingId=Number(req.query?.billing_id),actorRole=req.user?.role==='staff'?'staff':'admin'
+ if(!Number.isSafeInteger(billingId)||billingId<=0||!Number(req.branchId))return res.status(400).json({message:'A valid bill and branch are required.'})
+ const [[bill]]=await db.query('SELECT id FROM billing_records WHERE id=? AND branch_id=?',[billingId,req.branchId])
+ if(!bill)return res.status(404).json({message:'Bill not found in this branch.'})
+ const signed=createDiscountProofUploadSignature({actorRole,actorId:req.user.id,billingId,branchId:req.branchId})
+ const uploaded=await cloudinaryUploadBuffer({buffer:req.body,mimeType:req.get('content-type'),fileName:req.get('x-file-name')||'discount-proof',signed})
+ const security_token=issueAcceptedUploadToken({role:actorRole,userId:req.user.id,branchId:req.branchId,contextType:'discount_proof',contextId:billingId,assetId:uploaded.asset_id,url:uploaded.secure_url,publicId:uploaded.public_id})
+ res.json({status:'uploaded',url:uploaded.secure_url,asset_id:uploaded.asset_id,security_token})
 }
 
 const getPaymentSettingsAdmin = async (req, res) => {
@@ -2238,24 +1971,22 @@ const updatePaymentSettingsAdmin = async (req, res) => {
 
       const oldUrl = String(oldSettings[urlKey] || '').trim()
       if (oldUrl && oldUrl === newUrl) {
-        const preserved = ['approved', 'bypassed', 'legacy'].includes(String(oldSettings[statusKey] || '').toLowerCase())
+        const preserved = ['uploaded', 'approved', 'bypassed', 'legacy'].includes(String(oldSettings[statusKey] || '').toLowerCase())
           ? String(oldSettings[statusKey]).toLowerCase()
           : 'legacy'
         return { url: newUrl, status: preserved }
       }
 
-      const verified = verifyUploadSecurityToken(req.body[tokenKey], {
+      verifyUploadSecurityToken(req.body[tokenKey], {
         stage: 'accepted',
+        validation:'image_validated',branch_id:req.branchId,
         role: actorRole,
         user_id: req.user.id,
         context_type: 'payment_qr',
         context_id: provider,
         url: newUrl,
       })
-      if (!['approved', 'bypassed'].includes(String(verified.scan_status))) {
-        throw Object.assign(new Error('The new payment QR has not completed the required upload security workflow.'), { statusCode: 400 })
-      }
-      return { url: newUrl, status: verified.scan_status }
+      return { url: newUrl, status: 'uploaded' }
     }
 
     const gcash = resolveQr('gcash', gcashQrUrl, gcashQrMode)
@@ -4372,7 +4103,7 @@ module.exports = {
   getDoctorUnavailableDatesAdmin, saveDoctorUnavailableDateAdmin, deleteDoctorUnavailableDateAdmin, getAppointmentAvailableSlotsAdmin,
   getBillingCatalogAdmin, createBillingCatalogService, updateBillingCatalogService, deleteBillingCatalogService,
   getBookingPolicyAdmin, updateBookingPolicyAdmin,
-  getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, getPaymentQrUploadScanStatusAdmin, uploadDiscountProofImageAdmin, getDiscountProofUploadScanStatusAdmin, updatePaymentSettingsAdmin,
+  getPaymentSettingsAdmin, uploadPaymentQrImageAdmin, uploadDiscountProofImageAdmin, updatePaymentSettingsAdmin,
   getBillingReconciliation, getBillingAdjustmentRequestsAdmin, resolveBillingAdjustmentRequestAdmin, voidBillingPayment, refundBillingPayment, confirmBillingPaymentAction,
   getClinicSettingsAdmin, updateClinicSettingsAdmin, getDiscountPresetsAdmin, saveDiscountPresetAdmin, getAuditLogs, exportAuditSummary, getAuditArchiveBatches, getAuditArchiveDetail, archiveAuditLogs, deleteAuditArchive,
   getSystemSetup, saveAppointmentCancellationReason, deleteAppointmentCancellationReason, saveBillingServiceCategory, deleteBillingServiceCategory, saveInventoryUom, deleteInventoryUom, saveInventorySupplier, saveInventoryLocationType, saveInventoryMovementReason, getInventoryLocationsAdmin, updateInventoryLocation, deleteInventoryLocation,

@@ -1,3 +1,8 @@
+const publicFinancialCalculation = raw => {
+  if(!raw)return null
+  const parsed=typeof raw==='string'?JSON.parse(raw):raw
+  return {...parsed,doctor_fees:(parsed.doctor_fees||[]).map(({clinic_base_share,...fee})=>fee),discounts:(parsed.discounts||[]).map(({approval,verification,...discount})=>discount)}
+}
 // Patient-owned, read-only billing history. Never accepts a patient ID from the URL.
 // All queries bind the authenticated patient ID and use the recorded bill/payment snapshots.
 const MAX_PAGE_SIZE = 50
@@ -115,11 +120,13 @@ async function getMyBillDetails({ patientId, billingId, executor }) {
   const [[bill]] = await executor.query(`SELECT b.id, b.appointment_id, b.branch_id, b.status, b.version,
        b.subtotal, b.discount_type, b.discount_label, b.discount_amount,
        b.total_amount, b.paid_at, b.created_at, b.voided_at, b.refunded_at,
+       bfs.calculation_json AS financial_calculation_json,
        DATE_FORMAT(a.appointment_date,'%Y-%m-%d') AS appointment_date,
        d.full_name AS doctor_name, p.full_name AS patient_name,
        cb.name AS branch_name, cb.address AS branch_address, cb.phone AS branch_phone,
        cs.clinic_name AS company_name, cs.receipt_title, cs.receipt_footer
        FROM billing_records b
+       LEFT JOIN billing_financial_snapshots bfs ON bfs.billing_id=b.id AND bfs.branch_id=b.branch_id
        JOIN appointments a ON a.id = b.appointment_id AND a.patient_id = b.patient_id AND a.branch_id = b.branch_id
        JOIN doctors d ON d.id = b.doctor_id JOIN patients p ON p.id = b.patient_id
        JOIN clinic_branches cb ON cb.id = b.branch_id
@@ -129,12 +136,15 @@ async function getMyBillDetails({ patientId, billingId, executor }) {
   const [items] = await executor.query(`SELECT id, item_type, service_name, quantity, unit_price, line_total, details_json
        FROM billing_items WHERE billing_id = ? ORDER BY sort_order, id`, [Number(billingId)])
   const [payments] = await executor.query(`SELECT id, amount, payment_method, reference_number,
-       receipt_number, status, paid_at, voided_at, refund_amount, refunded_at
+       receipt_number, status, paid_at, voided_at, refund_amount, refunded_at, amount_received, change_amount
        FROM billing_payments WHERE billing_id = ? ORDER BY paid_at DESC, id DESC`, [Number(billingId)])
+  const financialCalculation=publicFinancialCalculation(bill.financial_calculation_json)
+  delete bill.financial_calculation_json
   const paidAmount = payments.filter(row => row.status !== 'voided' && !row.voided_at)
     .reduce((sum, row) => sum + Math.max(0, CENT(row.amount) - CENT(row.refund_amount)), 0)
   return {
     ...classifyBill({ ...bill, paid_amount: CENT(paidAmount) }),
+    financial_calculation: financialCalculation,
     items: items.map(row => {
       let included_supplies = []
       if (row.item_type === 'service' && row.details_json) {

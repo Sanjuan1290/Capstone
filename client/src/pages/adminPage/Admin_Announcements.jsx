@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MdCampaign, MdAdd, MdRefresh, MdCloudUpload, MdSend, MdPause, MdPlayArrow, MdCancel, MdSearch, MdArrowBack, MdClose } from 'react-icons/md'
 import {
-  listAnnouncements, getAnnouncementBookingOptions, saveAnnouncement, deleteAnnouncement, setAnnouncementStatus, uploadAnnouncementCover, checkAnnouncementCover,
+  listAnnouncements, getAnnouncementBookingOptions, saveAnnouncement, deleteAnnouncement, setAnnouncementStatus, uploadAnnouncementCover,
   getCampaignAudience, listMarketingCampaigns, listCampaignRecipients, startMarketingCampaign, controlMarketingCampaign,
 } from '../../services/admin.service'
 import { useToast } from '../../components/ui/ToastProvider'
@@ -26,8 +26,8 @@ const getBookingChoice = form => {
 const fmt = s => s ? String(s).replace(' ','T').slice(0,16) : ''
 
 // The same preview is used for unsaved edits and for posts in the list.
-// Image approval remains a separate requirement when the post is saved.
-const AnnouncementPreview = ({ post, onClose, awaitingImageApproval = false }) => {
+// New image attachment still requires server-issued upload authorization.
+const AnnouncementPreview = ({ post, onClose }) => {
   const [imageFailed, setImageFailed] = useState(false)
   const coverUrl = String(post.cover_image_url || '').trim()
 
@@ -57,7 +57,6 @@ const AnnouncementPreview = ({ post, onClose, awaitingImageApproval = false }) =
               className="block aspect-video w-full bg-slate-100 object-cover"
               onError={() => setImageFailed(true)}
             />)}
-        {awaitingImageApproval && coverUrl && <p className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">This cover photo is still awaiting its safety check. You can preview it, but it must be approved before saving.</p>}
         <div className="space-y-4 px-5 py-6 sm:px-7">
           <p className="text-xs font-bold uppercase tracking-wide text-teal-700">{post.type === 'promotion' ? 'Promotion' : post.type === 'article' ? 'Health Article' : 'Clinic News'}</p>
           <h3 className="text-2xl font-black leading-tight text-slate-900">{post.title || 'Untitled post'}</h3>
@@ -80,7 +79,6 @@ const Admin_Announcements = () => {
   const [sectionErrors,setSectionErrors]=useState({})
   const [loading,setLoading]=useState(true)
   const [busy,setBusy]=useState(false)
-  const [scan,setScan]=useState(null)
   const [selection,setSelection]=useState({recipient_mode:'random',limit:500,scheduled_at:''})
   const [campaignPost,setCampaignPost]=useState(null)
   const [details,setDetails]=useState(null)
@@ -134,7 +132,6 @@ const Admin_Announcements = () => {
   const edit = useCallback(post => {
     setWorkspaceTab('posts')
     setEditing(post?.id || 'new')
-    setScan(null)
     setMenuPost(null)
     setError('')
     setForm(post ? { ...post, publish_at: fmt(post.publish_at), expires_at: fmt(post.expires_at), cover_image_token: '' } : blank())
@@ -167,24 +164,14 @@ const Admin_Announcements = () => {
     setBusy(true);setError('')
     try{
       const result=await uploadAnnouncementCover(file)
-      update('cover_image_url',result.url)
-      setScan({state:'pending',token:result.scan_token})
-      toast.success('Image uploaded. Awaiting security scan approval.')
-    }catch(e){setError(e.message)}finally{setBusy(false)}
-  }
-  const verifyImage=async()=>{
-    setBusy(true)
-    try{
-      const result=await checkAnnouncementCover(scan.token)
-      if(result.status==='approved') {setForm(s=>({...s,cover_image_url:result.url,cover_image_token:result.security_token}));setScan({state:'approved',token:scan.token});toast.success('Image approved.')}
-      else {setScan(s=>({...s,state:result.status}));setError(result.message||`Security scan status: ${result.status}. Try again shortly.`)}
+      setForm(current=>({...current,cover_image_url:result.url,cover_image_token:result.security_token,clear_cover_image:false}))
+      toast.success('Image uploaded.')
     }catch(e){setError(e.message)}finally{setBusy(false)}
   }
   const save=async (e,desiredStatus='draft')=>{
     e.preventDefault();
     if(desiredStatus==='published' && form.expires_at && `${form.expires_at.replace('T',' ')}:00`<=clinicNow()){setError('This post has expired. Extend the end date before publishing.');return}
     if(!form.title.trim()||!form.caption.trim()||!documentText(form.body)){setError('Add a title, short description and post content before saving.');return}
-    if(scan&&scan.state!=='approved'){setError('The cover image must pass the safety check before this post can be saved.');return}
     setBusy(true);setError('')
     try {const result=await saveAnnouncement({...form,status:desiredStatus,publish_at:desiredStatus==='published'?'':form.publish_at},editing==='new'?null:editing);toast.success(result.message);setEditing(null);await refresh()}
     catch(e){setError(e.message)}finally{setBusy(false)}
@@ -249,8 +236,7 @@ const Admin_Announcements = () => {
       <div className="rounded-xl border border-dashed border-slate-300 p-4"><h3 className="mb-3 text-base font-bold text-slate-900">3. Cover Photo</h3><p className="mb-3 text-sm text-slate-500">Choose a clear image for the public post (optional).</p>
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold"><MdCloudUpload/> Upload cover (JPG/PNG, max 5 MB)<input className="sr-only" type="file" accept="image/jpeg,image/png" onChange={e=>onImage(e.target.files?.[0])}/></label>
         {form.cover_image_url&&<img alt="Announcement cover preview" className="mt-3 max-h-40 max-w-xs rounded-lg object-contain" src={form.cover_image_url}/>}
-        {scan&&<div className="mt-2 flex items-center gap-2 text-sm"><span>Scan: {scan.state}</span>{scan.state!=='approved'&&<button type="button" className="button-secondary" disabled={busy} onClick={verifyImage}>Check image scan</button>}</div>}
-        {form.cover_image_url&&<button type="button" className="mt-2 block text-xs text-rose-600 underline" onClick={()=>{setScan(null);setForm(s=>({...s,cover_image_url:'',cover_image_token:'',clear_cover_image:true}))}}>Remove cover</button>}
+        {form.cover_image_url&&<button type="button" className="mt-2 block text-xs text-rose-600 underline" onClick={()=>{setForm(s=>({...s,cover_image_url:'',cover_image_token:'',clear_cover_image:true}))}}>Remove cover</button>}
       </div>
       <div className="rounded-xl border border-sky-100 bg-sky-50/60 p-4 space-y-3">
         <h3 className="font-bold text-slate-900">4. Booking Button</h3>
@@ -289,7 +275,6 @@ const Admin_Announcements = () => {
     {previewPost && <AnnouncementPreview
       key={`${previewPost.id}:${previewPost.cover_image_url || ''}`}
       post={previewPost}
-      awaitingImageApproval={previewPost.id === 'draft' && Boolean(scan && scan.state !== 'approved')}
       onClose={() => setPreviewPost(null)}
     />}
     </>}

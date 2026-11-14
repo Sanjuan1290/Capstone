@@ -1,3 +1,4 @@
+const { readFollowup, saveFollowup } = require('../utils/consultationFollowups')
 const { writeInventoryActivity } = require('../utils/inventoryActivity')
 const {getAssignments,readSelectedBranch,setSelectedBranch,clearSelectedBranch} = require('../utils/doctorBranches')
 // server/controllers/doctor.controller.js
@@ -29,14 +30,10 @@ const { callNextQueuePatient, setQueueState, normalizeQueueStatus, assertQueueTr
 const { validateAppointmentSlot, withAppointmentSlotLock, assertAppointmentTransition } = require('../utils/appointmentSecurity')
 const {
   createClinicalUploadSignature,
-  getPerceptionPointScanStatus,
-  cloudinaryUploadBuffer,
-  issueScanPendingToken,
-  issueBypassAuthorizationToken,
-  issueAcceptedUploadToken,
+    cloudinaryUploadBuffer,
+      issueAcceptedUploadToken,
   verifyUploadSecurityToken,
-  hashUploadBuffer,
-} = require('../utils/cloudinarySecurity')
+  } = require('../utils/cloudinarySecurity')
 const { loadConsultationAmendments, assertConsultationEditable, assertConsultationVersion } = require('../utils/consultationIntegrity')
 const { assertPlainObject, normalizeOptionalText, normalizeText } = require('../utils/inputValidation')
 const { listSupplyTransferGroups } = require('../utils/supplyTransfers')
@@ -335,9 +332,11 @@ const getAppointments = async (req, res) => {
     [req.user.id, req.branchId, ...dateParams, ...statuses]
   )
 
+  const followups = new Map(await Promise.all(rows.filter(row=>row.consultation_id).map(async row=>[row.consultation_id,await readFollowup(row.consultation_id,db)])))
   const imagesByConsultationId = await loadImagesForConsultationIds(rows.map((row) => row.consultation_id))
   res.json(rows.map((row) => ({
     ...row,
+    follow_up: followups.get(row.consultation_id) || null,
     progress_images: imagesByConsultationId[row.consultation_id] || [],
   })))
 }
@@ -688,8 +687,9 @@ const saveConsultationDraft = async (req, res) => {
       consultationId = inserted.insertId
     }
 
+    await saveFollowup({ consultationId, appointment:appt, doctorId:req.user.id, value:req.body.follow_up, ip:req.ip },conn)
     if (payload.images !== null) {
-      const authorizedImages = await authorizeConsultationImages({ consultationId, appointmentId, doctorId: req.user.id, images: payload.images, executor: conn })
+      const authorizedImages = await authorizeConsultationImages({ consultationId, appointmentId, doctorId: req.user.id, branchId:req.branchId, images: payload.images, executor: conn })
       await syncConsultationImages(consultationId, authorizedImages, conn)
     }
     if (payload.billableServices !== null) {
@@ -801,8 +801,9 @@ const finalizeConsultation = async (req, res) => {
       consultationId = result.insertId
     }
 
+    await saveFollowup({ consultationId, appointment:appt, doctorId:req.user.id, value:req.body.follow_up, ip:req.ip },conn)
     if (hasImagesPayload) {
-      const authorizedImages = await authorizeConsultationImages({ consultationId, appointmentId, doctorId: req.user.id, images, executor: conn })
+      const authorizedImages = await authorizeConsultationImages({ consultationId, appointmentId, doctorId: req.user.id, branchId:req.branchId, images, executor: conn })
       await syncConsultationImages(consultationId, authorizedImages, conn)
     }
     const fixedBillableServices = await enforceFixedCatalogConsumables(billableServices, conn, req.branchId)
@@ -900,7 +901,7 @@ const finalizeConsultation = async (req, res) => {
       }),
     ]).catch(() => {})
   }
-  res.json({ message: 'Consultation completed.', consultation_id: consultationId, status: 'finalized', billing })
+  res.json({ message: 'Consultation completed.', consultation_id: consultationId, status: 'finalized', billing, follow_up:await readFollowup(consultationId,db) })
 }
 
 // ── NEW: Get a single consultation (for viewing/editing after completion) ─────
@@ -965,6 +966,7 @@ const getConsultation = async (req, res) => {
   }).catch(() => {})
   res.json({
     ...consultation,
+    follow_up: await readFollowup(consultation.id,db),
     progress_images: imagesByConsultationId[consultation.id] || [],
     amendments: amendmentsByConsultationId[consultation.id] || [],
     billing,
@@ -1014,8 +1016,9 @@ const updateConsultation = async (req, res) => {
       'UPDATE consultations SET diagnosis = ?, prescription = ?, prescription_status = ?, notes = ?, updated_at = NOW(), version=COALESCE(version,1)+1 WHERE id = ?',
       [diagnosis || null, prescription || null, prescriptionStatus, notes || null, consultation.id]
     )
+    await saveFollowup({ consultationId:consultation.id, appointment:apptRows[0], doctorId:req.user.id, value:req.body.follow_up, ip:req.ip },conn)
     if (hasImagesPayload) {
-      const authorizedImages = await authorizeConsultationImages({ consultationId: consultation.id, appointmentId, doctorId: req.user.id, images: req.body.images, executor: conn })
+      const authorizedImages = await authorizeConsultationImages({ consultationId: consultation.id, appointmentId, doctorId: req.user.id, branchId:req.branchId, images: req.body.images, executor: conn })
       await syncConsultationImages(consultation.id, authorizedImages, conn)
     }
 
@@ -1148,173 +1151,16 @@ const getClinicalUploadAppointment = async (appointmentId, doctorId, branchId) =
   return rows[0] || null
 }
 
-const uploadClinicalImage = async (req, res) => {
-  const appointmentId = Number(req.query?.appointment_id)
-  const scanMode = String(req.query?.scan_mode || 'scan').trim().toLowerCase() === 'bypass' ? 'bypass' : 'scan'
-  if (!appointmentId) return res.status(400).json({ message: 'A valid appointment is required.' })
-  const uploadAppointment = await getClinicalUploadAppointment(appointmentId, req.user.id, req.branchId)
-  if (!uploadAppointment) {
-    return res.status(403).json({ message: 'You are not authorized to upload images for this appointment.' })
-  }
-  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-    return res.status(400).json({ message: 'Select a clinical image to upload.' })
-  }
-  const fileHash = hashUploadBuffer(req.body)
-
-  let bypassReason = null
-  if (scanMode === 'bypass') {
-    try {
-      const bypass = verifyUploadSecurityToken(String(req.query?.bypass_token || ''), {
-        stage: 'bypass_authorized',
-        role: 'doctor',
-        user_id: req.user.id,
-        context_type: 'clinical',
-        context_id: appointmentId,
-      })
-      if (!bypass.file_sha256 || bypass.file_sha256 !== fileHash) {
-        return res.status(403).json({ message: 'The scanner-bypass authorization is for a different image. Retry the security scan for this file.' })
-      }
-      bypassReason = bypass.reason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-    } catch (error) {
-      return res.status(error.statusCode || 403).json({ message: error.message || 'A valid scanner-unavailable authorization is required before bypassing the malware scan.' })
-    }
-  }
-
-  let uploaded
-  try {
-    const signed = createClinicalUploadSignature({ doctorId: req.user.id, appointmentId, patientId: uploadAppointment.patient_id, clinicType: uploadAppointment.clinic_type, scanMode })
-    uploaded = await cloudinaryUploadBuffer({
-      buffer: req.body,
-      mimeType: req.get('content-type'),
-      fileName: req.get('x-file-name') || 'clinical-image',
-      signed,
-    })
-  } catch (error) {
-    if (scanMode === 'scan' && error.scannerUnavailable) {
-      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-      return res.json({
-        status: 'unavailable',
-        reason,
-        message: reason === 'usage_limit_reached'
-          ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
-          : 'The malware scanner is currently unavailable. Only continue if this clinical image comes from a trusted source.',
-        bypass_token: issueBypassAuthorizationToken({ role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId, reason, fileHash }),
-      })
-    }
-    return res.status(error.statusCode || 502).json({ message: error.message || 'Clinical image upload failed.', code: error.code || 'CLINICAL_IMAGE_UPLOAD_FAILED' })
-  }
-
-  if (scanMode === 'bypass') {
-    const securityToken = issueAcceptedUploadToken({
-      role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId,
-      status: 'bypassed', assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id,
-    })
-    await writeAuditLog({
-      userId: req.user.id,
-      userRole: 'doctor',
-      action: 'security.clinical_upload_scan_bypassed',
-      entityType: 'appointment',
-      entityId: appointmentId,
-      newValues: { scan_status: 'bypassed', reason: bypassReason, asset_id: uploaded.asset_id },
-      ipAddress: req.ip || null,
-    }).catch(() => {})
-    return res.json({
-      status: 'bypassed',
-      scan_status: 'bypassed',
-      url: uploaded.secure_url,
-      asset_id: uploaded.asset_id,
-      public_id: uploaded.public_id,
-      security_token: securityToken,
-    })
-  }
-
-  return res.json({
-    status: 'pending',
-    url: uploaded.secure_url,
-    asset_id: uploaded.asset_id,
-    public_id: uploaded.public_id,
-    scan_token: issueScanPendingToken({
-      role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId,
-      assetId: uploaded.asset_id, url: uploaded.secure_url, publicId: uploaded.public_id, fileHash,
-    }),
-  })
+const uploadClinicalImage = async (req,res) => {
+ const appointmentId=Number(req.query?.appointment_id)
+ if(!Number.isSafeInteger(appointmentId)||appointmentId<=0)return res.status(400).json({message:'A valid appointment is required.'})
+ const appointment=await getClinicalUploadAppointment(appointmentId,req.user.id,req.branchId)
+ if(!appointment)return res.status(403).json({message:'You are not authorized to upload images for this appointment.'})
+ const signed=createClinicalUploadSignature({doctorId:req.user.id,appointmentId,patientId:appointment.patient_id,clinicType:appointment.clinic_type,branchId:req.branchId})
+ const uploaded=await cloudinaryUploadBuffer({buffer:req.body,mimeType:req.get('content-type'),fileName:req.get('x-file-name')||'clinical-image',signed,maxBytes:10*1024*1024})
+ const security_token=issueAcceptedUploadToken({role:'doctor',userId:req.user.id,branchId:req.branchId,contextType:'clinical',contextId:appointmentId,assetId:uploaded.asset_id,url:uploaded.secure_url,publicId:uploaded.public_id})
+ res.json({status:'uploaded',url:uploaded.secure_url,asset_id:uploaded.asset_id,public_id:uploaded.public_id,security_token})
 }
-
-const getClinicalUploadScanStatus = async (req, res) => {
-  const appointmentId = Number(req.body?.appointment_id)
-  const assetId = String(req.body?.asset_id || '').trim()
-  const scanToken = String(req.body?.scan_token || '').trim()
-  if (!appointmentId || !assetId || !scanToken) {
-    return res.status(400).json({ message: 'Appointment, Cloudinary asset ID, and scan verification are required.' })
-  }
-  const uploadAppointment = await getClinicalUploadAppointment(appointmentId, req.user.id, req.branchId)
-  if (!uploadAppointment) {
-    return res.status(403).json({ message: 'You are not authorized to check this clinical image.' })
-  }
-
-  let pending
-  try {
-    pending = verifyUploadSecurityToken(scanToken, {
-      stage: 'scan_pending',
-      role: 'doctor',
-      user_id: req.user.id,
-      context_type: 'clinical',
-      context_id: appointmentId,
-      asset_id: assetId,
-    })
-  } catch (error) {
-    return res.status(error.statusCode || 403).json({ message: error.message || 'The scan verification is invalid.' })
-  }
-
-  const unavailable = (reason, message) => res.json({
-    status: 'unavailable',
-    reason,
-    message,
-    bypass_token: issueBypassAuthorizationToken({ role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId, reason, fileHash: pending.file_sha256 }),
-  })
-
-  try {
-    const result = await getPerceptionPointScanStatus(assetId)
-    if (result.secure_url && pending.url && result.secure_url !== pending.url) {
-      return res.status(409).json({ message: 'The scanned Cloudinary asset does not match this upload.' })
-    }
-    if (result.status === 'approved') {
-      return res.json({
-        ...result,
-        security_token: issueAcceptedUploadToken({
-          role: 'doctor', userId: req.user.id, contextType: 'clinical', contextId: appointmentId,
-          status: 'approved', assetId, url: result.secure_url || pending.url, publicId: result.public_id || pending.public_id,
-        }),
-      })
-    }
-    if (result.status === 'rejected') {
-      await writeAuditLog({
-        userId: req.user.id,
-        userRole: 'doctor',
-        action: 'security.clinical_upload_blocked',
-        entityType: 'appointment',
-        entityId: appointmentId,
-        newValues: { scan_status: 'rejected', provider: 'perception_point', asset_id: assetId },
-        ipAddress: req.ip || null,
-      }).catch(() => {})
-      return res.json(result)
-    }
-    if (result.status === 'unavailable') {
-      return unavailable('scanner_unavailable', result.message || 'The malware scanner did not return a usable status.')
-    }
-    return res.json(result)
-  } catch (error) {
-    if (error.scannerUnavailable) {
-      const reason = error.scannerReason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable'
-      return unavailable(reason, reason === 'usage_limit_reached'
-        ? 'The Perception Point malware-scanning usage limit has been reached. Scanning is unavailable until the allowance resets or the add-on plan is upgraded.'
-        : 'The malware scanner status is currently unavailable. Only continue if this clinical image comes from a trusted source.')
-    }
-    return res.status(error.statusCode || 500).json({ message: error.message || 'Could not check the security scan.' })
-  }
-}
-
-// ── Inventory ─────────────────────────────────────────────────────────────────
 
 const getBillingCatalog = async (req, res) => {
   const rows = await listBillingCatalog({
@@ -1770,8 +1616,7 @@ module.exports = {
   login, checkAuth, logout, listMyBranches, selectMyBranch,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
-  getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
-  getInventoryItems, getMyRequests, getRequestLocations, getTransferAppointments, getAppointmentInventoryReadinessForDoctor, submitRequest,
+  getPatientHistory, getBillingCatalog, uploadClinicalImage,   getInventoryItems, getMyRequests, getRequestLocations, getTransferAppointments, getAppointmentInventoryReadinessForDoctor, submitRequest,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
   getMyUnavailableDates, saveMyUnavailableDate, deleteMyUnavailableDate,

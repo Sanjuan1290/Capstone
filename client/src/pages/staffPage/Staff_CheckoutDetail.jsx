@@ -1,3 +1,4 @@
+import FinancialBillBreakdown from '../../components/billing/FinancialBillBreakdown'
 import ChargeSummaryBreakdown from '../../components/billing/ChargeSummaryBreakdown'
 import {useAuth} from '../../context/AuthContext'
 import {paymentRequestKey} from '../../utils/paymentRequest.mjs'
@@ -64,6 +65,7 @@ const normalizeBill = (bill) => ({
   payment_amount: Number(bill?.balance_amount ?? bill?.total_amount) || 0,
   amount_received: Number(bill?.balance_amount ?? bill?.total_amount) || 0,
   discount_amount: Number(bill?.discount_amount || 0),
+  statutory_verified: (bill?.financial_calculation?.discounts||[]).some(discount=>['senior','pwd'].includes(discount.type)&&discount.verified),
   items: Array.isArray(bill?.items) ? bill.items.map((item) => ({
     id: item.id,
     item_type: item.item_type || 'custom',
@@ -104,7 +106,8 @@ const serializeItems = (items = []) => items.filter((item) => !isProtectedConsul
   details: item.details || null,
 }))
 
-const totalsFor = (draft) => {
+const totalsFor = (draft,dirty=false) => {
+  if(!dirty&&draft?.financial_calculation)return {subtotal:Number(draft.financial_calculation.subtotal),discount:Number(draft.financial_calculation.discount_amount),total:Number(draft.financial_calculation.total_amount)}
   const subtotal = roundMoney((draft?.items || []).reduce((sum, item) => (
     sum + Math.max(0, Number(item.quantity || 0)) * Math.max(0, Number(item.unit_price || 0))
   ), 0))
@@ -151,7 +154,8 @@ const Staff_CheckoutDetail = () => {
   const initialLoadRef = useRef(true)
 
   const inventoryMap = useMemo(() => new Map(inventory.map((item) => [Number(item.id), item])), [inventory])
-  const totals = totalsFor(draft)
+  const totals = totalsFor(draft,dirty)
+  const paymentAmount = draft?.partial_payment ? Number(draft.payment_amount) : Number(bill?.balance_amount||0)
   const zeroPriceItems = (draft?.items || []).filter((item) => Number(item.unit_price || 0) <= 0)
   const directCheckoutSupplyCount = (draft?.items || []).filter((item) => item.item_type === 'supply' && item.source_type === 'staff_supply' && Number(item.source_inventory_id || 0) > 0).length
   const paymentMethods = enabledPaymentMethods(paymentSettings)
@@ -383,7 +387,8 @@ const Staff_CheckoutDetail = () => {
         expected_version: currentVersion,
         items: serializeItems(workingDraft.items),
         discount_preset_id: selectedDiscountId || null,
-        discount_reference: null,
+        discount_reference: workingDraft.discount_reference || null,
+        statutory_verified: workingDraft.statutory_verified === true,
         discount_reference_image_url: null,
         discount_reference_security_token: null,
         discount_amount: workingDraft.discount_amount,
@@ -569,7 +574,7 @@ const Staff_CheckoutDetail = () => {
   }
 
   const requestPay = () => {
-    const amount = Number(bill.balance_amount || 0)
+    const amount = paymentAmount
     if (!draft.payment_method) return toast.error('Select a payment method.')
     if (amount <= 0 || amount > Number(bill.balance_amount || 0) + 0.001) return toast.error('Enter a valid payment amount.')
     if (draft.payment_method !== 'cash' && !String(draft.reference_number || '').trim()) return toast.error('Enter the payment reference number.')
@@ -582,7 +587,7 @@ const Staff_CheckoutDetail = () => {
     paymentSubmitting.current=true
     setPaying(true)
     try {
-      const signature=JSON.stringify([billingId,bill.version,bill.balance_amount,draft.payment_method,Number(bill.balance_amount),Number(draft.amount_received),String(draft.reference_number||'').trim()])
+      const signature=JSON.stringify([billingId,bill.version,bill.balance_amount,draft.payment_method,paymentAmount,Number(draft.amount_received),String(draft.reference_number||'').trim()])
       const storageKey=`carait:payment:${'/staff'}:${user?.id}:${billingId}`
       if(paymentIntent.current?.signature!==signature){
         const key=paymentRequestKey(window.sessionStorage,storageKey,signature,()=>`checkout-${billingId}-${globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`}`)
@@ -590,7 +595,7 @@ const Staff_CheckoutDetail = () => {
       }
       const updated = await payBill(billingId, {
         payment_method: draft.payment_method,
-        payment_amount: Number(bill.balance_amount || 0),
+        payment_amount: paymentAmount,
         amount_received: Number(draft.amount_received || 0),
         reference_number: String(draft.reference_number || '').trim() || null,
         payment_notes: String(draft.payment_notes || '').trim() || null,
@@ -769,6 +774,7 @@ const Staff_CheckoutDetail = () => {
               </div>}
               <label className="mt-5 block"><span className="form-label">Additional Discount</span><select className="form-control mt-1.5" value={selectedDiscountId} onChange={(e) => selectDiscount(e.target.value)}><option value="">No Additional Discount</option>{discounts.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
               {selectedDiscount && <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4">
+                <label className="block"><span className="form-label">Eligibility Reference (optional)</span><input maxLength={120} className="form-control mt-1" value={draft.discount_reference||''} onChange={e=>markDraft(current=>({...current,discount_reference:e.target.value}))}/></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.statutory_verified===true} onChange={e=>markDraft(current=>({...current,statutory_verified:e.target.checked}))}/>I verified the patient's eligibility for this discount.</label>
                 {selectedDiscount.discount_type === 'fixed' && Number(selectedDiscount.value || 0) <= 0 && <label><span className="form-label">Discount Amount</span><input type="number" min="0" max={totals.subtotal} step="0.01" className="form-control mt-1.5" value={roundMoney(Math.max(0, Number(draft.discount_amount || 0) - Number(bill?.approved_courtesy_discount || 0) - Number(bill?.promotion_discount_amount || 0)))} onChange={(e) => markDraft((current) => ({ ...current, discount_amount: Math.min(totals.subtotal, roundMoney(Math.max(0, Number(e.target.value || 0)) + Number(bill?.approved_courtesy_discount || 0) + Number(bill?.promotion_discount_amount || 0))) }))} /></label>}
                 {discountNeedsApproval && !discountApproval && !discountPersistedApproval && <>
                   <label><span className="form-label">Reason for Admin Approval *</span><textarea maxLength={255} rows={2} className="form-control mt-1.5 resize-none" value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} /></label>
@@ -784,7 +790,7 @@ const Staff_CheckoutDetail = () => {
           <aside className="lg:sticky lg:top-24 lg:self-start">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 motion-reduce:transition-none hover:shadow-md">
               <h2 className="font-black text-slate-900">Charge Summary</h2>
-              <ChargeSummaryBreakdown items={draft.items} totals={totals} />
+              {!dirty&&bill.financial_calculation?<FinancialBillBreakdown bill={bill}/>:<><ChargeSummaryBreakdown items={draft.items} totals={totals}/><p className="mt-3 text-xs text-slate-500">Save Review to refresh the server-calculated tax and discount breakdown.</p></>}
               <button className="button-primary mt-5 w-full justify-center" disabled={draft.items.length === 0} onClick={proceedToReview}>Continue to Confirm Bill →</button>
               <button className="button-secondary mt-2 w-full justify-center" disabled={saving || !dirty} onClick={() => saveDraft()}>{saving ? 'Saving…' : 'Save Review'}</button>
             </div>
@@ -840,7 +846,7 @@ const Staff_CheckoutDetail = () => {
         </div>}
       </Modal>
 
-      <ConfirmDialog open={paymentConfirm} title="Record Payment?" message={`${paymentMethodLabel(draft.payment_method)} payment: ${formatMoney(bill.balance_amount)}. ${draft.payment_method === 'cash' ? `Cash received: ${formatMoney(draft.amount_received)}; change: ${formatMoney(Math.max(0, Number(draft.amount_received || 0) - Number(bill.balance_amount || 0)))}.` : `Reference: ${draft.reference_number || '—'}.`}${directCheckoutSupplyCount > 0 ? ` This final payment will automatically stock out ${directCheckoutSupplyCount} added Medicine / Supply item${directCheckoutSupplyCount === 1 ? '' : 's'} from the selected batch${directCheckoutSupplyCount === 1 ? '' : 'es'}.` : ''} Confirm that the payment was actually received before recording it.`} confirmLabel={paying ? 'Recording…' : `Confirm Payment ${formatMoney(bill.balance_amount)}`} tone="primary" loading={paying} onCancel={() => !paying && setPaymentConfirm(false)} onConfirm={recordPayment} />
+      <ConfirmDialog open={paymentConfirm} title="Record Payment?" message={`${paymentMethodLabel(draft.payment_method)} payment: ${formatMoney(paymentAmount)}. ${draft.payment_method === 'cash' ? `Cash received: ${formatMoney(draft.amount_received)}; change: ${formatMoney(Math.max(0, Number(draft.amount_received || 0) - paymentAmount))}.` : `Reference: ${draft.reference_number || '—'}.`}${directCheckoutSupplyCount > 0 ? ` This final payment will automatically stock out ${directCheckoutSupplyCount} added Medicine / Supply item${directCheckoutSupplyCount === 1 ? '' : 's'} from the selected batch${directCheckoutSupplyCount === 1 ? '' : 'es'}.` : ''} Confirm that the payment was actually received before recording it.`} confirmLabel={paying ? 'Recording…' : `Confirm Payment ${formatMoney(paymentAmount)}`} tone="primary" loading={paying} onCancel={() => !paying && setPaymentConfirm(false)} onConfirm={recordPayment} />
     </main>
   )
 }

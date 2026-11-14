@@ -1,3 +1,4 @@
+const {percentage}=require('../utils/billingMoney')
 // Per-branch service catalog and discount presets. All reference IDs are resolved
 // within the same transaction as the mutation; no cross-branch materials allowed.
 const db=require('../db/connect')
@@ -59,6 +60,10 @@ async function saveService(req,res){
   const before=id?await verifyService(conn,req.branchId,id):null
   const p=normalizeService(req.body||{},before?.average_duration_minutes)
   if(before?.category_id && Number(before.category_id)!==p.category_id){/* category remains in same branch, verified below */}
+  const doctorFee=percentage(req.body.doctor_fee_percentage ?? before?.doctor_fee_percentage ?? 0)
+  const adminActor=['admin','superadmin'].includes(req.adminContext?.account_role||req.user?.role)
+  if(!adminActor && doctorFee!==Number(before?.doctor_fee_percentage||0))throw err(403,'DOCTOR_FEE_FORBIDDEN','Only an authorized Admin can change the doctor fee percentage.')
+  p.doctor_fee_percentage=doctorFee
   const {category,total}=await validatePricing(conn,req.branchId,p)
   const args=[p.category_id,category.name,p.service_name,p.clinic_type,total,p.consultation_fee,p.average_duration_minutes,0,p.is_active,p.sort_order,p.pricing_notes]
   let serviceId=id
@@ -66,6 +71,7 @@ async function saveService(req,res){
   else{
    const [r]=await conn.query(`INSERT INTO billing_service_catalog (category_id,category,service_name,clinic_type,default_price,consultation_fee,average_duration_minutes,profit_percentage,is_active,sort_order,pricing_notes,branch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,[...args,req.branchId]);serviceId=r.insertId
   }
+  await conn.query('UPDATE billing_service_catalog SET doctor_fee_percentage=? WHERE id=? AND branch_id=?',[doctorFee,serviceId,req.branchId])
   await conn.query(`DELETE m FROM billing_service_materials m JOIN billing_service_catalog s ON s.id=m.billing_service_id WHERE m.billing_service_id=? AND s.branch_id=?`,[serviceId,req.branchId])
   for(const m of p.materials)await conn.query(`INSERT INTO billing_service_materials (billing_service_id,inventory_id,material_name,quantity,unit_label,unit_cost_override,notes,sort_order) VALUES (?,?,?,?,?,?,?,?)`,[serviceId,m.inventory_id,m.material_name,m.quantity,m.unit_label,m.unit_cost_override,m.notes,m.sort_order])
   await audit(req,conn,id?'catalog.service_updated':'catalog.service_created','billing_service',serviceId,before,{...p,default_price:total})
@@ -99,7 +105,7 @@ async function saveDiscount(req,res){
   const id=req.params.id?Number(req.params.id):0
   if(id&&!validId(id))throw err(400,'INVALID_ID','Invalid discount ID.')
   const p={label:String(req.body.label||'').trim().slice(0,120),discount_type:req.body.discount_type,
-   value:number(req.body.value,{min:0,max:99999999}),requires_reference:0,
+   value:number(req.body.value,{min:0,max:99999999}),requires_reference:req.body.requires_reference?1:0,
    requires_admin_approval:req.body.requires_admin_approval?1:0,is_active:req.body.is_active===false||req.body.is_active===0?0:1}
   if(!p.label||!['percentage','fixed'].includes(p.discount_type)||p.value===null||(p.discount_type==='percentage'&&p.value>100))throw err(400,'INVALID_DISCOUNT','Enter a valid label, discount type and value.')
   const [[prior]]=id?await conn.query('SELECT * FROM discount_presets WHERE id=? AND branch_id=? FOR UPDATE',[id,req.branchId]):[[]]

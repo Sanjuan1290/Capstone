@@ -1,7 +1,7 @@
 const db = require('../db/connect')
 const { verifyUploadSecurityToken } = require('./cloudinarySecurity')
 
-const ALLOWED_SCAN_STATUSES = new Set(['approved', 'bypassed', 'legacy'])
+const ALLOWED_SCAN_STATUSES = new Set(['uploaded', 'approved', 'bypassed', 'legacy'])
 const MAX_PROGRESS_IMAGES = 5
 
 const normalizeScanStatus = (value) => {
@@ -64,7 +64,7 @@ const loadImagesForConsultationIds = async (consultationIds = [], executor = db)
   }, {})
 }
 
-const authorizeConsultationImages = async ({ consultationId, appointmentId, doctorId, images = [], executor = db }) => {
+const authorizeConsultationImages = async ({ consultationId, appointmentId, doctorId, branchId, images = [], executor = db }) => {
   const normalized = normalizeConsultationImages(images)
   assertProgressImageLimit(normalized)
   const [existingRows] = consultationId
@@ -80,10 +80,11 @@ const authorizeConsultationImages = async ({ consultationId, appointmentId, doct
       return { ...image, security_scan_status: existingByUrl.get(image.image_url), security_token: null }
     }
 
-    let verified
     try {
-      verified = verifyUploadSecurityToken(image.security_token, {
+      verifyUploadSecurityToken(image.security_token, {
       stage: 'accepted',
+      validation: 'image_validated',
+      branch_id: branchId,
       role: 'doctor',
       user_id: doctorId,
       context_type: 'clinical',
@@ -93,10 +94,7 @@ const authorizeConsultationImages = async ({ consultationId, appointmentId, doct
     } catch (error) {
       throw Object.assign(new Error(error.message || 'Clinical image authorization is invalid or expired. Upload the image again.'), { statusCode: error.statusCode || 422, code: 'CLINICAL_IMAGE_TOKEN_INVALID' })
     }
-    if (!['approved', 'bypassed'].includes(String(verified.scan_status))) {
-      throw Object.assign(new Error('A new clinical image has not completed the required upload security workflow.'), { statusCode: 422, code: 'CLINICAL_IMAGE_TOKEN_INVALID' })
-    }
-    return { ...image, security_scan_status: verified.scan_status, security_token: null }
+    return { ...image, security_scan_status: 'uploaded', security_token: null }
   })
 }
 

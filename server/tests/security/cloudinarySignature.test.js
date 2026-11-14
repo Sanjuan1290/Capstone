@@ -1,134 +1,54 @@
-const {
-  createClinicalUploadSignature,
-  createPaymentQrUploadSignature,
-  makeCloudinarySignature,
-  getPerceptionPointScanStatus,
-  findPerceptionPointModeration,
-  isScannerUnavailableCloudinaryError,
-  getScannerUnavailableReason,
-  issueBypassAuthorizationToken,
-  issueAcceptedUploadToken,
-  verifyUploadSecurityToken,
-} = require('../../utils/cloudinarySecurity')
-
-describe('signed Cloudinary uploads', () => {
-  beforeEach(() => {
-    process.env.CLOUDINARY_CLOUD_NAME = 'test-cloud'
-    process.env.CLOUDINARY_API_KEY = 'test-key'
-    process.env.CLOUDINARY_API_SECRET = 'test-secret'
-    process.env.CLOUDINARY_CLINICAL_FOLDER = 'carait-clinic/clinical'
-    process.env.CLOUDINARY_PAYMENT_FOLDER = 'carait-clinic/payment-qr'
-    process.env.JWT_SECRET = 'test-jwt-secret-that-is-long-enough'
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('keeps the API secret on the server and requests Perception Point for clinical uploads', () => {
-    const result = createClinicalUploadSignature({ doctorId: 4, appointmentId: 19 })
-    expect(result.cloud_name).toBe('test-cloud')
-    expect(result.api_key).toBe('test-key')
-    expect(result.folder).toBe('carait-clinic/clinical/medical/doctor_4/appointment_19')
-    expect(result.moderation).toBe('perception_point')
-    expect(result.scan_mode).toBe('scan')
-    expect(result.signature).toMatch(/^[a-f0-9]{40}$/)
-    expect(result.api_secret).toBeUndefined()
-  })
-
-  it('can authorize an explicitly confirmed clinical bypass without Perception Point', () => {
-    const result = createClinicalUploadSignature({ doctorId: 4, appointmentId: 19, scanMode: 'bypass' })
-    expect(result.scan_mode).toBe('bypass')
-    expect(result.moderation).toBeUndefined()
-    expect(result.signature).toMatch(/^[a-f0-9]{40}$/)
-  })
-
-  it('creates a unique quarantined payment QR destination and requests malware scanning', () => {
-    const result = createPaymentQrUploadSignature({ adminId: 1, provider: 'gcash' })
-    expect(result.folder).toBe('carait-clinic/payment-qr/admin-1')
-    expect(result.public_id).toMatch(/^gcash-qr-\d+$/)
-    expect(result.moderation).toBe('perception_point')
-    expect(result.scan_mode).toBe('scan')
-    expect(result.signature).toMatch(/^[a-f0-9]{40}$/)
-    expect(result.api_secret).toBeUndefined()
-  })
-
-  it('rejects unknown payment QR providers', () => {
-    expect(() => createPaymentQrUploadSignature({ adminId: 1, provider: 'other' })).toThrow(/GCash or Maya/)
-  })
-
-  it('produces deterministic Cloudinary signatures for the same canonical parameters', () => {
-    expect(makeCloudinarySignature({ timestamp: 123, folder: 'a/b', moderation: 'perception_point' }, 'secret'))
-      .toBe(makeCloudinarySignature({ moderation: 'perception_point', folder: 'a/b', timestamp: 123 }, 'secret'))
-  })
-
-  it('extracts Perception Point moderation from a Cloudinary resource', () => {
-    expect(findPerceptionPointModeration({ moderation: [{ kind: 'perception_point', status: 'approved' }] }))
-      .toEqual({ kind: 'perception_point', status: 'approved' })
-  })
-
-  it('queries Cloudinary Admin API without exposing the secret and returns approved scan status', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        asset_id: 'asset-123',
-        public_id: 'carait-clinic/clinical/doctor-4/image',
-        secure_url: 'https://res.cloudinary.com/test/image/upload/image.png',
-        moderation: [{ kind: 'perception_point', status: 'approved' }],
-      }),
-    })
-
-    const result = await getPerceptionPointScanStatus('asset-123')
-    expect(result.status).toBe('approved')
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
-    const [, options] = fetchSpy.mock.calls[0]
-    expect(options.headers.Authorization).toMatch(/^Basic /)
-    expect(options.headers.Authorization).not.toContain('test-secret')
-  })
-
-  it('recognizes add-on quota/provider errors as scanner unavailable', () => {
-    expect(isScannerUnavailableCloudinaryError({ status: 400, message: 'Perception Point add-on usage limit reached' })).toBe(true)
-    expect(isScannerUnavailableCloudinaryError({ status: 429, message: 'Rate limited' })).toBe(true)
-    expect(isScannerUnavailableCloudinaryError({ status: 400, message: 'Invalid image format' })).toBe(false)
-  })
-
-  it('classifies an HTTP 400 Perception Point usage-limit response as scanner unavailable', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: false,
-      status: 400,
-      json: async () => ({ error: { message: 'Perception Point add-on usage limit reached' } }),
-    })
-
-    await expect(getPerceptionPointScanStatus('asset-quota')).rejects.toMatchObject({
-      scannerUnavailable: true,
-      scannerReason: 'usage_limit_reached',
-      providerStatus: 400,
-    })
-    expect(getScannerUnavailableReason({ status: 400, message: 'Perception Point add-on usage limit reached' })).toBe('usage_limit_reached')
-  })
-
-  it('binds accepted upload security proof to the authenticated user, context, URL and scan status', () => {
-    const token = issueAcceptedUploadToken({
-      role: 'doctor', userId: 7, contextType: 'clinical', contextId: 31,
-      status: 'approved', assetId: 'asset-31', url: 'https://res.cloudinary.com/test/image/upload/clinical.png', publicId: 'clinical.png',
-    })
-    const verified = verifyUploadSecurityToken(token, {
-      stage: 'accepted', role: 'doctor', user_id: 7, context_type: 'clinical', context_id: 31,
-      url: 'https://res.cloudinary.com/test/image/upload/clinical.png',
-    })
-    expect(verified.scan_status).toBe('approved')
-    expect(() => verifyUploadSecurityToken(token, { context_id: 99 })).toThrow(/does not match/i)
-  })
-
-  it('issues bypass authorization separately from accepted upload proof', () => {
-    const bypass = issueBypassAuthorizationToken({
-      role: 'admin', userId: 1, contextType: 'payment_qr', contextId: 'gcash', reason: 'scanner_unavailable',
-    })
-    expect(verifyUploadSecurityToken(bypass, {
-      stage: 'bypass_authorized', role: 'admin', user_id: 1, context_type: 'payment_qr', context_id: 'gcash',
-    }).reason).toBe('scanner_unavailable')
-    expect(() => verifyUploadSecurityToken(bypass, { stage: 'accepted' })).toThrow(/does not match/i)
-  })
-
+const cloud=require('../../utils/cloudinarySecurity')
+describe('Cloudinary image validation and upload authorization',()=>{
+ beforeEach(()=>{
+  process.env.CLOUDINARY_CLOUD_NAME='test-cloud';process.env.CLOUDINARY_API_KEY='test-key';process.env.CLOUDINARY_API_SECRET='test-secret';process.env.JWT_SECRET='test-jwt-secret-that-is-long-enough'
+ })
+ afterEach(()=>vi.restoreAllMocks())
+ const png=()=>Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0])
+ const result=()=>({asset_id:'asset-1',secure_url:'https://res.cloudinary.com/test-cloud/image/upload/test.png',public_id:'folder/test',resource_type:'image',bytes:12})
+ it('creates branch-scoped clinical and payment signatures without exposing secrets or adding moderation',()=>{
+  const clinical=cloud.createClinicalUploadSignature({doctorId:4,patientId:3,appointmentId:19,branchId:2}),qr=cloud.createPaymentQrUploadSignature({actorId:4,provider:'gcash',branchId:2})
+  for(const signed of [clinical,qr]){expect(signed.folder).toContain('branch_2');expect(signed.signature).toMatch(/^[a-f0-9]{40}$/);expect(signed.moderation).toBeUndefined();expect(signed.scan_mode).toBeUndefined();expect(signed.api_secret).toBeUndefined()}
+  expect(cloud.createPaymentQrUploadSignature({actorId:4,provider:'gcash',branchId:2}).public_id).not.toBe(qr.public_id)
+ })
+ it('retains deterministic signatures and validates payment QR providers',()=>{
+  expect(cloud.makeCloudinarySignature({folder:'a',timestamp:123},'secret')).toBe(cloud.makeCloudinarySignature({timestamp:123,folder:'a'},'secret'))
+  expect(()=>cloud.createPaymentQrUploadSignature({actorId:1,provider:'invalid',branchId:1})).toThrow(/GCash or Maya/)
+ })
+ it('validates image signatures, rejects unsupported files and enforces file-size limits before a provider call',async()=>{
+  const spy=vi.spyOn(global,'fetch'),signed=cloud.createImageUploadSignature({folder:'test'})
+  expect(cloud.detectImageMime(png())).toBe('image/png')
+  await expect(cloud.cloudinaryUploadBuffer({buffer:Buffer.from('<script>unsafe</script>'),mimeType:'image/png',signed})).rejects.toMatchObject({statusCode:400})
+  await expect(cloud.cloudinaryUploadBuffer({buffer:Buffer.alloc(5*1024*1024+1),mimeType:'image/png',signed})).rejects.toMatchObject({statusCode:413})
+  expect(spy).not.toHaveBeenCalled()
+ })
+ it('uploads to Cloudinary once without polling, approval flags or scanner parameters',async()=>{
+  const spy=vi.spyOn(global,'fetch').mockResolvedValue({ok:true,json:async()=>result()})
+  await cloud.cloudinaryUploadBuffer({buffer:png(),mimeType:'image/png',signed:cloud.createImageUploadSignature({folder:'test'})})
+  expect(spy).toHaveBeenCalledTimes(1)
+  expect(spy.mock.calls[0][0]).toBe('https://api.cloudinary.com/v1_1/test-cloud/image/upload')
+  const body=spy.mock.calls[0][1].body;expect(body.has('moderation')).toBe(false);expect(body.has('signature')).toBe(true)
+ })
+ it('keeps the larger existing clinical limit while other uploads retain 5 MB',async()=>{
+  const buffer=Buffer.concat([png(),Buffer.alloc(6*1024*1024)]),signed=cloud.createImageUploadSignature({folder:'clinical'})
+  vi.spyOn(global,'fetch').mockResolvedValue({ok:true,json:async()=>({...result(),bytes:buffer.length})})
+  await expect(cloud.cloudinaryUploadBuffer({buffer,mimeType:'image/png',signed,maxBytes:10*1024*1024})).resolves.toHaveProperty('asset_id','asset-1')
+  await expect(cloud.cloudinaryUploadBuffer({buffer,mimeType:'image/png',signed})).rejects.toMatchObject({statusCode:413})
+ })
+ it('provider failures and wrong-host responses are surfaced as upload errors',async()=>{
+  const spy=vi.spyOn(global,'fetch').mockResolvedValue({ok:false,status:500,json:async()=>({error:{message:'Upload unavailable'}})})
+  const input={buffer:png(),mimeType:'image/png',signed:cloud.createImageUploadSignature({folder:'test'})}
+  await expect(cloud.cloudinaryUploadBuffer(input)).rejects.toMatchObject({statusCode:502})
+  spy.mockResolvedValue({ok:true,json:async()=>({...result(),secure_url:'https://attacker.invalid/image.png'})})
+  await expect(cloud.cloudinaryUploadBuffer(input)).rejects.toMatchObject({statusCode:502})
+ })
+ it('authorization binds role, account, physical branch, context, asset and URL for every protected flow',()=>{
+  for(const contextType of ['clinical','payment_qr','discount_proof','promotion','announcement']){
+   const token=cloud.issueAcceptedUploadToken({role:'doctor',userId:7,branchId:1,contextType,contextId:31,assetId:'asset-31',url:'https://res.cloudinary.com/test-cloud/image/upload/image.png'})
+   const accepted=cloud.verifyUploadSecurityToken(token,{stage:'accepted',validation:'image_validated',role:'doctor',user_id:7,branch_id:1,context_type:contextType,context_id:31})
+   expect(accepted.validation).toBe('image_validated')
+   for(const expected of [{branch_id:2},{user_id:8},{role:'admin'},{context_id:99},{context_type:'other'},{asset_id:'other'},{url:'https://attacker.invalid/image.png'}])expect(()=>cloud.verifyUploadSecurityToken(token,expected)).toThrow(/does not match/)
+   expect(()=>cloud.verifyUploadSecurityToken(token+'tampered')).toThrow(/invalid or expired/)
+  }
+ })
 })

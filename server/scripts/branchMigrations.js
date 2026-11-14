@@ -73,6 +73,9 @@ const migrationFiles = [
   '2026-11-13-inventory-movement-balances.sql',
   '2026-11-13-walk-in-queue-permission.sql',
   '2026-11-13-shared-operation-actors.sql',
+  '2026-11-14-consultation-followups.sql',
+  '2026-11-14-billing-financial-snapshots.sql',
+  '2026-11-14-branch-tax-policy.sql',
 ]
 
 const schemaMigrationsSql = [
@@ -89,6 +92,16 @@ const schemaMigrationLocksSql = [
   '  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
   ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
 ].join('\n')
+
+async function ensureDoctorFeeColumn(connection, addIfMissing = false) {
+  const [[column]] = await connection.query('SELECT COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?', ['billing_service_catalog','doctor_fee_percentage'])
+  if (column) {
+    if (String(column.COLUMN_TYPE).toLowerCase() !== 'decimal(5,2)' || column.IS_NULLABLE !== 'NO' || column.COLUMN_DEFAULT == null || Number(column.COLUMN_DEFAULT) !== 0) throw new Error('Incompatible doctor fee percentage column')
+    return
+  }
+  if (!addIfMissing) throw new Error('Missing doctor fee percentage column')
+  await connection.query('ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage DECIMAL(5,2) NOT NULL DEFAULT 0')
+}
 
 async function runBranchMigrations(db) {
   await db.query(schemaMigrationsSql)
@@ -130,6 +143,7 @@ async function runRegisteredBranchMigrations(db) {
       if (file === '2026-11-12-queue-daily-department-numbers.sql') await verifyQueueNumberingIndexes(db)
       if (file === '2026-11-13-shared-operation-actors.sql') await ensureOperationalActorColumns(db)
       if (file === '2026-11-13-inventory-movement-balances.sql') await ensureInventoryActivityColumns(db)
+      if (file === '2026-11-14-billing-financial-snapshots.sql') await ensureDoctorFeeColumn(db)
       continue
     }
 
@@ -203,6 +217,11 @@ async function runRegisteredBranchMigrations(db) {
             )
             if (existing) continue // Resume safely after partial DDL.
           }
+          if(file==='2026-11-14-billing-financial-snapshots.sql' && /^ALTER TABLE/.test(statement)){
+            if(statement!=='ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage DECIMAL(5,2) NOT NULL DEFAULT 0')throw new Error('Unexpected financial migration DDL')
+            await ensureDoctorFeeColumn(connection,true)
+            continue
+          }
           if (/^USE\s+/i.test(statement)) continue // connection already selects DB_NAME
           if (/^DROP\s+TABLE\b/i.test(statement)) throw new Error('Destructive migration blocked')
           await connection.query(executable)
@@ -232,6 +251,7 @@ module.exports = {
   runBranchMigrations,
   acceptedContentHashes,
   migrationFiles,
+  ensureDoctorFeeColumn,
 }
 
 

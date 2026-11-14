@@ -32,7 +32,7 @@ const promotionColumns = {
   ],
 }
 
-function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, initialPromotionIndex, initialPromotionFk, initialReversalColumns } = {}) {
+function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, initialPromotionIndex, initialPromotionFk, initialReversalColumns, initialDoctorFee } = {}) {
   const foundation = createFoundationSchemaFixture(foundationOptions)
   const queueSchema = require('../helpers/queueSchemaFixture.cjs').queueSchemaFixture()
   const applied = new Map()
@@ -40,7 +40,9 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
   const actorColumns = new Map([['inventory_excel_uploads.created_by_admin_id',{COLUMN_TYPE:'int',IS_NULLABLE:'NO'}]])
   const movementColumns = new Map()
   const reversalColumns = new Map(Object.entries(initialReversalColumns || {}))
+  const feeColumns = new Map(initialDoctorFee ? [['doctor_fee_percentage', initialDoctorFee]] : [])
   const reversalMetadata = (sql, params) => {
+    if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'billing_service_catalog' && params[1] === 'doctor_fee_percentage') return [feeColumns.has(params[1]) ? [feeColumns.get(params[1])] : []]
     if (/information_schema\.COLUMNS/i.test(sql) && ['inventory_excel_uploads','inventory_excel_receipts'].includes(params?.[0])) {const row=actorColumns.get(params[0]+'.'+params[1]);return [row?[row]:[]]}
     if (/information_schema\.COLUMNS/i.test(sql) && params?.[0] === 'inventory_logs' && ['quantity_before','quantity_after'].includes(params[1])) return [movementColumns.has(params[1]) ? [movementColumns.get(params[1])] : []]
     if (!/information_schema\.COLUMNS/i.test(sql) || params?.[0] !== 'billing_charge_adjustments') return null
@@ -115,6 +117,10 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
           if (/ADD CONSTRAINT/i.test(sql)) { assert.equal(promotionState.appointments, true); promotionFk = true }
         }
         if (/^ALTER TABLE billing_records\s/i.test(String(sql))) promotionState.billing_records = true
+        if (sql === 'ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage DECIMAL(5,2) NOT NULL DEFAULT 0') {
+          assert.equal(feeColumns.size, 0, 'Never re-add an existing fee column')
+          feeColumns.set('doctor_fee_percentage', {COLUMN_TYPE:'decimal(5,2)',IS_NULLABLE:'NO',COLUMN_DEFAULT:'0.00'})
+        }
         const actorDdl = /^ALTER TABLE (inventory_excel_uploads|inventory_excel_receipts) (?:ADD|MODIFY) COLUMN ([a-z_]+) INT NULL$/i.exec(sql)
         if(actorDdl)actorColumns.set(actorDdl[1]+'.'+actorDdl[2],{COLUMN_TYPE:'int',IS_NULLABLE:'YES'})
         const movementColumn = /^ALTER TABLE inventory_logs ADD COLUMN (quantity_before|quantity_after) DECIMAL\(12,2\) NULL$/i.exec(sql)
@@ -139,6 +145,7 @@ function createMockDb({ failOnceOn, foundationOptions, initialPromotionState, in
     applied,
     commands,
     promotionState,
+    feeColumns,
     async query(sql, params = []) {
       commands.push(String(sql))
       if (/SELECT content_sha256 FROM schema_migrations/i.test(sql)) {
@@ -155,12 +162,14 @@ test('current checked-in migration SQL matches pinned SHA-256 checksums', () => 
   assert.deepEqual(migrationFiles.slice(0, Object.keys(expectedChecksums).length), Object.keys(expectedChecksums))
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) >= 0)
   assert.ok(migrationFiles.indexOf(batch4MigrationFile) < migrationFiles.indexOf('2026-11-02-consultation-charge-adjustments.sql'))
+  assert.deepEqual(migrationFiles.slice(-3),['2026-11-14-consultation-followups.sql','2026-11-14-billing-financial-snapshots.sql','2026-11-14-branch-tax-policy.sql'])
   const historicalTail = ['2026-11-05-promotion-pricing.sql', '2026-11-05-billing-failure-history.sql', '2026-11-09-superadmin-patient-directory-ban.sql', '2026-11-09-branch-google-maps-url.sql', '2026-11-11-charge-reduction-reversal.sql']
   assert.deepEqual(migrationFiles.filter(file => historicalTail.includes(file)), historicalTail)
-  assert.equal(migrationFiles.at(-5), '2026-11-12-daily-stock-alerts.sql')
-  assert.equal(migrationFiles.at(-4), '2026-11-12-queue-daily-department-numbers.sql')
-  assert.equal(migrationFiles.at(-3), '2026-11-13-inventory-movement-balances.sql')
-  assert.deepEqual(migrationFiles.slice(-2),['2026-11-13-walk-in-queue-permission.sql','2026-11-13-shared-operation-actors.sql'])
+  const historicalFiles=migrationFiles.filter(file=>!file.startsWith('2026-11-14-'))
+  assert.equal(historicalFiles.at(-5), '2026-11-12-daily-stock-alerts.sql')
+  assert.equal(historicalFiles.at(-4), '2026-11-12-queue-daily-department-numbers.sql')
+  assert.equal(historicalFiles.at(-3), '2026-11-13-inventory-movement-balances.sql')
+  assert.deepEqual(historicalFiles.slice(-2),['2026-11-13-walk-in-queue-permission.sql','2026-11-13-shared-operation-actors.sql'])
   assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(migrationDir, '2026-11-13-walk-in-queue-permission.sql'), 'utf8').replace(/\r\n/g, '\n')).digest('hex'), '11bbdf535ae59f471e254f9cdb7b7dcb4665801c52ec12db53736d67e5dc6cea')
   assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(migrationDir, '2026-11-13-shared-operation-actors.sql'), 'utf8').replace(/\r\n/g, '\n')).digest('hex'), '308efbaeabf56521eab08997ecf2347c3aaffeb6c9b9f88f93acab69381be738')
   const balanceSql = fs.readFileSync(path.join(migrationDir, '2026-11-13-inventory-movement-balances.sql'), 'utf8').replace(/\r\n/g, '\n')
@@ -377,6 +386,43 @@ test('Batch 4 recovers manually applied complete columns while adding only the m
   assert.equal(ddl.length, 2)
   assert.ok(ddl.every(sql => !/ADD COLUMN/i.test(sql)))
   assert.equal(db.applied.has(batch4MigrationFile), true)
+})
+
+test('November 14 migrations add only schema, preserve financial records and run once', async () => {
+  const db=createMockDb()
+  await runBranchMigrations(db)
+  const newFiles=migrationFiles.filter(file=>file.startsWith('2026-11-14-'))
+  for(const file of newFiles){
+    const statements=require('../../scripts/branchMigrations').splitMysqlMigration(fs.readFileSync(path.join(migrationDir,file),'utf8'))
+    assert.ok(statements.every(sql=>/^CREATE TABLE IF NOT EXISTS|^ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage/.test(sql)))
+    assert.ok(db.applied.has(file))
+  }
+  const ddl=()=>db.commands.filter(sql=>/^ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage/.test(sql)).length
+  assert.equal(ddl(),1);await runBranchMigrations(db);assert.equal(ddl(),1)
+  db.feeColumns.get('doctor_fee_percentage').COLUMN_TYPE='decimal(6,3)'
+  await assert.rejects(runBranchMigrations(db),/Incompatible doctor fee/)
+})
+
+test('an existing compatible fee column is verified without reapplying it',async()=>{
+  const db=createMockDb({initialDoctorFee:{COLUMN_TYPE:'decimal(5,2)',IS_NULLABLE:'NO',COLUMN_DEFAULT:'0.00'}})
+  await runBranchMigrations(db)
+  assert.ok(db.applied.has('2026-11-14-billing-financial-snapshots.sql'))
+  assert.equal(db.commands.some(sql=>/^ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage/.test(sql)),false)
+})
+
+test('an incompatible fee column stops before recording the migration',async()=>{
+  const db=createMockDb({initialDoctorFee:{COLUMN_TYPE:'varchar(10)',IS_NULLABLE:'YES',COLUMN_DEFAULT:null}})
+  await assert.rejects(runBranchMigrations(db),/Incompatible doctor fee/)
+  assert.equal(db.applied.has('2026-11-14-billing-financial-snapshots.sql'),false)
+})
+
+test('interrupted snapshot DDL resumes without re-adding the committed fee column',async()=>{
+  const db=createMockDb({failOnceOn:'CREATE TABLE IF NOT EXISTS billing_financial_snapshots'})
+  await assert.rejects(runBranchMigrations(db),/synthetic migration DDL failure/)
+  assert.equal(db.applied.has('2026-11-14-billing-financial-snapshots.sql'),false)
+  await runBranchMigrations(db)
+  assert.equal(db.commands.filter(sql=>/^ALTER TABLE billing_service_catalog ADD COLUMN doctor_fee_percentage/.test(sql)).length,1)
+  assert.ok(db.applied.has('2026-11-14-billing-financial-snapshots.sql'))
 })
 
 

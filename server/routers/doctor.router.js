@@ -5,12 +5,12 @@ const verifyToken = require('../middlewares/auth.middleware')
 const requireRole = require('../middlewares/role.middleware')
 const branchScope = require('../middlewares/branchScope.middleware')
 const requirePasswordChangeCompleted = require('../middlewares/passwordChange.middleware')
-const { loginLimiter, otpRequestLimiter, otpVerifyLimiter, clinicalUploadLimiter, clinicalUploadStatusLimiter } = require('../middlewares/rateLimit.middleware')
+const { loginLimiter, otpRequestLimiter, otpVerifyLimiter, clinicalUploadLimiter } = require('../middlewares/rateLimit.middleware')
 const {
   login, checkAuth, logout, listMyBranches, selectMyBranch,
   getDashboard, getAppointments, getDailyAppointments, startConsultation,
   saveConsultationDraft, finalizeConsultation, getConsultation, updateConsultation, addConsultationAmendment,
-  getPatientHistory, getBillingCatalog, uploadClinicalImage, getClinicalUploadScanStatus,
+  getPatientHistory, getBillingCatalog, uploadClinicalImage,
   getInventoryItems,
   getMyQueue, callNext, markQueueDone,
   getMySchedule, getMyScheduleAll, saveMyScheduleDay,
@@ -59,13 +59,13 @@ router.post('/consultations/:appointmentId', finalizeConsultation)
 router.get('/consultations/:appointmentId',    getConsultation)
 router.patch('/consultations/:appointmentId',  updateConsultation)
 router.post('/consultations/:appointmentId/amendments', addConsultationAmendment)
+router.patch('/consultations/:appointmentId/follow-up', require('../utils/consultationFollowups').updateDoctorFollowup)
 router.get('/billing/catalog',                 getBillingCatalog)
 router.get('/consultations/:appointmentId/available-promotions', require('../utils/billingPromotionEndpoints').forDoctor)
 router.get('/consultations/:appointmentId/charge-adjustments', clinicalChargeAdjustments)
 router.post('/consultations/:appointmentId/charge-adjustments', requestClinicalChargeAdjustment)
 router.delete('/consultations/:appointmentId/charge-adjustments/:requestId', cancelClinicalChargeAdjustment)
 router.post('/uploads/clinical', clinicalUploadLimiter, express.raw({ type: ['image/png', 'image/jpeg'], limit: '10mb' }), uploadClinicalImage)
-router.post('/uploads/clinical/status', clinicalUploadStatusLimiter, getClinicalUploadScanStatus)
 
 router.get('/patients/:id/history',          getPatientHistory)
 router.get('/inventory',                     getInventoryItems)

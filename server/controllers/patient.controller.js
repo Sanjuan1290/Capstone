@@ -785,10 +785,12 @@ const createAppointment = async (req, res) => {
     // A selected promotion must be revalidated under a transaction and the
     // promotion row locked until the booking snapshot has been saved.
     // Legacy no-promotion bookings intentionally keep the old INSERT contract.
-    const connection = selectedPromotionId ? await db.getConnection() : null
+    const followupId = req.body.follow_up_id
+    const connection = selectedPromotionId || followupId != null ? await db.getConnection() : null
     const executor = connection || db
     try {
       if (connection) await connection.beginTransaction()
+      if (followupId != null) await require('../utils/consultationFollowups').lockPatientFollowup(followupId,req.user.id,executor)
       const selected = selectedPromotionId ? await resolveSelectedPromotion(executor, {
         promotionId:selectedPromotionId, branchId:branch.id, serviceId:requestedService.id,
         appointmentDate:normalizedDate, servicePrice:requestedService.default_price, patientId:req.user.id, lock:true,
@@ -808,6 +810,7 @@ const createAppointment = async (req, res) => {
       const params = selected ? [...values, selected.id, selected.title, selected.terms, selected.badge,
         selected.starts_on, selected.ends_on, selected.service_id,selected.discount_type,selected.discount_value,selected.discount_amount,selected.eligibility_type] : values
       const [inserted] = await executor.query(sql, params)
+      if (followupId != null) await executor.query('INSERT INTO appointment_followup_links (appointment_id,followup_id) VALUES (?,?)',[inserted.insertId,Number(followupId)])
       if (connection) await connection.commit()
       return inserted
     } catch (err) {

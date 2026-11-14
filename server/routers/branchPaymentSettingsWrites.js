@@ -54,12 +54,11 @@ async function save(req,res){
    if(changes[`${provider}_qr_mode`]==='external')changes[statusKey]=changes[key]&&changes[key]===prior?.[key]?prior[statusKey]||'legacy':'legacy'
    else if(!changes[key])changes[statusKey]='legacy'
    else if(changes[key]===prior?.[key]){
-    if(!['approved','bypassed','legacy'].includes(String(prior[statusKey]||'').toLowerCase()))throw fail(409,'QR_STATUS_INVALID','The existing QR is not approved for use.')
+
     changes[statusKey]=prior[statusKey]||'legacy'
    }else{
-    const verified=verifyUploadSecurityToken(b[`${provider}_qr_security_token`],{stage:'accepted',role:'admin',user_id:req.user.id,context_type:'payment_qr',context_id:scope(req,provider),url:changes[key]})
-    if(!['approved','bypassed'].includes(String(verified.scan_status)))throw fail(400,'QR_SCAN_REQUIRED','The new QR has not passed security verification.')
-    changes[statusKey]=verified.scan_status
+    verifyUploadSecurityToken(b[`${provider}_qr_security_token`],{stage:'accepted',role:req.user?.role==='staff'?'staff':'admin',user_id:req.user.id,branch_id:req.branchId,validation:'image_validated',context_type:'payment_qr',context_id:scope(req,provider),url:changes[key]})
+    changes[statusKey]='uploaded'
    }
   }
   const cols=['cash_enabled','qrph_enabled','gcash_enabled','maya_enabled','bank_transfer_enabled','gcash_qr_url','maya_qr_url','gcash_qr_mode','maya_qr_mode','gcash_qr_scan_status','maya_qr_scan_status','bank_name','bank_account_name','bank_account_number']
@@ -83,8 +82,7 @@ function registerBranchPaymentSettingsWrites(router,{requireSuper,branchContext,
  for(const [prefix,middle] of [['/my/legacy',[branchContext]],['/workspace/:branchId/legacy',[requireSuper,branchContext]]]){
   const guard=[...middle,requirePermission('billing')]
   router.put(`${prefix}/billing/payment-settings`,...guard,save)
-  router.post(`${prefix}/billing/payment-settings/upload`,...guard,express.raw({type:['image/png','image/jpeg','image/webp'],limit:'5mb'}),safe(admin.uploadPaymentQrImageAdmin))
-  router.post(`${prefix}/billing/payment-settings/upload-status`,...guard,safe(admin.getPaymentQrUploadScanStatusAdmin))
+  router.post(`${prefix}/billing/payment-settings/upload`,...guard,express.raw({type:['image/png','image/jpeg','application/octet-stream'],limit:'5mb'}),safe(admin.uploadPaymentQrImageAdmin))
  }
 }
 module.exports={registerBranchPaymentSettingsWrites,save,branchBillForProof,secureImageUrl}

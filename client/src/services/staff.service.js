@@ -176,7 +176,6 @@ export const requestBillingAdjustment = (id, payload) => requestJson(`${BASE}/bi
 export const uploadDiscountProofImage = (file, billingId, options = {}) => uploadDiscountProofViaApi({
   file, billingId, ...options,
   uploadUrl: `${BASE}/billing/discount-proof/upload`,
-  statusUrl: `${BASE}/billing/discount-proof/upload-status`,
 })
 
 export const cancelBillingAdjustmentRequest = (id, requestId) => requestJson(`${BASE}/billing/${id}/adjustment-requests/${requestId}/cancel`, { method: 'PATCH' })

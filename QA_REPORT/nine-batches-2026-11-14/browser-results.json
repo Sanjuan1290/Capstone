@@ -1,0 +1,2787 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config",
+      "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\nine-batches-2026-11-14\\playwright.config.mjs"
+    ],
+    "configFile": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\nine-batches-2026-11-14\\playwright.config.mjs",
+    "rootDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/client/tests/browser",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/QA_REPORT/nine-batches-2026-11-14/browser-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "D:/Programming IDE_Codes/ALLPROGRAMMING_FILES_CODES/CAPSTONE/client/tests/browser",
+        "testIgnore": [],
+        "testMatch": [
+          "nineBatches20261114.spec.mjs",
+          "receiptAmounts20261113.spec.mjs",
+          "sharedOperations20261113.spec.mjs",
+          "doctorQueueActions20261113.spec.mjs",
+          "queueWalkinChargesQr20261112.spec.mjs",
+          "reportsWalkinInventory20261113.spec.mjs"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\nine-batches-2026-11-14\\browser-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "",
+        "testDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser",
+        "snapshotDir": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\client\\tests\\browser",
+        "testIgnore": [],
+        "testMatch": [
+          "nineBatches20261114.spec.mjs",
+          "receiptAmounts20261113.spec.mjs",
+          "sharedOperations20261113.spec.mjs",
+          "doctorQueueActions20261113.spec.mjs",
+          "queueWalkinChargesQr20261112.spec.mjs",
+          "reportsWalkinInventory20261113.spec.mjs"
+        ],
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:4178",
+          "headless": true,
+          "launchOptions": {
+            "executablePath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+          },
+          "screenshot": "only-on-failure",
+          "timezoneId": "Asia/Manila"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": ""
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "D:\\Programming IDE_Codes\\ALLPROGRAMMING_FILES_CODES\\CAPSTONE\\QA_REPORT\\nine-batches-2026-11-14\\browser-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "doctorQueueActions20261113.spec.mjs",
+      "file": "doctorQueueActions20261113.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Call Next displays the active queue warning and unanswered calls can advance safely",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1075,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:06.135Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "de64e35297b6173e9905-7085905637b8c2b59dbc",
+          "file": "doctorQueueActions20261113.spec.mjs",
+          "line": 18,
+          "column": 1
+        },
+        {
+          "title": "Call Next network/API failures are visible to the doctor",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 630,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:07.755Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "de64e35297b6173e9905-af366a3e959b95b143c3",
+          "file": "doctorQueueActions20261113.spec.mjs",
+          "line": 34,
+          "column": 1
+        },
+        {
+          "title": "an active consultation has no skip action and explains why Call Next is blocked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 673,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:08.398Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "de64e35297b6173e9905-31dfd8ee098c4f4f3d88",
+          "file": "doctorQueueActions20261113.spec.mjs",
+          "line": 40,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "nineBatches20261114.spec.mjs",
+      "file": "nineBatches20261114.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "admin: saved calculation, two payments and transaction-specific receipts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1048,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:09.118Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-19617bf247ad4173f622",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 19,
+          "column": 50
+        },
+        {
+          "title": "superadmin: saved calculation, two payments and transaction-specific receipts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3156,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:10.183Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-ae876019bc9e1d5311fc",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 19,
+          "column": 50
+        },
+        {
+          "title": "staff: saved calculation, two payments and transaction-specific receipts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 981,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:13.357Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-1f5f3373f4b517f5cf0c",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 19,
+          "column": 50
+        },
+        {
+          "title": "admin: partial cash payment uses saved amount and disabled QR stays unavailable",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 884,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:14.353Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-083df8388755eea4e638",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 49,
+          "column": 50
+        },
+        {
+          "title": "superadmin: partial cash payment uses saved amount and disabled QR stays unavailable",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 746,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:15.252Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-8680bb4638fd6bc161f0",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 49,
+          "column": 50
+        },
+        {
+          "title": "staff: partial cash payment uses saved amount and disabled QR stays unavailable",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 733,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:16.014Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-8bd117b628298de38101",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 49,
+          "column": 50
+        },
+        {
+          "title": "admin: service fee preview includes listed item and preserves patient price",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5265,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:16.761Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-6aef2a9567c48c42afa6",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 66,
+          "column": 50
+        },
+        {
+          "title": "superadmin: service fee preview includes listed item and preserves patient price",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5235,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:22.042Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-11d252f4b6b7a77d9aa8",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 66,
+          "column": 50
+        },
+        {
+          "title": "staff: service fee preview includes listed item and preserves patient price",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 719,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:27.291Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-872183a680645afe45bc",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 66,
+          "column": 50
+        },
+        {
+          "title": "admin: tax settings are explicit and branch scoped",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 685,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:28.024Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-d11ec792a4fb443cb2bc",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 96,
+          "column": 50
+        },
+        {
+          "title": "superadmin: tax settings are explicit and branch scoped",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 614,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:28.723Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-2290f80f99fb244dc9d9",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 96,
+          "column": 50
+        },
+        {
+          "title": "staff: tax settings are explicit and branch scoped",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 481,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:29.351Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-c77ad21ceec704003cf3",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 96,
+          "column": 50
+        },
+        {
+          "title": "doctor: draft recommendation has only date and note, and never creates a booking",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2547,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:29.846Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-408c618298523a011532",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 117,
+          "column": 37
+        },
+        {
+          "title": "doctor: completed recommendation has only date and note, and never creates a booking",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 682,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:32.408Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-1e55e38d8d51e9b34722",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 117,
+          "column": 37
+        },
+        {
+          "title": "patient: recommendations filter old/booked dates on dashboard, history retains them, booking stays patient initiated",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 892,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:33.103Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-27b474aa78fdad39718a",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 137,
+          "column": 1
+        },
+        {
+          "title": "clinical upload: single validated upload attaches authorization without scanner polling",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2483,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:34.010Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-e8bb96d282fe6a157467",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 167,
+          "column": 34
+        },
+        {
+          "title": "clinical upload: provider failure is visible without scanner polling",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 623,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:36.506Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-3c9685339e36266e8c68",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 167,
+          "column": 34
+        },
+        {
+          "title": "doctor consultation history retains the completed recommendation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 550,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:37.143Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-26b5291608b6340da55d",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 190,
+          "column": 1
+        },
+        {
+          "title": "admin: internal allocation reporting follows role restrictions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 827,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:37.706Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-1c1c755782221b47bea5",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 198,
+          "column": 50
+        },
+        {
+          "title": "superadmin: internal allocation reporting follows role restrictions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 743,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:38.547Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-405f95b363d3b28cbcd6",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 198,
+          "column": 50
+        },
+        {
+          "title": "staff: internal allocation reporting follows role restrictions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 476,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:39.305Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-946b065c3ae51bf8c604",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 198,
+          "column": 50
+        },
+        {
+          "title": "patient books from a recommendation only after choosing service, doctor, slot and consent",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 849,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:39.796Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "69c7aec35f31bccf49be-d47462511858f5e7f126",
+          "file": "nineBatches20261114.spec.mjs",
+          "line": 217,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "queueWalkinChargesQr20261112.spec.mjs",
+      "file": "queueWalkinChargesQr20261112.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "admin: walk-in selects an online-style service and submits it with visit notes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1797,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:40.669Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-95e0545ecd9304b625cc",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 5,
+          "column": 50
+        },
+        {
+          "title": "staff: walk-in selects an online-style service and submits it with visit notes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1846,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:42.479Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-e55611b7e58ccd26ecb3",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 5,
+          "column": 50
+        },
+        {
+          "title": "superadmin: walk-in selects an online-style service and submits it with visit notes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1786,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:44.336Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-954ebd10dc6065062365",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 5,
+          "column": 50
+        },
+        {
+          "title": "admin: Charge Summary lists the complete service, item and additional breakdown",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1105,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:46.134Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-0066c533b19ba4fc4578",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 36,
+          "column": 50
+        },
+        {
+          "title": "staff: Charge Summary lists the complete service, item and additional breakdown",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1128,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:47.252Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-b43a1e761e592e017f84",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 36,
+          "column": 50
+        },
+        {
+          "title": "superadmin: Charge Summary lists the complete service, item and additional breakdown",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1274,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:48.394Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-e4b56bd366a069325d92",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 36,
+          "column": 50
+        },
+        {
+          "title": "admin: disabled QR Ph cannot generate a test QR",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 716,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:49.680Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-0e6bdb13852eb79a4b95",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 61,
+          "column": 84
+        },
+        {
+          "title": "admin: disabled QR Ph cannot generate a live QR",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 748,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:50.408Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-ff5aa872aec1d4170f83",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 61,
+          "column": 84
+        },
+        {
+          "title": "staff: disabled QR Ph cannot generate a test QR",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 933,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:51.168Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-5acc1f0b21fbdb7128a2",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 61,
+          "column": 84
+        },
+        {
+          "title": "staff: disabled QR Ph cannot generate a live QR",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 864,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:52.113Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-cc9f241e7916b7a648ec",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 61,
+          "column": 84
+        },
+        {
+          "title": "superadmin: disabled QR Ph cannot generate a test QR",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 806,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:52.987Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-f4ef619e25e4e3413148",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 61,
+          "column": 84
+        },
+        {
+          "title": "superadmin: disabled QR Ph cannot generate a live QR",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 765,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:53.806Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-6c9b07c0d26dfd270395",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 61,
+          "column": 84
+        },
+        {
+          "title": "an existing QR still locks cash and offers status/cancellation when the branch disables new QR payments",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1034,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:54.581Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-37fa53085f09948a984e",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 73,
+          "column": 1
+        },
+        {
+          "title": "enabled branch can generate a QR when server availability also allows it",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 806,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:55.627Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-1bb3f88eda9e7292d312",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 88,
+          "column": 1
+        },
+        {
+          "title": "queue display uses MED-001 and DER-002 without doctor IDs at 1440px",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 738,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:56.443Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-8fb5e04efa9e9ecfc3a1",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 102,
+          "column": 31
+        },
+        {
+          "title": "queue display uses MED-001 and DER-002 without doctor IDs at 390px",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 668,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:57.193Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "614301823d1b057e1065-2de8020ed1705772082a",
+          "file": "queueWalkinChargesQr20261112.spec.mjs",
+          "line": 102,
+          "column": 31
+        }
+      ]
+    },
+    {
+      "title": "receiptAmounts20261113.spec.mjs",
+      "file": "receiptAmounts20261113.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "admin history and printed cash receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 939,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:57.882Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-1907fcf25a11a7a28e1d",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "admin history and printed qrph receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1076,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:58.831Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-d9deb0cde367f483a653",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "superadmin history and printed cash receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3178,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:25:59.919Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-4fe38728ffb20111cbe5",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "superadmin history and printed qrph receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 914,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:03.110Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-134fd62d292a93e0a67d",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "staff history and printed cash receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 819,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:04.036Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-2e68bdd3e85186088367",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "staff history and printed qrph receipt show saved payment amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 928,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:04.869Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-d3d8697911a2ec6c0195",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 13,
+          "column": 3
+        },
+        {
+          "title": "legacy cash receipt displays unrecorded tender and change without inventing amounts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 757,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:05.809Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-183ed4de04e438983af7",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 49,
+          "column": 1
+        },
+        {
+          "title": "history list hides balances for partial payments while collection retains amount due",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 915,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:06.577Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8ab5511029f8c8fe8ae0-81bdcd9ad118c80291c7",
+          "file": "receiptAmounts20261113.spec.mjs",
+          "line": 57,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "reportsWalkinInventory20261113.spec.mjs",
+      "file": "reportsWalkinInventory20261113.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "all five Super Admin report sections display SQL-derived data and retain filters in PDF requests",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1190,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:07.529Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-5812143d5a0d950b92c5",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 19,
+          "column": 1
+        },
+        {
+          "title": "admin: branch report summaries use real aggregate rows",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 778,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:08.730Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-104a856a811d502ad186",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 50,
+          "column": 50
+        },
+        {
+          "title": "staff: branch report summaries use real aggregate rows",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1091,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:09.520Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-91aa76d22364f8343b85",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 50,
+          "column": 50
+        },
+        {
+          "title": "superadmin: branch report summaries use real aggregate rows",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 794,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:10.622Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-395038069e4209438114",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 50,
+          "column": 50
+        },
+        {
+          "title": "Staff queue uses the shared service selection and returns to the queue after check-in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1294,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:11.428Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-f2eed3a08fa33c434762",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 60,
+          "column": 1
+        },
+        {
+          "title": "existing appointment can be checked in with its original service",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1313,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:12.734Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-cdadff5b2f61fd464bc4",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 79,
+          "column": 36
+        },
+        {
+          "title": "existing appointment can be kept separate from a new service",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1311,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:14.061Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-1d0145e6da631f49e61f",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 79,
+          "column": 36
+        },
+        {
+          "title": "Staff intake print contains only current intake fields and a guardian consent signature",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 954,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:15.382Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-8a7d5e76a3c0b6d2c913",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 96,
+          "column": 1
+        },
+        {
+          "title": "queue action errors are visible, calls can be retried, and the queue changes day at Philippine midnight",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 928,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:16.351Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-00a9ad4058a9cf5eb1a8",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 108,
+          "column": 1
+        },
+        {
+          "title": "walk-in toggle survives parent rerenders, late GET responses, and navigation without reverting a saved value",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1799,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:17.289Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-902740e74b55230ba172",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 128,
+          "column": 1
+        },
+        {
+          "title": "admin: Inventory Activity uses whole quantities, before/after totals and stronger stock alerts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1011,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:19.099Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-b5a96972bd035e8ceb50",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 154,
+          "column": 42
+        },
+        {
+          "title": "superadmin: Inventory Activity uses whole quantities, before/after totals and stronger stock alerts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 824,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:20.122Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-9e8e7502ba788d22476f",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 154,
+          "column": 42
+        },
+        {
+          "title": "branch Audit Logs show inventory item totals before and after",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 769,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:20.958Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-c8f6b55bc58073da2db1",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 169,
+          "column": 34
+        },
+        {
+          "title": "global Audit Logs show inventory item totals before and after",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 826,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:21.738Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-69e3ad02d5d9babb20d8",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 169,
+          "column": 34
+        },
+        {
+          "title": "admin: dashboard gives stock alerts a prominent restocking action",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 785,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:22.578Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-818ddb48b7b7527a45f0",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 177,
+          "column": 37
+        },
+        {
+          "title": "staff: dashboard gives stock alerts a prominent restocking action",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 941,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:23.375Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-c9e06df305fe12226fba",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 177,
+          "column": 37
+        },
+        {
+          "title": "Super Admin dashboard and All Inventory share prominent alerts and the alerts filter",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 894,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:24.329Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4cb21ce3b2faa79052eb-d2536e01a259b50ae6f5",
+          "file": "reportsWalkinInventory20261113.spec.mjs",
+          "line": 185,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "sharedOperations20261113.spec.mjs",
+      "file": "sharedOperations20261113.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "admin: Add Item accepts blank optional fields and stocked items without expiry",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1052,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:25.249Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-345eb7d2c0d41fa9ead8",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 16,
+          "column": 50
+        },
+        {
+          "title": "staff: Add Item accepts blank optional fields and stocked items without expiry",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1096,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:26.315Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-00872b36c42c035256a9",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 16,
+          "column": 50
+        },
+        {
+          "title": "superadmin: Add Item accepts blank optional fields and stocked items without expiry",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 966,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:27.422Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-1146dbdf4d980df2e0ab",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 16,
+          "column": 50
+        },
+        {
+          "title": "admin: same schedule editor saves through its own branch API",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1211,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:28.400Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-b662c47b33cc4f2232b8",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 47,
+          "column": 50
+        },
+        {
+          "title": "staff: same schedule editor saves through its own branch API",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1121,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:29.623Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-d73ea2b2a22ade25a4bf",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 47,
+          "column": 50
+        },
+        {
+          "title": "superadmin: same schedule editor saves through its own branch API",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1254,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:30.756Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-c55b12b410539f09cbd5",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 47,
+          "column": 50
+        },
+        {
+          "title": "Staff queue-only grant opens queue and walk-in creation without granting scheduled appointments",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1218,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:32.023Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-2eceb268dd4612857eaf",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 67,
+          "column": 1
+        },
+        {
+          "title": "Appointments grant does not implicitly grant Staff queue access",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 701,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:33.253Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-1cc79d620dc25fab9cce",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 77,
+          "column": 1
+        },
+        {
+          "title": "Staff shared inventory updates on focus without replacing a draft item",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 909,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:33.966Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-d02884843f0543b39b36",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 83,
+          "column": 1
+        },
+        {
+          "title": "Staff creation permission picker separates Appointments from Walk-in Queue",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 891,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:34.885Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-9e683576c356b96f04db",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 93,
+          "column": 1
+        },
+        {
+          "title": "Admin creation permission picker offers an independent Walk-in Queue grant",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 918,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T04:26:35.788Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "946ec27f99cde90677d7-fe2ea3acc40b7fead677",
+          "file": "sharedOperations20261113.spec.mjs",
+          "line": 105,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-14T04:25:05.338Z",
+    "duration": 91629.519,
+    "expected": 77,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

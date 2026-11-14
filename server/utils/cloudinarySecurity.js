@@ -1,10 +1,8 @@
 const crypto = require('crypto')
 const jwt = require('jsonwebtoken')
-
-const SCAN_MODERATION = 'perception_point'
-const SCAN_STATUSES = new Set(['pending', 'approved', 'rejected'])
 const SECURITY_TOKEN_PURPOSE = 'cloudinary_upload_security'
 const SECURITY_TOKEN_ISSUER = 'carait-clinic'
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 const requireCloudinaryConfig = () => {
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME
@@ -30,192 +28,18 @@ const makeCloudinarySignature = (params, apiSecret) => {
   return crypto.createHash('sha1').update(`${canonical}${apiSecret}`).digest('hex')
 }
 
-const normalizeScanMode = (scanMode) => (String(scanMode || '').toLowerCase() === 'bypass' ? 'bypass' : 'scan')
 
-const withScanModeration = (params, scanMode) => {
-  if (normalizeScanMode(scanMode) === 'scan') return { ...params, moderation: SCAN_MODERATION }
-  return params
+const createImageUploadSignature = ({folder,publicId=null}) => {
+ const {cloudName,apiKey,apiSecret}=requireCloudinaryConfig(),timestamp=Math.floor(Date.now()/1000)
+ const params={folder,timestamp,...(publicId?{public_id:publicId}:{})}
+ return {cloud_name:cloudName,api_key:apiKey,...params,signature:makeCloudinarySignature(params,apiSecret)}
 }
-
-const createClinicalUploadSignature = ({ doctorId, appointmentId, patientId, clinicType, scanMode = 'scan' }) => {
-  const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
-  const timestamp = Math.floor(Date.now() / 1000)
-  const baseFolder = String(process.env.CLOUDINARY_CLINICAL_FOLDER || 'carait-clinic/clinical').replace(/^\/+|\/+$/g, '')
-  const clinicFolder = String(clinicType || 'medical').toLowerCase() === 'derma' ? 'derma' : 'medical'
-  const patientFolder = patientId ? `patient_${Number(patientId)}` : `doctor_${Number(doctorId)}`
-  const folder = `${baseFolder}/${clinicFolder}/${patientFolder}/appointment_${Number(appointmentId)}`
-  const normalizedScanMode = normalizeScanMode(scanMode)
-  const params = withScanModeration({ folder, timestamp }, normalizedScanMode)
-  return {
-    cloud_name: cloudName,
-    api_key: apiKey,
-    timestamp,
-    folder,
-    moderation: params.moderation,
-    scan_mode: normalizedScanMode,
-    signature: makeCloudinarySignature(params, apiSecret),
-  }
+const createClinicalUploadSignature = ({doctorId,appointmentId,patientId,clinicType,branchId}) => createImageUploadSignature({folder:`${process.env.CLOUDINARY_CLINICAL_FOLDER||'carait-clinic/clinical'}/branch_${Number(branchId)}/${clinicType==='derma'?'derma':'medical'}/patient_${Number(patientId)||Number(doctorId)}/appointment_${Number(appointmentId)}`})
+const createPaymentQrUploadSignature = ({actorId,adminId,actorRole='admin',provider,branchId}) => {
+ if(!['gcash','maya'].includes(provider))throw Object.assign(new Error('QR provider must be GCash or Maya.'),{statusCode:400})
+ return createImageUploadSignature({folder:`${process.env.CLOUDINARY_PAYMENT_QR_FOLDER||process.env.CLOUDINARY_PAYMENT_FOLDER||'carait-clinic/payment-qr'}/branch_${Number(branchId)}/${actorRole}_${Number(actorId??adminId)}`,publicId:`${provider}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`})
 }
-
-const createPaymentQrUploadSignature = ({ adminId, actorId, actorRole = 'admin', provider, scanMode = 'scan', branchId = null }) => {
-  const normalizedProvider = String(provider || '').trim().toLowerCase()
-  if (!['gcash', 'maya'].includes(normalizedProvider)) {
-    throw Object.assign(new Error('Payment QR provider must be GCash or Maya.'), { statusCode: 400 })
-  }
-
-  const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
-  const timestamp = Math.floor(Date.now() / 1000)
-  const baseFolder = String(process.env.CLOUDINARY_PAYMENT_FOLDER || 'carait-clinic/payment-qr').replace(/^\/+|\/+$/g, '')
-  const uploaderId = Number(actorId ?? adminId)
-  const uploaderRole = String(actorRole || 'admin').toLowerCase() === 'staff' ? 'staff' : 'admin'
-  if (!Number.isFinite(uploaderId) || uploaderId <= 0) {
-    throw Object.assign(new Error('A valid payment QR uploader is required.'), { statusCode: 400 })
-  }
-  const folder = `${baseFolder}/${Number(branchId)>0?`branch_${Number(branchId)}/`:''}${uploaderRole}-${uploaderId}`
-  const publicId = `${normalizedProvider}-qr-${timestamp}`
-  const normalizedScanMode = normalizeScanMode(scanMode)
-  const params = withScanModeration({ folder, public_id: publicId, timestamp }, normalizedScanMode)
-
-  return {
-    cloud_name: cloudName,
-    api_key: apiKey,
-    timestamp,
-    folder,
-    public_id: publicId,
-    moderation: params.moderation,
-    scan_mode: normalizedScanMode,
-    signature: makeCloudinarySignature(params, apiSecret),
-  }
-}
-
-const createDiscountProofUploadSignature = ({ actorId, actorRole = 'admin', billingId, scanMode = 'scan' }) => {
-  const id = Number(billingId)
-  const uploaderId = Number(actorId)
-  if (!Number.isFinite(id) || id <= 0) throw Object.assign(new Error('A valid billing record is required for discount proof upload.'), { statusCode: 400 })
-  if (!Number.isFinite(uploaderId) || uploaderId <= 0) throw Object.assign(new Error('A valid uploader is required.'), { statusCode: 400 })
-
-  const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
-  const timestamp = Math.floor(Date.now() / 1000)
-  const baseFolder = String(process.env.CLOUDINARY_DISCOUNT_PROOF_FOLDER || 'carait-clinic/discount-proofs').replace(/^\/+|\/+$/g, '')
-  const uploaderRole = String(actorRole || 'admin').toLowerCase() === 'staff' ? 'staff' : 'admin'
-  const folder = `${baseFolder}/bill_${id}/${uploaderRole}-${uploaderId}`
-  const publicId = `discount-proof-${timestamp}-${crypto.randomBytes(4).toString('hex')}`
-  const normalizedScanMode = normalizeScanMode(scanMode)
-  const params = withScanModeration({ folder, public_id: publicId, timestamp }, normalizedScanMode)
-
-  return {
-    cloud_name: cloudName,
-    api_key: apiKey,
-    timestamp,
-    folder,
-    public_id: publicId,
-    moderation: params.moderation,
-    scan_mode: normalizedScanMode,
-    signature: makeCloudinarySignature(params, apiSecret),
-  }
-}
-
-const findPerceptionPointModeration = (resource = {}) => {
-  const moderationList = Array.isArray(resource.moderation)
-    ? resource.moderation
-    : Array.isArray(resource.moderations)
-      ? resource.moderations
-      : resource.moderation && typeof resource.moderation === 'object'
-        ? [resource.moderation]
-        : []
-  return moderationList.find((item) => String(item?.kind || '').toLowerCase() === SCAN_MODERATION) || null
-}
-
-const scannerUsageLimitReached = (message = '') => (
-  /quota|usage (?:allowance|limit)|limit of .*operations reached|operations reached|add[ -]?on .*limit|usage limit/i.test(String(message))
-)
-
-const isScannerUnavailableCloudinaryError = ({ status, message } = {}) => {
-  const text = String(message || '').toLowerCase()
-  if ([420, 429].includes(Number(status)) || Number(status) >= 500) return true
-  return /perception[ _-]?point|malware|moderation|add[ -]?on|quota|usage|limit|not (?:enabled|registered|available)|subscription/.test(text)
-}
-
-const getScannerUnavailableReason = ({ status, message } = {}) => {
-  if (scannerUsageLimitReached(message)) return 'usage_limit_reached'
-  return isScannerUnavailableCloudinaryError({ status, message }) ? 'scanner_unavailable' : null
-}
-
-const cloudinaryAdminRequest = async (assetId) => {
-  if (!assetId) throw Object.assign(new Error('Cloudinary asset ID is required.'), { statusCode: 400 })
-  const { cloudName, apiKey, apiSecret } = requireCloudinaryConfig()
-  const auth = Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')
-  const url = `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/resources/${encodeURIComponent(String(assetId))}?moderations=true`
-
-  let response
-  try {
-    response = await fetch(url, {
-      method: 'GET',
-      headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
-    })
-  } catch (error) {
-    throw Object.assign(new Error('Cloudinary security scan status is temporarily unavailable.'), {
-      statusCode: 503,
-      scannerUnavailable: true,
-      scannerReason: 'scanner_unavailable',
-      cause: error,
-    })
-  }
-
-  let data = {}
-  try { data = await response.json() } catch { data = {} }
-
-  if (!response.ok) {
-    const providerMessage = String(data?.error?.message || data?.message || '').trim()
-    const scannerReason = getScannerUnavailableReason({ status: response.status, message: providerMessage })
-    const unavailable = Boolean(scannerReason)
-    throw Object.assign(new Error(providerMessage || (unavailable
-      ? 'Cloudinary security scan status is temporarily unavailable.'
-      : 'Could not read the uploaded asset security status.')), {
-      statusCode: unavailable ? 503 : response.status,
-      scannerUnavailable: unavailable,
-      scannerReason: scannerReason || undefined,
-      providerStatus: response.status,
-    })
-  }
-
-  return data
-}
-
-const getPerceptionPointScanStatus = async (assetId) => {
-  const resource = await cloudinaryAdminRequest(assetId)
-  const moderation = findPerceptionPointModeration(resource)
-  if (!moderation) {
-    return {
-      status: 'unavailable',
-      reason: 'moderation_missing',
-      message: 'Perception Point did not return a malware scan status for this image.',
-      asset_id: resource.asset_id || assetId,
-      public_id: resource.public_id || null,
-      secure_url: resource.secure_url || null,
-    }
-  }
-
-  const status = String(moderation.status || '').toLowerCase()
-  if (!SCAN_STATUSES.has(status)) {
-    return {
-      status: 'unavailable',
-      reason: 'unknown_status',
-      message: 'The malware scanner returned an unknown status.',
-      asset_id: resource.asset_id || assetId,
-      public_id: resource.public_id || null,
-      secure_url: resource.secure_url || null,
-    }
-  }
-
-  return {
-    status,
-    moderation_kind: SCAN_MODERATION,
-    asset_id: resource.asset_id || assetId,
-    public_id: resource.public_id || null,
-    secure_url: resource.secure_url || null,
-  }
-}
+const createDiscountProofUploadSignature = ({actorId,actorRole='admin',billingId,branchId}) => createImageUploadSignature({folder:`${process.env.CLOUDINARY_DISCOUNT_PROOF_FOLDER||'carait-clinic/discount-proofs'}/branch_${Number(branchId)}/bill_${Number(billingId)}/${actorRole}_${Number(actorId)}`})
 
 const hasValidImageSignature = (buffer, mimeType) => {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false
@@ -232,68 +56,23 @@ const detectImageMime = (buffer) => {
   return null
 }
 
-const cloudinaryUploadBuffer = async ({ buffer, mimeType, fileName, signed }) => {
-  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
-    throw Object.assign(new Error('Select an image to upload.'), { statusCode: 400 })
-  }
-  const declaredMime = String(mimeType || '').toLowerCase().split(';')[0].trim()
-  const detectedMime = detectImageMime(buffer)
-  if (!detectedMime) {
-    throw Object.assign(new Error('The selected file is not a valid PNG or JPG image.'), { statusCode: 400 })
-  }
-  // Trust the file signature over the browser-provided MIME type. Some browsers/devices
-  // report a valid PNG/JPEG/WebP with a generic or mismatched content-type.
-  const safeMime = detectedMime
-  if (declaredMime && !['image/png','image/jpeg','application/octet-stream'].includes(declaredMime)) {
-    throw Object.assign(new Error('Image must be PNG or JPG.'), { statusCode: 400 })
-  }
 
-  let formData
-  try {
-    formData = new FormData()
-    formData.append('file', new Blob([buffer], { type: safeMime }), String(fileName || 'upload-image').replace(/[\r\n"]/g, '_'))
-  } catch (error) {
-    throw Object.assign(new Error('The image could not be prepared for upload on this server.'), { statusCode: 500, code: 'CLINICAL_IMAGE_UPLOAD_PREPARE_FAILED', cause: error })
-  }
-  formData.append('api_key', signed.api_key)
-  formData.append('timestamp', String(signed.timestamp))
-  if (signed.folder) formData.append('folder', signed.folder)
-  if (signed.public_id) formData.append('public_id', signed.public_id)
-  if (signed.moderation) formData.append('moderation', signed.moderation)
-  formData.append('signature', signed.signature)
-
-  let response
-  try {
-    response = await fetch(`https://api.cloudinary.com/v1_1/${signed.cloud_name}/image/upload`, {
-      method: 'POST',
-      body: formData,
-    })
-  } catch (error) {
-    throw Object.assign(new Error('The image upload could not reach Cloudinary. Check the connection and try again.'), {
-      statusCode: 503,
-      providerUnavailable: true,
-      cause: error,
-    })
-  }
-
-  let data = {}
-  try { data = await response.json() } catch { data = {} }
-  if (!response.ok) {
-    const providerMessage = String(data?.error?.message || data?.message || 'Image upload failed.').trim()
-    const scannerReason = signed.scan_mode === 'scan'
-      ? getScannerUnavailableReason({ status: response.status, message: providerMessage })
-      : null
-    throw Object.assign(new Error(providerMessage), {
-      statusCode: scannerReason ? 503 : (response.status || 502),
-      scannerUnavailable: Boolean(scannerReason),
-      scannerReason: scannerReason || undefined,
-      providerStatus: response.status,
-    })
-  }
-  if (!data.secure_url || !data.asset_id) {
-    throw Object.assign(new Error('Cloudinary did not return a complete uploaded asset.'), { statusCode: 502 })
-  }
-  return data
+const cloudinaryUploadBuffer = async ({buffer,mimeType,fileName,signed,maxBytes=MAX_IMAGE_BYTES}) => {
+ if(!Buffer.isBuffer(buffer)||!buffer.length)throw Object.assign(new Error('Select a PNG or JPG image.'),{statusCode:400})
+ if(buffer.length>maxBytes)throw Object.assign(new Error(`Image must be ${maxBytes/1024/1024} MB or smaller.`),{statusCode:413})
+ const detected=detectImageMime(buffer),declared=String(mimeType||'').toLowerCase().split(';')[0].trim()
+ if(!detected||declared&&!['image/png','image/jpeg','application/octet-stream'].includes(declared))throw Object.assign(new Error('The file must be a valid PNG or JPG image.'),{statusCode:400})
+ const formData=new FormData()
+ formData.append('file',new Blob([buffer],{type:detected}),String(fileName||'image').replace(/[\r\n"]/g,'_'))
+ for(const key of ['api_key','timestamp','folder','public_id','signature'])if(signed[key]!=null)formData.append(key,String(signed[key]))
+ let response
+ try{response=await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(signed.cloud_name)}/image/upload`,{method:'POST',body:formData,signal:AbortSignal.timeout(30000)})}
+ catch(error){throw Object.assign(new Error('The image upload could not reach Cloudinary. Try again.'),{statusCode:503,providerUnavailable:true,cause:error})}
+ let data={};try{data=await response.json()}catch{}
+ if(!response.ok)throw Object.assign(new Error(data.error?.message||'Cloudinary image upload failed.'),{statusCode:response.status===413?413:502,providerStatus:response.status})
+ let uri;try{uri=new URL(data.secure_url)}catch{}
+ if(!data.asset_id||!uri||uri.protocol!=='https:'||uri.hostname!=='res.cloudinary.com'||!uri.pathname.startsWith(`/${signed.cloud_name}/image/upload/`)||data.bytes>maxBytes||data.resource_type&&data.resource_type!=='image')throw Object.assign(new Error('Cloudinary did not return a valid uploaded image.'),{statusCode:502})
+ return data
 }
 
 const issueUploadSecurityToken = (claims, expiresIn = '45m') => jwt.sign({
@@ -328,58 +107,6 @@ const verifyUploadSecurityToken = (token, expected = {}) => {
   return decoded
 }
 
-const hashUploadBuffer = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex')
 
-const issueScanPendingToken = ({ role, userId, contextType, contextId, assetId, url, publicId, fileHash }) => issueUploadSecurityToken({
-  stage: 'scan_pending',
-  role,
-  user_id: Number(userId),
-  context_type: contextType,
-  context_id: String(contextId),
-  asset_id: String(assetId),
-  url: String(url),
-  public_id: publicId ? String(publicId) : null,
-  file_sha256: fileHash ? String(fileHash) : null,
-}, '20m')
-
-const issueBypassAuthorizationToken = ({ role, userId, contextType, contextId, reason, fileHash }) => issueUploadSecurityToken({
-  stage: 'bypass_authorized',
-  role,
-  user_id: Number(userId),
-  context_type: contextType,
-  context_id: String(contextId),
-  reason: reason === 'usage_limit_reached' ? 'usage_limit_reached' : 'scanner_unavailable',
-  file_sha256: fileHash ? String(fileHash) : null,
-}, '5m')
-
-const issueAcceptedUploadToken = ({ role, userId, contextType, contextId, status, assetId, url, publicId }) => issueUploadSecurityToken({
-  stage: 'accepted',
-  role,
-  user_id: Number(userId),
-  context_type: contextType,
-  context_id: String(contextId),
-  scan_status: status === 'bypassed' ? 'bypassed' : 'approved',
-  asset_id: String(assetId || ''),
-  url: String(url || ''),
-  public_id: publicId ? String(publicId) : null,
-}, '2h')
-
-module.exports = {
-  SCAN_MODERATION,
-  createClinicalUploadSignature,
-  createPaymentQrUploadSignature,
-  createDiscountProofUploadSignature,
-  makeCloudinarySignature,
-  getPerceptionPointScanStatus,
-  findPerceptionPointModeration,
-  isScannerUnavailableCloudinaryError,
-  getScannerUnavailableReason,
-  cloudinaryUploadBuffer,
-  issueScanPendingToken,
-  issueBypassAuthorizationToken,
-  issueAcceptedUploadToken,
-  verifyUploadSecurityToken,
-  hashUploadBuffer,
-  hasValidImageSignature,
-  detectImageMime,
-}
+const issueAcceptedUploadToken = ({role,userId,contextType,contextId,branchId,assetId,url,publicId}) => issueUploadSecurityToken({stage:'accepted',validation:'image_validated',role,user_id:Number(userId),branch_id:Number(branchId),context_type:contextType,context_id:String(contextId),asset_id:String(assetId||''),url:String(url||''),public_id:publicId?String(publicId):null},'2h')
+module.exports={createImageUploadSignature,createClinicalUploadSignature,createPaymentQrUploadSignature,createDiscountProofUploadSignature,makeCloudinarySignature,cloudinaryUploadBuffer,issueAcceptedUploadToken,verifyUploadSecurityToken,hasValidImageSignature,detectImageMime,MAX_IMAGE_BYTES}

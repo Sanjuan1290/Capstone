@@ -25,7 +25,7 @@ const listEligiblePromotions = async (executor, branchId, appointmentDate, servi
    ORDER BY p.id,ps.service_id`,[branchId,date,date,...ids,Number(patientId)||0])
  return rows
 }
-const applyServicePromotions = async (items, appointment, executor, branchId) => {
+const applyServicePromotions = async (items, appointment, executor, branchId, {suppress=false}={}) => {
  const guest = appointment?.appointment_source === 'guest_online'
  if (guest) {
   const requested = items.some(item => Number(detailsFor(item).requested_promotion_id || 0) > 0)
@@ -34,6 +34,7 @@ const applyServicePromotions = async (items, appointment, executor, branchId) =>
   for (const item of items) { if(item.item_type === 'service') { const details=detailsFor(item); details.applied_promotion=null; item.details_json=JSON.stringify(details) } }
   return {total:0, applied:[], offers:[]}
  }
+ if(suppress){for(const item of items){const details=detailsFor(item);details.applied_promotion=null;item.details_json=JSON.stringify(details)}return {total:0,applied:[],offers:[]}}
  const serviceItems=items.filter(item=>item.item_type==='service' && ['consultation','staff_service'].includes(item.source_type))
  const ids=serviceItems.map(item=>Number(item.catalog_service_id))
  const offers=await listEligiblePromotions(executor,branchId,appointment.appointment_date,ids,appointment.patient_id)

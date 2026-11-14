@@ -23,6 +23,7 @@ async function saveWith({ serviceClinic = 'medical', itemClinic = 'derma', archi
   }
   const module = { exports: {} }
   const fakeRequire = (name) => {
+    if(name==='../utils/billingMoney')return require('../../utils/billingMoney')
     if (name === '../db/connect') return { getConnection: async () => conn }
     if (name === '../utils/clinicEvents') return { afterSuccessfulMutation: () => (_, __, next) => next?.() }
     if (name === '../utils/audit') return { writeAuditLog: async () => {} }

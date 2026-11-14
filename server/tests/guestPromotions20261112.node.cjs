@@ -39,7 +39,7 @@ const fixture = () => {
   const promotions = load('controllers/promotions.controller.js', { '../db/connect': db, '../utils/patientPromotionAccess': promotionAccess })
   const pass = (req, res, next) => next(), noop = (req, res) => res.json({})
   const router = load('routers/patient.router.js', {
-    express, '../controllers/patient.controller': patient, '../db/connect': db,
+    express, '../utils/consultationFollowups':{listPatientFollowups:noop}, '../controllers/patient.controller': patient, '../db/connect': db,
     '../middlewares/auth.middleware': authenticate, '../middlewares/role.middleware': require('../middlewares/role.middleware'),
     '../middlewares/rateLimit.middleware': { loginLimiter: pass, otpRequestLimiter: pass, otpVerifyLimiter: pass, createRateLimiter: () => pass },
     '../controllers/common.controller': new Proxy({}, { get: () => noop }),

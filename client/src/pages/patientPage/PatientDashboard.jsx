@@ -1,3 +1,4 @@
+import PatientFollowupRecommendations from '../../components/consultation/PatientFollowupRecommendations'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
@@ -109,6 +110,7 @@ export default function PatientDashboard() {
       </section>
     </div>
 
+    <PatientFollowupRecommendations compact branchId={branchId}/>
     <nav aria-label="Quick actions" className="grid gap-3 md:grid-cols-3">
       <QuickLink to="/patient/appointments" icon={MdEventAvailable} label="My Appointments" sublabel="See scheduled visits"/>
       <QuickLink to="/patient/history" icon={MdHistory} label="Visit History" sublabel="Review past visits"/>

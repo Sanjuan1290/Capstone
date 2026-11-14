@@ -1,0 +1,18 @@
+import {formatMoney} from '../../utils/billingUi'
+
+/** Render the server's saved calculation; never rebuild a final bill in the browser. */
+export default function FinancialBillBreakdown({bill,showItems=true}){
+ const calculation=bill?.financial_calculation
+ if(!calculation)return null
+ const groups=Object.values((calculation.components||[]).reduce((map,row)=>{const key=row.line_index;(map[key]||={name:row.service_name,rows:[]}).rows.push(row);return map},{}))
+ const row=(label,amount,emphasis=false)=><div className={`flex justify-between gap-3 ${emphasis?'border-t border-slate-200 pt-3 font-bold':''}`}><span>{label}</span><strong className="shrink-0 tabular-nums">{formatMoney(amount)}</strong></div>
+ const tax=calculation.tax
+ return <section className="space-y-4 text-sm" aria-label="Saved bill calculation">
+  <div className="text-xs text-slate-500">Bill #{bill.id} · {bill.branch_name||'Clinic branch'} · {bill.doctor_name} · {String(bill.created_at||'').slice(0,10)} · {bill.status}</div>
+  {showItems&&<div className="space-y-3">{groups.map((group,index)=><div key={index} className="rounded-xl border border-slate-200 p-3"><h3 className="font-bold">{group.name}</h3>{group.rows.map(item=><div key={item.key} className="mt-2"><div className="flex justify-between gap-3"><span>{item.name}{item.included?' (Included)':''}</span><strong className="tabular-nums">{formatMoney(item.amount)}</strong></div><p className="text-xs text-slate-500">{item.quantity} × {formatMoney(item.unit_price)}</p></div>)}{group.rows.length>1&&<p className="mt-3 border-t pt-2 text-right font-semibold">Service subtotal: {formatMoney(group.rows.reduce((sum,item)=>sum+Number(item.amount),0))}</p>}</div>)}</div>}
+  {(calculation.doctor_fees||[]).length>0&&<div className="rounded-xl bg-sky-50 p-3"><h3 className="font-bold">Doctor's Fee (Included in Subtotal)</h3>{calculation.doctor_fees.map((fee,index)=><p key={index} className="mt-1">{fee.service_name}: {fee.percentage}% of {formatMoney(fee.original_subtotal)} = <strong>{formatMoney(fee.doctor_fee_amount)}</strong> — Included</p>)}<p className="mt-1 text-xs text-slate-600">This allocation does not add to the patient bill.</p></div>}
+  <div className="space-y-2"><h3 className="font-bold">Discounts</h3>{(calculation.discounts||[]).length?calculation.discounts.map(d=><div key={d.key}><div className="flex justify-between gap-3"><span>{d.name}{d.mode==='percentage'?` (${d.type==='pwd'||d.type==='senior'?20:d.value}%)`:d.configured_mode==='percentage'?` (${d.configured_value}%)`:' (Fixed amount)'}</span><strong className="shrink-0 text-emerald-700">−{formatMoney(d.actual_deduction)}</strong></div><p className="text-xs text-slate-500">Eligible amount: {formatMoney(d.eligible_amount)} · {String(d.type).replaceAll('_',' ')}</p></div>):<p className="text-slate-500">No discounts applied.</p>}{row('Total Discounts',calculation.discount_amount)}</div>
+  {tax&&<div className="space-y-2 rounded-xl bg-slate-50 p-3"><h3 className="font-bold">{tax.enabled?`${tax.name} (${tax.rate}%, ${tax.mode})`:'Tax not applied'}</h3>{row('Taxable amount',tax.taxable_amount)}{row('VAT-exempt amount',tax.vat_exempt_amount)}{Number(tax.vat_relief)>0&&row('VAT removed for eligible statutory discount',tax.vat_relief)}{row(tax.mode==='inclusive'?'Tax included in prices':'Applicable tax',tax.amount)}</div>}
+  <div className="space-y-2">{row('Base Subtotal',calculation.subtotal)}{row('Total Discounts',calculation.discount_amount)}{Number(tax?.vat_relief)>0&&row('VAT exemption deduction',tax.vat_relief)}{Number(tax?.added_amount)>0&&row('Tax added',tax.added_amount)}{row('Total Patient Bill',calculation.total_amount,true)}</div>
+ </section>
+}

@@ -213,6 +213,7 @@ const reopenBill = async (req, res) => {
        WHERE id = ?`,
       [req.user.id, reason, billingId]
     )
+    await conn.query('UPDATE billing_financial_snapshots SET confirmed_at=NULL WHERE billing_id=? AND branch_id=?',[billingId,req.branchId])
     await writeAuditLog({
       userId: req.user.id, userRole: 'admin', action: 'billing.bill_reopened', entityType: 'billing_record', entityId: billingId,
       oldValues: { status: locked.status, version: locked.version },
