@@ -82,9 +82,9 @@ test('many items remain printable across pages and use header-repeat table rules
   assert.match(s,/break-inside:avoid/)
   assert.ok(s.includes('Service 49'))
 })
-test('receipt printing uses one shared renderer across all billing portals',()=>{
+test('staff and admin billing portals use one shared receipt renderer',()=>{
   const root=new URL('../src/',import.meta.url)
-  for(const rel of ['pages/patientPage/History.jsx','pages/adminPage/Admin_CheckoutDetail.jsx','pages/staffPage/Staff_CheckoutDetail.jsx','components/billing/BillHistoryDetail.jsx','pages/adminPage/Admin_BillingReceiptSettings.jsx']) {
+  for(const rel of ['pages/adminPage/Admin_CheckoutDetail.jsx','pages/staffPage/Staff_CheckoutDetail.jsx','components/billing/BillHistoryDetail.jsx','pages/adminPage/Admin_BillingReceiptSettings.jsx']) {
     const source=fs.readFileSync(new URL(rel,root),'utf8')
     assert.match(source,/printBillingReceipt/)
   }

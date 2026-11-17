@@ -153,7 +153,7 @@ for(const finalized of [false,true])test(`doctor: ${finalized?'completed':'draft
  expect(state.calls.filter(c=>c.method==='POST'&&(/appointments$|\/queue$|\/pay$/.test(c.path)))).toHaveLength(0)
 })
 
-test('patient can book the other date when one date in a recommendation is already booked',async({page})=>{
+test('patient dashboard allows booking an unbooked date in a recommendation',async({page})=>{
  await page.clock.setFixedTime(new Date('2026-11-17T02:00:00Z'))
  await page.addInitScript(()=>sessionStorage.setItem('carait:selected-branch:8','1'))
  await mockClinic(page,'patient')
@@ -166,15 +166,15 @@ test('patient can book the other date when one date in a recommendation is alrea
   ]})
   return route.fallback()
  })
- await page.goto('/patient/history')
+ await page.goto('/patient')
  const recommendations=page.getByRole('region',{name:'Recommended Follow-Up',exact:true})
- await expect(recommendations).toContainText('First review')
+ await expect(recommendations).not.toContainText('First review')
  await expect(recommendations).toContainText('Second review')
- await expect(recommendations.getByRole('link',{name:'View Your Appointment',exact:true})).toHaveCount(1)
+ await expect(recommendations.getByRole('link',{name:'View Your Appointment',exact:true})).toHaveCount(0)
  await expect(recommendations.getByRole('link',{name:'Book Appointment',exact:true})).toHaveAttribute('href',/follow_up_date=2026-12-01/)
 })
 
-test('patient: recommendations filter old/booked dates on dashboard, history retains them, booking stays patient initiated',async({page})=>{
+test('patient: upcoming recommendations stay on the dashboard and booking stays patient initiated',async({page})=>{
  const {state}=await mockClinic(page,'patient');const rows=[{id:1,appointment_id:9,branch_id:2,status:'active',return_date:'2026-11-20',doctor_note:'Return for review.',doctor_name:'Dr Test',branch_name:'Second Branch',original_date:'2026-11-14'},{id:2,appointment_id:10,branch_id:1,status:'active',return_date:'2020-01-01',doctor_note:'Old recommendation',doctor_name:'Dr Old'},{id:3,branch_id:1,status:'active',return_date:'2026-11-21',doctor_note:'Already booked',booked_appointment_id:12}]
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname
@@ -192,11 +192,10 @@ test('patient: recommendations filter old/booked dates on dashboard, history ret
  await expect(upcoming).toContainText('Return for review.')
  await expect(upcoming).not.toContainText(/Old recommendation|Already booked/)
  await page.getByRole('link',{name:'History',exact:true}).click()
+ await expect(page.getByRole('region',{name:'Recommended Follow-Up',exact:true})).toHaveCount(0)
+ await page.getByRole('link',{name:'Dashboard',exact:true}).click()
  const cards=page.getByRole('region',{name:'Recommended Follow-Up',exact:true})
- await expect(cards).toContainText('Old recommendation');await expect(cards).toContainText('not a confirmed appointment')
- await cards.getByRole('link',{name:'Book Appointment',exact:true}).first().click()
- await expect(page).toHaveURL(/follow_up_id=2/)
- await page.getByRole('link',{name:'History',exact:true}).click()
+ await expect(cards).not.toContainText('Old recommendation');await expect(cards).toContainText('not a confirmed appointment')
  await cards.getByRole('link',{name:'Book Appointment',exact:true}).last().click()
  await expect(page).toHaveURL(/follow_up_id=1/)
  await expect(page.getByRole('combobox').first()).toHaveValue('2')

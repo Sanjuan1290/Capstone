@@ -6,8 +6,9 @@ const root = path.resolve(import.meta.dirname, '..')
 const page = fs.readFileSync(path.join(root, 'src/pages/patientPage/History.jsx'), 'utf8')
 const service = fs.readFileSync(path.join(root, 'src/services/patient.service.js'), 'utf8')
 
-test('history keeps separate visit/billing tabs and linked patient bill details', () => {
-  for (const text of ['Visit & Billing History', 'Visit History', 'Billing History', 'View Bill', 'View Bill & Payments', 'Payment History', 'printBillingReceipt', 'getMyBillingDetails']) assert.ok(page.includes(text), `missing ${text}`)
+test('history keeps visit and bill details without follow-up cards, receipt printing or the linked appointment action', () => {
+  for (const text of ['Visit & Billing History', 'Visit History', 'Billing History', 'View Bill', 'View Bill & Payments', 'Payment History', 'getMyBillingDetails']) assert.ok(page.includes(text), `missing ${text}`)
+  assert.doesNotMatch(page, /PatientFollowupRecommendations|printBillingReceipt|View linked appointment|View \/ Print Receipt/)
 })
 test('summary retains paid bill counts without displaying outstanding balances', () => {
   assert.match(page, /summary\.paid_bills/)
