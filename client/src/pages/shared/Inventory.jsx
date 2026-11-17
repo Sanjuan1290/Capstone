@@ -869,8 +869,10 @@ const Inventory = ({ services, canManageSellingPrice = false }) => {
       }
       setStockLocations(Array.isArray(rooms) ? rooms : [])
       if (masters) setMasterData({ suppliers: masters?.suppliers || [], location_types: masters?.location_types || [], movement_reasons: masters?.movement_reasons || [] })
+      return true
     } catch (err) {
       setFeedback({ type: 'error', message: err.message || 'Unable to load inventory. Please retry.' })
+      return false
     } finally {
       setLoading(false)
       setInitialLoadComplete(true)

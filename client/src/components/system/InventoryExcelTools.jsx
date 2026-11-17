@@ -1,5 +1,5 @@
 import useClinicRefresh from '../../hooks/useClinicRefresh'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { MdClose, MdDownload, MdFileDownload, MdFileUpload, MdEditNote, MdHistory } from 'react-icons/md'
 import {
@@ -7,6 +7,8 @@ import {
   makeInventoryXlsx, makeInventoryNewItemsTemplate, readInventoryImportFile, asInventoryRow, asInventoryBulkEditRow,
 } from '../../utils/inventoryExcel.mjs'
 import { preflightInventorySingleSheetCreate, preflightInventoryBulkEdit, MAX_INVENTORY_IMPORT_BATCH } from '../../utils/inventoryExcelValidation.mjs'
+import Modal from '../ui/Modal'
+import { useToast } from '../ui/ToastProvider'
 
 const saveBlob = (blob, name) => {
   const url = URL.createObjectURL(blob)
@@ -33,6 +35,11 @@ const diagnosticsCSV = (rows) => {
 // import path for the two redesigned flows: the server commits each file atomically.
 export default function InventoryExcelTools({ items, stockRooms, masterData, services, onUpdated, onWorkflowChange }) {
   const fileRef = useRef(null)
+  const toast = useToast()
+  const undoReasonId = useId()
+  const undoSubmitting = useRef(false)
+  const uploadsRequest = useRef(0)
+  const confirmedUndos = useRef(new Map())
   const location = useLocation()
   const pricingPath = `${location.pathname.replace(/\/inventory(?:\/.*)?$/, '')}/system-setup/billing/services`
   const [reviewSearch, setReviewSearch] = useState('')
@@ -51,33 +58,106 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
   const [historyPagination, setHistoryPagination] = useState({ page:1, totalPages:1, total:0 })
   const [uploadError, setUploadError] = useState('')
   const [undoing, setUndoing] = useState(null)
+  const [undoTarget, setUndoTarget] = useState(null)
+  const [undoReason, setUndoReason] = useState('')
+  const [undoError, setUndoError] = useState('')
+  const [undoNotice, setUndoNotice] = useState(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const loadUploads = async (page = historyPage) => {
     if (!services.getInventoryExcelUploads) return
+    const requestId = ++uploadsRequest.current
+    setHistoryLoading(true)
     try {
       const result = await services.getInventoryExcelUploads(page)
-      setUploads(Array.isArray(result?.items) ? result.items : [])
+      if (requestId !== uploadsRequest.current) return true
+      setUploads((Array.isArray(result?.items) ? result.items : []).map(upload => {
+        const confirmed = confirmedUndos.current.get(String(upload.id))
+        return confirmed && !upload.undone_at ? { ...upload, ...confirmed } : upload
+      }))
       setHistoryPagination(result?.pagination || {page:1,totalPages:1,total:0})
       if (result?.pagination?.page !== undefined) setHistoryPage(result.pagination.page)
       setUploadError('')
-    } catch(e) {setUploadError(e.message||'Excel import history is unavailable.')}
+      return true
+    } catch(e) {
+      if (requestId === uploadsRequest.current) setUploadError(e.message||'Excel import history is unavailable.')
+      return false
+    } finally {
+      if (requestId === uploadsRequest.current) setHistoryLoading(false)
+    }
   }
-  useClinicRefresh(() => loadUploads(historyPage), [], { fallbackMs: 60000 })
+  useClinicRefresh(() => loadUploads(historyPage), ['inventory.updated'], { fallbackMs: 60000, skip: () => !historyOpen || Boolean(undoTarget) || Boolean(undoing) || busy })
 
   useEffect(()=>{if(historyOpen)void loadUploads(historyPage)},[historyOpen,historyPage]) // eslint-disable-line react-hooks/exhaustive-deps
-  const undoUpload = async (upload) => {
-    if(!services.undoInventoryExcelUpload || undoing) return
-    if (!window.confirm(`Undo Excel upload #${upload.id}? This will only work if all affected items are unchanged and unused.`)) return
-    const reason = window.prompt('Reason for undoing this Excel upload (at least 5 characters):')
-    if (!reason || reason.trim().length < 5) return
-    setUndoing(upload.id);setUploadError('')
+  const undoUpload = (upload) => {
+    if(!services.undoInventoryExcelUpload || undoSubmitting.current || busy || upload.undone_at) return
+    setUndoTarget(upload)
+    setUndoReason('')
+    setUndoError('')
+    onWorkflowChange?.(true)
+  }
+  const closeUndo = () => {
+    if (undoSubmitting.current) return
+    setUndoTarget(null)
+    setUndoError('')
+    onWorkflowChange?.(false)
+  }
+  const refreshAfterUndo = async () => {
+    const outcomes = await Promise.allSettled([Promise.resolve().then(() => onUpdated?.()), Promise.resolve().then(() => loadUploads())])
+    const failed = outcomes.map(result => result.status === 'rejected' || result.value === false)
+    return failed[0] && failed[1] ? 'Undo completed, but inventory and history could not refresh. Refresh the page to see the latest records.'
+      : failed[0] ? 'Undo completed, but the inventory list could not refresh. Refresh the page to see the latest items.'
+        : failed[1] ? 'Undo completed, but history could not refresh. The confirmed Undone status is shown below.' : ''
+  }
+  const confirmUndo = async () => {
+    if (!undoTarget || undoSubmitting.current) return
+    const reason = undoReason.trim()
+    if (reason.length < 5 || reason.length > 255) {
+      setUndoError('Enter a reason between 5 and 255 characters.')
+      return
+    }
+    const upload = undoTarget
+    const markUndone = (savedReason = reason) => {
+      const confirmed = { undone_at: new Date().toISOString(), ...(savedReason ? { undo_reason: savedReason } : {}) }
+      confirmedUndos.current.set(String(upload.id), confirmed)
+      setUploads(current => current.map(row => Number(row.id) === Number(upload.id) ? { ...row, ...confirmed } : row))
+    }
+    undoSubmitting.current = true
+    setBusy(true)
+    setUndoing(upload.id);setUndoError('');setUploadError('');setUndoNotice(null);setResults(null)
     try {
-      const result = await services.undoInventoryExcelUpload(upload.id,reason.trim())
-      setResults({created:0,updated:0,unchanged:0,alreadyApplied:0,message:result?.message||'Excel upload undone.'})
-      await onUpdated()
-      await loadUploads()
-    } catch(e) {setUploadError(e.message||'Undo blocked because records changed after the upload.')}
-    finally {setUndoing(null)}
+      const result = await services.undoInventoryExcelUpload(upload.id,reason)
+      if (result?.undone !== true) throw new Error('The server did not confirm this undo. Reload the import history before trying again.')
+      markUndone()
+      const message = result.message || `Excel upload #${upload.id} was undone.`
+      setUndoTarget(null)
+      setUndoNotice({ type: 'success', message })
+      const warning = await refreshAfterUndo()
+      setUndoNotice({ type: 'success', message, warning })
+      if (warning) toast.warning(warning)
+      else toast.success(message)
+      onWorkflowChange?.(false)
+    } catch(e) {
+      if (e.code === 'ALREADY_UNDONE') {
+        markUndone(null)
+        setUndoTarget(null)
+        const message = `Excel upload #${upload.id} was already undone. No additional changes were made.`
+        setUndoNotice({ type: 'info', message })
+        const warning = await refreshAfterUndo()
+        setUndoNotice({ type: 'info', message, warning })
+        toast.info(warning || message)
+        onWorkflowChange?.(false)
+      } else {
+        const message = e.message || 'Undo could not be completed. Reload the import history to check its status before trying again.'
+        setUndoError(message)
+        setUndoNotice({ type: 'error', message })
+        toast.error(message)
+      }
+    } finally {
+      undoSubmitting.current = false
+      setBusy(false)
+      setUndoing(null)
+    }
   }
 
 
@@ -221,14 +301,43 @@ export default function InventoryExcelTools({ items, stockRooms, masterData, ser
     </div>}
     {showTools && services.getInventoryExcelUploads && <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3"><div><h3 className="flex items-center gap-2 font-bold text-slate-900"><MdHistory/> Excel Import History</h3><p className="text-xs text-slate-500">Undo new-item uploads or item edits only when the affected records have not been used or changed.</p></div><button type="button" className="button-secondary" onClick={()=>setHistoryOpen(v=>!v)}>{historyOpen?'Hide History':'Show History'}</button></div>
+      {undoNotice && <div role={undoNotice.type === 'error' ? 'alert' : 'status'} className={`mt-3 rounded-xl border p-3 text-sm ${undoNotice.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+        <p className="font-semibold">{undoNotice.message}</p>
+        {undoNotice.type !== 'error' && <p className="mt-1 text-xs">The upload remains in this history for your records and is marked Undone.</p>}
+        {undoNotice.warning && <p className="mt-2 font-semibold text-amber-800">{undoNotice.warning}</p>}
+      </div>}
       {historyOpen && <div className="mt-3 space-y-2">
-        <></>
+        {historyLoading && <p role="status" className="text-sm text-slate-500">Loading upload history…</p>}
         {uploadError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{uploadError}</p>}
-        {uploads.length===0 && <p className="text-sm text-slate-500">No recent Excel uploads recorded.</p>}
-        {uploads.map(upload=><div key={upload.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div><p className="text-sm font-bold">Upload #{upload.id} · {upload.upload_type==='new_items'?'New Items':'Item Edits'}</p><p className="text-xs text-slate-500">{upload.created_at?new Date(upload.created_at).toLocaleString('en-PH'):'Date unavailable'} · {upload.undone_at?'Undone':'Saved'}</p></div><button type="button" className="button-secondary" disabled={Boolean(upload.undone_at)||Boolean(undoing)||busy} onClick={()=>undoUpload(upload)}>{undoing===upload.id?'Checking…':upload.undone_at?'Already Undone':'Undo Upload'}</button></div>)}
+        {!historyLoading && !uploadError && uploads.length===0 && <p className="text-sm text-slate-500">No recent Excel uploads recorded.</p>}
+        {uploads.map(upload => <article key={upload.id} aria-label={`Excel upload #${upload.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-bold">Upload #{upload.id} · {upload.upload_type === 'new_items' ? 'New Items' : 'Item Edits'}</p><span className={`rounded-full px-2 py-1 text-xs font-semibold ${upload.undone_at ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{upload.undone_at ? 'Undone' : 'Saved'}</span></div>
+            <p className="mt-1 text-xs text-slate-500">{upload.created_at ? new Date(upload.created_at).toLocaleString('en-PH') : 'Date unavailable'}</p>
+            {upload.undone_at && <p className="mt-1 text-xs text-emerald-800">{upload.upload_type === 'new_items' ? 'Imported items were removed from inventory.' : 'Item values were restored to before this upload.'}</p>}
+            {upload.undone_at && upload.undo_reason && <p className="mt-1 break-words text-xs text-slate-600">Undo reason: {upload.undo_reason}</p>}
+          </div>
+          <button type="button" className="button-secondary" disabled={Boolean(upload.undone_at)||Boolean(undoing)||busy} onClick={()=>undoUpload(upload)}>{undoing===upload.id?'Undoing…':upload.undone_at?'Already Undone':'Undo Upload'}</button>
+        </article>)}
         <div className="flex items-center justify-between gap-2 border-t pt-3 text-sm"><span className="text-slate-500">{historyPagination.total} uploads · Page {historyPagination.page} of {historyPagination.totalPages}</span><div className="flex gap-2"><button type="button" className="button-secondary" disabled={historyPage<=1||busy||Boolean(undoing)} onClick={()=>setHistoryPage(p=>p-1)}>Previous</button><button type="button" className="button-secondary" disabled={historyPage>=historyPagination.totalPages||busy||Boolean(undoing)} onClick={()=>setHistoryPage(p=>p+1)}>Next</button></div></div>
       </div>}
     </div>}
+    <Modal open={Boolean(undoTarget)} onClose={closeUndo} title={`Undo Excel Upload #${undoTarget?.id}`} description={undoTarget?.upload_type === 'new_items' ? 'Remove items created by this upload only if they are unchanged and unused.' : 'Restore item values from before this upload only if they have not changed since.'} size="md" closeDisabled={Boolean(undoing)} closeOnEscape>
+      <form noValidate onSubmit={event => { event.preventDefault(); void confirmUndo() }} className="space-y-4">
+        <p className="text-sm text-slate-600">The upload will remain in your import history and be marked Undone after a successful undo. If any affected item cannot be undone, no changes will be made.</p>
+        <div>
+          <label htmlFor={undoReasonId} className="block text-sm font-semibold text-slate-700">Reason for undo</label>
+          <textarea id={undoReasonId} autoFocus required maxLength={255} rows={3} disabled={Boolean(undoing)} aria-invalid={Boolean(undoError) && undoReason.trim().length < 5} className="form-control mt-2 w-full resize-y" value={undoReason} onChange={event => { setUndoReason(event.target.value); setUndoError('') }} placeholder="Explain why this upload should be undone"/>
+        </div>
+        <p className="text-xs text-slate-500">Enter 5–255 characters. Your reason will be saved with the undo.</p>
+        {undoError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{undoError}</p>}
+        {undoing && <p role="status" className="text-sm text-slate-600">Checking affected items and undoing the upload. Please wait…</p>}
+        <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4">
+          <button type="button" className="button-secondary" disabled={Boolean(undoing)} onClick={closeUndo}>Cancel</button>
+          <button type="submit" className="button-danger" disabled={Boolean(undoing)}>{undoing ? 'Undoing…' : 'Undo Upload'}</button>
+        </div>
+      </form>
+    </Modal>
     <input ref={fileRef} type="file" accept=".xlsx" className="sr-only" aria-label="Choose CARAIT Inventory Excel file" onChange={e=>{const file=e.target.files?.[0];e.target.value='';void handleFile(file)}} onCancel={()=>onWorkflowChange?.(false)}/>
     {results && <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900" role="status"><strong>{results.message}</strong><p className="mt-1">Added: {results.created} · Updated: {results.updated} · Already applied: {results.alreadyApplied||0} · Other unchanged: {results.unchanged}</p></div>}
     {error && !preview && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900"><div className="flex items-start justify-between gap-2"><strong>Excel upload needs attention</strong><button type="button" onClick={()=>setError('')} aria-label="Dismiss Excel error"><MdClose/></button></div><p className="mt-2">{error}</p><p className="mt-1 text-xs">The current upload remains unsaved. If the file is outdated, download a fresh copy and retry.</p></div>}

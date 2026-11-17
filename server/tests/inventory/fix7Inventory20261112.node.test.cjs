@@ -87,6 +87,9 @@ test('Fix 7: new-item Excel import Undo removes only unchanged unused items',asy
  })
  const response=res();await undo(req(),response)
  assert.equal(response.data.undone,true)
+ assert.equal(response.data.removed_items,1)
+ assert.equal(response.data.restored_items,0)
+ assert.match(response.data.message,/removed from inventory/)
  assert.equal(calls.includes('commit'),true)
  assert.equal(calls.includes('rollback'),false)
  assert.equal(calls.filter(x=>String(x).startsWith('DELETE FROM inventory')).length,1)
@@ -116,6 +119,9 @@ test('Fix 7: item-edit Excel Undo restores old price and threshold safely',async
  })
  const response=res();await undo(req(),response)
  assert.equal(response.data.undone,true)
+ assert.equal(response.data.removed_items,0)
+ assert.equal(response.data.restored_items,1)
+ assert.match(response.data.message,/restored to their values/)
  assert.equal(calls.filter(x=>String(x).includes('UPDATE inventory SET selling_price')).length,1)
  assert.equal(calls.includes('commit'),true)
 })
@@ -130,4 +136,66 @@ test('Fix 7: item-edit Undo refuses later price changes',async()=>{
  assert.equal(response.statusCode,409)
  assert.equal(calls.includes('rollback'),true)
  assert.equal(calls.some(x=>String(x).startsWith('UPDATE inventory SET selling_price')),false)
+})
+
+test('Excel Undo explains a new foreign-key reference and rolls back the transaction',async()=>{
+ const upload={id:3,upload_type:'new_items',changes_json:[{id:22,name:'Test Med',barcode:'M1-00001',opening_quantity:0,batch_ids:[],selling_price:50,threshold:5}]}
+ const {undo,calls}=makeUndo(upload,sql=>{
+  if(sql.startsWith('SELECT * FROM inventory_excel_uploads'))return [[upload]]
+  if(sql.startsWith('SELECT * FROM inventory WHERE'))return [[{id:22,name:'Test Med',barcode:'M1-00001',stock:0,selling_price:50,threshold:5}]]
+  if(sql.startsWith('SELECT id,quantity FROM inventory_batches')||sql.startsWith('SELECT id,batch_id,qty,movement_type'))return [[]]
+  if(sql.includes('AS total'))return [[{total:0}]]
+  if(sql.startsWith('DELETE FROM inventory'))throw Object.assign(new Error('Cannot delete referenced parent'),{code:'ER_ROW_IS_REFERENCED_2'})
+  return [{affectedRows:1}]
+ })
+ const response=res();await undo(req(),response)
+ assert.equal(response.statusCode,409)
+ assert.equal(response.data.code,'ITEM_REFERENCED')
+ assert.match(response.data.message,/Undo was stopped; no changes were made/)
+ assert.equal(calls.includes('rollback'),true)
+ assert.equal(calls.includes('commit'),false)
+})
+
+test('Excel Undo checks every imported item before deleting any when a later item changed',async()=>{
+ const item={id:22,name:'Test Med',barcode:'M1-00001',opening_quantity:0,batch_ids:[],selling_price:50,threshold:5}
+ const upload={id:3,upload_type:'new_items',changes_json:[item,{...item,id:23}]}
+ const {undo,calls}=makeUndo(upload,(sql,args)=>{
+  if(sql.startsWith('SELECT * FROM inventory_excel_uploads'))return [[upload]]
+  if(sql.startsWith('SELECT * FROM inventory WHERE'))return [[{...item,id:args[0],stock:args[0]===23?1:0}]]
+  if(sql.startsWith('SELECT id,quantity FROM inventory_batches')||sql.startsWith('SELECT id,batch_id,qty,movement_type'))return [[]]
+  if(sql.includes('AS total'))return [[{total:0}]]
+  return [{affectedRows:1}]
+ })
+ const response=res();await undo(req(),response)
+ assert.equal(response.statusCode,409)
+ assert.equal(response.data.code,'ITEM_CHANGED')
+ assert.equal(calls.some(sql=>String(sql).startsWith('DELETE FROM inventory')),false)
+ assert.equal(calls.includes('rollback'),true)
+})
+
+test('Excel Undo permits untouched opening stock with its original batch and receipt movement',async()=>{
+ const item={id:22,name:'Test Med',barcode:'M1-00001',opening_quantity:10,batch_ids:[{id:9,quantity:10}],selling_price:50,threshold:5}
+ const upload={id:3,upload_type:'new_items',changes_json:[item]}
+ const {undo,calls}=makeUndo(upload,sql=>{
+  if(sql.startsWith('SELECT * FROM inventory_excel_uploads'))return [[upload]]
+  if(sql.startsWith('SELECT * FROM inventory WHERE'))return [[{...item,stock:10}]]
+  if(sql.startsWith('SELECT id,quantity FROM inventory_batches'))return [[{id:9,quantity:10}]]
+  if(sql.startsWith('SELECT id,batch_id,qty,movement_type'))return [[{id:55,batch_id:9,qty:10,movement_type:'received'}]]
+  if(sql.includes('AS total'))return [[{total:0}]]
+  return [{affectedRows:1}]
+ })
+ const response=res();await undo(req(),response)
+ assert.equal(response.data.undone,true)
+ assert.equal(response.data.removed_items,1)
+ assert.equal(calls.includes('commit'),true)
+})
+
+test('Excel Undo rejects missing confirmation or a short reason before database work',async()=>{
+ for(const body of [{reason:'tiny',confirmation:'UNDO'},{reason:'Valid reason',confirmation:'CANCEL'}]){
+  const {undo,calls}=makeUndo(null,()=>{throw Error('Must not access the database')})
+  const response=res();await undo({...req(),body},response)
+  assert.equal(response.statusCode,400)
+  assert.equal(response.data.code,'CONFIRM_REQUIRED')
+  assert.equal(calls.length,0)
+ }
 })

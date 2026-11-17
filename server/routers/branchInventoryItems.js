@@ -363,7 +363,7 @@ async function listExcelUploads(req,res){
   const total = Number(count?.total || 0)
   const totalPages = Math.max(1,Math.ceil(total/limit))
   const safePage = Math.min(page,totalPages)
-  const [rows]=await db.query(`SELECT id,upload_type,created_at,created_by_admin_id,created_by_staff_id,undone_at,undone_by_admin_id,undone_by_staff_id
+  const [rows]=await db.query(`SELECT id,upload_type,created_at,created_by_admin_id,created_by_staff_id,undone_at,undone_by_admin_id,undone_by_staff_id,undo_reason
     FROM inventory_excel_uploads WHERE branch_id=? ORDER BY id DESC LIMIT ? OFFSET ?`,[req.branchId,limit,(safePage-1)*limit])
   return res.json({items:rows,pagination:{page:safePage,limit,total,totalPages}})
 }
@@ -435,8 +435,17 @@ async function undoExcelUpload(req,res){
     await conn.query('UPDATE inventory_excel_uploads SET undone_at=NOW(),undone_by_admin_id=?,undone_by_staff_id=?,undo_reason=? WHERE id=? AND branch_id=?',
       [adminId(req),isStaff(req)?req.user.id:null,reason,upload.id,req.branchId])
     await conn.commit();conn.release();conn=null
-    return res.json({undone:true,message:`Excel upload #${upload.id} was undone. All affected items were checked.`})
-  }catch(error){if(conn){await conn.rollback().catch(()=>{});conn.release()}return errorResponse(error,res)}
+    const removed = upload.upload_type === 'new_items' ? changes.length : 0
+    const restored = upload.upload_type === 'item_edits' ? changes.length : 0
+    return res.json({undone:true,upload_id:upload.id,removed_items:removed,restored_items:restored,
+      message:`Excel upload #${upload.id} was undone. ${removed ? `${removed} imported item(s) removed from inventory.` : `${restored} item(s) restored to their values before this upload.`}`})
+  }catch(error){
+    if(conn){await conn.rollback().catch(()=>{});conn.release()}
+    if (['ER_ROW_IS_REFERENCED', 'ER_ROW_IS_REFERENCED_2'].includes(error.code)) {
+      return errorResponse(fail(409,'ITEM_REFERENCED','One or more imported items are linked to other records. Undo was stopped; no changes were made.'),res)
+    }
+    return errorResponse(error,res)
+  }
 }
 
 function registerBranchInventoryItems(router,{requireSuper,branchContext,requirePermission}){
